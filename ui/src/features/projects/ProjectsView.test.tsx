@@ -1472,7 +1472,7 @@ describe("ProjectsView index", () => {
     expect(projectList.style.width).toBe("220px");
     expect(within(projectList).getByText("1 record")).toBeTruthy();
     expect(within(projectList).queryByText("1 records")).toBeNull();
-    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open project Hecate" })).toBeTruthy();
     expect(within(projectList).queryByText("/Users/alice/dev/hecate")).toBeNull();
     expect(screen.getByText("/Users/alice/dev/hecate · qwen2.5-coder")).toBeTruthy();
     expect(within(projectList).queryByText("ollama / qwen2.5-coder")).toBeNull();
@@ -1534,7 +1534,7 @@ describe("ProjectsView index", () => {
     expect(screen.getByText("Set up Hecate")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set up project" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open project Hecate" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Collapse projects panel" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Expand projects panel" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Collapsed projects panel" })).toBeNull();
@@ -2197,7 +2197,7 @@ describe("ProjectsView cockpit", () => {
     };
     render(withRuntimeConsole(<WorkProjects />, { state, actions }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Open project Hecate" }));
+    await userEvent.click(screen.getByRole("link", { name: "Open project Hecate" }));
 
     await waitFor(() => {
       expect(getProjectWorkItems).toHaveBeenCalledWith(project.id);
@@ -2216,7 +2216,7 @@ describe("ProjectsView cockpit", () => {
     };
     render(withRuntimeConsole(<WorkProjects />, { state, actions }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Open project Hecate" }));
+    await userEvent.click(screen.getByRole("link", { name: "Open project Hecate" }));
 
     await waitFor(() => {
       expect(getProjectWorkItems).toHaveBeenCalledWith(project.id);
@@ -3522,7 +3522,7 @@ describe("ProjectsView cockpit", () => {
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByRole("button", { name: "Save memory" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Open project Apollo" }));
+    await user.click(screen.getByRole("link", { name: "Open project Apollo" }));
 
     await waitFor(() => {
       expect(getProjectMemory).toHaveBeenCalledWith(secondProject.id, true);
@@ -3617,12 +3617,12 @@ describe("ProjectsView cockpit", () => {
       expect(getProjectMemory).toHaveBeenCalledWith(project.id, true);
       expect(getProjectSkills).toHaveBeenCalledWith(project.id);
     });
-    await userEvent.click(screen.getByRole("button", { name: "Open project Apollo" }));
+    await userEvent.click(screen.getByRole("link", { name: "Open project Apollo" }));
     await waitFor(() => {
       expect(getProjectMemory).toHaveBeenCalledWith(secondProject.id, true);
       expect(getProjectSkills).toHaveBeenCalledWith(secondProject.id);
     });
-    await userEvent.click(screen.getByRole("button", { name: "Open project Hecate" }));
+    await userEvent.click(screen.getByRole("link", { name: "Open project Hecate" }));
     await waitFor(() => {
       expect(firstProjectMemoryCalls).toBe(2);
       expect(firstProjectSkillCalls).toBe(2);
@@ -3694,7 +3694,7 @@ describe("ProjectsView cockpit", () => {
       });
     });
 
-    await user.click(screen.getByRole("button", { name: "Open project Apollo" }));
+    await user.click(screen.getByRole("link", { name: "Open project Apollo" }));
     await openProjectWorkspaceTab(/Skills/);
     expect(await screen.findByDisplayValue(secondProjectSkill.title)).toBeTruthy();
 
@@ -3783,7 +3783,7 @@ describe("ProjectsView cockpit", () => {
 
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: "Open project Apollo" }));
+    await userEvent.click(screen.getByRole("link", { name: "Open project Apollo" }));
 
     expect(await screen.findByText("Show Apollo project work.")).toBeTruthy();
     expect(getProjectWorkItem).toHaveBeenCalledWith(secondProject.id, secondWorkItem.id);
@@ -3838,7 +3838,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Open project Apollo" }));
+    await userEvent.click(screen.getByRole("link", { name: "Open project Apollo" }));
     expect(await screen.findByRole("region", { name: "Project overview" })).toBeTruthy();
 
     await act(async () => {
@@ -3994,13 +3994,13 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    const firstRow = await screen.findByRole("button", {
+    const firstRow = await screen.findByRole("link", {
       name: "Open work item Build cockpit UI",
     });
-    const secondRow = await screen.findByRole("button", {
+    const secondRow = await screen.findByRole("link", {
       name: "Open work item Write project docs",
     });
-    const emptyRow = await screen.findByRole("button", {
+    const emptyRow = await screen.findByRole("link", {
       name: "Open work item Plan empty lane",
     });
     expect(within(firstRow).queryByText("1 assignment")).toBeTruthy();
@@ -4046,7 +4046,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    const secondRow = await screen.findByRole("button", {
+    const secondRow = await screen.findByRole("link", {
       name: "Open work item Write project docs",
     });
     await userEvent.click(secondRow);
@@ -4056,10 +4056,10 @@ describe("ProjectsView cockpit", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", {
+        screen.getByRole("link", {
           name: "Open work item Write project docs",
         }),
-      ).toHaveAttribute("aria-current", "true");
+      ).toHaveAttribute("aria-current", "page");
     });
     expect(await screen.findByText("Document the project workflow.")).toBeTruthy();
   });
@@ -4107,7 +4107,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    const secondRow = await screen.findByRole("button", {
+    const secondRow = await screen.findByRole("link", {
       name: "Open work item Write project docs",
     });
     await user.click(screen.getByRole("button", { name: "Refresh project work" }));
@@ -4120,7 +4120,7 @@ describe("ProjectsView cockpit", () => {
       await refreshRequest;
     });
 
-    expect(secondRow).toHaveAttribute("aria-current", "true");
+    expect(secondRow).toHaveAttribute("aria-current", "page");
     expect(await screen.findByText("Document the project workflow.")).toBeTruthy();
   });
 
@@ -4173,13 +4173,13 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByRole("button", {
+    await screen.findByRole("link", {
       name: "Open work item Build cockpit UI",
     });
     await user.click(screen.getByRole("button", { name: "Refresh project work" }));
 
     expect(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Refreshed cockpit UI",
       }),
     ).toBeTruthy();
@@ -4331,7 +4331,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const queue = screen.getByLabelText("Work queue");
     expect(
-      within(queue).getByRole("button", {
+      within(queue).getByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     ).toBeTruthy();
@@ -4389,7 +4389,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      within(queue).getByRole("button", {
+      within(queue).getByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -4463,7 +4463,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -4587,7 +4587,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -4688,7 +4688,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -4751,7 +4751,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -4845,7 +4845,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -4956,7 +4956,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -5008,7 +5008,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -5137,7 +5137,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -5825,7 +5825,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const activity = screen.getByLabelText("Work queue");
     expect(
-      within(activity).getByRole("button", {
+      within(activity).getByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     ).toBeTruthy();
@@ -6034,7 +6034,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const activity = screen.getByLabelText("Work queue");
     expect(
-      within(activity).getByRole("button", {
+      within(activity).getByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     ).toBeTruthy();
@@ -6337,7 +6337,7 @@ describe("ProjectsView cockpit", () => {
 
     await waitFor(() => {
       expect(
-        within(screen.getByLabelText("Work queue")).getByRole("button", {
+        within(screen.getByLabelText("Work queue")).getByRole("link", {
           name: "Open work item Build cockpit UI",
         }),
       ).toBeTruthy();
@@ -6794,7 +6794,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const activity = screen.getByLabelText("Work queue");
     expect(
-      within(activity).getByRole("button", {
+      within(activity).getByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     ).toBeTruthy();
@@ -7168,21 +7168,21 @@ describe("ProjectsView cockpit", () => {
       );
     });
 
-    const apolloProject = screen.getByRole("button", {
+    const apolloProject = screen.getByRole("link", {
       name: "Open project Apollo",
     });
     await user.click(apolloProject);
     await waitFor(() => {
-      expect(apolloProject).toHaveAttribute("aria-current", "true");
+      expect(apolloProject).toHaveAttribute("aria-current", "page");
       expect(getProjectWorkItems).toHaveBeenCalledWith(secondProject.id);
     });
 
-    const hecateProject = screen.getByRole("button", {
+    const hecateProject = screen.getByRole("link", {
       name: "Open project Hecate",
     });
     await user.click(hecateProject);
     await waitFor(() => {
-      expect(hecateProject).toHaveAttribute("aria-current", "true");
+      expect(hecateProject).toHaveAttribute("aria-current", "page");
       expect(
         vi.mocked(getProjectWorkItems).mock.calls.filter(([projectID]) => projectID === project.id),
       ).toHaveLength(2);
@@ -7193,7 +7193,7 @@ describe("ProjectsView cockpit", () => {
       await createRequest;
     });
 
-    expect(hecateProject).toHaveAttribute("aria-current", "true");
+    expect(hecateProject).toHaveAttribute("aria-current", "page");
     await user.click(screen.getByRole("tab", { name: /Work/ }));
     expect((await screen.findAllByText(workItem.title)).length).toBeGreaterThan(0);
     expect(screen.queryByText(createdWork.title)).toBeNull();
@@ -7249,7 +7249,7 @@ describe("ProjectsView cockpit", () => {
     ).toBeTruthy();
 
     await user.click(
-      screen.getByRole("button", {
+      screen.getByRole("link", {
         name: "Open work item Verify cockpit accessibility",
       }),
     );
@@ -8856,7 +8856,7 @@ describe("ProjectsView cockpit", () => {
       });
     });
     await user.click(
-      screen.getByRole("button", {
+      screen.getByRole("link", {
         name: "Open work item Review cockpit behavior",
       }),
     );
@@ -9093,14 +9093,14 @@ describe("ProjectsView cockpit", () => {
     expect(updateProjectHandoffStatus).not.toHaveBeenCalled();
 
     await user.click(
-      screen.getByRole("button", {
+      screen.getByRole("link", {
         name: "Open work item Document cockpit behavior",
       }),
     );
     await screen.findByRole("article", {
       name: "Document cockpit behavior work item",
     });
-    await user.click(screen.getByRole("button", { name: "Open work item Build cockpit UI" }));
+    await user.click(screen.getByRole("link", { name: "Open work item Build cockpit UI" }));
     await screen.findByRole("article", { name: "Build cockpit UI work item" });
 
     const pendingButtons = await screen.findAllByRole("button", {
@@ -10065,7 +10065,7 @@ describe("ProjectsView cockpit", () => {
     expect(startProjectAssignment).toHaveBeenCalledTimes(1);
 
     await user.click(
-      screen.getByRole("button", {
+      screen.getByRole("link", {
         name: "Open work item Document cockpit behavior",
       }),
     );
@@ -10074,7 +10074,7 @@ describe("ProjectsView cockpit", () => {
         name: "Document cockpit behavior work item",
       }),
     ).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Open work item Build cockpit UI" }));
+    await user.click(screen.getByRole("link", { name: "Open work item Build cockpit UI" }));
     await screen.findByRole("article", { name: "Build cockpit UI work item" });
 
     const pendingButton = await screen.findByRole("button", {
@@ -10329,7 +10329,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", {
+      await screen.findByRole("link", {
         name: "Open work item Build cockpit UI",
       }),
     );
@@ -10342,6 +10342,73 @@ describe("ProjectsView cockpit", () => {
 });
 
 describe("ProjectsView navigation destinations", () => {
+  it("clears the previous project work when the next routed project fails to load", async () => {
+    resetProjectWorkMocks();
+    const secondProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [{ ...project.roots[0], id: "root_2", path: "/Users/alice/dev/apollo" }],
+    };
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      project_id: secondProject.id,
+      title: "Verify Apollo navigation",
+      brief: "This item must not reveal work from another project while loading.",
+      assignments: [],
+    };
+    let rejectSecondWork = (_reason?: unknown) => {};
+    const secondWorkRequest = new Promise<{
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }>((_resolve, reject) => {
+      rejectSecondWork = reject;
+    });
+    vi.mocked(getProjectWorkItems).mockImplementation(async (projectID) => {
+      if (projectID === secondProject.id) return secondWorkRequest;
+      return {
+        object: "project_work_items",
+        data: [{ ...workItem, assignments: [] }],
+      };
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project, secondProject],
+      activeProjectID: project.id,
+    });
+    const actions = createRuntimeConsoleActions();
+    const route = (projectID: string, workItemID: string) =>
+      withRuntimeConsole(<ProjectsView navigation={{ projectID, view: "work", workItemID }} />, {
+        state,
+        actions,
+      });
+    const view = render(route(project.id, workItem.id));
+
+    expect(
+      await screen.findByRole("article", {
+        name: "Build cockpit UI work item",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open work item Build cockpit UI" })).toBeTruthy();
+
+    view.rerender(route(secondProject.id, secondWorkItem.id));
+    await waitFor(() => {
+      expect(getProjectWorkItems).toHaveBeenCalledWith(secondProject.id);
+    });
+    expect(screen.queryByRole("link", { name: "Open work item Build cockpit UI" })).toBeNull();
+    expect(screen.queryByRole("article", { name: "Build cockpit UI work item" })).toBeNull();
+
+    await act(async () => {
+      rejectSecondWork(new Error("Apollo work unavailable."));
+      await secondWorkRequest.catch(() => undefined);
+    });
+
+    expect(await screen.findByText("Apollo work unavailable.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Open work item Build cockpit UI" })).toBeNull();
+    expect(screen.queryByRole("article", { name: "Build cockpit UI work item" })).toBeNull();
+    expect(getProjectWorkItem).not.toHaveBeenCalledWith(secondProject.id, secondWorkItem.id);
+  });
+
   it("opens an explicit second-project route without loading the stored first project", async () => {
     resetProjectWorkMocks();
     const secondProject: ProjectRecord = {
@@ -10376,10 +10443,9 @@ describe("ProjectsView navigation destinations", () => {
       expect(getProjectWorkItems).toHaveBeenCalledWith(secondProject.id);
       expect(selectProject).toHaveBeenCalledWith(secondProject.id);
     });
-    expect(screen.getByRole("button", { name: "Open project Apollo" })).toHaveAttribute(
-      "aria-current",
-      "true",
-    );
+    const apolloProjectLink = screen.getByRole("link", { name: "Open project Apollo" });
+    expect(apolloProjectLink).toHaveAttribute("aria-current", "page");
+    expect(apolloProjectLink).toHaveAttribute("href", "/projects?project=proj_2");
     expectNoProjectSubresourceCalls(project.id);
   });
 
@@ -10457,6 +10523,8 @@ describe("ProjectsView navigation destinations", () => {
         "Project not found. It may have been deleted or this link may belong to another Hecate runtime.",
       ),
     ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
+    expect(screen.getByRole("button", { name: "Add" })).not.toHaveClass("btn-primary");
     expect(selectProject).not.toHaveBeenCalled();
     expectNoProjectSubresourceCalls("proj_missing");
     expectNoProjectSubresourceCalls(project.id);
@@ -10488,7 +10556,7 @@ describe("ProjectsView navigation destinations", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open work item Build cockpit UI" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open work item Build cockpit UI" })).toBeTruthy();
     expect(getProjectWorkItem).not.toHaveBeenCalled();
     expect(getProjectAssignments).not.toHaveBeenCalled();
     expect(getProjectWorkItemReadiness).not.toHaveBeenCalled();
@@ -10566,7 +10634,7 @@ describe("ProjectsView navigation destinations", () => {
     await screen.findByRole("article", { name: "Build cockpit UI work item" });
     onNavigate.mockClear();
     await user.click(
-      screen.getByRole("button", { name: "Open work item Document navigation behavior" }),
+      screen.getByRole("link", { name: "Open work item Document navigation behavior" }),
     );
 
     expect(onNavigate).toHaveBeenCalledTimes(1);
@@ -10575,6 +10643,60 @@ describe("ProjectsView navigation destinations", () => {
       view: "work",
       workItemID: secondWorkItem.id,
     });
+  });
+
+  it("restores route-driven tab focus without emitting operator navigation", async () => {
+    resetProjectWorkMocks();
+    const onNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const actions = createRuntimeConsoleActions();
+    const route = (view: "memory" | "work") =>
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{
+            projectID: project.id,
+            view,
+            workItemID: view === "work" ? workItem.id : null,
+          }}
+          onNavigate={onNavigate}
+        />,
+        { state, actions },
+      );
+    const rendered = render(route("memory"));
+
+    await screen.findByRole("region", { name: "Project memory" });
+    const memoryTab = screen.getByRole("tab", { name: /Memory/ });
+    memoryTab.focus();
+    expect(memoryTab).toHaveFocus();
+    onNavigate.mockClear();
+
+    rendered.rerender(route("work"));
+
+    const workTab = screen.getByRole("tab", { name: /Work/ });
+    await waitFor(() => {
+      expect(workTab).toHaveAttribute("aria-selected", "true");
+      expect(workTab).toHaveFocus();
+    });
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    const settingsButton = screen.getByRole("button", {
+      name: "Project settings",
+    });
+    settingsButton.focus();
+    rendered.rerender(route("memory"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /Memory/ })).toHaveAttribute("aria-selected", "true");
+      expect(settingsButton).toHaveFocus();
+    });
+    const restoredViewAnnouncement = await screen.findByText("Memory view opened.");
+    const restoredViewStatus = restoredViewAnnouncement.closest('[role="status"]');
+    expect(restoredViewStatus).not.toBeNull();
+    expect(restoredViewStatus).toHaveAttribute("aria-live", "polite");
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it("replaces a child route with Overview while the project is onboarding", async () => {

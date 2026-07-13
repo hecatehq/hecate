@@ -9,7 +9,12 @@ import { useChatTarget } from "./state/derived";
 import { useChatActions } from "./state/coordinators/chat";
 import { useWiredSettingsActions } from "./state/coordinators/wired";
 import { deriveSessionState } from "./runtimeConsoleDashboard";
-import type { ProjectNavigationDestination, ProjectNavigationState } from "./navigation";
+import {
+  isPlainNavigationClick,
+  workspaceNavigationURL,
+  type ProjectNavigationDestination,
+  type ProjectNavigationState,
+} from "./navigation";
 import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
 import { usePersistedState } from "../lib/persistedState";
@@ -412,17 +417,21 @@ function AuthenticatedShell({
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
           {workspaces.map((ws) => (
-            <button
+            <a
               key={ws.id}
               aria-label={ws.label}
               aria-current={activeWorkspace === ws.id ? "page" : undefined}
               className={`hecate-activitybtn${activeWorkspace === ws.id ? " hecate-activitybtn--active" : ""}`}
-              onClick={() => onSelectWorkspace(ws.id)}
+              href={workspaceNavigationURL(window.location, ws.id)}
+              onClick={(event) => {
+                if (!isPlainNavigationClick(event)) return;
+                event.preventDefault();
+                onSelectWorkspace(ws.id);
+              }}
               title={ws.label}
-              type="button"
             >
               {ws.icon}
-            </button>
+            </a>
           ))}
           {/* Pin theme toggle to the bottom of the rail. The flex spacer
               keeps it visually separated from workspace icons regardless

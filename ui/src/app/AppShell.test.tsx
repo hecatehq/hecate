@@ -389,12 +389,33 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
-    expect(screen.getByRole("button", { name: "Projects" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/projects");
     expect(
       await screen.findByText("No projects yet", undefined, { timeout: 30_000 }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
+    fireEvent.click(screen.getByRole("link", { name: "Tasks" }));
     expect(onSelectWorkspace).toHaveBeenCalledWith("runs");
+  });
+
+  it("leaves modified workspace-link clicks to the browser", () => {
+    const state = createRuntimeConsoleFixture();
+    const onSelectWorkspace = vi.fn();
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: createRuntimeConsoleActions(),
+        },
+      ),
+    );
+
+    const tasks = screen.getByRole("link", { name: "Tasks" });
+    expect(tasks).toHaveAttribute("href", "/tasks");
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(tasks, { ctrlKey: true });
+
+    expect(onSelectWorkspace).not.toHaveBeenCalled();
   });
 
   it("keeps Chats available when no providers are configured", async () => {
@@ -412,9 +433,9 @@ describe("ConsoleShell navigation", () => {
     // The Chats workspace is a `lazy()` chunk per AppShell.tsx;
     // assert workspace content asynchronously so the assertion
     // waits for the dynamic import to resolve. Shell chrome
-    // (workspace nav buttons, statusbar) is not lazy and can
+    // (workspace navigation links, statusbar) is not lazy and can
     // still be queried synchronously.
-    expect(screen.getByRole("button", { name: "Chats" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Chats" })).toHaveAttribute("href", "/chats");
     expect(
       await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 30_000 }),
     ).toBeInTheDocument();

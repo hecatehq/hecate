@@ -446,6 +446,9 @@ record, and returning an onboarding project to Overview must not add a phantom
 Back step. `popstate` restores the address as presentation intent. The URL takes
 precedence over the remembered workspace/project preference; that preference is
 only the fallback for an address without a recognized workspace or project.
+Workspace, project, tab, and work-item destinations render as native links.
+Unmodified primary clicks use the in-app history path; modified clicks, middle
+clicks, and browser context-menu actions retain native link behavior.
 
 The client holds an explicit project or work-item destination while the
 authoritative catalog loads. A missing project stays selected in the address,

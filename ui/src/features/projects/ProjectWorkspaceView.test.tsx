@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ProjectActivityData,
@@ -390,7 +390,28 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
   return { handlers, props, ...result };
 }
 
+function dispatchModifiedClickWithoutFollowing(
+  element: HTMLElement,
+  init: MouseEventInit,
+): boolean | undefined {
+  let componentPrevented: boolean | undefined;
+  document.addEventListener(
+    "click",
+    (event) => {
+      componentPrevented = event.defaultPrevented;
+      event.preventDefault();
+    },
+    { once: true },
+  );
+  fireEvent.click(element, init);
+  return componentPrevented;
+}
+
 describe("ProjectWorkspaceView", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
   it("renders onboarding and delegates setup actions", async () => {
     const { handlers } = renderWorkspace({
       project: project({ name: "Console" }),
@@ -463,7 +484,19 @@ describe("ProjectWorkspaceView", () => {
     });
 
     expect(screen.queryByText("Assistant panel")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+      "href",
+      "/projects?project=proj_1",
+    );
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /Work/ })).toHaveAttribute(
+      "href",
+      "/projects?project=proj_1&view=work",
+    );
+    expect(screen.getByRole("tab", { name: /Timeline/ })).toHaveAttribute(
+      "href",
+      "/projects?project=proj_1&view=timeline",
+    );
     expect(screen.getByRole("heading", { level: 1, name: "Project Overview" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Project workspace content" })).toBeTruthy();
 
@@ -476,6 +509,40 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(2, "timeline");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(3, "memory");
     expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(4, "skills");
+  });
+
+  it("leaves modified project-tab clicks to the native link", () => {
+    const { handlers } = renderWorkspace();
+    const timelineTab = screen.getByRole("tab", { name: "Timeline" });
+
+    const componentPrevented = dispatchModifiedClickWithoutFollowing(timelineTab, {
+      button: 0,
+      ctrlKey: true,
+    });
+
+    expect(componentPrevented).toBe(false);
+    expect(handlers.onWorkspaceTabChange).not.toHaveBeenCalled();
+  });
+
+  it("renders work-item destinations as links and intercepts only plain clicks", () => {
+    const item = workItem();
+    const { handlers } = renderWorkspace({
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workspaceTab: "work",
+    });
+    const itemLink = screen.getByRole("link", { name: `Open work item ${item.title}` });
+
+    expect(itemLink).toHaveAttribute("href", `/projects?project=proj_1&view=work&work=${item.id}`);
+    expect(itemLink).toHaveAttribute("aria-current", "page");
+    expect(fireEvent.click(itemLink, { button: 0 })).toBe(false);
+    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith(item.id);
+
+    handlers.onSelectWorkItem.mockClear();
+    expect(dispatchModifiedClickWithoutFollowing(itemLink, { button: 0, metaKey: true })).toBe(
+      false,
+    );
+    expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
   });
 
   it("keeps the project assistant with work coordination", () => {
@@ -517,6 +584,10 @@ describe("ProjectWorkspaceView", () => {
     await userEvent.keyboard("{ArrowRight}");
 
     expect(workTab).toHaveFocus();
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+
+    handlers.onWorkspaceTabChange.mockClear();
+    await userEvent.keyboard(" ");
     expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
   });
 

@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 
+import { isPlainNavigationClick, projectNavigationURL } from "../../app/navigation";
 import type {
   ProjectActivityBucketKey,
   ProjectActivityData,
@@ -401,7 +402,9 @@ export function ProjectWorkspaceView({
                 memoryCandidateCount={memoryCandidates.length}
                 memoryEntryCount={memoryEntries.length}
                 onChange={onWorkspaceTabChange}
+                projectID={project.id}
                 projectSkillCount={projectSkills.length}
+                selectedWorkItemID={selectedWorkItemID}
                 workItemCount={projectWorkItemCount}
               />
             )}
@@ -706,35 +709,42 @@ export function ProjectWorkspaceView({
 function WorkItemRow({
   active,
   item,
+  projectID,
   role,
   summary,
   onSelect,
 }: {
   active: boolean;
   item: ProjectWorkItemRecord;
+  projectID: string;
   role?: ProjectWorkRoleRecord;
   summary?: WorkItemSummary;
   onSelect: () => void;
 }) {
   return (
-    <div
+    <a
       className="project-work-item-row"
-      role="button"
-      tabIndex={0}
-      aria-current={active ? "true" : undefined}
+      aria-current={active ? "page" : undefined}
       aria-label={`Open work item ${item.title}`}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
+      href={projectNavigationURL(window.location, {
+        projectID,
+        view: "work",
+        workItemID: item.id,
+      })}
+      onClick={(event) => {
+        if (!isPlainNavigationClick(event)) return;
         event.preventDefault();
         onSelect();
       }}
       style={{
+        display: "block",
         padding: "11px 12px",
         borderBottom: "1px solid var(--border)",
         borderLeft: active ? "2px solid var(--teal)" : "2px solid transparent",
         background: active ? "var(--bg2)" : "transparent",
+        color: "inherit",
         cursor: "pointer",
+        textDecoration: "none",
       }}
     >
       <div
@@ -761,7 +771,7 @@ function WorkItemRow({
         {summary && summary.failedCount > 0 && <span>{summary.failedCount} failed</span>}
         {summary && summary.completedCount > 0 && <span>{summary.completedCount} done</span>}
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -1122,14 +1132,18 @@ function ProjectWorkspaceTabs({
   memoryCandidateCount,
   memoryEntryCount,
   onChange,
+  projectID,
   projectSkillCount,
+  selectedWorkItemID,
   workItemCount,
 }: {
   activeTab: ProjectWorkspaceTab;
   memoryCandidateCount: number;
   memoryEntryCount: number;
   onChange: (tab: ProjectWorkspaceTab) => void;
+  projectID: string;
   projectSkillCount: number;
+  selectedWorkItemID: string;
   workItemCount: number;
 }) {
   const tabs: Array<{ id: ProjectWorkspaceTab; label: string; count: number }> = [
@@ -1151,36 +1165,52 @@ function ProjectWorkspaceTabs({
       aria-label="Project workspace views"
       style={projectWorkspaceTabsStyle}
     >
-      {tabs.map((tab) => (
-        <button
-          aria-controls={activeTab === tab.id ? `project-workspace-panel-${tab.id}` : undefined}
-          aria-selected={activeTab === tab.id}
-          key={tab.id}
-          className={`project-workspace-tab ${
-            activeTab === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
-          }`}
-          id={`project-workspace-tab-${tab.id}`}
-          onClick={() => onChange(tab.id)}
-          onKeyDown={(event) => onProjectWorkspaceTabKeyDown(event, tab.id, tabs, onChange)}
-          role="tab"
-          style={projectWorkspaceTabButtonStyle}
-          tabIndex={activeTab === tab.id ? 0 : -1}
-          type="button"
-        >
-          {tab.label}
-          {tab.count > 0 && <span className="badge badge-muted">{tab.count}</span>}
-        </button>
-      ))}
+      {tabs.map((tab) => {
+        const href = projectNavigationURL(window.location, {
+          projectID,
+          view: tab.id,
+          workItemID: tab.id === "work" ? selectedWorkItemID || null : null,
+        });
+        return (
+          <a
+            aria-controls={activeTab === tab.id ? `project-workspace-panel-${tab.id}` : undefined}
+            aria-selected={activeTab === tab.id}
+            key={tab.id}
+            className={`project-workspace-tab ${
+              activeTab === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+            }`}
+            href={href}
+            id={`project-workspace-tab-${tab.id}`}
+            onClick={(event) => {
+              if (!isPlainNavigationClick(event)) return;
+              event.preventDefault();
+              onChange(tab.id);
+            }}
+            onKeyDown={(event) => onProjectWorkspaceTabKeyDown(event, tab.id, tabs, onChange)}
+            role="tab"
+            style={projectWorkspaceTabButtonStyle}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+          >
+            {tab.label}
+            {tab.count > 0 && <span className="badge badge-muted">{tab.count}</span>}
+          </a>
+        );
+      })}
     </div>
   );
 }
 
 function onProjectWorkspaceTabKeyDown(
-  event: KeyboardEvent<HTMLButtonElement>,
+  event: KeyboardEvent<HTMLAnchorElement>,
   currentTab: ProjectWorkspaceTab,
   tabs: Array<{ id: ProjectWorkspaceTab }>,
   onChange: (tab: ProjectWorkspaceTab) => void,
 ) {
+  if (event.key === " ") {
+    event.preventDefault();
+    onChange(currentTab);
+    return;
+  }
   const currentIndex = tabs.findIndex((tab) => tab.id === currentTab);
   let nextIndex = currentIndex;
   if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
@@ -1193,9 +1223,9 @@ function onProjectWorkspaceTabKeyDown(
   const nextTab = tabs[nextIndex];
   if (!nextTab) return;
   onChange(nextTab.id);
-  const tabButtons =
-    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-  tabButtons?.[nextIndex]?.focus();
+  const tabLinks =
+    event.currentTarget.parentElement?.querySelectorAll<HTMLAnchorElement>('[role="tab"]');
+  tabLinks?.[nextIndex]?.focus();
 }
 
 function ProjectActivityInbox({
@@ -1265,6 +1295,7 @@ function ProjectActivityInbox({
                 key={item.id}
                 active={item.id === selectedWorkItemID}
                 item={item}
+                projectID={project.id}
                 summary={
                   workItemSummaries[item.id] ??
                   summarizeAssignments(
