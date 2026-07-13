@@ -34,12 +34,13 @@ in the same change.
 Read these in order:
 
 1. [Projects](accepted/projects.md)
-2. [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md)
-3. [Agent memory](proposals/agent-memory.md)
-4. [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md)
-5. [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)
-6. [LLM context window management](proposals/llm-context-window-management.md)
-7. [Cairnline: portable project coordination](proposals/cairnline-portable-project-coordination.md)
+2. [Projects cockpit UX](proposals/projects-cockpit-ux.md)
+3. [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md)
+4. [Agent memory](proposals/agent-memory.md)
+5. [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md)
+6. [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)
+7. [LLM context window management](proposals/llm-context-window-management.md)
+8. [Cairnline: portable project coordination](proposals/cairnline-portable-project-coordination.md)
 
 The invariant: Cairnline provides portable project identity and coordination,
 context assembly decides what enters a model or adapter call, memory is
@@ -113,6 +114,7 @@ discovery.
 | Record                                                                                                  | Bucket             | Track                         |
 | ------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------- |
 | [Projects](accepted/projects.md)                                                                        | Accepted           | Projects, context, and memory |
+| [Projects cockpit UX](proposals/projects-cockpit-ux.md)                                                 | Proposal; partial  | Projects, context, and memory |
 | [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md)     | Proposal; partial  | Projects, context, and memory |
 | [Agent memory](proposals/agent-memory.md)                                                               | Proposal; partial  | Projects, context, and memory |
 | [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md) | Proposal           | Projects, context, and memory |

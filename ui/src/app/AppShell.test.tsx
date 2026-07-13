@@ -821,6 +821,7 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
+    fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
 
     expect(createChatSession).toHaveBeenCalledWith(
@@ -931,6 +932,7 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
+    fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
 
     expect(selectChatSession).toHaveBeenCalledWith("chat_external_1");

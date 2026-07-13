@@ -63,7 +63,7 @@ records, launch agents, or write memory. Like Project Operations, Needs
 Attention rows use a typed server-provided `action` object for follow-through;
 compact row fields are display metadata, not a second routing authority.
 
-The Work Coordination tab starts with Project Operations when the server finds
+The default **Overview** starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked
 or stale assignments, queued assignments that need preflight, pending handoffs,
 memory candidates awaiting review, review artifacts that need follow-up,
@@ -72,15 +72,15 @@ need their first assignment. When no actionable work remains, the server can
 offer a low-priority latest-work operation so the operator can reopen the most
 recently updated work item without the client inventing a separate fallback
 order. Each operation routes to an existing surface such as Project Settings,
-Work Coordination, Memory/Context, or assignment preflight.
+Work, Memory, or assignment preflight.
 Clients route these items through the server-provided `action.type`; `kind`
 explains why the item appears, while `action` is the follow-through contract.
 Draftable operations seed the normal Project Assistant proposal rail; the
 operator still reviews and applies typed changes before Hecate creates durable
 project records.
-When there is no server-backed operation to show, the tab keeps only the
-compact resume summary; clients should not derive a second actionable
-next-action cascade from project state.
+When there is no server-backed operation to show, Overview keeps only compact
+activity continuity; clients should not derive a second actionable next-action
+cascade from project state.
 The operations brief is intentionally compact. The server sorts operations by
 operator urgency before applying its item cap, and the response summary reports
 how many operations were available, returned, and omitted so the UI can show
@@ -93,9 +93,8 @@ policy until the operator separately chooses a launch or Agent Preset posture
 that includes enabled sources.
 
 Use the top Project Operations action for the single most useful operator step,
-then jump to
-blocked, active, recent, or memory-review work from the resume summary before
-drilling into the full work queue. Review follow-up and closeout operations
+then jump to blocked, active, recent, or memory-review work from the activity
+summary before drilling into the full Work queue. Review follow-up and closeout operations
 open selected-work detail. Closeout readiness is the server contract shared by
 Project Operations and selected-work detail; the operator still creates
 follow-up paths or marks work done explicitly from that surface.

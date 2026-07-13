@@ -151,6 +151,68 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
   expect(state.artifacts).toHaveLength(1);
 });
 
+test("Projects overview is the default ready-project home at desktop and narrow widths", async ({
+  page,
+}) => {
+  await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Editorial planning");
+  await page.getByLabel("Purpose").fill("Coordinate a rootless editorial review cycle.");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await onboarding.getByRole("button", { name: "Create work: First work item" }).click();
+  await page.getByLabel("Title").fill("Review launch narrative");
+  await page.getByLabel("Brief").fill("Check the launch narrative and record evidence.");
+  await page.getByRole("button", { name: "Create work item" }).click();
+  await expect(page.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
+
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Project overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByRole("region", { name: "Project Assistant" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Work queue" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "View work" }).click();
+  await expect(page.getByRole("article", { name: /Review launch narrative/ })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const projectIndex = await page.getByRole("region", { name: "Projects" }).boundingBox();
+  const projectMain = await page.locator(".projects-cockpit-main").boundingBox();
+  expect(projectIndex?.width).toBeGreaterThan(300);
+  expect(projectMain?.width).toBeGreaterThan(300);
+  expect(projectMain?.y ?? 0).toBeGreaterThan(projectIndex?.y ?? 0);
+  await expect(page.getByRole("region", { name: "Project overview" })).toBeVisible();
+
+  const narrowTabs = page
+    .getByRole("tablist", { name: "Project workspace views" })
+    .getByRole("tab");
+  await expect(narrowTabs).toHaveCount(5);
+  for (let index = 0; index < 5; index += 1) {
+    await expect(narrowTabs.nth(index)).toBeInViewport();
+  }
+
+  const operationsBox = await page
+    .getByRole("region", { name: "Project operations" })
+    .boundingBox();
+  const activityBox = await page
+    .getByRole("region", { name: "Project activity summary" })
+    .boundingBox();
+  expect(activityBox?.y ?? 0).toBeGreaterThan(
+    (operationsBox?.y ?? 0) + (operationsBox?.height ?? 0),
+  );
+});
+
 test("Projects settings and memory use typed root and source mutations", async ({ page }) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
@@ -194,7 +256,7 @@ test("Projects settings and memory use typed root and source mutations", async (
   await expect(page.getByText("Applied 3 actions")).toBeVisible();
   await page.getByRole("button", { name: "Dismiss" }).click();
 
-  await page.getByRole("tab", { name: /Memory \/ Context/ }).click();
+  await page.getByRole("tab", { name: /Memory/ }).click();
   await page.getByRole("button", { name: "Source", exact: true }).click();
   let sourceDialog = page.getByRole("dialog", { name: "New project source" });
   await sourceDialog.getByLabel("Title").fill("Launch brief");
@@ -501,7 +563,7 @@ async function mockProjectJourneyAPIs(page: Page) {
     }
     if (resource === "operations" && parts[2] === "brief") {
       await route.fulfill(
-        ok({ object: "project_operations_brief", data: projectOperationsBrief(projectID) }),
+        ok({ object: "project_operations_brief", data: projectOperationsBrief(state, projectID) }),
       );
       return;
     }
@@ -1252,18 +1314,43 @@ function projectSetupReadiness(
   };
 }
 
-function projectOperationsBrief(projectID: string) {
+function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
+  const workItem = state.workItems[0];
+  const items = workItem
+    ? [
+        {
+          id: `prepare_first_assignment:${projectID}:${workItem.id}`,
+          kind: "prepare_first_assignment",
+          priority: "medium",
+          status: "ready",
+          title: `Prepare first assignment: ${workItem.title}`,
+          detail: "This work item has no assignment yet.",
+          action_label: "Draft assignment",
+          target: {
+            surface: "work",
+            project_id: projectID,
+            work_item_id: workItem.id,
+          },
+          action: {
+            type: "draft_project_proposal",
+            project_id: projectID,
+            work_item_id: workItem.id,
+            request: `Draft an assignment for ${workItem.title}.`,
+          },
+        },
+      ]
+    : [];
   return {
     project_id: projectID,
     generated_at: NOW,
     summary: {
-      item_count: 0,
+      item_count: items.length,
       high_count: 0,
-      medium_count: 0,
+      medium_count: items.length,
       low_count: 0,
       pending_memory_candidate_count: 0,
       pending_handoff_count: 0,
     },
-    items: [],
+    items,
   };
 }
