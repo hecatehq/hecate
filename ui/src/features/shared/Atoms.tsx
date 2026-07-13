@@ -135,6 +135,7 @@ export function InlineError({ message }: { message: string }) {
   if (!message) return null;
   return (
     <div
+      role="alert"
       style={{
         display: "flex",
         alignItems: "flex-start",

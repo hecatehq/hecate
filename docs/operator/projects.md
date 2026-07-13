@@ -78,6 +78,15 @@ explains why the item appears, while `action` is the follow-through contract.
 Draftable operations seed the normal Project Assistant proposal rail; the
 operator still reviews and applies typed changes before Hecate creates durable
 project records.
+After a project mutation, the client reloads Overview activity, health, setup
+readiness, and operations from the server. These are refreshed projections, not
+locally maintained project state, and a response for a previously selected
+project must not replace the current project's Overview.
+The client clears the previous operation while that refresh is in flight. If
+setup readiness cannot be confirmed before the first work item exists, Projects
+shows an explicit retry state instead of assuming setup is complete. If work
+already exists, a projection failure is announced without hiding that work, and
+the operator can use **Refresh project work** to retry.
 When there is no server-backed operation to show, Overview keeps only compact
 activity continuity; clients should not derive a second actionable next-action
 cascade from project state.

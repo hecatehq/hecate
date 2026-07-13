@@ -91,7 +91,7 @@ describe("Badge", () => {
 describe("InlineError", () => {
   it("renders the message inside an error block", () => {
     render(<InlineError message="something broke" />);
-    expect(screen.getByText("something broke")).toBeTruthy();
+    expect(screen.getByRole("alert")).toHaveTextContent("something broke");
   });
 
   it("renders nothing when message is empty", () => {
@@ -110,7 +110,10 @@ describe("Dot", () => {
 describe("Icon", () => {
   it("renders an SVG with a single path", () => {
     const { container } = render(<Icon d={Icons.chat} />);
-    expect(container.querySelector("svg")).toBeTruthy();
+    const svg = container.querySelector("svg");
+    expect(svg).toBeTruthy();
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(svg).toHaveAttribute("focusable", "false");
     expect(container.querySelectorAll("path").length).toBeGreaterThan(0);
   });
 

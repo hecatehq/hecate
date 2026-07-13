@@ -263,6 +263,10 @@ export function ProjectsView({
   const [projectSetupReadiness, setProjectSetupReadiness] = useState<ProjectSetupReadiness | null>(
     null,
   );
+  const [projectSetupReadinessLoadState, setProjectSetupReadinessLoadState] =
+    useState<LoadState>("idle");
+  const [projectSetupReadinessError, setProjectSetupReadinessError] = useState("");
+  const [overviewProjectionError, setOverviewProjectionError] = useState("");
   const [operationsBrief, setOperationsBrief] = useState<ProjectOperationsBrief | null>(null);
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
@@ -289,6 +293,7 @@ export function ProjectsView({
   const [reviewArtifactPending, setReviewArtifactPending] = useState(false);
   const [reviewArtifactError, setReviewArtifactError] = useState("");
   const [workLoadState, setWorkLoadState] = useState<LoadState>("idle");
+  const [loadedProjectID, setLoadedProjectID] = useState("");
   const [detailLoadState, setDetailLoadState] = useState<LoadState>("idle");
   const [workError, setWorkError] = useState("");
   const [detailError, setDetailError] = useState("");
@@ -326,51 +331,219 @@ export function ProjectsView({
   const [memoryPending, setMemoryPending] = useState(false);
   const [deleteMemory, setDeleteMemory] = useState<ProjectMemoryRecord | null>(null);
   const [deleteMemoryPending, setDeleteMemoryPending] = useState(false);
+  const projectSelectionGenerationRef = useRef(0);
   const { clearSelectedProject, openProject, selectedProject, selectedProjectID } =
     useProjectSelectionController({
       activeProjectID: projects.activeProjectID,
       onProjectChange: () => {
-        setSelectedWorkItemID("");
-        setWorkspaceTab(initialWorkspaceTab);
+        projectSelectionGenerationRef.current += 1;
+        resetProjectScopedInteractions();
       },
       projects: projects.state.projects,
       selectProject: projects.actions.selectProject,
     });
+  const selectedProjectIDRef = useRef(selectedProjectID);
+  const selectedWorkItemIDRef = useRef(selectedWorkItemID);
+  const workItemSelectionGenerationRef = useRef(0);
+  const workLoadGenerationRef = useRef(0);
+  const detailLoadGenerationRef = useRef(0);
+  const memoryLoadGenerationRef = useRef(0);
+  const skillsLoadGenerationRef = useRef(0);
+  const overviewProjectionGenerationRef = useRef(0);
+  selectedProjectIDRef.current = selectedProjectID;
+  selectedWorkItemIDRef.current = selectedWorkItemID;
 
-  const loadProjectHealth = useCallback(async (projectID: string) => {
-    if (!projectID) {
-      setProjectHealth(null);
-      return;
-    }
-    const payload = await getProjectHealth(projectID);
-    setProjectHealth(payload.data ?? null);
-  }, []);
+  useEffect(() => {
+    workItemSelectionGenerationRef.current += 1;
+    setEditingWorkItem(null);
+    setEditWorkPending(false);
+    setEditWorkError("");
+    setDeleteWorkItem(null);
+    setDeleteWorkPending(false);
+    setClosingWorkItemID("");
+    setNewAssignmentModalOpen(false);
+    setNewAssignmentPending(false);
+    setNewAssignmentError("");
+    setEditingAssignment(null);
+    setEditAssignmentPending(false);
+    setEditAssignmentError("");
+    setDeleteAssignment(null);
+    setDeleteAssignmentPending(false);
+    setEditingHandoff(null);
+    setNewHandoffDraft(null);
+    setHandoffPending(false);
+    setHandoffError("");
+    setHandoffActionID("");
+    setArtifactActionID("");
+    setEvidenceLinkModalOpen(false);
+    setEvidenceLinkPending(false);
+    setEvidenceLinkError("");
+    setReviewArtifactDraft(null);
+    setReviewArtifactPending(false);
+    setReviewArtifactError("");
+    setAssignmentErrors({});
+    startingAssignmentIDsRef.current.clear();
+    setStartingAssignmentID("");
+    setPreparingAssignmentID("");
+  }, [selectedWorkItemID]);
 
-  const loadProjectSetupReadiness = useCallback(async (projectID: string) => {
-    if (!projectID) {
-      setProjectSetupReadiness(null);
-      return;
-    }
-    const payload = await getProjectSetupReadiness(projectID);
-    setProjectSetupReadiness(payload.data ?? null);
-  }, []);
+  function isCurrentProjectMutation(projectID: string, selectionGeneration: number) {
+    return (
+      selectionGeneration === projectSelectionGenerationRef.current &&
+      selectedProjectIDRef.current === projectID
+    );
+  }
 
-  const refreshProjectHealth = useCallback(
-    (projectID: string) => {
-      if (!projectID) {
-        setProjectHealth(null);
-        setProjectSetupReadiness(null);
-        return;
-      }
-      void loadProjectHealth(projectID).catch(() => {
-        setProjectHealth(null);
+  function isCurrentWorkItemMutation(
+    projectID: string,
+    projectSelectionGeneration: number,
+    workItemID: string,
+    workItemSelectionGeneration: number,
+  ) {
+    return (
+      isCurrentProjectMutation(projectID, projectSelectionGeneration) &&
+      workItemSelectionGeneration === workItemSelectionGenerationRef.current &&
+      selectedWorkItemIDRef.current === workItemID
+    );
+  }
+
+  function resetProjectScopedInteractions() {
+    setWorkspaceTab(initialWorkspaceTab);
+    setSettingsPanelOpen(false);
+    setDefaultsPending(false);
+    setDefaultsError("");
+    setDiscoveringRoots(false);
+    setCreateWorktreeOpen(false);
+    setCreateWorktreePending(false);
+    setCreateWorktreeError("");
+    setRolesModalOpen(false);
+    setRolesPending(false);
+    setRolesError("");
+    setNewWorkModalOpen(false);
+    setNewWorkDraft(undefined);
+    setNewWorkPending(false);
+    setNewWorkError("");
+    setEditingWorkItem(null);
+    setEditWorkPending(false);
+    setEditWorkError("");
+    setDeleteWorkItem(null);
+    setDeleteWorkPending(false);
+    setClosingWorkItemID("");
+    setSelectedWorkItemID("");
+    setNewAssignmentModalOpen(false);
+    setNewAssignmentPending(false);
+    setNewAssignmentError("");
+    setEditingAssignment(null);
+    setEditAssignmentPending(false);
+    setEditAssignmentError("");
+    setDeleteAssignment(null);
+    setDeleteAssignmentPending(false);
+    setEditingHandoff(null);
+    setNewHandoffDraft(null);
+    setHandoffPending(false);
+    setHandoffError("");
+    setHandoffActionID("");
+    setArtifactActionID("");
+    setEvidenceLinkModalOpen(false);
+    setEvidenceLinkPending(false);
+    setEvidenceLinkError("");
+    setReviewArtifactDraft(null);
+    setReviewArtifactPending(false);
+    setReviewArtifactError("");
+    setDiscoveringContext(false);
+    setMemoryError("");
+    setEditingMemory(null);
+    setEditingSource(null);
+    setSourcePending(false);
+    setSourceError("");
+    setDeleteSource(null);
+    setDeleteSourcePending(false);
+    setPromotingCandidate(null);
+    setRejectingCandidateID("");
+    setMemoryPending(false);
+    setDeleteMemory(null);
+    setDeleteMemoryPending(false);
+    setDiscoveringSkills(false);
+    setUpdatingSkillID("");
+    setSkillsError("");
+    setAssignmentErrors({});
+    startingAssignmentIDsRef.current.clear();
+    setStartingAssignmentID("");
+    setPreparingAssignmentID("");
+  }
+
+  const refreshProjectOverview = useCallback(async (projectID: string) => {
+    if (!projectID || selectedProjectIDRef.current !== projectID) return;
+    const generation = ++overviewProjectionGenerationRef.current;
+    const isStale = () =>
+      generation !== overviewProjectionGenerationRef.current ||
+      selectedProjectIDRef.current !== projectID;
+    const markCoordinationUnavailable = () => {
+      setOverviewProjectionError(
+        "Project coordination status could not be refreshed. Use Refresh project work to try again.",
+      );
+    };
+    setActivity(null);
+    setProjectHealth(null);
+    setProjectSetupReadiness(null);
+    setProjectSetupReadinessLoadState("loading");
+    setProjectSetupReadinessError("");
+    setOverviewProjectionError("");
+    setOperationsBrief(null);
+    setOperationsBriefLoadState("loading");
+    setOperationsBriefError("");
+    const activityLoad = getProjectActivity(projectID)
+      .then((payload) => {
+        if (!isStale()) setActivity(payload.data ?? null);
+      })
+      .catch(() => {
+        if (isStale()) return;
+        setActivity(null);
+        markCoordinationUnavailable();
       });
-      void loadProjectSetupReadiness(projectID).catch(() => {
-        setProjectSetupReadiness(null);
+    const healthLoad = getProjectHealth(projectID)
+      .then((payload) => {
+        if (!isStale()) setProjectHealth(payload.data ?? null);
+      })
+      .catch(() => {
+        if (isStale()) return;
+        setProjectHealth(null);
+        markCoordinationUnavailable();
       });
-    },
-    [loadProjectHealth, loadProjectSetupReadiness],
-  );
+    const readinessLoad = getProjectSetupReadiness(projectID)
+      .then((payload) => {
+        if (isStale()) return;
+        const readiness = payload.data ?? null;
+        setProjectSetupReadiness(readiness);
+        if (readiness) {
+          setProjectSetupReadinessLoadState("loaded");
+          return;
+        }
+        setProjectSetupReadinessError("Project setup status was unavailable.");
+        setProjectSetupReadinessLoadState("error");
+        markCoordinationUnavailable();
+      })
+      .catch((error) => {
+        if (isStale()) return;
+        setProjectSetupReadiness(null);
+        setProjectSetupReadinessError(errorMessage(error, "Failed to load project setup status."));
+        setProjectSetupReadinessLoadState("error");
+        markCoordinationUnavailable();
+      });
+    const operationsLoad = getProjectOperationsBrief(projectID)
+      .then((payload) => {
+        if (isStale()) return;
+        setOperationsBrief(payload.data ?? null);
+        setOperationsBriefLoadState("loaded");
+      })
+      .catch((error) => {
+        if (isStale()) return;
+        setOperationsBrief(null);
+        setOperationsBriefError(errorMessage(error, "Failed to load project operations."));
+        setOperationsBriefLoadState("error");
+      });
+    await Promise.allSettled([activityLoad, healthLoad, readinessLoad, operationsLoad]);
+  }, []);
 
   const loadAgentPresets = useCallback(async (cancelled?: () => boolean) => {
     try {
@@ -448,140 +621,159 @@ export function ProjectsView({
       });
   }, [providerPresets, providersAndModels.state.providers, settings.state.config?.providers]);
 
-  const loadWorkForProject = useCallback(async (projectID: string, preferredWorkItemID = "") => {
-    setWorkError("");
-    setDetailError("");
-    setAssignmentErrors({});
-    setWorkItems([]);
-    setWorkItemSummaries({});
-    setActivity(null);
-    setProjectHealth(null);
-    setProjectSetupReadiness(null);
-    setOperationsBrief(null);
-    setOperationsBriefError("");
-    if (!preferredWorkItemID) {
-      setSelectedWorkItemID("");
-      setSelectedWorkItem(null);
-      setSelectedWorkItemReadiness(null);
-      setAssignments([]);
-      setArtifacts([]);
-      setHandoffs([]);
-    }
-    if (!projectID) {
-      setWorkLoadState("idle");
-      setOperationsBriefLoadState("idle");
-      setProjectSetupReadiness(null);
-      return "";
-    }
-    setWorkLoadState("loading");
-    setOperationsBriefLoadState("loading");
-    try {
-      const activityLoad = getProjectActivity(projectID).catch(() => null);
-      const operationsBriefLoad = getProjectOperationsBrief(projectID).catch((error) => {
-        setOperationsBriefError(errorMessage(error, "Failed to load project operations."));
-        return null;
-      });
-      const healthLoad = getProjectHealth(projectID).catch(() => null);
-      const setupReadinessLoad = getProjectSetupReadiness(projectID).catch(() => null);
-      const [rolesRes, workRes, activityRes, healthRes, operationsBriefRes, setupReadinessRes] =
-        await Promise.all([
-          getProjectWorkRoles(projectID),
-          getProjectWorkItems(projectID),
-          activityLoad,
-          healthLoad,
-          operationsBriefLoad,
-          setupReadinessLoad,
-        ]);
-      const nextRoles = rolesRes.data ?? [];
-      const nextItems = workRes.data ?? [];
-      setRoles(nextRoles);
-      setWorkItems(nextItems);
-      setActivity(activityRes?.data ?? null);
-      setProjectHealth(healthRes?.data ?? null);
-      setProjectSetupReadiness(setupReadinessRes?.data ?? null);
-      setOperationsBrief(operationsBriefRes?.data ?? null);
-      setOperationsBriefLoadState(operationsBriefRes ? "loaded" : "error");
-      setWorkItemSummaries(
-        Object.fromEntries(
-          nextItems.map((item) => [item.id, summarizeAssignments(item.assignments ?? [])] as const),
-        ),
-      );
-      const nextSelectedID = nextItems.some((item) => item.id === preferredWorkItemID)
-        ? preferredWorkItemID
-        : nextItems[0]?.id || "";
-      setSelectedWorkItemID(nextSelectedID);
-      setWorkLoadState("loaded");
-      return nextSelectedID;
-    } catch (error) {
-      setWorkLoadState("error");
-      setOperationsBriefLoadState("error");
-      setProjectHealth(null);
-      setProjectSetupReadiness(null);
-      setWorkError(errorMessage(error, "Failed to load project work."));
-      return "";
-    }
-  }, []);
-
-  const loadProjectMemory = useCallback(
-    async (projectID: string) => {
-      setMemoryError("");
-      if (!projectID) {
-        setMemoryEntries([]);
-        setMemoryCandidates([]);
-        setEditingMemory(null);
-        setPromotingCandidate(null);
-        setDeleteMemory(null);
-        setMemoryLoadState("idle");
-        return;
+  const loadWorkForProject = useCallback(
+    async (projectID: string, preferredWorkItemID = "") => {
+      if (selectedProjectIDRef.current !== projectID) return "";
+      const generation = ++workLoadGenerationRef.current;
+      const workSelectionGeneration = workItemSelectionGenerationRef.current;
+      const isStale = () =>
+        generation !== workLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
+      setWorkError("");
+      setDetailError("");
+      setAssignmentErrors({});
+      if (!preferredWorkItemID) {
+        setWorkItems([]);
+        setWorkItemSummaries({});
+        setSelectedWorkItemID("");
+        setSelectedWorkItem(null);
+        setSelectedWorkItemReadiness(null);
+        setAssignments([]);
+        setArtifacts([]);
+        setHandoffs([]);
       }
+      if (!projectID) {
+        setWorkLoadState("idle");
+        setLoadedProjectID("");
+        setOperationsBriefLoadState("idle");
+        setProjectSetupReadiness(null);
+        setProjectSetupReadinessLoadState("idle");
+        return "";
+      }
+      setWorkLoadState("loading");
+      void refreshProjectOverview(projectID);
+      try {
+        let workDataError = "";
+        const rolesLoad = getProjectWorkRoles(projectID).catch((error) => {
+          workDataError ||= errorMessage(error, "Failed to load project roles.");
+          return null;
+        });
+        const workItemsLoad = getProjectWorkItems(projectID).catch((error) => {
+          workDataError = errorMessage(error, "Failed to load project work.");
+          return null;
+        });
+        const [rolesRes, workRes] = await Promise.all([rolesLoad, workItemsLoad]);
+        if (isStale()) return "";
+        if (!rolesRes || !workRes) {
+          setWorkLoadState("error");
+          setWorkError(workDataError || "Failed to load project work.");
+          setLoadedProjectID(projectID);
+          return "";
+        }
+        const nextRoles = rolesRes.data ?? [];
+        const nextItems = workRes.data ?? [];
+        setRoles(nextRoles);
+        setWorkItems(nextItems);
+        setWorkItemSummaries(
+          Object.fromEntries(
+            nextItems.map(
+              (item) => [item.id, summarizeAssignments(item.assignments ?? [])] as const,
+            ),
+          ),
+        );
+        if (
+          preferredWorkItemID &&
+          workSelectionGeneration !== workItemSelectionGenerationRef.current
+        ) {
+          setWorkLoadState("loaded");
+          setLoadedProjectID(projectID);
+          return selectedWorkItemIDRef.current;
+        }
+        const nextSelectedID = nextItems.some((item) => item.id === preferredWorkItemID)
+          ? preferredWorkItemID
+          : nextItems[0]?.id || "";
+        setSelectedWorkItemID(nextSelectedID);
+        setWorkLoadState("loaded");
+        setLoadedProjectID(projectID);
+        return nextSelectedID;
+      } catch (error) {
+        if (isStale()) return "";
+        setWorkLoadState("error");
+        setWorkError(errorMessage(error, "Failed to load project work."));
+        setLoadedProjectID(projectID);
+        return "";
+      }
+    },
+    [refreshProjectOverview],
+  );
+
+  const loadProjectMemory = useCallback(async (projectID: string) => {
+    if (selectedProjectIDRef.current !== projectID) return;
+    const generation = ++memoryLoadGenerationRef.current;
+    const isStale = () =>
+      generation !== memoryLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
+    setMemoryError("");
+    if (!projectID) {
       setMemoryEntries([]);
       setMemoryCandidates([]);
       setEditingMemory(null);
       setPromotingCandidate(null);
       setDeleteMemory(null);
-      setMemoryLoadState("loading");
-      try {
-        const [memoryPayload, candidatePayload] = await Promise.all([
-          getProjectMemory(projectID, true),
-          getProjectMemoryCandidates(projectID, true),
-        ]);
-        setMemoryEntries(memoryPayload.data ?? []);
-        setMemoryCandidates(candidatePayload.data ?? []);
-        setMemoryLoadState("loaded");
-        refreshProjectHealth(projectID);
-      } catch (error) {
-        setMemoryLoadState("error");
-        setMemoryError(errorMessage(error, "Failed to load project memory."));
-      }
-    },
-    [refreshProjectHealth],
-  );
+      setMemoryLoadState("idle");
+      return;
+    }
+    setMemoryEntries([]);
+    setMemoryCandidates([]);
+    setEditingMemory(null);
+    setPromotingCandidate(null);
+    setDeleteMemory(null);
+    setMemoryLoadState("loading");
+    try {
+      const [memoryPayload, candidatePayload] = await Promise.all([
+        getProjectMemory(projectID, true),
+        getProjectMemoryCandidates(projectID, true),
+      ]);
+      if (isStale()) return;
+      setMemoryEntries(memoryPayload.data ?? []);
+      setMemoryCandidates(candidatePayload.data ?? []);
+      setMemoryLoadState("loaded");
+    } catch (error) {
+      if (isStale()) return;
+      setMemoryLoadState("error");
+      setMemoryError(errorMessage(error, "Failed to load project memory."));
+    }
+  }, []);
 
-  const loadProjectSkills = useCallback(
-    async (projectID: string) => {
-      setSkillsError("");
-      setUpdatingSkillID("");
-      if (!projectID) {
-        setProjectSkills([]);
-        setSkillsLoadState("idle");
-        return;
-      }
+  const loadProjectSkills = useCallback(async (projectID: string) => {
+    if (selectedProjectIDRef.current !== projectID) return;
+    const generation = ++skillsLoadGenerationRef.current;
+    const isStale = () =>
+      generation !== skillsLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
+    setSkillsError("");
+    setUpdatingSkillID("");
+    if (!projectID) {
       setProjectSkills([]);
-      setSkillsLoadState("loading");
-      try {
-        const payload = await getProjectSkills(projectID);
-        setProjectSkills(payload.data ?? []);
-        setSkillsLoadState("loaded");
-        refreshProjectHealth(projectID);
-      } catch (error) {
-        setSkillsLoadState("error");
-        setSkillsError(errorMessage(error, "Failed to load project skills."));
-      }
-    },
-    [refreshProjectHealth],
-  );
+      setSkillsLoadState("idle");
+      return;
+    }
+    setProjectSkills([]);
+    setSkillsLoadState("loading");
+    try {
+      const payload = await getProjectSkills(projectID);
+      if (isStale()) return;
+      setProjectSkills(payload.data ?? []);
+      setSkillsLoadState("loaded");
+    } catch (error) {
+      if (isStale()) return;
+      setSkillsLoadState("error");
+      setSkillsError(errorMessage(error, "Failed to load project skills."));
+    }
+  }, []);
 
   const loadWorkItemDetail = useCallback(async (projectID: string, workItemID: string) => {
+    if (selectedProjectIDRef.current !== projectID) return;
+    const generation = ++detailLoadGenerationRef.current;
+    const isStale = () =>
+      generation !== detailLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
     setDetailError("");
     setAssignmentErrors({});
     if (!projectID || !workItemID) {
@@ -603,6 +795,7 @@ export function ProjectsView({
         getProjectHandoffs(projectID, workItemID),
         getProjectWorkItemReadiness(projectID, workItemID),
       ]);
+      if (isStale()) return;
       setSelectedWorkItem(itemRes.data);
       setSelectedWorkItemReadiness(readinessRes.data);
       setAssignments(assignmentRes.data ?? []);
@@ -615,6 +808,7 @@ export function ProjectsView({
       }));
       setDetailLoadState("loaded");
     } catch (error) {
+      if (isStale()) return;
       setSelectedWorkItemReadiness(null);
       setDetailLoadState("error");
       setDetailError(errorMessage(error, "Failed to load work item detail."));
@@ -705,9 +899,7 @@ export function ProjectsView({
           kind: "success",
           message: formatProjectDeleteSummary(deleted),
         });
-        if (selectedProjectID === pendingDeleteProject.id) {
-          clearSelectedProject();
-        }
+        clearSelectedProject(pendingDeleteProject.id);
       }
     } finally {
       setDeletePending(false);
@@ -716,6 +908,9 @@ export function ProjectsView({
 
   async function handleSaveProjectDefaults(form: ProjectDefaultsForm) {
     if (!selectedProject) return;
+    const project = selectedProject;
+    const projectID = project.id;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setDefaultsPending(true);
     setDefaultsError("");
     const patch: UpdateProjectPayload = {
@@ -726,9 +921,9 @@ export function ProjectsView({
       default_root_id: form.defaultRootID.trim(),
     };
     try {
-      const existingRootsByID = new Map(selectedProject.roots.map((root) => [root.id, root]));
+      const existingRootsByID = new Map(project.roots.map((root) => [root.id, root]));
       const nextRootIDs = new Set(form.roots.map((root) => root.id?.trim() ?? "").filter(Boolean));
-      let currentProject = selectedProject;
+      let currentProject = project;
       const applyRootProject = (project: ProjectRecord) => {
         currentProject = project;
         projects.actions.setProjects((current) => upsertProject(current, project));
@@ -738,45 +933,52 @@ export function ProjectsView({
         const existing = rootID ? existingRootsByID.get(rootID) : undefined;
         let payload: { data: ProjectRecord } | null = null;
         if (!existing) {
-          payload = await createProjectRoot(selectedProject.id, root);
+          payload = await createProjectRoot(projectID, root);
         } else if (!projectRootPayloadsEqual(projectRootPayloadFromRecord(existing), root)) {
-          payload = await updateProjectRoot(selectedProject.id, rootID, root);
+          payload = await updateProjectRoot(projectID, rootID, root);
         }
         if (payload) applyRootProject(payload.data);
       }
-      for (const root of selectedProject.roots) {
+      for (const root of project.roots) {
         if (nextRootIDs.has(root.id)) continue;
-        const payload = await deleteProjectRoot(selectedProject.id, root.id);
+        const payload = await deleteProjectRoot(projectID, root.id);
         applyRootProject(payload.data);
       }
       const payload = await updateProject(currentProject.id, patch);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
-      refreshProjectHealth(selectedProject.id);
+      void refreshProjectOverview(projectID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setSettingsPanelOpen(false);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
     } finally {
-      setDefaultsPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setDefaultsPending(false);
     }
   }
 
   async function handleDiscoverProjectRoots() {
     if (!selectedProject) return;
+    const projectID = selectedProject.id;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setDiscoveringRoots(true);
     setDefaultsError("");
     try {
-      const payload = await discoverProjectRoots(selectedProject.id);
+      const payload = await discoverProjectRoots(projectID);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
-      refreshProjectHealth(selectedProject.id);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setDefaultsError(errorMessage(error, "Failed to discover project roots."));
     } finally {
-      setDiscoveringRoots(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setDiscoveringRoots(false);
     }
   }
 
   async function handleCreateWorktreeRoot(form: CreateWorktreeForm) {
     if (!selectedProject) return;
+    const projectID = selectedProject.id;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     const branch = form.branch.trim();
     if (!branch) return;
     const payload: CreateProjectWorktreeRootPayload = {
@@ -790,14 +992,18 @@ export function ProjectsView({
     setCreateWorktreePending(true);
     setCreateWorktreeError("");
     try {
-      const result = await createProjectWorktreeRoot(selectedProject.id, payload);
+      const result = await createProjectWorktreeRoot(projectID, payload);
       projects.actions.setProjects((current) => upsertProject(current, result.data));
-      refreshProjectHealth(selectedProject.id);
+      void refreshProjectOverview(projectID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setCreateWorktreeOpen(false);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setCreateWorktreeError(errorMessage(error, "Failed to create project worktree."));
     } finally {
-      setCreateWorktreePending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) {
+        setCreateWorktreePending(false);
+      }
     }
   }
 
@@ -829,32 +1035,39 @@ export function ProjectsView({
 
   async function handleDiscoverContextSources() {
     if (!selectedProjectID) return;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setDiscoveringContext(true);
     setMemoryError("");
     try {
-      const payload = await discoverProjectContextSources(selectedProjectID);
+      const payload = await discoverProjectContextSources(projectID);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryError(errorMessage(error, "Failed to discover workspace guidance."));
     } finally {
-      setDiscoveringContext(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setDiscoveringContext(false);
     }
   }
 
   async function handleDiscoverProjectSkills() {
     if (!selectedProjectID) return;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setDiscoveringSkills(true);
     setSkillsError("");
     try {
-      const payload = await discoverProjectSkills(selectedProjectID);
+      const payload = await discoverProjectSkills(projectID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setProjectSkills(payload.data ?? []);
       setSkillsLoadState("loaded");
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setSkillsError(errorMessage(error, "Failed to discover project skills."));
     } finally {
-      setDiscoveringSkills(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setDiscoveringSkills(false);
     }
   }
 
@@ -863,16 +1076,20 @@ export function ProjectsView({
     patch: UpdateProjectSkillPayload,
   ) {
     if (!selectedProjectID) return;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setUpdatingSkillID(skill.id);
     setSkillsError("");
     try {
-      const payload = await updateProjectSkill(selectedProjectID, skill.id, patch);
+      const payload = await updateProjectSkill(projectID, skill.id, patch);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setProjectSkills((current) => upsertProjectSkill(current, payload.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setSkillsError(errorMessage(error, "Failed to update project skill."));
     } finally {
-      setUpdatingSkillID("");
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setUpdatingSkillID("");
     }
   }
 
@@ -884,7 +1101,7 @@ export function ProjectsView({
     try {
       const payload = await createAgentPreset(presetCreatePayloadFromForm(form));
       setAgentPresets((current) => upsertAgentPreset(current, payload.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(selectedProjectID);
       return payload.data;
     } catch (error) {
       setPresetsError(errorMessage(error, "Failed to create agent preset."));
@@ -902,7 +1119,7 @@ export function ProjectsView({
     try {
       const payload = await updateAgentPreset(presetID, presetUpdatePayloadFromForm(form));
       setAgentPresets((current) => upsertAgentPreset(current, payload.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(selectedProjectID);
       return payload.data;
     } catch (error) {
       setPresetsError(errorMessage(error, "Failed to update agent preset."));
@@ -918,7 +1135,7 @@ export function ProjectsView({
     try {
       await deleteAgentPreset(preset.id);
       setAgentPresets((current) => current.filter((item) => item.id !== preset.id));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(selectedProjectID);
       return true;
     } catch (error) {
       setPresetsError(errorMessage(error, "Failed to delete agent preset."));
@@ -930,6 +1147,9 @@ export function ProjectsView({
 
   async function handleSaveMemory(form: MemoryForm) {
     if (!selectedProjectID || !editingMemory) return;
+    const projectID = selectedProjectID;
+    const memory = editingMemory;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     const payload = {
       title: form.title.trim(),
       body: form.body.trim(),
@@ -942,21 +1162,27 @@ export function ProjectsView({
     setMemoryError("");
     try {
       const res =
-        editingMemory === "new"
-          ? await createProjectMemory(selectedProjectID, payload)
-          : await updateProjectMemory(selectedProjectID, editingMemory.id, payload);
+        memory === "new"
+          ? await createProjectMemory(projectID, payload)
+          : await updateProjectMemory(projectID, memory.id, payload);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryEntries((current) => upsertMemory(current, res.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
       setEditingMemory(null);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryError(errorMessage(error, "Failed to save project memory."));
     } finally {
-      setMemoryPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setMemoryPending(false);
     }
   }
 
   async function handleSaveSource(form: ProjectSourceForm) {
     if (!selectedProject || !editingSource) return;
+    const project = selectedProject;
+    const projectID = project.id;
+    const source = editingSource;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     const title = form.title.trim();
     if (!title) {
       setSourceError("Source title is required.");
@@ -973,123 +1199,144 @@ export function ProjectsView({
     setSourcePending(true);
     setSourceError("");
     try {
-      const sourcePayload = projectSourcePayloadFromForm(
-        form,
-        editingSource === "new" ? null : editingSource,
-      );
+      const sourcePayload = projectSourcePayloadFromForm(form, source === "new" ? null : source);
       const payload =
-        editingSource === "new"
-          ? await createProjectContextSource(selectedProject.id, sourcePayload)
-          : await updateProjectContextSource(selectedProject.id, editingSource.id, sourcePayload);
+        source === "new"
+          ? await createProjectContextSource(projectID, sourcePayload)
+          : await updateProjectContextSource(projectID, source.id, sourcePayload);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
-      refreshProjectHealth(selectedProject.id);
+      void refreshProjectOverview(projectID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setEditingSource(null);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setSourceError(errorMessage(error, "Failed to save project source."));
     } finally {
-      setSourcePending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setSourcePending(false);
     }
   }
 
   async function confirmDeleteSource() {
     if (!selectedProject || !deleteSource) return;
+    const projectID = selectedProject.id;
+    const sourceID = deleteSource.id;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setDeleteSourcePending(true);
     setSourceError("");
     try {
-      const payload = await deleteProjectContextSource(selectedProject.id, deleteSource.id);
+      const payload = await deleteProjectContextSource(projectID, sourceID);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
-      refreshProjectHealth(selectedProject.id);
+      void refreshProjectOverview(projectID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setDeleteSource(null);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setSourceError(errorMessage(error, "Failed to delete project source."));
     } finally {
-      setDeleteSourcePending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setDeleteSourcePending(false);
     }
   }
 
   async function confirmDeleteMemory() {
     if (!selectedProjectID || !deleteMemory) return;
+    const projectID = selectedProjectID;
+    const memoryID = deleteMemory.id;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setDeleteMemoryPending(true);
     setMemoryError("");
     try {
-      await deleteProjectMemory(selectedProjectID, deleteMemory.id);
-      setMemoryEntries((current) => current.filter((item) => item.id !== deleteMemory.id));
-      refreshProjectHealth(selectedProjectID);
+      await deleteProjectMemory(projectID, memoryID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
+      setMemoryEntries((current) => current.filter((item) => item.id !== memoryID));
+      void refreshProjectOverview(projectID);
       setDeleteMemory(null);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryError(errorMessage(error, "Failed to delete project memory."));
     } finally {
-      setDeleteMemoryPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setDeleteMemoryPending(false);
     }
   }
 
   async function reloadRoles(projectID = selectedProjectID) {
     if (!projectID) return;
     const payload = await getProjectWorkRoles(projectID);
+    if (selectedProjectIDRef.current !== projectID) return;
     setRoles(payload.data ?? []);
   }
 
   async function handleCreateRole(form: RoleForm) {
     if (!selectedProjectID) return undefined;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     const name = form.name.trim();
     if (!name) return undefined;
     setRolesPending(true);
     setRolesError("");
     try {
-      const payload = await createProjectWorkRole(selectedProjectID, rolePayloadFromForm(form));
+      const payload = await createProjectWorkRole(projectID, rolePayloadFromForm(form));
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return undefined;
       setRoles((current) => upsertRole(current, payload.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
       return payload.data;
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return undefined;
       setRolesError(errorMessage(error, "Failed to create role."));
       return undefined;
     } finally {
-      setRolesPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setRolesPending(false);
     }
   }
 
   async function handleUpdateRole(roleID: string, form: RoleForm) {
     if (!selectedProjectID) return undefined;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     const name = form.name.trim();
     if (!name) return undefined;
     setRolesPending(true);
     setRolesError("");
     try {
-      const payload = await updateProjectWorkRole(
-        selectedProjectID,
-        roleID,
-        rolePayloadFromForm(form),
-      );
+      const payload = await updateProjectWorkRole(projectID, roleID, rolePayloadFromForm(form));
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return undefined;
       setRoles((current) => upsertRole(current, payload.data));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
       return payload.data;
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return undefined;
       setRolesError(errorMessage(error, "Failed to update role."));
       return undefined;
     } finally {
-      setRolesPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setRolesPending(false);
     }
   }
 
   async function handleDeleteRole(role: ProjectWorkRoleRecord) {
     if (!selectedProjectID || role.built_in) return false;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setRolesPending(true);
     setRolesError("");
     try {
-      await deleteProjectWorkRole(selectedProjectID, role.id);
-      await reloadRoles(selectedProjectID);
-      refreshProjectHealth(selectedProjectID);
+      await deleteProjectWorkRole(projectID, role.id);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return false;
+      await reloadRoles(projectID);
+      void refreshProjectOverview(projectID);
       return true;
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return false;
       setRolesError(errorMessage(error, "Failed to delete role."));
       return false;
     } finally {
-      setRolesPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setRolesPending(false);
     }
   }
 
   async function handlePromoteCandidate(form: MemoryForm) {
     if (!selectedProjectID || !promotingCandidate) return;
+    const projectID = selectedProjectID;
+    const candidateID = promotingCandidate.id;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     const payload = {
       title: form.title.trim(),
       body: form.body.trim(),
@@ -1101,33 +1348,37 @@ export function ProjectsView({
     setMemoryPending(true);
     setMemoryError("");
     try {
-      const candidateRes = await promoteProjectMemoryCandidate(
-        selectedProjectID,
-        promotingCandidate.id,
-        payload,
-      );
+      const candidateRes = await promoteProjectMemoryCandidate(projectID, candidateID, payload);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryCandidates((current) => current.filter((item) => item.id !== candidateRes.data.id));
-      await loadProjectMemory(selectedProjectID);
+      await loadProjectMemory(projectID);
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
+      void refreshProjectOverview(projectID);
       setPromotingCandidate(null);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryError(errorMessage(error, "Failed to promote memory candidate."));
     } finally {
-      setMemoryPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setMemoryPending(false);
     }
   }
 
   async function handleRejectCandidate(candidate: ProjectMemoryCandidateRecord) {
     if (!selectedProjectID || rejectingCandidateID) return;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setRejectingCandidateID(candidate.id);
     setMemoryError("");
     try {
-      const res = await rejectProjectMemoryCandidate(selectedProjectID, candidate.id, {});
+      const res = await rejectProjectMemoryCandidate(projectID, candidate.id, {});
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryCandidates((current) => current.filter((item) => item.id !== res.data.id));
-      refreshProjectHealth(selectedProjectID);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setMemoryError(errorMessage(error, "Failed to reject memory candidate."));
     } finally {
-      setRejectingCandidateID("");
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setRejectingCandidateID("");
     }
   }
 
@@ -1149,13 +1400,13 @@ export function ProjectsView({
     if (!selectedProjectID) return;
     const title = form.title.trim();
     if (!title) return;
+    const projectID = selectedProjectID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
     setNewWorkPending(true);
     setNewWorkError("");
     try {
-      const payload = await createProjectWorkItem(
-        selectedProjectID,
-        workItemCreatePayloadFromForm(form),
-      );
+      const payload = await createProjectWorkItem(projectID, workItemCreatePayloadFromForm(form));
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       setWorkItemSummaries((current) => ({
         ...current,
@@ -1170,85 +1421,158 @@ export function ProjectsView({
       setWorkspaceTab("work");
       setNewWorkModalOpen(false);
       setNewWorkDraft(undefined);
-      await loadProjectSetupReadiness(selectedProjectID);
-      await loadWorkItemDetail(selectedProjectID, payload.data.id);
+      await loadWorkItemDetail(projectID, payload.data.id);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setNewWorkError(errorMessage(error, "Failed to create work item."));
     } finally {
-      setNewWorkPending(false);
+      if (isCurrentProjectMutation(projectID, selectionGeneration)) setNewWorkPending(false);
     }
   }
 
   async function handleUpdateWorkItem(form: EditWorkItemForm) {
     if (!selectedProjectID) return;
+    const projectID = selectedProjectID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        form.id,
+        workSelectionGeneration,
+      );
     const title = form.title.trim();
     if (!title) return;
     setEditWorkPending(true);
     setEditWorkError("");
     const patch = workItemUpdatePayloadFromForm(form);
     try {
-      const payload = await updateProjectWorkItem(selectedProjectID, form.id, patch);
+      const payload = await updateProjectWorkItem(projectID, form.id, patch);
+      if (!isCurrent()) return;
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       setSelectedWorkItem(payload.data);
       setEditingWorkItem(null);
-      await loadWorkItemDetail(selectedProjectID, payload.data.id);
+      await loadWorkItemDetail(projectID, payload.data.id);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrent()) return;
       setEditWorkError(errorMessage(error, "Failed to update work item."));
     } finally {
-      setEditWorkPending(false);
+      if (isCurrent()) setEditWorkPending(false);
     }
   }
 
   async function handleCloseWorkItem(item: ProjectWorkItemRecord) {
     if (!selectedProjectID || closingWorkItemID) return;
+    const projectID = selectedProjectID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        item.id,
+        workSelectionGeneration,
+      );
     setClosingWorkItemID(item.id);
     setDetailError("");
     try {
-      const payload = await updateProjectWorkItem(selectedProjectID, item.id, { status: "done" });
+      const payload = await updateProjectWorkItem(projectID, item.id, { status: "done" });
+      if (!isCurrent()) return;
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       if (selectedWorkItemID === item.id) {
         setSelectedWorkItem(payload.data);
       }
-      await loadWorkForProject(selectedProjectID, item.id);
-      await loadWorkItemDetail(selectedProjectID, item.id);
+      await loadWorkForProject(projectID, item.id);
+      if (!isCurrent()) return;
+      await loadWorkItemDetail(projectID, item.id);
     } catch (error) {
+      if (!isCurrent()) return;
       setDetailError(errorMessage(error, "Failed to mark work item done."));
     } finally {
-      setClosingWorkItemID("");
+      if (isCurrent()) setClosingWorkItemID("");
     }
   }
 
   async function confirmDeleteWorkItem() {
     if (!selectedProjectID || !deleteWorkItem) return;
+    const projectID = selectedProjectID;
+    const workItemID = deleteWorkItem.id;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     setDeleteWorkPending(true);
     try {
-      await deleteProjectWorkItem(selectedProjectID, deleteWorkItem.id);
+      await deleteProjectWorkItem(projectID, workItemID);
+      if (!isCurrent()) return;
       setDeleteWorkItem(null);
-      await loadWorkForProject(selectedProjectID);
+      await loadWorkForProject(projectID);
     } finally {
-      setDeleteWorkPending(false);
+      if (isCurrent()) setDeleteWorkPending(false);
     }
   }
 
   async function handleCreateAssignment(form: NewAssignmentForm) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const selectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
     const roleID = form.roleID.trim();
     if (!roleID) return;
     setNewAssignmentPending(true);
     setNewAssignmentError("");
     try {
       const payload = await createProjectAssignment(
-        selectedProjectID,
-        selectedWorkItemID,
+        projectID,
+        workItemID,
         assignmentCreatePayloadFromForm(form),
       );
+      if (
+        !isCurrentWorkItemMutation(
+          projectID,
+          selectionGeneration,
+          workItemID,
+          workSelectionGeneration,
+        )
+      ) {
+        return;
+      }
       setAssignments((current) => upsertAssignment(current, payload.data));
       setNewAssignmentModalOpen(false);
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkItemDetail(projectID, workItemID);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (
+        !isCurrentWorkItemMutation(
+          projectID,
+          selectionGeneration,
+          workItemID,
+          workSelectionGeneration,
+        )
+      ) {
+        return;
+      }
       setNewAssignmentError(errorMessage(error, "Failed to create assignment."));
     } finally {
-      setNewAssignmentPending(false);
+      if (
+        isCurrentWorkItemMutation(
+          projectID,
+          selectionGeneration,
+          workItemID,
+          workSelectionGeneration,
+        )
+      ) {
+        setNewAssignmentPending(false);
+      }
     }
   }
 
@@ -1347,42 +1671,77 @@ export function ProjectsView({
 
   async function handleUpdateAssignment(form: EditAssignmentForm) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     const roleID = form.roleID.trim();
     if (!roleID) return;
     setEditAssignmentPending(true);
     setEditAssignmentError("");
     const patch = assignmentUpdatePayloadFromForm(form);
     try {
-      const payload = await updateProjectAssignment(
-        selectedProjectID,
-        selectedWorkItemID,
-        form.id,
-        patch,
-      );
+      const payload = await updateProjectAssignment(projectID, workItemID, form.id, patch);
+      if (!isCurrent()) return;
       setAssignments((current) => upsertAssignment(current, payload.data));
       setEditingAssignment(null);
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkItemDetail(projectID, workItemID);
+      void refreshProjectOverview(projectID);
     } catch (error) {
+      if (!isCurrent()) return;
       setEditAssignmentError(errorMessage(error, "Failed to update assignment."));
     } finally {
-      setEditAssignmentPending(false);
+      if (isCurrent()) setEditAssignmentPending(false);
     }
   }
 
   async function confirmDeleteAssignment() {
     if (!selectedProjectID || !selectedWorkItemID || !deleteAssignment) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const assignmentID = deleteAssignment.id;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     setDeleteAssignmentPending(true);
     try {
-      await deleteProjectAssignment(selectedProjectID, selectedWorkItemID, deleteAssignment.id);
+      await deleteProjectAssignment(projectID, workItemID, assignmentID);
+      if (!isCurrent()) return;
       setDeleteAssignment(null);
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkItemDetail(projectID, workItemID);
+      void refreshProjectOverview(projectID);
     } finally {
-      setDeleteAssignmentPending(false);
+      if (isCurrent()) setDeleteAssignmentPending(false);
     }
   }
 
   async function handleSaveHandoff(form: HandoffForm) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const handoff = editingHandoff;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     const title = form.title.trim();
     const summary = form.summary.trim();
     const recommendedNextAction = form.recommendedNextAction.trim();
@@ -1392,99 +1751,142 @@ export function ProjectsView({
     setHandoffError("");
     try {
       const res =
-        editingHandoff === "new"
-          ? await createProjectHandoff(selectedProjectID, selectedWorkItemID, payload)
-          : await updateProjectHandoff(selectedProjectID, selectedWorkItemID, form.id, payload);
+        handoff === "new"
+          ? await createProjectHandoff(projectID, workItemID, payload)
+          : await updateProjectHandoff(projectID, workItemID, form.id, payload);
+      if (!isCurrent()) return;
       setHandoffs((current) => upsertHandoff(current, res.data));
       setEditingHandoff(null);
       setNewHandoffDraft(null);
-      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       setHandoffError(errorMessage(error, "Failed to save handoff."));
     } finally {
-      setHandoffPending(false);
+      if (isCurrent()) setHandoffPending(false);
     }
   }
 
   async function handleSaveReviewArtifact(form: ReviewArtifactForm) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     const payload = reviewArtifactPayloadFromForm(form);
     if (!payload.title?.trim() || !payload.body.trim()) return;
     setReviewArtifactPending(true);
     setReviewArtifactError("");
     try {
-      const res = await createProjectCollaborationArtifact(
-        selectedProjectID,
-        selectedWorkItemID,
-        payload,
-      );
+      const res = await createProjectCollaborationArtifact(projectID, workItemID, payload);
+      if (!isCurrent()) return;
       setArtifacts((current) => upsertArtifact(current, res.data));
       setReviewArtifactDraft(null);
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
-      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+      await loadWorkItemDetail(projectID, workItemID);
+      if (!isCurrent()) return;
+      await loadWorkForProject(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       setReviewArtifactError(errorMessage(error, "Failed to save review artifact."));
     } finally {
-      setReviewArtifactPending(false);
+      if (isCurrent()) setReviewArtifactPending(false);
     }
   }
 
   async function handleSaveEvidenceLink(form: EvidenceLinkForm) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     const payload = evidenceLinkPayloadFromForm(form);
     if (!payload.title?.trim() || !payload.body.trim()) return;
     if (!payload.evidence_url?.trim() && !payload.evidence_external_id?.trim()) return;
     setEvidenceLinkPending(true);
     setEvidenceLinkError("");
     try {
-      const res = await createProjectCollaborationArtifact(
-        selectedProjectID,
-        selectedWorkItemID,
-        payload,
-      );
+      const res = await createProjectCollaborationArtifact(projectID, workItemID, payload);
+      if (!isCurrent()) return;
       setArtifacts((current) => upsertArtifact(current, res.data));
       setEvidenceLinkModalOpen(false);
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
-      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+      await loadWorkItemDetail(projectID, workItemID);
+      if (!isCurrent()) return;
+      await loadWorkForProject(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       setEvidenceLinkError(errorMessage(error, "Failed to record evidence."));
     } finally {
-      setEvidenceLinkPending(false);
+      if (isCurrent()) setEvidenceLinkPending(false);
     }
   }
 
   async function handleSetHandoffStatus(handoff: ProjectHandoffRecord, status: string) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     setHandoffActionID(handoff.id);
     setHandoffError("");
     try {
-      const res = await updateProjectHandoffStatus(
-        selectedProjectID,
-        selectedWorkItemID,
-        handoff.id,
-        status,
-      );
+      const res = await updateProjectHandoffStatus(projectID, workItemID, handoff.id, status);
+      if (!isCurrent()) return;
       setHandoffs((current) => upsertHandoff(current, res.data));
-      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       setHandoffError(errorMessage(error, "Failed to update handoff status."));
     } finally {
-      setHandoffActionID("");
+      if (isCurrent()) setHandoffActionID("");
     }
   }
 
   async function handleDeleteHandoff(handoff: ProjectHandoffRecord) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     setHandoffActionID(handoff.id);
     setHandoffError("");
     try {
-      await deleteProjectHandoff(selectedProjectID, selectedWorkItemID, handoff.id);
+      await deleteProjectHandoff(projectID, workItemID, handoff.id);
+      if (!isCurrent()) return;
       setHandoffs((current) => current.filter((item) => item.id !== handoff.id));
-      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       setHandoffError(errorMessage(error, "Failed to delete handoff."));
     } finally {
-      setHandoffActionID("");
+      if (isCurrent()) setHandoffActionID("");
     }
   }
 
@@ -1493,36 +1895,46 @@ export function ProjectsView({
     options: { failureMessage?: string; prefixFailureMessage?: boolean } = {},
   ) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     const roleID = (handoff.target_role_id || "software_developer").trim();
     if (!roleID) return;
-    const targetWorkItemID = (handoff.target_work_item_id || selectedWorkItemID).trim();
+    const targetWorkItemID = (handoff.target_work_item_id || workItemID).trim();
     if (!targetWorkItemID) return;
     const targetRole = roleByID.get(roleID);
     const driverKind = targetRole?.default_driver_kind || "hecate_task";
     setHandoffActionID(handoff.id);
     setHandoffError("");
     try {
-      const assignment = await createProjectAssignment(selectedProjectID, targetWorkItemID, {
+      const assignment = await createProjectAssignment(projectID, targetWorkItemID, {
         role_id: roleID,
         driver_kind: driverKind,
       });
-      if (targetWorkItemID === selectedWorkItemID) {
+      if (!isCurrent()) return;
+      if (targetWorkItemID === workItemID) {
         setAssignments((current) => upsertAssignment(current, assignment.data));
       }
-      const updated = await updateProjectHandoff(
-        selectedProjectID,
-        selectedWorkItemID,
-        handoff.id,
-        {
-          target_assignment_id: assignment.data.id,
-          target_role_id: assignment.data.role_id,
-          status: "accepted",
-        },
-      );
+      const updated = await updateProjectHandoff(projectID, workItemID, handoff.id, {
+        target_assignment_id: assignment.data.id,
+        target_role_id: assignment.data.role_id,
+        status: "accepted",
+      });
+      if (!isCurrent()) return;
       setHandoffs((current) => upsertHandoff(current, updated.data));
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
-      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+      await loadWorkItemDetail(projectID, workItemID);
+      if (!isCurrent()) return;
+      await loadWorkForProject(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       const failureMessage = options.failureMessage || "Failed to create target assignment.";
       const detail = errorMessage(error, failureMessage);
       setHandoffError(
@@ -1531,29 +1943,52 @@ export function ProjectsView({
           : detail,
       );
     } finally {
-      setHandoffActionID("");
+      if (isCurrent()) setHandoffActionID("");
     }
   }
 
   async function handleCreateAssignmentFromReviewArtifact(artifactID: string) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     setArtifactActionID(artifactID);
     setHandoffError("");
     try {
-      await assistant.draftReviewFollowUp(artifactID, selectedWorkItemID);
+      await assistant.draftReviewFollowUp(artifactID, workItemID);
     } finally {
-      setArtifactActionID("");
+      if (isCurrent()) setArtifactActionID("");
     }
   }
 
   async function handleStartHandoff(handoff: ProjectHandoffRecord) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    const projectID = selectedProjectID;
+    const workItemID = selectedWorkItemID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     const assignment = assignments.find((item) => item.id === handoff.target_assignment_id);
     if (!assignment) {
       setHandoffError("Handoff has no loaded target assignment to start.");
       return;
     }
-    await handleStartAssignment(assignment, selectedWorkItemID);
-    if (handoff.status === "pending") {
+    await handleStartAssignment(assignment, workItemID);
+    if (isCurrent() && handoff.status === "pending") {
       await handleSetHandoffStatus(handoff, "accepted");
     }
   }
@@ -1571,33 +2006,49 @@ export function ProjectsView({
     workItemID = selectedWorkItemID,
   ) {
     if (!selectedProjectID || !workItemID) return;
+    const projectID = selectedProjectID;
+    const projectSelectionGeneration = projectSelectionGenerationRef.current;
+    const workSelectionGeneration = workItemSelectionGenerationRef.current;
+    const isCurrent = () =>
+      isCurrentWorkItemMutation(
+        projectID,
+        projectSelectionGeneration,
+        workItemID,
+        workSelectionGeneration,
+      );
     if (startingAssignmentIDsRef.current.has(assignment.id)) return;
     startingAssignmentIDsRef.current.add(assignment.id);
     setStartingAssignmentID(assignment.id);
     setAssignmentErrors((current) => ({ ...current, [assignment.id]: "" }));
     try {
       const res = await startProjectAssignment(
-        selectedProjectID,
+        projectID,
         workItemID,
         assignment.id,
         assignment.driver_kind || "hecate_task",
       );
+      if (!isCurrent()) return;
       setAssignments((current) => upsertAssignment(current, res.data));
       openPreparedExternalAgentChat(res.data, workItemID);
-      await loadWorkForProject(selectedProjectID, workItemID);
-      await loadWorkItemDetail(selectedProjectID, workItemID);
+      await loadWorkForProject(projectID, workItemID);
+      if (!isCurrent()) return;
+      await loadWorkItemDetail(projectID, workItemID);
     } catch (error) {
+      if (!isCurrent()) return;
       setAssignmentErrors((current) => ({
         ...current,
         [assignment.id]: errorMessage(error, "Failed to start assignment."),
       }));
       if (error instanceof ApiError && error.status === 409) {
-        await loadWorkForProject(selectedProjectID, workItemID);
-        await loadWorkItemDetail(selectedProjectID, workItemID);
+        await loadWorkForProject(projectID, workItemID);
+        if (!isCurrent()) return;
+        await loadWorkItemDetail(projectID, workItemID);
       }
     } finally {
-      startingAssignmentIDsRef.current.delete(assignment.id);
-      setStartingAssignmentID("");
+      if (isCurrent()) {
+        startingAssignmentIDsRef.current.delete(assignment.id);
+        setStartingAssignmentID("");
+      }
     }
   }
 
@@ -1634,9 +2085,24 @@ export function ProjectsView({
 
   const hasWorkItemDetail =
     Boolean(selectedWorkItemID) || detailLoadState === "loading" || Boolean(detailError);
+  const projectSetupPending = Boolean(
+    selectedProject &&
+    (loadedProjectID !== selectedProject.id ||
+      (projectSetupReadinessLoadState === "loading" && workItems.length === 0)),
+  );
+  const projectSetupError =
+    selectedProject && workItems.length === 0
+      ? projectSetupReadinessLoadState === "error"
+        ? projectSetupReadinessError
+        : workLoadState === "error" &&
+            (!projectSetupReadiness || projectSetupReadiness.summary.work_item_count === 0)
+          ? workError
+          : ""
+      : "";
   const projectNeedsOnboarding =
     Boolean(selectedProject && projectSetupReadiness?.show_onboarding) &&
     workLoadState === "loaded" &&
+    workItems.length === 0 &&
     !assistant.proposal &&
     !assistant.applyResult;
   const projectEmptyTitle =
@@ -1721,6 +2187,7 @@ export function ProjectsView({
           project={selectedProject}
           onAttentionBucket={(bucket) => {
             setActivityBucket(bucket);
+            setWorkspaceTab("work");
           }}
           onAttentionDefaults={() => {
             setDefaultsError("");
@@ -1896,8 +2363,18 @@ export function ProjectsView({
             onOperationAction={handleOperationsBriefAction}
             onOpenTask={onOpenTask}
             onPromoteCandidate={setPromotingCandidate}
-            onRefreshMemory={() => void loadProjectMemory(selectedProjectID)}
-            onRefreshProjectSkills={() => void loadProjectSkills(selectedProjectID)}
+            onRefreshMemory={() => {
+              void (async () => {
+                await loadProjectMemory(selectedProjectID);
+                await refreshProjectOverview(selectedProjectID);
+              })();
+            }}
+            onRefreshProjectSkills={() => {
+              void (async () => {
+                await loadProjectSkills(selectedProjectID);
+                await refreshProjectOverview(selectedProjectID);
+              })();
+            }}
             onRefreshWorkItem={refreshSelectedWorkItem}
             onRejectCandidate={handleRejectCandidate}
             onSelectWorkItem={setSelectedWorkItemID}
@@ -1911,7 +2388,10 @@ export function ProjectsView({
             projectEmptyDetail={projectEmptyDetail}
             projectEmptyTitle={projectEmptyTitle}
             projectNeedsOnboarding={projectNeedsOnboarding}
+            projectSetupError={projectSetupError}
+            projectSetupPending={projectSetupPending}
             projectSetupReadiness={projectSetupReadiness}
+            overviewError={overviewProjectionError}
             operationsBrief={operationsBrief}
             operationsBriefError={operationsBriefError}
             operationsBriefLoadState={operationsBriefLoadState}
@@ -2421,7 +2901,7 @@ function ProjectHeader({
 }) {
   const workspace = project ? projectDefaultWorkspace(project) : "";
   const subline = project
-    ? `${workspace || "No default root"}${project.default_model ? ` · ${project.default_model}` : ""}`
+    ? `${workspace || "No local files attached"}${project.default_model ? ` · ${project.default_model}` : ""}`
     : "";
   return (
     <div style={projectInlineHeaderStyle}>

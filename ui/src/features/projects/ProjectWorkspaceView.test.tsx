@@ -332,7 +332,10 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     projectEmptyDetail: "Choose a project.",
     projectEmptyTitle: "No project selected",
     projectNeedsOnboarding: false,
+    projectSetupError: "",
+    projectSetupPending: false,
     projectSetupReadiness: null,
+    overviewError: "",
     operationsBrief: null,
     operationsBriefError: "",
     operationsBriefLoadState: "idle",
@@ -370,7 +373,9 @@ describe("ProjectWorkspaceView", () => {
       projectSetupReadiness: setupReadiness(),
     });
 
-    expect(screen.getByText("Set up Console")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Set up Console" })).toHaveStyle({
+      margin: "8px 0px 0px",
+    });
     expect(screen.getByText("Workspace source")).toBeTruthy();
     expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
     expect(screen.getByText("optional")).toBeTruthy();
@@ -424,6 +429,8 @@ describe("ProjectWorkspaceView", () => {
 
     expect(screen.queryByText("Assistant panel")).toBeNull();
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { level: 1, name: "Project Overview" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Project workspace content" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("tab", { name: /Work/ }));
     await userEvent.click(screen.getByRole("tab", { name: /Timeline/ }));
@@ -504,6 +511,7 @@ describe("ProjectWorkspaceView", () => {
     });
 
     const operations = screen.getByRole("region", { name: "Project operations" });
+    expect(within(operations).getByRole("status")).toHaveAttribute("aria-busy", "false");
     expect(within(operations).getByText("Review queued assignment: Build cockpit UI")).toBeTruthy();
     await userEvent.click(within(operations).getByRole("button", { name: /Review start/ }));
     expect(handlers.onOperationAction).toHaveBeenCalledWith(operationItem);
@@ -513,16 +521,73 @@ describe("ProjectWorkspaceView", () => {
     renderWorkspace({ operationsBriefLoadState: "loading", workLoadState: "loading" });
 
     const overview = screen.getByRole("region", { name: "Project overview" });
-    expect(within(overview).getByText("Loading operations...")).toBeTruthy();
+    const operationsStatus = within(overview).getByRole("status");
+    expect(operationsStatus).toHaveAttribute("aria-live", "polite");
+    expect(operationsStatus).toHaveAttribute("aria-atomic", "true");
+    expect(operationsStatus).toHaveAttribute("aria-busy", "true");
+    expect(within(overview).getByText("Loading operations…")).toBeTruthy();
     expect(
       within(overview).getByText(
         "Checking project work, memory candidates, handoffs, and launch defaults.",
       ),
     ).toBeTruthy();
-    expect(within(overview).getByText("Loading activity...")).toBeTruthy();
+    expect(within(overview).getByText("Loading activity…")).toBeTruthy();
     expect(within(overview).getByText("Checking project work and assignment status.")).toBeTruthy();
     expect(within(overview).queryByText("No project work yet")).toBeNull();
     expect(within(overview).queryByText(/Create a work item/)).toBeNull();
+    expect(within(overview).queryByRole("button", { name: /Blocked/ })).toBeNull();
+  });
+
+  it("holds the guided shell while project setup is still loading", () => {
+    renderWorkspace({ projectSetupPending: true, workLoadState: "loading" });
+
+    const loading = screen.getByRole("region", { name: "Project setup loading" });
+    expect(loading).toHaveAttribute("aria-busy", "true");
+    expect(within(loading).getByRole("status")).toHaveTextContent("Loading project…");
+    expect(within(loading).getByText("Loading project…")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Overview" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Project onboarding" })).toBeNull();
+  });
+
+  it("fails closed with a retry when project setup status is unavailable", async () => {
+    const { handlers } = renderWorkspace({
+      projectSetupError: "Failed to load project setup status.",
+    });
+
+    const unavailable = screen.getByRole("region", { name: "Project setup unavailable" });
+    expect(within(unavailable).getByRole("alert")).toHaveTextContent(
+      "Failed to load project setup status.",
+    );
+    expect(screen.queryByRole("tab", { name: "Overview" })).toBeNull();
+
+    await userEvent.click(within(unavailable).getByRole("button", { name: "Retry" }));
+    expect(handlers.onRefreshWorkItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces a failed overview projection refresh", () => {
+    renderWorkspace({
+      overviewError: "Project coordination status could not be refreshed.",
+      workItems: [workItem()],
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Project coordination status could not be refreshed.",
+    );
+  });
+
+  it("distinguishes an overview load failure from an empty project", () => {
+    renderWorkspace({
+      workError: "Project coordination is temporarily unavailable.",
+      workLoadState: "error",
+    });
+
+    const overview = screen.getByRole("region", { name: "Project overview" });
+    expect(within(overview).getByText("Activity unavailable")).toBeTruthy();
+    expect(within(overview).getByText("Refresh project work to try again.")).toBeTruthy();
+    expect(
+      within(overview).getByText("Project coordination is temporarily unavailable."),
+    ).toBeTruthy();
+    expect(within(overview).queryByText("No project work yet")).toBeNull();
     expect(within(overview).queryByRole("button", { name: /Blocked/ })).toBeNull();
   });
 
@@ -582,7 +647,9 @@ describe("ProjectWorkspaceView", () => {
     });
 
     const resume = screen.getByRole("region", { name: "Project activity summary" });
-    expect(within(resume).getByText("0 active · 1 blocked · 0 completed")).toBeTruthy();
+    expect(
+      within(resume).getByText("Assignments: 0 active · 1 blocked · 0 completed"),
+    ).toBeTruthy();
 
     await userEvent.click(within(resume).getByRole("button", { name: /Blocked/ }));
     await userEvent.click(within(resume).getByRole("button", { name: /Recent/ }));
@@ -642,7 +709,9 @@ describe("ProjectWorkspaceView", () => {
     });
 
     let resume = screen.getByRole("region", { name: "Project activity summary" });
-    expect(within(resume).getByText("1 active · 0 blocked · 0 completed")).toBeTruthy();
+    expect(
+      within(resume).getByText("Assignments: 1 active · 0 blocked · 0 completed"),
+    ).toBeTruthy();
 
     await userEvent.click(within(resume).getByRole("button", { name: "View work" }));
     expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
@@ -710,7 +779,9 @@ describe("ProjectWorkspaceView", () => {
     });
 
     const summary = screen.getByRole("region", { name: "Project activity summary" });
-    expect(within(summary).getByText("0 active · 0 blocked · 1 completed")).toBeTruthy();
+    expect(
+      within(summary).getByText("Assignments: 0 active · 0 blocked · 1 completed"),
+    ).toBeTruthy();
     expect(within(summary).queryByRole("button", { name: /Completed/ })).toBeNull();
     expect(within(summary).queryByRole("button", { name: /View work/ })).toHaveClass("btn-ghost");
   });
