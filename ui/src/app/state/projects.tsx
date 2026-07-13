@@ -110,17 +110,26 @@ export function ProjectsProvider({
     [activeProjectID, state.projects],
   );
 
-  const setProjects = useCallback(
-    (next: SetStateAction<ProjectRecord[]>) => dispatch({ type: "projects/set", next }),
-    [],
-  );
+  const activeProjectIDRef = useRef(activeProjectID);
+  // A catalog GET may finish after a Cairnline-backed mutation. Only
+  // let a snapshot captured after the latest mutation replace the list.
+  const projectsMutationSequenceRef = useRef(0);
+  const loadProjectsInFlightRef = useRef<Promise<void> | null>(null);
+
+  const setProjects = useCallback((next: SetStateAction<ProjectRecord[]>) => {
+    projectsMutationSequenceRef.current += 1;
+    dispatch({ type: "projects/set", next });
+  }, []);
   const setLoading = useCallback((value: boolean) => dispatch({ type: "loading/set", value }), []);
   const setError = useCallback((value: string) => dispatch({ type: "error/set", value }), []);
   const setActiveProjectID = useCallback(
-    (id: string) => setActiveProjectIDState(opaqueRecordID(id)),
+    (id: string) => {
+      const nextID = opaqueRecordID(id);
+      activeProjectIDRef.current = nextID;
+      setActiveProjectIDState(nextID);
+    },
     [setActiveProjectIDState],
   );
-  const loadProjectsInFlightRef = useRef<Promise<void> | null>(null);
 
   const loadProjects = useCallback(() => {
     if (loadProjectsInFlightRef.current) return loadProjectsInFlightRef.current;
@@ -128,13 +137,19 @@ export function ProjectsProvider({
       dispatch({ type: "error/set", value: "" });
       dispatch({ type: "loading/set", value: true });
       try {
-        const payload = await getProjectsRequest();
+        let mutationSequence = projectsMutationSequenceRef.current;
+        let payload = await getProjectsRequest();
+        while (mutationSequence !== projectsMutationSequenceRef.current) {
+          mutationSequence = projectsMutationSequenceRef.current;
+          payload = await getProjectsRequest();
+        }
         const items = payload.data ?? [];
         dispatch({ type: "projects/set", next: items });
         dispatch({ type: "loaded/set", value: true });
         dispatch({ type: "error/set", value: "" });
-        if (activeProjectID && !items.some((item) => item.id === activeProjectID)) {
-          setActiveProjectIDState("");
+        const currentActiveProjectID = activeProjectIDRef.current;
+        if (currentActiveProjectID && !items.some((item) => item.id === currentActiveProjectID)) {
+          setActiveProjectID("");
         }
       } catch (error) {
         dispatch({
@@ -152,19 +167,19 @@ export function ProjectsProvider({
       }
     });
     return request;
-  }, [activeProjectID, setActiveProjectIDState]);
+  }, [setActiveProjectID]);
 
   const selectProject = useCallback(
     async (id: string) => {
       const nextID = opaqueRecordID(id);
-      setActiveProjectIDState(nextID);
+      setActiveProjectID(nextID);
       dispatch({ type: "error/set", value: "" });
       if (!nextID) return;
       try {
         const payload = await updateProjectRequest(nextID, {
           last_opened_at: new Date().toISOString(),
         });
-        dispatch({ type: "projects/set", next: (current) => upsertProject(current, payload.data) });
+        setProjects((current) => upsertProject(current, payload.data));
       } catch (error) {
         dispatch({
           type: "error/set",
@@ -172,7 +187,7 @@ export function ProjectsProvider({
         });
       }
     },
-    [setActiveProjectIDState],
+    [setActiveProjectID, setProjects],
   );
 
   const createProject = useCallback(
@@ -186,8 +201,8 @@ export function ProjectsProvider({
           name,
           description: payload.description?.trim() || undefined,
         });
-        dispatch({ type: "projects/set", next: (current) => upsertProject(current, created.data) });
-        setActiveProjectIDState(created.data.id);
+        setProjects((current) => upsertProject(current, created.data));
+        setActiveProjectID(created.data.id);
         return created.data;
       } catch (error) {
         dispatch({
@@ -197,24 +212,27 @@ export function ProjectsProvider({
         return null;
       }
     },
-    [setActiveProjectIDState],
+    [setActiveProjectID, setProjects],
   );
 
-  const renameProject = useCallback(async (id: string, name: string) => {
-    const projectID = opaqueRecordID(id);
-    const nextName = name.trim();
-    if (!projectID || !nextName) return;
-    dispatch({ type: "error/set", value: "" });
-    try {
-      const payload = await updateProjectRequest(projectID, { name: nextName });
-      dispatch({ type: "projects/set", next: (current) => upsertProject(current, payload.data) });
-    } catch (error) {
-      dispatch({
-        type: "error/set",
-        value: error instanceof Error ? error.message : "Failed to rename project.",
-      });
-    }
-  }, []);
+  const renameProject = useCallback(
+    async (id: string, name: string) => {
+      const projectID = opaqueRecordID(id);
+      const nextName = name.trim();
+      if (!projectID || !nextName) return;
+      dispatch({ type: "error/set", value: "" });
+      try {
+        const payload = await updateProjectRequest(projectID, { name: nextName });
+        setProjects((current) => upsertProject(current, payload.data));
+      } catch (error) {
+        dispatch({
+          type: "error/set",
+          value: error instanceof Error ? error.message : "Failed to rename project.",
+        });
+      }
+    },
+    [setProjects],
+  );
 
   const deleteProject = useCallback(
     async (id: string): Promise<ProjectDeleteRecord | null> => {
@@ -223,12 +241,9 @@ export function ProjectsProvider({
       dispatch({ type: "error/set", value: "" });
       try {
         const payload = await deleteProjectRequest(projectID);
-        dispatch({
-          type: "projects/set",
-          next: (current) => current.filter((project) => project.id !== projectID),
-        });
-        if (activeProjectID === projectID) {
-          setActiveProjectIDState("");
+        setProjects((current) => current.filter((project) => project.id !== projectID));
+        if (activeProjectIDRef.current === projectID) {
+          setActiveProjectID("");
         }
         return payload.data;
       } catch (error) {
@@ -239,7 +254,7 @@ export function ProjectsProvider({
         return null;
       }
     },
-    [activeProjectID, setActiveProjectIDState],
+    [setActiveProjectID, setProjects],
   );
 
   const actions = useMemo<ProjectsActions>(

@@ -134,6 +134,74 @@ describe("ProjectsProvider", () => {
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
 
+  it("refetches a catalog snapshot that races with creating and selecting a project", async () => {
+    const createdProject = { ...project, id: "proj_created", name: "Created while loading" };
+    let resolveInitialLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const initialLoad = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      resolveInitialLoad = resolve;
+    });
+    vi.mocked(getProjects)
+      .mockReturnValueOnce(initialLoad)
+      .mockResolvedValueOnce({ object: "projects", data: [project, createdProject] });
+    vi.mocked(createProject).mockResolvedValue({ object: "project", data: createdProject });
+    window.localStorage.setItem("hecate.project", project.id);
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project] }}>{children}</ProjectsProvider>
+      ),
+    });
+
+    let loadPromise!: Promise<void>;
+    act(() => {
+      loadPromise = result.current.actions.loadProjects();
+    });
+    await act(async () => {
+      await result.current.actions.createProject({ name: createdProject.name });
+    });
+    expect(result.current.activeProjectID).toBe(createdProject.id);
+
+    resolveInitialLoad({ object: "projects", data: [project] });
+    await act(async () => {
+      await loadPromise;
+    });
+
+    expect(getProjects).toHaveBeenCalledTimes(2);
+    expect(result.current.state.projects).toEqual([project, createdProject]);
+    expect(result.current.activeProjectID).toBe(createdProject.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(createdProject.id);
+  });
+
+  it("validates the current selection when a catalog load finishes", async () => {
+    const priorProject = { ...project, id: "proj_prior", name: "Prior selection" };
+    let resolveLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects).mockReturnValue(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    window.localStorage.setItem("hecate.project", priorProject.id);
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [priorProject, project] }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let loadPromise!: Promise<void>;
+    act(() => {
+      loadPromise = result.current.actions.loadProjects();
+      result.current.actions.setActiveProjectID(project.id);
+    });
+    resolveLoad({ object: "projects", data: [project] });
+    await act(async () => {
+      await loadPromise;
+    });
+
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+  });
+
   it("treats selecting No project as a first-class context", async () => {
     window.localStorage.setItem("hecate.project", project.id);
     const { result } = renderHook(() => useProjects(), { wrapper });
