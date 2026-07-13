@@ -62,7 +62,7 @@ func (g agentLoopApprovalGate) isGated(call types.ToolCall, task types.Task) boo
 	// Hard policy refusals run before approval semantics. Asking an operator
 	// to approve a call that the dispatcher must still refuse is misleading,
 	// and would turn a fail-closed decision into an unnecessary pause.
-	if agentPresetBlocksNativeNetwork(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
+	if agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
 		return false
 	}
 	if _, ok := g.gatedTools[toolName]; ok {

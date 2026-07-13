@@ -34,6 +34,25 @@ func TestAgentLoopConversation_FreshRunBuildsPreludeAndStableArtifactID(t *testi
 	}
 }
 
+func TestAgentLoopConversation_ToolsDisabledPreludeDoesNotEncourageToolCalls(t *testing.T) {
+	t.Parallel()
+	toolsEnabled := false
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = "/workspace/run"
+	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
+
+	conversation := newAgentLoopConversation(spec)
+	messages := conversation.Messages()
+	if len(messages) < 1 || !strings.Contains(messages[0].Content, "Tools are disabled by the resolved agent preset") {
+		t.Fatalf("environment system message = %+v, want tools-disabled guidance", messages)
+	}
+	for _, unexpected := range []string{"/workspace/run", "when calling tools", "`shell_exec`", "`read_file`"} {
+		if strings.Contains(messages[0].Content, unexpected) {
+			t.Fatalf("environment system message = %q, must not encourage %q", messages[0].Content, unexpected)
+		}
+	}
+}
+
 func TestAgentLoopConversation_ResumePendingToolCallsClearAfterToolResult(t *testing.T) {
 	saved := []types.Message{
 		{Role: "user", Content: "inspect"},

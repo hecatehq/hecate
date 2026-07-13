@@ -420,6 +420,8 @@ Terminal shell lifecycle marker.
 Emitted when Hecate deliberately refuses a tool call without contacting its
 execution target. Current producers are:
 
+- any native or namespaced MCP call returned for a task whose Agent Preset
+  snapshot explicitly disables tools (`policy=agent_preset_tools`);
 - a native `http_request` or `web_search` call returned by an upstream even
   though its Agent Preset snapshot disables network;
 - a broad native process, direct-write, or terminal call returned for a

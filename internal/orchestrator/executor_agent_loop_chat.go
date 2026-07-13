@@ -22,7 +22,7 @@ func (e *AgentLoopExecutor) runLLMTurn(ctx context.Context, spec ExecutionSpec, 
 
 	resp, err := e.chatTurn(ctx, spec, conversation.ArtifactID(), messages, turn, req)
 	if err != nil {
-		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, llmTurnErrorMessage(spec, turn, err))
+		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, llmTurnErrorMessage(spec, turn, len(tools) > 0, err))
 		return agentLoopLLMTurn{}, runState.attachAccounting(failed), ferr
 	}
 	runState.RecordRoute(resp)
@@ -75,9 +75,9 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	}
 }
 
-func llmTurnErrorMessage(spec ExecutionSpec, turn int, err error) string {
+func llmTurnErrorMessage(spec ExecutionSpec, turn int, toolsRequired bool, err error) string {
 	message := fmt.Sprintf("LLM call failed on turn %d: %v", turn, err)
-	if !isModelLacksToolsError(err) {
+	if !toolsRequired || !isModelLacksToolsError(err) {
 		return message
 	}
 	return fmt.Sprintf("LLM call failed on turn %d: model %q does not support tool-calling, which agent_loop requires. Pick a tool-capable model (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen2.5-coder for Ollama). Underlying error: %v", turn, spec.Run.Model, err)

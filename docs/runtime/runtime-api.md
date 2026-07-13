@@ -185,9 +185,11 @@ Task responses also include `work_item_id`, `assignment_id`, and
 are inspection links and a launch-time preset reference; they do not replace
 the task's generic `origin_kind` / `origin_id` fields. The effective preset
 posture is snapshotted onto ordinary task fields (`sandbox_read_only`,
-`sandbox_network`, provider/model hints, execution profile, and system prompt),
+`sandbox_network`, provider/model hints, execution profile, and system prompt)
+plus the output-only optional `agent_preset_tools_enabled` field,
 so retries and resumes do not change when the preset is later edited or
-deleted.
+deleted. An omitted tools snapshot identifies a legacy/manual task whose prior
+catalog behavior is preserved; explicit `false` is an all-tools denial.
 
 `execution_profile` applies task-create defaults:
 
@@ -1639,6 +1641,15 @@ marks this native-network policy as present, preserving the prior behavior of
 legacy and manually created tasks whose zero-valued sandbox flag did not govern
 native HTTP/search.
 
+For native project assignments, `tools_enabled` is snapshotted as the task's
+output-only `agent_preset_tools_enabled` field. Explicit `false` keeps the
+assignment as a supervised `agent_loop` Task/Run but sends an empty native/MCP
+catalog, starts no MCP host, and rejects every unexpected tool call before
+approval or dispatch. The runtime emits a denied policy step and
+`policy.tool_blocked` with `policy=agent_preset_tools`, then lets the model
+finish from supplied context. Older tasks without this snapshot keep
+their prior catalog behavior.
+
 When `writes_allowed=false`, Hecate also omits `shell_exec`, `git_exec`,
 `file_write`, and all interactive terminal tools, and rejects an unexpected
 call before spawning a process. Structured read/search/Git inspection remains
@@ -1658,10 +1669,10 @@ read-only policy.
 External Agent CLIs remain trusted subprocesses, so their write/network posture
 is visible launch metadata rather than a Hecate sandbox guarantee.
 
-`tools_enabled` and preset `approval_policy` remain resolved posture metadata
-in this alpha contract. Built-in task-tool approvals continue to be governed
-by `HECATE_TASK_APPROVAL_POLICIES`, and per-MCP-server policy remains governed
-by each task's `mcp_servers[].approval_policy`; a preset never weakens either
+Preset `approval_policy` remains resolved posture metadata in this alpha
+contract. Built-in task-tool approvals continue to be governed by
+`HECATE_TASK_APPROVAL_POLICIES`, and per-MCP-server policy remains governed by
+each task's `mcp_servers[].approval_policy`; a preset never weakens either
 operator policy.
 
 For native project assignments, `project_memory_policy=include`
@@ -3433,7 +3444,8 @@ creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
 task response also exposes `work_item_id`, `assignment_id`, and
 `agent_preset_id` for direct inspection. It snapshots the preset's effective
-write/network posture into `sandbox_read_only` and `sandbox_network`, and the
+tools posture into `agent_preset_tools_enabled` and write/network posture into
+`sandbox_read_only` and `sandbox_network`, and the
 created run snapshots `project_id`, `work_item_id`, and `assignment_id`
 directly on the run payload. The
 task title, prompt, and system prompt are composed from a visible launch-context

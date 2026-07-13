@@ -183,7 +183,7 @@ Expected output: two JSON-RPC responses on stdout (initialize result + tools lis
 
 > The other half of the MCP integration: external MCP servers as tool sources for `agent_loop` tasks. The section above (Hecate as MCP server) is independent — read either standalone.
 
-An `agent_loop` task configures one or more external MCP servers, the agent loop brings them up at run start, and their tools become callable by the LLM alongside Hecate's built-ins (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`, and optional `web_search`).
+An `agent_loop` task configures one or more external MCP servers, the agent loop brings them up at run start, and their tools become callable by the LLM alongside Hecate's built-ins (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`, and optional `web_search`). A native project assignment whose launch snapshot has `agent_preset_tools_enabled=false` is the master exception: Hecate starts no MCP host, sends an empty tool catalog, and rejects unexpected namespaced calls before contacting a server.
 
 A server vending tool `read_file` under the operator-chosen alias `filesystem` shows up to the LLM as `mcp__filesystem__read_file`. The double-underscore is the namespace separator; the LLM picks the namespaced name and Hecate routes the call back to the right upstream.
 
@@ -207,7 +207,7 @@ POST /hecate/v1/tasks
 }
 ```
 
-`name` is the operator-chosen alias used to namespace the server's tools. Each server entry produces one MCP client; the agent loop hands the LLM a merged tool catalog (built-ins + every server's tools) on every turn.
+`name` is the operator-chosen alias used to namespace the server's tools. When task tool policy allows tools, each server entry produces one MCP client and the agent loop hands the LLM a merged catalog (built-ins + every server's tools) on every turn. When tools are disabled, no client starts and the catalog is empty.
 
 The same shape is reachable from the UI under "New task → Agent loop → MCP SERVERS → Add MCP server".
 

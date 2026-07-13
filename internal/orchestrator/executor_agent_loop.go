@@ -216,9 +216,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 	// dies when this run finishes — long-lived per-task pooling is a
 	// follow-up. We fail fast rather than silently running without
 	// the configured tools: the operator asked for those tools to be
-	// available, so a half-configured run is the wrong default.
+	// available, so a half-configured run is the wrong default. An explicit
+	// tools-disabled preset is different: its master policy intentionally skips
+	// every MCP host even if the stored task also carries server config.
 	var mcpHost AgentMCPHost
-	if len(spec.Task.MCPServers) > 0 {
+	if !agentPresetDisablesTools(spec.Task) && len(spec.Task.MCPServers) > 0 {
 		if e.mcpFactory == nil {
 			return e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), time.Now().UTC(),
 				"task configured mcp_servers but no MCP host factory is wired; this gateway build does not support external MCP servers")
@@ -794,6 +796,9 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 }
 
 func agentToolDefinitionsForTask(task types.Task, opts agentToolDefinitionOptions) []types.Tool {
+	if agentPresetDisablesTools(task) {
+		return nil
+	}
 	tools := agentToolDefinitionsWithOptions(opts)
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {
@@ -803,6 +808,10 @@ func agentToolDefinitionsForTask(task types.Task, opts agentToolDefinitionOption
 		filtered = append(filtered, tool)
 	}
 	return filtered
+}
+
+func agentPresetDisablesTools(task types.Task) bool {
+	return task.AgentPresetToolsEnabled != nil && !*task.AgentPresetToolsEnabled
 }
 
 type shellExecArgs struct {

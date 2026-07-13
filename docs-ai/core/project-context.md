@@ -72,14 +72,18 @@ task and External Agent dispatch, approvals, sandbox and workspace operations,
 runtime references, context snapshots, traces, and the operator shell.
 Assignment launch and preflight therefore combine Cairnline coordination state
 with Hecate runtime policy. The shared launch-plan seam validates preset surface
-compatibility; native assignment tasks snapshot the preset id and enforce its
-write/network posture through task sandbox fields. Preset-backed native
+compatibility; native assignment tasks snapshot the preset id and tools posture
+and enforce write/network posture through task sandbox fields. A tools-disabled
+snapshot runs as a supervised model-only task: it exposes no native, Project
+Assistant, or MCP tools, starts no MCP host, and rejects unexpected calls before
+dispatch. Preset-backed native
 HTTP/search tools fail closed when that snapshot disables network access;
 read-only tasks omit and reject broad shell, Git, file-write, and interactive
 terminal surfaces while retaining structured inspection and proposal-only
-edits. Legacy/manual tasks without a preset snapshot keep their prior native
-network-tool behavior, so do not infer preset policy from a zero-valued sandbox
-flag. Persist
+edits. Legacy/manual tasks without a tools snapshot keep their prior tool
+behavior, and tasks without a preset snapshot keep their prior native
+network-tool behavior, so do not infer policy from an absent snapshot or a
+zero-valued sandbox flag. Persist
 task/run or chat-session references in the Hecate project-runtime overlay,
 while assignment lifecycle state remains in Cairnline. Linked External Agent
 reconciliation follows the same split.

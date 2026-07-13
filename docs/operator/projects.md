@@ -110,14 +110,15 @@ Preset surface is part of readiness: a native Hecate Task assignment accepts
 presets for `hecate_task` or `any`, while an External Agent assignment accepts
 `external_agent` or `any`. A mismatch blocks launch instead of treating the
 preset as a loose hint. For native assignments, Hecate also turns the selected
-preset's write/network posture into the created task's sandbox policy. After
-launch, Task Detail shows the snapshotted preset id, effective file access, and
-network state in **Run overview**. Editing the preset later does not change an
-existing task's retries or resumes. Read-only assignment tasks keep structured
+preset's tools/write/network posture into the created task's runtime policy.
+After launch, Task Detail shows the snapshotted preset id, effective tools,
+file access, and network state in **Run overview**. Editing the preset later
+does not change an existing task's retries or resumes. Read-only assignment tasks keep structured
 inspection and proposal-only patch tools, but Hecate omits and rejects broad
 shell, Git, direct-write, and interactive-terminal tools. A network-disabled
 preset snapshot similarly omits and rejects native HTTP/search without changing
-legacy or manually created task behavior.
+legacy or manually created task behavior. A tools-disabled snapshot exposes no
+native or MCP catalog, starts no MCP host, and denies any unexpected tool call.
 
 External Agent CLIs remain trusted local subprocesses. Their preset
 write/network fields are visible launch posture, not a Hecate sandbox around

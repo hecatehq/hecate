@@ -119,7 +119,7 @@ sequenceDiagram
     participant Store
     Runner->>Agent: Execute
     Agent->>Store: load saved conversation if resume
-    Note over Agent,Tools: tool catalog = built-ins + every mcp_servers entry's tool list
+    Note over Agent,Tools: Tools-off preset snapshots send an empty catalog and skip MCP startup while other tasks use filtered built-ins with configured MCP tools
     loop turn cycle
         Agent->>LLM: Chat with messages and tool schemas
         LLM-->>Agent: assistant message
@@ -147,7 +147,7 @@ Three things bound the loop:
 
 ## Built-in tools
 
-The agent gets eighteen tools by default. None require operator config beyond
+The agent gets up to eighteen tools by default. None require operator config beyond
 the approval policies; `http_request` reads the network policy from env.
 When `HECATE_TASK_WEB_SEARCH_PROVIDER` is `brave`, `tavily`, or `exa` and an API
 key is configured, the agent gets one additional built-in web-search tool.
@@ -179,6 +179,20 @@ proposal-only tool.
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
 
+For a project-assignment task carrying an explicit
+`agent_preset_tools_enabled=false` snapshot, that setting is the master tool
+gate. Hecate sends an empty catalog, does not start configured MCP hosts, and
+keeps the execution as a normal supervised Task/Run so context, route, cost,
+events, and the final answer remain inspectable. If an upstream nevertheless
+returns a native or namespaced MCP call, Hecate bypasses approval, records a
+denied policy step, emits `policy.tool_blocked` with
+`policy=agent_preset_tools`, and returns a tool error without dispatch. A
+missing snapshot preserves the catalog behavior of legacy and manually created
+tasks.
+
+The machine-generated system message states that tools are unavailable but
+omits the absolute workspace path because a model-only turn cannot use it.
+
 For a task carrying an `agent_preset_id` launch snapshot, `sandbox_network` is
 the master gate for Hecate-native egress. When false, `http_request` and
 `web_search` are omitted from the model request. If an upstream still returns
@@ -188,8 +202,9 @@ HTTP/search provider. Legacy and manually created tasks without a preset
 snapshot retain the pre-existing native HTTP/search behavior; setting their
 process-network bit is not silently reinterpreted as a new native-tool policy.
 When preset network is enabled, global approval and host/private-IP policies
-still apply. External MCP servers are separately configured trusted tool
-sources and keep their own per-server approval policy.
+still apply. When the master tools gate is enabled, external MCP servers are
+separately configured trusted tool sources and keep their own per-server
+approval policy.
 
 When `sandbox_read_only=true`, the agent loop removes broad subprocess and
 interactive surfaces that cannot provide a hard read-only workspace guarantee:
@@ -330,9 +345,10 @@ workspace-instruction bodies. Host-specific guidance files and `SKILL.md` bodies
 remain metadata-only for this path. If the selected route is a cloud provider,
 included project memory and workspace-instruction bodies are sent to that
 provider as normal task prompt content. The task also snapshots the resolved
-preset id, maps `writes_allowed=false` to `sandbox_read_only=true`, and maps
-`network_allowed` to `sandbox_network`; retries and resumes reuse that task
-snapshot rather than resolving a mutable preset again.
+preset id and `tools_enabled`, maps `writes_allowed=false` to
+`sandbox_read_only=true`, and maps `network_allowed` to `sandbox_network`;
+retries and resumes reuse that task snapshot rather than resolving a mutable
+preset again.
 
 Project-linked Hecate Chat uses a separate bounded project prelude in the chat
 system prompt. It may include project identity, root metadata, role hints,
@@ -447,6 +463,6 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no `task.RequestedModel` set. No run is created. Fix: set `requested_model` on the task.
 - **`escapes allowed root`** — the LLM picked a path outside the workspace. The env system message normally prevents this; if you see it, check that `task.WorkingDirectory` matches what the model is using, or switch to `workspace_mode=in_place` to align them.
 - **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`).
-- **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent; native Tasks still require a tool-capable model.
+- **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent. Native Tasks require a tool-capable model when their effective catalog is non-empty; preset-backed model-only tasks send no tools.
 - **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was exceeded across the run + prior chain. Raise the ceiling and resume to continue.
 - **`agent loop hit maxTurns=N without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_TURNS`, narrow the prompt, or resume to give it more turns.

@@ -23,6 +23,11 @@ type Task struct {
 	// snapshotted onto the task's execution and sandbox fields so later
 	// preset edits cannot change retries or resumes.
 	AgentPresetID string
+	// AgentPresetToolsEnabled snapshots whether the resolved Agent Preset
+	// permits tools for this task. nil marks legacy/manual tasks that predate
+	// the snapshot and preserves their existing tool behavior; false is an
+	// explicit all-tools denial for new preset-backed assignments.
+	AgentPresetToolsEnabled *bool `json:",omitempty"`
 	// SystemPrompt is the per-task agent system prompt. When set, it
 	// becomes the narrowest layer in the composition: global default →
 	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest

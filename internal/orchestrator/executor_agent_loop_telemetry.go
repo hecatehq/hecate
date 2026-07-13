@@ -13,6 +13,7 @@ func (d *agentLoopToolDispatcher) recordMCPCallTelemetry(
 	toolCallID, toolName, server, tool, result string,
 	durationMS int64,
 	errMsg string,
+	policy string,
 ) {
 	if d.metrics != nil {
 		d.metrics.RecordMCPToolCall(ctx, telemetry.MCPToolCallRecord{
@@ -52,7 +53,7 @@ func (d *agentLoopToolDispatcher) recordMCPCallTelemetry(
 		"duration_ms":  durationMS,
 	}
 	if eventType == telemetry.EventMCPToolBlocked {
-		data["policy"] = "mcp_approval_policy"
+		data["policy"] = policy
 		data["reason"] = errMsg
 	}
 	if errMsg != "" {

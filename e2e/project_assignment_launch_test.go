@@ -17,7 +17,7 @@ func TestProjectAssignmentPreflightStartLaunchPlanE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalize temp dir: %v", err)
 	}
-	upstream, _ := fakeAgentLoopToolCallingUpstream(t)
+	upstream, captured := fakeAgentLoopToolCallingUpstream(t)
 	baseURL := gatewayServer(t,
 		"HECATE_BACKEND=sqlite",
 		"HECATE_TASK_APPROVAL_POLICIES=",
@@ -40,10 +40,22 @@ func TestProjectAssignmentPreflightStartLaunchPlanE2E(t *testing.T) {
 	if projectID == "" {
 		t.Fatal("created project id is empty")
 	}
+	preset := postJSONDecodeStatus[e2eAgentPresetResponse](t, baseURL+"/hecate/v1/agent-presets", `{
+		"id": "preset_model_only",
+		"name": "Model-only reviewer",
+		"surface": "hecate_task",
+		"tools_enabled": false,
+		"writes_allowed": false,
+		"network_allowed": false
+	}`, http.StatusCreated)
+	if preset.Data.ID != "preset_model_only" || preset.Data.ToolsEnabled {
+		t.Fatalf("agent preset = %+v, want tools-disabled preset_model_only", preset.Data)
+	}
 	postJSONDecodeStatus[e2eProjectWorkRoleResponse](t, baseURL+"/hecate/v1/projects/"+projectID+"/roles", `{
 		"id": "role_launch",
 		"name": "Launch engineer",
-		"default_driver_kind": "hecate_task"
+		"default_driver_kind": "hecate_task",
+		"default_agent_profile": "preset_model_only"
 	}`, http.StatusCreated)
 	postJSONDecodeStatus[e2eProjectWorkItemResponse](t, baseURL+"/hecate/v1/projects/"+projectID+"/work-items", `{
 		"id": "work_launch",
@@ -73,6 +85,43 @@ func TestProjectAssignmentPreflightStartLaunchPlanE2E(t *testing.T) {
 	}
 	if run.Provider != "fake" || run.ProviderKind != "local" || run.Model != agentLoopE2EModel {
 		t.Fatalf("run route = provider %q kind %q model %q, want fake/local/%s", run.Provider, run.ProviderKind, run.Model, agentLoopE2EModel)
+	}
+	task := getJSON[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks/"+ref.TaskID)
+	if task.Data.AgentPresetToolsEnabled == nil || *task.Data.AgentPresetToolsEnabled {
+		t.Fatalf("task tools snapshot = %v, want explicit false", task.Data.AgentPresetToolsEnabled)
+	}
+	steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/steps")
+	foundDeniedShell := false
+	for _, step := range steps.Data {
+		if step.ToolName == "shell_exec" && step.ErrorKind == "agent_preset_policy_denied" && step.OutputSummary["policy"] == "agent_preset_tools" {
+			foundDeniedShell = true
+		}
+	}
+	if !foundDeniedShell {
+		t.Fatalf("steps = %+v, want denied shell_exec policy step", steps.Data)
+	}
+	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/events")
+	foundPolicyEvent := false
+	for _, event := range events.Data {
+		if event.Type == "policy.tool_blocked" && event.Data["tool_name"] == "shell_exec" && event.Data["policy"] == "agent_preset_tools" {
+			foundPolicyEvent = true
+		}
+	}
+	if !foundPolicyEvent {
+		t.Fatalf("events = %+v, want agent_preset_tools block", events.Data)
+	}
+	bodies := capturedBodies(captured)
+	if len(bodies) != 2 {
+		t.Fatalf("upstream chat requests = %d, want 2: %+v", len(bodies), bodies)
+	}
+	if tools, ok := bodies[0]["tools"]; ok {
+		t.Fatalf("first upstream tools = %+v, want field omitted", tools)
+	}
+	if requestAdvertisedTool(bodies[0], "shell_exec") {
+		t.Fatalf("first upstream request advertised shell_exec: %+v", bodies[0])
+	}
+	if !requestHasToolResult(bodies[1], "call-shell-e2e", "tools are disabled by the resolved agent preset") {
+		t.Fatalf("second upstream request missing policy-denied result: %+v", bodies[1])
 	}
 
 	context := getJSON[e2eProjectLaunchContextResponse](t, baseURL+"/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context")
@@ -150,4 +199,11 @@ type e2eProjectLaunchContextRefs struct {
 	TaskID       string `json:"task_id,omitempty"`
 	RunID        string `json:"run_id,omitempty"`
 	SessionID    string `json:"session_id,omitempty"`
+}
+
+type e2eAgentPresetResponse struct {
+	Data struct {
+		ID           string `json:"id"`
+		ToolsEnabled bool   `json:"tools_enabled"`
+	} `json:"data"`
 }

@@ -749,6 +749,9 @@ export function TaskDetail({
                   ...(task.agent_preset_id
                     ? [
                         ["Agent preset", task.agent_preset_id],
+                        ...(task.agent_preset_tools_enabled !== undefined
+                          ? [["Tools", task.agent_preset_tools_enabled ? "Enabled" : "Disabled"]]
+                          : []),
                         ["File access", task.sandbox_read_only ? "Read-only" : "Writes allowed"],
                         ["Network", task.sandbox_network ? "Network enabled" : "Network blocked"],
                       ]

@@ -108,7 +108,9 @@ func TestAgentLoopApprovalGate_NoGatedToolsDoesNotPause(t *testing.T) {
 
 func TestAgentLoopApprovalGate_HardNativePolicyBlocksDoNotPauseForApproval(t *testing.T) {
 	spec := newAgentLoopSpec(t)
+	toolsEnabled := false
 	spec.Task.AgentPresetID = "review_qa"
+	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
 	spec.Task.SandboxReadOnly = true
 	gate := newAgentLoopApprovalGate([]string{
 		AgentToolHTTPRequest,
@@ -128,6 +130,7 @@ func TestAgentLoopApprovalGate_HardNativePolicyBlocksDoNotPauseForApproval(t *te
 		agentLoopToolCall("call-edit", "file_edit", `{"propose":false}`),
 		agentLoopToolCall("call-patch", "apply_patch", `{"propose":false}`),
 		agentLoopToolCall("call-terminal", AgentToolTerminalOpen, `{}`),
+		agentLoopToolCall("call-mcp", "mcp__github__create_issue", `{}`),
 	}); ok {
 		t.Fatal("Evaluate() ok = true, want hard policy blocks dispatched as denied without approval pause")
 	}

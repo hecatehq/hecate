@@ -632,6 +632,7 @@ func renderTaskItem(task types.Task) TaskItem {
 		WorkItemID:                  task.WorkItemID,
 		AssignmentID:                task.AssignmentID,
 		AgentPresetID:               task.AgentPresetID,
+		AgentPresetToolsEnabled:     task.AgentPresetToolsEnabled,
 		SystemPrompt:                task.SystemPrompt,
 		WorkspaceSystemPromptPolicy: task.WorkspaceSystemPromptPolicy,
 		ExecutionProfile:            task.ExecutionProfile,
