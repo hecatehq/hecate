@@ -1,8 +1,9 @@
 # Projects Cockpit UX
 
 > **Status:** Proposal with the overview-first, work-item execution,
-> assignment-destination, follow-through, and supporting-surface hierarchy
-> and shareable-navigation slices implemented.
+> assignment-destination, follow-through, supporting-surface hierarchy, and
+> shareable-navigation slices implemented. The Overview-hosted guided-start
+> slice is also implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -54,6 +55,10 @@ Concrete issues from the current UI and browser behavior:
 - Workspace, project, tab, and work-item selection lived outside the browser
   address, so reload, Back/Forward, and a copied link could not reliably return
   the operator to the same work.
+- New-project setup begins on Overview but proposal review and first-work
+  creation move into Work. Setup readiness, Project Operations, Project
+  Assistant results, and the Work header can consequently offer several
+  competing first-work actions after reload or proposal apply.
 
 Existing strengths stay intact: rootless creation is first-class, setup and
 assistant changes remain reviewable, launch preflight is explicit, evidence is
@@ -75,18 +80,25 @@ operator-controlled.
 ```mermaid
 flowchart LR
   P["Projects index"] --> G{"Project state"}
-  G -->|"New or incomplete"| O["Guided setup"]
-  G -->|"Ready"| V["Overview · default"]
+  G -->|"Zero work"| O["Overview · guided start"]
+  G -->|"Work exists"| V["Overview · default"]
+  O --> GS{"Server-backed state"}
+  GS -->|"New · rooted"| SU["Set up project"]
+  GS -->|"Rootless · no setup inputs"| FW["Create first work"]
+  GS -->|"Proposal"| PR["Review and apply"]
+  GS -->|"Setup started"| FW["Create first work"]
+  FW --> WI["Exact work item"]
   V --> N["Single best next action"]
   V --> S["Activity snapshot"]
   N --> W["Work"]
   S --> W
-  W --> D["Selected work item"]
-  D --> F["Single follow-through action"]
+  W --> SW["Selected work item"]
+  WI --> SW
+  SW --> F["Single follow-through action"]
   F --> X["Assignment execution stories"]
-  F --> R["Evidence · review · handoff · closeout"]
-  R --> C["Explicit closeout confirmation"]
-  C --> Q["Read-only completed record"]
+  F --> CR["Evidence · review · handoff · closeout"]
+  CR --> CC["Explicit closeout confirmation"]
+  CC --> RC["Read-only completed record"]
   V --> T["Timeline"]
   V --> M["Memory"]
   V --> K["Skills"]
@@ -109,11 +121,14 @@ flowchart TD
   B --> C{"Needs local files?"}
   C -->|"No"| D["Rootless project"]
   C -->|"Yes"| E["Attach workspace"]
-  D --> F["Guided setup"]
-  E --> F
-  F --> G["Overview"]
+  D --> FW["Review and create first work"]
+  E --> F["Guided start on Overview"]
+  F --> FS["Set up project"]
+  FS --> FR["Review and apply setup proposal"]
+  FR --> FW
+  FW --> G["Overview"]
   G --> H["Take the recommended action"]
-  H --> I["Create or open work"]
+  H --> I["Open work"]
   I --> U["Copy the browser address when exact context matters"]
   U --> V["Reload, share, or return with Back/Forward"]
   V --> I
@@ -153,8 +168,12 @@ flowchart TD
    skills, context, and runtime detail; make Settings responsive and preserve
    exact launch semantics; add shareable project/work navigation and
    broader accessibility coverage.
+6. **Overview-hosted guided start:** keep setup readiness, bootstrap proposal
+   review/apply, and first-work creation on Overview with one primary action at
+   a time. Keep root optional, use existing typed readiness and mutation
+   contracts, and return to the normal cockpit only after work exists.
 
-Slices 1 through 5 are implemented. Slice 1 rearranges existing server
+Slices 1 through 6 are implemented. Slice 1 rearranges existing server
 projections and action routing. Slice 2 reshapes each assignment into a
 state-driven story. Slice 3 adds Human as a faithful facade label for
 Cairnline's `manual` execution mode, with direct Start work, Resume work, and
@@ -179,6 +198,52 @@ missing records stay explicit instead of falling through to another project or
 work item.
 None of the slices add local project lifecycle state or inferred execution
 events.
+
+## Overview-Hosted Guided Start
+
+The guided-start rail owns Overview only while the selected project has no work
+items. It renders one primary action from existing server and Project Assistant
+state:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Checking
+  Checking --> Unavailable: readiness failed
+  Checking --> NewProject: primary bootstrap_project
+  Checking --> ReviewSetup: proposal restored or drafted
+  Checking --> FirstWork: primary create_work_item or first_work_ready
+  Unavailable --> Checking: Retry
+  NewProject --> ReviewSetup: Set up project
+  NewProject --> FirstWork: typed no-input outcome · Create first work instead
+  NewProject --> NewProject: other setup failure · Retry
+  ReviewSetup --> NewProject: Dismiss
+  ReviewSetup --> FirstWork: Apply setup
+  FirstWork --> WorkItem: Create first work
+  WorkItem --> [*]
+```
+
+**Set up project**, **Apply setup**, and **Create first work** are never
+co-primary. Project Settings, context inspection, memory review, role review,
+setup refresh, and proposal dismissal remain supporting actions. During setup
+proposal review, the existing explicit apply boundary remains unchanged; after
+setup, first-work creation still opens an editable form and writes only after
+the operator submits it.
+
+Rootless projects use the same rail. The workspace check remains optional and
+does not receive a fake path, repository, or Git state. When a new project has
+no active workspace or local setup inputs, Hecate's Cairnline-backed readiness
+projection returns typed **Create first work** as the primary action; the browser
+does not infer a skip state or invent a local record. Provider, model, Agent
+Preset, workspace, and runtime
+requirements are evaluated later when an execution-backed assignment needs
+them, not as prerequisites for creating planning or Human work.
+
+The UI consumes Hecate's existing facade, which reads and mutates the embedded
+Cairnline graph. It may validate that an action targets the selected project
+and that current loaded work is still empty, but it must not recompute
+`show_onboarding`, `setup_started`, `first_work_ready`, checklist status, or a
+portable work item. Successful first-work creation uses Cairnline's returned
+record, refreshes projections, and navigates to that exact identifier.
 
 ## Shareable Navigation
 
@@ -309,6 +374,16 @@ address, loads no unrelated detail, and leaves the valid Work queue available.
 
 ![Exact linked work item at narrow width](../../screenshots/projects-navigation-work-narrow.jpg)
 
+The guided-start slice includes deterministic desktop and narrow reference
+captures for the Overview-hosted first-work-ready state:
+
+![Guided start at desktop width](../../screenshots/projects-guided-start.jpg)
+
+![Guided start at narrow width](../../screenshots/projects-guided-start-narrow.jpg)
+
+Regenerate both images from `ui/` with
+`HECATE_CAPTURE_PROJECTS_GUIDED_START=1 bunx playwright test e2e/projects.spec.ts -g "Projects guided start"`.
+
 ![Read-first project memory at desktop width](../../screenshots/projects-memory.jpg)
 
 ![Project Settings at narrow width](../../screenshots/projects-settings-narrow.jpg)
@@ -356,6 +431,10 @@ from `ui/`.
 
 - Cairnline remains the sole portable coordination authority. The UI uses only
   Hecate's facade and never reconstructs portable state.
+- Guided start treats `show_onboarding`, `setup_started`, `first_work_ready`,
+  checklist status, and typed setup actions as server-owned projections. The UI
+  does not persist or infer another setup phase, and it never applies setup or
+  creates first work without the operator's explicit action.
 - The URL records presentation intent only. It may name a workspace, project
   view, and work item, but it never creates portable state, proves that a record
   exists, grants runtime permission, or substitutes for Cairnline validation.

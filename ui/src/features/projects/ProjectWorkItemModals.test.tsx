@@ -94,6 +94,47 @@ describe("ProjectWorkItemModals", () => {
     });
   });
 
+  it("blocks duplicate submission and dismissal while creation is pending", () => {
+    const onClose = vi.fn();
+    const onCreate = vi.fn();
+
+    const { rerender } = render(
+      <NewWorkItemModal
+        error=""
+        initialDraft={{ title: "Pending work" }}
+        pending
+        project={project({ roots: [] })}
+        roles={[]}
+        onClose={onClose}
+        onCreate={onCreate}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "New work item" });
+    const form = screen.getByLabelText("Title").closest("form");
+    expect(form).toHaveAttribute("aria-busy", "true");
+    fireEvent.submit(form!);
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
+    expect(dialog).toBeTruthy();
+
+    rerender(
+      <NewWorkItemModal
+        error="Creation failed."
+        initialDraft={{ title: "Pending work" }}
+        pending={false}
+        project={project({ roots: [] })}
+        roles={[]}
+        onClose={onClose}
+        onCreate={onCreate}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Create work item" })).toHaveFocus();
+  });
+
   it("edits work item metadata including reviewer roles", async () => {
     const onSave = vi.fn();
 

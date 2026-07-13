@@ -2849,7 +2849,7 @@ candidates, and work items.
       {
         "id": "first_work_item",
         "label": "First work item",
-        "detail": "Create the first reviewable task after setup.",
+        "detail": "Create the first reviewable work item.",
         "status": "todo",
         "action": {
           "type": "create_work_item",
@@ -2866,6 +2866,9 @@ Known setup action types are `bootstrap_project`, `create_work_item`, and
 `open_project_settings`. Clients should dispatch on `action.type` and validate
 `project_id` before routing the operator. A stale or unsupported action should
 surface a refresh error rather than performing a guessed fallback.
+For a zero-work project, `primary_action` is `create_work_item` when setup is
+already ready or when no active workspace can provide local setup inputs;
+otherwise it is `bootstrap_project`.
 
 #### `GET /hecate/v1/projects/{id}/operations/brief`
 
@@ -3840,6 +3843,12 @@ Endpoints:
 - `POST /hecate/v1/project-assistant/apply`
 - `GET /hecate/v1/project-assistant/proposals/{id}`
 - `POST /hecate/v1/chat/sessions/{id}/project-assistant/draft`
+
+A bootstrap `draft` with no eligible workspace-guidance sources or available
+project skills returns `422 project_setup_no_inputs`. Clients may offer the
+server-provided first-work action as the recovery for that typed outcome. Other
+draft failures retain their normal error type and should not be interpreted as
+permission to replace the server-owned setup primary action.
 
 `GET /hecate/v1/project-assistant/proposals/{id}` returns the durable proposal
 record for reload/recovery flows: typed proposal, project/source metadata,

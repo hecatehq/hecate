@@ -175,6 +175,7 @@ function assistant() {
     applyResult: null,
     bootstrap: vi.fn(),
     bootstrapPending: false,
+    bootstrapRecoveryAvailable: false,
     context: null,
     contextError: "",
     contextStatus: "idle",
@@ -206,9 +207,9 @@ function setupReadiness(overrides: Partial<ProjectSetupReadiness> = {}): Project
       missing_defaults: true,
     },
     primary_action: {
-      type: "bootstrap_project",
+      type: "create_work_item",
       project_id: "proj_1",
-      label: "Set up project",
+      label: "Create first work",
     },
     checks: [
       {
@@ -265,7 +266,7 @@ function setupReadiness(overrides: Partial<ProjectSetupReadiness> = {}): Project
       {
         id: "first_work_item",
         label: "First work item",
-        detail: "Create the first reviewable task after setup.",
+        detail: "Create the first reviewable work item.",
         status: "todo",
         action: {
           type: "create_work_item",
@@ -275,6 +276,32 @@ function setupReadiness(overrides: Partial<ProjectSetupReadiness> = {}): Project
       },
     ],
     ...overrides,
+  };
+}
+
+function rootedSetupReadiness(): ProjectSetupReadiness {
+  const readiness = setupReadiness();
+  return {
+    ...readiness,
+    summary: {
+      ...readiness.summary,
+      has_active_root: true,
+    },
+    primary_action: {
+      type: "bootstrap_project",
+      project_id: "proj_1",
+      label: "Set up project",
+    },
+    checks: readiness.checks.map((check) =>
+      check.id === "workspace_source"
+        ? {
+            ...check,
+            detail: "/workspace/console",
+            optional: false,
+            status: "ready",
+          }
+        : check,
+    ),
   };
 }
 
@@ -412,68 +439,177 @@ describe("ProjectWorkspaceView", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("renders onboarding and delegates setup actions", async () => {
+  it("renders one guided onboarding action with supporting setup details", async () => {
     const { handlers } = renderWorkspace({
       project: project({ name: "Console" }),
       projectNeedsOnboarding: true,
-      projectSetupReadiness: setupReadiness(),
+      projectSetupReadiness: rootedSetupReadiness(),
     });
 
     expect(screen.getByRole("heading", { level: 1, name: "Set up Console" })).toHaveStyle({
       margin: "8px 0px 0px",
     });
-    expect(screen.getByText("Workspace source")).toBeTruthy();
-    expect(screen.getByText("Optional; attach files when this project needs them.")).toBeTruthy();
-    expect(screen.getByText("optional")).toBeTruthy();
-
     const onboarding = screen.getByRole("region", {
       name: "Project onboarding",
     });
-    await userEvent.click(
-      within(onboarding).getByRole("button", {
-        name: "Add purpose: Project purpose",
-      }),
+    expect(within(onboarding).getByRole("button", { name: "Set up project" })).toHaveClass(
+      "btn-primary",
     );
-    await userEvent.click(
-      within(onboarding).getByRole("button", {
-        name: "Set defaults: Provider and model",
-      }),
-    );
-    expect(screen.queryByRole("button", { name: "Review setup" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set up" })).toBeNull();
-    const firstWorkCheck = screen.getByRole("group", {
-      name: "First work item",
-    });
-    await userEvent.click(
-      within(firstWorkCheck).getByRole("button", {
-        name: "Create work: First work item",
-      }),
-    );
+    expect(
+      within(onboarding).getByText("Setup details").closest("summary")?.closest("details"),
+    ).not.toHaveAttribute("open");
     await userEvent.click(within(onboarding).getByRole("button", { name: "Set up project" }));
+
+    await userEvent.click(within(onboarding).getByText("Setup details"));
+    expect(screen.getByText("Workspace source")).toBeTruthy();
+    expect(screen.getByText("/workspace/console")).toBeTruthy();
+    const createWork = within(onboarding).getByRole("button", {
+      name: "Create work: First work item",
+    });
+    expect(createWork).toHaveClass("btn-ghost");
+    await userEvent.click(createWork);
     await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
 
-    expect(handlers.onSetupReadinessAction).toHaveBeenCalledTimes(4);
+    expect(handlers.onSetupReadinessAction).toHaveBeenCalledTimes(2);
     expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(1, {
-      type: "open_project_settings",
-      project_id: "proj_1",
-      label: "Add purpose",
-    });
-    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(2, {
-      type: "open_project_settings",
-      project_id: "proj_1",
-      label: "Set defaults",
-    });
-    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(3, {
-      type: "create_work_item",
-      project_id: "proj_1",
-      label: "Create work",
-    });
-    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(4, {
       type: "bootstrap_project",
       project_id: "proj_1",
       label: "Set up project",
     });
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(2, {
+      type: "create_work_item",
+      project_id: "proj_1",
+      label: "Create work",
+    });
     expect(handlers.onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a rootless project with the server-backed first-work action", async () => {
+    const { handlers } = renderWorkspace({
+      project: project({ name: "Research notes" }),
+      projectNeedsOnboarding: true,
+      projectSetupReadiness: setupReadiness(),
+    });
+
+    const onboarding = screen.getByRole("region", { name: "Project onboarding" });
+    expect(
+      within(onboarding).getByRole("heading", { name: "Create the first work item" }),
+    ).toBeTruthy();
+    expect(
+      within(onboarding).getByText(
+        "This project can start without local setup. Add files, sources, roles, and runtime defaults when the work needs them.",
+      ),
+    ).toBeTruthy();
+    const createWork = within(onboarding).getByRole("button", { name: "Create first work" });
+    expect(createWork).toHaveClass("btn-primary");
+
+    await userEvent.click(within(onboarding).getByText("Setup details"));
+    expect(
+      within(onboarding).queryByRole("button", { name: "Create work: First work item" }),
+    ).toBeNull();
+    await userEvent.click(createWork);
+
+    expect(handlers.onSetupReadinessAction).toHaveBeenCalledOnce();
+    expect(handlers.onSetupReadinessAction).toHaveBeenCalledWith({
+      type: "create_work_item",
+      project_id: "proj_1",
+      label: "Create first work",
+    });
+  });
+
+  it("keeps retry primary for an unknown setup failure and surfaces first work", async () => {
+    const { handlers } = renderWorkspace({
+      assistant: {
+        ...assistant(),
+        error: "Project setup could not reach the discovery service.",
+      },
+      projectNeedsOnboarding: true,
+      projectSetupReadiness: rootedSetupReadiness(),
+    });
+
+    const onboarding = screen.getByRole("region", { name: "Project onboarding" });
+    expect(within(onboarding).getByRole("alert")).toHaveTextContent(
+      "Project setup could not reach the discovery service.",
+    );
+    expect(
+      within(onboarding).getByText(
+        "Setup did not complete. Retry setup, or start coordinating work without it.",
+      ),
+    ).toBeTruthy();
+    const retrySetup = within(onboarding).getByRole("button", { name: "Retry setup" });
+    expect(retrySetup).toHaveClass("btn-primary");
+    const createWorkInstead = within(onboarding).getByRole("button", {
+      name: "Create first work instead",
+    });
+    expect(createWorkInstead).toHaveClass("btn-ghost");
+    await userEvent.click(within(onboarding).getByText("Setup details"));
+    expect(within(onboarding).getAllByRole("button", { name: /create.*work/i })).toHaveLength(1);
+
+    await userEvent.click(retrySetup);
+    expect(retrySetup).toHaveFocus();
+    await userEvent.click(createWorkInstead);
+
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(1, {
+      type: "bootstrap_project",
+      project_id: "proj_1",
+      label: "Set up project",
+    });
+    expect(handlers.onSetupReadinessAction).toHaveBeenNthCalledWith(2, {
+      type: "create_work_item",
+      project_id: "proj_1",
+      label: "Create work",
+    });
+  });
+
+  it("promotes first work only for the typed no-input setup outcome", async () => {
+    const { handlers } = renderWorkspace({
+      assistant: {
+        ...assistant(),
+        bootstrapRecoveryAvailable: true,
+        error: "No enabled guidance sources or local skill files were found.",
+      },
+      projectNeedsOnboarding: true,
+      projectSetupReadiness: rootedSetupReadiness(),
+    });
+
+    const onboarding = screen.getByRole("region", { name: "Project onboarding" });
+    expect(
+      within(onboarding).getByText(
+        "Setup found no guidance or skills to apply. Start coordinating work now, or add setup inputs and retry.",
+      ),
+    ).toBeTruthy();
+    const createWork = within(onboarding).getByRole("button", {
+      name: "Create first work instead",
+    });
+    expect(createWork).toHaveClass("btn-primary");
+    const retrySetup = within(onboarding).getByRole("button", { name: "Retry setup" });
+    expect(retrySetup).toHaveClass("btn-ghost");
+
+    await userEvent.click(retrySetup);
+
+    expect(createWork).toHaveFocus();
+    expect(handlers.onSetupReadinessAction).toHaveBeenCalledWith({
+      type: "bootstrap_project",
+      project_id: "proj_1",
+      label: "Set up project",
+    });
+  });
+
+  it("uses ready-state overview guidance after setup is applied", () => {
+    renderWorkspace({
+      projectSetupReadiness: setupReadiness({
+        first_work_ready: true,
+        setup_started: true,
+        show_onboarding: false,
+      }),
+    });
+
+    expect(
+      screen.getByText("Create the first reviewable work item to begin coordinating progress."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Finish setup and create the first reviewable work item."),
+    ).toBeNull();
   });
 
   it("renders workspace tabs and delegates tab changes", async () => {

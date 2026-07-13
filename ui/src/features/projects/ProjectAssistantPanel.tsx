@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 import type {
   ProjectAssistantApplyResult,
@@ -50,9 +50,10 @@ type Props = {
   primaryEmphasis?: boolean;
   roles: ProjectWorkRoleRecord[];
   bootstrapPending: boolean;
+  firstWorkReady?: boolean;
+  guidedPrimaryActionRef?: RefObject<HTMLButtonElement | null>;
   memoryCandidateCount?: number;
   roleCount?: number;
-  setupStarted?: boolean;
   setupFirst?: boolean;
   status: ProjectAssistantStatus;
   workItem: ProjectWorkItemRecord | null;
@@ -87,9 +88,10 @@ export function ProjectAssistantPanel({
   primaryEmphasis = true,
   roles,
   bootstrapPending,
+  firstWorkReady = false,
+  guidedPrimaryActionRef,
   memoryCandidateCount = 0,
   roleCount = roles.length,
-  setupStarted = false,
   setupFirst = false,
   status,
   workItem,
@@ -114,15 +116,15 @@ export function ProjectAssistantPanel({
   const contextBusy = contextStatus === "loading";
   const bootstrapBusy = bootstrapPending || busy;
   const panelDetail = setupFirst
-    ? "Setup and first-work planning"
+    ? "Guided setup and first work"
     : workItem
       ? `Selected work: ${workItem.title}`
       : "Project queue";
   const modelDraftAvailable = Boolean(project.default_model?.trim());
   const bootstrapForm = projectAssistantBootstrapForm();
   const showSetupRow = setupFirst && !proposal && !applyResult;
-  const showBootstrapAction = setupFirst && !setupStarted && !proposal && !applyResult;
-  const showSetupRefreshAction = setupFirst && setupStarted && !proposal && !applyResult;
+  const showBootstrapAction = setupFirst && !firstWorkReady && !proposal && !applyResult;
+  const showSetupRefreshAction = setupFirst && firstWorkReady && !proposal && !applyResult;
   const setupSummary = projectAssistantSetupSummary({
     memoryCandidateCount,
     roleCount,
@@ -132,10 +134,10 @@ export function ProjectAssistantPanel({
   return (
     <section style={assistantPanelStyle} aria-label="Project Assistant">
       <MiniSectionHeader
-        title="Project Assistant"
+        title={setupFirst ? "Guided start" : "Project Assistant"}
         detail={panelDetail}
         action={
-          proposal || applyResult ? (
+          applyResult || (proposal && !setupFirst) ? (
             <button
               className="btn btn-ghost btn-sm"
               type="button"
@@ -150,21 +152,50 @@ export function ProjectAssistantPanel({
       />
       {showSetupRow && (
         <div style={assistantOnboardingStyle} aria-label="Project onboarding">
-          <div style={assistantOnboardingCopyStyle}>
-            <div style={sectionLabelStyle}>Project setup</div>
-            <div style={setupPromptTitleStyle}>
-              {setupStarted ? "Setup ready" : "Set up project context"}
+          <div style={assistantOnboardingMainStyle}>
+            <div style={assistantOnboardingCopyStyle}>
+              <div style={sectionLabelStyle}>Next step</div>
+              <div style={setupPromptTitleStyle}>
+                {firstWorkReady ? "Ready for first work" : "Set up project context"}
+              </div>
+              <div style={{ ...subtleTextStyle, marginTop: 4 }}>
+                {firstWorkReady
+                  ? `${setupSummary}. Create a reviewable work item to start coordinating.`
+                  : bootstrapPending
+                    ? "Finding guidance and skills, then preparing changes for your review."
+                    : "Find guidance and skills, suggest roles, and prepare setup changes for review."}
+              </div>
             </div>
-            <div style={{ ...subtleTextStyle, marginTop: 4 }}>
-              {setupStarted
-                ? `${setupSummary}. Create the first reviewable work item, review setup output, or refresh setup when guidance changes.`
-                : bootstrapPending
-                  ? "Discovering guidance and skills, then preparing a reviewable setup proposal."
-                  : "Discover guidance and skills, suggest roles, and prepare setup actions for review."}
+            <div style={assistantOnboardingActionsStyle}>
+              {firstWorkReady && workItemCount === 0 && onCreateWork && (
+                <button
+                  ref={guidedPrimaryActionRef}
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  disabled={bootstrapBusy || contextBusy}
+                  onClick={onCreateWork}
+                >
+                  <Icon d={Icons.plus} size={13} />
+                  Create first work
+                </button>
+              )}
+              {showBootstrapAction && (
+                <button
+                  ref={guidedPrimaryActionRef}
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  disabled={bootstrapBusy || contextBusy}
+                  onClick={onBootstrap}
+                >
+                  <Icon d={Icons.refresh} size={14} />
+                  {bootstrapPending ? "Preparing setup…" : "Set up project"}
+                </button>
+              )}
             </div>
           </div>
-          <div style={assistantOnboardingActionsStyle}>
-            {setupFirst && (
+          <details style={assistantSetupDetailsStyle}>
+            <summary style={assistantSetupSummaryStyle}>Setup details</summary>
+            <div style={assistantSetupDetailsBodyStyle}>
               <button
                 className="btn btn-ghost btn-sm"
                 type="button"
@@ -174,63 +205,41 @@ export function ProjectAssistantPanel({
                 <Icon d={Icons.eye} size={13} />
                 {contextBusy ? "Inspecting..." : "Inspect context"}
               </button>
-            )}
-            {setupStarted && memoryCandidateCount > 0 && onReviewMemory && (
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                disabled={bootstrapBusy || contextBusy}
-                onClick={onReviewMemory}
-              >
-                <Icon d={Icons.observe} size={13} />
-                Review memory
-              </button>
-            )}
-            {setupStarted && roleCount > 0 && onManageRoles && (
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                disabled={bootstrapBusy || contextBusy}
-                onClick={onManageRoles}
-              >
-                <Icon d={Icons.user} size={13} />
-                Review roles
-              </button>
-            )}
-            {setupStarted && workItemCount === 0 && onCreateWork && (
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                disabled={bootstrapBusy || contextBusy}
-                onClick={onCreateWork}
-              >
-                <Icon d={Icons.plus} size={13} />
-                Create first work
-              </button>
-            )}
-            {showBootstrapAction && (
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                disabled={bootstrapBusy || contextBusy}
-                onClick={onBootstrap}
-              >
-                <Icon d={Icons.refresh} size={14} />
-                {bootstrapPending ? "Setting up..." : "Set up project"}
-              </button>
-            )}
-            {showSetupRefreshAction && (
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                disabled={bootstrapBusy || contextBusy}
-                onClick={onBootstrap}
-              >
-                <Icon d={Icons.refresh} size={13} />
-                {bootstrapPending ? "Refreshing..." : "Refresh setup"}
-              </button>
-            )}
-          </div>
+              {firstWorkReady && memoryCandidateCount > 0 && onReviewMemory && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={bootstrapBusy || contextBusy}
+                  onClick={onReviewMemory}
+                >
+                  <Icon d={Icons.observe} size={13} />
+                  Review memory
+                </button>
+              )}
+              {firstWorkReady && roleCount > 0 && onManageRoles && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={bootstrapBusy || contextBusy}
+                  onClick={onManageRoles}
+                >
+                  <Icon d={Icons.user} size={13} />
+                  Review roles
+                </button>
+              )}
+              {showSetupRefreshAction && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={bootstrapBusy || contextBusy}
+                  onClick={onBootstrap}
+                >
+                  <Icon d={Icons.refresh} size={13} />
+                  {bootstrapPending ? "Refreshing..." : "Refresh setup"}
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       )}
       {!setupFirst && (
@@ -374,7 +383,7 @@ export function ProjectAssistantPanel({
         <div style={assistantProposalStyle}>
           <div style={assistantProposalHeaderStyle}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={titleStyle}>{proposal.title}</div>
+              <div style={titleStyle}>{setupFirst ? "Review setup" : proposal.title}</div>
               {proposal.summary && (
                 <div style={assistantProposalSummaryStyle}>{proposal.summary}</div>
               )}
@@ -386,18 +395,6 @@ export function ProjectAssistantPanel({
               {proposal.actions.length} action{proposal.actions.length === 1 ? "" : "s"}
             </span>
           </div>
-          {proposal.trace_id && (
-            <div style={metaLineStyle}>
-              <span>Trace</span>
-              <CopyableID text={proposal.trace_id} compact />
-            </div>
-          )}
-          {chatDraftSource && (
-            <ProjectAssistantChatDraftSourcePanel
-              source={chatDraftSource}
-              onOpenChat={onOpenSourceChat}
-            />
-          )}
           {proposal.warnings && proposal.warnings.length > 0 && (
             <div style={assistantWarningsStyle}>
               {proposal.warnings.map((warning) => (
@@ -405,11 +402,29 @@ export function ProjectAssistantPanel({
               ))}
             </div>
           )}
-          <div style={assistantActionListStyle}>
-            {proposal.actions.map((action, index) => (
-              <ProjectAssistantActionRow key={`${action.kind}-${index}`} action={action} />
-            ))}
-          </div>
+          <details style={assistantProposalDetailsStyle}>
+            <summary style={assistantProposalDetailsSummaryStyle}>Review proposed changes</summary>
+            <div style={assistantProposalDetailsBodyStyle}>
+              <div style={subtleTextStyle}>{proposal.title}</div>
+              {proposal.trace_id && (
+                <div style={metaLineStyle}>
+                  <span>Trace</span>
+                  <CopyableID text={proposal.trace_id} compact />
+                </div>
+              )}
+              {chatDraftSource && (
+                <ProjectAssistantChatDraftSourcePanel
+                  source={chatDraftSource}
+                  onOpenChat={onOpenSourceChat}
+                />
+              )}
+              <div style={assistantActionListStyle}>
+                {proposal.actions.map((action, index) => (
+                  <ProjectAssistantActionRow key={`${action.kind}-${index}`} action={action} />
+                ))}
+              </div>
+            </div>
+          </details>
           <div style={assistantProposalActionsStyle}>
             <button
               className="btn btn-ghost btn-sm"
@@ -418,16 +433,23 @@ export function ProjectAssistantPanel({
               onClick={onDismiss}
             >
               <Icon d={Icons.x} size={12} />
-              Dismiss proposal
+              {setupFirst ? "Dismiss setup" : "Dismiss proposal"}
             </button>
             <button
+              ref={setupFirst ? guidedPrimaryActionRef : undefined}
               className="btn btn-primary btn-sm"
               type="button"
               disabled={status === "applying"}
               onClick={onApply}
             >
               <Icon d={Icons.check} size={12} />
-              {status === "applying" ? "Applying..." : "Apply proposal"}
+              {status === "applying"
+                ? setupFirst
+                  ? "Applying setup…"
+                  : "Applying..."
+                : setupFirst
+                  ? "Apply setup"
+                  : "Apply proposal"}
             </button>
           </div>
         </div>
@@ -442,6 +464,7 @@ export function ProjectAssistantPanel({
           onReviewMemory={onReviewMemory}
           roleCount={roleCount}
           setupFirst={setupFirst}
+          guidedPrimaryActionRef={guidedPrimaryActionRef}
           workItemCount={workItemCount}
         />
       )}
@@ -450,6 +473,7 @@ export function ProjectAssistantPanel({
 }
 
 function ProjectAssistantApplyResultPanel({
+  guidedPrimaryActionRef,
   memoryCandidateCount,
   onCreateWork,
   onManageRoles,
@@ -460,6 +484,7 @@ function ProjectAssistantApplyResultPanel({
   setupFirst,
   workItemCount,
 }: {
+  guidedPrimaryActionRef?: RefObject<HTMLButtonElement | null>;
   memoryCandidateCount: number;
   onCreateWork?: () => void;
   onManageRoles?: () => void;
@@ -479,10 +504,17 @@ function ProjectAssistantApplyResultPanel({
     onReviewMemory,
     result,
     roleCount,
-    setupFirst,
     workItemCount,
   });
-  const resultSummaryActions = resultActions.filter((action) => action.includeInSummary !== false);
+  const resultPrimaryActions = setupFirst
+    ? resultActions.filter((action) => action.primary)
+    : resultActions;
+  const resultSupportingActions = setupFirst
+    ? resultActions.filter((action) => !action.primary)
+    : [];
+  const resultSummaryActions = resultPrimaryActions.filter(
+    (action) => action.includeInSummary !== false,
+  );
 
   return (
     <div style={assistantResultStyle} role="status" aria-label="Project Assistant apply result">
@@ -492,22 +524,27 @@ function ProjectAssistantApplyResultPanel({
           <strong style={{ color: "var(--t1)" }}>
             Applied {appliedCount} action{appliedCount === 1 ? "" : "s"}
           </strong>
-          <span style={subtleTextStyle}>Proposal {result.proposal_id} is applied.</span>
+          <span style={subtleTextStyle}>
+            {setupFirst
+              ? "Setup changes are applied."
+              : `Proposal ${result.proposal_id} is applied.`}
+          </span>
         </div>
       </div>
       {resultActions.length > 0 && (
         <div style={assistantResultNextStyle} aria-label="Project Assistant next steps">
           <div style={assistantResultNextCopyStyle}>
-            <div style={sectionLabelStyle}>Next up</div>
+            <div style={sectionLabelStyle}>{setupFirst ? "Ready for first work" : "Next up"}</div>
             <div style={subtleTextStyle}>
               {resultSummaryActions.length > 0
                 ? projectAssistantNextUpSummary(resultSummaryActions)
-                : "Continue setup"}
+                : "Open the work queue"}
             </div>
           </div>
           <div style={assistantResultActionsStyle}>
-            {resultActions.map((action) => (
+            {resultPrimaryActions.map((action) => (
               <button
+                ref={action.primary ? guidedPrimaryActionRef : undefined}
                 key={action.key}
                 className={`btn ${action.primary ? "btn-primary" : "btn-ghost"} btn-sm`}
                 type="button"
@@ -519,6 +556,30 @@ function ProjectAssistantApplyResultPanel({
             ))}
           </div>
         </div>
+      )}
+      {(setupFirst || resultSupportingActions.length > 0) && (
+        <details style={assistantSetupDetailsStyle}>
+          <summary style={assistantSetupSummaryStyle}>Setup details</summary>
+          <div style={assistantSetupDetailsBodyStyle}>
+            {setupFirst && (
+              <div style={metaLineStyle}>
+                <span>Setup reference</span>
+                <CopyableID text={result.proposal_id} compact />
+              </div>
+            )}
+            {resultSupportingActions.map((action) => (
+              <button
+                key={action.key}
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={action.onClick}
+              >
+                <Icon d={action.icon} size={13} />
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );
@@ -764,7 +825,6 @@ function projectAssistantFollowUpActions({
   onReviewMemory,
   result,
   roleCount,
-  setupFirst,
   workItemCount,
 }: {
   memoryCandidateCount: number;
@@ -774,7 +834,6 @@ function projectAssistantFollowUpActions({
   onReviewMemory?: () => void;
   result: ProjectAssistantApplyResult;
   roleCount: number;
-  setupFirst: boolean;
   workItemCount: number;
 }): Array<{
   icon: string | string[];
@@ -827,16 +886,6 @@ function projectAssistantFollowUpActions({
       primary: actions.length === 0,
     });
   }
-  if (setupFirst && onOpenWork) {
-    actions.push({
-      icon: Icons.tasks,
-      includeInSummary: false,
-      key: "continue-setup",
-      label: "Continue setup",
-      onClick: onOpenWork,
-    });
-  }
-
   return actions;
 }
 
@@ -859,7 +908,7 @@ function projectAssistantSetupSummary({
   const parts = [
     roleCount > 0 ? `${roleCount} role${roleCount === 1 ? "" : "s"}` : "",
     memoryCandidateCount > 0
-      ? `${memoryCandidateCount} memory candidate${memoryCandidateCount === 1 ? "" : "s"}`
+      ? `${memoryCandidateCount} memory suggestion${memoryCandidateCount === 1 ? "" : "s"}`
       : "",
     workItemCount > 0 ? `${workItemCount} work item${workItemCount === 1 ? "" : "s"}` : "",
   ].filter(Boolean);
@@ -899,16 +948,22 @@ const assistantComposerStyle: CSSProperties = {
 };
 
 const assistantOnboardingStyle: CSSProperties = {
-  alignItems: "flex-start",
   background: "var(--bg1)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 10,
+  minWidth: 0,
+  padding: "10px",
+};
+
+const assistantOnboardingMainStyle: CSSProperties = {
+  alignItems: "flex-start",
   display: "flex",
   flexWrap: "wrap",
   gap: 10,
   justifyContent: "space-between",
   minWidth: 0,
-  padding: "10px",
 };
 
 const assistantOnboardingCopyStyle: CSSProperties = {
@@ -923,6 +978,32 @@ const assistantOnboardingActionsStyle: CSSProperties = {
   flexWrap: "wrap",
   gap: 8,
   justifyContent: "flex-end",
+};
+
+const assistantSetupDetailsStyle: CSSProperties = {
+  background: "var(--bg0)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  minWidth: 0,
+};
+
+const assistantSetupSummaryStyle: CSSProperties = {
+  color: "var(--t2)",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+  lineHeight: 1.4,
+  listStylePosition: "inside",
+  padding: "8px 10px",
+};
+
+const assistantSetupDetailsBodyStyle: CSSProperties = {
+  alignItems: "center",
+  borderTop: "1px solid var(--border)",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  padding: 8,
 };
 
 const assistantPrimaryRowStyle: CSSProperties = {
@@ -1006,6 +1087,31 @@ const assistantProposalStyle: CSSProperties = {
   display: "grid",
   gap: 10,
   padding: 10,
+};
+
+const assistantProposalDetailsStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  minWidth: 0,
+};
+
+const assistantProposalDetailsSummaryStyle: CSSProperties = {
+  color: "var(--t1)",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+  lineHeight: 1.4,
+  listStylePosition: "inside",
+  padding: "8px 10px",
+};
+
+const assistantProposalDetailsBodyStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  gap: 8,
+  minWidth: 0,
+  padding: 8,
 };
 
 const assistantContextStyle: CSSProperties = {

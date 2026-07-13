@@ -53,21 +53,18 @@ func renderCairnlineProjectSetupReadinessFromRows(project projects.Project, role
 		projectSetupMemoryEntriesFromCairnline(entries),
 		projectSetupMemoryCandidatesFromCairnline(candidates),
 	)
-	setupStarted := summary.EnabledContextSourceCount > 0 ||
-		summary.RoleCount > 0 ||
-		summary.SkillCount > 0 ||
-		summary.SavedMemoryCount > 0 ||
-		summary.PendingMemoryCandidateCount > 0
+	setupStarted := projectSetupReadinessStarted(summary)
+	showOnboarding := summary.WorkItemCount == 0 && !setupStarted
 	firstWorkReady := summary.WorkItemCount == 0 && setupStarted
 	return ProjectSetupReadinessResponse{
 		ProjectID:      project.ID,
 		GeneratedAt:    formatOptionalTime(time.Now().UTC()),
 		ReadBackend:    "cairnline",
-		ShowOnboarding: summary.WorkItemCount == 0 && !setupStarted,
+		ShowOnboarding: showOnboarding,
 		SetupStarted:   setupStarted,
 		FirstWorkReady: firstWorkReady,
 		Summary:        summary,
-		PrimaryAction:  projectSetupReadinessAction(projectSetupReadinessActionBootstrap, project.ID, "Set up project"),
+		PrimaryAction:  projectSetupReadinessPrimaryAction(project.ID, summary, showOnboarding, firstWorkReady),
 		Checks:         projectSetupReadinessChecks(project, summary),
 	}
 }

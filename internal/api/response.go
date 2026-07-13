@@ -9,6 +9,7 @@ import (
 const (
 	errCodeUnauthorized            = "unauthorized"
 	errCodeInvalidRequest          = "invalid_request"
+	errCodeProjectSetupNoInputs    = "project_setup_no_inputs"
 	errCodeForbidden               = "forbidden"
 	errCodeGatewayError            = "gateway_error"
 	errCodeInternalError           = "internal_error"
@@ -122,6 +123,8 @@ func defaultErrorUserMessage(code string) string {
 	switch code {
 	case errCodeInvalidRequest:
 		return "The request is invalid."
+	case errCodeProjectSetupNoInputs:
+		return "Project setup found no guidance or skills to apply."
 	case errCodeForbidden:
 		return "The request was blocked."
 	case errCodeUnauthorized:
@@ -170,6 +173,8 @@ func defaultErrorAction(code string) string {
 	switch code {
 	case errCodeInvalidRequest:
 		return "Check the request body and retry."
+	case errCodeProjectSetupNoInputs:
+		return "Create the first work item, or add setup inputs and retry."
 	case errCodeForbidden:
 		return "Review policy, same-origin, or permission settings before retrying."
 	case errCodeUnauthorized:

@@ -573,6 +573,44 @@ describe("Project Assistant controller helpers", () => {
     expect(window.sessionStorage.getItem("hecate.projectAssistant.lastProposal.proj_a")).toBeNull();
   });
 
+  it.each([
+    [
+      "typed no-input outcome",
+      new api.ApiError(
+        "no enabled guidance sources or local skill files found",
+        422,
+        "project_setup_no_inputs",
+      ),
+      true,
+    ],
+    [
+      "transient discovery failure",
+      new api.ApiError("service unavailable", 503, "gateway_error"),
+      false,
+    ],
+  ])("classifies bootstrap recovery for %s", async (_name, bootstrapError, recoverable) => {
+    vi.spyOn(api, "discoverProjectContextSources").mockResolvedValue({
+      object: "project",
+      data: testProject("proj_a"),
+    });
+    vi.spyOn(api, "discoverProjectSkills").mockResolvedValue({
+      object: "project_skill.list",
+      data: [],
+    });
+    vi.spyOn(api, "draftProjectAssistant").mockRejectedValue(bootstrapError);
+    const dependencies = controllerDependencies();
+    const { result } = renderHook(() =>
+      useProjectAssistantController(controllerOptions(dependencies, "proj_a", "")),
+    );
+
+    await act(async () => {
+      await result.current.bootstrap();
+    });
+
+    expect(result.current.error).toBe(bootstrapError.message);
+    expect(result.current.bootstrapRecoveryAvailable).toBe(recoverable);
+  });
+
   it("reconciles a stale apply result after work changes without publishing it", async () => {
     const applyRequest = deferred<Awaited<ReturnType<typeof api.applyProjectAssistant>>>();
     const refreshRequest = deferred<void>();

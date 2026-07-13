@@ -22,6 +22,35 @@ import type {
 
 const NOW = "2026-06-14T10:10:57Z";
 
+async function attachSetupFolder(page: Page) {
+  await page.getByRole("button", { name: "Attach folder" }).click();
+  await expect(page.getByLabel("Folder path")).toHaveValue("/tmp/hecate-e2e-project");
+}
+
+async function configureProjectLaunchDefaults(page: Page) {
+  await page.locator('button[aria-label="Project settings"]').click();
+  const settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await settings.getByRole("button", { name: "select provider" }).click();
+  await settings.getByRole("option", { name: /Anthropic/ }).click();
+  await settings.getByRole("button", { name: "Model picker: inherit runtime default" }).click();
+  await settings.getByLabel("Filter models").fill("claude-sonnet-4-6");
+  await settings.getByRole("option", { name: "claude-sonnet-4-6", exact: true }).click();
+  await settings.getByRole("button", { name: "Save settings" }).click();
+  await expect(settings).toBeHidden();
+}
+
+async function completeGuidedProjectSetup(page: Page) {
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await onboarding.getByRole("button", { name: "Set up project" }).click();
+  await expect(page.getByText("Review setup", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Apply setup" }).click();
+  await expect(page.getByText("Applied 2 actions")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create first work" })).toBeFocused();
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByText("Ready for first work", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create first work" })).toBeFocused();
+}
+
 test("Projects journey: setup, first work, assignment, evidence, closeout", async ({ page }) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
@@ -37,20 +66,21 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page
     .getByLabel("Purpose")
     .fill("Coordinate launch readiness, evidence, and review follow-up.");
+  await attachSetupFolder(page);
   await page.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByText("Set up Launch operations")).toBeVisible();
-  await page
-    .getByRole("region", { name: "Project onboarding" })
-    .getByRole("button", { name: "Set up project" })
-    .first()
-    .click();
-  await expect(page.getByText("Bootstrap Launch operations guidance")).toBeVisible();
-  await page.getByRole("button", { name: "Apply proposal" }).click();
-
-  await expect(page.getByText("Applied 3 actions")).toBeVisible();
-  await page.getByRole("button", { name: "Dismiss" }).click();
-  await expect(page.getByText("Setup ready")).toBeVisible();
+  await configureProjectLaunchDefaults(page);
+  await expect
+    .poll(() => state.projectPatchBodies)
+    .toContainEqual(
+      expect.objectContaining({
+        default_provider: "anthropic",
+        default_model: "claude-sonnet-4-6",
+      }),
+    );
+  await completeGuidedProjectSetup(page);
+  await expect(page.getByText("Ready for first work")).toBeVisible();
   await expect(page.getByRole("region", { name: "Project onboarding" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Project Assistant" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Set up project" })).toHaveCount(0);
@@ -62,7 +92,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(
     page.getByRole("button", { name: "Dismiss memory suggestion Guidance source: AGENTS.md" }),
   ).toHaveCount(0);
-  await page.getByRole("tab", { name: /Work/ }).click();
+  await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByRole("button", { name: "Create first work" })).toBeVisible();
   await page.getByRole("button", { name: "Create first work" }).click();
   await page.getByLabel("Title").fill("Verify launch checklist");
@@ -214,7 +244,231 @@ test("Projects create keeps keyboard focus inside the pending dialog", async ({ 
     .toBe(true);
 });
 
-test("Projects rootless journey: plan work without setup or workspace", async ({ page }) => {
+test("Projects guided start stays on Overview at desktop and narrow widths", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Research planning");
+  await page.getByLabel("Purpose").fill("Coordinate a research planning cycle.");
+  await attachSetupFolder(page);
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await expect(onboarding).toBeVisible();
+  await expect(onboarding.locator(".btn-primary")).toHaveCount(1);
+  await expect(onboarding.getByRole("button", { name: "Set up project" })).toBeVisible();
+  const onboardingDetails = onboarding.locator("details");
+  await expect(onboardingDetails).not.toHaveAttribute("open", "");
+  await onboarding.getByText("Setup details").click();
+  await expect(
+    onboarding
+      .getByRole("group", { name: "Workspace source" })
+      .getByText("/tmp/hecate-e2e-project"),
+  ).toBeVisible();
+  await onboarding.getByText("Setup details").click();
+
+  await onboarding.getByRole("button", { name: "Set up project" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects\\?project=${state.projects[0]?.id}$`));
+  await expect(page.getByText("Review setup", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply setup" })).toBeFocused();
+  const proposalDetails = page.locator("details").filter({ hasText: "Review proposed changes" });
+  await expect(proposalDetails).not.toHaveAttribute("open", "");
+  await page.getByRole("button", { name: "Dismiss setup" }).click();
+  await expect(onboarding.getByRole("button", { name: "Set up project" })).toBeFocused();
+  await onboarding.getByRole("button", { name: "Set up project" }).click();
+  await expect(page.getByText("Review setup", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply setup" })).toHaveClass(/btn-primary/);
+  await page.getByRole("button", { name: "Apply setup" }).click();
+  await expect(page.getByText("Applied 2 actions")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create first work" })).toBeFocused();
+  await page.getByRole("button", { name: "Dismiss" }).click();
+
+  const overview = page.getByRole("region", { name: "Project overview" });
+  await expect(overview.getByText("Ready for first work", { exact: true })).toBeVisible();
+  await expect(overview.getByRole("button", { name: "Create first work" })).toBeFocused();
+  await expect(overview.locator(".btn-primary")).toHaveCount(1);
+  await expect(overview.getByRole("button", { name: "Create first work" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Project operations" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Project activity summary" })).toHaveCount(0);
+  if (process.env.HECATE_CAPTURE_PROJECTS_GUIDED_START === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-guided-start.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(overview.getByText("Ready for first work", { exact: true })).toBeVisible();
+  expect(await overview.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true,
+  );
+  await expect(overview.locator(".btn-primary")).toHaveCount(1);
+  if (process.env.HECATE_CAPTURE_PROJECTS_GUIDED_START === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-guided-start-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+});
+
+test("Projects can start work when optional folder setup finds no guidance", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Field research");
+  await page.getByLabel("Purpose").fill("Coordinate observations from a local folder.");
+  state.discoverableSetupInputs = false;
+  await attachSetupFolder(page);
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await expect(onboarding.getByRole("button", { name: "Set up project" })).toBeVisible();
+
+  await onboarding.getByRole("button", { name: "Set up project" }).click();
+  await expect(onboarding.getByRole("alert")).toContainText(
+    "no enabled guidance sources or local skill files found",
+  );
+  const createFirstWork = onboarding.getByRole("button", {
+    name: "Create first work instead",
+  });
+  await expect(createFirstWork).toHaveClass(/btn-primary/);
+  const retrySetup = onboarding.getByRole("button", { name: "Retry setup" });
+  await expect(retrySetup).toHaveClass(/btn-ghost/);
+  await retrySetup.click();
+  await expect(onboarding.getByRole("alert")).toContainText(
+    "no enabled guidance sources or local skill files found",
+  );
+  await expect(createFirstWork).toBeFocused();
+  await onboarding.getByText("Setup details").click();
+  await expect(onboarding.getByRole("button", { name: /create.*work/i })).toHaveCount(1);
+
+  await createFirstWork.click();
+  await expect(page.getByRole("dialog", { name: "New work item" })).toBeVisible();
+});
+
+test("Projects readiness fixture treats saved memory as setup context", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  const projectID = "proj_memory_setup";
+  state.projects = [
+    {
+      id: projectID,
+      name: "Memory planning",
+      roots: [
+        {
+          id: "root_memory_setup",
+          path: "/tmp/hecate-e2e-project",
+          kind: "local",
+          active: true,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+      ],
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.memoryEntries = [
+    {
+      id: "mem_setup",
+      scope: "project",
+      project_id: projectID,
+      title: "Planning principle",
+      body: "Keep the first work item reviewable.",
+      trust_label: "operator_memory",
+      source_kind: "operator",
+      enabled: true,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+
+  const readiness = projectSetupReadiness(state, projectID);
+  expect(readiness.setup_started).toBe(true);
+  expect(readiness.first_work_ready).toBe(true);
+  expect(readiness.summary.saved_memory_count).toBe(1);
+  expect(readiness.checks.find((check) => check.id === "sources_memory")).toEqual(
+    expect.objectContaining({ detail: "1 memory", status: "ready", action: undefined }),
+  );
+});
+
+test("Projects first work creation preserves its draft and recovers from failure", async ({
+  page,
+}) => {
+  await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Failure recovery");
+  await page.getByLabel("Purpose").fill("Keep the operator's first-work draft safe.");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  let releaseFirstCreate = () => {};
+  const firstCreateGate = new Promise<void>((resolve) => {
+    releaseFirstCreate = resolve;
+  });
+  let createAttempts = 0;
+  await page.route(/\/hecate\/v1\/projects\/[^/]+\/work-items$/, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    createAttempts += 1;
+    if (createAttempts > 1) {
+      await route.fallback();
+      return;
+    }
+    await firstCreateGate;
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { type: "create_failed", message: "create failed" },
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Create first work" }).click();
+  const dialog = page.getByRole("dialog", { name: "New work item" });
+  const title = dialog.getByLabel("Title");
+  await title.fill("Recover this first work item");
+  await dialog.getByRole("button", { name: "Create work item" }).click();
+  await expect(dialog.getByRole("button", { name: "Creating…" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  releaseFirstCreate();
+
+  await expect(dialog.getByRole("alert")).toContainText("create failed");
+  await expect(title).toHaveValue("Recover this first work item");
+  const retry = dialog.getByRole("button", { name: "Create work item" });
+  await expect(retry).toBeFocused();
+  await retry.click();
+
+  await expect(page.getByRole("heading", { name: "Recover this first work item" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Work/ })).toBeFocused();
+  expect(createAttempts).toBe(2);
+});
+
+test("Projects rootless journey: create work without local setup or a workspace", async ({
+  page,
+}) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.workspace", "projects");
@@ -229,12 +483,17 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
   await expect(page.getByLabel("Folder path")).toHaveCount(0);
   await page.getByRole("button", { name: "Create project" }).click();
 
-  await expect(page.getByText("Set up Research notes")).toBeVisible();
+  await expect(page.getByText("Create the first work item")).toBeVisible();
+  await expect(page.getByText("Optional; attach files when this project needs them.")).toBeHidden();
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await onboarding.getByText("Setup details").click();
   await expect(
     page.getByText("Optional; attach files when this project needs them."),
   ).toBeVisible();
-  const onboarding = page.getByRole("region", { name: "Project onboarding" });
-  await onboarding.getByRole("button", { name: "Create work: First work item" }).click();
+  expect(state.sources).toHaveLength(0);
+  expect(state.skills).toHaveLength(0);
+  expect(state.roles).toHaveLength(0);
+  await onboarding.getByRole("button", { name: "Create first work" }).click();
 
   await page.getByLabel("Title").fill("Summarize interview themes");
   await page
@@ -897,8 +1156,7 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   await page.getByLabel("Purpose").fill("Coordinate a rootless editorial review cycle.");
   await page.getByRole("button", { name: "Create project" }).click();
 
-  const onboarding = page.getByRole("region", { name: "Project onboarding" });
-  await onboarding.getByRole("button", { name: "Create work: First work item" }).click();
+  await page.getByRole("button", { name: "Create first work" }).click();
   await page.getByLabel("Title").fill("Review launch narrative");
   await page.getByLabel("Brief").fill("Check the launch narrative and record evidence.");
   await page.getByRole("button", { name: "Create work item" }).click();
@@ -1175,6 +1433,7 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
 
   await page.setViewportSize({ width: 390, height: 844 });
   const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  await onboarding.getByText("Setup details").click();
   const onboardingSettings = onboarding.getByRole("button", { name: "Project settings" });
   await onboardingSettings.click();
   let settings = page.getByRole("complementary", { name: "Project settings panel" });
@@ -1195,10 +1454,10 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
   await settings.getByLabel("Workspace behavior").selectOption("persistent");
   await settings.getByRole("button", { name: "Save settings" }).click();
   await expect(settings).toBeHidden();
-  await expect(onboardingSettings).toBeFocused();
+  await expect(onboarding.locator("summary").filter({ hasText: "Setup details" })).toBeFocused();
   expect(state.projects[0]?.roots).toEqual([]);
 
-  await onboarding.getByRole("button", { name: "Create work: First work item" }).click();
+  await page.getByRole("button", { name: "Create first work" }).click();
   await page.getByLabel("Title").fill("Organize research notes");
   await page.getByLabel("Brief").fill("Collect the confirmed findings and source guidance.");
   await page.getByRole("button", { name: "Create work item" }).click();
@@ -1247,12 +1506,12 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
     "title",
     "Attach or enable a folder first",
   );
-  await expect(page.getByText("No skills found")).toBeVisible();
   await expect(
     page.getByText(
       "Attach or enable a folder to find skills. Existing skills remain available below.",
     ),
   ).toBeVisible();
+  await expect(page.getByRole("article", { name: "Skill Implementation" })).toHaveCount(0);
   expect(
     await page
       .getByRole("region", { name: "Project skills" })
@@ -1399,21 +1658,30 @@ test("Projects settings and memory use typed root and source mutations", async (
 
   await page
     .getByRole("region", { name: "Project onboarding" })
-    .getByRole("button", { name: "Set up project" })
-    .first()
+    .getByRole("button", { name: "Create first work" })
     .click();
-  await page.getByRole("button", { name: "Apply proposal" }).click();
-  await expect(page.getByText("Applied 3 actions")).toBeVisible();
-  await page.getByRole("button", { name: "Dismiss" }).click();
+  await page.getByLabel("Title").fill("Exercise typed project metadata");
+  await page.getByRole("button", { name: "Create work item" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Exercise typed project metadata" }),
+  ).toBeVisible();
 
   await page.getByRole("tab", { name: /Memory/ }).click();
-  await page.getByText("Sources", { exact: true }).click();
+  const sourcesDisclosure = page.locator("details.project-support-collection").filter({
+    hasText: "Sources",
+  });
+  const openSources = async () => {
+    if (!(await sourcesDisclosure.evaluate((element) => element.hasAttribute("open")))) {
+      await sourcesDisclosure.locator(":scope > summary").click();
+    }
+  };
+  await openSources();
   await page.getByRole("button", { name: "Add source", exact: true }).click();
   let sourceDialog = page.getByRole("dialog", { name: "New project source" });
   await sourceDialog.getByLabel("Title").fill("Launch brief");
   await sourceDialog.getByLabel("Locator").fill("https://example.test/brief");
   await sourceDialog.getByRole("button", { name: "Create source" }).click();
-  await page.getByText("Sources", { exact: true }).click();
+  await openSources();
   await expect(page.getByText("Launch brief", { exact: true })).toBeVisible();
 
   await page
@@ -1425,7 +1693,7 @@ test("Projects settings and memory use typed root and source mutations", async (
   await sourceDialog.getByLabel("Title").fill("Launch brief v2");
   await sourceDialog.getByLabel("Locator").fill("https://example.test/brief-v2");
   await sourceDialog.getByRole("button", { name: "Save source" }).click();
-  await page.getByText("Sources", { exact: true }).click();
+  await openSources();
   await expect(page.getByText("Launch brief v2", { exact: true })).toBeVisible();
 
   const updatedSource = page.getByRole("article", { name: "Source Launch brief v2" });
@@ -1501,6 +1769,7 @@ async function mockProjectJourneyAPIs(page: Page) {
     projectCatalogFailuresRemaining: 0,
     projectCatalogRequestCount: 0,
     projectCatalogRetryGate: null as Promise<void> | null,
+    discoverableSetupInputs: true,
     rootMutationCalls: [] as Array<{
       method: string;
       rootID?: string;
@@ -1561,6 +1830,24 @@ async function mockProjectJourneyAPIs(page: Page) {
         project_id?: string;
         work_item_id?: string;
       };
+      if (
+        body.draft_mode === "bootstrap" &&
+        state.sources.length === 0 &&
+        state.skills.length === 0
+      ) {
+        await route.fulfill(
+          ok(
+            {
+              error: {
+                type: "project_setup_no_inputs",
+                message: "no enabled guidance sources or local skill files found for project setup",
+              },
+            },
+            422,
+          ),
+        );
+        return;
+      }
       const proposal =
         body.draft_mode === "bootstrap"
           ? bootstrapProposal(state.projects[0])
@@ -1579,12 +1866,11 @@ async function mockProjectJourneyAPIs(page: Page) {
               proposal_id: "pa_setup",
               applied: true,
               actions: [
-                { kind: "set_project_defaults" },
                 {
                   kind: "create_memory_candidate",
                   data: { memory_candidate_id: "memcand_launch" },
                 },
-                { kind: "create_role", data: { role_id: "implementation" } },
+                { kind: "create_role", data: { role_id: "skill_implementation" } },
               ],
             },
           }),
@@ -1647,13 +1933,25 @@ async function mockProjectJourneyAPIs(page: Page) {
         const body = JSON.parse(request.postData() || "{}") as {
           name?: string;
           description?: string;
+          roots?: ProjectRootPayload[];
         };
+        const roots = (body.roots ?? []).map((root, index) => ({
+          id: root.id || `root_created_${index + 1}`,
+          path: root.path,
+          kind: root.kind || "local",
+          git_remote: root.git_remote,
+          git_branch: root.git_branch,
+          active: root.active ?? true,
+          created_at: NOW,
+          updated_at: NOW,
+        }));
         const project: ProjectRecord = {
           id: "proj_launch",
           name: body.name || "Launch operations",
           description: body.description || "",
-          roots: [],
+          roots,
           context_sources: [],
+          default_root_id: roots[0]?.id,
           created_at: NOW,
           updated_at: NOW,
         };
@@ -1690,6 +1988,19 @@ async function mockProjectJourneyAPIs(page: Page) {
         return;
       }
       if (parts.length === 3 && method === "POST") {
+        if (
+          !state.discoverableSetupInputs ||
+          !state.projects[0]?.roots.some((root) => root.active && root.path)
+        ) {
+          state.sources = [];
+          state.projects[0] = {
+            ...state.projects[0],
+            context_sources: [],
+            updated_at: NOW,
+          };
+          await route.fulfill(ok({ object: "project", data: state.projects[0] }));
+          return;
+        }
         state.sources = [
           {
             id: "ctx_agents",
@@ -1699,7 +2010,9 @@ async function mockProjectJourneyAPIs(page: Page) {
             enabled: true,
             format: "agents_md",
             scope: "workspace",
+            source_category: "workspace_guidance",
             trust_label: "workspace_guidance",
+            metadata: { root_id: state.projects[0]?.roots[0]?.id || "" },
             created_at: NOW,
             updated_at: NOW,
           },
@@ -1716,6 +2029,14 @@ async function mockProjectJourneyAPIs(page: Page) {
     }
     if (resource === "skills") {
       if (parts.length === 3 && parts[2] === "discover" && method === "POST") {
+        if (
+          !state.discoverableSetupInputs ||
+          !state.projects[0]?.roots.some((root) => root.active && root.path)
+        ) {
+          state.skills = [];
+          await route.fulfill(ok({ object: "project_skills", data: [] }));
+          return;
+        }
         state.skills = [
           {
             id: "implementation",
@@ -2310,24 +2631,14 @@ function seedNavigationProject(state: ProjectJourneyState) {
 }
 
 function applySetup(state: ProjectJourneyState) {
-  state.projects[0] = {
-    ...state.projects[0],
-    default_provider: "anthropic",
-    default_model: "claude-sonnet-4-6",
-    default_agent_profile: "implementation",
-    default_workspace_mode: "in_place",
-    updated_at: NOW,
-  };
   state.roles = [
     {
-      id: "implementation",
+      id: "skill_implementation",
       project_id: state.projects[0].id,
       name: "Implementation",
-      description: "Build and verify the next project change.",
+      description: `Suggested from project skill metadata at ${state.skills[0]?.path || "the discovered skill"}.`,
+      instructions: `Use project skill reference implementation (${state.skills[0]?.path || "the discovered skill"}) when this project role owns work.`,
       default_driver_kind: "hecate_task",
-      default_provider: "anthropic",
-      default_model: "claude-sonnet-4-6",
-      default_agent_profile: "implementation",
       skill_ids: ["implementation"],
       built_in: false,
       created_at: NOW,
@@ -2395,13 +2706,16 @@ function completeProjectJourneyAssignment(state: ProjectJourneyState) {
 function bootstrapProposal(project?: ProjectRecord) {
   return {
     id: "pa_setup",
-    title: `Bootstrap ${project?.name || "project"} guidance`,
-    summary: "Prepare setup defaults, memory candidates, and roles for review.",
+    title: `Set up ${project?.name || "project"} guidance`,
+    summary:
+      "Create reviewable memory candidates from discovered guidance metadata and suggest project roles from local skill files.",
     requires_confirmation: true,
     actions: [
-      { kind: "set_project_defaults", patch: { default_provider: "anthropic" } },
       { kind: "create_memory_candidate", target: { project_id: project?.id || "" } },
-      { kind: "create_role", patch: { id: "implementation", name: "Implementation" } },
+      {
+        kind: "create_role",
+        patch: { id: "skill_implementation", name: "Implementation" },
+      },
     ],
   };
 }
@@ -2416,7 +2730,7 @@ function assignmentProposal(project?: ProjectRecord, workItemID?: string) {
       {
         kind: "create_assignment",
         target: { project_id: project?.id || "", work_item_id: workItemID || "" },
-        patch: { role_id: "implementation", driver_kind: "hecate_task" },
+        patch: { role_id: "skill_implementation", driver_kind: "hecate_task" },
       },
     ],
   };
@@ -2487,7 +2801,7 @@ function assignmentLaunchReadiness(
     driver_kind: "hecate_task",
     provider: "anthropic",
     model: "claude-sonnet-4-6",
-    execution_profile: "implementation",
+    execution_profile: "project_assignment",
   };
 }
 
@@ -2674,8 +2988,8 @@ function projectHealth(state: ProjectJourneyState, projectID: string): ProjectHe
       attention_limit: 5,
       missing_defaults: !(state.projects[0]?.default_provider && state.projects[0]?.default_model),
       missing_project_root: !(state.projects[0]?.roots ?? []).some((root) => root.active),
-      enabled_memory_count: 0,
-      saved_memory_count: 0,
+      enabled_memory_count: state.memoryEntries.filter((entry) => entry.enabled).length,
+      saved_memory_count: state.memoryEntries.length,
       enabled_context_source_count: enabledContextSourceCount,
       pending_memory_candidate_count: pendingMemoryCandidateCount,
       promoted_memory_candidate_count: 0,
@@ -2702,16 +3016,26 @@ function projectSetupReadiness(
   const pendingMemoryCandidateCount = state.memoryCandidates.filter(
     (candidate) => candidate.status === "pending",
   ).length;
+  const savedMemoryCount = state.memoryEntries.length;
   const roleCount = state.roles.filter((role) => !role.built_in).length;
   const skillCount = state.skills.length;
   const workItemCount = state.workItems.filter((item) => item.project_id === projectID).length;
   const hasActiveRoot = Boolean(project?.roots?.some((root) => root.active && root.path));
   const missingDefaults = !(project?.default_provider && project?.default_model);
-  const setupStarted =
+  const hasGuidance =
     enabledContextSourceCount > 0 ||
-    roleCount > 0 ||
+    savedMemoryCount > 0 ||
     skillCount > 0 ||
     pendingMemoryCandidateCount > 0;
+  const setupStarted = hasGuidance || roleCount > 0;
+  const guidanceDetail = [
+    projectSetupCountLabel(enabledContextSourceCount, "source"),
+    projectSetupCountLabel(skillCount, "skill"),
+    projectSetupCountLabel(savedMemoryCount, "memory"),
+    projectSetupCountLabel(pendingMemoryCandidateCount, "candidate"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return {
     project_id: projectID,
     generated_at: NOW,
@@ -2723,17 +3047,24 @@ function projectSetupReadiness(
       role_count: roleCount,
       skill_count: skillCount,
       enabled_context_source_count: enabledContextSourceCount,
-      saved_memory_count: 0,
+      saved_memory_count: savedMemoryCount,
       pending_memory_candidate_count: pendingMemoryCandidateCount,
       has_purpose: Boolean(project?.description?.trim()),
       has_active_root: hasActiveRoot,
       missing_defaults: missingDefaults,
     },
-    primary_action: {
-      type: "bootstrap_project",
-      project_id: projectID,
-      label: "Set up project",
-    },
+    primary_action:
+      workItemCount === 0 && (setupStarted || !hasActiveRoot)
+        ? {
+            type: "create_work_item",
+            project_id: projectID,
+            label: "Create first work",
+          }
+        : {
+            type: "bootstrap_project",
+            project_id: projectID,
+            label: "Set up project",
+          },
     checks: [
       {
         id: "purpose",
@@ -2767,18 +3098,15 @@ function projectSetupReadiness(
       {
         id: "sources_memory",
         label: "Sources and memory",
-        detail:
-          enabledContextSourceCount > 0 || pendingMemoryCandidateCount > 0 || skillCount > 0
-            ? `${enabledContextSourceCount} source(s), ${pendingMemoryCandidateCount} memory candidate(s), ${skillCount} skill(s)`
+        detail: hasGuidance
+          ? guidanceDetail
+          : hasActiveRoot
+            ? "Set up project can discover workspace guidance and local skills."
             : "Attach a workspace when files matter, or add sources later.",
-        status:
-          enabledContextSourceCount > 0 || pendingMemoryCandidateCount > 0 || skillCount > 0
-            ? "ready"
-            : "todo",
-        action:
-          enabledContextSourceCount > 0 || pendingMemoryCandidateCount > 0 || skillCount > 0
-            ? undefined
-            : { type: "bootstrap_project", project_id: projectID, label: "Set up project" },
+        status: hasGuidance ? "ready" : "todo",
+        action: hasGuidance
+          ? undefined
+          : { type: "bootstrap_project", project_id: projectID, label: "Set up project" },
       },
       {
         id: "roles",
@@ -2799,7 +3127,7 @@ function projectSetupReadiness(
         detail:
           workItemCount > 0
             ? `${workItemCount} work item(s) created.`
-            : "Create the first reviewable task after setup.",
+            : "Create the first reviewable work item.",
         status: workItemCount > 0 ? "ready" : "todo",
         action:
           workItemCount > 0
@@ -2808,6 +3136,11 @@ function projectSetupReadiness(
       },
     ],
   };
+}
+
+function projectSetupCountLabel(count: number, singular: string): string {
+  if (count === 0) return "";
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
 function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {

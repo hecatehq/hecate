@@ -31,6 +31,7 @@ type LoadState = "idle" | "loading" | "loaded" | "error";
 type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
 const PROJECT_ASSISTANT_LAST_PROPOSAL_PREFIX = "hecate.projectAssistant.lastProposal.";
 const PROJECT_ASSISTANT_LAST_PROPOSAL_TARGET_PREFIX = "hecate.projectAssistant.lastProposalTarget.";
+const PROJECT_SETUP_NO_INPUTS_ERROR = "project_setup_no_inputs";
 
 type ProjectAssistantRequestLane = "context" | "proposal";
 
@@ -87,6 +88,7 @@ export function useProjectAssistantController(options: Options) {
   const [status, setStatus] = useState<ProjectAssistantStatus>("idle");
   const [error, setError] = useState("");
   const [bootstrapPending, setBootstrapPending] = useState(false);
+  const [bootstrapRecoveryAvailable, setBootstrapRecoveryAvailable] = useState(false);
   const currentProjectID = options.selectedProjectID;
   const currentWorkItemID = options.selectedWorkItemID;
   const selectionRef = useRef({ projectID: currentProjectID, workItemID: currentWorkItemID });
@@ -200,6 +202,7 @@ export function useProjectAssistantController(options: Options) {
       setChatDraftSource(null);
       setApplyResult(null);
       setError("");
+      setBootstrapRecoveryAvailable(false);
     }
     setContext(null);
     setContextError("");
@@ -262,6 +265,7 @@ export function useProjectAssistantController(options: Options) {
           setProposal(null);
           setChatDraftSource(null);
           setError("");
+          setBootstrapRecoveryAvailable(false);
           setStatus("applied");
           return;
         }
@@ -273,6 +277,7 @@ export function useProjectAssistantController(options: Options) {
         setChatDraftSource(null);
         setApplyResult(null);
         setError(projectAssistantProposalRecordError(record));
+        setBootstrapRecoveryAvailable(false);
         setStatus("idle");
       } catch (err) {
         if (cancelled || applyRequestRef.current) return;
@@ -296,6 +301,7 @@ export function useProjectAssistantController(options: Options) {
       presentationTargetRef.current = { projectID, workItemID: targetWorkItemID };
       setStatus("proposing");
       setError("");
+      setBootstrapRecoveryAvailable(false);
       setApplyResult(null);
       try {
         const payload = await draftProjectAssistant(
@@ -335,6 +341,7 @@ export function useProjectAssistantController(options: Options) {
       presentationTargetRef.current = { projectID, workItemID: targetWorkItemID };
       setStatus("proposing");
       setError("");
+      setBootstrapRecoveryAvailable(false);
       setApplyResult(null);
       setContext(null);
       setContextError("");
@@ -379,6 +386,7 @@ export function useProjectAssistantController(options: Options) {
     setBootstrapPending(true);
     setStatus("proposing");
     setError("");
+    setBootstrapRecoveryAvailable(false);
     setProposal(null);
     setChatDraftSource(null);
     setApplyResult(null);
@@ -415,6 +423,9 @@ export function useProjectAssistantController(options: Options) {
     } catch (err) {
       if (!requestIsCurrent(requestToken)) return;
       setError(errorMessage(err, "Failed to bootstrap project assistant context."));
+      setBootstrapRecoveryAvailable(
+        err instanceof ApiError && err.code === PROJECT_SETUP_NO_INPUTS_ERROR,
+      );
     } finally {
       if (requestIsCurrent(requestToken)) {
         options.onDiscoveringContext(false);
@@ -486,6 +497,7 @@ export function useProjectAssistantController(options: Options) {
       setContextError("");
       setContextStatus("idle");
       setError("");
+      setBootstrapRecoveryAvailable(false);
       setStatus("idle");
       return true;
     },
@@ -511,6 +523,7 @@ export function useProjectAssistantController(options: Options) {
     applyRequestRef.current = applyRequest;
     setStatus("applying");
     setError("");
+    setBootstrapRecoveryAvailable(false);
     try {
       const payload = await applyProjectAssistant({ proposal: currentProposal, confirm: true });
       rememberProjectAssistantProposalID(projectID, currentProposal.id, target.workItemID);
@@ -584,6 +597,7 @@ export function useProjectAssistantController(options: Options) {
     setContextError("");
     setContextStatus("idle");
     setError("");
+    setBootstrapRecoveryAvailable(false);
     setStatus("idle");
     presentationTargetRef.current = null;
   }, [cancelRequests, options.selectedProjectID, status]);
@@ -601,6 +615,10 @@ export function useProjectAssistantController(options: Options) {
     applyResult: presentationVisible ? applyResult : null,
     bootstrap,
     bootstrapPending: presentationVisible ? bootstrapPending : false,
+    bootstrapRecoveryAvailable:
+      (presentationVisible || !presentationTargetRef.current) &&
+      Boolean(error) &&
+      bootstrapRecoveryAvailable,
     chatDraftSource: presentationVisible ? chatDraftSource : null,
     context,
     contextError,

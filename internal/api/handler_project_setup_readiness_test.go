@@ -55,8 +55,8 @@ func TestProjectSetupReadiness_ReadOnlyPristineProject(t *testing.T) {
 	if response.Data.Summary.WorkItemCount != 0 || response.Data.Summary.RoleCount != 0 || !response.Data.Summary.MissingDefaults {
 		t.Fatalf("setup readiness summary = %+v, want empty project with missing defaults", response.Data.Summary)
 	}
-	if response.Data.PrimaryAction.Type != projectSetupReadinessActionBootstrap || response.Data.PrimaryAction.Label != "Set up project" {
-		t.Fatalf("primary action = %+v, want setup action", response.Data.PrimaryAction)
+	if response.Data.PrimaryAction.Type != projectSetupReadinessActionCreateWorkItem || response.Data.PrimaryAction.Label != "Create first work" {
+		t.Fatalf("primary action = %+v, want rootless first-work action", response.Data.PrimaryAction)
 	}
 	purpose := findProjectSetupReadinessCheckForTest(t, response.Data.Checks, "purpose")
 	if purpose.Status != projectSetupReadinessStatusTodo || purpose.Action == nil || purpose.Action.Type != projectSetupReadinessActionProjectSettings {
@@ -85,6 +85,49 @@ func TestProjectSetupReadiness_ReadOnlyPristineProject(t *testing.T) {
 	}
 	if len(beforeWork) != len(afterWork) || len(beforeRoles) != len(afterRoles) {
 		t.Fatalf("setup readiness mutated project state: work %d->%d roles %d->%d", len(beforeWork), len(afterWork), len(beforeRoles), len(afterRoles))
+	}
+}
+
+func TestProjectSetupReadiness_RootedPristineProjectOffersSetup(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	if _, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:    "proj_rooted_setup",
+		Name:  "Rooted setup",
+		Roots: []projects.Root{{ID: "root_setup", Path: t.TempDir(), Kind: "git", Active: true}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_rooted_setup/setup-readiness", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectSetupReadinessEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode setup readiness: %v", err)
+	}
+	if response.Data.PrimaryAction.Type != projectSetupReadinessActionBootstrap || response.Data.PrimaryAction.Label != "Set up project" {
+		t.Fatalf("primary action = %+v, want setup action for rooted project", response.Data.PrimaryAction)
+	}
+}
+
+func TestProjectSetupReadiness_CairnlineRootlessProjectOffersFirstWork(t *testing.T) {
+	t.Parallel()
+	readiness := renderCairnlineProjectSetupReadinessFromRows(
+		projects.Project{ID: "proj_cairnline_rootless", Name: "Cairnline rootless"},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	if readiness.ReadBackend != "cairnline" || !readiness.ShowOnboarding || readiness.FirstWorkReady {
+		t.Fatalf("readiness = %+v, want pristine Cairnline onboarding", readiness)
+	}
+	if readiness.PrimaryAction.Type != projectSetupReadinessActionCreateWorkItem || readiness.PrimaryAction.Label != "Create first work" {
+		t.Fatalf("primary action = %+v, want rootless first-work action", readiness.PrimaryAction)
 	}
 }
 
@@ -175,6 +218,9 @@ func TestProjectSetupReadiness_SetupStartedFirstWorkReady(t *testing.T) {
 	if firstWork.Status != projectSetupReadinessStatusTodo || firstWork.Action == nil || firstWork.Action.Type != projectSetupReadinessActionCreateWorkItem {
 		t.Fatalf("first work check = %+v, want create-work todo", firstWork)
 	}
+	if response.Data.PrimaryAction.Type != projectSetupReadinessActionCreateWorkItem {
+		t.Fatalf("primary action = %+v, want first-work action for setup-ready project", response.Data.PrimaryAction)
+	}
 }
 
 func TestProjectSetupReadiness_CairnlineConfiguredUsesReadModel(t *testing.T) {
@@ -256,6 +302,9 @@ func TestProjectSetupReadiness_CairnlineConfiguredUsesReadModel(t *testing.T) {
 	}
 	if response.Data.Summary.MissingDefaults || !response.Data.Summary.HasPurpose || !response.Data.Summary.HasActiveRoot {
 		t.Fatalf("setup readiness summary = %+v, want Hecate defaults/purpose/root over Cairnline setup counts", response.Data.Summary)
+	}
+	if response.Data.PrimaryAction.Type != projectSetupReadinessActionCreateWorkItem {
+		t.Fatalf("primary action = %+v, want Cairnline-backed first-work action", response.Data.PrimaryAction)
 	}
 }
 
