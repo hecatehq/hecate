@@ -162,6 +162,7 @@ export function ProjectScopePanel({
           onAction={() => {
             setCreateProjectError("");
             projects.actions.setError("");
+            projects.actions.setCreateError("");
             setCreateProjectOpen(true);
           }}
           onToggle={() => setProjectsExpanded((value) => !value)}
@@ -216,7 +217,7 @@ export function ProjectScopePanel({
             {emptyHint}
           </div>
         )}
-        {projects.state.error && !createProjectOpen && (
+        {projects.state.error && (
           <div role="status" style={{ padding: "6px 8px 0", color: "var(--yellow)", fontSize: 11 }}>
             {projects.state.error}
           </div>
@@ -250,12 +251,13 @@ export function ProjectScopePanel({
       </div>
       {createProjectOpen && (
         <CreateProjectModal
-          error={createProjectError || projects.state.error}
+          error={createProjectError || projects.state.createError}
           pending={createProjectPending}
           onChooseWorkspace={handleChooseWorkspace}
           onClose={() => {
             setCreateProjectOpen(false);
             setCreateProjectError("");
+            projects.actions.setCreateError("");
           }}
           onSave={handleCreateProject}
         />

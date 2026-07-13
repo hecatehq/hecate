@@ -30,6 +30,7 @@ export type ProjectsState = {
   loading: boolean;
   loaded: boolean;
   catalogError: string;
+  createError: string;
   error: string;
 };
 
@@ -39,6 +40,7 @@ export type ProjectsActions = {
   setProjects: (next: SetStateAction<ProjectRecord[]>) => void;
   setLoading: (value: boolean) => void;
   setError: (value: string) => void;
+  setCreateError: (value: string) => void;
   setActiveProjectID: (id: string) => void;
   loadProjects: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
@@ -59,6 +61,7 @@ type Action =
   | { type: "loading/set"; value: boolean }
   | { type: "loaded/set"; value: boolean }
   | { type: "catalog-error/set"; value: string }
+  | { type: "create-error/set"; value: string }
   | { type: "error/set"; value: string };
 
 const initialState: ProjectsState = {
@@ -66,6 +69,7 @@ const initialState: ProjectsState = {
   loading: false,
   loaded: false,
   catalogError: "",
+  createError: "",
   error: "",
 };
 
@@ -83,6 +87,8 @@ function reducer(state: ProjectsState, action: Action): ProjectsState {
       return state.loaded === action.value ? state : { ...state, loaded: action.value };
     case "catalog-error/set":
       return state.catalogError === action.value ? state : { ...state, catalogError: action.value };
+    case "create-error/set":
+      return state.createError === action.value ? state : { ...state, createError: action.value };
     case "error/set":
       return state.error === action.value ? state : { ...state, error: action.value };
     default:
@@ -129,6 +135,10 @@ export function ProjectsProvider({
   const setError = useCallback((value: string) => dispatch({ type: "error/set", value }), []);
   const setCatalogError = useCallback(
     (value: string) => dispatch({ type: "catalog-error/set", value }),
+    [],
+  );
+  const setCreateError = useCallback(
+    (value: string) => dispatch({ type: "create-error/set", value }),
     [],
   );
   const setActiveProjectID = useCallback(
@@ -200,7 +210,7 @@ export function ProjectsProvider({
     async (payload: CreateProjectPayload): Promise<ProjectRecord | null> => {
       const name = payload.name.trim();
       if (!name) return null;
-      dispatch({ type: "error/set", value: "" });
+      setCreateError("");
       try {
         const created = await createProjectRequest({
           ...payload,
@@ -211,14 +221,11 @@ export function ProjectsProvider({
         setActiveProjectID(created.data.id);
         return created.data;
       } catch (error) {
-        dispatch({
-          type: "error/set",
-          value: error instanceof Error ? error.message : "Failed to create project.",
-        });
+        setCreateError(error instanceof Error ? error.message : "Failed to create project.");
         return null;
       }
     },
-    [setActiveProjectID, setProjects],
+    [setActiveProjectID, setCreateError, setProjects],
   );
 
   const renameProject = useCallback(
@@ -268,6 +275,7 @@ export function ProjectsProvider({
       setProjects,
       setLoading,
       setError,
+      setCreateError,
       setActiveProjectID,
       loadProjects,
       selectProject,
@@ -279,6 +287,7 @@ export function ProjectsProvider({
       setProjects,
       setLoading,
       setError,
+      setCreateError,
       setActiveProjectID,
       loadProjects,
       selectProject,

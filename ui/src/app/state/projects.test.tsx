@@ -139,7 +139,8 @@ describe("ProjectsProvider", () => {
     await act(async () => {
       await result.current.actions.createProject({ name: "Keep this draft" });
     });
-    expect(result.current.state.error).toBe("create failed");
+    expect(result.current.state.createError).toBe("create failed");
+    expect(result.current.state.error).toBe("");
 
     resolveLoad({ object: "projects", data: [] });
     await act(async () => {
@@ -148,7 +149,8 @@ describe("ProjectsProvider", () => {
 
     expect(result.current.state.loaded).toBe(true);
     expect(result.current.state.catalogError).toBe("");
-    expect(result.current.state.error).toBe("create failed");
+    expect(result.current.state.createError).toBe("create failed");
+    expect(result.current.state.error).toBe("");
   });
 
   it("clears a stale persisted project id after loading current projects", async () => {

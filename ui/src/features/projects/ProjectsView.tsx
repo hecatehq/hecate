@@ -2807,8 +2807,7 @@ export function ProjectsView({
     navigation && projects.state.catalogError && !projects.state.loaded && !projects.state.loading,
   );
   const projectIndexError =
-    (createProjectOpen ? "" : projects.state.error) ||
-    (managedCatalogUnavailable ? "" : projects.state.catalogError);
+    projects.state.error || (managedCatalogUnavailable ? "" : projects.state.catalogError);
   const navigationNotice = explicitProjectMissing
     ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."
     : explicitWorkItemMissing
@@ -2898,6 +2897,7 @@ export function ProjectsView({
               onClick={() => {
                 setCreateProjectError("");
                 projects.actions.setError("");
+                projects.actions.setCreateError("");
                 setCreateProjectOpen(true);
               }}
             >
@@ -3349,12 +3349,13 @@ export function ProjectsView({
 
         {createProjectOpen && (
           <CreateProjectModal
-            error={createProjectError || projects.state.error}
+            error={createProjectError || projects.state.createError}
             pending={createProjectPending}
             onChooseWorkspace={handleChooseProjectWorkspace}
             onClose={() => {
               setCreateProjectOpen(false);
               setCreateProjectError("");
+              projects.actions.setCreateError("");
             }}
             onSave={handleCreateProject}
           />

@@ -10602,10 +10602,13 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
-  it("lets the create dialog exclusively announce its shared operation failure", async () => {
+  it("keeps unrelated operation feedback outside the create dialog", async () => {
     let setProjectError!: (message: string) => void;
+    let setCreateProjectError!: (message: string) => void;
     function Harness() {
-      setProjectError = useProjects().actions.setError;
+      const projectActions = useProjects().actions;
+      setProjectError = projectActions.setError;
+      setCreateProjectError = projectActions.setCreateError;
       return <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />;
     }
     const user = userEvent.setup();
@@ -10614,11 +10617,17 @@ describe("ProjectsView navigation destinations", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Add" }));
-    act(() => setProjectError("create failed"));
+    act(() => setProjectError("select failed"));
 
     const dialog = screen.getByRole("dialog", { name: "Create project" });
+    expect(screen.getByRole("alert")).toHaveTextContent("select failed");
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(within(dialog).queryByText("select failed")).toBeNull();
+
+    act(() => setCreateProjectError("create failed"));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("create failed");
     expect(screen.getAllByText("create failed")).toHaveLength(1);
+    expect(screen.getAllByText("select failed")).toHaveLength(1);
   });
 
   it("replaces a failed catalog state with one pending retry", async () => {
