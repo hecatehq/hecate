@@ -11,6 +11,7 @@ import {
 import { useProjects } from "../../app/state/projects";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
+import type { ProjectNavigationDestination, ProjectNavigationState } from "../../app/navigation";
 import {
   ApiError,
   chooseWorkspaceDirectory,
@@ -180,9 +181,11 @@ import { PROJECT_ASSISTANT_AUTO } from "./ProjectAssistantPanel";
 
 type Props = {
   initialWorkspaceTab?: ProjectWorkspaceTab;
+  navigation?: ProjectNavigationState | null;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
+  onNavigate?: (destination: ProjectNavigationDestination, mode?: "push" | "replace") => void;
 };
 
 const PROJECTS_LIST_PANEL_WIDTH = 220;
@@ -221,11 +224,28 @@ const projectMainBodyStyle: CSSProperties = {
   overflow: "hidden",
 };
 
+const navigationNoticeStyle: CSSProperties = {
+  alignItems: "center",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--bg2)",
+  color: "var(--t1)",
+  display: "flex",
+  flexWrap: "wrap",
+  fontSize: 12,
+  gap: 8,
+  justifyContent: "space-between",
+  lineHeight: 1.5,
+  overflowWrap: "anywhere",
+  padding: "8px 16px",
+};
+
 export function ProjectsView({
   initialWorkspaceTab = "overview",
+  navigation,
   onOpenChat,
   onOpenConnections,
   onOpenTask,
+  onNavigate,
 }: Props) {
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
@@ -286,7 +306,12 @@ export function ProjectsView({
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
   const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("all");
-  const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>(initialWorkspaceTab);
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const deliberateOnboardingNavigationRef = useRef(false);
+  const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>(
+    navigation?.view ?? initialWorkspaceTab,
+  );
   const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
     useState<ProjectWorkspaceTab | null>(null);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
@@ -364,16 +389,26 @@ export function ProjectsView({
   const [deleteMemory, setDeleteMemory] = useState<ProjectMemoryRecord | null>(null);
   const [deleteMemoryPending, setDeleteMemoryPending] = useState(false);
   const projectSelectionGenerationRef = useRef(0);
-  const { clearSelectedProject, openProject, selectedProject, selectedProjectID } =
-    useProjectSelectionController({
-      activeProjectID: projects.activeProjectID,
-      onProjectChange: () => {
-        projectSelectionGenerationRef.current += 1;
-        resetProjectScopedInteractions();
-      },
-      projects: projects.state.projects,
-      selectProject: projects.actions.selectProject,
-    });
+  const routeProjectID = navigation?.projectID ?? "";
+  const {
+    clearSelectedProject,
+    openProject: openProjectSelection,
+    selectedProject: controllerSelectedProject,
+    selectedProjectID,
+  } = useProjectSelectionController({
+    activeProjectID: routeProjectID || projects.activeProjectID,
+    onProjectChange: () => {
+      projectSelectionGenerationRef.current += 1;
+      resetProjectScopedInteractions();
+    },
+    preserveMissingActiveProject: Boolean(routeProjectID),
+    projects: projects.state.projects,
+    selectProject: projects.actions.selectProject,
+  });
+  const selectedProject =
+    routeProjectID && controllerSelectedProject?.id !== routeProjectID
+      ? null
+      : controllerSelectedProject;
   const selectedProjectIDRef = useRef(selectedProjectID);
   const selectedWorkItemIDRef = useRef(selectedWorkItemID);
   const workItemSelectionGenerationRef = useRef(0);
@@ -384,6 +419,14 @@ export function ProjectsView({
   const overviewProjectionGenerationRef = useRef(0);
   selectedProjectIDRef.current = selectedProjectID;
   selectedWorkItemIDRef.current = selectedWorkItemID;
+
+  const openProject = useCallback(
+    (projectID: string) => {
+      onNavigate?.({ projectID });
+      openProjectSelection(projectID);
+    },
+    [onNavigate, openProjectSelection],
+  );
 
   useEffect(() => {
     workItemSelectionGenerationRef.current += 1;
@@ -510,7 +553,8 @@ export function ProjectsView({
   }, [projectSetupReadinessLoadState, selectedProject, settingsPanelOpen]);
 
   function resetProjectScopedInteractions() {
-    setWorkspaceTab(initialWorkspaceTab);
+    deliberateOnboardingNavigationRef.current = false;
+    setWorkspaceTab(navigationRef.current?.view ?? initialWorkspaceTab);
     setWorkspaceTabFocusTarget(null);
     setSettingsPanelOpen(false);
     settingsReturnFocusRef.current = null;
@@ -579,10 +623,32 @@ export function ProjectsView({
     setPreparingAssignmentTarget(null);
   }
 
-  const navigateWorkspaceTab = useCallback((tab: ProjectWorkspaceTab) => {
-    setWorkspaceTab(tab);
-    setWorkspaceTabFocusTarget(tab);
-  }, []);
+  const navigateWorkspaceTab = useCallback(
+    (tab: ProjectWorkspaceTab) => {
+      deliberateOnboardingNavigationRef.current = true;
+      setWorkspaceTab(tab);
+      setWorkspaceTabFocusTarget(tab);
+      const projectID = selectedProjectIDRef.current;
+      if (!projectID) return;
+      onNavigate?.({
+        projectID,
+        view: tab,
+        workItemID: tab === "work" ? selectedWorkItemIDRef.current || null : null,
+      });
+    },
+    [onNavigate],
+  );
+
+  const navigateWorkItem = useCallback(
+    (workItemID: string, focusTab = true) => {
+      setWorkspaceTab("work");
+      setWorkspaceTabFocusTarget(focusTab ? "work" : null);
+      setSelectedWorkItemID(workItemID);
+      const projectID = selectedProjectIDRef.current;
+      if (projectID) onNavigate?.({ projectID, view: "work", workItemID });
+    },
+    [onNavigate],
+  );
 
   const refreshProjectOverview = useCallback(async (projectID: string) => {
     if (!projectID || selectedProjectIDRef.current !== projectID) return false;
@@ -741,7 +807,12 @@ export function ProjectsView({
   }, [providerPresets, providersAndModels.state.providers, settings.state.config?.providers]);
 
   const loadWorkForProject = useCallback(
-    async (projectID: string, preferredWorkItemID = "", awaitOverview = false) => {
+    async (
+      projectID: string,
+      preferredWorkItemID = "",
+      awaitOverview = false,
+      options: { exactPreferred?: boolean } = {},
+    ) => {
       if (selectedProjectIDRef.current !== projectID) return "";
       const generation = ++workLoadGenerationRef.current;
       const workSelectionGeneration = workItemSelectionGenerationRef.current;
@@ -813,9 +884,12 @@ export function ProjectsView({
           setLoadedProjectID(projectID);
           return finishWorkLoad(selectedWorkItemIDRef.current);
         }
-        const nextSelectedID = nextItems.some((item) => item.id === preferredWorkItemID)
+        const preferredExists = nextItems.some((item) => item.id === preferredWorkItemID);
+        const nextSelectedID = preferredExists
           ? preferredWorkItemID
-          : nextItems[0]?.id || "";
+          : options.exactPreferred && preferredWorkItemID
+            ? ""
+            : nextItems[0]?.id || "";
         setSelectedWorkItemID(nextSelectedID);
         setWorkLoadState("loaded");
         setLoadedProjectID(projectID);
@@ -968,22 +1042,89 @@ export function ProjectsView({
     loadProjectMemory,
   });
 
-  useEffect(() => {
-    void loadWorkForProject(selectedProjectID);
-  }, [loadWorkForProject, selectedProjectID]);
+  const resolvedProjectID = selectedProject?.id ?? "";
 
   useEffect(() => {
-    void loadProjectMemory(selectedProjectID);
-  }, [loadProjectMemory, selectedProjectID]);
+    if (!resolvedProjectID) return;
+    const route = navigationRef.current;
+    const preferredWorkItemID =
+      route?.projectID === resolvedProjectID && route.view === "work" ? route.workItemID || "" : "";
+    void loadWorkForProject(resolvedProjectID, preferredWorkItemID, false, {
+      exactPreferred: Boolean(preferredWorkItemID),
+    });
+  }, [loadWorkForProject, resolvedProjectID]);
 
   useEffect(() => {
-    void loadProjectSkills(selectedProjectID);
-  }, [loadProjectSkills, selectedProjectID]);
+    if (!resolvedProjectID) return;
+    void loadProjectMemory(resolvedProjectID);
+  }, [loadProjectMemory, resolvedProjectID]);
 
   useEffect(() => {
-    if (!selectedProjectID || !selectedWorkItemID) return;
-    void loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
-  }, [loadWorkItemDetail, selectedProjectID, selectedWorkItemID]);
+    if (!resolvedProjectID) return;
+    void loadProjectSkills(resolvedProjectID);
+  }, [loadProjectSkills, resolvedProjectID]);
+
+  useEffect(() => {
+    if (!resolvedProjectID || !selectedWorkItemID) return;
+    void loadWorkItemDetail(resolvedProjectID, selectedWorkItemID);
+  }, [loadWorkItemDetail, resolvedProjectID, selectedWorkItemID]);
+
+  useEffect(() => {
+    if (!navigation) return;
+    setWorkspaceTab(navigation.view);
+    setWorkspaceTabFocusTarget(null);
+  }, [navigation?.projectID, navigation?.view, navigation?.workItemID]);
+
+  const persistedRouteProjectRef = useRef("");
+  useEffect(() => {
+    if (!navigation || !projects.state.loaded) return;
+    if (!navigation.projectID) {
+      if (selectedProject) onNavigate?.({ projectID: selectedProject.id }, "replace");
+      return;
+    }
+    if (selectedProject?.id !== navigation.projectID) return;
+    if (projects.activeProjectID === navigation.projectID) {
+      persistedRouteProjectRef.current = navigation.projectID;
+      return;
+    }
+    if (persistedRouteProjectRef.current === navigation.projectID) return;
+    persistedRouteProjectRef.current = navigation.projectID;
+    void projects.actions.selectProject(navigation.projectID);
+  }, [
+    navigation,
+    onNavigate,
+    projects.actions,
+    projects.activeProjectID,
+    projects.state.loaded,
+    selectedProject,
+  ]);
+
+  useEffect(() => {
+    if (
+      !navigation?.projectID ||
+      navigation.projectID !== resolvedProjectID ||
+      navigation.view !== "work" ||
+      workLoadState !== "loaded" ||
+      loadedProjectID !== resolvedProjectID
+    ) {
+      return;
+    }
+    if (navigation.workItemID) {
+      const nextID = workItems.some((item) => item.id === navigation.workItemID)
+        ? navigation.workItemID
+        : "";
+      if (selectedWorkItemIDRef.current !== nextID) setSelectedWorkItemID(nextID);
+      return;
+    }
+    const currentID = selectedWorkItemIDRef.current;
+    const nextID = workItems.some((item) => item.id === currentID)
+      ? currentID
+      : workItems[0]?.id || "";
+    if (selectedWorkItemIDRef.current !== nextID) setSelectedWorkItemID(nextID);
+    if (nextID) {
+      onNavigate?.({ projectID: resolvedProjectID, view: "work", workItemID: nextID }, "replace");
+    }
+  }, [loadedProjectID, navigation, onNavigate, resolvedProjectID, workItems, workLoadState]);
 
   useEffect(() => {
     if (!selectedProjectID) return;
@@ -1026,6 +1167,9 @@ export function ProjectsView({
           message: formatProjectDeleteSummary(deleted),
         });
         clearSelectedProject(pendingDeleteProject.id);
+        if (navigationRef.current?.projectID === pendingDeleteProject.id) {
+          onNavigate?.({ projectID: null }, "replace");
+        }
       }
     } finally {
       setDeletePending(false);
@@ -1571,8 +1715,7 @@ export function ProjectsView({
         },
       }));
       setSelectedWorkItemOperationID("");
-      setSelectedWorkItemID(payload.data.id);
-      setWorkspaceTab("work");
+      navigateWorkItem(payload.data.id, false);
       setNewWorkModalOpen(false);
       setNewWorkDraft(undefined);
       await loadWorkItemDetail(projectID, payload.data.id);
@@ -1675,6 +1818,9 @@ export function ProjectsView({
       await deleteProjectWorkItem(projectID, workItemID);
       if (!isCurrent()) return;
       setDeleteWorkItem(null);
+      if (navigationRef.current?.workItemID === workItemID) {
+        onNavigate?.({ projectID, view: "work" }, "replace");
+      }
       await loadWorkForProject(projectID);
     } finally {
       if (isCurrent()) setDeleteWorkPending(false);
@@ -1776,10 +1922,11 @@ export function ProjectsView({
         setWorkError(route.message);
         return;
       case "draft_project_proposal":
-        navigateWorkspaceTab("work");
         if (route.workItemID) {
           setSelectedWorkItemOperationID("");
-          setSelectedWorkItemID(route.workItemID);
+          navigateWorkItem(route.workItemID);
+        } else {
+          navigateWorkspaceTab("work");
         }
         void assistant.propose(
           {
@@ -1869,25 +2016,24 @@ export function ProjectsView({
   function selectProjectWorkRoute(
     route: Extract<ProjectActionRoute, { kind: "open_assignment_preflight" | "open_work_item" }>,
   ) {
-    if (route.kind === "open_assignment_preflight") {
-      navigateWorkspaceTab("work");
-    } else {
-      setWorkspaceTab("work");
-      setWorkspaceTabFocusTarget(null);
-    }
+    const focusTab = route.kind === "open_assignment_preflight";
     if (route.bucket) {
       setActivityBucket(route.bucket);
     }
     if (route.workItemID) {
-      setSelectedWorkItemID(route.workItemID);
+      navigateWorkItem(route.workItemID, focusTab);
+    } else if (focusTab) {
+      navigateWorkspaceTab("work");
+    } else {
+      navigateWorkspaceTab("work");
+      setWorkspaceTabFocusTarget(null);
     }
   }
 
   function handleSelectWorkItem(workItemID: string) {
     setWorkItemFocusTarget(null);
     setSelectedWorkItemOperationID("");
-    navigateWorkspaceTab("work");
-    setSelectedWorkItemID(workItemID);
+    navigateWorkItem(workItemID);
   }
 
   async function handleUpdateAssignment(form: EditAssignmentForm) {
@@ -2376,8 +2522,15 @@ export function ProjectsView({
     });
   }
 
+  const routedWorkItemID =
+    navigation?.projectID === selectedProjectID && navigation.view === "work"
+      ? navigation.workItemID
+      : null;
+  const routedWorkSelectionCurrent = !routedWorkItemID || selectedWorkItemID === routedWorkItemID;
   const detailIdentityCurrent =
-    detailTarget?.projectID === selectedProjectID && detailTarget.workItemID === selectedWorkItemID;
+    routedWorkSelectionCurrent &&
+    detailTarget?.projectID === selectedProjectID &&
+    detailTarget.workItemID === selectedWorkItemID;
   const currentSelectedWorkItem =
     detailIdentityCurrent &&
     selectedWorkItem?.project_id === selectedProjectID &&
@@ -2441,6 +2594,26 @@ export function ProjectsView({
 
   useEffect(() => {
     if (
+      !projectNeedsOnboarding ||
+      deliberateOnboardingNavigationRef.current ||
+      !navigation?.projectID ||
+      navigation.projectID !== selectedProject?.id ||
+      (navigation.view === "overview" && !navigation.workItemID)
+    ) {
+      return;
+    }
+    setWorkspaceTab("overview");
+    setWorkspaceTabFocusTarget(null);
+    setSelectedWorkItemID("");
+    onNavigate?.({ projectID: navigation.projectID }, "replace");
+  }, [navigation, onNavigate, projectNeedsOnboarding, selectedProject?.id]);
+
+  useEffect(() => {
+    if (!projectNeedsOnboarding) deliberateOnboardingNavigationRef.current = false;
+  }, [projectNeedsOnboarding]);
+
+  useEffect(() => {
+    if (
       !workspaceTabFocusTarget ||
       workspaceTabFocusTarget !== workspaceTab ||
       projectSetupPending ||
@@ -2460,12 +2633,49 @@ export function ProjectsView({
     workspaceTab,
     workspaceTabFocusTarget,
   ]);
-  const projectEmptyTitle =
-    projects.state.projects.length === 0 ? "Add a project to begin" : "Select a project";
-  const projectEmptyDetail =
-    projects.state.projects.length === 0
-      ? "Create a project from a name and purpose. A local folder is optional and can be attached now or later."
-      : "Choose a project from the list to view its work, memory, skills, and settings.";
+  const explicitProjectMissing = Boolean(
+    navigation?.projectID && projects.state.loaded && !selectedProject,
+  );
+  const explicitWorkItemMissing = Boolean(
+    !projectNeedsOnboarding &&
+    navigation?.projectID === selectedProject?.id &&
+    navigation?.view === "work" &&
+    navigation.workItemID &&
+    workLoadState === "loaded" &&
+    loadedProjectID === selectedProject?.id &&
+    !workItems.some((item) => item.id === navigation.workItemID),
+  );
+  const managedCatalogUnavailable = Boolean(
+    navigation && projects.state.error && !projects.state.loaded,
+  );
+  const navigationNotice = explicitProjectMissing
+    ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."
+    : explicitWorkItemMissing
+      ? "Work item not found in this project. Choose another item from the queue."
+      : managedCatalogUnavailable
+        ? "Projects could not be loaded. This link has been kept so you can retry."
+        : "";
+  const managedCatalogPending = Boolean(navigation && !projects.state.loaded);
+  const projectEmptyTitle = explicitProjectMissing
+    ? "Project not found"
+    : navigation?.projectID && projects.state.error && managedCatalogPending
+      ? "Project unavailable"
+      : managedCatalogPending
+        ? "Loading projects…"
+        : projects.state.projects.length === 0
+          ? "Add a project to begin"
+          : navigation?.projectID
+            ? "Opening project…"
+            : "Select a project";
+  const projectEmptyDetail = explicitProjectMissing
+    ? "Choose an available project from the list. The requested project was not opened."
+    : navigation?.projectID && projects.state.error && managedCatalogPending
+      ? "Hecate could not verify this project yet. Retry the project catalog request to keep the link intact."
+      : managedCatalogPending
+        ? "Checking the project catalog."
+        : projects.state.projects.length === 0
+          ? "Create a project from a name and purpose. A local folder is optional and can be attached now or later."
+          : "Choose a project from the list to view its work, memory, skills, and settings.";
 
   return (
     <div className="projects-cockpit-shell" style={shellStyle}>
@@ -2565,8 +2775,7 @@ export function ProjectsView({
           onAttentionTask={onOpenTask}
           onAttentionWorkItem={(workItemID) => {
             setSelectedWorkItemOperationID("");
-            navigateWorkspaceTab("work");
-            setSelectedWorkItemID(workItemID);
+            navigateWorkItem(workItemID);
           }}
           onRefresh={refreshSelectedWorkItem}
           settingsButtonRef={settingsButtonRef}
@@ -2587,6 +2796,20 @@ export function ProjectsView({
             setRolesModalOpen(true);
           }}
         />
+        {navigationNotice && (
+          <div aria-atomic="true" aria-live="polite" role="status" style={navigationNoticeStyle}>
+            <span>{navigationNotice}</span>
+            {managedCatalogUnavailable && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => void projects.actions.loadProjects()}
+                type="button"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         <div
           className={`projects-cockpit-main-body${
             settingsPanelOpen ? " projects-cockpit-main-body--settings" : ""
@@ -2760,7 +2983,7 @@ export function ProjectsView({
             onSetupReadinessAction={handleSetupReadinessAction}
             onUpdateProjectSkill={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
             onNavigateWorkspaceTab={navigateWorkspaceTab}
-            onWorkspaceTabChange={setWorkspaceTab}
+            onWorkspaceTabChange={navigateWorkspaceTab}
             project={selectedProject}
             projectEmptyDetail={projectEmptyDetail}
             projectEmptyTitle={projectEmptyTitle}

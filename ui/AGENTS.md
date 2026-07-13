@@ -58,6 +58,10 @@ Keep `ProjectsView.tsx` as the parent page for data loading, selected-project
 controller wiring, and mutation dispatch. Add project rendering to the extracted
 surface that owns it:
 
+- `app/navigation.ts` — canonical workspace paths plus pure Projects URL
+  parsing/building. `App.tsx` owns `pushState`, `replaceState`, and `popstate`;
+  the URL carries presentation intent only and must not become project state or
+  bypass Cairnline-backed validation.
 - `ProjectWorkspaceView.tsx` — selected-project shell, onboarding, workspace
   tabs, work inbox, and empty blocks.
 - `ProjectWorkItemDetail.tsx` — work item detail, assignment rows,

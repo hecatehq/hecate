@@ -1377,6 +1377,26 @@ function expectLaunchContextContract(text: string) {
   }
 }
 
+function expectNoProjectSubresourceCalls(projectID: string) {
+  const calls: unknown[][] = [
+    ...vi.mocked(getProjectActivity).mock.calls,
+    ...vi.mocked(getProjectHealth).mock.calls,
+    ...vi.mocked(getProjectOperationsBrief).mock.calls,
+    ...vi.mocked(getProjectSetupReadiness).mock.calls,
+    ...vi.mocked(getProjectWorkRoles).mock.calls,
+    ...vi.mocked(getProjectWorkItems).mock.calls,
+    ...vi.mocked(getProjectWorkItem).mock.calls,
+    ...vi.mocked(getProjectWorkItemReadiness).mock.calls,
+    ...vi.mocked(getProjectAssignments).mock.calls,
+    ...vi.mocked(getProjectCollaborationArtifacts).mock.calls,
+    ...vi.mocked(getProjectHandoffs).mock.calls,
+    ...vi.mocked(getProjectMemory).mock.calls,
+    ...vi.mocked(getProjectMemoryCandidates).mock.calls,
+    ...vi.mocked(getProjectSkills).mock.calls,
+  ];
+  expect(calls.some(([calledProjectID]) => calledProjectID === projectID)).toBe(false);
+}
+
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -10318,5 +10338,292 @@ describe("ProjectsView cockpit", () => {
     });
     expect(within(detail).getByRole("button", { name: "Review & prepare chat" })).toBeTruthy();
     expect(screen.queryByText(/No prepared External Agent chat is linked/)).toBeNull();
+  });
+});
+
+describe("ProjectsView navigation destinations", () => {
+  it("opens an explicit second-project route without loading the stored first project", async () => {
+    resetProjectWorkMocks();
+    const secondProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [{ ...project.roots[0], id: "root_2", path: "/Users/alice/dev/apollo" }],
+    };
+    vi.mocked(getProjectWorkItems).mockImplementation(async (projectID) => ({
+      object: "project_work_items",
+      data: projectID === secondProject.id ? [] : [workItem],
+    }));
+    const selectProject = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [project, secondProject],
+      activeProjectID: project.id,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: secondProject.id, view: "overview", workItemID: null }}
+        />,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), selectProject },
+        },
+      ),
+    );
+
+    await waitFor(() => {
+      expect(getProjectWorkItems).toHaveBeenCalledWith(secondProject.id);
+      expect(selectProject).toHaveBeenCalledWith(secondProject.id);
+    });
+    expect(screen.getByRole("button", { name: "Open project Apollo" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expectNoProjectSubresourceCalls(project.id);
+  });
+
+  it("selects and fetches the exact non-first work item from a route", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Verify cockpit navigation",
+      brief: "Open the exact linked work item.",
+      assignments: [],
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [hecateAssignment] }, secondWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === secondWorkItem.id ? secondWorkItem : workItem,
+    }));
+    vi.mocked(getProjectWorkItemReadiness).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item_readiness",
+      data: workItemReadiness({ work_item_id: workItemID }),
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_assignments",
+      data: workItemID === secondWorkItem.id ? [] : [hecateAssignment],
+    }));
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: project.id, view: "work", workItemID: secondWorkItem.id }}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    expect(
+      await screen.findByRole("article", { name: "Verify cockpit navigation work item" }),
+    ).toBeTruthy();
+    expect(getProjectWorkItem).toHaveBeenCalledWith(project.id, secondWorkItem.id);
+    expect(getProjectAssignments).toHaveBeenCalledWith(project.id, secondWorkItem.id);
+    expect(getProjectWorkItem).not.toHaveBeenCalledWith(project.id, workItem.id);
+  });
+
+  it("shows a missing routed project only after the catalog resolves and loads no subresources", async () => {
+    resetProjectWorkMocks();
+    const selectProject = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: "proj_missing", view: "overview", workItemID: null }}
+        />,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), selectProject },
+        },
+      ),
+    );
+
+    const emptyState = await screen.findByRole("region", { name: "Project empty state" });
+    expect(within(emptyState).getByText("Project not found")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Project not found. It may have been deleted or this link may belong to another Hecate runtime.",
+      ),
+    ).toBeTruthy();
+    expect(selectProject).not.toHaveBeenCalled();
+    expectNoProjectSubresourceCalls("proj_missing");
+    expectNoProjectSubresourceCalls(project.id);
+  });
+
+  it("keeps the Work queue visible for a missing routed work item without fetching another detail", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [hecateAssignment] }],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: project.id, view: "work", workItemID: "work_missing" }}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    expect(
+      await screen.findByText(
+        "Work item not found in this project. Choose another item from the queue.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open work item Build cockpit UI" })).toBeTruthy();
+    expect(getProjectWorkItem).not.toHaveBeenCalled();
+    expect(getProjectAssignments).not.toHaveBeenCalled();
+    expect(getProjectWorkItemReadiness).not.toHaveBeenCalled();
+  });
+
+  it("emits one destination when the operator changes project tabs", async () => {
+    resetProjectWorkMocks();
+    const onNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: project.id, view: "overview", workItemID: null }}
+          onNavigate={onNavigate}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    await screen.findByRole("region", { name: "Project overview" });
+    onNavigate.mockClear();
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith({
+      projectID: project.id,
+      view: "timeline",
+      workItemID: null,
+    });
+  });
+
+  it("emits one exact destination when the operator selects work", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Document navigation behavior",
+      brief: "Keep links shareable and restorable.",
+      assignments: [],
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [hecateAssignment] }, secondWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === secondWorkItem.id ? secondWorkItem : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_assignments",
+      data: workItemID === secondWorkItem.id ? [] : [hecateAssignment],
+    }));
+    const onNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: project.id, view: "work", workItemID: workItem.id }}
+          onNavigate={onNavigate}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    await screen.findByRole("article", { name: "Build cockpit UI work item" });
+    onNavigate.mockClear();
+    await user.click(
+      screen.getByRole("button", { name: "Open work item Document navigation behavior" }),
+    );
+
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith({
+      projectID: project.id,
+      view: "work",
+      workItemID: secondWorkItem.id,
+    });
+  });
+
+  it("replaces a child route with Overview while the project is onboarding", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [] });
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(project.id, {
+        show_onboarding: true,
+        setup_started: false,
+        first_work_ready: false,
+        summary: {
+          work_item_count: 0,
+          role_count: 0,
+          skill_count: 0,
+          enabled_context_source_count: 0,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 0,
+          has_purpose: true,
+          has_active_root: true,
+          missing_defaults: false,
+        },
+      }),
+    });
+    const onNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID: project.id, view: "skills", workItemID: null }}
+          onNavigate={onNavigate}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    expect(await screen.findByRole("region", { name: "Project onboarding" })).toBeTruthy();
+    await waitFor(() => {
+      expect(onNavigate).toHaveBeenCalledTimes(1);
+      expect(onNavigate).toHaveBeenCalledWith({ projectID: project.id }, "replace");
+    });
+    expect(screen.queryByRole("tablist", { name: "Project workspace views" })).toBeNull();
   });
 });

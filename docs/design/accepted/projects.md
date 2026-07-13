@@ -404,6 +404,65 @@ The Projects UI should stay lightweight but operational:
   mutation before saving `default_root_id`; never send a local placeholder into
   the project record.
 
+### Navigation Contract
+
+Each top-level workspace has one canonical browser path:
+
+| Workspace     | Path             |
+| ------------- | ---------------- |
+| Chats         | `/chats`         |
+| Projects      | `/projects`      |
+| Tasks         | `/tasks`         |
+| Connections   | `/connections`   |
+| Observability | `/observability` |
+| Usage         | `/usage`         |
+| Settings      | `/settings`      |
+
+Projects adds presentation intent to `/projects` without making the URL a
+project store. `/projects?project=<id>` opens Overview. Supporting views add
+`view=timeline`, `view=memory`, or `view=skills`. Work uses
+`/projects?project=<id>&view=work`; an exact work item adds `work=<id>`. Overview
+is the default and omits `view`. A `work` value always implies the Work view.
+
+```mermaid
+flowchart LR
+  A["Canonical workspace path"] --> P["/projects"]
+  P --> Q{"Project destination"}
+  Q -->|"No project"| I["Index or remembered project"]
+  Q -->|"?project=id"| O["Overview"]
+  Q -->|"view=timeline, memory, or skills"| S["Supporting view"]
+  Q -->|"view=work&work=id"| W["Exact work item"]
+  O --> V["Validate through Hecate facade"]
+  S --> V
+  W --> V
+  V --> C["Cairnline-authoritative records"]
+```
+
+Operator navigation pushes a history entry when the operator changes workspace,
+project, tab, or work item. Canonicalization and automatic reconciliation use
+`replaceState`: initial path cleanup, filling a selected project or Work item,
+removing Projects query keys on another workspace, deleting the selected
+record, and returning an onboarding project to Overview must not add a phantom
+Back step. `popstate` restores the address as presentation intent. The URL takes
+precedence over the remembered workspace/project preference; that preference is
+only the fallback for an address without a recognized workspace or project.
+
+The client holds an explicit project or work-item destination while the
+authoritative catalog loads. A missing project stays selected in the address,
+shows **Project not found**, and loads no project subresources. A missing work
+item keeps the Work queue available, announces that the item was not found, and
+does not fetch or select another detail. When server setup readiness says the
+project is onboarding, child views are replaced with its guided Overview state.
+None of these paths create, copy, infer, or authorize Cairnline records.
+
+Browser operators can copy the current address, reload it, share it with
+someone using the same Hecate runtime, and use Back/Forward to restore prior
+workspace and Projects selections. Project and work identifiers are local to
+that runtime, so a link is not a portable project export. The Tauri desktop
+webview uses the same paths internally, but V1 has no visible address bar,
+native **Copy link** action, or operating-system deep-link handler; desktop link
+sharing is therefore not a supported entry path yet.
+
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 
 ## Authority Model
@@ -473,6 +532,8 @@ Cairnline coordination state. The current flow supports:
   summary-first memory/source management;
 - a status-first skill registry and responsive Project Settings inspector that
   preserves exact workspace behavior;
+- canonical workspace paths and shareable browser navigation that restores an
+  exact project, supporting view, or work item across reload and history;
 - deterministic and model-assisted Project Assistant proposals with confirmed
   apply;
 - worktree-aware roots and explicit workspace selection;
@@ -542,6 +603,9 @@ Out of scope for this document and Projects V1:
   browser-level Projects journey now covers create project -> setup proposal ->
   first work -> assignment draft/start -> evidence -> closeout; its
   follow-through coverage should stay representative as the cockpit evolves.
+  URL coverage opens a non-first work item directly, reloads it, traverses
+  workspace/tab history, repeats at 390px, and proves that missing project/work
+  identifiers do not load an unrelated record.
 
 ## Open Questions
 

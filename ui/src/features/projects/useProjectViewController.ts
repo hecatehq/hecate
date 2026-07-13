@@ -17,6 +17,7 @@ export function useStoredRightPanelWidth() {
 export type ProjectSelectionControllerArgs = {
   activeProjectID: string;
   onProjectChange?: () => void;
+  preserveMissingActiveProject?: boolean;
   projects: ProjectRecord[];
   selectProject: (projectID: string) => Promise<void> | void;
 };
@@ -24,6 +25,7 @@ export type ProjectSelectionControllerArgs = {
 export function useProjectSelectionController({
   activeProjectID,
   onProjectChange,
+  preserveMissingActiveProject = false,
   projects,
   selectProject,
 }: ProjectSelectionControllerArgs) {
@@ -50,10 +52,12 @@ export function useProjectSelectionController({
     const pendingActiveProjectID = pendingActiveProjectIDRef.current;
     let nextProjectID = currentProjectID;
     if (projects.length === 0) {
-      nextProjectID = "";
+      nextProjectID = preserveMissingActiveProject ? activeProjectID : "";
     } else if (pendingActiveProjectID && hasProject(pendingActiveProjectID)) {
       nextProjectID = pendingActiveProjectID;
       pendingActiveProjectIDRef.current = "";
+    } else if (preserveMissingActiveProject && activeProjectID) {
+      nextProjectID = activeProjectID;
     } else if (!hasProject(currentProjectID)) {
       nextProjectID = hasProject(activeProjectID) ? activeProjectID : projects[0]?.id || "";
     }
@@ -61,7 +65,7 @@ export function useProjectSelectionController({
     onProjectChangeRef.current?.();
     selectedProjectIDRef.current = nextProjectID;
     setSelectedProjectID(nextProjectID);
-  }, [activeProjectID, projects]);
+  }, [activeProjectID, preserveMissingActiveProject, projects]);
 
   const openProject = useCallback(
     (projectID: string) => {

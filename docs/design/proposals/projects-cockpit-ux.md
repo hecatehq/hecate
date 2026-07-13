@@ -2,7 +2,7 @@
 
 > **Status:** Proposal with the overview-first, work-item execution,
 > assignment-destination, follow-through, and supporting-surface hierarchy
-> slices implemented. Shareable navigation remains.
+> and shareable-navigation slices implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -51,6 +51,9 @@ Concrete issues from the current UI and browser behavior:
   390px.
 - Rootless projects offered file discovery even though skills discovery without
   an active folder can mark previously registered skills missing.
+- Workspace, project, tab, and work-item selection lived outside the browser
+  address, so reload, Back/Forward, and a copied link could not reliably return
+  the operator to the same work.
 
 Existing strengths stay intact: rootless creation is first-class, setup and
 assistant changes remain reviewable, launch preflight is explicit, evidence is
@@ -111,6 +114,9 @@ flowchart TD
   F --> G["Overview"]
   G --> H["Take the recommended action"]
   H --> I["Create or open work"]
+  I --> U["Copy the browser address when exact context matters"]
+  U --> V["Reload, share, or return with Back/Forward"]
+  V --> I
   I --> J["Choose who does the work"]
   J --> K{"Destination"}
   K -->|"Human"| KH["Start work directly"]
@@ -145,11 +151,10 @@ flowchart TD
    auto-dispatching or auto-closing work.
 5. **Supporting inspectors and navigation:** progressively disclose memory,
    skills, context, and runtime detail; make Settings responsive and preserve
-   exact launch semantics; then add shareable project/work navigation and
+   exact launch semantics; add shareable project/work navigation and
    broader accessibility coverage.
 
-Slices 1 through 4 and the supporting-surface half of slice 5 are implemented.
-Slice 1 rearranges existing server
+Slices 1 through 5 are implemented. Slice 1 rearranges existing server
 projections and action routing. Slice 2 reshapes each assignment into a
 state-driven story. Slice 3 adds Human as a faithful facade label for
 Cairnline's `manual` execution mode, with direct Start work, Resume work, and
@@ -158,17 +163,45 @@ Slice 4 adds one server-directed follow-through action to selected work, exact
 assignment/review/handoff focus, progressive evidence and handoff forms, an
 explicit closeout confirmation, and a read-only completed state. It also keeps
 work-item closure explicit: completed assignments no longer make an open work
-item appear closed. The implemented part of slice 5 puts pending memory review
-before saved guidance, collapses resolved history and technical metadata,
+item appear closed. Slice 5 puts pending memory review before saved guidance,
+collapses resolved history and technical metadata,
 turns Skills into a status-first registry, gives Timeline semantic structure,
 and makes Project Settings a full-width narrow inspector. Workspace behavior
 labels preserve the exact stored mode: an unset value remains the recommended
 isolated copy, `ephemeral` and `persistent` remain distinct isolated settings,
 and only `in_place` is described as writing directly to the attached folder.
 File-backed discovery is unavailable without an active nonblank root, while
-rootless projects retain normal memory and skill management.
+rootless projects retain normal memory and skill management. It also gives each
+workspace a canonical path and records Projects presentation intent as
+`/projects?project=<id>&view=<view>&work=<id>`, with Overview and absent values
+omitted. Browser reload and Back/Forward restore the exact valid destination;
+missing records stay explicit instead of falling through to another project or
+work item.
 None of the slices add local project lifecycle state or inferred execution
 events.
+
+## Shareable Navigation
+
+The address is a restorable view request, not project state. Cairnline remains
+the sole authority for whether a project or work item exists; the UI validates
+identifiers through Hecate's existing facade after loading the relevant
+catalog. It never creates a local placeholder record from a URL.
+
+Operator workspace, project, tab, and work-item choices use browser history
+pushes. Initial canonicalization, automatic selection of an omitted project or
+Work item, record deletion, and the onboarding return to Overview replace the
+current entry. Back/Forward listens to `popstate` and reapplies the URL. A
+remembered local workspace/project is only a fallback when the address does not
+name one.
+
+While the catalog is loading, the link remains intact. A missing project shows
+a dedicated empty state without requesting its subresources. A missing work
+item leaves the project's Work queue available without loading the first item
+as a substitute. A project whose server readiness still requires onboarding
+returns to its guided Overview state. Browser links can be copied and used
+against the same Hecate runtime; they are not a Cairnline export or an
+authorization capability. The Tauri webview has no address bar, native copy-link
+control, or OS deep-link handler in this slice.
 
 ## Work-Item Follow-Through Rail
 
@@ -266,6 +299,16 @@ workspace values, Cairnline's independent default/active root fields, new-root
 ID resolution, non-primary preset selection, and locked Memory, Source,
 Settings, and Agent Preset saves.
 
+The navigation journey opens a non-first work item from its exact browser link,
+moves to Memory, returns with Back, reloads the work item, crosses to Chats and
+back, and repeats the reload at 390px without horizontal overflow. A separate
+fail-closed journey keeps missing project and work-item identifiers in the
+address, loads no unrelated detail, and leaves the valid Work queue available.
+
+![Exact linked work item at desktop width](../../screenshots/projects-navigation-work.jpg)
+
+![Exact linked work item at narrow width](../../screenshots/projects-navigation-work-narrow.jpg)
+
 ![Read-first project memory at desktop width](../../screenshots/projects-memory.jpg)
 
 ![Project Settings at narrow width](../../screenshots/projects-settings-narrow.jpg)
@@ -313,6 +356,9 @@ from `ui/`.
 
 - Cairnline remains the sole portable coordination authority. The UI uses only
   Hecate's facade and never reconstructs portable state.
+- The URL records presentation intent only. It may name a workspace, project
+  view, and work item, but it never creates portable state, proves that a record
+  exists, grants runtime permission, or substitutes for Cairnline validation.
 - Operations route through the server-provided `action.type`; `kind`, target
   metadata, and client activity are not alternate priority authorities.
 - Selected-work follow-through preserves the exact server operation the

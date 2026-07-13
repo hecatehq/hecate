@@ -414,6 +414,14 @@ textarea {
 }
 
 @media (max-width: 520px) {
+  .project-work-item-detail-header {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .project-work-item-header-actions {
+    justify-content: flex-start !important;
+  }
+
   .project-assignment-plan-grid,
   .project-assignment-form-grid,
   .project-work-modal-grid,
