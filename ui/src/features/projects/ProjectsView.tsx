@@ -2806,6 +2806,8 @@ export function ProjectsView({
   const managedCatalogUnavailable = Boolean(
     navigation && projects.state.catalogError && !projects.state.loaded && !projects.state.loading,
   );
+  const projectIndexError =
+    projects.state.error || (managedCatalogUnavailable ? "" : projects.state.catalogError);
   const navigationNotice = explicitProjectMissing
     ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."
     : explicitWorkItemMissing
@@ -2903,9 +2905,9 @@ export function ProjectsView({
             </button>
           </div>
         </div>
-        {(projects.state.error || projects.state.catalogError) && !managedCatalogUnavailable && (
+        {projectIndexError && (
           <div style={{ padding: 10 }}>
-            <InlineError message={projects.state.error || projects.state.catalogError} />
+            <InlineError message={projectIndexError} />
           </div>
         )}
         <div

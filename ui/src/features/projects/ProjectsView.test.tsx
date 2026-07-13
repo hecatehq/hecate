@@ -10581,6 +10581,27 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
   });
 
+  it("keeps an operation failure visible during managed catalog recovery", async () => {
+    await act(async () => {
+      render(
+        <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />,
+        {
+          wrapper: directWrapper({
+            projects: [],
+            loaded: false,
+            catalogError: "raw catalog failure",
+            error: "Project rename failed.",
+          }),
+        },
+      );
+    });
+
+    expect(screen.getByText("Projects unavailable")).toBeTruthy();
+    expect(screen.getByRole("alert")).toHaveTextContent("Project rename failed.");
+    expect(screen.queryByText("raw catalog failure")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
   it("replaces a failed catalog state with one pending retry", async () => {
     let resolveRetry!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
     vi.mocked(getProjects).mockReturnValueOnce(
