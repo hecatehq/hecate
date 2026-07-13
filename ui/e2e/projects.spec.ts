@@ -83,7 +83,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByText("Review queued assignment: Verify launch checklist")).toBeVisible();
   await page.getByRole("button", { name: /Review start/ }).click();
-  const preflight = page.getByRole("dialog", { name: /launch preflight/i });
+  const preflight = page.getByRole("dialog", { name: /launch details/i });
   await expect(preflight).toBeVisible();
   await expect(preflight.getByText("Launch readiness", { exact: true })).toBeVisible();
   await preflight.getByRole("button", { name: "Start assignment" }).click();
@@ -336,7 +336,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
   await operations.getByRole("button", { name: /Open work/ }).click();
   await expect(page.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
   await expect(detail).toBeVisible();
-  await expect(page.getByRole("dialog", { name: /launch preflight/i })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: /launch details/i })).toHaveCount(0);
 
   await executionStory.scrollIntoViewIfNeeded();
   if (process.env.HECATE_CAPTURE_PROJECTS_HUMAN === "1") {
@@ -373,7 +373,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
   expect(startRequest.postDataJSON()).toEqual({ driver_kind: "manual" });
   await expect(executionStory.getByText("Human work is in progress.").first()).toBeVisible();
   await expect(executionStory.getByRole("button", { name: "Mark complete" })).toBeVisible();
-  await expect(page.getByRole("dialog", { name: /launch preflight/i })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: /launch details/i })).toHaveCount(0);
   expect(state.assignments[0]?.execution_ref).toBeUndefined();
 
   await executionStory.getByText("Assignment details").click();
@@ -2443,7 +2443,7 @@ function projectOperationsBriefForScope(state: ProjectJourneyState, projectID: s
           : `Review queued assignment: ${workItem.title}`,
         detail: humanAssignment
           ? "This assignment is ready for a person to begin."
-          : "Open launch preflight before starting this assignment.",
+          : "Review launch details before starting this assignment.",
         action_label: humanAssignment ? "Open work" : "Review start",
         target: {
           surface: "work",

@@ -306,7 +306,7 @@ func assignmentOperationItems(activity ProjectActivityDataResponse) []ProjectOpe
 				items = append(items, projectOperationItemFromActivity(item, "start_queued_assignment", projectOperationsPriorityHigh, "Human work ready", "This assignment is ready for a person to begin.", "Open work"))
 				continue
 			}
-			items = append(items, projectOperationItemFromActivity(item, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Open launch preflight before starting this assignment.", "Review start"))
+			items = append(items, projectOperationItemFromActivity(item, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Review launch details before starting this assignment.", "Review start"))
 		}
 	}
 	for _, item := range activity.Buckets.Active {

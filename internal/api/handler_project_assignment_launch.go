@@ -148,7 +148,7 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 			return
 		}
 		if inputs.Assignment.DriverKind == projectwork.AssignmentDriverManual {
-			WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments start directly from the work item and do not use launch preflight")
+			WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments start directly from the work item and do not need launch checks")
 			return
 		}
 		if projectWorkAssignmentIsTerminal(inputs.Assignment.Status) {
@@ -195,7 +195,7 @@ func (h *Handler) HandleProjectWorkAssignmentPreflight(w http.ResponseWriter, r 
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverManual {
-		WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments start directly from the work item and do not use launch preflight")
+		WriteError(w, http.StatusConflict, errCodeConflict, "Human assignments start directly from the work item and do not need launch checks")
 		return
 	}
 	role, ok, err := h.loadProjectWorkRole(ctx, projectID, assignment.RoleID)
@@ -285,7 +285,7 @@ func (h *Handler) renderProjectAssignmentLaunchReadiness(ctx context.Context, pr
 		GeneratedAt:  formatOptionalTime(time.Now().UTC()),
 		Status:       projectAssignmentLaunchReadinessStatusReady,
 		Title:        "Ready to start assignment",
-		Detail:       "Launch checks are clear. Review the preflight context before starting this assignment.",
+		Detail:       "Launch checks are clear. Review the launch context before starting this assignment.",
 		DriverKind:   driverKind,
 		Blockers:     []string{},
 		Warnings:     []string{},
@@ -531,7 +531,7 @@ func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Con
 	readiness.ExternalAgent = firstNonEmptyString(plan.Adapter.Name, plan.AdapterID)
 	readiness.SessionTitle = plan.SessionTitle
 	readiness.Title = "Ready to prepare External Agent chat"
-	readiness.Detail = "Launch checks are clear. Review the preflight context before preparing this supervised External Agent chat."
+	readiness.Detail = "Launch checks are clear. Review the launch context before preparing this supervised External Agent chat."
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
 	return nil
 }
@@ -585,7 +585,7 @@ func projectAssignmentModelReadinessBlocker(readiness ModelReadinessResponseItem
 
 func (h *Handler) projectAssignmentPreflightContext(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) (chat.ContextPacket, error) {
 	if status := strings.TrimSpace(assignment.Status); status != "" && status != projectwork.AssignmentStatusQueued {
-		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusConflict, errCodeConflict, "only queued assignments can be preflighted before launch")
+		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusConflict, errCodeConflict, "only queued assignments can be reviewed before launch")
 	}
 	switch assignment.DriverKind {
 	case projectwork.AssignmentDriverHecateTask, "":
@@ -1533,17 +1533,17 @@ func appendProjectAssignmentLaunchPreflight(packet *chat.ContextPacket, driverKi
 	}
 	appendContextPacketSourceWithSection(packet, contextSectionRuntime, chat.ContextSource{
 		Kind:   "launch_preflight",
-		Label:  "Launch preflight",
+		Label:  "Launch details",
 		Detail: firstNonEmptyString(strings.TrimSpace(driverKind), projectwork.AssignmentDriverHecateTask),
 		Trust:  contextTrustRuntimeState,
 	}, chat.ContextItem{
 		Kind:            "launch_preflight",
 		TrustLevel:      contextTrustRuntimeState,
 		Origin:          "project_assignment.preflight",
-		Title:           "Launch preflight",
+		Title:           "Launch details",
 		Body:            strings.Join(body, "\n"),
 		Included:        false,
-		InclusionReason: "Preflight metadata for operator review before assignment start",
+		InclusionReason: "Launch details for operator review before assignment start",
 	})
 }
 

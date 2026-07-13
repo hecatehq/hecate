@@ -924,7 +924,7 @@ function resetProjectWorkMocks() {
           kind: "launch_preflight",
           trust_level: "runtime_state",
           origin: "project_assignment.preflight",
-          title: "Launch preflight",
+          title: "Launch details",
           body: "Preview only: no task, run, chat session, memory entry, artifact, or assignment update has been created.\nTask: created on start\nRun: created on start",
           included: false,
           inclusion_reason: "Preflight metadata for operator review before assignment start",
@@ -4288,7 +4288,7 @@ describe("ProjectsView cockpit", () => {
             kind: "launch_preflight",
             trust_level: "runtime_state",
             origin: "project_assignment.preflight",
-            title: "Launch preflight",
+            title: "Launch details",
             body: "Driver: external_agent\nChat session: created when the assignment is prepared",
             included: false,
           },
@@ -4336,9 +4336,9 @@ describe("ProjectsView cockpit", () => {
     );
     expect(startProjectAssignment).not.toHaveBeenCalled();
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_1 launch preflight",
+      name: "Assignment asgn_1 launch details",
     });
-    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(within(preflight).getByText("Launch details")).toBeTruthy();
     expect(within(preflight).getByText(/Chat session: created/)).toBeTruthy();
     await userEvent.click(within(preflight).getByRole("button", { name: "Prepare chat" }));
     expect(startProjectAssignment).toHaveBeenCalledWith(
@@ -6659,9 +6659,9 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_not_started launch preflight",
+      name: "Assignment asgn_not_started launch details",
     });
-    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(within(preflight).getByText("Launch details")).toBeTruthy();
     expect(startProjectAssignment).not.toHaveBeenCalled();
     await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
 
@@ -7949,7 +7949,7 @@ describe("ProjectsView cockpit", () => {
             kind: "start_queued_assignment",
             priority: "high",
             title: "Review queued assignment: Build cockpit UI",
-            detail: "Open launch preflight before starting this assignment.",
+            detail: "Review launch details before starting this assignment.",
             action_label: "Review start",
             status: "not_started",
             target: {
@@ -7995,9 +7995,9 @@ describe("ProjectsView cockpit", () => {
       queuedAssignment.id,
     );
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_1 launch preflight",
+      name: "Assignment asgn_1 launch details",
     });
-    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(within(preflight).getByText("Launch details")).toBeTruthy();
     expect(startProjectAssignment).not.toHaveBeenCalled();
     await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
 
@@ -8134,7 +8134,7 @@ describe("ProjectsView cockpit", () => {
     );
     expect(
       await screen.findByRole("dialog", {
-        name: "Assignment asgn_2 launch preflight",
+        name: "Assignment asgn_2 launch details",
       }),
     ).toBeTruthy();
     expect(startProjectAssignment).not.toHaveBeenCalled();
@@ -8806,7 +8806,7 @@ describe("ProjectsView cockpit", () => {
             kind: "launch_preflight",
             trust_level: "runtime_state",
             origin: "project_assignment.preflight",
-            title: "Launch preflight",
+            title: "Launch details",
             body: "Preview only.\nTask: created on start\nRun: created on start",
             included: false,
           },
@@ -8847,9 +8847,9 @@ describe("ProjectsView cockpit", () => {
     );
     expect(startProjectAssignment).not.toHaveBeenCalled();
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_review launch preflight",
+      name: "Assignment asgn_review launch details",
     });
-    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(within(preflight).getByText("Launch details")).toBeTruthy();
     await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
 
     expect(startProjectAssignment).toHaveBeenCalledWith(
@@ -8940,7 +8940,7 @@ describe("ProjectsView cockpit", () => {
     });
     await user.click(within(detail).getByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_review launch preflight",
+      name: "Assignment asgn_review launch details",
     });
     await user.click(within(preflight).getByRole("button", { name: "Start assignment" }));
     expect(startProjectAssignment).toHaveBeenCalledTimes(1);
@@ -9804,7 +9804,7 @@ describe("ProjectsView cockpit", () => {
 
     await user.click(await screen.findByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_1 launch preflight",
+      name: "Assignment asgn_1 launch details",
     });
     await user.click(within(preflight).getByRole("button", { name: "Start assignment" }));
     expect(startProjectAssignment).toHaveBeenCalledTimes(1);
@@ -9828,7 +9828,7 @@ describe("ProjectsView cockpit", () => {
     expect(pendingButton).toBeDisabled();
     expect(
       screen.queryByRole("dialog", {
-        name: "Assignment asgn_1 launch preflight",
+        name: "Assignment asgn_1 launch details",
       }),
     ).toBeNull();
     expect(getProjectAssignmentPreflight).toHaveBeenCalledTimes(1);
@@ -9878,7 +9878,7 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_1 launch preflight",
+      name: "Assignment asgn_1 launch details",
     });
     expect(within(preflight).getByText(/Task: created on start/)).toBeTruthy();
     expect(startProjectAssignment).not.toHaveBeenCalled();
@@ -9954,7 +9954,7 @@ describe("ProjectsView cockpit", () => {
             kind: "launch_preflight",
             trust_level: "runtime_state",
             origin: "project_assignment.preflight",
-            title: "Launch preflight",
+            title: "Launch details",
             body: "Preview only: no task, run, chat session, memory entry, artifact, or assignment update has been created.\nTask: created on start\nRun: created on start",
             included: false,
           },
@@ -9981,7 +9981,7 @@ describe("ProjectsView cockpit", () => {
       queuedAssignment.id,
     );
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment asgn_1 launch preflight",
+      name: "Assignment asgn_1 launch details",
     });
     const notice = within(preflight).getByRole("status");
     expect(within(notice).getByText("Provider/model not ready")).toBeTruthy();

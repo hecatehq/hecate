@@ -208,7 +208,7 @@ describe("projectActionRouting", () => {
       ),
     ).toEqual({
       kind: "error",
-      message: "Project operation is missing an assignment preflight target.",
+      message: "Project operation is missing an assignment launch target.",
     });
   });
 

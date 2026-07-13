@@ -495,6 +495,7 @@ export function ProjectWorkspaceView({
                     )}
                     <section aria-label="Work activity" style={workActivityPanelStyle}>
                       <SectionHeader
+                        heading
                         title="Work Queue"
                         detail={
                           workLoadState === "loading" && workItems.length === 0

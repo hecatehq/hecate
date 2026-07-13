@@ -1904,7 +1904,7 @@ func TestProjectWorkAPI_ManualAssignmentLifecycleUsesCairnlineAuthority(t *testi
 	}
 
 	preflight := mustRequestJSONStatus[projectWorkErrorResponse](client, http.StatusConflict, http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_manual/assignments/asgn_manual/preflight", "")
-	if !strings.Contains(preflight.Error.Message, "do not use launch preflight") {
+	if !strings.Contains(preflight.Error.Message, "do not need launch checks") {
 		t.Fatalf("manual preflight error = %+v, want direct-work guidance", preflight.Error)
 	}
 

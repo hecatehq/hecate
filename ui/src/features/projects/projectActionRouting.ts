@@ -199,7 +199,7 @@ function routeProjectAssignmentPreflight(
   if (!action.assignment_id) {
     return {
       kind: "error",
-      message: `${source} is missing an assignment preflight target.`,
+      message: `${source} is missing an assignment launch target.`,
     };
   }
   return {

@@ -1721,7 +1721,7 @@ export function ProjectsView({
       case "open_assignment_preflight": {
         const workItemID = route.workItemID || selectedWorkItemIDRef.current;
         if (!selectedProjectID || !workItemID) {
-          setWorkError("Assignment preflight is missing a work item target.");
+          setWorkError("Assignment launch action is missing a work item target.");
           return;
         }
         setSelectedWorkItemOperationID("");
