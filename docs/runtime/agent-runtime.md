@@ -377,7 +377,12 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 - `file_write` → pauses on `file_write`, `file_edit`, and `apply_patch` tool calls
 - `read_file` → pauses on `read_file`, `grep`, `glob`, and `artifact_read` tool calls
 - `network_egress` → pauses on `http_request` and configured `web_search` tool calls
-- `all_tools` → pauses on every tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`)
+- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`)
+
+Approval never grants a capability denied by the resolved runtime policy. In
+particular, unexpected calls on a task whose Agent Preset snapshot sets
+`tools_enabled=false` are hard-denied with `policy=agent_preset_tools` before
+the approval gate and cannot pause for operator approval.
 
 The runtime emits an approval record of kind `agent_loop_tool_call`, persists the conversation snapshot, and returns `status=awaiting_approval` for the run. The UI banner shows which tools the agent wants to use. On approve, the same run is re-queued; on resume, the loop detects the trailing assistant tool_calls without resolved results, dispatches them (no second LLM call), and continues. On reject, the run and task terminate `cancelled` with `last_error="approval rejected"`. On cancel, the run terminates `cancelled`, any awaiting approval step is marked `cancelled`, and the pending approval is resolved as `cancelled`.
 

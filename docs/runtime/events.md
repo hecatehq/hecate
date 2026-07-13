@@ -448,18 +448,18 @@ Generic `tool.*` and `policy.*` events form the audit trail for external MCP too
 
 MCP events carry the same shared payload shape:
 
-| Extra key      | Type     | Notes                                                                                                             |
-| -------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
-| `tool_call_id` | `string` | Correlates with the assistant tool call                                                                           |
-| `tool_name`    | `string` | Full OpenAI-compatible tool name, e.g. `mcp__filesystem__read_file`                                               |
-| `kind`         | `string` | Always `mcp` for MCP-dispatched tools                                                                             |
-| `mcp_server`   | `string` | Operator-chosen alias from the task's `mcp_servers` config (the `<server>` segment of `mcp__<server>__<tool>`)    |
-| `mcp_tool`     | `string` | Un-namespaced upstream tool name                                                                                  |
-| `result`       | `string` | One of `dispatched`, `tool_error`, `failed`, `blocked` — finer-grained than the event-type split                  |
-| `duration_ms`  | `int64`  | Wall-clock from dispatch start to result-in-hand                                                                  |
-| `error`        | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error` |
-| `reason`       | `string` | Present on `policy.tool_blocked`                                                                                  |
-| `policy`       | `string` | Present on `policy.tool_blocked`: `mcp_approval_policy` or `agent_preset_tools`                                   |
+| Extra key      | Type     | Notes                                                                                                                                                                         |
+| -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool_call_id` | `string` | Correlates with the assistant tool call                                                                                                                                       |
+| `tool_name`    | `string` | Full OpenAI-compatible tool name, e.g. `mcp__filesystem__read_file`                                                                                                           |
+| `kind`         | `string` | Always `mcp` for namespaced MCP tool events                                                                                                                                   |
+| `mcp_server`   | `string` | Parsed `<server>` segment of `mcp__<server>__<tool>`. Normally a configured alias; preset-wide blocks may record an unexpected, unconfigured namespace returned by the model. |
+| `mcp_tool`     | `string` | Un-namespaced upstream tool name                                                                                                                                              |
+| `result`       | `string` | One of `dispatched`, `tool_error`, `failed`, `blocked` — finer-grained than the event-type split                                                                              |
+| `duration_ms`  | `int64`  | Wall-clock from dispatch start to result-in-hand                                                                                                                              |
+| `error`        | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error`                                                             |
+| `reason`       | `string` | Present on `policy.tool_blocked`                                                                                                                                              |
+| `policy`       | `string` | Present on `policy.tool_blocked`: `mcp_approval_policy` or `agent_preset_tools`                                                                                               |
 
 ### `tool.completed` for MCP
 
