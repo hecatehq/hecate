@@ -321,6 +321,12 @@ textarea {
   outline-offset: 3px;
 }
 
+.agent-preset-choice[aria-pressed="true"] {
+  background: var(--bg3);
+  box-shadow: inset 2px 0 0 var(--teal);
+  color: var(--t0);
+}
+
 @media (max-width: 1180px) {
   .project-work-coordination-grid {
     grid-template-columns: minmax(0, 1fr);

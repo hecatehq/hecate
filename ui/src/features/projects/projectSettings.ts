@@ -30,6 +30,8 @@ export type CreateWorktreeForm = {
   setDefault: boolean;
 };
 
+const unsavedRootFormKeyPrefix = "unsaved-root:";
+
 export function createProjectPayloadFromForm(form: CreateProjectForm): CreateProjectPayload {
   const rootPath = form.rootPath.trim();
   const payload: CreateProjectPayload = {
@@ -85,6 +87,14 @@ export function projectRootPayloadsEqual(
     (a.git_branch ?? "").trim() === (b.git_branch ?? "").trim() &&
     Boolean(a.active) === Boolean(b.active)
   );
+}
+
+export function projectRootFormKey(root: ProjectRootPayload | ProjectRootRecord) {
+  return root.id?.trim() || `${unsavedRootFormKeyPrefix}${root.path.trim()}`;
+}
+
+export function isUnsavedProjectRootFormKey(value: string) {
+  return value.startsWith(unsavedRootFormKeyPrefix);
 }
 
 export function projectRootOptionLabel(root: ProjectRootPayload | ProjectRootRecord) {

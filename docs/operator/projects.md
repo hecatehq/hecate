@@ -281,10 +281,13 @@ Project Settings describes launch behavior without changing its stored value:
 
 Unknown existing settings remain selectable so saving another default does not
 silently change workspace behavior. At narrow widths, Project Settings replaces
-the workspace body with a full-width inspector; closing it returns to the prior
-project surface. Timeline, Memory, Skills, sources, roots, roles, and Agent
-Presets remain supporting surfaces. They do not create a second project state
-outside Cairnline or launch work without operator confirmation.
+the workspace body with a full-width inspector. Focus moves to the Settings
+heading; **Back** or a successful save returns to the exact project control that
+opened it, including after the project refreshes. Settings and its navigation
+stay locked while a save is in progress so later edits are not lost. Timeline,
+Memory, Skills, sources, roots, roles, and Agent Presets remain supporting
+surfaces. They do not create a second project state outside Cairnline or launch
+work without operator confirmation.
 
 ## V1 Stop Line
 
@@ -306,6 +309,12 @@ Project roots are concrete workspace paths, not project identity. A single
 project can include a main checkout and linked Git worktrees. Work items and
 assignments may select a root; launch resolution uses assignment root, then
 work-item root, then project default root, then the first active root.
+
+**Default folder** and **Active** are separate Cairnline settings. Making the
+default folder inactive does not select a different default; choose another
+default explicitly when that is the intended launch fallback. A folder added
+and selected in the same Settings edit becomes the default only after Cairnline
+returns its portable root ID.
 
 Root edits use typed server mutations per root. Adding, editing, or deleting a
 root changes project metadata only; it does not create or delete folders,

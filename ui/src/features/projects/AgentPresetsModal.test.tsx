@@ -117,6 +117,13 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
+    const selectedPreset = screen.getByRole("button", { name: "Implementation" });
+    expect(selectedPreset).toHaveAttribute("aria-pressed", "true");
+    expect(selectedPreset).not.toHaveClass("btn-primary");
+    expect(
+      screen.getByRole("dialog", { name: "Agent presets" }).querySelectorAll(".btn-primary"),
+    ).toHaveLength(1);
+
     await userEvent.clear(screen.getByLabelText("Name"));
     await userEvent.type(screen.getByLabelText("Name"), "Implementation lead");
     await userEvent.type(screen.getByLabelText("Instructions"), "Ship the scoped change.");

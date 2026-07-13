@@ -118,6 +118,9 @@ export function ProjectMemoryPanel({
           <button
             className="btn btn-primary btn-sm"
             type="button"
+            disabled={
+              Boolean(firstPendingCandidate) && rejectingCandidateID === firstPendingCandidate?.id
+            }
             onClick={() =>
               firstPendingCandidate ? onPromoteCandidate(firstPendingCandidate) : onNew()
             }
@@ -317,130 +320,134 @@ export function ProjectSourceModal({
         style={{ display: "grid", gap: 12 }}
       >
         {error && <InlineError message={error} />}
-        <div className="project-support-form-grid" style={twoColumnFormStyle}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Kind</span>
-            <select
-              className="input"
-              value={form.kind}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  kind: event.target.value,
-                  format: projectSourceDefaultFormat(event.target.value),
-                }))
-              }
-            >
-              {PROJECT_SOURCE_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {sourceKindLabel(kind)}
-                </option>
-              ))}
-              {source?.kind &&
-                !(PROJECT_SOURCE_KINDS as readonly string[]).includes(source.kind) && (
-                  <option value={source.kind}>{source.kind}</option>
-                )}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Enabled</span>
-            <select
-              className="input"
-              value={form.enabled ? "true" : "false"}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, enabled: event.target.value === "true" }))
-              }
-            >
-              <option value="true">Enabled</option>
-              <option value="false">Disabled</option>
-            </select>
-          </label>
-        </div>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Title</span>
-          <input
-            className="input"
-            autoFocus
-            value={form.title}
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            placeholder="Design brief, customer interview, source note"
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Locator</span>
-          <input
-            className="input"
-            value={form.locator}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, locator: event.target.value }))
-            }
-            placeholder="https://…, /local/path, ticket id, or leave blank for note"
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Note</span>
-          <textarea
-            className="input"
-            value={form.note}
-            rows={4}
-            onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-            placeholder="Optional operator note about why this source matters. Stored as source metadata, not injected as memory."
-            style={{ resize: "vertical", minHeight: 92 }}
-          />
-        </label>
-        <details className="project-work-advanced-fields">
-          <summary>Advanced source details</summary>
-          <div style={{ display: "grid", gap: 10, paddingTop: 10 }}>
-            <div className="project-support-form-grid" style={twoColumnFormStyle}>
-              <label style={fieldStyle}>
-                <span style={fieldLabelStyle}>Trust label</span>
-                <input
-                  className="input"
-                  value={form.trustLabel}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, trustLabel: event.target.value }))
-                  }
-                  placeholder="operator_source"
-                />
-              </label>
-              <label style={fieldStyle}>
-                <span style={fieldLabelStyle}>Category</span>
-                <input
-                  className="input"
-                  value={form.sourceCategory}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, sourceCategory: event.target.value }))
-                  }
-                  placeholder="operator_source"
-                />
-              </label>
-            </div>
-            <div className="project-support-form-grid" style={twoColumnFormStyle}>
-              <label style={fieldStyle}>
-                <span style={fieldLabelStyle}>Format</span>
-                <input
-                  className="input"
-                  value={form.format}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, format: event.target.value }))
-                  }
-                  placeholder="url, text, agents_md"
-                />
-              </label>
-              <label style={fieldStyle}>
-                <span style={fieldLabelStyle}>Scope</span>
-                <input
-                  className="input"
-                  value={form.scope}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, scope: event.target.value }))
-                  }
-                  placeholder="project, workspace, path:docs"
-                />
-              </label>
-            </div>
+        <fieldset disabled={pending} style={modalFieldsetStyle}>
+          <div className="project-support-form-grid" style={twoColumnFormStyle}>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Kind</span>
+              <select
+                className="input"
+                value={form.kind}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    kind: event.target.value,
+                    format: projectSourceDefaultFormat(event.target.value),
+                  }))
+                }
+              >
+                {PROJECT_SOURCE_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {sourceKindLabel(kind)}
+                  </option>
+                ))}
+                {source?.kind &&
+                  !(PROJECT_SOURCE_KINDS as readonly string[]).includes(source.kind) && (
+                    <option value={source.kind}>{source.kind}</option>
+                  )}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Enabled</span>
+              <select
+                className="input"
+                value={form.enabled ? "true" : "false"}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, enabled: event.target.value === "true" }))
+                }
+              >
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
           </div>
-        </details>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Title</span>
+            <input
+              className="input"
+              autoFocus
+              value={form.title}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, title: event.target.value }))
+              }
+              placeholder="Design brief, customer interview, source note"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Locator</span>
+            <input
+              className="input"
+              value={form.locator}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, locator: event.target.value }))
+              }
+              placeholder="https://…, /local/path, ticket id, or leave blank for note"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Note</span>
+            <textarea
+              className="input"
+              value={form.note}
+              rows={4}
+              onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+              placeholder="Optional operator note about why this source matters. Stored as source metadata, not injected as memory."
+              style={{ resize: "vertical", minHeight: 92 }}
+            />
+          </label>
+          <details className="project-work-advanced-fields">
+            <summary>Advanced source details</summary>
+            <div style={{ display: "grid", gap: 10, paddingTop: 10 }}>
+              <div className="project-support-form-grid" style={twoColumnFormStyle}>
+                <label style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Trust label</span>
+                  <input
+                    className="input"
+                    value={form.trustLabel}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, trustLabel: event.target.value }))
+                    }
+                    placeholder="operator_source"
+                  />
+                </label>
+                <label style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Category</span>
+                  <input
+                    className="input"
+                    value={form.sourceCategory}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sourceCategory: event.target.value }))
+                    }
+                    placeholder="operator_source"
+                  />
+                </label>
+              </div>
+              <div className="project-support-form-grid" style={twoColumnFormStyle}>
+                <label style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Format</span>
+                  <input
+                    className="input"
+                    value={form.format}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, format: event.target.value }))
+                    }
+                    placeholder="url, text, agents_md"
+                  />
+                </label>
+                <label style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Scope</span>
+                  <input
+                    className="input"
+                    value={form.scope}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, scope: event.target.value }))
+                    }
+                    placeholder="project, workspace, path:docs"
+                  />
+                </label>
+              </div>
+            </div>
+          </details>
+        </fieldset>
       </form>
     </Modal>
   );
@@ -510,109 +517,113 @@ export function ProjectMemoryModal({
         style={{ display: "grid", gap: 12 }}
       >
         {error && <InlineError message={error} />}
-        {candidate && (
-          <div
-            style={{
-              background: "var(--bg2)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm)",
-              display: "grid",
-              gap: 6,
-              padding: "9px 10px",
-            }}
-          >
-            <div style={sectionLabelStyle}>Suggestion source</div>
-            <div style={metaLineStyle}>
-              <span>{formatCandidateSource(candidate)}</span>
-              <span>{candidate.suggested_trust_label}</span>
-              <span>{candidate.status}</span>
-            </div>
-            {candidateSourceRefs.length > 0 && (
-              <div style={{ ...subtleTextStyle }}>
-                Source refs: {candidateSourceRefs.join(" · ")}
+        <fieldset disabled={pending} style={modalFieldsetStyle}>
+          {candidate && (
+            <div
+              style={{
+                background: "var(--bg2)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                display: "grid",
+                gap: 6,
+                padding: "9px 10px",
+              }}
+            >
+              <div style={sectionLabelStyle}>Suggestion source</div>
+              <div style={metaLineStyle}>
+                <span>{formatCandidateSource(candidate)}</span>
+                <span>{candidate.suggested_trust_label}</span>
+                <span>{candidate.status}</span>
               </div>
-            )}
-          </div>
-        )}
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Title</span>
-          <input
-            className="input"
-            autoFocus
-            value={form.title}
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Body</span>
-          <textarea
-            className="input"
-            value={form.body}
-            rows={7}
-            onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))}
-            style={{ resize: "vertical", minHeight: 150 }}
-          />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--t1)" }}>
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, enabled: event.target.checked }))
-            }
-          />
-          Enabled for this project
-        </label>
-        <details className="project-work-advanced-fields">
-          <summary>Advanced memory details</summary>
-          <div style={{ display: "grid", gap: 10, paddingTop: 10 }}>
-            <div className="project-support-form-grid" style={twoColumnFormStyle}>
+              {candidateSourceRefs.length > 0 && (
+                <div style={{ ...subtleTextStyle }}>
+                  Source refs: {candidateSourceRefs.join(" · ")}
+                </div>
+              )}
+            </div>
+          )}
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Title</span>
+            <input
+              className="input"
+              autoFocus
+              value={form.title}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, title: event.target.value }))
+              }
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Body</span>
+            <textarea
+              className="input"
+              value={form.body}
+              rows={7}
+              onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))}
+              style={{ resize: "vertical", minHeight: 150 }}
+            />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--t1)" }}>
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, enabled: event.target.checked }))
+              }
+            />
+            Enabled for this project
+          </label>
+          <details className="project-work-advanced-fields">
+            <summary>Advanced memory details</summary>
+            <div style={{ display: "grid", gap: 10, paddingTop: 10 }}>
+              <div className="project-support-form-grid" style={twoColumnFormStyle}>
+                <label style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Trust label</span>
+                  <select
+                    className="input"
+                    value={form.trustLabel}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, trustLabel: event.target.value }))
+                    }
+                  >
+                    {MEMORY_TRUST_LABELS.map((label) => (
+                      <option key={label} value={label}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Source kind</span>
+                  <select
+                    className="input"
+                    value={form.sourceKind}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, sourceKind: event.target.value }))
+                    }
+                  >
+                    {MEMORY_SOURCE_KINDS.map((kind) => (
+                      <option key={kind} value={kind}>
+                        {kind}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <label style={fieldStyle}>
-                <span style={fieldLabelStyle}>Trust label</span>
-                <select
+                <span style={fieldLabelStyle}>Source ID</span>
+                <input
                   className="input"
-                  value={form.trustLabel}
+                  value={form.sourceID}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, trustLabel: event.target.value }))
+                    setForm((current) => ({ ...current, sourceID: event.target.value }))
                   }
-                >
-                  {MEMORY_TRUST_LABELS.map((label) => (
-                    <option key={label} value={label}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={fieldStyle}>
-                <span style={fieldLabelStyle}>Source kind</span>
-                <select
-                  className="input"
-                  value={form.sourceKind}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, sourceKind: event.target.value }))
-                  }
-                >
-                  {MEMORY_SOURCE_KINDS.map((kind) => (
-                    <option key={kind} value={kind}>
-                      {kind}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="optional artifact, chat, message, or handoff id"
+                />
               </label>
             </div>
-            <label style={fieldStyle}>
-              <span style={fieldLabelStyle}>Source ID</span>
-              <input
-                className="input"
-                value={form.sourceID}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, sourceID: event.target.value }))
-                }
-                placeholder="optional artifact, chat, message, or handoff id"
-              />
-            </label>
-          </div>
-        </details>
+          </details>
+        </fieldset>
       </form>
     </Modal>
   );
@@ -784,6 +795,7 @@ function ProjectMemoryCandidateRow({
               className="btn btn-ghost btn-sm"
               type="button"
               aria-label={`Review memory suggestion ${candidate.title}`}
+              disabled={pendingReject}
               onClick={onPromote}
             >
               <Icon d={Icons.check} size={12} />
@@ -913,6 +925,15 @@ const fieldLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   textTransform: "uppercase",
+};
+
+const modalFieldsetStyle: CSSProperties = {
+  border: 0,
+  display: "grid",
+  gap: 12,
+  margin: 0,
+  minWidth: 0,
+  padding: 0,
 };
 
 const panelStyle: CSSProperties = {

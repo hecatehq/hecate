@@ -384,7 +384,10 @@ The Projects UI should stay lightweight but operational:
   settings, with the same right-panel width behavior. The project header stays
   above the workspace/settings split so the inspector starts below the header,
   not beside it. At narrow widths, Settings replaces the workspace body instead
-  of crushing it and returns focus to its trigger when closed. Do not use a
+  of crushing it. Move focus to the Settings heading on entry, provide an
+  explicit **Back** action, and return focus to the semantic trigger that opened
+  it after Back or save, even when a project refresh replaced that trigger's DOM
+  node. Lock navigation and form drafts while a save is pending. Do not use a
   modal for routine project defaults.
 - Preserve workspace behavior values exactly when Project Settings loads and
   saves. An unset value is the recommended isolated copy; `ephemeral` and
@@ -395,6 +398,11 @@ The Projects UI should stay lightweight but operational:
   Rootless projects can still add and manage memory and sources, and manage
   registered skills, but should not offer source or skill discovery as if a
   folder were available.
+- Preserve Cairnline's separate root fields. A default root may be inactive, so
+  changing **Active** must not silently change **Default folder**. When an
+  unsaved folder is selected as the default, resolve the ID returned by the root
+  mutation before saving `default_root_id`; never send a local placeholder into
+  the project record.
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 

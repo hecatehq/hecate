@@ -251,12 +251,20 @@ read-only completed state. Focus requests for records that disappeared fail
 closed to the selected work item with an announced refresh action. Unexpected
 fixture routes fail the journey instead of receiving generic success data.
 
-The supporting-surface journey verifies pending and saved memory hierarchy,
-collapsed source and skill details, memory creation, skill editing through the
-existing mutations, a clean Settings form, focus restoration, and horizontal
-containment at desktop and 390px widths. Focused component tests also cover
-loading, empty, error, pending-review, resolved-history, editing, and
-save-pending states.
+The supporting-surface journey starts rootless at 390px and verifies that folder
+discovery stays unavailable while manual memory and work remain usable. It
+checks long-content containment in the Memory form and saved entry, the
+rootless Skills state, attached-folder source and skill discovery, collapsed
+supporting details, skill editing through the existing mutation, and containment
+again with registered skill details expanded. Project Settings is exercised
+from its in-workspace onboarding action and header action: the inspector heading
+receives focus, **Back** restores the exact origin, successful saves restore the
+same semantic origin after project refresh, and the workspace is replaced only
+at 390px. Focused tests cover loading, empty, error, pending and resolved memory
+suggestions, immediate rejected-history projection, rejection races, exact
+workspace values, Cairnline's independent default/active root fields, new-root
+ID resolution, non-primary preset selection, and locked Memory, Source,
+Settings, and Agent Preset saves.
 
 ![Read-first project memory at desktop width](../../screenshots/projects-memory.jpg)
 

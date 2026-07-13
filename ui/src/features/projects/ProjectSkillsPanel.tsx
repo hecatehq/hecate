@@ -157,7 +157,7 @@ function ProjectSkillRow({
             type="checkbox"
             checked={skill.enabled}
             disabled={pending}
-            aria-label={`Use skill ${title}`}
+            aria-label={`Enable skill ${title}`}
             onChange={(event) => onUpdate(skill, { enabled: event.target.checked })}
           />
           <span>{skill.enabled ? "Enabled" : "Disabled"}</span>
