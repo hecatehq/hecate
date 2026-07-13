@@ -10606,8 +10606,11 @@ describe("ProjectsView navigation destinations", () => {
     });
     const retryingButton = screen.getByRole("button", { name: "Retrying…" });
     expect(retryingButton).toBe(retryButton);
-    expect(retryingButton).toBeDisabled();
+    expect(retryingButton).toHaveAttribute("aria-disabled", "true");
+    expect(retryingButton).toBeEnabled();
     expect(retryingButton).toHaveFocus();
+    expect(retryingButton.closest('[role="status"]')).toBeNull();
+    expect(screen.getByText("Retrying projects…").closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByText("No projects yet")).toBeNull();
     expect(getProjects).toHaveBeenCalledTimes(1);
 
@@ -10641,7 +10644,8 @@ describe("ProjectsView navigation destinations", () => {
     await user.click(retryButton);
     const retryingButton = screen.getByRole("button", { name: "Retrying…" });
     expect(retryingButton).toBe(retryButton);
-    expect(retryingButton).toBeDisabled();
+    expect(retryingButton).toHaveAttribute("aria-disabled", "true");
+    expect(retryingButton).toBeEnabled();
     expect(retryingButton).toHaveFocus();
 
     rejectRetry(new Error("Projects are still unavailable."));
@@ -10650,9 +10654,12 @@ describe("ProjectsView navigation destinations", () => {
       expect(restoredRetry).toBe(retryButton);
       expect(restoredRetry).toBeEnabled();
       expect(restoredRetry).toHaveFocus();
-      expect(screen.getByText("Projects are still unavailable.")).toBeTruthy();
+      expect(
+        screen.getByText("Projects could not be loaded. This link has been kept so you can retry."),
+      ).toBeTruthy();
     });
     expect(screen.queryByText("Projects loaded.")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(getProjects).toHaveBeenCalledTimes(1);
   });
 

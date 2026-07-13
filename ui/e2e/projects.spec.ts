@@ -1034,6 +1034,56 @@ test("Projects links fail closed for missing projects and work items", async ({ 
   );
 });
 
+test("Projects catalog retry preserves deliberate browser focus", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  state.projectCatalogFailuresRemaining = 2;
+  let releaseFailedRetry!: () => void;
+  state.projectCatalogRetryGate = new Promise<void>((resolve) => {
+    releaseFailedRetry = resolve;
+  });
+
+  await page.goto("/projects");
+  await expect(page.getByText("Projects unavailable", { exact: true })).toBeVisible();
+  const retryButton = page.getByRole("button", { name: "Retry" });
+  await retryButton.focus();
+  await retryButton.click();
+
+  const retryingButton = page.getByRole("button", { name: "Retrying…" });
+  await expect(retryingButton).toHaveAttribute("aria-disabled", "true");
+  await expect(retryingButton).toBeFocused();
+  await retryingButton.press("Enter");
+  expect(state.projectCatalogRequestCount).toBe(2);
+
+  releaseFailedRetry();
+  await expect(retryButton).toBeFocused();
+  await expect(retryButton).not.toHaveAttribute("aria-disabled", "true");
+  expect(state.projectCatalogRequestCount).toBe(2);
+
+  state.projectCatalogFailuresRemaining = 1;
+  state.projectCatalogRequestCount = 0;
+  let releaseSuccessfulRetry!: () => void;
+  state.projectCatalogRetryGate = new Promise<void>((resolve) => {
+    releaseSuccessfulRetry = resolve;
+  });
+  await page.reload();
+  await expect(page.getByText("Projects unavailable", { exact: true })).toBeVisible();
+  await retryButton.focus();
+  await retryButton.click();
+  await expect(retryingButton).toBeFocused();
+
+  const chatsLink = page.getByRole("link", { name: "Chats" });
+  await chatsLink.focus();
+  await expect(chatsLink).toBeFocused();
+  releaseSuccessfulRetry();
+
+  await expect(page.getByRole("status").filter({ hasText: "Projects loaded." })).toHaveText(
+    "Projects loaded.",
+  );
+  await expect(chatsLink).toBeFocused();
+  await expect(page.getByRole("region", { name: "Project workspace content" })).not.toBeFocused();
+  expect(state.projectCatalogRequestCount).toBe(2);
+});
+
 test("Projects supporting surfaces stay read-first at desktop and narrow widths", async ({
   page,
 }) => {
@@ -1375,6 +1425,9 @@ async function mockProjectJourneyAPIs(page: Page) {
     artifacts: [] as ProjectCollaborationArtifactRecord[],
     handoffs: [] as ProjectHandoffRecord[],
     projectPatchBodies: [] as Record<string, unknown>[],
+    projectCatalogFailuresRemaining: 0,
+    projectCatalogRequestCount: 0,
+    projectCatalogRetryGate: null as Promise<void> | null,
     rootMutationCalls: [] as Array<{
       method: string;
       rootID?: string;
@@ -1493,6 +1546,27 @@ async function mockProjectJourneyAPIs(page: Page) {
 
     if (parts.length === 0) {
       if (method === "GET") {
+        state.projectCatalogRequestCount += 1;
+        if (state.projectCatalogRequestCount > 1 && state.projectCatalogRetryGate) {
+          const gate = state.projectCatalogRetryGate;
+          state.projectCatalogRetryGate = null;
+          await gate;
+        }
+        if (state.projectCatalogFailuresRemaining > 0) {
+          state.projectCatalogFailuresRemaining -= 1;
+          await route.fulfill(
+            ok(
+              {
+                error: {
+                  type: "projects_unavailable",
+                  message: "Projects are unavailable.",
+                },
+              },
+              503,
+            ),
+          );
+          return;
+        }
         await route.fulfill(ok({ object: "projects", data: state.projects }));
         return;
       }
