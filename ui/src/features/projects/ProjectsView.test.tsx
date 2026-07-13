@@ -2101,7 +2101,7 @@ describe("ProjectsView index", () => {
 
   it("renders empty, loading, and error states for the project index", () => {
     const empty = render(<WorkProjects />, {
-      wrapper: directWrapper({ projects: [] }),
+      wrapper: directWrapper({ projects: [], loaded: true }),
     });
     expect(screen.getByText("No projects yet")).toBeTruthy();
     expect(screen.getByText("Add a project to begin")).toBeTruthy();
@@ -10572,6 +10572,8 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByText("Hecate could not load projects. Retry to check again.")).toBeTruthy();
     expect(screen.queryByText("Loading projects…")).toBeNull();
     expect(screen.queryByText("Checking available projects.")).toBeNull();
+    expect(screen.queryByText("No projects yet")).toBeNull();
+    expect(screen.queryByText(/Create a project for any durable work area/)).toBeNull();
     expect(screen.getByRole("button", { name: "Retry" })).toHaveClass("btn-primary");
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
   });
@@ -10787,6 +10789,7 @@ describe("ProjectsView navigation destinations", () => {
     const rendered = render(route(workItem.id));
 
     await screen.findByRole("article", { name: "Build cockpit UI work item" });
+    expect(await screen.findByText("Work item opened: Build cockpit UI")).toBeTruthy();
     const settingsButton = screen.getByRole("button", { name: "Project settings" });
     settingsButton.focus();
     onNavigate.mockClear();
