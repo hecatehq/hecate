@@ -9,6 +9,7 @@ import type {
   ProjectContextSourceRecord,
   ProjectHealth,
   ProjectMemoryCandidateRecord,
+  ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectRootPayload,
   ProjectSetupReadiness,
@@ -51,6 +52,15 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(page.getByRole("region", { name: "Project onboarding" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Project Assistant" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Set up project" })).toHaveCount(0);
+  await page.getByRole("tab", { name: /Memory/ }).click();
+  await expect(page.getByText("Guidance source: AGENTS.md")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Reject memory candidate Guidance source: AGENTS.md" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Reject memory candidate Guidance source: AGENTS.md" }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: /Work/ }).click();
   await expect(page.getByRole("button", { name: "Create first work" })).toBeVisible();
   await page.getByRole("button", { name: "Create first work" }).click();
   await page.getByLabel("Title").fill("Verify launch checklist");
@@ -60,20 +70,35 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("button", { name: "Create work item" }).click();
 
   await expect(page.getByRole("heading", { name: "Verify launch checklist" })).toBeVisible();
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByText("Prepare first assignment: Verify launch checklist")).toBeVisible();
+  await page.getByRole("tab", { name: /Work/ }).click();
   await page.getByRole("button", { name: "Prepare next step" }).click();
   await expect(
     page.getByText("Queue the implementation role for the selected work item."),
   ).toBeVisible();
   await page.getByRole("button", { name: "Apply proposal" }).click();
 
-  await expect(page.getByRole("button", { name: "Start" })).toBeVisible();
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByText("Review queued assignment: Verify launch checklist")).toBeVisible();
+  await page.getByRole("button", { name: /Review start/ }).click();
   const preflight = page.getByRole("dialog", { name: /launch preflight/i });
   await expect(preflight).toBeVisible();
   await expect(preflight.getByText("Launch readiness", { exact: true })).toBeVisible();
   await preflight.getByRole("button", { name: "Start assignment" }).click();
 
+  await expect(page.getByText("awaiting_approval", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByText("Review pending approval: Verify launch checklist")).toBeVisible();
+  await page.getByRole("button", { name: /Open approval/ }).click();
+  await expect(page.getByRole("region", { name: "Selected work item" })).toBeVisible();
+
+  completeProjectJourneyAssignment(state);
+  await page.getByRole("button", { name: "Refresh project work" }).click();
   await expect(page.getByText("completed", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByText("Record completion evidence: Verify launch checklist")).toBeVisible();
+  await page.getByRole("button", { name: /Open work/ }).click();
   await page.getByRole("button", { name: "Add evidence" }).click();
   await page
     .getByRole("dialog", { name: "Record evidence" })
@@ -84,16 +109,23 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("button", { name: "Record evidence" }).click();
 
   await expect(page.getByText("Launch checklist", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByText("Close out work item: Verify launch checklist")).toBeVisible();
+  await page.getByRole("button", { name: /Open closeout/ }).click();
   await page.getByRole("button", { name: "Mark done" }).click();
   await expect(page.getByRole("article", { name: /Verify launch checklist/ })).toContainText(
     "done",
   );
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByText("Open latest work: Verify launch checklist")).toBeVisible();
+  await expect(page.getByText("Assignments: 0 active · 0 blocked · 1 completed")).toBeVisible();
 
   expect(state.projects).toHaveLength(1);
   expect(state.roles).toHaveLength(1);
   expect(state.workItems[0]?.status).toBe("done");
   expect(state.assignments[0]?.status).toBe("completed");
   expect(state.artifacts).toHaveLength(1);
+  expect(state.memoryCandidates[0]?.status).toBe("rejected");
 });
 
 test("Projects rootless journey: plan work without setup or workspace", async ({ page }) => {
@@ -154,6 +186,7 @@ test("Projects rootless journey: plan work without setup or workspace", async ({
 test("Projects overview is the default ready-project home at desktop and narrow widths", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(new Date(NOW));
   await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.workspace", "projects");
@@ -181,6 +214,13 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   );
   await expect(page.getByRole("region", { name: "Project Assistant" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Work queue" })).toHaveCount(0);
+  if (process.env.HECATE_CAPTURE_PROJECTS_OVERVIEW === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-overview.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
 
   await page.getByRole("button", { name: "View work" }).click();
   await expect(page.getByRole("article", { name: /Review launch narrative/ })).toBeVisible();
@@ -193,6 +233,16 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   expect(projectMain?.width).toBeGreaterThan(300);
   expect(projectMain?.y ?? 0).toBeGreaterThan(projectIndex?.y ?? 0);
   await expect(page.getByRole("region", { name: "Project overview" })).toBeVisible();
+  const primaryOperationTitle = page.getByText(
+    "Prepare first assignment: Review launch narrative",
+    { exact: true },
+  );
+  await expect(primaryOperationTitle).toBeVisible();
+  expect(
+    await primaryOperationTitle.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    ),
+  ).toBe(true);
 
   const narrowTabs = page
     .getByRole("tablist", { name: "Project workspace views" })
@@ -211,6 +261,13 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   expect(activityBox?.y ?? 0).toBeGreaterThan(
     (operationsBox?.y ?? 0) + (operationsBox?.height ?? 0),
   );
+  if (process.env.HECATE_CAPTURE_PROJECTS_OVERVIEW === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-overview-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
 });
 
 test("Projects settings and memory use typed root and source mutations", async ({ page }) => {
@@ -535,6 +592,20 @@ async function mockProjectJourneyAPIs(page: Page) {
     }
     if (resource === "memory") {
       if (parts[2] === "candidates") {
+        const candidateID = parts[3] || "";
+        if (candidateID && parts[4] === "reject" && method === "POST") {
+          const candidate = state.memoryCandidates.find((item) => item.id === candidateID);
+          if (!candidate) {
+            await route.fulfill(ok({ object: "project_memory_candidate", data: null }, 404));
+            return;
+          }
+          const rejected = { ...candidate, status: "rejected", updated_at: NOW } as const;
+          state.memoryCandidates = state.memoryCandidates.map((item) =>
+            item.id === candidateID ? rejected : item,
+          );
+          await route.fulfill(ok({ object: "project_memory_candidate", data: rejected }));
+          return;
+        }
         await route.fulfill(
           ok({ object: "project_memory_candidates", data: state.memoryCandidates }),
         );
@@ -811,21 +882,20 @@ async function handleWorkItemRoute(
     }
     if (parts[5] === "start" && method === "POST" && assignment) {
       Object.assign(assignment, {
-        status: "completed",
+        status: "awaiting_approval",
         started_at: NOW,
-        completed_at: NOW,
         updated_at: NOW,
         execution_ref: {
           kind: "task_run",
           task_id: "task_launch",
           run_id: "run_launch",
-          status: "completed",
+          status: "awaiting_approval",
           trace_id: "trace_launch",
         },
         execution: {
           task_id: "task_launch",
           run_id: "run_launch",
-          status: "completed",
+          status: "awaiting_approval",
           provider: "anthropic",
           model: "claude-sonnet-4-6",
           trace_id: "trace_launch",
@@ -934,6 +1004,33 @@ function applyAssignment(state: ProjectJourneyState): ProjectAssignmentRecord {
   return assignment;
 }
 
+function completeProjectJourneyAssignment(state: ProjectJourneyState) {
+  const assignment = state.assignments[0];
+  if (!assignment) throw new Error("Expected a project assignment to complete.");
+  Object.assign(assignment, {
+    status: "completed",
+    completed_at: NOW,
+    updated_at: NOW,
+    execution_ref: {
+      ...assignment.execution_ref,
+      kind: "task_run",
+      task_id: "task_launch",
+      run_id: "run_launch",
+      status: "completed",
+      trace_id: "trace_launch",
+    },
+    execution: {
+      ...assignment.execution,
+      task_id: "task_launch",
+      run_id: "run_launch",
+      status: "completed",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      trace_id: "trace_launch",
+    },
+  });
+}
+
 function bootstrapProposal(project?: ProjectRecord) {
   return {
     id: "pa_setup",
@@ -971,7 +1068,7 @@ function projectAssistantContext(state: ProjectJourneyState) {
     roles: state.roles,
     skills: state.skills,
     memory: [],
-    memory_candidates: state.memoryCandidates,
+    memory_candidates: state.memoryCandidates.filter((candidate) => candidate.status === "pending"),
     recent_activity: [],
     budget: {
       memory_body_max_bytes: 12288,
@@ -1111,7 +1208,10 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
   const assignment = state.assignments[0];
   const role = state.roles[0];
   const workItem = state.workItems[0];
-  const completed = assignment?.status === "completed";
+  const status = assignment?.execution_ref?.status || assignment?.status || "";
+  const completed = status === "completed";
+  const blocked = ["queued", "awaiting_approval", "failed", "cancelled"].includes(status);
+  const active = Boolean(assignment) && !completed && !blocked;
   const item =
     assignment && role && workItem
       ? [
@@ -1127,8 +1227,12 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
             assignment,
             role,
             status: assignment.status,
-            blocking_signal: completed ? "completed" : "not_started",
-            status_summary: completed ? "completed" : "queued",
+            blocking_signal: completed
+              ? "completed"
+              : status === "queued"
+                ? "not_started"
+                : status || "stale_unknown",
+            status_summary: completed ? "completed" : status || "unknown",
             linked_task_id: assignment.execution_ref?.task_id,
             linked_run_id: assignment.execution_ref?.run_id,
             artifact_summary: {
@@ -1148,14 +1252,14 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
     summary: {
       work_item_count: state.workItems.length,
       assignment_count: state.assignments.length,
-      active_count: completed || !assignment ? 0 : 1,
-      blocked_count: 0,
+      active_count: active ? 1 : 0,
+      blocked_count: blocked ? 1 : 0,
       completed_count: completed ? 1 : 0,
       recent_count: item.length,
     },
     buckets: {
-      active: completed ? [] : item,
-      blocked: [],
+      active: active ? item : [],
+      blocked: blocked ? item : [],
       completed: completed ? item : [],
       recent: item,
     },
@@ -1167,6 +1271,9 @@ function projectHealth(state: ProjectJourneyState, projectID: string): ProjectHe
   const enabledContextSourceCount = state.sources.filter((source) => source.enabled).length;
   const pendingMemoryCandidateCount = state.memoryCandidates.filter(
     (candidate) => candidate.status === "pending",
+  ).length;
+  const rejectedMemoryCandidateCount = state.memoryCandidates.filter(
+    (candidate) => candidate.status === "rejected",
   ).length;
   return {
     project_id: projectID,
@@ -1183,7 +1290,7 @@ function projectHealth(state: ProjectJourneyState, projectID: string): ProjectHe
       enabled_context_source_count: enabledContextSourceCount,
       pending_memory_candidate_count: pendingMemoryCandidateCount,
       promoted_memory_candidate_count: 0,
-      rejected_memory_candidate_count: 0,
+      rejected_memory_candidate_count: rejectedMemoryCandidateCount,
       pending_handoff_count: 0,
       accepted_handoff_count: 0,
       superseded_handoff_count: 0,
@@ -1316,39 +1423,251 @@ function projectSetupReadiness(
 
 function projectOperationsBrief(state: ProjectJourneyState, projectID: string) {
   const workItem = state.workItems[0];
-  const items = workItem
-    ? [
-        {
-          id: `prepare_first_assignment:${projectID}:${workItem.id}`,
-          kind: "prepare_first_assignment",
-          priority: "medium",
-          status: "ready",
-          title: `Prepare first assignment: ${workItem.title}`,
-          detail: "This work item has no assignment yet.",
-          action_label: "Draft assignment",
-          target: {
-            surface: "work",
-            project_id: projectID,
-            work_item_id: workItem.id,
-          },
-          action: {
-            type: "draft_project_proposal",
-            project_id: projectID,
-            work_item_id: workItem.id,
-            request: `Draft an assignment for ${workItem.title}.`,
-          },
+  const assignment = state.assignments.find((candidate) => candidate.work_item_id === workItem?.id);
+  const assignmentStatus = assignment?.execution_ref?.status || assignment?.status || "";
+  const hasEvidence = state.artifacts.some(
+    (artifact) =>
+      artifact.work_item_id === workItem?.id &&
+      artifact.kind === "evidence_link" &&
+      (!artifact.assignment_id || artifact.assignment_id === assignment?.id),
+  );
+  let items: ProjectOperationsBriefItem[] = [];
+  if (!workItem) {
+    items = [
+      {
+        id: `create_first_work_item:${projectID}`,
+        kind: "create_first_work_item",
+        priority: "medium",
+        title: "Create the first work item",
+        detail: "Start with one reviewable project work item before queueing assignments.",
+        action_label: "Draft work",
+        target: { surface: "work", project_id: projectID },
+        action: {
+          type: "draft_project_proposal",
+          project_id: projectID,
+          request: "Create the first project work item",
         },
-      ]
-    : [];
+      },
+    ];
+  } else if (workItem.status !== "done" && !assignment) {
+    items = [
+      {
+        id: `prepare_first_assignment:${projectID}:${workItem.id}`,
+        kind: "prepare_first_assignment",
+        priority: "medium",
+        status: "ready",
+        title: `Prepare first assignment: ${workItem.title}`,
+        detail: "This work item has no assignment yet.",
+        action_label: "Draft assignment",
+        target: { surface: "work", project_id: projectID, work_item_id: workItem.id },
+        action: {
+          type: "draft_project_proposal",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          request: `Draft an assignment for ${workItem.title}.`,
+        },
+      },
+    ];
+  } else if (workItem?.status === "done") {
+    // Cairnline only adds latest work when no higher-value operation exists.
+  } else if (workItem && assignment && assignmentStatus === "queued") {
+    items = [
+      {
+        id: `start_queued_assignment:${projectID}:${assignment.id}`,
+        kind: "start_queued_assignment",
+        priority: "high",
+        status: "not_started",
+        title: `Review queued assignment: ${workItem.title}`,
+        detail: "Open launch preflight before starting this assignment.",
+        action_label: "Review start",
+        target: {
+          surface: "work",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignment.id,
+          activity_bucket: "blocked",
+        },
+        action: {
+          type: "open_assignment_preflight",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignment.id,
+          activity_bucket: "blocked",
+        },
+      },
+    ];
+  } else if (
+    workItem &&
+    assignment &&
+    ["awaiting_approval", "failed", "cancelled"].includes(assignmentStatus)
+  ) {
+    const failed = assignmentStatus === "failed";
+    const cancelled = assignmentStatus === "cancelled";
+    const titlePrefix = failed
+      ? "Review failed assignment"
+      : cancelled
+        ? "Review cancelled assignment"
+        : "Review pending approval";
+    items = [
+      {
+        id: `review_blocked_assignment:${projectID}:${assignment.id}`,
+        kind: failed
+          ? "review_failed_assignment"
+          : cancelled
+            ? "review_cancelled_assignment"
+            : "approve_assignment",
+        priority: cancelled ? "medium" : "high",
+        status: assignmentStatus,
+        title: `${titlePrefix}: ${workItem.title}`,
+        detail: "The assignment needs operator attention before closeout.",
+        action_label: assignmentStatus === "awaiting_approval" ? "Open approval" : "Open work",
+        target: {
+          surface: "work",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignment.id,
+          activity_bucket: "blocked",
+        },
+        action: {
+          type: "open_work_item",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          activity_bucket: "blocked",
+        },
+      },
+    ];
+  } else if (
+    workItem &&
+    assignment &&
+    ["claimed", "running", "review", "awaiting_review"].includes(assignmentStatus)
+  ) {
+    items = [
+      {
+        id: `inspect_active_assignment:${projectID}:${assignment.id}`,
+        kind: "inspect_active_assignment",
+        priority: "low",
+        status: "running",
+        title: `Inspect active assignment: ${workItem.title}`,
+        detail: "The assignment is not terminal yet.",
+        action_label: "Inspect work",
+        target: {
+          surface: "work",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignment.id,
+          activity_bucket: "active",
+        },
+        action: {
+          type: "open_work_item",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          activity_bucket: "active",
+        },
+      },
+    ];
+  } else if (workItem && assignment && assignmentStatus === "completed" && !hasEvidence) {
+    items = [
+      {
+        id: `record_completion_evidence:${projectID}:${assignment.id}`,
+        kind: "record_completion_evidence",
+        priority: "low",
+        status: "completed",
+        title: `Record completion evidence: ${workItem.title}`,
+        detail: "Completed assignments should leave reviewable evidence before work is closed.",
+        action_label: "Open work",
+        target: {
+          surface: "work",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          assignment_id: assignment.id,
+          activity_bucket: "completed",
+        },
+        action: {
+          type: "open_work_item",
+          project_id: projectID,
+          work_item_id: workItem.id,
+          activity_bucket: "completed",
+        },
+      },
+    ];
+  } else if (workItem && assignment && assignmentStatus === "completed" && hasEvidence) {
+    items = [
+      {
+        id: `close_work_item:${projectID}:${workItem.id}`,
+        kind: "close_work_item",
+        priority: "low",
+        status: "ready",
+        title: `Close out work item: ${workItem.title}`,
+        detail:
+          "Assignments, evidence, handoffs, and review follow-up are clear. Mark done from selected-work detail.",
+        action_label: "Open closeout",
+        target: { surface: "work", project_id: projectID, work_item_id: workItem.id },
+        action: { type: "open_work_item", project_id: projectID, work_item_id: workItem.id },
+      },
+    ];
+  }
+  const pendingMemoryCandidateCount = state.memoryCandidates.filter(
+    (candidate) => candidate.status === "pending",
+  ).length;
+  if (pendingMemoryCandidateCount > 0) {
+    items.push({
+      id: `review_memory_candidates:${projectID}`,
+      kind: "review_memory_candidates",
+      priority: "medium",
+      status: "pending",
+      title:
+        pendingMemoryCandidateCount === 1
+          ? "Review 1 memory candidate"
+          : `Review ${pendingMemoryCandidateCount} memory candidates`,
+      detail: "Promote, edit, or reject pending memory candidates before they become stale.",
+      action_label: "Review memory",
+      target: { surface: "memory", project_id: projectID },
+      action: { type: "open_memory_review", project_id: projectID },
+      metadata: { candidate_count: String(pendingMemoryCandidateCount) },
+    });
+  }
+  if (items.length === 0 && workItem) {
+    items.push({
+      id: `open_latest_work:${projectID}:${workItem.id}`,
+      kind: "open_latest_work",
+      priority: "low",
+      status: workItem.status,
+      title: `Open latest work: ${workItem.title}`,
+      detail: "Review the most recently updated work item.",
+      action_label: "Open work",
+      target: { surface: "work", project_id: projectID, work_item_id: workItem.id },
+      action: { type: "open_work_item", project_id: projectID, work_item_id: workItem.id },
+    });
+  }
+  const priorityRank = { high: 0, medium: 1, low: 2 } as const;
+  const kindRank: Record<string, number> = {
+    approve_assignment: 0,
+    review_failed_assignment: 10,
+    start_queued_assignment: 30,
+    review_cancelled_assignment: 50,
+    prepare_first_assignment: 70,
+    create_first_work_item: 80,
+    review_memory_candidates: 90,
+    inspect_active_assignment: 100,
+    record_completion_evidence: 110,
+    close_work_item: 120,
+    open_latest_work: 130,
+  };
+  items.sort((left, right) => {
+    const byPriority = priorityRank[left.priority] - priorityRank[right.priority];
+    if (byPriority !== 0) return byPriority;
+    const byKind = (kindRank[left.kind] ?? 1_000) - (kindRank[right.kind] ?? 1_000);
+    return byKind !== 0 ? byKind : left.id.localeCompare(right.id);
+  });
   return {
     project_id: projectID,
     generated_at: NOW,
     summary: {
       item_count: items.length,
-      high_count: 0,
-      medium_count: items.length,
-      low_count: 0,
-      pending_memory_candidate_count: 0,
+      medium_count: items.filter((item) => item.priority === "medium").length,
+      high_count: items.filter((item) => item.priority === "high").length,
+      low_count: items.filter((item) => item.priority === "low").length,
+      pending_memory_candidate_count: pendingMemoryCandidateCount,
       pending_handoff_count: 0,
     },
     items,

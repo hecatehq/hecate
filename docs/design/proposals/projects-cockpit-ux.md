@@ -115,10 +115,16 @@ records, local lifecycle state, endpoint, or client-side action ordering.
 
 ## Verified Screen States
 
-The implemented slice was exercised against the live Hecate UI and Cairnline
-backend at desktop and 390px widths. Empty and guided-setup states were checked
-in the browser; loading, active, blocked, review, and completed projections are
-covered by focused component and journey tests.
+The implemented slice was exercised in the running Hecate UI with deterministic
+fixtures for the Cairnline-backed Hecate facade at desktop and 390px widths.
+Empty, guided-setup, setup-unavailable, loading, active, blocked,
+approval-review, completed, evidence, and closeout states are covered by focused
+component and journey tests.
+
+Regenerate the two Overview images from the deterministic browser journey with
+`HECATE_CAPTURE_PROJECTS_OVERVIEW=1 bunx playwright test e2e/projects.spec.ts -g "default ready-project home"` from `ui/`.
+This targeted journey is the canonical generator for these two JPGs; the general
+documentation capture script continues to own `projects.png`.
 
 ![Projects overview at desktop width](../../screenshots/projects-overview.jpg)
 

@@ -11,6 +11,8 @@ type IconProps = { d: string | string[]; size?: number; strokeWidth?: number; fi
 export function Icon({ d, size = 16, strokeWidth = 1.5, fill = "none" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       width={size}
       height={size}
       viewBox="0 0 24 24"

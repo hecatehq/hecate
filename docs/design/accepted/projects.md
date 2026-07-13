@@ -321,9 +321,10 @@ The Projects UI should stay lightweight but operational:
   header owns project identity plus global actions: Needs Attention, Roles,
   Project Settings, and refresh. Needs Attention is a compact dropdown of
   actionable rows, not a second health dashboard.
-- Keep the Projects index as a fixed left panel for now. Do not add a collapsed
-  mini-rail or persist a collapsed Projects state until the operator workflow
-  calls for a clearer navigation pattern.
+- Keep the Projects index as a stable left panel at desktop widths and stack it
+  above the workspace at narrow widths. Do not add a collapsed mini-rail or
+  persist a collapsed Projects state until the operator workflow calls for a
+  clearer navigation pattern.
 - Keep the cockpit workspace tabbed by operator intent: Overview, Work,
   Timeline, Memory, and Skills. Overview is the ready project's default and
   owns the server-ordered next action plus compact activity navigation. Work
@@ -332,6 +333,10 @@ The Projects UI should stay lightweight but operational:
   of separate Activity Inbox and Work Items lists. Timeline owns project story
   and durable decisions. Memory owns saved entries, candidates, and context
   sources.
+- Treat setup readiness and Overview operations as authoritative projections.
+  While setup readiness is unknown, show a loading or retry state instead of
+  assuming a new project is ready. Clear stale operations during refresh and do
+  not let an older response replace a newer projection.
 - Treat the selected work item as one card. The work title, brief,
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.

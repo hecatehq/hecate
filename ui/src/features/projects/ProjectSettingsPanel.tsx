@@ -392,7 +392,7 @@ export function ProjectSettingsPanel({
                     wordBreak: "break-all",
                   }}
                 >
-                  {workspace || "No default root"}
+                  {workspace || "No local files attached"}
                 </span>
               </div>
             </div>

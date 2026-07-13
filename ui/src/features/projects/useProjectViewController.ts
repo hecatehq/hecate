@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ProjectRecord } from "../../types/project";
 
@@ -28,39 +28,52 @@ export function useProjectSelectionController({
   selectProject,
 }: ProjectSelectionControllerArgs) {
   const [selectedProjectID, setSelectedProjectID] = useState(activeProjectID);
+  const selectedProjectIDRef = useRef(activeProjectID);
+  const lastActiveProjectIDRef = useRef(activeProjectID);
+  const onProjectChangeRef = useRef(onProjectChange);
+  onProjectChangeRef.current = onProjectChange;
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectID) ?? null,
     [projects, selectedProjectID],
   );
 
   useEffect(() => {
+    const currentProjectID = selectedProjectIDRef.current;
+    const activeProjectChanged = activeProjectID !== lastActiveProjectIDRef.current;
+    lastActiveProjectIDRef.current = activeProjectID;
+    const hasProject = (projectID: string) =>
+      Boolean(projectID && projects.some((project) => project.id === projectID));
+    let nextProjectID = currentProjectID;
     if (projects.length === 0) {
-      setSelectedProjectID("");
-      return;
+      nextProjectID = "";
+    } else if (activeProjectChanged && hasProject(activeProjectID)) {
+      nextProjectID = activeProjectID;
+    } else if (!hasProject(currentProjectID)) {
+      nextProjectID = hasProject(activeProjectID) ? activeProjectID : projects[0]?.id || "";
     }
-    if (activeProjectID) {
-      setSelectedProjectID(activeProjectID);
-      return;
-    }
-    setSelectedProjectID((current) =>
-      current && projects.some((project) => project.id === current)
-        ? current
-        : projects[0]?.id || "",
-    );
+    if (nextProjectID === currentProjectID) return;
+    onProjectChangeRef.current?.();
+    selectedProjectIDRef.current = nextProjectID;
+    setSelectedProjectID(nextProjectID);
   }, [activeProjectID, projects]);
 
   const openProject = useCallback(
     (projectID: string) => {
-      if (projectID !== selectedProjectID) {
-        onProjectChange?.();
+      if (projectID !== selectedProjectIDRef.current) {
+        onProjectChangeRef.current?.();
+        selectedProjectIDRef.current = projectID;
+        setSelectedProjectID(projectID);
       }
-      setSelectedProjectID(projectID);
       void selectProject(projectID);
     },
-    [onProjectChange, selectProject, selectedProjectID],
+    [selectProject],
   );
 
-  const clearSelectedProject = useCallback(() => {
+  const clearSelectedProject = useCallback((expectedProjectID?: string) => {
+    if (expectedProjectID && selectedProjectIDRef.current !== expectedProjectID) return;
+    if (!selectedProjectIDRef.current) return;
+    onProjectChangeRef.current?.();
+    selectedProjectIDRef.current = "";
     setSelectedProjectID("");
   }, []);
 

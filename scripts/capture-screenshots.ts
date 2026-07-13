@@ -1407,6 +1407,152 @@ function docsProjectSkills() {
   ];
 }
 
+function docsProjectSetupReadiness() {
+  return {
+    project_id: docsProjectID,
+    generated_at: docsTimestamp(),
+    show_onboarding: false,
+    setup_started: true,
+    first_work_ready: false,
+    summary: {
+      work_item_count: 1,
+      role_count: 2,
+      skill_count: 2,
+      enabled_context_source_count: 2,
+      saved_memory_count: 1,
+      pending_memory_candidate_count: 1,
+      has_purpose: true,
+      has_active_root: true,
+      missing_defaults: false,
+    },
+    primary_action: {
+      type: "bootstrap_project",
+      project_id: docsProjectID,
+      label: "Set up project",
+    },
+    checks: [],
+  };
+}
+
+function docsProjectOperationsBrief() {
+  return {
+    project_id: docsProjectID,
+    generated_at: docsTimestamp(),
+    summary: {
+      item_count: 2,
+      available_item_count: 2,
+      omitted_item_count: 0,
+      item_limit: 8,
+      high_count: 1,
+      medium_count: 1,
+      low_count: 0,
+      pending_memory_candidate_count: 1,
+      pending_handoff_count: 0,
+    },
+    items: [
+      {
+        id: `approve_assignment:${docsProjectID}:${docsProjectReviewAssignmentID}`,
+        kind: "approve_assignment",
+        priority: "high",
+        status: "awaiting_approval",
+        title: "Review pending approval: Refresh README and screenshots",
+        detail: "1 approval is waiting on the executing host.",
+        action_label: "Open approval",
+        target: {
+          surface: "work",
+          project_id: docsProjectID,
+          work_item_id: docsProjectWorkItemID,
+          assignment_id: docsProjectReviewAssignmentID,
+          activity_bucket: "blocked",
+        },
+        action: {
+          type: "open_work_item",
+          project_id: docsProjectID,
+          work_item_id: docsProjectWorkItemID,
+          activity_bucket: "blocked",
+        },
+      },
+      {
+        id: `review_memory_candidates:${docsProjectID}`,
+        kind: "review_memory_candidates",
+        priority: "medium",
+        status: "pending",
+        title: "Review 1 memory candidate",
+        detail: "Promote, edit, or reject pending memory candidates before they become stale.",
+        action_label: "Review memory",
+        target: {
+          surface: "memory",
+          project_id: docsProjectID,
+        },
+        action: {
+          type: "open_memory_review",
+          project_id: docsProjectID,
+        },
+        metadata: { candidate_count: "1" },
+      },
+    ],
+  };
+}
+
+function docsProjectHealth() {
+  return {
+    project_id: docsProjectID,
+    generated_at: docsTimestamp(),
+    summary: {
+      attention_count: 1,
+      available_attention_count: 1,
+      omitted_attention_count: 0,
+      attention_limit: 5,
+      missing_defaults: false,
+      missing_project_root: false,
+      enabled_memory_count: 1,
+      saved_memory_count: 1,
+      enabled_context_source_count: 2,
+      pending_memory_candidate_count: 1,
+      pending_handoff_count: 0,
+      stale_or_unknown_assignment_count: 0,
+    },
+    attention: [
+      {
+        id: `${docsProjectReviewAssignmentID}:approval`,
+        project_id: docsProjectID,
+        title: "Review pending approval: Refresh README and screenshots",
+        detail: "1 approval is waiting on the executing host.",
+        status: "awaiting_approval",
+        action: {
+          type: "open_work_item",
+          project_id: docsProjectID,
+          work_item_id: docsProjectWorkItemID,
+          activity_bucket: "blocked",
+        },
+        bucket: "blocked",
+        work_item_id: docsProjectWorkItemID,
+        action_label: "Open approval",
+      },
+    ],
+  };
+}
+
+function docsProjectWorkItemReadiness() {
+  return {
+    project_id: docsProjectID,
+    work_item_id: docsProjectWorkItemID,
+    generated_at: docsTimestamp(),
+    ready: false,
+    status: "blocked",
+    title: "Closeout is blocked",
+    detail: "Resolve the pending approval and review follow-up before marking this work done.",
+    blockers: ["1 assignment is awaiting approval", "1 review follow-up needs a decision"],
+    warnings: [],
+    assignment_count: 2,
+    completed_assignments: 1,
+    active_assignment_ids: [docsProjectReviewAssignmentID],
+    missing_evidence_assignment_ids: [],
+    open_handoff_ids: [],
+    review_follow_ups: [],
+  };
+}
+
 function docsProjectActivity(
   roles = docsProjectRoles(),
   assignments = docsProjectAssignments(),
@@ -1512,13 +1658,13 @@ function docsProjectActivity(
     summary: {
       work_item_count: 1,
       assignment_count: 2,
-      active_count: 1,
+      active_count: 0,
       blocked_count: 1,
       completed_count: 1,
       recent_count: 2,
     },
     buckets: {
-      active: [blocked],
+      active: [],
       blocked: [blocked],
       completed: [completed],
       recent: [blocked, completed],
@@ -1556,6 +1702,21 @@ async function routeProjectDocsFixture(page: Page) {
   await page.route(`${HECATE_API}/projects/${docsProjectID}/activity`, (route) => {
     fulfillJSON(route, { object: "project_activity", data: activity });
   });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/health`, (route) => {
+    fulfillJSON(route, { object: "project_health", data: docsProjectHealth() });
+  });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/operations/brief`, (route) => {
+    fulfillJSON(route, {
+      object: "project_operations_brief",
+      data: docsProjectOperationsBrief(),
+    });
+  });
+  await page.route(`${HECATE_API}/projects/${docsProjectID}/setup-readiness`, (route) => {
+    fulfillJSON(route, {
+      object: "project_setup_readiness",
+      data: docsProjectSetupReadiness(),
+    });
+  });
   await page.route(`${HECATE_API}/projects/${docsProjectID}/roles`, (route) => {
     fulfillJSON(route, { object: "project_work_roles", data: roles });
   });
@@ -1587,6 +1748,15 @@ async function routeProjectDocsFixture(page: Page) {
     },
   );
   await page.route(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/readiness`,
+    (route) => {
+      fulfillJSON(route, {
+        object: "project_work_item_readiness",
+        data: docsProjectWorkItemReadiness(),
+      });
+    },
+  );
+  await page.route(
     `${HECATE_API}/projects/${docsProjectID}/memory?include_disabled=true`,
     (route) => {
       fulfillJSON(route, { object: "project_memory", data: memory });
@@ -1607,6 +1777,9 @@ async function unrouteProjectDocsFixture(page: Page) {
   await page.unroute(`${HECATE_API}/projects`);
   await page.unroute(`${HECATE_API}/projects/${docsProjectID}`);
   await page.unroute(`${HECATE_API}/projects/${docsProjectID}/activity`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/health`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/operations/brief`);
+  await page.unroute(`${HECATE_API}/projects/${docsProjectID}/setup-readiness`);
   await page.unroute(`${HECATE_API}/projects/${docsProjectID}/roles`);
   await page.unroute(`${HECATE_API}/projects/${docsProjectID}/work-items`);
   await page.unroute(`${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}`);
@@ -1618,6 +1791,9 @@ async function unrouteProjectDocsFixture(page: Page) {
   );
   await page.unroute(
     `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/handoffs`,
+  );
+  await page.unroute(
+    `${HECATE_API}/projects/${docsProjectID}/work-items/${docsProjectWorkItemID}/readiness`,
   );
   await page.unroute(`${HECATE_API}/projects/${docsProjectID}/memory?include_disabled=true`);
   await page.unroute(
@@ -2463,6 +2639,8 @@ async function main() {
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "projects");
   await page.waitForSelector("text=Refresh README and screenshots", { timeout: 5_000 });
+  await page.getByRole("region", { name: "Project overview" }).waitFor({ state: "visible" });
+  await page.getByRole("tab", { name: /Work/ }).click();
   await page.waitForSelector("text=Project Assistant", { timeout: 5_000 });
   await page.waitForSelector("text=Assignments", { timeout: 5_000 });
   await page.waitForSelector("text=approval pending", { timeout: 5_000 });
