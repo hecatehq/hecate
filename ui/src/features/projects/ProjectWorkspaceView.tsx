@@ -350,6 +350,7 @@ export function ProjectWorkspaceView({
       className="project-workspace-content"
       style={detailStyle}
       aria-label="Project workspace content"
+      tabIndex={-1}
     >
       <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
         {project ? (

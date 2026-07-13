@@ -10597,18 +10597,63 @@ describe("ProjectsView navigation destinations", () => {
       }),
     });
 
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    retryButton.focus();
+    await user.click(retryButton);
     await waitFor(() => {
       expect(screen.queryByText("Projects unavailable")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
       expect(screen.getAllByText("Loading projects…")).toHaveLength(2);
     });
+    const retryingButton = screen.getByRole("button", { name: "Retrying…" });
+    expect(retryingButton).toBe(retryButton);
+    expect(retryingButton).toBeDisabled();
+    expect(retryingButton).toHaveFocus();
     expect(screen.queryByText("No projects yet")).toBeNull();
     expect(getProjects).toHaveBeenCalledTimes(1);
 
     resolveRetry({ object: "projects", data: [] });
     expect(await screen.findByText("No projects yet")).toBeTruthy();
+    expect(await screen.findByText("Projects loaded.")).toBeTruthy();
+    const workspaceContent = screen.getByRole("region", { name: "Project workspace content" });
+    await waitFor(() => expect(workspaceContent).toHaveFocus());
     expect(screen.getByText("Add a project to begin")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
+  });
+
+  it("keeps retry focus when the catalog remains unavailable", async () => {
+    let rejectRetry!: (reason: Error) => void;
+    vi.mocked(getProjects).mockReturnValueOnce(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((_resolve, reject) => {
+        rejectRetry = reject;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />, {
+      wrapper: directWrapper({
+        projects: [],
+        loaded: false,
+        error: "Projects are unavailable.",
+      }),
+    });
+
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    retryButton.focus();
+    await user.click(retryButton);
+    const retryingButton = screen.getByRole("button", { name: "Retrying…" });
+    expect(retryingButton).toBe(retryButton);
+    expect(retryingButton).toBeDisabled();
+    expect(retryingButton).toHaveFocus();
+
+    rejectRetry(new Error("Projects are still unavailable."));
+    await waitFor(() => {
+      const restoredRetry = screen.getByRole("button", { name: "Retry" });
+      expect(restoredRetry).toBe(retryButton);
+      expect(restoredRetry).toBeEnabled();
+      expect(restoredRetry).toHaveFocus();
+      expect(screen.getByText("Projects are still unavailable.")).toBeTruthy();
+    });
+    expect(screen.queryByText("Projects loaded.")).toBeNull();
+    expect(getProjects).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the Work queue visible for a missing routed work item without fetching another detail", async () => {
