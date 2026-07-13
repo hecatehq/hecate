@@ -1158,6 +1158,26 @@ export function ProjectsView({
             ? { key: nextNavigationKey, message: "" }
             : current,
         );
+      } else if (navigation.workItemID && navigationWorkItemTitle) {
+        const genericPendingMessage = projectNavigationAnnouncementMessage(navigation, "", "");
+        const namedPendingMessage = projectNavigationAnnouncementMessage(
+          navigation,
+          navigationProjectName,
+          "",
+        );
+        setNavigationAnnouncement((current) =>
+          current.key === nextNavigationKey &&
+          (current.message === genericPendingMessage || current.message === namedPendingMessage)
+            ? {
+                key: nextNavigationKey,
+                message: projectNavigationAnnouncementMessage(
+                  navigation,
+                  navigationProjectName,
+                  navigationWorkItemTitle,
+                ),
+              }
+            : current,
+        );
       }
       return;
     }
@@ -2857,12 +2877,14 @@ export function ProjectsView({
               detail="Checking the local project catalog."
             />
           )}
-          {!projects.state.loading && projects.state.projects.length === 0 && (
-            <ProjectEmptyBlock
-              title="No projects yet"
-              detail="Create a project for any durable work area. Add a folder only when the project needs local files or code."
-            />
-          )}
+          {projects.state.loaded &&
+            !projects.state.loading &&
+            projects.state.projects.length === 0 && (
+              <ProjectEmptyBlock
+                title="No projects yet"
+                detail="Create a project for any durable work area. Add a folder only when the project needs local files or code."
+              />
+            )}
           {projects.state.projects.map((project) => (
             <ProjectIndexRow
               key={project.id}
