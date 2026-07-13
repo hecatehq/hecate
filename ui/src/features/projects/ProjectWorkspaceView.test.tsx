@@ -353,7 +353,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     workItemSummaries: {},
     workItems: [],
     workLoadState: "idle",
-    workspaceTab: "work",
+    workspaceTab: "overview",
     ...handlers,
     ...overrides,
   };
@@ -422,16 +422,44 @@ describe("ProjectWorkspaceView", () => {
       workItemSummaries: { [item.id]: summarizeAssignments([assignment()]) },
     });
 
-    expect(screen.getByText("Assistant panel")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Work Coordination/ })).toBeTruthy();
+    expect(screen.queryByText("Assistant panel")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
 
-    await userEvent.click(screen.getByRole("tab", { name: /Timeline \/ Decision Log/ }));
-    await userEvent.click(screen.getByRole("tab", { name: /Memory \/ Context/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Work/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Timeline/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Memory/ }));
     await userEvent.click(screen.getByRole("tab", { name: /Skills/ }));
 
-    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(1, "timeline");
-    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(2, "memory");
-    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(3, "skills");
+    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(1, "work");
+    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(2, "timeline");
+    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(3, "memory");
+    expect(handlers.onWorkspaceTabChange).toHaveBeenNthCalledWith(4, "skills");
+  });
+
+  it("keeps the project assistant with work coordination", () => {
+    renderWorkspace({ workspaceTab: "work" });
+
+    expect(screen.getByText("Assistant panel")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Project overview" })).toBeNull();
+  });
+
+  it("links tab panels and supports roving keyboard navigation", async () => {
+    const { handlers } = renderWorkspace();
+    const overviewTab = screen.getByRole("tab", { name: "Overview" });
+    const workTab = screen.getByRole("tab", { name: /Work/ });
+    const overviewPanel = screen.getByRole("tabpanel", { name: "Overview" });
+
+    expect(overviewTab).toHaveAttribute("tabindex", "0");
+    expect(workTab).toHaveAttribute("tabindex", "-1");
+    expect(overviewTab).toHaveAttribute("aria-controls", overviewPanel.id);
+    expect(overviewPanel).toHaveAttribute("aria-labelledby", overviewTab.id);
+
+    overviewTab.focus();
+    await userEvent.keyboard("{ArrowRight}");
+
+    expect(workTab).toHaveFocus();
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
   });
 
   it("renders project operations brief items", async () => {
@@ -481,6 +509,23 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onOperationAction).toHaveBeenCalledWith(operationItem);
   });
 
+  it("renders explicit overview loading state", () => {
+    renderWorkspace({ operationsBriefLoadState: "loading", workLoadState: "loading" });
+
+    const overview = screen.getByRole("region", { name: "Project overview" });
+    expect(within(overview).getByText("Loading operations...")).toBeTruthy();
+    expect(
+      within(overview).getByText(
+        "Checking project work, memory candidates, handoffs, and launch defaults.",
+      ),
+    ).toBeTruthy();
+    expect(within(overview).getByText("Loading activity...")).toBeTruthy();
+    expect(within(overview).getByText("Checking project work and assignment status.")).toBeTruthy();
+    expect(within(overview).queryByText("No project work yet")).toBeNull();
+    expect(within(overview).queryByText(/Create a work item/)).toBeNull();
+    expect(within(overview).queryByRole("button", { name: /Blocked/ })).toBeNull();
+  });
+
   it("explains compact project operations limits", () => {
     const operationItems = Array.from({ length: 8 }, (_, index) => ({
       id: `prepare_first_assignment:proj_1:work_${index}`,
@@ -528,7 +573,7 @@ describe("ProjectWorkspaceView", () => {
     ).toBeTruthy();
   });
 
-  it("renders a resume summary and delegates resume actions", async () => {
+  it("renders an activity summary and routes activity into work", async () => {
     const item = workItem({ id: "work_blocked", title: "Fix blocked launch" });
     const { handlers } = renderWorkspace({
       activity: activity(),
@@ -536,22 +581,22 @@ describe("ProjectWorkspaceView", () => {
       workItems: [item],
     });
 
-    const resume = screen.getByRole("region", { name: "Project resume" });
-    expect(within(resume).getByText("1 assignment needs attention")).toBeTruthy();
-    expect(within(resume).getByText("Queued assignment is ready to start.")).toBeTruthy();
+    const resume = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(resume).getByText("0 active · 1 blocked · 0 completed")).toBeTruthy();
 
     await userEvent.click(within(resume).getByRole("button", { name: /Blocked/ }));
     await userEvent.click(within(resume).getByRole("button", { name: /Recent/ }));
     await userEvent.click(within(resume).getByRole("button", { name: /Memory/ }));
-    await userEvent.click(within(resume).getByRole("button", { name: "Continue here" }));
+    await userEvent.click(within(resume).getByRole("button", { name: "View work" }));
 
     expect(handlers.onActivityBucketChange).toHaveBeenNthCalledWith(1, "blocked");
     expect(handlers.onActivityBucketChange).toHaveBeenNthCalledWith(2, "recent");
     expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("memory");
-    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_blocked");
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+    expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
   });
 
-  it("prioritizes active, memory, latest work, and empty resume states", async () => {
+  it("summarizes active, memory, latest work, and empty activity states", async () => {
     const activeItem = activityItem({
       assignment: assignment({
         id: "assign_active",
@@ -596,14 +641,12 @@ describe("ProjectWorkspaceView", () => {
       }),
     });
 
-    let resume = screen.getByRole("region", { name: "Project resume" });
-    expect(within(resume).getByText("1 assignment in progress")).toBeTruthy();
-    expect(
-      within(resume).getByText("An assignment is in progress; inspect or continue it."),
-    ).toBeTruthy();
+    let resume = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(resume).getByText("1 active · 0 blocked · 0 completed")).toBeTruthy();
 
-    await userEvent.click(within(resume).getByRole("button", { name: "Continue here" }));
-    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_active");
+    await userEvent.click(within(resume).getByRole("button", { name: "View work" }));
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+    expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
 
     rerender(
       <ProjectWorkspaceView
@@ -614,8 +657,9 @@ describe("ProjectWorkspaceView", () => {
         workItems={[]}
       />,
     );
-    resume = screen.getByRole("region", { name: "Project resume" });
-    expect(within(resume).getByText("1 memory candidate to review")).toBeTruthy();
+    resume = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(resume).getByText("No project work yet")).toBeTruthy();
+    expect(within(resume).getByRole("button", { name: /Memory/ })).toBeTruthy();
 
     rerender(
       <ProjectWorkspaceView
@@ -626,10 +670,11 @@ describe("ProjectWorkspaceView", () => {
         workItems={[latest]}
       />,
     );
-    resume = screen.getByRole("region", { name: "Project resume" });
-    expect(within(resume).getByText("Resume Polish project onboarding")).toBeTruthy();
-    await userEvent.click(within(resume).getByRole("button", { name: "Continue here" }));
-    expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_latest");
+    resume = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(resume).getByText("1 work item")).toBeTruthy();
+    await userEvent.click(within(resume).getByRole("button", { name: "View work" }));
+    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+    expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
 
     rerender(
       <ProjectWorkspaceView
@@ -640,11 +685,34 @@ describe("ProjectWorkspaceView", () => {
         workItems={[]}
       />,
     );
-    resume = screen.getByRole("region", { name: "Project resume" });
-    expect(within(resume).getByText("No project work in motion")).toBeTruthy();
+    resume = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(resume).getByText("No project work yet")).toBeTruthy();
     expect(
       within(resume).getByText("Create a work item when there is something to coordinate."),
     ).toBeTruthy();
+  });
+
+  it("shows completed work without turning activity into a primary action", () => {
+    renderWorkspace({
+      activity: activity({
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 0,
+          completed_count: 1,
+          recent_count: 1,
+        },
+        buckets: { active: [], blocked: [], completed: [], recent: [] },
+        recent: [],
+      }),
+      workItems: [workItem()],
+    });
+
+    const summary = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(summary).getByText("0 active · 0 blocked · 1 completed")).toBeTruthy();
+    expect(within(summary).queryByRole("button", { name: /Completed/ })).toBeNull();
+    expect(within(summary).queryByRole("button", { name: /View work/ })).toHaveClass("btn-ghost");
   });
 
   it("does not derive local next actions when operations brief has no items", () => {
@@ -675,7 +743,7 @@ describe("ProjectWorkspaceView", () => {
 
     expect(screen.queryByRole("region", { name: "Project next action" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Project operations" })).toBeNull();
-    expect(screen.getByRole("region", { name: "Project resume" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Project activity summary" })).toBeTruthy();
   });
 
   it("treats a null operations brief item list as empty", () => {
@@ -696,7 +764,7 @@ describe("ProjectWorkspaceView", () => {
     });
 
     expect(screen.queryByRole("region", { name: "Project operations" })).toBeNull();
-    expect(screen.getByRole("region", { name: "Project resume" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Project activity summary" })).toBeTruthy();
   });
 
   it("renders project empty state when nothing is selected", () => {

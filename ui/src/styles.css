@@ -213,6 +213,12 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.project-index-row:focus-visible,
+.project-work-item-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--teal);
+  outline: none;
+}
+
 .project-work-coordination-grid {
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
 }
@@ -257,6 +263,55 @@ textarea {
 @media (max-width: 1180px) {
   .project-work-coordination-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .projects-cockpit-shell {
+    flex-direction: column;
+  }
+
+  .projects-cockpit-index {
+    border-bottom: 1px solid var(--border);
+    border-right: 0 !important;
+    max-height: 172px;
+    width: 100% !important;
+  }
+
+  .projects-cockpit-index-list {
+    max-height: 116px;
+  }
+
+  .project-cockpit-workspace {
+    padding: 10px !important;
+  }
+
+  .project-workspace-tabs {
+    grid-template-columns: repeat(5, minmax(58px, 1fr)) !important;
+    max-width: 100% !important;
+  }
+
+  .project-workspace-tab {
+    font-size: 11px;
+    gap: 3px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .project-workspace-tab .badge {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+
+  .project-operations-brief,
+  .project-activity-summary {
+    align-items: start !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .project-operations-brief-controls,
+  .project-activity-summary-actions {
+    justify-content: flex-start !important;
   }
 }
 

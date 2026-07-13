@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { type ReactNode } from "react";
+import { type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
@@ -89,7 +89,7 @@ import type {
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
-import { buildFirstWorkItemDraft, ProjectsView } from "./ProjectsView";
+import { buildFirstWorkItemDraft, ProjectsView as ProjectsViewComponent } from "./ProjectsView";
 
 type LaunchContextContract = {
   sections: string[];
@@ -97,6 +97,10 @@ type LaunchContextContract = {
 };
 
 const launchContextContract = launchContextContractRaw as LaunchContextContract;
+
+function ProjectsView(props: ComponentProps<typeof ProjectsViewComponent>) {
+  return <ProjectsViewComponent initialWorkspaceTab="work" {...props} />;
+}
 
 function emptyActivityData() {
   return {
@@ -1661,45 +1665,47 @@ describe("ProjectsView index", () => {
     });
   });
 
-  it("groups live operations separately from project continuity", async () => {
+  it("opens ready projects on overview before work coordination", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
 
-    render(<ProjectsView />, {
+    render(<ProjectsView initialWorkspaceTab="overview" />, {
       wrapper: directWrapper({ projects: [project] }),
     });
 
-    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "Project overview" })).toBeTruthy();
     const workspace = screen.getByRole("region", { name: "Project workspace" });
-    const assistant = within(workspace).getByRole("region", { name: "Project Assistant" });
     const tabs = within(workspace).getByRole("tablist", { name: "Project workspace views" });
-    expect(assistant.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(assistant).getByLabelText("Request")).toHaveAttribute("rows", "1");
-    expect(screen.getByRole("region", { name: "Work queue" })).toBeTruthy();
+    expect(within(workspace).queryByRole("region", { name: "Project Assistant" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Project overview" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Work queue" })).toBeNull();
     expect(screen.getByRole("button", { name: /Project attention/ })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Needs attention" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "Project continuity" })).toBeNull();
-    expect(within(tabs).getByRole("tab", { name: /Work Coordination/ })).toHaveAttribute(
+    expect(within(tabs).getByRole("tab", { name: "Overview" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(within(tabs).getByRole("tab", { name: /Timeline \/ Decision Log/ })).toBeTruthy();
-    expect(within(tabs).getByRole("tab", { name: /Memory \/ Context/ })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: /Work/ })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: /Timeline/ })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: /Memory/ })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: /Skills/ })).toBeTruthy();
-    expect(tabs.style.gridTemplateColumns).toBe("repeat(4, minmax(148px, 1fr))");
+    expect(tabs.style.gridTemplateColumns).toBe("repeat(5, minmax(104px, 1fr))");
     expect(tabs.style.overflowX).toBe("auto");
+
+    await openProjectWorkspaceTab(/^Work/);
+    const assistant = within(workspace).getByRole("region", { name: "Project Assistant" });
     const workPanel = within(workspace).getByRole("region", { name: "Work coordination" });
-    expect(workPanel).toBeTruthy();
-    expect(within(workPanel).queryByRole("region", { name: "Project Assistant" })).toBeNull();
+    expect(within(workPanel).getByRole("region", { name: "Project Assistant" })).toBe(assistant);
     expect(workPanel.querySelector(".project-work-coordination-grid")).toBeTruthy();
     expect(within(workspace).getByRole("heading", { name: "Build cockpit UI" })).toBeTruthy();
     expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();
 
-    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    await openProjectWorkspaceTab(/Timeline/);
     expect(within(workspace).getByLabelText("Project timeline")).toBeTruthy();
     expect(within(workspace).queryByRole("heading", { name: "Build cockpit UI" })).toBeNull();
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     expect(within(workspace).getByText("No project memory entries saved yet.")).toBeTruthy();
     expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();
   });
@@ -2482,7 +2488,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Commit style")).toBeTruthy();
     expect(screen.getAllByText("operator_memory").length).toBeGreaterThan(0);
     expect(screen.getByText("Use conventional commits.")).toBeTruthy();
@@ -2573,7 +2579,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Design brief")).toBeTruthy();
     expect(screen.getByRole("link", { name: "https://example.invalid/design" })).toBeTruthy();
     expect(screen.getByText("Reviewed source.")).toBeTruthy();
@@ -2660,7 +2666,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     await user.click(screen.getByRole("button", { name: "Discover" }));
 
     expect(discoverProjectContextSources).toHaveBeenCalledWith(project.id);
@@ -2707,7 +2713,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Generated summary")).toBeTruthy();
     expect(screen.getByText("Temporary note")).toBeTruthy();
     expect(screen.getAllByText("generated_summary").length).toBeGreaterThan(0);
@@ -2767,7 +2773,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Commit style")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByLabelText("Title")).toHaveValue("Commit style");
@@ -2817,7 +2823,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Use conventional commits.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByRole("button", { name: "Save memory" })).toBeTruthy();
@@ -2831,6 +2837,7 @@ describe("ProjectsView cockpit", () => {
     expect(screen.queryByRole("button", { name: "Save memory" })).toBeNull();
 
     resolveSecondMemory({ object: "project_memory", data: [] });
+    await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("No project memory entries saved yet.")).toBeTruthy();
   });
 
@@ -3944,7 +3951,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    await openProjectWorkspaceTab(/Timeline/);
     await waitFor(() => {
       expect(getProjectMemoryCandidates).toHaveBeenCalledWith(project.id, true);
     });
@@ -4069,7 +4076,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    await openProjectWorkspaceTab(/Timeline/);
     await waitFor(() => {
       expect(screen.getByText("Showing 12 of 13 story items.")).toBeTruthy();
     });
@@ -4085,7 +4092,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    await openProjectWorkspaceTab(/Timeline/);
     expect(
       screen.getByText(/No explicit decision notes yet. Existing decision_note artifacts/),
     ).toBeTruthy();
@@ -4657,10 +4664,7 @@ describe("ProjectsView cockpit", () => {
     expect(contextAttentionItem).toHaveClass("project-attention-item");
 
     await userEvent.click(contextAttentionItem);
-    expect(screen.getByRole("tab", { name: /Memory \/ Context/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: /Memory/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByRole("dialog", { name: "New project memory" })).toBeTruthy();
   });
@@ -5021,10 +5025,10 @@ describe("ProjectsView cockpit", () => {
     expect(
       within(activity).getByRole("button", { name: "Open work item Build cockpit UI" }),
     ).toBeTruthy();
-    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    await openProjectWorkspaceTab(/Timeline/);
     const timeline = screen.getByLabelText("Project timeline");
     expect(within(timeline).queryByText("not started")).toBeNull();
-    await openProjectWorkspaceTab(/Work Coordination/);
+    await openProjectWorkspaceTab(/^Work/);
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
     const preflight = await screen.findByRole("dialog", {
@@ -5479,6 +5483,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Overview/);
     const operations = await screen.findByRole("region", { name: "Project operations" });
     await userEvent.click(within(operations).getByRole("button", { name: /Draft assignment/ }));
 
@@ -5562,6 +5567,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Overview/);
     const operations = await screen.findByRole("region", { name: "Project operations" });
     await userEvent.click(within(operations).getByRole("button", { name: /Review start/ }));
 
@@ -5655,6 +5661,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Overview/);
     const operations = await screen.findByRole("region", { name: "Project operations" });
     await userEvent.click(within(operations).getByRole("button", { name: /Open review/ }));
 

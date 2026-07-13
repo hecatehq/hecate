@@ -168,6 +168,7 @@ import {
 import { PROJECT_ASSISTANT_AUTO } from "./ProjectAssistantPanel";
 
 type Props = {
+  initialWorkspaceTab?: ProjectWorkspaceTab;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
@@ -209,7 +210,12 @@ const projectMainBodyStyle: CSSProperties = {
   overflow: "hidden",
 };
 
-export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Props) {
+export function ProjectsView({
+  initialWorkspaceTab = "overview",
+  onOpenChat,
+  onOpenConnections,
+  onOpenTask,
+}: Props) {
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
@@ -261,7 +267,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
   const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("all");
-  const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>("work");
+  const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>(initialWorkspaceTab);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -323,7 +329,10 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
   const { clearSelectedProject, openProject, selectedProject, selectedProjectID } =
     useProjectSelectionController({
       activeProjectID: projects.activeProjectID,
-      onProjectChange: () => setSelectedWorkItemID(""),
+      onProjectChange: () => {
+        setSelectedWorkItemID("");
+        setWorkspaceTab(initialWorkspaceTab);
+      },
       projects: projects.state.projects,
       selectProject: projects.actions.selectProject,
     });
@@ -1158,6 +1167,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         },
       }));
       setSelectedWorkItemID(payload.data.id);
+      setWorkspaceTab("work");
       setNewWorkModalOpen(false);
       setNewWorkDraft(undefined);
       await loadProjectSetupReadiness(selectedProjectID);
@@ -1312,6 +1322,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         selectProjectWorkRoute(route);
         return;
       case "bootstrap_project":
+        setWorkspaceTab("work");
         void assistant.bootstrap();
         return;
       case "create_work_item":
@@ -1636,8 +1647,8 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
       : "Choose a project from the list to view its work, memory, skills, and settings.";
 
   return (
-    <div style={shellStyle}>
-      <section style={sidePanelStyle} aria-label="Projects">
+    <div className="projects-cockpit-shell" style={shellStyle}>
+      <section className="projects-cockpit-index" style={sidePanelStyle} aria-label="Projects">
         <div style={topbarStyle}>
           <div>
             <div style={sidebarSectionLabelStyle}>Projects</div>
@@ -1663,7 +1674,10 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
             <InlineError message={projects.state.error} />
           </div>
         )}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div
+          className="projects-cockpit-index-list"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+        >
           {projects.state.loading && projects.state.projects.length === 0 && (
             <ProjectEmptyBlock
               title="Loading projects…"
@@ -1698,7 +1712,7 @@ export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Prop
         </div>
       </section>
 
-      <div style={projectMainStyle}>
+      <div className="projects-cockpit-main" style={projectMainStyle}>
         <ProjectHeader
           attentionItems={projectHealth?.attention ?? []}
           omittedAttentionCount={projectHealth?.summary?.omitted_attention_count ?? 0}
@@ -2257,6 +2271,7 @@ function ProjectIndexRow({
   const updated = formatProjectRowRelativeTime(project.updated_at);
   return (
     <div
+      className="project-index-row"
       role="button"
       tabIndex={0}
       aria-current={active ? "true" : undefined}

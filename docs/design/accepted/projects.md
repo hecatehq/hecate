@@ -324,13 +324,14 @@ The Projects UI should stay lightweight but operational:
 - Keep the Projects index as a fixed left panel for now. Do not add a collapsed
   mini-rail or persist a collapsed Projects state until the operator workflow
   calls for a clearer navigation pattern.
-- Keep the cockpit workspace tabbed by operator intent: Work Coordination,
-  Timeline / Decision Log, and Memory / Context. Work Coordination owns work
-  items, assignment launch, handoffs, and selected work detail. It should use
-  one Work Queue with All / activity filters instead of separate Activity Inbox
-  and Work Items lists. Timeline /
-  Decision Log owns project story and durable decisions. Memory / Context owns
-  saved entries, candidates, and context sources.
+- Keep the cockpit workspace tabbed by operator intent: Overview, Work,
+  Timeline, Memory, and Skills. Overview is the ready project's default and
+  owns the server-ordered next action plus compact activity navigation. Work
+  owns Project Assistant, work items, assignment launch, handoffs, and selected
+  work detail. It should use one Work Queue with All / activity filters instead
+  of separate Activity Inbox and Work Items lists. Timeline owns project story
+  and durable decisions. Memory owns saved entries, candidates, and context
+  sources.
 - Treat the selected work item as one card. The work title, brief,
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.
