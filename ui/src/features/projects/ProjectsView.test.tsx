@@ -1542,6 +1542,73 @@ describe("ProjectsView index", () => {
     expect(within(assistant).queryByRole("button", { name: "Draft proposal" })).toBeNull();
   });
 
+  it("restores onboarding settings focus after a delayed setup refresh", async () => {
+    resetProjectWorkMocks();
+    const readiness = projectSetupReadinessData(project.id, {
+      show_onboarding: true,
+      setup_started: false,
+      first_work_ready: false,
+    });
+    let resolveRefreshReadiness = (_value: {
+      object: "project_setup_readiness";
+      data: ProjectSetupReadiness;
+    }) => {};
+    const refreshReadiness = new Promise<{
+      object: "project_setup_readiness";
+      data: ProjectSetupReadiness;
+    }>((resolve) => {
+      resolveRefreshReadiness = resolve;
+    });
+    vi.mocked(getProjectSetupReadiness)
+      .mockResolvedValue({ object: "project_setup_readiness", data: readiness })
+      .mockResolvedValueOnce({ object: "project_setup_readiness", data: readiness })
+      .mockImplementationOnce(async () => refreshReadiness);
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_work_roles",
+      data: [],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
+    vi.mocked(updateProject).mockResolvedValue({
+      object: "project",
+      data: { ...project, default_workspace_mode: "persistent" },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    let onboarding = await screen.findByRole("region", { name: "Project onboarding" });
+    const settingsTrigger = within(onboarding).getByRole("button", {
+      name: "Project settings",
+    });
+    await userEvent.click(settingsTrigger);
+    const settingsPanel = screen.getByRole("complementary", { name: "Project settings panel" });
+    await userEvent.selectOptions(
+      within(settingsPanel).getByLabelText("Workspace behavior"),
+      "persistent",
+    );
+    await userEvent.click(within(settingsPanel).getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("complementary", { name: "Project settings panel" })).toBeNull();
+    });
+    expect(await screen.findByRole("region", { name: "Project setup loading" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Project settings" })).not.toHaveFocus();
+
+    await act(async () => {
+      resolveRefreshReadiness({ object: "project_setup_readiness", data: readiness });
+      await refreshReadiness;
+    });
+
+    onboarding = await screen.findByRole("region", { name: "Project onboarding" });
+    await waitFor(() => {
+      expect(within(onboarding).getByRole("button", { name: "Project settings" })).toHaveFocus();
+    });
+  });
+
   it("does not flash ready-project navigation while onboarding readiness is loading", async () => {
     resetProjectWorkMocks();
     let resolveReadiness = (_value: {
@@ -9609,6 +9676,48 @@ describe("ProjectsView cockpit", () => {
       default_agent_profile: "",
       default_workspace_mode: "ephemeral",
       default_root_id: "root_1",
+    });
+    expect(createProjectRoot).not.toHaveBeenCalled();
+    expect(updateProjectRoot).not.toHaveBeenCalled();
+    expect(deleteProjectRoot).not.toHaveBeenCalled();
+  });
+
+  it("preserves Cairnline root IDs that resemble unsaved form keys", async () => {
+    resetProjectWorkMocks();
+    const portableRootID = "unsaved-root:portable-root";
+    const portableProject: ProjectRecord = {
+      ...project,
+      roots: [{ ...project.roots[0], id: portableRootID }],
+      default_root_id: portableRootID,
+    };
+    window.localStorage.setItem("hecate.project", portableProject.id);
+    vi.mocked(updateProject).mockResolvedValue({
+      object: "project",
+      data: portableProject,
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [portableProject],
+      activeProjectID: portableProject.id,
+      providers: [],
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    expect(screen.getByLabelText("Default folder")).toHaveValue(`persisted-root:${portableRootID}`);
+    await userEvent.selectOptions(screen.getByLabelText("Workspace behavior"), "ephemeral");
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(updateProject).toHaveBeenCalledWith(portableProject.id, {
+      default_provider: "ollama",
+      default_model: "qwen2.5-coder",
+      default_agent_profile: "",
+      default_workspace_mode: "ephemeral",
+      default_root_id: portableRootID,
     });
     expect(createProjectRoot).not.toHaveBeenCalled();
     expect(updateProjectRoot).not.toHaveBeenCalled();

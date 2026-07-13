@@ -75,7 +75,7 @@ describe("ProjectSettingsPanel", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Local files" })).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Default folder"), {
-      target: { value: "root_feature" },
+      target: { value: "persisted-root:root_feature" },
     });
 
     expect(screen.getAllByText("/workspace/feature")).toHaveLength(2);
@@ -84,7 +84,7 @@ describe("ProjectSettingsPanel", () => {
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        defaultRootID: "root_feature",
+        defaultRootID: "persisted-root:root_feature",
         workspaceMode: "",
         roots: expect.arrayContaining([
           expect.objectContaining({ id: "root_feature", active: false }),
@@ -197,12 +197,15 @@ describe("ProjectSettingsPanel", () => {
     expect(screen.getByLabelText("Workspace behavior")).toHaveValue("future_clone");
     expect(screen.getByRole("option", { name: "Existing setting (future_clone)" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Default folder"), {
-      target: { value: "root_feature" },
+      target: { value: "persisted-root:root_feature" },
     });
     await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ workspaceMode: "future_clone", defaultRootID: "root_feature" }),
+      expect.objectContaining({
+        workspaceMode: "future_clone",
+        defaultRootID: "persisted-root:root_feature",
+      }),
     );
   });
 
@@ -238,12 +241,12 @@ describe("ProjectSettingsPanel", () => {
     expect(
       screen.getByRole("checkbox", { name: "Active project root /workspace/main" }),
     ).not.toBeChecked();
-    expect(screen.getByLabelText("Default folder")).toHaveValue("root_main");
+    expect(screen.getByLabelText("Default folder")).toHaveValue("persisted-root:root_main");
 
     await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        defaultRootID: "root_main",
+        defaultRootID: "persisted-root:root_main",
         roots: expect.arrayContaining([
           expect.objectContaining({ id: "root_main", active: false }),
           expect.objectContaining({ id: "root_feature", active: true }),

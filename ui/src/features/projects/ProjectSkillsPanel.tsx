@@ -166,7 +166,7 @@ function ProjectSkillRow({
       {skill.warnings?.length ? (
         <div style={{ display: "grid", gap: 3, marginTop: 8 }}>
           {skill.warnings.map((warning) => (
-            <div key={warning} style={{ ...subtleTextStyle, color: "var(--amber)" }}>
+            <div key={warning} style={skillWarningStyle}>
               {warning}
             </div>
           ))}
@@ -220,7 +220,7 @@ function ProjectSkillRow({
               }
             />
           </label>
-          <div style={subtleTextStyle}>
+          <div style={skillTechnicalMetadataStyle}>
             {skill.path}
             {skill.root_id ? ` · root ${skill.root_id}` : ""}
             {skill.source_context_source_ids?.length
@@ -370,11 +370,27 @@ const skillCapabilityStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   lineHeight: 1.5,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
+
+const skillTechnicalMetadataStyle: CSSProperties = {
+  ...subtleTextStyle,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
+
+const skillWarningStyle: CSSProperties = {
+  ...subtleTextStyle,
+  color: "var(--amber)",
+  minWidth: 0,
+  overflowWrap: "anywhere",
 };
 
 const fieldStyle: CSSProperties = {
   display: "grid",
   gap: 6,
+  minWidth: 0,
 };
 
 const fieldLabelStyle: CSSProperties = {
@@ -439,12 +455,14 @@ const detailsStyle: CSSProperties = {
   color: "var(--t2)",
   fontSize: 12,
   marginTop: 10,
+  minWidth: 0,
   paddingTop: 8,
 };
 
 const detailsBodyStyle: CSSProperties = {
   display: "grid",
   gap: 10,
+  minWidth: 0,
   paddingTop: 10,
 };
 
@@ -452,4 +470,5 @@ const skillEditGridStyle: CSSProperties = {
   display: "grid",
   gap: 8,
   gridTemplateColumns: "minmax(160px, 1fr) 1fr",
+  minWidth: 0,
 };
