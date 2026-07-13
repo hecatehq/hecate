@@ -10554,6 +10554,28 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
   });
 
+  it("shows a failed bare Projects route as unavailable", async () => {
+    await act(async () => {
+      render(
+        <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />,
+        {
+          wrapper: directWrapper({
+            projects: [],
+            loaded: false,
+            error: "Projects are unavailable.",
+          }),
+        },
+      );
+    });
+
+    expect(screen.getByText("Projects unavailable")).toBeTruthy();
+    expect(screen.getByText("Hecate could not load projects. Retry to check again.")).toBeTruthy();
+    expect(screen.queryByText("Loading projects…")).toBeNull();
+    expect(screen.queryByText("Checking available projects.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toHaveClass("btn-primary");
+    expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
+  });
+
   it("keeps the Work queue visible for a missing routed work item without fetching another detail", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -10787,6 +10809,17 @@ describe("ProjectsView navigation destinations", () => {
     expect(
       await screen.findByRole("article", { name: "Document navigation behavior work item" }),
     ).toBeTruthy();
+    expect(workTab).toHaveFocus();
+
+    rendered.rerender(route("work_missing"));
+    const missingWorkNotice = await screen.findByText(
+      "Work item not found in this project. Choose another item from the queue.",
+    );
+    expect(missingWorkNotice.closest('[role="status"]')).not.toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText("Work item opened in Hecate.")).toBeNull();
+      expect(screen.queryByText("Opening linked work item in Hecate.")).toBeNull();
+    });
     expect(workTab).toHaveFocus();
     expect(onNavigate).not.toHaveBeenCalled();
   });

@@ -269,8 +269,11 @@ function projectNavigationAnnouncementMessage(
 ): string {
   if (navigation.workItemID) {
     if (workItemTitle) return `Work item opened: ${workItemTitle}`;
-    return projectName ? `Work item opened in ${projectName}.` : "Work item opened.";
+    return projectName
+      ? `Opening linked work item in ${projectName}.`
+      : "Opening linked work item.";
   }
+  if (!navigation.projectID) return "Projects opened.";
   const viewLabel = `${navigation.view.charAt(0).toUpperCase()}${navigation.view.slice(1)}`;
   return navigation.projectID && projectName
     ? `${viewLabel} opened for ${projectName}.`
@@ -353,7 +356,8 @@ export function ProjectsView({
   const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
     useState<ProjectWorkspaceTab | null>(null);
   const [navigationAnnouncement, setNavigationAnnouncement] = useState({ key: "", message: "" });
-  const previousNavigationRef = useRef(navigation);
+  const previousNavigationRef = useRef<ProjectNavigationState | null | undefined>(undefined);
+  const navigationEffectHasRunRef = useRef(false);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [workItemFocusTarget, setWorkItemFocusTarget] = useState<ProjectWorkItemFocusTarget | null>(
@@ -1125,8 +1129,16 @@ export function ProjectsView({
         (item) => item.id === navigation.workItemID && item.project_id === navigation.projectID,
       )?.title || ""
     : "";
+  const navigationWorkItemKnownMissing = Boolean(
+    navigation?.workItemID &&
+    workLoadState === "loaded" &&
+    loadedProjectID === navigation.projectID &&
+    !workItems.some((item) => item.id === navigation.workItemID),
+  );
 
   useEffect(() => {
+    const isInitialRouteApplication = !navigationEffectHasRunRef.current;
+    navigationEffectHasRunRef.current = true;
     if (!navigation) {
       previousNavigationRef.current = navigation;
       setNavigationAnnouncement({ key: "", message: "" });
@@ -1134,13 +1146,25 @@ export function ProjectsView({
     }
     const previousNavigation = previousNavigationRef.current;
     const nextNavigationKey = projectNavigationStateKey(navigation);
-    const routeChanged = projectNavigationStateKey(previousNavigation) !== nextNavigationKey;
+    const routeChanged =
+      isInitialRouteApplication ||
+      projectNavigationStateKey(previousNavigation) !== nextNavigationKey;
     previousNavigationRef.current = navigation;
     setWorkspaceTab(navigation.view);
-    if (!routeChanged) return;
+    if (!routeChanged) {
+      if (navigationWorkItemKnownMissing) {
+        setNavigationAnnouncement((current) =>
+          current.key === nextNavigationKey && current.message
+            ? { key: nextNavigationKey, message: "" }
+            : current,
+        );
+      }
+      return;
+    }
 
     const viewChanged = previousNavigation?.view !== navigation.view;
     const recordChanged =
+      isInitialRouteApplication ||
       previousNavigation?.projectID !== navigation.projectID ||
       previousNavigation?.workItemID !== navigation.workItemID;
 
@@ -1159,6 +1183,11 @@ export function ProjectsView({
       setWorkspaceTabFocusTarget(null);
     }
 
+    if (navigationWorkItemKnownMissing) {
+      setNavigationAnnouncement({ key: nextNavigationKey, message: "" });
+      return;
+    }
+
     setNavigationAnnouncement({
       key: nextNavigationKey,
       message: projectNavigationAnnouncementMessage(
@@ -1173,6 +1202,7 @@ export function ProjectsView({
     navigation?.workItemID,
     navigationProjectName,
     navigationWorkItemTitle,
+    navigationWorkItemKnownMissing,
   ]);
 
   const persistedRouteProjectRef = useRef("");
@@ -2758,8 +2788,10 @@ export function ProjectsView({
   const managedCatalogPending = Boolean(navigation && !projects.state.loaded);
   const projectEmptyTitle = explicitProjectMissing
     ? "Project not found"
-    : navigation?.projectID && projects.state.error && managedCatalogPending
-      ? "Project unavailable"
+    : managedCatalogUnavailable
+      ? navigation?.projectID
+        ? "Project unavailable"
+        : "Projects unavailable"
       : managedCatalogPending
         ? "Loading projects…"
         : projects.state.projects.length === 0
@@ -2769,8 +2801,10 @@ export function ProjectsView({
             : "Select a project";
   const projectEmptyDetail = explicitProjectMissing
     ? "Choose an available project from the list. The requested project was not opened."
-    : navigation?.projectID && projects.state.error && managedCatalogPending
-      ? "Hecate could not verify this project yet. Retry loading projects to keep the link intact."
+    : managedCatalogUnavailable
+      ? navigation?.projectID
+        ? "Hecate could not verify this project yet. Retry loading projects to keep the link intact."
+        : "Hecate could not load projects. Retry to check again."
       : managedCatalogPending
         ? "Checking available projects."
         : projects.state.projects.length === 0
