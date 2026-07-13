@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 import { useProjects } from "../../app/state/projects";
 import { chooseWorkspaceDirectory } from "../../lib/api";
@@ -58,6 +58,7 @@ export function ProjectScopePanel({
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
   const createProjectInFlightRef = useRef(false);
+  const createProjectRequestSequenceRef = useRef(0);
   const [catalogRetryPending, setCatalogRetryPending] = useState(false);
   const [catalogRetryAnnouncement, setCatalogRetryAnnouncement] = useState({
     key: "0",
@@ -74,6 +75,13 @@ export function ProjectScopePanel({
         null);
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
+
+  useEffect(
+    () => () => {
+      createProjectRequestSequenceRef.current += 1;
+    },
+    [],
+  );
 
   function startProjectRename(project: ProjectRecord) {
     setRenamingProjectID(project.id);
@@ -105,17 +113,24 @@ export function ProjectScopePanel({
       return;
     }
     createProjectInFlightRef.current = true;
+    const requestSequence = ++createProjectRequestSequenceRef.current;
     setCreateProjectPending(true);
     setCreateProjectError("");
     try {
       const created = await projects.actions.createProject(payload);
-      if (!created) return;
+      if (createProjectRequestSequenceRef.current !== requestSequence || !created) return;
       setCreateProjectOpen(false);
       setProjectsExpanded(false);
+      void projects.actions.selectProject(created.id);
       onProjectSelected?.(created.id, created);
+    } catch (error) {
+      if (createProjectRequestSequenceRef.current !== requestSequence) return;
+      setCreateProjectError(error instanceof Error ? error.message : "Failed to create project.");
     } finally {
-      createProjectInFlightRef.current = false;
-      setCreateProjectPending(false);
+      if (createProjectRequestSequenceRef.current === requestSequence) {
+        createProjectInFlightRef.current = false;
+        setCreateProjectPending(false);
+      }
     }
   }
 
@@ -166,7 +181,6 @@ export function ProjectScopePanel({
           onAction={() => {
             setCreateProjectError("");
             projects.actions.setError("");
-            projects.actions.setCreateError("");
             setCreateProjectOpen(true);
           }}
           onToggle={() => setProjectsExpanded((value) => !value)}
@@ -255,13 +269,12 @@ export function ProjectScopePanel({
       </div>
       {createProjectOpen && (
         <CreateProjectModal
-          error={createProjectError || projects.state.createError}
+          error={createProjectError}
           pending={createProjectPending}
           onChooseWorkspace={handleChooseWorkspace}
           onClose={() => {
             setCreateProjectOpen(false);
             setCreateProjectError("");
-            projects.actions.setCreateError("");
           }}
           onSave={handleCreateProject}
         />

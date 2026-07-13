@@ -117,7 +117,10 @@ describe("CreateProjectModal", () => {
     expect(form).toHaveAttribute("aria-busy", "true");
     expect(within(dialog).getByLabelText("Name")).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: "Creating..." })).toBeDisabled();
+    const pendingButton = within(dialog).getByRole("button", { name: "Creating..." });
+    expect(pendingButton).toHaveAttribute("aria-disabled", "true");
+    expect(pendingButton).toBeEnabled();
+    expect(pendingButton).toHaveFocus();
     fireEvent.submit(form as HTMLFormElement);
     await userEvent.keyboard("{Escape}");
     fireEvent.click(dialog.parentElement as HTMLElement);

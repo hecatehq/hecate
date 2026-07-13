@@ -300,6 +300,7 @@ export function ProjectsView({
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
   const createProjectInFlightRef = useRef(false);
+  const createProjectRequestSequenceRef = useRef(0);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -485,6 +486,13 @@ export function ProjectsView({
       openProjectSelection(projectID);
     },
     [onNavigate, openProjectSelection],
+  );
+
+  useEffect(
+    () => () => {
+      createProjectRequestSequenceRef.current += 1;
+    },
+    [],
   );
 
   useEffect(() => {
@@ -1467,16 +1475,22 @@ export function ProjectsView({
       return;
     }
     createProjectInFlightRef.current = true;
+    const requestSequence = ++createProjectRequestSequenceRef.current;
     setCreateProjectPending(true);
     setCreateProjectError("");
     try {
       const created = await projects.actions.createProject(payload);
-      if (!created) return;
+      if (createProjectRequestSequenceRef.current !== requestSequence || !created) return;
       setCreateProjectOpen(false);
       openProject(created.id);
+    } catch (error) {
+      if (createProjectRequestSequenceRef.current !== requestSequence) return;
+      setCreateProjectError(errorMessage(error, "Failed to create project."));
     } finally {
-      createProjectInFlightRef.current = false;
-      setCreateProjectPending(false);
+      if (createProjectRequestSequenceRef.current === requestSequence) {
+        createProjectInFlightRef.current = false;
+        setCreateProjectPending(false);
+      }
     }
   }
 
@@ -2796,7 +2810,9 @@ export function ProjectsView({
     workspaceTabFocusTarget,
   ]);
   const explicitProjectMissing = Boolean(
-    navigation?.projectID && projects.state.loaded && !selectedProject,
+    navigation?.projectID &&
+    projects.state.loaded &&
+    !projects.state.projects.some((project) => project.id === navigation.projectID),
   );
   const explicitWorkItemMissing = Boolean(
     !projectNeedsOnboarding &&
@@ -2901,7 +2917,6 @@ export function ProjectsView({
               onClick={() => {
                 setCreateProjectError("");
                 projects.actions.setError("");
-                projects.actions.setCreateError("");
                 setCreateProjectOpen(true);
               }}
             >
@@ -3353,13 +3368,12 @@ export function ProjectsView({
 
         {createProjectOpen && (
           <CreateProjectModal
-            error={createProjectError || projects.state.createError}
+            error={createProjectError}
             pending={createProjectPending}
             onChooseWorkspace={handleChooseProjectWorkspace}
             onClose={() => {
               setCreateProjectOpen(false);
               setCreateProjectError("");
-              projects.actions.setCreateError("");
             }}
             onSave={handleCreateProject}
           />

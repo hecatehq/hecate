@@ -168,6 +168,52 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   expect(state.memoryCandidates[0]?.status).toBe("rejected");
 });
 
+test("Projects create keeps keyboard focus inside the pending dialog", async ({ page }) => {
+  await mockProjectJourneyAPIs(page);
+  let releaseCreate!: () => void;
+  const createGate = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+  await page.route(/\/hecate\/v1\/projects$/, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await createGate;
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { type: "create_failed", message: "create failed" },
+      }),
+    });
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create project" });
+  const name = dialog.getByLabel("Name");
+  await name.fill("Focus-safe project");
+  await name.press("Enter");
+
+  const pendingButton = dialog.getByRole("button", { name: "Creating..." });
+  await expect(pendingButton).toHaveAttribute("aria-disabled", "true");
+  await expect(pendingButton).toBeFocused();
+  await expect
+    .poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
+    .toBe(true);
+
+  releaseCreate();
+  await expect(dialog.getByRole("alert")).toContainText("create failed");
+  await expect(dialog.getByRole("button", { name: "Create project" })).toBeFocused();
+  await expect
+    .poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
+    .toBe(true);
+});
+
 test("Projects rootless journey: plan work without setup or workspace", async ({ page }) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
