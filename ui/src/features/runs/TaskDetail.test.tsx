@@ -315,6 +315,7 @@ describe("TaskDetail effective sandbox posture", () => {
     const { render } = setup({
       task: makeTask({
         agent_preset_id: "review_qa",
+        agent_preset_tools_enabled: false,
         sandbox_read_only: true,
         sandbox_network: false,
       }),
@@ -324,6 +325,7 @@ describe("TaskDetail effective sandbox posture", () => {
     const overview = screen.getByText("Run overview").parentElement!;
     expect(within(overview).getByText("Agent preset")).toBeTruthy();
     expect(within(overview).getByText("review_qa")).toBeTruthy();
+    expect(within(overview).getByText("Disabled")).toBeTruthy();
     expect(within(overview).getByText("Read-only")).toBeTruthy();
     expect(within(overview).getByText("Network blocked")).toBeTruthy();
   });
@@ -332,6 +334,7 @@ describe("TaskDetail effective sandbox posture", () => {
     const { render } = setup({
       task: makeTask({
         agent_preset_id: "implementation",
+        agent_preset_tools_enabled: true,
         sandbox_read_only: false,
         sandbox_network: true,
       }),
@@ -340,6 +343,7 @@ describe("TaskDetail effective sandbox posture", () => {
 
     const overview = screen.getByText("Run overview").parentElement!;
     expect(within(overview).getByText("implementation")).toBeTruthy();
+    expect(within(overview).getByText("Enabled")).toBeTruthy();
     expect(within(overview).getByText("Writes allowed")).toBeTruthy();
     expect(within(overview).getByText("Network enabled")).toBeTruthy();
   });
@@ -354,6 +358,17 @@ describe("TaskDetail effective sandbox posture", () => {
     expect(within(overview).queryByText("Agent preset")).toBeNull();
     expect(within(overview).queryByText("File access")).toBeNull();
     expect(within(overview).queryByText("Network")).toBeNull();
+  });
+
+  it("does not infer a tools snapshot for a legacy preset-backed task", () => {
+    const { render } = setup({
+      task: makeTask({ agent_preset_id: "legacy_preset" }),
+    });
+    render();
+
+    const overview = screen.getByText("Run overview").parentElement!;
+    expect(within(overview).getByText("legacy_preset")).toBeTruthy();
+    expect(within(overview).queryByText("Tools")).toBeNull();
   });
 });
 

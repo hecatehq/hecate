@@ -183,10 +183,15 @@ func hydrateConversation(spec ExecutionSpec) []types.Message {
 // not operator-tunable directive — kept separate from
 // spec.SystemPrompt so the operator can't accidentally elide it.
 //
-// Returns "" when there's no workspace path (shouldn't happen in
-// practice, but the runner can still drive the executor with an
-// empty path in tests).
+// Tools-disabled preset tasks receive policy guidance without a workspace path
+// because no tool can use it and sending an absolute local path to the provider
+// would disclose unnecessary operator context. Other tasks return "" when no
+// workspace path is available.
 func environmentSystemMessage(spec ExecutionSpec) string {
+	if agentPresetDisablesTools(spec.Task) {
+		return "Tools are disabled by the resolved agent preset. Do not make tool calls. " +
+			"Answer from the supplied context, and say what workspace inspection would be needed when the context is insufficient."
+	}
 	workspace := strings.TrimSpace(spec.Task.WorkingDirectory)
 	if workspace == "" {
 		workspace = strings.TrimSpace(spec.Task.SandboxAllowedRoot)

@@ -426,9 +426,10 @@ func assertE2EEventTypes(t *testing.T, events []e2eEventEnvelope, want ...string
 
 type e2eTaskResponse struct {
 	Data struct {
-		ID        string `json:"id"`
-		Status    string `json:"status,omitempty"`
-		LastError string `json:"last_error,omitempty"`
+		ID                      string `json:"id"`
+		Status                  string `json:"status,omitempty"`
+		LastError               string `json:"last_error,omitempty"`
+		AgentPresetToolsEnabled *bool  `json:"agent_preset_tools_enabled,omitempty"`
 	} `json:"data"`
 }
 

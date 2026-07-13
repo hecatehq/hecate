@@ -441,6 +441,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	toolsEnabled := plan.Profile.ToolsEnabled
 	return types.Task{
 		ID:                          taskID,
 		Title:                       AssignmentTaskTitle(workItem, role),
@@ -449,6 +450,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		WorkItemID:                  workItem.ID,
 		AssignmentID:                assignment.ID,
 		AgentPresetID:               plan.Profile.ID,
+		AgentPresetToolsEnabled:     &toolsEnabled,
 		SystemPrompt:                AssignmentSystemPrompt(project, role, plan.Profile, plan.PromptContext),
 		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
 		ExecutionKind:               "agent_loop",

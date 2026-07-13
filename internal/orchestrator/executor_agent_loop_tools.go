@@ -34,12 +34,36 @@ type agentLoopToolDispatchResult struct {
 
 const mcpAppHTMLMaxBytes = 1 << 20
 
+const (
+	agentPresetToolsPolicy         = "agent_preset_tools"
+	agentPresetToolsDisabledReason = "tools are disabled by the resolved agent preset"
+)
+
 func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
 	d.metrics = m
 }
 
 func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost, terminals *agentLoopTerminals) (agentLoopToolDispatchResult, error) {
 	startedAt := time.Now().UTC()
+	if agentPresetDisablesTools(spec.Task) {
+		blocked := blockedAgentPresetToolCall(spec, call, stepIndex, startedAt)
+		if isMCPToolName(call.Function.Name) {
+			server, toolLeaf, _ := mcpclient.SplitNamespacedToolName(call.Function.Name)
+			d.recordMCPCallTelemetry(
+				ctx,
+				spec,
+				call.ID,
+				call.Function.Name,
+				server,
+				toolLeaf,
+				telemetry.MCPCallResultBlocked,
+				time.Since(startedAt).Milliseconds(),
+				agentPresetToolsDisabledReason,
+				agentPresetToolsPolicy,
+			)
+		}
+		return blocked, nil
+	}
 	if agentPresetBlocksNativeNetwork(spec.Task, call.Function.Name) {
 		return blockedNativeToolCall(
 			spec,
@@ -247,7 +271,29 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 	}
 }
 
+func blockedAgentPresetToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time) agentLoopToolDispatchResult {
+	kind := "builtin"
+	if isMCPToolName(call.Function.Name) {
+		kind = "mcp"
+	}
+	return blockedToolCall(
+		spec,
+		call,
+		stepIndex,
+		startedAt,
+		kind,
+		agentPresetToolsPolicy,
+		"agent_preset_policy_denied",
+		agentPresetToolsDisabledReason,
+		"continue without tools or ask the operator to use a tools-enabled preset",
+	)
+}
+
 func blockedNativeToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, policy, reason, recovery string) agentLoopToolDispatchResult {
+	return blockedToolCall(spec, call, stepIndex, startedAt, "builtin", policy, "sandbox_policy_denied", reason, recovery)
+}
+
+func blockedToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, kind, policy, errorKind, reason, recovery string) agentLoopToolDispatchResult {
 	finishedAt := time.Now().UTC()
 	text := fmt.Sprintf("%s: %s; %s", call.Function.Name, reason, recovery)
 	step := types.TaskStep{
@@ -262,7 +308,7 @@ func blockedNativeToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex in
 		Result:     telemetry.ResultDenied,
 		ToolName:   call.Function.Name,
 		Input:      map[string]any{"tool": call.Function.Name},
-		ErrorKind:  "sandbox_policy_denied",
+		ErrorKind:  errorKind,
 		StartedAt:  startedAt,
 		FinishedAt: finishedAt,
 		RequestID:  spec.RequestID,
@@ -273,11 +319,11 @@ func blockedNativeToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex in
 			"reason":  reason,
 		},
 	}
-	if spec.EmitRunEvent != nil {
+	if spec.EmitRunEvent != nil && kind != "mcp" {
 		spec.EmitRunEvent(runtimeevents.EventPolicyToolBlocked.String(), map[string]any{
 			"tool_call_id": call.ID,
 			"tool_name":    call.Function.Name,
-			"kind":         "builtin",
+			"kind":         kind,
 			"result":       telemetry.MCPCallResultBlocked,
 			"policy":       policy,
 			"reason":       reason,
@@ -376,7 +422,7 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 			"reason":    reason,
 			"text_size": len(text),
 		}
-		d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, reason)
+		d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, reason, "mcp_approval_policy")
 		return agentLoopToolDispatchResult{Text: text, Step: &step, ToolError: true}, nil
 	}
 
@@ -449,7 +495,7 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 		}
 	}
 	step.OutputSummary = summary
-	d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, callResult, durationMS, stepError)
+	d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, callResult, durationMS, stepError, "")
 	return agentLoopToolDispatchResult{Text: text, Step: &step}, nil
 }
 

@@ -53,8 +53,8 @@ func (s *MemoryStore) CreateTask(_ context.Context, task types.Task) (types.Task
 	if task.UpdatedAt.IsZero() {
 		task.UpdatedAt = task.CreatedAt
 	}
-	s.tasks[task.ID] = task
-	return task, nil
+	s.tasks[task.ID] = cloneTask(task)
+	return cloneTask(task), nil
 }
 
 func (s *MemoryStore) GetTask(_ context.Context, id string) (types.Task, bool, error) {
@@ -64,7 +64,7 @@ func (s *MemoryStore) GetTask(_ context.Context, id string) (types.Task, bool, e
 	if !ok {
 		return types.Task{}, false, nil
 	}
-	return task, true, nil
+	return cloneTask(task), true, nil
 }
 
 func (s *MemoryStore) ListTasks(_ context.Context, filter TaskFilter) ([]types.Task, error) {
@@ -78,7 +78,7 @@ func (s *MemoryStore) ListTasks(_ context.Context, filter TaskFilter) ([]types.T
 		if filter.ProjectID != nil && task.ProjectID != *filter.ProjectID {
 			continue
 		}
-		items = append(items, task)
+		items = append(items, cloneTask(task))
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
@@ -101,8 +101,8 @@ func (s *MemoryStore) UpdateTask(_ context.Context, task types.Task) (types.Task
 	if task.UpdatedAt.IsZero() {
 		task.UpdatedAt = time.Now().UTC()
 	}
-	s.tasks[task.ID] = task
-	return task, nil
+	s.tasks[task.ID] = cloneTask(task)
+	return cloneTask(task), nil
 }
 
 func (s *MemoryStore) DeleteTask(_ context.Context, id string) error {
@@ -470,7 +470,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	if run.FinishedAt.IsZero() {
 		run.FinishedAt = finishedAt
 	}
-	s.tasks[task.ID] = task
+	s.tasks[task.ID] = cloneTask(task)
 	s.runs[run.ID] = run
 
 	cancelledApprovals := make([]types.TaskApproval, 0)
@@ -551,13 +551,40 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	// subscribers explicitly.
 	s.signalRun(run.ID)
 	return TerminalRunTransitionResult{
-		Task:               task,
+		Task:               cloneTask(task),
 		Run:                run,
 		Steps:              steps,
 		Artifacts:          artifacts,
 		CancelledApprovals: cancelledApprovals,
 		Events:             events,
 	}, nil
+}
+
+func cloneTask(task types.Task) types.Task {
+	if task.AgentPresetToolsEnabled != nil {
+		toolsEnabled := *task.AgentPresetToolsEnabled
+		task.AgentPresetToolsEnabled = &toolsEnabled
+	}
+	if task.MCPServers != nil {
+		task.MCPServers = append([]types.MCPServerConfig(nil), task.MCPServers...)
+		for index := range task.MCPServers {
+			task.MCPServers[index].Args = append([]string(nil), task.MCPServers[index].Args...)
+			task.MCPServers[index].Env = cloneStringMap(task.MCPServers[index].Env)
+			task.MCPServers[index].Headers = cloneStringMap(task.MCPServers[index].Headers)
+		}
+	}
+	return task
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (s *MemoryStore) appendRunEventLocked(event types.TaskRunEvent) types.TaskRunEvent {

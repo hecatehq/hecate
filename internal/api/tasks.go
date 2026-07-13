@@ -193,6 +193,7 @@ type TaskItem struct {
 	WorkItemID                  string `json:"work_item_id,omitempty"`
 	AssignmentID                string `json:"assignment_id,omitempty"`
 	AgentPresetID               string `json:"agent_preset_id,omitempty"`
+	AgentPresetToolsEnabled     *bool  `json:"agent_preset_tools_enabled,omitempty"`
 	SystemPrompt                string `json:"system_prompt,omitempty"`
 	WorkspaceSystemPromptPolicy string `json:"workspace_system_prompt_policy,omitempty"`
 	ExecutionProfile            string `json:"execution_profile,omitempty"`

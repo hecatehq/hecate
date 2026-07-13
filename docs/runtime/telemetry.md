@@ -376,6 +376,10 @@ not an execution failure. Its persisted policy step records
 does not increment failed-step telemetry. When emitted directly into an OTel
 trace, the policy event itself maps to `orchestrator.approval`.
 
+Preset-wide tool refusals use `policy=agent_preset_tools` and retain
+`kind=builtin` or `kind=mcp` so operators can distinguish the proposed surface;
+neither path contacts an executor or MCP server.
+
 Steps carry `hecate.step.duration_ms`. Shell/file tool steps also promote a
 closed allowlist of sandbox/tool attributes such as wrapper kind, timeout,
 exit code, output sizes, truncation, and file patch metadata. Working

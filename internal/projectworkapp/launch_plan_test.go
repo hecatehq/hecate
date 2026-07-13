@@ -139,19 +139,21 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 	tests := []struct {
 		name         string
 		profile      ResolvedAgentProfile
+		wantTools    bool
 		wantReadOnly bool
 		wantNetwork  bool
 		wantPresetID string
 	}{
 		{
 			name:         "review preset is read only and offline",
-			profile:      ResolvedAgentProfile{ID: "review_qa", WritesAllowed: false, NetworkAllowed: false},
+			profile:      ResolvedAgentProfile{ID: "review_qa", ToolsEnabled: false, WritesAllowed: false, NetworkAllowed: false},
 			wantReadOnly: true,
 			wantPresetID: "review_qa",
 		},
 		{
 			name:         "implementation preset permits writes and network",
-			profile:      ResolvedAgentProfile{ID: "implementation", WritesAllowed: true, NetworkAllowed: true},
+			profile:      ResolvedAgentProfile{ID: "implementation", ToolsEnabled: true, WritesAllowed: true, NetworkAllowed: true},
+			wantTools:    true,
 			wantNetwork:  true,
 			wantPresetID: "implementation",
 		},
@@ -183,6 +185,9 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 			)
 			if task.AgentPresetID != test.wantPresetID || task.SandboxReadOnly != test.wantReadOnly || task.SandboxNetwork != test.wantNetwork {
 				t.Fatalf("task policy snapshot = preset %q read_only=%v network=%v, want %q/%v/%v", task.AgentPresetID, task.SandboxReadOnly, task.SandboxNetwork, test.wantPresetID, test.wantReadOnly, test.wantNetwork)
+			}
+			if task.AgentPresetToolsEnabled == nil || *task.AgentPresetToolsEnabled != test.wantTools {
+				t.Fatalf("task tools snapshot = %v, want explicit %v", task.AgentPresetToolsEnabled, test.wantTools)
 			}
 		})
 	}

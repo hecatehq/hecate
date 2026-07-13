@@ -2911,6 +2911,53 @@ func TestAgentLoop_ResumeAfterApprovalDispatchesPendingCalls(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_ToolsDisabledResumeDeniesPreviouslyPendingCall(t *testing.T) {
+	t.Parallel()
+	toolsEnabled := false
+	savedJSON, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "summarize the working directory"},
+		{Role: "assistant", Content: "I need to inspect.", ToolCalls: []types.ToolCall{
+			agentLoopToolCall("call-1", "shell_exec", `{"command":"ls"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal resume checkpoint: %v", err)
+	}
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("I cannot inspect the workspace with this preset.")),
+	}}
+	shell := &stubExecutor{}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.AgentPresetID = "review_qa"
+	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:       "run-before-upgrade",
+		AgentConversation: savedJSON,
+		Reason:            "approved_mid_loop",
+	}
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" || len(shell.calls) != 0 {
+		t.Fatalf("result status = %q shell calls = %d, want completed without dispatch", res.Status, len(shell.calls))
+	}
+	if len(llm.lastReqs) != 1 || len(llm.lastReqs[0].Tools) != 0 {
+		t.Fatalf("post-resume request = %+v, want one zero-tool request", llm.lastReqs)
+	}
+	foundDeniedResult := false
+	for _, message := range llm.lastReqs[0].Messages {
+		if message.Role == "tool" && message.ToolCallID == "call-1" && message.ToolError && strings.Contains(message.Content, "tools are disabled") {
+			foundDeniedResult = true
+		}
+	}
+	if !foundDeniedResult {
+		t.Fatalf("post-resume messages = %+v, want policy-denied pending tool result", llm.lastReqs[0].Messages)
+	}
+}
+
 func TestAgentLoop_GatedToolListedWithMultipleToolsInTurn(t *testing.T) {
 	// LLM asks for both a gated and a non-gated tool in one turn.
 	// We pause for approval (any gated tool gates the whole turn);
@@ -3002,6 +3049,27 @@ func TestAgentLoop_AnnotatesModelLacksToolsError(t *testing.T) {
 	// so the run log is self-explanatory.
 	if !strings.Contains(res.LastError, "smollm2:135m") || !strings.Contains(res.LastError, "tool-capable") {
 		t.Errorf("LastError missing model name or remedy: %q", res.LastError)
+	}
+}
+
+func TestAgentLoop_ToolsDisabledDoesNotRequireToolCapableModel(t *testing.T) {
+	t.Parallel()
+	toolsEnabled := false
+	llm := &erroringLLM{err: fmt.Errorf("provider ollama call failed: upstream error: model does not support tools")}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
+	spec.Run.Model = "smollm2:135m"
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "failed" || !strings.Contains(res.LastError, "does not support tools") {
+		t.Fatalf("result = %+v, want underlying provider error", res)
+	}
+	if strings.Contains(res.LastError, "tool-capable") || strings.Contains(res.LastError, "agent_loop requires") {
+		t.Fatalf("LastError = %q, must not claim a zero-tool run requires tool calling", res.LastError)
 	}
 }
 
@@ -3801,6 +3869,128 @@ func TestAgentLoop_NetworkToolDefinitionsFollowPresetSnapshotCompatibility(t *te
 	enabled := agentToolDefinitionsForTask(types.Task{AgentPresetID: "implementation", SandboxNetwork: true}, agentToolDefinitionOptions{IncludeWebSearch: true})
 	if !hasToolDefinition(enabled, AgentToolHTTPRequest) || !hasToolDefinition(enabled, AgentToolWebSearch) {
 		t.Fatalf("enabled tool catalog = %+v, want HTTP and web search tools", enabled)
+	}
+}
+
+func TestAgentLoop_ToolDefinitionsFollowPresetToolsSnapshotCompatibility(t *testing.T) {
+	t.Parallel()
+	disabledValue := false
+	enabledValue := true
+	opts := agentToolDefinitionOptions{IncludeProjectAssistantDraft: true, IncludeWebSearch: true}
+
+	legacy := agentToolDefinitionsForTask(types.Task{AgentPresetID: "legacy"}, opts)
+	if len(legacy) == 0 || !hasToolDefinition(legacy, "read_file") || !hasToolDefinition(legacy, AgentToolDraftProjectProposal) {
+		t.Fatalf("legacy tool catalog = %+v, want existing behavior preserved without a tools snapshot", legacy)
+	}
+	disabled := agentToolDefinitionsForTask(types.Task{AgentPresetID: "review_qa", AgentPresetToolsEnabled: &disabledValue}, opts)
+	if len(disabled) != 0 {
+		t.Fatalf("tools-disabled catalog = %+v, want empty", disabled)
+	}
+	enabled := agentToolDefinitionsForTask(types.Task{AgentPresetID: "implementation", AgentPresetToolsEnabled: &enabledValue}, opts)
+	if len(enabled) == 0 || !hasToolDefinition(enabled, "read_file") || !hasToolDefinition(enabled, AgentToolDraftProjectProposal) {
+		t.Fatalf("tools-enabled catalog = %+v, want native tools", enabled)
+	}
+}
+
+func TestAgentLoop_PresetToolsDisabledHidesAndBlocksEveryToolWithoutStartingMCP(t *testing.T) {
+	t.Parallel()
+	toolsEnabled := false
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("",
+				agentLoopToolCall("call-shell", "shell_exec", `{"command":"pwd"}`),
+				agentLoopToolCall("call-mcp", "mcp__docs__lookup", `{"query":"policy"}`),
+			)),
+			makeChatResp(makeAssistantMsg("I need workspace inspection to answer that.")),
+		},
+	}
+	shell := &stubExecutor{}
+	file := &stubExecutor{}
+	git := &stubExecutor{}
+	loop := NewAgentLoopExecutor(llm, shell, file, git, 8, []string{"shell_exec", "mcp__docs__lookup"}, HTTPRequestPolicy{})
+	metrics, reader := newMetricsForTest(t)
+	loop.SetMetrics(metrics)
+	var factoryCalls atomic.Int32
+	loop.SetMCPHostFactory(func(context.Context, []types.MCPServerConfig) (AgentMCPHost, error) {
+		factoryCalls.Add(1)
+		return nil, errors.New("MCP factory must not start when preset tools are disabled")
+	})
+	spec := newAgentLoopSpec(t)
+	spec.Task.AgentPresetID = "review_qa"
+	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
+	spec.Task.MCPServers = []types.MCPServerConfig{{Name: "docs", Command: "fake"}}
+	var blockedEvents []map[string]any
+	spec.EmitRunEvent = func(eventType string, data map[string]any) {
+		if eventType == runtimeevents.EventPolicyToolBlocked.String() {
+			blockedEvents = append(blockedEvents, data)
+		}
+	}
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed after model recovery", res.Status)
+	}
+	if factoryCalls.Load() != 0 {
+		t.Fatalf("MCP factory calls = %d, want 0", factoryCalls.Load())
+	}
+	if len(shell.calls)+len(file.calls)+len(git.calls) != 0 {
+		t.Fatalf("sub-executor calls = shell %d file %d git %d, want none", len(shell.calls), len(file.calls), len(git.calls))
+	}
+	if len(llm.lastReqs) != 2 || len(llm.lastReqs[0].Tools) != 0 {
+		t.Fatalf("LLM requests = %d, first tool catalog = %+v; want two requests and no tools", len(llm.lastReqs), llm.lastReqs[0].Tools)
+	}
+	toolErrors := 0
+	for _, message := range llm.lastReqs[1].Messages {
+		if message.Role == "tool" && message.ToolError && strings.Contains(message.Content, "tools are disabled by the resolved agent preset") {
+			toolErrors++
+		}
+	}
+	if toolErrors != 2 {
+		t.Fatalf("tool messages = %+v, want two preset-policy errors", llm.lastReqs[1].Messages)
+	}
+	if len(blockedEvents) != 2 {
+		t.Fatalf("blocked events = %+v, want two", blockedEvents)
+	}
+	kinds := map[any]bool{}
+	for _, event := range blockedEvents {
+		if event["policy"] != "agent_preset_tools" || event["result"] != telemetry.MCPCallResultBlocked {
+			t.Fatalf("blocked event = %+v, want agent_preset_tools/blocked", event)
+		}
+		kinds[event["kind"]] = true
+		if event["kind"] == "mcp" {
+			if event["mcp_server"] != "docs" || event["mcp_tool"] != "lookup" || event["error"] != agentPresetToolsDisabledReason {
+				t.Fatalf("MCP blocked event = %+v, want full namespaced telemetry fields", event)
+			}
+			if _, ok := event["duration_ms"]; !ok {
+				t.Fatalf("MCP blocked event = %+v, want duration_ms", event)
+			}
+		}
+	}
+	if !kinds["builtin"] || !kinds["mcp"] {
+		t.Fatalf("blocked event kinds = %+v, want builtin and mcp", kinds)
+	}
+	deniedSteps := 0
+	for _, step := range res.Steps {
+		if step.Phase == "policy" && step.Result == telemetry.ResultDenied && step.ErrorKind == "agent_preset_policy_denied" {
+			deniedSteps++
+			if step.OutputSummary["policy"] != "agent_preset_tools" {
+				t.Fatalf("blocked step = %+v, want agent_preset_tools summary", step)
+			}
+		}
+	}
+	if deniedSteps != 2 {
+		t.Fatalf("denied policy steps = %d, want 2; steps = %+v", deniedSteps, res.Steps)
+	}
+	calls := findMetricSum(t, reader, telemetry.MetricOrchestratorMCPToolCallsTotal)
+	if len(calls.DataPoints) != 1 || calls.DataPoints[0].Value != 1 {
+		t.Fatalf("MCP blocked metric = %+v, want one call", calls.DataPoints)
+	}
+	result, ok := calls.DataPoints[0].Attributes.Value("hecate.mcp.call.result")
+	if !ok || result.AsString() != telemetry.MCPCallResultBlocked {
+		t.Fatalf("MCP metric result = %v ok=%v, want blocked", result, ok)
 	}
 }
 
