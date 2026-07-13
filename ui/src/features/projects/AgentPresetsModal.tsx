@@ -74,7 +74,7 @@ export function AgentPresetsModal({
 
   const canSave = !editingBuiltIn && form.name.trim().length > 0;
   const submit = async () => {
-    if (!canSave) return;
+    if (pending || !canSave) return;
     if (editingNew) {
       const preset = await onCreate(form);
       if (preset) selectPresetRecord(preset);
@@ -102,6 +102,7 @@ export function AgentPresetsModal({
       <Modal
         title="Agent presets"
         onClose={onClose}
+        dismissible={!pending}
         width={840}
         footer={
           <div style={{ display: "flex", gap: 8, width: "100%" }}>
@@ -129,14 +130,18 @@ export function AgentPresetsModal({
                 onClick={() => void submit()}
                 style={{ marginLeft: "auto" }}
               >
-                {pending ? "Saving..." : editingNew ? "Create preset" : "Save preset"}
+                {pending ? "Saving…" : editingNew ? "Create preset" : "Save preset"}
               </button>
             )}
           </div>
         }
       >
-        <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 470 }}>
+        <div
+          className="agent-presets-modal-grid"
+          style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 470 }}
+        >
           <div
+            className="agent-presets-modal-list"
             style={{
               borderRight: "1px solid var(--border)",
               paddingRight: 10,
@@ -150,6 +155,8 @@ export function AgentPresetsModal({
                 selectedPresetID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
               }
               type="button"
+              aria-pressed={selectedPresetID === "new"}
+              disabled={pending}
               onClick={() => selectPreset("new")}
               style={{ justifyContent: "flex-start" }}
             >
@@ -163,6 +170,8 @@ export function AgentPresetsModal({
                   selectedPresetID === preset.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
                 }
                 type="button"
+                aria-pressed={selectedPresetID === preset.id}
+                disabled={pending}
                 onClick={() => selectPreset(preset.id)}
                 style={{ justifyContent: "flex-start", minWidth: 0 }}
               >
@@ -174,20 +183,24 @@ export function AgentPresetsModal({
             ))}
           </div>
           <form
+            aria-busy={pending}
             onSubmit={(event) => {
               event.preventDefault();
-              void submit();
+              if (!pending) void submit();
             }}
             style={{ display: "grid", gap: 12, alignContent: "start" }}
           >
             {error && <InlineError message={error} />}
-            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10 }}>
+            <div
+              className="agent-presets-form-grid"
+              style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10 }}
+            >
               <label style={presetRoleFieldStyle}>
                 <span style={presetRoleFieldLabelStyle}>Preset id</span>
                 <input
                   className="input"
                   value={form.id}
-                  disabled={!editingNew}
+                  disabled={pending || !editingNew}
                   placeholder="implementation"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, id: event.target.value }))
@@ -200,7 +213,7 @@ export function AgentPresetsModal({
                   className="input"
                   value={form.name}
                   autoFocus={editingNew}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, name: event.target.value }))
                   }
@@ -212,7 +225,7 @@ export function AgentPresetsModal({
               <textarea
                 className="input"
                 value={form.description}
-                disabled={editingBuiltIn}
+                disabled={pending || editingBuiltIn}
                 rows={2}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, description: event.target.value }))
@@ -224,20 +237,23 @@ export function AgentPresetsModal({
               <textarea
                 className="input"
                 value={form.instructions}
-                disabled={editingBuiltIn}
+                disabled={pending || editingBuiltIn}
                 rows={5}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, instructions: event.target.value }))
                 }
               />
             </label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div
+              className="agent-presets-form-grid"
+              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+            >
               <label style={presetRoleFieldStyle}>
                 <span style={presetRoleFieldLabelStyle}>Surface</span>
                 <select
                   className="input"
                   value={form.surface}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, surface: event.target.value }))
                   }
@@ -254,7 +270,7 @@ export function AgentPresetsModal({
                 <input
                   className="input"
                   value={form.executionProfile}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   placeholder="implementation"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, executionProfile: event.target.value }))
@@ -266,7 +282,7 @@ export function AgentPresetsModal({
                 <input
                   className="input"
                   value={form.providerHint}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   placeholder="ollama"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, providerHint: event.target.value }))
@@ -278,7 +294,7 @@ export function AgentPresetsModal({
                 <input
                   className="input"
                   value={form.modelHint}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   placeholder="qwen2.5-coder"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, modelHint: event.target.value }))
@@ -291,7 +307,7 @@ export function AgentPresetsModal({
                 <input
                   type="checkbox"
                   checked={form.toolsEnabled}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, toolsEnabled: event.target.checked }))
                   }
@@ -302,7 +318,7 @@ export function AgentPresetsModal({
                 <input
                   type="checkbox"
                   checked={form.writesAllowed}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, writesAllowed: event.target.checked }))
                   }
@@ -313,7 +329,7 @@ export function AgentPresetsModal({
                 <input
                   type="checkbox"
                   checked={form.networkAllowed}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, networkAllowed: event.target.checked }))
                   }
@@ -321,13 +337,16 @@ export function AgentPresetsModal({
                 Network allowed
               </label>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div
+              className="agent-presets-form-grid"
+              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+            >
               <label style={presetRoleFieldStyle}>
                 <span style={presetRoleFieldLabelStyle}>Approval policy</span>
                 <select
                   className="input"
                   value={form.approvalPolicy}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, approvalPolicy: event.target.value }))
                   }
@@ -344,7 +363,7 @@ export function AgentPresetsModal({
                 <select
                   className="input"
                   value={form.projectMemoryPolicy}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, projectMemoryPolicy: event.target.value }))
                   }
@@ -361,7 +380,7 @@ export function AgentPresetsModal({
                 <select
                   className="input"
                   value={form.contextSourcePolicy}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, contextSourcePolicy: event.target.value }))
                   }
@@ -378,7 +397,7 @@ export function AgentPresetsModal({
                 <input
                   className="input"
                   value={form.externalAgentKind}
-                  disabled={editingBuiltIn}
+                  disabled={pending || editingBuiltIn}
                   placeholder="claude_code"
                   onChange={(event) =>
                     setForm((current) => ({ ...current, externalAgentKind: event.target.value }))
@@ -387,7 +406,7 @@ export function AgentPresetsModal({
               </label>
             </div>
             <ProjectSkillPicker
-              disabled={editingBuiltIn}
+              disabled={pending || editingBuiltIn}
               onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
               skills={projectSkills}
               value={form.skillIDs}

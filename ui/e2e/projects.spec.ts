@@ -10,6 +10,7 @@ import type {
   ProjectHealth,
   ProjectHandoffRecord,
   ProjectMemoryCandidateRecord,
+  ProjectMemoryRecord,
   ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectRootPayload,
@@ -56,10 +57,10 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("tab", { name: /Memory/ }).click();
   await expect(page.getByText("Guidance source: AGENTS.md")).toBeVisible();
   await page
-    .getByRole("button", { name: "Reject memory candidate Guidance source: AGENTS.md" })
+    .getByRole("button", { name: "Dismiss memory suggestion Guidance source: AGENTS.md" })
     .click();
   await expect(
-    page.getByRole("button", { name: "Reject memory candidate Guidance source: AGENTS.md" }),
+    page.getByRole("button", { name: "Dismiss memory suggestion Guidance source: AGENTS.md" }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: /Work/ }).click();
   await expect(page.getByRole("button", { name: "Create first work" })).toBeVisible();
@@ -922,6 +923,117 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   }
 });
 
+test("Projects supporting surfaces stay read-first at desktop and narrow widths", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date(NOW));
+  const state = await mockProjectJourneyAPIs(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("Name").fill("Research operations");
+  await page.getByLabel("Purpose").fill("Coordinate research notes and reusable guidance.");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  const projectSettingsButton = page.getByRole("button", { name: "Project settings" });
+  await projectSettingsButton.click();
+  let settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await settings.getByRole("button", { name: "Add folder" }).click();
+  await settings.getByRole("button", { name: "Save settings" }).click();
+  await expect(settings).toBeHidden();
+
+  await page
+    .getByRole("region", { name: "Project onboarding" })
+    .getByRole("button", { name: "Set up project" })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Apply proposal" }).click();
+  await expect(page.getByText("Applied 3 actions")).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss" }).click();
+
+  await page.getByRole("tab", { name: /Memory/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Memory" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review suggestion" })).toBeVisible();
+  await expect(page.getByText("Guidance source: AGENTS.md")).toBeVisible();
+  const sourcesDisclosure = page.locator("details.project-support-collection").filter({
+    hasText: "Sources",
+  });
+  await expect(sourcesDisclosure).not.toHaveAttribute("open", "");
+
+  await page.getByRole("button", { name: "Add memory" }).click();
+  const memoryDialog = page.getByRole("dialog", { name: "New project memory" });
+  await memoryDialog.getByLabel("Title").fill("Research principle");
+  await memoryDialog.getByLabel("Body").fill("Record only findings that the operator confirmed.");
+  await memoryDialog.getByRole("button", { name: "Create memory" }).click();
+  await expect(page.getByRole("article", { name: "Memory Research principle" })).toBeVisible();
+
+  if (process.env.HECATE_CAPTURE_PROJECTS_SUPPORTING === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-memory.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.getByRole("tab", { name: /Skills/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Skills" })).toBeVisible();
+  const skill = page.getByRole("article", { name: "Skill Implementation" });
+  await expect(skill).toBeVisible();
+  const skillDetails = skill.getByText("Settings and source");
+  await expect(skillDetails.locator("xpath=..")).not.toHaveAttribute("open", "");
+  await skillDetails.click();
+  await skill.getByLabel("Title for Implementation").fill("Implementation review");
+  await skill.getByRole("button", { name: "Save Implementation" }).click();
+  await expect
+    .poll(() => state.skillMutationCalls)
+    .toEqual([
+      {
+        skillID: "implementation",
+        body: expect.objectContaining({ title: "Implementation review" }),
+      },
+    ]);
+  await expect(page.getByRole("article", { name: "Skill Implementation review" })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await projectSettingsButton.click();
+  settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Project settings" })).toBeVisible();
+  await expect(settings.getByLabel("Workspace behavior")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Save settings" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Project workspace content" })).toBeHidden();
+  const settingsBox = await settings.boundingBox();
+  expect(settingsBox?.width ?? 0).toBeGreaterThan(300);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
+
+  if (process.env.HECATE_CAPTURE_PROJECTS_SUPPORTING === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-settings-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await projectSettingsButton.click();
+  await expect(settings).toBeHidden();
+  await expect(projectSettingsButton).toBeFocused();
+
+  await page.getByRole("button", { name: "Agent presets" }).click();
+  const presets = page.getByRole("dialog", { name: "Agent presets" });
+  await expect(presets).toBeVisible();
+  expect(await presets.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true,
+  );
+});
+
 test("Projects settings and memory use typed root and source mutations", async ({ page }) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
@@ -941,7 +1053,7 @@ test("Projects settings and memory use typed root and source mutations", async (
   let settings = page.getByRole("complementary", { name: "Project settings panel" });
   await settings.getByRole("button", { name: "Add folder" }).click();
   await expect(settings.getByTitle("/tmp/hecate-e2e-project")).toBeVisible();
-  await settings.getByRole("button", { name: "Save defaults" }).click();
+  await settings.getByRole("button", { name: "Save settings" }).click();
   await expect.poll(() => state.rootMutationCalls.map((call) => call.method)).toEqual(["POST"]);
   await expect(settings).toBeHidden();
 
@@ -950,7 +1062,7 @@ test("Projects settings and memory use typed root and source mutations", async (
   await settings
     .getByRole("checkbox", { name: "Active project root /tmp/hecate-e2e-project" })
     .uncheck();
-  await settings.getByRole("button", { name: "Save defaults" }).click();
+  await settings.getByRole("button", { name: "Save settings" }).click();
   await expect
     .poll(() => state.rootMutationCalls.map((call) => call.method))
     .toEqual(["POST", "PATCH"]);
@@ -966,20 +1078,34 @@ test("Projects settings and memory use typed root and source mutations", async (
   await page.getByRole("button", { name: "Dismiss" }).click();
 
   await page.getByRole("tab", { name: /Memory/ }).click();
-  await page.getByRole("button", { name: "Source", exact: true }).click();
+  await page.getByText("Sources", { exact: true }).click();
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
   let sourceDialog = page.getByRole("dialog", { name: "New project source" });
   await sourceDialog.getByLabel("Title").fill("Launch brief");
   await sourceDialog.getByLabel("Locator").fill("https://example.test/brief");
   await sourceDialog.getByRole("button", { name: "Create source" }).click();
+  await page.getByText("Sources", { exact: true }).click();
   await expect(page.getByText("Launch brief", { exact: true })).toBeVisible();
 
+  await page
+    .getByRole("article", { name: "Source Launch brief" })
+    .getByText("Details and actions")
+    .click();
   await page.getByRole("button", { name: "Edit source Launch brief" }).click();
   sourceDialog = page.getByRole("dialog", { name: "Edit project source" });
   await sourceDialog.getByLabel("Title").fill("Launch brief v2");
   await sourceDialog.getByLabel("Locator").fill("https://example.test/brief-v2");
   await sourceDialog.getByRole("button", { name: "Save source" }).click();
+  await page.getByText("Sources", { exact: true }).click();
   await expect(page.getByText("Launch brief v2", { exact: true })).toBeVisible();
 
+  const updatedSource = page.getByRole("article", { name: "Source Launch brief v2" });
+  const updatedSourceDetails = updatedSource.getByText("Details and actions");
+  if (
+    !(await updatedSourceDetails.evaluate((element) => element.parentElement?.hasAttribute("open")))
+  ) {
+    await updatedSourceDetails.click();
+  }
   await page.getByRole("button", { name: "Delete source Launch brief v2" }).click();
   await page.getByRole("button", { name: "Delete source", exact: true }).click();
   await expect(page.getByText("Launch brief v2", { exact: true })).toHaveCount(0);
@@ -1035,7 +1161,9 @@ async function mockProjectJourneyAPIs(page: Page) {
     sources: [] as ProjectContextSourceRecord[],
     skills: [] as ProjectSkillRecord[],
     roles: [] as ProjectWorkRoleRecord[],
+    memoryEntries: [] as ProjectMemoryRecord[],
     memoryCandidates: [] as ProjectMemoryCandidateRecord[],
+    skillMutationCalls: [] as Array<{ skillID: string; body: Record<string, unknown> }>,
     workItems: [] as ProjectWorkItemRecord[],
     assignments: [] as ProjectAssignmentRecord[],
     artifacts: [] as ProjectCollaborationArtifactRecord[],
@@ -1259,6 +1387,19 @@ async function mockProjectJourneyAPIs(page: Page) {
         await route.fulfill(ok({ object: "project_skills", data: state.skills }));
         return;
       }
+      if (parts.length === 3 && method === "PATCH") {
+        const skillID = parts[2] || "";
+        const body = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
+        state.skillMutationCalls.push({ skillID, body });
+        const skill = state.skills.find((item) => item.id === skillID);
+        if (!skill) {
+          await route.fulfill(ok({ object: "project_skill", data: null }, 404));
+          return;
+        }
+        Object.assign(skill, body, { updated_at: NOW });
+        await route.fulfill(ok({ object: "project_skill", data: skill }));
+        return;
+      }
       failUnexpectedProjectJourneyRequest(route);
     }
     if (resource === "memory") {
@@ -1286,7 +1427,26 @@ async function mockProjectJourneyAPIs(page: Page) {
         failUnexpectedProjectJourneyRequest(route);
       }
       if (parts.length === 2 && method === "GET") {
-        await route.fulfill(ok({ object: "project_memory", data: [] }));
+        await route.fulfill(ok({ object: "project_memory", data: state.memoryEntries }));
+        return;
+      }
+      if (parts.length === 2 && method === "POST") {
+        const body = JSON.parse(request.postData() || "{}") as Partial<ProjectMemoryRecord>;
+        const entry: ProjectMemoryRecord = {
+          id: `mem_${state.memoryEntries.length + 1}`,
+          scope: "project",
+          project_id: projectID,
+          title: body.title || "Project memory",
+          body: body.body || "",
+          trust_label: body.trust_label || "operator_memory",
+          source_kind: body.source_kind || "operator",
+          source_id: body.source_id,
+          enabled: body.enabled ?? true,
+          created_at: NOW,
+          updated_at: NOW,
+        };
+        state.memoryEntries = [...state.memoryEntries, entry];
+        await route.fulfill(ok({ object: "project_memory", data: entry }, 201));
         return;
       }
       failUnexpectedProjectJourneyRequest(route);

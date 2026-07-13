@@ -78,82 +78,72 @@ export function ProjectTimelinePanel({
   if (!project) return null;
 
   return (
-    <div>
-      <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
-          <div>
-            <div style={sectionLabelStyle}>Timeline / Decision Log</div>
-            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
-              {timeline.length} project story item{timeline.length === 1 ? "" : "s"} from activity,
-              memory, and collaboration artifacts.
-            </div>
+    <section aria-label="Project story" style={panelStyle}>
+      <header style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={surfaceTitleStyle}>Timeline</h1>
+          <div style={{ ...subtleTextStyle, marginTop: 3 }}>
+            {timeline.length} story item{timeline.length === 1 ? "" : "s"} from work, memory, and
+            collaboration.
           </div>
-          <span className="badge badge-muted" style={{ marginLeft: "auto" }}>
-            {decisions.length} decision{decisions.length === 1 ? "" : "s"}
-          </span>
         </div>
-        <div style={timelineGridStyle}>
-          <section aria-label="Project timeline" style={{ minWidth: 0 }}>
-            <div style={{ ...sectionLabelStyle, color: "var(--t2)", marginBottom: 8 }}>
-              Project Timeline
+        <span className="badge badge-muted" style={{ marginLeft: "auto" }}>
+          {decisions.length} decision{decisions.length === 1 ? "" : "s"}
+        </span>
+      </header>
+      <div style={timelineGridStyle}>
+        <section aria-label="Project timeline" style={{ minWidth: 0 }}>
+          <h2 style={sectionHeadingStyle}>Project story</h2>
+          {timeline.length === 0 ? (
+            <div style={subtleTextStyle}>
+              No timeline entries yet. Assignments, memory changes, and collaboration artifacts will
+              appear here.
             </div>
-            {timeline.length === 0 ? (
-              <div style={subtleTextStyle}>
-                No timeline entries yet. Assignments, memory changes, and collaboration artifacts
-                will appear here.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: 9 }}>
-                {timeline.length > visibleTimeline.length ? (
-                  <div style={subtleTextStyle}>
-                    Showing {visibleTimeline.length} of {timeline.length} story items.
-                  </div>
-                ) : null}
-                {visibleTimeline.map((item) => (
-                  <ProjectTimelineRow
-                    key={item.id}
-                    item={item}
-                    onEditMemory={onEditMemory}
-                    onOpenChat={onOpenChat}
-                    onOpenTask={onOpenTask}
-                    onSelectWorkItem={onSelectWorkItem}
-                    project={project}
-                    roles={roles}
-                    workItems={workItems}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-          <section aria-label="Decision log" style={decisionLogStyle}>
-            <div style={{ ...sectionLabelStyle, color: "var(--t2)", marginBottom: 8 }}>
-              Decisions
+          ) : (
+            <div style={{ display: "grid", gap: 9 }}>
+              {timeline.length > visibleTimeline.length ? (
+                <div style={subtleTextStyle}>
+                  Showing {visibleTimeline.length} of {timeline.length} story items.
+                </div>
+              ) : null}
+              {visibleTimeline.map((item) => (
+                <ProjectTimelineRow
+                  key={item.id}
+                  item={item}
+                  onEditMemory={onEditMemory}
+                  onOpenChat={onOpenChat}
+                  onOpenTask={onOpenTask}
+                  onSelectWorkItem={onSelectWorkItem}
+                  project={project}
+                  roles={roles}
+                  workItems={workItems}
+                />
+              ))}
             </div>
-            {decisions.length === 0 ? (
-              <div style={subtleTextStyle}>
-                No explicit decision notes yet. Existing decision_note artifacts will be collected
-                here without creating durable decisions automatically.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {decisions.length > visibleDecisions.length ? (
-                  <div style={subtleTextStyle}>
-                    Showing {visibleDecisions.length} of {decisions.length} decisions.
-                  </div>
-                ) : null}
-                {visibleDecisions.map((item) => (
-                  <ProjectDecisionRow
-                    key={item.id}
-                    item={item}
-                    onSelectWorkItem={onSelectWorkItem}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+          )}
+        </section>
+        <section aria-label="Decision log" style={decisionLogStyle}>
+          <h2 style={sectionHeadingStyle}>Decisions</h2>
+          {decisions.length === 0 ? (
+            <div style={subtleTextStyle}>
+              No decision notes yet. Recorded collaboration decisions will appear here without
+              creating new records automatically.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {decisions.length > visibleDecisions.length ? (
+                <div style={subtleTextStyle}>
+                  Showing {visibleDecisions.length} of {decisions.length} decisions.
+                </div>
+              ) : null}
+              {visibleDecisions.map((item) => (
+                <ProjectDecisionRow key={item.id} item={item} onSelectWorkItem={onSelectWorkItem} />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -254,11 +244,18 @@ function ProjectTimelineRow({
       {item.summary && <div style={timelineSummaryStyle}>{item.summary}</div>}
       <div style={metaLineStyle}>
         {item.actor && <span>{item.actor}</span>}
-        {item.source && <span>{item.source}</span>}
-        {item.runID && <span>run {shortID(item.runID)}</span>}
-        {item.chatID && <span>chat {shortID(item.chatID)}</span>}
         {item.timestamp && <span>{formatAbsoluteTime(item.timestamp)}</span>}
       </div>
+      {(item.source || item.runID || item.chatID) && (
+        <details className="project-support-details" style={technicalDetailsStyle}>
+          <summary>Technical references</summary>
+          <div style={metaLineStyle}>
+            {item.source && <span>{item.source}</span>}
+            {item.runID && <span>run {shortID(item.runID)}</span>}
+            {item.chatID && <span>chat {shortID(item.chatID)}</span>}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -273,7 +270,7 @@ function ProjectDecisionRow({
   return (
     <div style={decisionItemStyle}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
-        <span className="badge badge-amber">decision_note</span>
+        <span className="badge badge-amber">Decision</span>
         <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
         {item.workItemID && (
           <button
@@ -305,11 +302,21 @@ const panelStyle: CSSProperties = {
   padding: 12,
 };
 
-const sectionLabelStyle: CSSProperties = {
+const surfaceTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 18,
+  fontWeight: 650,
+  lineHeight: 1.25,
+  margin: 0,
+};
+
+const sectionHeadingStyle: CSSProperties = {
+  color: "var(--t2)",
   fontFamily: "var(--font-mono)",
   fontSize: 10,
-  color: "var(--teal)",
+  fontWeight: 500,
   letterSpacing: "0.06em",
+  margin: "0 0 8px",
   textTransform: "uppercase",
 };
 
@@ -399,4 +406,12 @@ const decisionItemStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
   paddingTop: 8,
   minWidth: 0,
+};
+
+const technicalDetailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  color: "var(--t2)",
+  fontSize: 11,
+  marginTop: 8,
+  paddingTop: 7,
 };

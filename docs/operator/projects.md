@@ -252,6 +252,40 @@ but edit, add, launch, handoff, review, and deletion controls are no longer
 offered. Persisted `done` or `cancelled` status keeps that read-only posture even
 when a later readiness refresh is temporarily unavailable.
 
+## Supporting Project Surfaces
+
+Use **Memory** to review suggested guidance before managing the rest of the
+project's saved context. A pending suggestion is the surface's primary action.
+Saved memory remains visible as a compact title and body summary, while its
+classification, provenance, and edit controls open under details. Resolved
+suggestions and **Sources** stay collapsed until needed. Adding or editing a
+source still changes metadata only; it does not fetch or inject the source.
+**Find from folders** is available only when the project has an active folder
+with a nonblank path.
+
+Use **Skills** as a status-first registry. Each row keeps its enabled state,
+availability, and warnings visible; editing, source paths, trust, tools, and
+suggested access stay under **Settings and source**. Rootless projects can
+inspect, edit, enable, and disable existing registered skills normally. **Find
+skills** remains unavailable until an active folder exists because a folderless
+discovery pass cannot safely describe what is present on disk.
+
+Project Settings describes launch behavior without changing its stored value:
+
+- **Isolated copy (recommended)** preserves an unset workspace setting and
+  keeps launches away from direct writes to the attached folder.
+- **Isolated copy (ephemeral setting)** and **Isolated copy (persistent
+  setting)** preserve those explicit settings separately.
+- **Attached folder (writes directly)** is the only choice that launches in
+  place.
+
+Unknown existing settings remain selectable so saving another default does not
+silently change workspace behavior. At narrow widths, Project Settings replaces
+the workspace body with a full-width inspector; closing it returns to the prior
+project surface. Timeline, Memory, Skills, sources, roots, roles, and Agent
+Presets remain supporting surfaces. They do not create a second project state
+outside Cairnline or launch work without operator confirmation.
+
 ## V1 Stop Line
 
 Projects V1 is good enough for Hecate dogfooding when an operator can:

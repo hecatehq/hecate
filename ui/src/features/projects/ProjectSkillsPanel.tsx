@@ -36,62 +36,79 @@ export function ProjectSkillsPanel({
   if (!project) return null;
   const enabledCount = skills.filter((skill) => skill.enabled).length;
   const availableCount = skills.filter((skill) => skill.status === "available").length;
+  const canDiscover = project.roots.some((root) => root.active && root.path.trim());
+
   return (
-    <div>
-      <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <div>
-            <div style={sectionLabelStyle}>Project Skills</div>
-            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
-              {loading
-                ? "Loading project skills..."
-                : `${enabledCount} enabled / ${availableCount} available / ${skills.length} registered`}
-            </div>
+    <section aria-busy={loading || discovering} aria-label="Project skills" style={panelStyle}>
+      <header className="project-support-header" style={supportHeaderStyle}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={surfaceTitleStyle}>Skills</h1>
+          <div aria-live="polite" role="status" style={{ ...subtleTextStyle, marginTop: 3 }}>
+            {loading
+              ? "Loading skills…"
+              : `${enabledCount} enabled · ${availableCount} ready · ${skills.length} registered`}
           </div>
+        </div>
+        <div style={supportActionsStyle}>
           <button
             className="btn btn-ghost btn-sm"
             type="button"
             aria-label="Refresh project skills"
             title="Refresh"
             onClick={onRefresh}
-            style={{ marginLeft: "auto" }}
           >
             <Icon d={Icons.refresh} size={12} />
           </button>
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-primary btn-sm"
             type="button"
-            disabled={discovering}
+            disabled={discovering || !canDiscover}
             onClick={onDiscover}
+            title={
+              canDiscover ? "Find skills in attached folders" : "Attach or enable a folder first"
+            }
           >
             <Icon d={Icons.search} size={12} />
-            {discovering ? "Discovering..." : "Discover"}
+            {discovering ? "Finding…" : "Find skills"}
           </button>
         </div>
-        {error && (
-          <div style={{ marginBottom: 10 }}>
-            <InlineError message={error} />
-          </div>
-        )}
-        {skills.length === 0 && !loading ? (
-          <EmptyBlock
-            title="No project skills registered"
-            detail="Discover skills from guidance-linked roots, .agents/skills, .cairnline/skills, .claude/skills, .gemini/skills, or .hecate/skills."
-          />
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {skills.map((skill) => (
-              <ProjectSkillRow
-                key={skill.id}
-                pending={updatingSkillID === skill.id}
-                skill={skill}
-                onUpdate={onUpdate}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      </header>
+      {!canDiscover && (
+        <div style={{ ...guidanceStyle, marginBottom: 12 }}>
+          Attach or enable a folder to find skills. Existing skills remain available below.
+        </div>
+      )}
+      {error && (
+        <div style={{ marginBottom: 10 }}>
+          <InlineError message={error} />
+        </div>
+      )}
+      {loading && skills.length === 0 ? (
+        <div aria-live="polite" role="status" style={subtleTextStyle}>
+          Loading project skills…
+        </div>
+      ) : skills.length === 0 ? (
+        <EmptyBlock
+          title="No skills found"
+          detail={
+            canDiscover
+              ? "Find reusable instructions in this project's attached folders. Nothing is installed or run automatically."
+              : "Skills are optional for projects without local files. Attach a folder when you want to find reusable instructions."
+          }
+        />
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {skills.map((skill) => (
+            <ProjectSkillRow
+              key={skill.id}
+              pending={updatingSkillID === skill.id}
+              skill={skill}
+              onUpdate={onUpdate}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -116,47 +133,59 @@ function ProjectSkillRow({
     setDraft(skillFormFromRecord(skill));
   }, [skill]);
 
+  const title = skill.title || skill.id;
   const changed =
     draft.title.trim() !== skill.title ||
     draft.description.trim() !== (skill.description ?? "") ||
     draft.trustLabel.trim() !== skill.trust_label;
-  const statusClass = skill.status === "available" ? "badge badge-green" : "badge badge-amber";
   const capabilitySummary = projectSkillCapabilitySummary(skill);
 
   return (
-    <div style={memoryEntryStyle}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-        <label
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            paddingTop: 2,
-            color: "var(--text1)",
-          }}
-        >
+    <article aria-label={`Skill ${title}`} style={skillEntryStyle}>
+      <div className="project-support-row-header" style={skillHeaderStyle}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
+            <div style={titleStyle}>{title}</div>
+            <span className={projectSkillStatusBadgeClass(skill.status)}>
+              {projectSkillStatusLabel(skill.status)}
+            </span>
+          </div>
+          {skill.description && <div style={skillDescriptionStyle}>{skill.description}</div>}
+        </div>
+        <label style={enableControlStyle}>
           <input
             type="checkbox"
             checked={skill.enabled}
             disabled={pending}
-            aria-label={`Enable skill ${skill.title || skill.id}`}
+            aria-label={`Use skill ${title}`}
             onChange={(event) => onUpdate(skill, { enabled: event.target.checked })}
           />
-          <span className={skill.enabled ? "badge badge-green" : "badge badge-muted"}>
-            {skill.enabled ? "enabled" : "disabled"}
-          </span>
+          <span>{skill.enabled ? "Enabled" : "Disabled"}</span>
         </label>
-        <div style={{ display: "grid", gap: 8, flex: 1, minWidth: 0 }}>
+      </div>
+      {skill.warnings?.length ? (
+        <div style={{ display: "grid", gap: 3, marginTop: 8 }}>
+          {skill.warnings.map((warning) => (
+            <div key={warning} style={{ ...subtleTextStyle, color: "var(--amber)" }}>
+              {warning}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <details className="project-support-details" style={detailsStyle}>
+        <summary>Settings and source</summary>
+        <div style={detailsBodyStyle}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
             <CopyableID text={skill.id} compact />
-            <span className={statusClass}>{skill.status}</span>
+            <span className="badge badge-muted">{skill.status}</span>
             <span className="badge badge-muted">{skill.trust_label}</span>
             <span className="badge badge-muted">{skill.format}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8 }}>
+          <div className="project-skill-edit-grid" style={skillEditGridStyle}>
             <label style={fieldStyle}>
               <span style={fieldLabelStyle}>Title</span>
               <input
+                aria-label={`Title for ${title}`}
                 className="input"
                 value={draft.title}
                 disabled={pending}
@@ -168,6 +197,7 @@ function ProjectSkillRow({
             <label style={fieldStyle}>
               <span style={fieldLabelStyle}>Trust label</span>
               <input
+                aria-label={`Trust label for ${title}`}
                 className="input"
                 value={draft.trustLabel}
                 disabled={pending}
@@ -180,6 +210,7 @@ function ProjectSkillRow({
           <label style={fieldStyle}>
             <span style={fieldLabelStyle}>Description</span>
             <textarea
+              aria-label={`Description for ${title}`}
               className="input"
               rows={2}
               value={draft.description}
@@ -195,35 +226,29 @@ function ProjectSkillRow({
             {skill.source_context_source_ids?.length
               ? ` · sources ${skill.source_context_source_ids.join(", ")}`
               : ""}
-            {skill.discovered_at ? ` · discovered ${formatAbsoluteTime(skill.discovered_at)}` : ""}
+            {skill.discovered_at ? ` · found ${formatAbsoluteTime(skill.discovered_at)}` : ""}
           </div>
           {capabilitySummary && <div style={skillCapabilityStyle}>{capabilitySummary}</div>}
-          {skill.warnings?.length ? (
-            <div style={{ display: "grid", gap: 3 }}>
-              {skill.warnings.map((warning) => (
-                <div key={warning} style={{ ...subtleTextStyle, color: "var(--amber)" }}>
-                  {warning}
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <div>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={pending || !changed}
+              aria-label={`Save ${title}`}
+              onClick={() =>
+                onUpdate(skill, {
+                  title: draft.title.trim(),
+                  description: draft.description.trim(),
+                  trust_label: draft.trustLabel.trim(),
+                })
+              }
+            >
+              {pending ? "Saving…" : "Save changes"}
+            </button>
+          </div>
         </div>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          disabled={pending || !changed}
-          onClick={() =>
-            onUpdate(skill, {
-              title: draft.title.trim(),
-              description: draft.description.trim(),
-              trust_label: draft.trustLabel.trim(),
-            })
-          }
-        >
-          {pending ? "Saving..." : "Save"}
-        </button>
-      </div>
-    </div>
+      </details>
+    </article>
   );
 }
 
@@ -235,6 +260,22 @@ function skillFormFromRecord(skill: ProjectSkillRecord): SkillForm {
   };
 }
 
+function projectSkillStatusLabel(status: ProjectSkillRecord["status"]): string {
+  if (status === "available") return "Ready";
+  if (status === "missing") return "Missing";
+  if (status === "invalid") return "Needs attention";
+  if (status === "conflict") return "Conflict";
+  return status.replaceAll("_", " ");
+}
+
+function projectSkillStatusBadgeClass(status: ProjectSkillRecord["status"]): string {
+  if (status === "available") return "badge badge-green";
+  if (status === "missing" || status === "invalid" || status === "conflict") {
+    return "badge badge-amber";
+  }
+  return "badge badge-muted";
+}
+
 function projectSkillCapabilitySummary(skill: ProjectSkillRecord): string {
   const parts: string[] = [];
   const suggestedTools = projectSkillSuggestedToolsSummary(skill.suggested_tools);
@@ -243,7 +284,7 @@ function projectSkillCapabilitySummary(skill: ProjectSkillRecord): string {
   }
   const permissions = projectSkillRequiredPermissionsSummary(skill);
   if (permissions) {
-    parts.push(`Required posture: ${permissions}`);
+    parts.push(`Suggested access: ${permissions}`);
   }
   return parts.join(" · ");
 }
@@ -277,25 +318,51 @@ function EmptyBlock({ title, detail }: { title: string; detail: string }) {
       style={{ padding: 24, textAlign: "center", display: "grid", gap: 8, placeItems: "center" }}
     >
       <div style={{ color: "var(--t0)", fontSize: 14, fontWeight: 600 }}>{title}</div>
-      <div style={{ color: "var(--t3)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
+      <div style={{ color: "var(--t3)", fontSize: 12, lineHeight: 1.5, maxWidth: 360 }}>
         {detail}
       </div>
     </div>
   );
 }
 
-const sectionLabelStyle: CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: 10,
-  color: "var(--teal)",
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-};
-
 const subtleTextStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 12,
   lineHeight: 1.4,
+};
+
+const guidanceStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--t2)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  padding: "9px 10px",
+};
+
+const surfaceTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 18,
+  fontWeight: 650,
+  lineHeight: 1.25,
+  margin: 0,
+};
+
+const titleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 13,
+  fontWeight: 600,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
+
+const skillDescriptionStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  marginTop: 5,
+  overflowWrap: "anywhere",
 };
 
 const skillCapabilityStyle: CSSProperties = {
@@ -324,10 +391,65 @@ const panelStyle: CSSProperties = {
   boxSizing: "border-box",
   maxWidth: "100%",
   minWidth: 0,
-  padding: 12,
+  padding: 14,
 };
 
-const memoryEntryStyle: CSSProperties = {
+const supportHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  gap: 12,
+  justifyContent: "space-between",
+  marginBottom: 12,
+  minWidth: 0,
+};
+
+const supportActionsStyle: CSSProperties = {
+  display: "flex",
+  flexShrink: 0,
+  flexWrap: "wrap",
+  gap: 6,
+  justifyContent: "flex-end",
+};
+
+const skillEntryStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
+  minWidth: 0,
+  paddingTop: 10,
+};
+
+const skillHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  gap: 12,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const enableControlStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t1)",
+  display: "inline-flex",
+  flexShrink: 0,
+  fontSize: 12,
+  gap: 6,
+};
+
+const detailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  color: "var(--t2)",
+  fontSize: 12,
+  marginTop: 10,
   paddingTop: 8,
+};
+
+const detailsBodyStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  paddingTop: 10,
+};
+
+const skillEditGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "minmax(160px, 1fr) 1fr",
 };

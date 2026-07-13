@@ -53,34 +53,50 @@ describe("ProjectSkillsPanel", () => {
         onDiscover={onDiscover}
         onRefresh={onRefresh}
         onUpdate={onUpdate}
-        project={project()}
+        project={project({
+          roots: [
+            {
+              id: "root_1",
+              path: "/workspace",
+              kind: "local",
+              active: true,
+              created_at: "2026-06-12T00:00:00Z",
+              updated_at: "2026-06-12T00:00:00Z",
+            },
+          ],
+        })}
         skills={[skill()]}
         updatingSkillID=""
       />,
     );
 
-    expect(screen.getByText("1 enabled / 1 available / 1 registered")).toBeTruthy();
-    expect(screen.getByText("Build backend changes.")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Skills" })).toBeTruthy();
+    expect(screen.getByText("1 enabled · 1 ready · 1 registered")).toBeTruthy();
+    expect(screen.getByText("Build backend changes.", { selector: "div" })).toBeTruthy();
+    const settingsSummary = screen.getByText("Settings and source", { selector: "summary" });
+    expect(settingsSummary.closest("details")).not.toHaveAttribute("open");
+
+    await userEvent.click(settingsSummary);
     expect(screen.getByText(/\.hecate\/skills\/backend\/SKILL\.md/)).toBeTruthy();
     expect(screen.getByText(/root root_1/)).toBeTruthy();
     expect(screen.getByText(/sources ctx_agents/)).toBeTruthy();
     expect(
       screen.getByText(
-        "Suggested tools: git.diff, file.read · Required posture: tools on, writes off, network off",
+        "Suggested tools: git.diff, file.read · Suggested access: tools on, writes off, network off",
       ),
     ).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh project skills" }));
-    await userEvent.click(screen.getByRole("button", { name: "Discover" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Enable skill Backend" }));
+    await userEvent.click(screen.getByRole("button", { name: "Find skills" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Use skill Backend" }));
 
-    const titleInput = screen.getByLabelText("Title");
+    const titleInput = screen.getByLabelText("Title for Backend");
     await userEvent.clear(titleInput);
     await userEvent.type(titleInput, "Backend runtime");
-    fireEvent.change(screen.getByLabelText("Trust label"), {
+    fireEvent.change(screen.getByLabelText("Trust label for Backend"), {
       target: { value: "operator_reviewed" },
     });
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save Backend" }));
 
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(onDiscover).toHaveBeenCalledTimes(1);
@@ -110,10 +126,16 @@ describe("ProjectSkillsPanel", () => {
     );
 
     expect(screen.getByText("Failed to load project skills.")).toBeTruthy();
-    expect(screen.getByText("No project skills registered")).toBeTruthy();
+    expect(screen.getByText("No skills found")).toBeTruthy();
     expect(
       screen.getByText(
-        "Discover skills from guidance-linked roots, .agents/skills, .cairnline/skills, .claude/skills, .gemini/skills, or .hecate/skills.",
+        "Skills are optional for projects without local files. Attach a folder when you want to find reusable instructions.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find skills" })).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Attach or enable a folder to find skills. Existing skills remain available below.",
       ),
     ).toBeTruthy();
   });
@@ -148,9 +170,10 @@ describe("ProjectSkillsPanel", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("Settings and source", { selector: "summary" }));
     expect(
       screen.getByText(
-        "Suggested tools: tool.00, tool.01, tool.02, tool.03, tool.04, tool.05, tool.06, tool.07, +2 more · Required posture: tools on, writes off, network off",
+        "Suggested tools: tool.00, tool.01, tool.02, tool.03, tool.04, tool.05, tool.06, tool.07, +2 more · Suggested access: tools on, writes off, network off",
       ),
     ).toBeTruthy();
   });

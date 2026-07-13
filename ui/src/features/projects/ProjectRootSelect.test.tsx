@@ -64,7 +64,7 @@ describe("ProjectRootSelect", () => {
 
     expect(screen.getByRole("option", { name: "Use work item root" })).toHaveValue("");
     expect(
-      screen.getByRole("option", { name: "/workspace/feature · git:feature/ui · git_worktree" }),
+      screen.getByRole("option", { name: "/workspace/feature · feature/ui · worktree" }),
     ).toHaveValue("root_feature");
 
     fireEvent.change(screen.getByLabelText("Assignment root"), {

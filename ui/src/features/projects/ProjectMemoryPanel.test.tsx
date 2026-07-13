@@ -116,31 +116,49 @@ describe("ProjectMemoryPanel", () => {
         entries={[entry]}
         error=""
         loading={false}
-        project={project()}
+        project={project({
+          roots: [
+            {
+              id: "root_1",
+              path: "/workspace",
+              kind: "local",
+              active: true,
+              created_at: "2026-06-12T00:00:00Z",
+              updated_at: "2026-06-12T00:00:00Z",
+            },
+          ],
+        })}
         rejectingCandidateID=""
         {...handlers}
       />,
     );
 
-    expect(screen.getByText("1/1 sources · 1/1 memory · 1 pending")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Memory" })).toBeTruthy();
+    expect(screen.getByText("1 saved · 1 enabled · 1 to review · 1 source enabled")).toBeTruthy();
     expect(screen.getAllByText("AGENTS.md").length).toBeGreaterThan(0);
     expect(screen.getByText("Commit style")).toBeTruthy();
     expect(screen.getByText("Generated summary")).toBeTruthy();
+
+    await userEvent.click(screen.getByText("Suggestion source", { selector: "summary" }));
     expect(screen.getByText("Source refs: task_run Implementation run")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh project memory" }));
-    await userEvent.click(screen.getByRole("button", { name: "Discover" }));
-    await userEvent.click(screen.getByRole("button", { name: "Source" }));
-    await userEvent.click(screen.getByRole("button", { name: "Memory" }));
+    await userEvent.click(screen.getByText("Sources", { selector: "span" }));
+    await userEvent.click(screen.getByRole("button", { name: "Find from folders" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add source" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add memory" }));
+    const detailActions = screen.getAllByText("Details and actions", { selector: "summary" });
+    await userEvent.click(detailActions[0]!);
+    await userEvent.click(detailActions[1]!);
     await userEvent.click(screen.getByRole("button", { name: "Edit source AGENTS.md" }));
     await userEvent.click(screen.getByRole("button", { name: "Delete source AGENTS.md" }));
     await userEvent.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     await userEvent.click(screen.getByRole("button", { name: "Delete memory Commit style" }));
     await userEvent.click(
-      screen.getByRole("button", { name: "Promote memory candidate Generated summary" }),
+      screen.getByRole("button", { name: "Review memory suggestion Generated summary" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Reject memory candidate Generated summary" }),
+      screen.getByRole("button", { name: "Dismiss memory suggestion Generated summary" }),
     );
 
     expect(handlers.onRefresh).toHaveBeenCalledTimes(1);
@@ -155,7 +173,7 @@ describe("ProjectMemoryPanel", () => {
     expect(handlers.onRejectCandidate).toHaveBeenCalledWith(candidate);
   });
 
-  it("renders source locators defensively", () => {
+  it("renders source locators defensively", async () => {
     const handlers = {
       onDiscoverContextSources: vi.fn(),
       onDeleteSource: vi.fn(),
@@ -192,6 +210,7 @@ describe("ProjectMemoryPanel", () => {
       />,
     );
 
+    await userEvent.click(screen.getByText("Sources", { selector: "span" }));
     expect(screen.getByRole("link", { name: "https://example.invalid/design" })).toBeTruthy();
     expect(screen.getByText("javascript:alert(1)")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "javascript:alert(1)" })).toBeNull();
@@ -270,12 +289,13 @@ describe("ProjectMemoryPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Candidate provenance")).toBeTruthy();
+    expect(screen.getByText("Suggestion source", { selector: "div" })).toBeTruthy();
     expect(screen.getByText("Source refs: task_run Implementation run")).toBeTruthy();
+    await userEvent.click(screen.getByText("Advanced memory details", { selector: "summary" }));
     fireEvent.change(screen.getByLabelText("Trust label"), {
       target: { value: "operator_memory" },
     });
-    await userEvent.click(screen.getByRole("button", { name: "Promote memory" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save to memory" }));
 
     expect(onSave).toHaveBeenCalledWith({
       title: "Generated summary",
@@ -285,5 +305,35 @@ describe("ProjectMemoryPanel", () => {
       sourceID: "run_1",
       enabled: true,
     });
+  });
+
+  it("separates resolved suggestion history from pending review", async () => {
+    render(
+      <ProjectMemoryPanel
+        candidates={[memoryCandidate({ status: "promoted" })]}
+        discoveringContext={false}
+        entries={[memoryEntry()]}
+        error=""
+        loading={false}
+        onDiscoverContextSources={vi.fn()}
+        onDeleteSource={vi.fn()}
+        onEditSource={vi.fn()}
+        onPromoteCandidate={vi.fn()}
+        onRejectCandidate={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onNew={vi.fn()}
+        onNewSource={vi.fn()}
+        onRefresh={vi.fn()}
+        project={project()}
+        rejectingCandidateID=""
+      />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "Suggestions to review" })).toBeNull();
+    expect(screen.getByText("1 saved · 1 enabled · 0 to review · 1 source enabled")).toBeTruthy();
+    await userEvent.click(screen.getByText("Reviewed suggestions", { selector: "span" }));
+    expect(screen.getByText("Generated summary")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Review memory suggestion/ })).toBeNull();
   });
 });

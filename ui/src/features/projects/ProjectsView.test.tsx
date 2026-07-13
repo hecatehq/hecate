@@ -1942,7 +1942,11 @@ describe("ProjectsView index", () => {
     expect(within(workspace).queryByRole("heading", { name: "Build cockpit UI" })).toBeNull();
 
     await openProjectWorkspaceTab(/Memory/);
-    expect(within(workspace).getByText("No project memory entries saved yet.")).toBeTruthy();
+    expect(
+      within(workspace).getByText(
+        "No saved memory yet. Add only durable guidance the operator has confirmed.",
+      ),
+    ).toBeTruthy();
     expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();
   });
 
@@ -1985,9 +1989,9 @@ describe("ProjectsView index", () => {
 
     await openProjectWorkspaceTab(/Skills/);
     const workspace = screen.getByRole("region", { name: "Project workspace" });
-    expect(within(workspace).getByText("Build backend changes.")).toBeTruthy();
+    expect(within(workspace).getByText("Build backend changes.", { selector: "div" })).toBeTruthy();
     const enabledCheckbox = within(workspace).getByRole("checkbox", {
-      name: "Enable skill Backend",
+      name: "Use skill Backend",
     });
     await userEvent.click(enabledCheckbox);
     await waitFor(() => {
@@ -1997,13 +2001,13 @@ describe("ProjectsView index", () => {
       expect(enabledCheckbox).not.toBeDisabled();
     });
     const discoverButton = within(workspace).getByRole("button", {
-      name: "Discover",
+      name: "Find skills",
     });
     await userEvent.click(discoverButton);
     await waitFor(() => {
       expect(discoverProjectSkills).toHaveBeenCalledWith(project.id);
       expect(discoverButton).not.toBeDisabled();
-      expect(discoverButton).toHaveTextContent("Discover");
+      expect(discoverButton).toHaveTextContent("Find skills");
     });
     expect(await within(workspace).findByText(/\.agents\/skills\/qa\/SKILL\.md/)).toBeTruthy();
   });
@@ -3002,6 +3006,12 @@ describe("ProjectsView cockpit", () => {
 
     await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Commit style")).toBeTruthy();
+    await user.click(
+      within(screen.getByRole("article", { name: "Memory Commit style" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
     expect(screen.getAllByText("operator_memory").length).toBeGreaterThan(0);
     expect(screen.getByText("Use conventional commits.")).toBeTruthy();
 
@@ -3019,7 +3029,7 @@ describe("ProjectsView cockpit", () => {
       enabled: true,
     });
 
-    await user.click(screen.getByRole("button", { name: "Memory" }));
+    await user.click(screen.getByRole("button", { name: "Add memory" }));
     await user.type(screen.getByLabelText("Title"), "Review posture");
     await user.type(screen.getByLabelText("Body"), "Keep generated summaries labelled.");
     await user.click(screen.getByRole("button", { name: "Create memory" }));
@@ -3101,9 +3111,16 @@ describe("ProjectsView cockpit", () => {
 
     await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Design brief")).toBeTruthy();
+    await user.click(screen.getByText("Sources", { selector: "span" }));
     expect(screen.getByRole("link", { name: "https://example.invalid/design" })).toBeTruthy();
     expect(screen.getByText("Reviewed source.")).toBeTruthy();
 
+    await user.click(
+      within(screen.getByRole("article", { name: "Source Design brief" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
     await user.click(screen.getByRole("button", { name: "Edit source Design brief" }));
     const editDialog = await screen.findByRole("dialog", {
       name: "Edit project source",
@@ -3130,7 +3147,7 @@ describe("ProjectsView cockpit", () => {
     });
     expect(await screen.findByText("Design brief v2")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Source" }));
+    await user.click(screen.getByRole("button", { name: "Add source" }));
     const dialog = await screen.findByRole("dialog", {
       name: "New project source",
     });
@@ -3196,10 +3213,17 @@ describe("ProjectsView cockpit", () => {
     );
 
     await openProjectWorkspaceTab(/Memory/);
-    await user.click(screen.getByRole("button", { name: "Discover" }));
+    await user.click(screen.getByText("Sources", { selector: "span" }));
+    await user.click(screen.getByRole("button", { name: "Find from folders" }));
 
     expect(discoverProjectContextSources).toHaveBeenCalledWith(project.id);
     expect((await screen.findAllByText("AGENTS.md")).length).toBeGreaterThan(0);
+    await user.click(
+      within(screen.getByRole("article", { name: "Source AGENTS.md" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
     expect(screen.getByText("workspace_instruction")).toBeTruthy();
     expect(screen.getByText("agents_md")).toBeTruthy();
     expect(screen.getAllByText("workspace").length).toBeGreaterThan(0);
@@ -3261,28 +3285,29 @@ describe("ProjectsView cockpit", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Reject memory candidate Temporary note",
+        name: "Dismiss memory suggestion Temporary note",
       }),
     );
     expect(rejectProjectMemoryCandidate).toHaveBeenCalledWith(project.id, "memcand_2", {});
 
     await user.click(
       screen.getByRole("button", {
-        name: "Promote memory candidate Generated summary",
+        name: "Review memory suggestion Generated summary",
       }),
     );
-    expect(screen.getByRole("button", { name: "Promote memory" })).toBeTruthy();
-    expect(screen.getByText("Candidate provenance")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save to memory" })).toBeTruthy();
+    expect(screen.getByText("Suggestion source", { selector: "div" })).toBeTruthy();
     expect(screen.getAllByText(/Source refs: task_run Implementation run/).length).toBeGreaterThan(
       0,
     );
+    await user.click(screen.getByText("Advanced memory details", { selector: "summary" }));
     fireEvent.change(screen.getByLabelText("Trust label"), {
       target: { value: "operator_memory" },
     });
     fireEvent.change(screen.getByLabelText("Source kind"), {
       target: { value: "operator" },
     });
-    await user.click(screen.getByRole("button", { name: "Promote memory" }));
+    await user.click(screen.getByRole("button", { name: "Save to memory" }));
 
     expect(promoteProjectMemoryCandidate).toHaveBeenCalledWith(project.id, memoryCandidate.id, {
       title: "Generated summary",
@@ -3322,10 +3347,22 @@ describe("ProjectsView cockpit", () => {
 
     await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Commit style")).toBeTruthy();
+    await user.click(
+      within(screen.getByRole("article", { name: "Memory Commit style" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByLabelText("Title")).toHaveValue("Commit style");
     expect(screen.getByLabelText("Body")).toHaveValue("Use conventional commits.");
 
+    await user.click(
+      within(screen.getByRole("article", { name: "Memory Generated handoff" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
     await user.click(screen.getByRole("button", { name: "Edit memory Generated handoff" }));
 
     expect(screen.getByLabelText("Title")).toHaveValue("Generated handoff");
@@ -3377,6 +3414,12 @@ describe("ProjectsView cockpit", () => {
 
     await openProjectWorkspaceTab(/Memory/);
     expect(await screen.findByText("Use conventional commits.")).toBeTruthy();
+    await user.click(
+      within(screen.getByRole("article", { name: "Memory Commit style" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByRole("button", { name: "Save memory" })).toBeTruthy();
 
@@ -3390,7 +3433,11 @@ describe("ProjectsView cockpit", () => {
 
     resolveSecondMemory({ object: "project_memory", data: [] });
     await openProjectWorkspaceTab(/Memory/);
-    expect(await screen.findByText("No project memory entries saved yet.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "No saved memory yet. Add only durable guidance the operator has confirmed.",
+      ),
+    ).toBeTruthy();
   });
 
   it("ignores slow memory and skill responses after an A-B-A project switch", async () => {
@@ -3541,7 +3588,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await openProjectWorkspaceTab(/Skills/);
-    await user.click(await screen.findByRole("checkbox", { name: "Enable skill Backend" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Use skill Backend" }));
     await waitFor(() => {
       expect(updateProjectSkill).toHaveBeenCalledWith(project.id, projectSkill.id, {
         enabled: false,
@@ -5651,7 +5698,7 @@ describe("ProjectsView cockpit", () => {
 
     await openProjectWorkspaceTab(/Timeline/);
     expect(
-      screen.getByText(/No explicit decision notes yet. Existing decision_note artifacts/),
+      screen.getByText(/No decision notes yet. Recorded collaboration decisions/),
     ).toBeTruthy();
   });
 
@@ -5697,8 +5744,8 @@ describe("ProjectsView cockpit", () => {
         { name: "Project settings panel" },
       ),
     ).toBeNull();
-    expect(screen.getByText("Assignment defaults")).toBeTruthy();
-    expect(screen.getByText("Project context")).toBeTruthy();
+    expect(screen.getByText("Launch defaults")).toBeTruthy();
+    expect(screen.getByText("Local files")).toBeTruthy();
   });
 
   it("uses the shared chat right-panel width for project settings", async () => {
@@ -6108,17 +6155,17 @@ describe("ProjectsView cockpit", () => {
     expect(within(health).getByText("Memory candidate pending review")).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: "Promote memory candidate Promoted convention",
+        name: "Review memory suggestion Promoted convention",
       }),
     ).toBeNull();
     expect(
       screen.queryByRole("button", {
-        name: "Reject memory candidate Rejected guess",
+        name: "Dismiss memory suggestion Rejected guess",
       }),
     ).toBeNull();
 
     await user.click(within(health).getByRole("button", { name: "Review memory candidate" }));
-    expect(screen.getByRole("button", { name: "Promote memory" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save to memory" })).toBeTruthy();
   });
 
   it("uses activity inbox tabs to focus activity buckets", async () => {
@@ -6265,7 +6312,7 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(contextAttentionItem);
     expect(screen.getByRole("tab", { name: /Memory/ })).toHaveAttribute("aria-selected", "true");
-    await userEvent.click(screen.getByRole("button", { name: "Memory" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add memory" }));
     expect(screen.getByRole("dialog", { name: "New project memory" })).toBeTruthy();
   });
 
@@ -6313,8 +6360,8 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(skillsAttentionItem);
 
     expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("Project Skills")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Enable skill Backend" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Skills" })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Use skill Backend" })).toBeTruthy();
     expect(screen.getByDisplayValue("Backend")).toBeTruthy();
   });
 
@@ -9459,13 +9506,13 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(document.body);
     await userEvent.click(screen.getByRole("button", { name: /Model picker/i }));
     await userEvent.click(await screen.findByText("qwen2.5-coder"));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace mode" }), [
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace behavior" }), [
       "ephemeral",
     ]);
     expect(screen.getByRole("complementary", { name: "Project settings panel" })).toHaveStyle({
       width: "380px",
     });
-    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(updateProject).toHaveBeenCalledWith(projectWithUpdatedDefaults.id, {
       default_provider: "ollama",
@@ -9539,10 +9586,10 @@ describe("ProjectsView cockpit", () => {
         name: /Model picker: inherit runtime default/i,
       }),
     ).toBeTruthy();
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace mode" }), [
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace behavior" }), [
       "ephemeral",
     ]);
-    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(updateProject).toHaveBeenCalledWith(projectWithInheritedModel.id, {
       default_provider: "ollama",
@@ -9606,7 +9653,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
     await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
     expect(await screen.findAllByText("/Users/alice/dev/hecate")).toHaveLength(2);
-    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(createProjectRoot).toHaveBeenCalledWith(rootlessProject.id, {
       path: "/Users/alice/dev/hecate",
@@ -9620,7 +9667,7 @@ describe("ProjectsView cockpit", () => {
       default_provider: "ollama",
       default_model: "qwen2.5-coder",
       default_agent_profile: "",
-      default_workspace_mode: "in_place",
+      default_workspace_mode: "",
       default_root_id: "",
     });
   });
@@ -9659,7 +9706,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
-    await userEvent.click(screen.getByRole("button", { name: "Discover worktrees" }));
+    await userEvent.click(screen.getByRole("button", { name: "Find worktrees" }));
 
     expect(discoverProjectRoots).toHaveBeenCalledWith(project.id);
     expect(
