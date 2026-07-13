@@ -1084,6 +1084,33 @@ test("Projects catalog retry preserves deliberate browser focus", async ({ page 
   expect(state.projectCatalogRequestCount).toBe(2);
 });
 
+test("Project scope recovers the catalog outside the Projects workspace", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  state.projectCatalogFailuresRemaining = 1;
+  let releaseRetry!: () => void;
+  state.projectCatalogRetryGate = new Promise<void>((resolve) => {
+    releaseRetry = resolve;
+  });
+
+  await page.goto("/tasks");
+  await expect(page.getByText("Projects could not be loaded.")).toBeVisible();
+  const retryButton = page.getByRole("button", { name: "Retry" });
+  await retryButton.focus();
+  await retryButton.click();
+
+  const retryingButton = page.getByRole("button", { name: "Retrying…" });
+  await expect(retryingButton).toBeFocused();
+  await expect(retryingButton).toHaveAttribute("aria-disabled", "true");
+  releaseRetry();
+
+  await expect(page.getByRole("status").filter({ hasText: "Projects loaded." })).toHaveText(
+    "Projects loaded.",
+  );
+  await expect(page.getByRole("button", { name: "Expand projects" })).toBeFocused();
+  await expect(page.getByRole("button", { name: /Retry/ })).toHaveCount(0);
+  expect(state.projectCatalogRequestCount).toBe(2);
+});
+
 test("Projects supporting surfaces stay read-first at desktop and narrow widths", async ({
   page,
 }) => {
