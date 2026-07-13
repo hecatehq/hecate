@@ -140,8 +140,10 @@ describe("ProjectScopePanel catalog recovery", () => {
     const dialog = screen.getByRole("dialog", { name: "Create project" });
     await user.type(within(dialog).getByLabelText("Name"), "Keep this draft");
     const form = within(dialog).getByLabelText("Name").closest("form") as HTMLFormElement;
-    fireEvent.submit(form);
-    fireEvent.submit(form);
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
 
     expect(createProject).toHaveBeenCalledTimes(1);
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
@@ -194,11 +196,17 @@ describe("ProjectScopePanel catalog recovery", () => {
 
     await user.click(screen.getByRole("button", { name: "Add project" }));
     await user.type(screen.getByLabelText("Name"), "Old request");
-    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
-    fireEvent.click(screen.getByRole("button", { name: "Switch surface" }));
+    const oldForm = screen.getByLabelText("Name").closest("form") as HTMLFormElement;
+    await act(async () => {
+      oldForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      screen.getByRole("button", { name: "Switch surface" }).click();
+    });
     await user.click(screen.getByRole("button", { name: "Add project" }));
     await user.type(screen.getByLabelText("Name"), "Current request");
-    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
+    const currentForm = screen.getByLabelText("Name").closest("form") as HTMLFormElement;
+    await act(async () => {
+      currentForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
 
     await act(async () => {
       resolveOldCreate({ object: "project", data: oldProject });
@@ -256,11 +264,17 @@ describe("ProjectScopePanel catalog recovery", () => {
 
     await user.click(screen.getByRole("button", { name: "Add project" }));
     await user.type(screen.getByLabelText("Name"), "Old request");
-    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
-    fireEvent.click(screen.getByRole("button", { name: "Switch surface" }));
+    const oldForm = screen.getByLabelText("Name").closest("form") as HTMLFormElement;
+    await act(async () => {
+      oldForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      screen.getByRole("button", { name: "Switch surface" }).click();
+    });
     await user.click(screen.getByRole("button", { name: "Add project" }));
     await user.type(screen.getByLabelText("Name"), "Current request");
-    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
+    const currentForm = screen.getByLabelText("Name").closest("form") as HTMLFormElement;
+    await act(async () => {
+      currentForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
 
     await act(async () => {
       rejectOldCreate(new Error("stale create failed"));
