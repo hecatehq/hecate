@@ -114,6 +114,7 @@ export function ProjectsProvider({
   );
 
   const loadProjects = useCallback(async () => {
+    dispatch({ type: "error/set", value: "" });
     dispatch({ type: "loading/set", value: true });
     try {
       const payload = await getProjectsRequest();
