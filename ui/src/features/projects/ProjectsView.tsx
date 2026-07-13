@@ -2845,11 +2845,14 @@ export function ProjectsView({
 
   const retryProjectCatalog = async () => {
     if (catalogRetryInFlightRef.current) return;
+    const retryOwnedFocusAtStart = document.activeElement === catalogRetryButtonRef.current;
     catalogRetryInFlightRef.current = true;
     setCatalogRetryPending(true);
     try {
       await projects.actions.loadProjects();
     } finally {
+      const retryStillOwnsFocus =
+        retryOwnedFocusAtStart && document.activeElement === catalogRetryButtonRef.current;
       catalogRetryInFlightRef.current = false;
       setCatalogRetryPending(false);
       window.requestAnimationFrame(() => {
@@ -2859,7 +2862,11 @@ export function ProjectsView({
           key: String(catalogRetryAnnouncementSequenceRef.current),
           message: "Projects loaded.",
         });
-        projectsShellRef.current?.querySelector<HTMLElement>(".project-workspace-content")?.focus();
+        if (retryStillOwnsFocus) {
+          projectsShellRef.current
+            ?.querySelector<HTMLElement>(".project-workspace-content")
+            ?.focus();
+        }
       });
     }
   };
@@ -2896,7 +2903,7 @@ export function ProjectsView({
             </button>
           </div>
         </div>
-        {projects.state.error && (
+        {projects.state.error && !managedCatalogUnavailable && (
           <div style={{ padding: 10 }}>
             <InlineError message={projects.state.error} />
           </div>
@@ -2993,12 +3000,14 @@ export function ProjectsView({
           }}
         />
         {navigationNotice && (
-          <div aria-atomic="true" aria-live="polite" role="status" style={navigationNoticeStyle}>
-            <span>{navigationNotice}</span>
+          <div style={navigationNoticeStyle}>
+            <span aria-atomic="true" aria-live="polite" role="status">
+              {navigationNotice}
+            </span>
             {(managedCatalogUnavailable || catalogRetryPending) && (
               <button
+                aria-disabled={catalogRetryPending || undefined}
                 className="btn btn-primary btn-sm"
-                disabled={catalogRetryPending}
                 onClick={() => void retryProjectCatalog()}
                 ref={catalogRetryButtonRef}
                 type="button"

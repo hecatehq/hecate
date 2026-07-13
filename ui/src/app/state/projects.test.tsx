@@ -101,9 +101,12 @@ describe("ProjectsProvider", () => {
     expect(result.current.state.error).toBe("catalog unavailable");
 
     let retryPromise!: Promise<void>;
+    let duplicateRetryPromise!: Promise<void>;
     act(() => {
       retryPromise = result.current.actions.loadProjects();
+      duplicateRetryPromise = result.current.actions.loadProjects();
     });
+    expect(duplicateRetryPromise).toBe(retryPromise);
     await waitFor(() => {
       expect(result.current.state.loading).toBe(true);
       expect(result.current.state.error).toBe("");

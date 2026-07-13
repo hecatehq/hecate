@@ -3,7 +3,15 @@
 // remains a first-class state. Chats and tasks must keep working
 // without a selected project.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
@@ -112,27 +120,38 @@ export function ProjectsProvider({
     (id: string) => setActiveProjectIDState(opaqueRecordID(id)),
     [setActiveProjectIDState],
   );
+  const loadProjectsInFlightRef = useRef<Promise<void> | null>(null);
 
-  const loadProjects = useCallback(async () => {
-    dispatch({ type: "error/set", value: "" });
-    dispatch({ type: "loading/set", value: true });
-    try {
-      const payload = await getProjectsRequest();
-      const items = payload.data ?? [];
-      dispatch({ type: "projects/set", next: items });
-      dispatch({ type: "loaded/set", value: true });
+  const loadProjects = useCallback(() => {
+    if (loadProjectsInFlightRef.current) return loadProjectsInFlightRef.current;
+    const request = (async () => {
       dispatch({ type: "error/set", value: "" });
-      if (activeProjectID && !items.some((item) => item.id === activeProjectID)) {
-        setActiveProjectIDState("");
+      dispatch({ type: "loading/set", value: true });
+      try {
+        const payload = await getProjectsRequest();
+        const items = payload.data ?? [];
+        dispatch({ type: "projects/set", next: items });
+        dispatch({ type: "loaded/set", value: true });
+        dispatch({ type: "error/set", value: "" });
+        if (activeProjectID && !items.some((item) => item.id === activeProjectID)) {
+          setActiveProjectIDState("");
+        }
+      } catch (error) {
+        dispatch({
+          type: "error/set",
+          value: error instanceof Error ? error.message : "Failed to load projects.",
+        });
+      } finally {
+        dispatch({ type: "loading/set", value: false });
       }
-    } catch (error) {
-      dispatch({
-        type: "error/set",
-        value: error instanceof Error ? error.message : "Failed to load projects.",
-      });
-    } finally {
-      dispatch({ type: "loading/set", value: false });
-    }
+    })();
+    loadProjectsInFlightRef.current = request;
+    void request.finally(() => {
+      if (loadProjectsInFlightRef.current === request) {
+        loadProjectsInFlightRef.current = null;
+      }
+    });
+    return request;
   }, [activeProjectID, setActiveProjectIDState]);
 
   const selectProject = useCallback(
