@@ -99,6 +99,37 @@ describe("useProjectSelectionController", () => {
     expect(onProjectChange).toHaveBeenCalledTimes(1);
   });
 
+  it("applies a host project once it arrives in a later catalog refresh", () => {
+    const selectProject = vi.fn();
+    const onProjectChange = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ activeProjectID, projects }: { activeProjectID: string; projects: ProjectRecord[] }) =>
+        useProjectSelectionController({
+          activeProjectID,
+          onProjectChange,
+          projects,
+          selectProject,
+        }),
+      {
+        initialProps: {
+          activeProjectID: "proj_a",
+          projects: [project("proj_a")],
+        },
+      },
+    );
+
+    rerender({ activeProjectID: "proj_b", projects: [project("proj_a")] });
+    expect(result.current.selectedProjectID).toBe("proj_a");
+    expect(onProjectChange).not.toHaveBeenCalled();
+
+    rerender({
+      activeProjectID: "proj_b",
+      projects: [project("proj_a"), project("proj_b")],
+    });
+    expect(result.current.selectedProjectID).toBe("proj_b");
+    expect(onProjectChange).toHaveBeenCalledTimes(1);
+  });
+
   it("clears the selection when the project list becomes empty", () => {
     const selectProject = vi.fn();
     const onProjectChange = vi.fn();

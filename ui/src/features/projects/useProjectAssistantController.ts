@@ -30,6 +30,32 @@ import {
 type LoadState = "idle" | "loading" | "loaded" | "error";
 type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
 const PROJECT_ASSISTANT_LAST_PROPOSAL_PREFIX = "hecate.projectAssistant.lastProposal.";
+const PROJECT_ASSISTANT_LAST_PROPOSAL_TARGET_PREFIX = "hecate.projectAssistant.lastProposalTarget.";
+
+type ProjectAssistantRequestLane = "context" | "proposal";
+
+type ProjectAssistantRequestToken = {
+  cancelled: boolean;
+  lane: ProjectAssistantRequestLane;
+  projectID: string;
+  workItemID: string;
+};
+
+type ProjectAssistantPresentationTarget = {
+  projectID: string;
+  workItemID: string;
+};
+
+type ProjectAssistantApplyRequest = {
+  presentationCancelled: boolean;
+  target: ProjectAssistantPresentationTarget;
+};
+
+type StoredProjectAssistantProposal = {
+  hasTarget: boolean;
+  proposalID: string;
+  workItemID: string;
+};
 
 type Options = {
   project: ProjectRecord | null;
@@ -61,37 +87,176 @@ export function useProjectAssistantController(options: Options) {
   const [status, setStatus] = useState<ProjectAssistantStatus>("idle");
   const [error, setError] = useState("");
   const [bootstrapPending, setBootstrapPending] = useState(false);
-  const previousProjectID = useRef("");
+  const currentProjectID = options.selectedProjectID;
+  const currentWorkItemID = options.selectedWorkItemID;
+  const selectionRef = useRef({ projectID: currentProjectID, workItemID: currentWorkItemID });
+  const requestTokensRef = useRef(new Set<ProjectAssistantRequestToken>());
+  const applyRequestRef = useRef<ProjectAssistantApplyRequest | null>(null);
+  const presentationTargetRef = useRef<ProjectAssistantPresentationTarget | null>(null);
+  const previousSelectionRef = useRef({ projectID: "", workItemID: "" });
+
+  if (
+    selectionRef.current.projectID !== currentProjectID ||
+    selectionRef.current.workItemID !== currentWorkItemID
+  ) {
+    const applyRequest = applyRequestRef.current;
+    if (
+      applyRequest &&
+      !projectAssistantPresentationMatchesSelection(
+        applyRequest.target,
+        currentProjectID,
+        currentWorkItemID,
+      )
+    ) {
+      applyRequest.presentationCancelled = true;
+    }
+    selectionRef.current = { projectID: currentProjectID, workItemID: currentWorkItemID };
+    for (const token of requestTokensRef.current) {
+      if (token.projectID !== currentProjectID || token.workItemID !== currentWorkItemID) {
+        token.cancelled = true;
+        requestTokensRef.current.delete(token);
+      }
+    }
+  }
+
+  const beginRequest = useCallback(
+    (lane: ProjectAssistantRequestLane, projectID: string, workItemID: string) => {
+      for (const token of requestTokensRef.current) {
+        if (token.lane !== lane) continue;
+        token.cancelled = true;
+        requestTokensRef.current.delete(token);
+      }
+      const token = { cancelled: false, lane, projectID, workItemID };
+      requestTokensRef.current.add(token);
+      return token;
+    },
+    [],
+  );
+
+  const requestIsCurrent = useCallback((token: ProjectAssistantRequestToken) => {
+    const selection = selectionRef.current;
+    return (
+      !token.cancelled &&
+      selection.projectID === token.projectID &&
+      selection.workItemID === token.workItemID
+    );
+  }, []);
+
+  const finishRequest = useCallback((token: ProjectAssistantRequestToken) => {
+    requestTokensRef.current.delete(token);
+  }, []);
+
+  const cancelRequests = useCallback(() => {
+    for (const token of requestTokensRef.current) token.cancelled = true;
+    requestTokensRef.current.clear();
+  }, []);
+
+  useEffect(() => cancelRequests, [cancelRequests]);
 
   useEffect(() => {
-    const projectID = options.project?.id || options.selectedProjectID;
-    if (previousProjectID.current === projectID) return;
-    previousProjectID.current = projectID;
-    setProposal(null);
-    setChatDraftSource(null);
-    setApplyResult(null);
+    const previousSelection = previousSelectionRef.current;
+    if (
+      previousSelection.projectID === currentProjectID &&
+      previousSelection.workItemID === currentWorkItemID
+    ) {
+      return;
+    }
+    previousSelectionRef.current = {
+      projectID: currentProjectID,
+      workItemID: currentWorkItemID,
+    };
+    const proposalRequestPendingForSelection = Array.from(requestTokensRef.current).some(
+      (token) =>
+        !token.cancelled &&
+        token.lane === "proposal" &&
+        token.projectID === currentProjectID &&
+        token.workItemID === currentWorkItemID,
+    );
+    const applyRequest = applyRequestRef.current;
+    const applyMutationPending = Boolean(applyRequest);
+    const presentationMatchesSelection = projectAssistantPresentationMatchesSelection(
+      presentationTargetRef.current,
+      currentProjectID,
+      currentWorkItemID,
+    );
+    const keepApplyingPresentation = Boolean(
+      applyRequest &&
+      !applyRequest.presentationCancelled &&
+      projectAssistantPresentationMatchesSelection(
+        applyRequest.target,
+        currentProjectID,
+        currentWorkItemID,
+      ),
+    );
+    const keepSettledPresentation =
+      presentationMatchesSelection && !applyMutationPending && Boolean(proposal || applyResult);
+    if (
+      !keepApplyingPresentation &&
+      !keepSettledPresentation &&
+      !proposalRequestPendingForSelection
+    ) {
+      presentationTargetRef.current = null;
+      setProposal(null);
+      setChatDraftSource(null);
+      setApplyResult(null);
+      setError("");
+    }
     setContext(null);
     setContextError("");
     setContextStatus("idle");
-    setError("");
-    setStatus("idle");
-  }, [options.project?.id, options.selectedProjectID]);
+    if (!keepApplyingPresentation && !proposalRequestPendingForSelection) {
+      setStatus(keepSettledPresentation && applyResult ? "applied" : "idle");
+      setBootstrapPending(false);
+      options.onDiscoveringContext(false);
+      options.onDiscoveringSkills(false);
+    }
+  }, [
+    currentProjectID,
+    currentWorkItemID,
+    applyResult,
+    options.onDiscoveringContext,
+    options.onDiscoveringSkills,
+    proposal,
+  ]);
 
   useEffect(() => {
-    const projectID = options.project?.id || options.selectedProjectID;
-    if (!projectID || proposal || applyResult || status !== "idle") return;
-    const proposalID = readProjectAssistantProposalID(projectID);
-    if (!proposalID) return;
+    const projectID = currentProjectID;
+    if (!projectID || proposal || applyResult || status !== "idle" || applyRequestRef.current) {
+      return;
+    }
+    const storedProposal = readProjectAssistantProposal(projectID);
+    if (!storedProposal.proposalID) return;
+    if (
+      storedProposal.hasTarget &&
+      !projectAssistantPresentationMatchesSelection(
+        { projectID, workItemID: storedProposal.workItemID },
+        projectID,
+        currentWorkItemID,
+      )
+    ) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
-        const payload = await getProjectAssistantProposal(proposalID);
-        if (cancelled) return;
+        const payload = await getProjectAssistantProposal(storedProposal.proposalID);
+        if (cancelled || applyRequestRef.current) return;
         const record = payload.data;
         if (!projectAssistantProposalRecordMatchesProject(record, projectID)) {
           clearProjectAssistantProposalID(projectID);
           return;
         }
+        const target = {
+          projectID,
+          workItemID: storedProposal.hasTarget
+            ? storedProposal.workItemID
+            : projectAssistantProposalWorkItemID(record.proposal),
+        };
+        rememberProjectAssistantProposalID(projectID, record.proposal.id, target.workItemID);
+        if (!projectAssistantPresentationMatchesSelection(target, projectID, currentWorkItemID)) {
+          return;
+        }
+        presentationTargetRef.current = target;
         if (record.latest_result?.applied) {
           setApplyResult(record.latest_result);
           setProposal(null);
@@ -110,7 +275,7 @@ export function useProjectAssistantController(options: Options) {
         setError(projectAssistantProposalRecordError(record));
         setStatus("idle");
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || applyRequestRef.current) return;
         if (err instanceof ApiError && err.status === 404) {
           clearProjectAssistantProposalID(projectID);
         }
@@ -119,39 +284,55 @@ export function useProjectAssistantController(options: Options) {
     return () => {
       cancelled = true;
     };
-  }, [applyResult, options.project?.id, options.selectedProjectID, proposal, status]);
+  }, [applyResult, currentProjectID, currentWorkItemID, proposal, status]);
 
   const propose = useCallback(
     async (form: ProjectAssistantDraftForm, workItemID?: string) => {
-      if (!options.project) return;
+      if (applyRequestRef.current) return;
+      const projectID = options.selectedProjectID;
+      if (!projectID || options.project?.id !== projectID) return;
+      const targetWorkItemID = workItemID ?? options.selectedWorkItemID;
+      const requestToken = beginRequest("proposal", projectID, targetWorkItemID);
+      presentationTargetRef.current = { projectID, workItemID: targetWorkItemID };
       setStatus("proposing");
       setError("");
       setApplyResult(null);
       try {
         const payload = await draftProjectAssistant(
-          projectAssistantDraftPayload(
-            form,
-            options.project.id,
-            workItemID ?? options.selectedWorkItem?.id,
-          ),
+          projectAssistantDraftPayload(form, projectID, targetWorkItemID),
         );
-        rememberProjectAssistantProposalID(options.project.id, payload.data.id);
+        if (!requestIsCurrent(requestToken)) return;
+        rememberProjectAssistantProposalID(projectID, payload.data.id, targetWorkItemID);
         setProposal(payload.data);
         setChatDraftSource(null);
         setStatus("idle");
       } catch (err) {
+        if (!requestIsCurrent(requestToken)) return;
         setStatus("idle");
         setError(errorMessage(err, "Failed to draft Project Assistant proposal."));
+      } finally {
+        finishRequest(requestToken);
       }
     },
-    [options.project, options.selectedWorkItem],
+    [
+      beginRequest,
+      finishRequest,
+      options.project,
+      options.selectedProjectID,
+      options.selectedWorkItemID,
+      requestIsCurrent,
+    ],
   );
 
   const draftReviewFollowUp = useCallback(
     async (reviewArtifactID: string, workItemID?: string) => {
-      if (!options.project) return;
-      const targetWorkItemID = workItemID ?? options.selectedWorkItem?.id ?? "";
+      if (applyRequestRef.current) return;
+      const projectID = options.selectedProjectID;
+      if (!projectID || options.project?.id !== projectID) return;
+      const targetWorkItemID = workItemID ?? options.selectedWorkItemID;
       if (!targetWorkItemID || !reviewArtifactID) return;
+      const requestToken = beginRequest("proposal", projectID, targetWorkItemID);
+      presentationTargetRef.current = { projectID, workItemID: targetWorkItemID };
       setStatus("proposing");
       setError("");
       setApplyResult(null);
@@ -160,27 +341,41 @@ export function useProjectAssistantController(options: Options) {
       setContextStatus("idle");
       try {
         const payload = await draftProjectAssistant({
-          project_id: options.project.id,
+          project_id: projectID,
           work_item_id: targetWorkItemID,
           request: "Create review follow-up",
           draft_mode: "review_follow_up",
           review_artifact_id: reviewArtifactID,
         });
-        rememberProjectAssistantProposalID(options.project.id, payload.data.id);
+        if (!requestIsCurrent(requestToken)) return;
+        rememberProjectAssistantProposalID(projectID, payload.data.id, targetWorkItemID);
         setProposal(payload.data);
         setChatDraftSource(null);
         setStatus("idle");
       } catch (err) {
+        if (!requestIsCurrent(requestToken)) return;
         setStatus("idle");
         setError(errorMessage(err, "Failed to draft review follow-up proposal."));
+      } finally {
+        finishRequest(requestToken);
       }
     },
-    [options.project, options.selectedWorkItem],
+    [
+      beginRequest,
+      finishRequest,
+      options.project,
+      options.selectedProjectID,
+      options.selectedWorkItemID,
+      requestIsCurrent,
+    ],
   );
 
   const bootstrap = useCallback(async () => {
+    if (applyRequestRef.current) return;
     if (!options.selectedProjectID) return;
     const projectID = options.selectedProjectID;
+    const requestToken = beginRequest("proposal", projectID, options.selectedWorkItemID);
+    presentationTargetRef.current = { projectID, workItemID: "" };
     setBootstrapPending(true);
     setStatus("proposing");
     setError("");
@@ -193,8 +388,10 @@ export function useProjectAssistantController(options: Options) {
     options.onDiscoveringSkills(true);
     try {
       const projectPayload = await discoverProjectContextSources(projectID);
+      if (!requestIsCurrent(requestToken)) return;
       options.onProjectDiscovered(projectPayload.data);
       const skillsPayload = await discoverProjectSkills(projectID);
+      if (!requestIsCurrent(requestToken)) return;
       options.onSkillsDiscovered(skillsPayload.data ?? []);
       options.onSkillsLoadState("loaded");
       const payload = await draftProjectAssistant(
@@ -208,40 +405,59 @@ export function useProjectAssistantController(options: Options) {
           projectID,
         ),
       );
-      rememberProjectAssistantProposalID(projectID, payload.data.id);
+      if (!requestIsCurrent(requestToken)) return;
+      rememberProjectAssistantProposalID(projectID, payload.data.id, "");
       setProposal(payload.data);
       setChatDraftSource(null);
       setContext(null);
       setContextError("");
       setContextStatus("idle");
     } catch (err) {
+      if (!requestIsCurrent(requestToken)) return;
       setError(errorMessage(err, "Failed to bootstrap project assistant context."));
     } finally {
-      options.onDiscoveringContext(false);
-      options.onDiscoveringSkills(false);
-      setBootstrapPending(false);
-      setStatus("idle");
+      if (requestIsCurrent(requestToken)) {
+        options.onDiscoveringContext(false);
+        options.onDiscoveringSkills(false);
+        setBootstrapPending(false);
+        setStatus("idle");
+      }
+      finishRequest(requestToken);
     }
-  }, [options]);
+  }, [beginRequest, finishRequest, options, requestIsCurrent]);
 
   const inspectContext = useCallback(
     async (form: ProjectAssistantDraftForm) => {
-      if (!options.project) return;
+      const projectID = options.selectedProjectID;
+      if (!projectID || options.project?.id !== projectID) return;
+      const workItemID = options.selectedWorkItemID;
+      const requestToken = beginRequest("context", projectID, workItemID);
       setContextStatus("loading");
       setContextError("");
       try {
         const payload = await getProjectAssistantContext(
-          projectAssistantContextPayload(form, options.project.id, options.selectedWorkItem?.id),
+          projectAssistantContextPayload(form, projectID, workItemID),
         );
+        if (!requestIsCurrent(requestToken)) return;
         setContext(payload.data);
         setContextStatus("loaded");
       } catch (err) {
+        if (!requestIsCurrent(requestToken)) return;
         setContext(null);
         setContextStatus("error");
         setContextError(errorMessage(err, "Failed to inspect Project Assistant context."));
+      } finally {
+        finishRequest(requestToken);
       }
     },
-    [options.project, options.selectedWorkItem],
+    [
+      beginRequest,
+      finishRequest,
+      options.project,
+      options.selectedProjectID,
+      options.selectedWorkItemID,
+      requestIsCurrent,
+    ],
   );
 
   const loadProposal = useCallback(
@@ -249,9 +465,20 @@ export function useProjectAssistantController(options: Options) {
       nextProposal: ProjectAssistantProposal,
       sourceOptions?: { chatDraftSource?: ProjectAssistantChatDraftSource | null },
     ) => {
+      if (applyRequestRef.current) return false;
+      cancelRequests();
+      const target = {
+        projectID: options.selectedProjectID,
+        workItemID: projectAssistantProposalWorkItemID(nextProposal),
+      };
       if (options.selectedProjectID) {
-        rememberProjectAssistantProposalID(options.selectedProjectID, nextProposal.id);
+        rememberProjectAssistantProposalID(
+          options.selectedProjectID,
+          nextProposal.id,
+          target.workItemID,
+        );
       }
+      presentationTargetRef.current = target;
       setProposal(nextProposal);
       setChatDraftSource(sourceOptions?.chatDraftSource ?? null);
       setApplyResult(null);
@@ -260,49 +487,93 @@ export function useProjectAssistantController(options: Options) {
       setContextStatus("idle");
       setError("");
       setStatus("idle");
+      return true;
     },
-    [options.selectedProjectID],
+    [cancelRequests, options.selectedProjectID],
   );
 
   const apply = useCallback(async () => {
-    if (!options.selectedProjectID || !proposal) return;
+    if (applyRequestRef.current || !options.selectedProjectID || !proposal) return;
+    const projectID = options.selectedProjectID;
+    const workItemID = options.selectedWorkItemID;
     const currentProposal = proposal;
+    const target =
+      presentationTargetRef.current?.projectID === projectID
+        ? presentationTargetRef.current
+        : {
+            projectID,
+            workItemID: projectAssistantProposalWorkItemID(currentProposal),
+          };
+    const applyRequest: ProjectAssistantApplyRequest = {
+      presentationCancelled: false,
+      target,
+    };
+    applyRequestRef.current = applyRequest;
     setStatus("applying");
     setError("");
     try {
       const payload = await applyProjectAssistant({ proposal: currentProposal, confirm: true });
-      rememberProjectAssistantProposalID(options.selectedProjectID, currentProposal.id);
-      setApplyResult(payload.data);
-      setProposal(null);
-      setChatDraftSource(null);
-      setStatus("applied");
-      await options.refreshProjects();
+      rememberProjectAssistantProposalID(projectID, currentProposal.id, target.workItemID);
+      const publishResultAfterReconciliation =
+        !applyRequest.presentationCancelled &&
+        selectionRef.current.projectID === projectID &&
+        selectionRef.current.workItemID === workItemID;
       const preferredWorkItemID =
-        projectAssistantResultWorkItemID(payload.data) || options.selectedWorkItemID;
-      const refreshedWorkItemID = await options.loadWorkForProject(
-        options.selectedProjectID,
-        preferredWorkItemID,
-      );
-      if (refreshedWorkItemID) {
-        await options.loadWorkItemDetail(options.selectedProjectID, refreshedWorkItemID);
+        selectionRef.current.projectID === projectID
+          ? selectionRef.current.workItemID ||
+            projectAssistantResultWorkItemID(payload.data) ||
+            target.workItemID ||
+            workItemID
+          : target.workItemID || workItemID;
+      await reconcileProjectAssistantApply(options, projectID, preferredWorkItemID);
+      if (
+        publishResultAfterReconciliation &&
+        !applyRequest.presentationCancelled &&
+        projectAssistantPresentationMatchesSelection(
+          target,
+          selectionRef.current.projectID,
+          selectionRef.current.workItemID,
+        )
+      ) {
+        presentationTargetRef.current = target;
+        setApplyResult(payload.data);
+        setProposal(null);
+        setChatDraftSource(null);
+        setStatus("applied");
       }
-      await options.loadProjectMemory(options.selectedProjectID);
     } catch (err) {
-      setStatus("idle");
-      setError(projectAssistantApplyErrorMessage(err, currentProposal));
-      if (err instanceof ApiError && (err.status === 404 || err.status === 409)) {
-        const refreshedWorkItemID = await options.loadWorkForProject(
-          options.selectedProjectID,
-          options.selectedWorkItemID,
-        );
-        if (refreshedWorkItemID) {
-          await options.loadWorkItemDetail(options.selectedProjectID, refreshedWorkItemID);
-        }
+      const publishErrorAfterReconciliation =
+        !applyRequest.presentationCancelled &&
+        selectionRef.current.projectID === projectID &&
+        selectionRef.current.workItemID === workItemID;
+      const preferredWorkItemID =
+        selectionRef.current.projectID === projectID
+          ? selectionRef.current.workItemID
+          : target.workItemID || workItemID;
+      await reconcileProjectAssistantApply(options, projectID, preferredWorkItemID);
+      if (
+        publishErrorAfterReconciliation &&
+        !applyRequest.presentationCancelled &&
+        projectAssistantPresentationMatchesSelection(
+          target,
+          selectionRef.current.projectID,
+          selectionRef.current.workItemID,
+        )
+      ) {
+        presentationTargetRef.current = target;
+        setStatus("idle");
+        setError(projectAssistantApplyErrorMessage(err, currentProposal));
+      }
+    } finally {
+      if (applyRequestRef.current === applyRequest) {
+        applyRequestRef.current = null;
       }
     }
   }, [options, proposal]);
 
   const dismiss = useCallback(() => {
+    if (applyRequestRef.current || status === "applying") return;
+    cancelRequests();
     if (options.selectedProjectID) {
       clearProjectAssistantProposalID(options.selectedProjectID);
     }
@@ -314,26 +585,58 @@ export function useProjectAssistantController(options: Options) {
     setContextStatus("idle");
     setError("");
     setStatus("idle");
-  }, [options.selectedProjectID]);
+    presentationTargetRef.current = null;
+  }, [cancelRequests, options.selectedProjectID, status]);
+
+  const presentationVisible =
+    !applyRequestRef.current?.presentationCancelled &&
+    projectAssistantPresentationMatchesSelection(
+      presentationTargetRef.current,
+      currentProjectID,
+      currentWorkItemID,
+    );
 
   return {
     apply,
-    applyResult,
+    applyResult: presentationVisible ? applyResult : null,
     bootstrap,
-    bootstrapPending,
-    chatDraftSource,
+    bootstrapPending: presentationVisible ? bootstrapPending : false,
+    chatDraftSource: presentationVisible ? chatDraftSource : null,
     context,
     contextError,
     contextStatus,
     dismiss,
     draftReviewFollowUp,
-    error,
+    error: presentationVisible || !presentationTargetRef.current ? error : "",
     inspectContext,
     loadProposal,
-    proposal,
+    proposal: presentationVisible ? proposal : null,
     propose,
-    status,
+    status: presentationVisible || !presentationTargetRef.current ? status : "idle",
   };
+}
+
+async function reconcileProjectAssistantApply(
+  options: Options,
+  projectID: string,
+  preferredWorkItemID: string,
+) {
+  await Promise.allSettled([
+    Promise.resolve().then(() => options.refreshProjects()),
+    Promise.resolve().then(() => options.loadProjectMemory(projectID)),
+  ]);
+  let refreshedWorkItemID = "";
+  try {
+    refreshedWorkItemID = await options.loadWorkForProject(projectID, preferredWorkItemID);
+  } catch {
+    return;
+  }
+  if (!refreshedWorkItemID) return;
+  try {
+    await options.loadWorkItemDetail(projectID, refreshedWorkItemID);
+  } catch {
+    // The parent loader owns its visible error state; reconciliation still attempted every source.
+  }
 }
 
 export function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): string {
@@ -487,21 +790,69 @@ function projectAssistantProposalStorageKey(projectID: string): string {
   return `${PROJECT_ASSISTANT_LAST_PROPOSAL_PREFIX}${projectID}`;
 }
 
-function rememberProjectAssistantProposalID(projectID: string, proposalID: string) {
+function projectAssistantProposalTargetStorageKey(projectID: string): string {
+  return `${PROJECT_ASSISTANT_LAST_PROPOSAL_TARGET_PREFIX}${projectID}`;
+}
+
+function rememberProjectAssistantProposalID(
+  projectID: string,
+  proposalID: string,
+  workItemID: string,
+) {
   const scopedProjectID = projectID.trim();
   const id = proposalID.trim();
   if (!scopedProjectID || !id || typeof window === "undefined") return;
   window.sessionStorage.setItem(projectAssistantProposalStorageKey(scopedProjectID), id);
+  window.sessionStorage.setItem(
+    projectAssistantProposalTargetStorageKey(scopedProjectID),
+    workItemID.trim(),
+  );
 }
 
-function readProjectAssistantProposalID(projectID: string): string {
-  if (!projectID.trim() || typeof window === "undefined") return "";
-  return window.sessionStorage.getItem(projectAssistantProposalStorageKey(projectID.trim())) ?? "";
+function readProjectAssistantProposal(projectID: string): StoredProjectAssistantProposal {
+  const scopedProjectID = projectID.trim();
+  if (!scopedProjectID || typeof window === "undefined") {
+    return { hasTarget: false, proposalID: "", workItemID: "" };
+  }
+  const storedTarget = window.sessionStorage.getItem(
+    projectAssistantProposalTargetStorageKey(scopedProjectID),
+  );
+  return {
+    hasTarget: storedTarget !== null,
+    proposalID:
+      window.sessionStorage.getItem(projectAssistantProposalStorageKey(scopedProjectID)) ?? "",
+    workItemID: storedTarget ?? "",
+  };
 }
 
 function clearProjectAssistantProposalID(projectID: string) {
   if (!projectID.trim() || typeof window === "undefined") return;
   window.sessionStorage.removeItem(projectAssistantProposalStorageKey(projectID.trim()));
+  window.sessionStorage.removeItem(projectAssistantProposalTargetStorageKey(projectID.trim()));
+}
+
+function projectAssistantProposalWorkItemID(proposal: ProjectAssistantProposal): string {
+  for (const action of proposal.actions) {
+    const targetWorkItemID = action.target?.work_item_id?.trim();
+    if (targetWorkItemID) return targetWorkItemID;
+    const patchWorkItemID = action.patch?.work_item_id;
+    if (typeof patchWorkItemID === "string" && patchWorkItemID.trim()) {
+      return patchWorkItemID.trim();
+    }
+  }
+  return "";
+}
+
+function projectAssistantPresentationMatchesSelection(
+  target: ProjectAssistantPresentationTarget | null,
+  projectID: string,
+  workItemID: string,
+): boolean {
+  return Boolean(
+    target &&
+    target.projectID === projectID &&
+    (!target.workItemID || target.workItemID === workItemID),
+  );
 }
 
 function projectAssistantAppliedActionsSummary(actions: ProjectAssistantApplyResult["actions"]) {

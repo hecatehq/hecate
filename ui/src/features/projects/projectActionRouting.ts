@@ -34,8 +34,10 @@ export type ProjectActionRoute =
 export function routeProjectOperationAction(
   item: ProjectOperationsBriefItem,
   selectedProjectID: string,
+  options: { hasMemoryCandidate?: boolean } = {},
 ): ProjectActionRoute {
   return routeProjectAction(item.action, {
+    hasMemoryCandidate: options.hasMemoryCandidate,
     missingMessage: "Project operation is missing an action. Refresh project work and try again.",
     selectedProjectID,
     source: "Project operation",

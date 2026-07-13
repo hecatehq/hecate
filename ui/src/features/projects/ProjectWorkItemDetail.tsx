@@ -125,6 +125,7 @@ export type ProjectWorkItemDetailProps = {
   onOpenConnections?: () => void;
   onOpenSettings: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
+  onOpenWorkItem: (workItemID: string) => void;
   onRefresh: () => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
   onStartHandoff: (handoff: ProjectHandoffRecord) => void;
@@ -133,7 +134,7 @@ export type ProjectWorkItemDetailProps = {
   roleByID: Map<string, ProjectWorkRoleRecord>;
   closingWorkItemID: string;
   closeoutReadiness: ProjectWorkItemReadinessRecord | null;
-  startingAssignmentID: string;
+  startingAssignmentIDs: ReadonlySet<string>;
   workItem: ProjectWorkItemRecord | null;
 };
 
@@ -174,6 +175,7 @@ export function ProjectWorkItemDetail({
   onOpenConnections,
   onOpenSettings,
   onOpenTask,
+  onOpenWorkItem,
   onRefresh,
   onStartAssignment,
   onStartHandoff,
@@ -182,16 +184,43 @@ export function ProjectWorkItemDetail({
   roleByID,
   closingWorkItemID,
   closeoutReadiness,
-  startingAssignmentID,
+  startingAssignmentIDs,
   workItem,
 }: ProjectWorkItemDetailProps) {
   const safeAssignments = Array.isArray(assignments) ? assignments : [];
   const safeArtifacts = Array.isArray(artifacts) ? artifacts : [];
   const safeHandoffs = Array.isArray(handoffs) ? handoffs : [];
   if (!workItem) {
+    if (loading) {
+      return (
+        <div aria-atomic="true" aria-live="polite" role="status">
+          <EmptyBlock
+            title="Loading detail…"
+            detail="Loading assignments and collaboration artifacts."
+          />
+        </div>
+      );
+    }
+    if (detailError) {
+      return (
+        <section aria-label="Work item unavailable" style={{ display: "grid", gap: 8 }}>
+          <EmptyBlock
+            title="Work item unavailable"
+            detail="Refresh project work to try loading this item again."
+          />
+          <InlineError message={detailError} />
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button className="btn btn-primary btn-sm" type="button" onClick={onRefresh}>
+              <Icon d={Icons.refresh} size={13} />
+              Retry
+            </button>
+          </div>
+        </section>
+      );
+    }
     return (
       <EmptyBlock
-        title={loading ? "Loading detail…" : "Select a work item"}
+        title="Select a work item"
         detail="Assignments and collaboration artifacts appear here."
       />
     );
@@ -390,7 +419,7 @@ export function ProjectWorkItemDetail({
                         onOpenProjectSettings: onOpenSettings,
                       }}
                       role={roleByID.get(assignment.role_id)}
-                      starting={startingAssignmentID === assignment.id}
+                      starting={startingAssignmentIDs.has(assignment.id)}
                       loadContext={
                         project
                           ? async () =>
@@ -525,9 +554,12 @@ export function ProjectWorkItemDetail({
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
                 {safeHandoffs.map((handoff) => {
-                  const targetAssignment = safeAssignments.find(
-                    (item) => item.id === handoff.target_assignment_id,
-                  );
+                  const targetWorkItemID = handoff.target_work_item_id?.trim() || "";
+                  const targetsOtherWork =
+                    Boolean(targetWorkItemID) && targetWorkItemID !== workItem.id;
+                  const targetAssignment = targetsOtherWork
+                    ? undefined
+                    : safeAssignments.find((item) => item.id === handoff.target_assignment_id);
                   return (
                     <ProjectHandoffRow
                       key={handoff.id}
@@ -537,6 +569,9 @@ export function ProjectWorkItemDetail({
                       onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
                       onDelete={() => onDeleteHandoff(handoff)}
                       onEdit={() => onEditHandoff(handoff)}
+                      onOpenTargetWorkItem={
+                        targetsOtherWork ? () => onOpenWorkItem(targetWorkItemID) : undefined
+                      }
                       onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
                       onStart={() => onStartHandoff(handoff)}
                       repairActions={{
@@ -548,14 +583,14 @@ export function ProjectWorkItemDetail({
                       role={
                         handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined
                       }
-                      starting={startingAssignmentID === handoff.target_assignment_id}
+                      starting={startingAssignmentIDs.has(handoff.target_assignment_id || "")}
                       loadPreflight={
                         project && targetAssignment
                           ? async () =>
                               (
                                 await getProjectAssignmentPreflight(
                                   project.id,
-                                  workItem.id,
+                                  targetAssignment.work_item_id,
                                   targetAssignment.id,
                                 )
                               ).data
@@ -567,7 +602,7 @@ export function ProjectWorkItemDetail({
                               (
                                 await getProjectAssignmentLaunchReadiness(
                                   project.id,
-                                  workItem.id,
+                                  targetAssignment.work_item_id,
                                   targetAssignment.id,
                                 )
                               ).data
@@ -1516,6 +1551,7 @@ function ProjectHandoffRow({
   onCreateAssignment,
   onDelete,
   onEdit,
+  onOpenTargetWorkItem,
   onSetStatus,
   onStart,
   repairActions,
@@ -1530,6 +1566,7 @@ function ProjectHandoffRow({
   onCreateAssignment: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onOpenTargetWorkItem?: () => void;
   onSetStatus: (status: string) => void;
   onStart: () => void;
   repairActions?: AssignmentLaunchRepairActions;
@@ -1546,7 +1583,10 @@ function ProjectHandoffRow({
     (assignment?.driver_kind === "hecate_task" || assignment?.driver_kind === "external_agent") &&
     executionRef?.status === "queued";
   const external = assignment?.driver_kind === "external_agent";
-  const canCreateAssignment = !assignment && handoff.status !== "dismissed";
+  const interactionPending = actionPending || starting;
+  const hasLinkedAssignment = Boolean(handoff.target_assignment_id);
+  const handoffClosed = handoff.status === "dismissed" || handoff.status === "superseded";
+  const canCreateAssignment = !handoffClosed && !hasLinkedAssignment && !assignment;
   const sourceRefs = handoffSourceRefs(handoff);
 
   async function openPreflight() {
@@ -1569,11 +1609,16 @@ function ProjectHandoffRow({
 
   return (
     <>
-      <div style={artifactStyle}>
+      <div aria-label={`${handoff.title} handoff`} role="group" style={artifactStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Badge status={handoff.status} label={handoffStatusLabel(handoff.status)} />
           <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{handoff.title}</div>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onEdit}>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={interactionPending}
+            onClick={onEdit}
+          >
             <Icon d={Icons.edit} size={12} />
             Edit
           </button>
@@ -1581,7 +1626,7 @@ function ProjectHandoffRow({
             className="btn btn-ghost btn-sm"
             type="button"
             onClick={onDelete}
-            disabled={actionPending}
+            disabled={interactionPending}
             style={{ color: "var(--red)" }}
           >
             <Icon d={Icons.trash} size={12} />
@@ -1614,7 +1659,7 @@ function ProjectHandoffRow({
                 className="btn btn-ghost btn-sm"
                 type="button"
                 onClick={() => onSetStatus("accepted")}
-                disabled={actionPending}
+                disabled={interactionPending}
               >
                 <Icon d={Icons.check} size={12} />
                 Accept
@@ -1623,7 +1668,7 @@ function ProjectHandoffRow({
                 className="btn btn-ghost btn-sm"
                 type="button"
                 onClick={() => onSetStatus("dismissed")}
-                disabled={actionPending}
+                disabled={interactionPending}
               >
                 Dismiss
               </button>
@@ -1634,7 +1679,7 @@ function ProjectHandoffRow({
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => onSetStatus("superseded")}
-              disabled={actionPending}
+              disabled={interactionPending}
             >
               Supersede
             </button>
@@ -1644,10 +1689,21 @@ function ProjectHandoffRow({
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={onCreateAssignment}
-              disabled={actionPending}
+              disabled={interactionPending}
             >
               <Icon d={Icons.plus} size={12} />
               Create follow-up assignment
+            </button>
+          )}
+          {!assignment && hasLinkedAssignment && onOpenTargetWorkItem && (
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              disabled={interactionPending}
+              onClick={onOpenTargetWorkItem}
+              title="Open the work item that owns the linked assignment."
+            >
+              Open target work
             </button>
           )}
           {assignment && (
@@ -1655,7 +1711,7 @@ function ProjectHandoffRow({
               className="btn btn-primary btn-sm"
               type="button"
               onClick={() => void openPreflight()}
-              disabled={!startable || starting}
+              disabled={!startable || interactionPending}
               title={
                 startable
                   ? "Review launch context before starting the linked assignment."
@@ -1752,7 +1808,7 @@ function EmptyBlock({ title, detail }: { title: string; detail: string }) {
       style={{ padding: 24, textAlign: "center", display: "grid", gap: 8, placeItems: "center" }}
     >
       <div style={{ color: "var(--t0)", fontSize: 14, fontWeight: 600 }}>{title}</div>
-      <div style={{ color: "var(--t3)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
+      <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
         {detail}
       </div>
     </div>

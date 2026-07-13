@@ -52,6 +52,7 @@ export type ProjectWorkspaceViewProps = {
   activity: ProjectActivityData | null;
   activityBucket: ProjectActivityBucketKey;
   activityByAssignmentID: Map<string, ProjectActivityItemRecord>;
+  activityLoadState: LoadState;
   artifacts: ProjectCollaborationArtifactRecord[];
   artifactActionID: string;
   assignmentErrors: Record<string, string>;
@@ -105,6 +106,7 @@ export type ProjectWorkspaceViewProps = {
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
   onManagePresets: () => void;
   onManageRoles: () => void;
+  onNavigateWorkspaceTab: (tab: ProjectWorkspaceTab) => void;
   onNewMemory: () => void;
   onNewSource: () => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
@@ -146,7 +148,7 @@ export type ProjectWorkspaceViewProps = {
   closingWorkItemID: string;
   skillsError: string;
   skillsLoadState: LoadState;
-  startingAssignmentID: string;
+  startingAssignmentIDs: ReadonlySet<string>;
   updatingSkillID: string;
   workError: string;
   workItemSummaries: Record<string, WorkItemSummary>;
@@ -159,6 +161,7 @@ export function ProjectWorkspaceView({
   activity,
   activityBucket,
   activityByAssignmentID,
+  activityLoadState,
   artifacts,
   artifactActionID,
   assignmentErrors,
@@ -205,6 +208,7 @@ export function ProjectWorkspaceView({
   onEditWorkItem,
   onManagePresets,
   onManageRoles,
+  onNavigateWorkspaceTab,
   onNewMemory,
   onNewSource,
   onOpenChat,
@@ -246,7 +250,7 @@ export function ProjectWorkspaceView({
   closingWorkItemID,
   skillsError,
   skillsLoadState,
-  startingAssignmentID,
+  startingAssignmentIDs,
   updatingSkillID,
   workError,
   workItemSummaries,
@@ -261,6 +265,7 @@ export function ProjectWorkspaceView({
     (workItems.length === 0 &&
       !selectedWorkItem &&
       (Boolean(assistant.proposal) || Boolean(assistant.applyResult)));
+  const projectWorkItemCount = workItems.length || activity?.summary.work_item_count || 0;
 
   return (
     <section style={detailStyle} aria-label="Project workspace content">
@@ -316,7 +321,7 @@ export function ProjectWorkspaceView({
                 memoryEntryCount={memoryEntries.length}
                 onChange={onWorkspaceTabChange}
                 projectSkillCount={projectSkills.length}
-                workItemCount={workItems.length}
+                workItemCount={projectWorkItemCount}
               />
             )}
             {!projectSetupPending &&
@@ -347,15 +352,15 @@ export function ProjectWorkspaceView({
                     {workError && <InlineError message={workError} />}
                     <ProjectActivitySummary
                       activity={activity}
-                      error={workError}
-                      loading={workLoadState === "loading"}
+                      loadState={activityLoadState}
                       memoryCandidateCount={memoryCandidates.length}
                       onBucketChange={(bucket) => {
                         onActivityBucketChange(bucket);
-                        onWorkspaceTabChange("work");
+                        onNavigateWorkspaceTab("work");
                       }}
-                      onReviewMemory={() => onWorkspaceTabChange("memory")}
-                      onViewWork={() => onWorkspaceTabChange("work")}
+                      onReviewMemory={() => onNavigateWorkspaceTab("memory")}
+                      onViewWork={() => onNavigateWorkspaceTab("work")}
+                      workItemCount={projectWorkItemCount}
                       workItems={workItems}
                     />
                   </section>
@@ -429,9 +434,10 @@ export function ProjectWorkspaceView({
                       />
                       <ProjectActivityBucketTabs
                         activity={activity}
+                        activityLoadState={activityLoadState}
                         bucket={activityBucket}
                         onBucketChange={onActivityBucketChange}
-                        workItemCount={workItems.length}
+                        workItemCount={projectWorkItemCount}
                       />
                     </section>
                     {workError && <InlineError message={workError} />}
@@ -441,14 +447,15 @@ export function ProjectWorkspaceView({
                     >
                       <ProjectActivityInbox
                         activity={activity}
+                        activityLoadState={activityLoadState}
                         bucket={activityBucket}
-                        loading={workLoadState === "loading"}
                         onSelectWorkItem={onSelectWorkItem}
                         project={project}
                         roleByID={roleByID}
                         selectedWorkItemID={selectedWorkItemID}
                         workItemSummaries={workItemSummaries}
                         workItems={workItems}
+                        workLoadState={workLoadState}
                       />
                       <section aria-label="Selected work item" style={workDetailColumnStyle}>
                         {hasWorkItemDetail ? (
@@ -483,11 +490,12 @@ export function ProjectWorkspaceView({
                             onStartAssignment={onStartAssignment}
                             onStartHandoff={onStartHandoff}
                             onSetHandoffStatus={onSetHandoffStatus}
+                            onOpenWorkItem={onSelectWorkItem}
                             project={project}
                             roleByID={roleByID}
                             closingWorkItemID={closingWorkItemID}
                             closeoutReadiness={selectedWorkItemReadiness}
-                            startingAssignmentID={startingAssignmentID}
+                            startingAssignmentIDs={startingAssignmentIDs}
                             workItem={selectedWorkItem}
                             onAddAssignment={onAddAssignment}
                             onAddEvidenceLink={onAddEvidenceLink}
@@ -898,21 +906,21 @@ function projectOperationBadge(item: ProjectOperationsBriefItem): string {
 
 function ProjectActivitySummary({
   activity,
-  error,
-  loading,
+  loadState,
   memoryCandidateCount,
   onBucketChange,
   onReviewMemory,
   onViewWork,
+  workItemCount,
   workItems,
 }: {
   activity: ProjectActivityData | null;
-  error: string;
-  loading: boolean;
+  loadState: LoadState;
   memoryCandidateCount: number;
   onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onReviewMemory: () => void;
   onViewWork: () => void;
+  workItemCount: number;
   workItems: ProjectWorkItemRecord[];
 }) {
   const blocked = activity?.summary.blocked_count ?? 0;
@@ -921,25 +929,29 @@ function ProjectActivitySummary({
   const recent = activity?.summary.recent_count ?? 0;
   const latestWorkItem = latestProjectWorkItem(workItems);
   const assignmentCount = active + blocked + completed;
-  const initialLoading = loading && !activity && workItems.length === 0;
-  const initialError = Boolean(error) && workItems.length === 0;
-  const hasWork = !initialError && (workItems.length > 0 || assignmentCount > 0);
-  const title = initialError
+  const activityPending = loadState === "loading" && !activity;
+  const activityUnavailable = loadState === "error" && !activity;
+  const hasWork = workItemCount > 0 || assignmentCount > 0;
+  const title = activityUnavailable
     ? "Activity unavailable"
-    : initialLoading
-      ? "Loading activity…"
+    : activityPending
+      ? "Updating activity…"
       : assignmentCount > 0
         ? `Assignments: ${active} active · ${blocked} blocked · ${completed} completed`
-        : latestWorkItem
-          ? `${workItems.length} work item${workItems.length === 1 ? "" : "s"}`
+        : workItemCount > 0
+          ? `${workItemCount} work item${workItemCount === 1 ? "" : "s"}`
           : "No project work yet";
-  const detail = initialError
+  const detail = activityUnavailable
     ? "Refresh project work to try again."
-    : initialLoading
-      ? "Checking project work and assignment status."
-      : latestWorkItem
-        ? `Latest update ${formatProjectRowRelativeTime(latestWorkItem.updated_at)}.`
-        : "Create a work item when there is something to coordinate.";
+    : activityPending
+      ? "Checking assignment progress and blockers."
+      : assignmentCount > 0
+        ? "Review assignment progress and blockers in Work."
+        : latestWorkItem
+          ? `Latest update ${formatProjectRowRelativeTime(latestWorkItem.updated_at)}.`
+          : workItemCount > 0
+            ? "Project activity reports current work."
+            : "Create a work item when there is something to coordinate.";
 
   return (
     <section
@@ -947,34 +959,45 @@ function ProjectActivitySummary({
       className="project-activity-summary"
       style={projectResumeSummaryStyle}
     >
-      <div className="project-activity-summary-copy" style={projectResumeCopyStyle}>
+      <div
+        aria-atomic="true"
+        aria-busy={loadState === "loading"}
+        aria-live="polite"
+        className="project-activity-summary-copy"
+        role="status"
+        style={projectResumeCopyStyle}
+      >
         <div style={sectionLabelStyle}>Activity</div>
         <div style={titleStyle}>{title}</div>
         <div style={subtleTextStyle}>{detail}</div>
       </div>
-      {!initialLoading && !initialError && (
+      {(activity || memoryCandidateCount > 0 || hasWork) && (
         <div className="project-activity-summary-actions" style={projectResumeStatsStyle}>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onBucketChange("blocked")}
-          >
-            Blocked <span className="badge badge-muted">{blocked}</span>
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onBucketChange("active")}
-          >
-            Active <span className="badge badge-muted">{active}</span>
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onBucketChange("recent")}
-          >
-            Recent <span className="badge badge-muted">{recent}</span>
-          </button>
+          {activity && !activityPending && !activityUnavailable && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => onBucketChange("blocked")}
+              >
+                Blocked <span className="badge badge-muted">{blocked}</span>
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => onBucketChange("active")}
+              >
+                Active <span className="badge badge-muted">{active}</span>
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => onBucketChange("recent")}
+              >
+                Recent <span className="badge badge-muted">{recent}</span>
+              </button>
+            </>
+          )}
           {memoryCandidateCount > 0 && (
             <button className="btn btn-ghost btn-sm" type="button" onClick={onReviewMemory}>
               Memory <span className="badge badge-muted">{memoryCandidateCount}</span>
@@ -1023,7 +1046,7 @@ function ProjectWorkspaceTabs({
     >
       {tabs.map((tab) => (
         <button
-          aria-controls={`project-workspace-panel-${tab.id}`}
+          aria-controls={activeTab === tab.id ? `project-workspace-panel-${tab.id}` : undefined}
           aria-selected={activeTab === tab.id}
           key={tab.id}
           className={`project-workspace-tab ${
@@ -1070,28 +1093,34 @@ function onProjectWorkspaceTabKeyDown(
 
 function ProjectActivityInbox({
   activity,
+  activityLoadState,
   bucket,
-  loading,
   onSelectWorkItem,
   project,
   roleByID,
   selectedWorkItemID,
   workItemSummaries,
   workItems,
+  workLoadState,
 }: {
   activity: ProjectActivityData | null;
+  activityLoadState: LoadState;
   bucket: ProjectActivityBucketKey;
-  loading: boolean;
   onSelectWorkItem: (workItemID: string) => void;
   project: ProjectRecord | null;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   selectedWorkItemID: string;
   workItemSummaries: Record<string, WorkItemSummary>;
   workItems: ProjectWorkItemRecord[];
+  workLoadState: LoadState;
 }) {
   const buckets = activity?.buckets;
-  const showingAll = bucket === "all";
+  const activityPending = activityLoadState === "loading" && !activity;
+  const activityUnavailable = activityLoadState === "error" && !activity;
+  const showingAll = bucket === "all" || activityPending || activityUnavailable;
   const selectedItems = showingAll ? [] : (buckets?.[bucket] ?? []);
+  const workLoading = workLoadState === "loading";
+  const workUnavailable = workLoadState === "error";
 
   if (!project) {
     return null;
@@ -1108,12 +1137,19 @@ function ProjectActivityInbox({
           <SectionHeader
             title="Work Items"
             detail={
-              loading && workItems.length === 0 && !activity ? "Loading project work…" : undefined
+              workLoading && workItems.length === 0 && !activity
+                ? "Loading project work…"
+                : undefined
             }
           />
         </div>
-        {showingAll && workItems.length === 0 && !loading && (
+        {showingAll && workItems.length === 0 && !workLoading && !workUnavailable && (
           <div style={subtleTextStyle}>No work items for this project.</div>
+        )}
+        {showingAll && workItems.length === 0 && workUnavailable && (
+          <div style={subtleTextStyle}>
+            Work items are unavailable. Refresh project work to try again.
+          </div>
         )}
         {selectedWorkItems.length > 0 && (
           <div style={workItemListStyle}>
@@ -1136,7 +1172,7 @@ function ProjectActivityInbox({
             ))}
           </div>
         )}
-        {!showingAll && !activity && !loading && (
+        {!showingAll && !activity && !activityPending && !activityUnavailable && !workLoading && (
           <div style={subtleTextStyle}>No activity is recorded for this project yet.</div>
         )}
         {!showingAll && activity && selectedItems.length === 0 && (
@@ -1149,30 +1185,41 @@ function ProjectActivityInbox({
 
 function ProjectActivityBucketTabs({
   activity,
+  activityLoadState,
   bucket,
   onBucketChange,
   workItemCount,
 }: {
   activity: ProjectActivityData | null;
+  activityLoadState: LoadState;
   bucket: ProjectActivityBucketKey;
   onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   workItemCount: number;
 }) {
   const counts = activity?.summary;
-  const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count: number }> = [
+  const activityPending = activityLoadState === "loading" && !activity;
+  const activityUnavailable = activityLoadState === "error" && !activity;
+  const activityReady = !activityPending && !activityUnavailable;
+  const selectedBucket = activityReady ? bucket : "all";
+  const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count?: number }> = [
     { id: "all", label: "All", count: workItemCount },
-    { id: "blocked", label: "Blocked", count: counts?.blocked_count ?? 0 },
-    { id: "active", label: "Active", count: counts?.active_count ?? 0 },
-    { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
-    { id: "recent", label: "Recent", count: counts?.recent_count ?? 0 },
+    ...(activityReady
+      ? [
+          { id: "blocked" as const, label: "Blocked", count: counts?.blocked_count ?? 0 },
+          { id: "active" as const, label: "Active", count: counts?.active_count ?? 0 },
+          { id: "completed" as const, label: "Completed", count: counts?.completed_count ?? 0 },
+          { id: "recent" as const, label: "Recent", count: counts?.recent_count ?? 0 },
+        ]
+      : []),
   ];
 
   return (
     <div style={activityHeaderTabsStyle} aria-label="Work activity filters">
       {tabs.map((tab) => (
         <button
+          aria-pressed={selectedBucket === tab.id}
           key={tab.id}
-          className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+          className={selectedBucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
           type="button"
           aria-label={
             tab.id === "all" ? "Show all work items" : `Show ${tab.label.toLowerCase()} assignments`
@@ -1181,9 +1228,18 @@ function ProjectActivityBucketTabs({
           style={activityBucketButtonStyle}
         >
           {tab.label}
-          <span className="badge badge-muted">{tab.count}</span>
+          {(activityReady || (tab.count ?? 0) > 0) && (
+            <span className="badge badge-muted">{tab.count}</span>
+          )}
         </button>
       ))}
+      {(activityPending || activityUnavailable) && (
+        <div aria-atomic="true" aria-live="polite" role="status" style={subtleTextStyle}>
+          {activityPending
+            ? "Updating assignment activity…"
+            : "Assignment activity unavailable. Refresh project work to try again."}
+        </div>
+      )}
     </div>
   );
 }
@@ -1224,7 +1280,7 @@ export function ProjectEmptyBlock({ title, detail }: { title: string; detail: st
       style={{ padding: 24, textAlign: "center", display: "grid", gap: 8, placeItems: "center" }}
     >
       <div style={{ color: "var(--t0)", fontSize: 14, fontWeight: 600 }}>{title}</div>
-      <div style={{ color: "var(--t3)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
+      <div style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.5, maxWidth: 320 }}>
         {detail}
       </div>
     </div>
@@ -1285,7 +1341,7 @@ const titleStyle: CSSProperties = {
 };
 
 const subtleTextStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   fontSize: 12,
   lineHeight: 1.4,
 };
