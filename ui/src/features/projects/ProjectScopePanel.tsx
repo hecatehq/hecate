@@ -164,9 +164,9 @@ export function ProjectScopePanel({
             {emptyHint}
           </div>
         )}
-        {projects.state.error && (
+        {(projects.state.error || projects.state.catalogError) && (
           <div role="status" style={{ padding: "6px 8px 0", color: "var(--yellow)", fontSize: 11 }}>
-            {projects.state.error}
+            {projects.state.error || projects.state.catalogError}
           </div>
         )}
       </div>

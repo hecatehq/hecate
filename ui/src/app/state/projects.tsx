@@ -29,6 +29,7 @@ export type ProjectsState = {
   projects: ProjectRecord[];
   loading: boolean;
   loaded: boolean;
+  catalogError: string;
   error: string;
 };
 
@@ -57,12 +58,14 @@ type Action =
   | { type: "projects/set"; next: SetStateAction<ProjectRecord[]> }
   | { type: "loading/set"; value: boolean }
   | { type: "loaded/set"; value: boolean }
+  | { type: "catalog-error/set"; value: string }
   | { type: "error/set"; value: string };
 
 const initialState: ProjectsState = {
   projects: [],
   loading: false,
   loaded: false,
+  catalogError: "",
   error: "",
 };
 
@@ -78,6 +81,8 @@ function reducer(state: ProjectsState, action: Action): ProjectsState {
       return state.loading === action.value ? state : { ...state, loading: action.value };
     case "loaded/set":
       return state.loaded === action.value ? state : { ...state, loaded: action.value };
+    case "catalog-error/set":
+      return state.catalogError === action.value ? state : { ...state, catalogError: action.value };
     case "error/set":
       return state.error === action.value ? state : { ...state, error: action.value };
     default:
@@ -122,6 +127,10 @@ export function ProjectsProvider({
   }, []);
   const setLoading = useCallback((value: boolean) => dispatch({ type: "loading/set", value }), []);
   const setError = useCallback((value: string) => dispatch({ type: "error/set", value }), []);
+  const setCatalogError = useCallback(
+    (value: string) => dispatch({ type: "catalog-error/set", value }),
+    [],
+  );
   const setActiveProjectID = useCallback(
     (id: string) => {
       const nextID = opaqueRecordID(id);
@@ -134,7 +143,7 @@ export function ProjectsProvider({
   const loadProjects = useCallback(() => {
     if (loadProjectsInFlightRef.current) return loadProjectsInFlightRef.current;
     const request = (async () => {
-      dispatch({ type: "error/set", value: "" });
+      setCatalogError("");
       dispatch({ type: "loading/set", value: true });
       try {
         let mutationSequence = projectsMutationSequenceRef.current;
@@ -146,16 +155,13 @@ export function ProjectsProvider({
         const items = payload.data ?? [];
         dispatch({ type: "projects/set", next: items });
         dispatch({ type: "loaded/set", value: true });
-        dispatch({ type: "error/set", value: "" });
+        setCatalogError("");
         const currentActiveProjectID = activeProjectIDRef.current;
         if (currentActiveProjectID && !items.some((item) => item.id === currentActiveProjectID)) {
           setActiveProjectID("");
         }
       } catch (error) {
-        dispatch({
-          type: "error/set",
-          value: error instanceof Error ? error.message : "Failed to load projects.",
-        });
+        setCatalogError(error instanceof Error ? error.message : "Failed to load projects.");
       } finally {
         dispatch({ type: "loading/set", value: false });
       }
@@ -167,7 +173,7 @@ export function ProjectsProvider({
       }
     });
     return request;
-  }, [setActiveProjectID]);
+  }, [setActiveProjectID, setCatalogError]);
 
   const selectProject = useCallback(
     async (id: string) => {

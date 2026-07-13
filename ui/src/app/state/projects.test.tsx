@@ -82,7 +82,8 @@ describe("ProjectsProvider", () => {
 
     expect(result.current.state.loaded).toBe(false);
     expect(result.current.state.projects).toEqual([]);
-    expect(result.current.state.error).toBe("catalog unavailable");
+    expect(result.current.state.catalogError).toBe("catalog unavailable");
+    expect(result.current.state.error).toBe("");
   });
 
   it("clears the prior error while a catalog retry is pending", async () => {
@@ -98,7 +99,7 @@ describe("ProjectsProvider", () => {
     await act(async () => {
       await result.current.actions.loadProjects();
     });
-    expect(result.current.state.error).toBe("catalog unavailable");
+    expect(result.current.state.catalogError).toBe("catalog unavailable");
 
     let retryPromise!: Promise<void>;
     let duplicateRetryPromise!: Promise<void>;
@@ -109,7 +110,7 @@ describe("ProjectsProvider", () => {
     expect(duplicateRetryPromise).toBe(retryPromise);
     await waitFor(() => {
       expect(result.current.state.loading).toBe(true);
-      expect(result.current.state.error).toBe("");
+      expect(result.current.state.catalogError).toBe("");
     });
 
     resolveRetry({ object: "projects", data: [] });
@@ -119,6 +120,35 @@ describe("ProjectsProvider", () => {
     expect(result.current.state.loading).toBe(false);
     expect(result.current.state.loaded).toBe(true);
     expect(getProjects).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves a newer create failure when a catalog load succeeds", async () => {
+    let resolveLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects).mockReturnValue(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    vi.mocked(createProject).mockRejectedValue(new Error("create failed"));
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    let loadPromise!: Promise<void>;
+    act(() => {
+      loadPromise = result.current.actions.loadProjects();
+    });
+    await act(async () => {
+      await result.current.actions.createProject({ name: "Keep this draft" });
+    });
+    expect(result.current.state.error).toBe("create failed");
+
+    resolveLoad({ object: "projects", data: [] });
+    await act(async () => {
+      await loadPromise;
+    });
+
+    expect(result.current.state.loaded).toBe(true);
+    expect(result.current.state.catalogError).toBe("");
+    expect(result.current.state.error).toBe("create failed");
   });
 
   it("clears a stale persisted project id after loading current projects", async () => {

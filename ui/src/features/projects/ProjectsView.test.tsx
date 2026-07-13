@@ -10541,7 +10541,7 @@ describe("ProjectsView navigation destinations", () => {
           wrapper: directWrapper({
             projects: [],
             loaded: false,
-            error: "Projects are unavailable.",
+            catalogError: "Projects are unavailable.",
           }),
         },
       );
@@ -10565,7 +10565,7 @@ describe("ProjectsView navigation destinations", () => {
           wrapper: directWrapper({
             projects: [],
             loaded: false,
-            error: "Projects are unavailable.",
+            catalogError: "Projects are unavailable.",
           }),
         },
       );
@@ -10593,7 +10593,7 @@ describe("ProjectsView navigation destinations", () => {
       wrapper: directWrapper({
         projects: [],
         loaded: false,
-        error: "Projects are unavailable.",
+        catalogError: "Projects are unavailable.",
       }),
     });
 
@@ -10635,7 +10635,7 @@ describe("ProjectsView navigation destinations", () => {
       wrapper: directWrapper({
         projects: [],
         loaded: false,
-        error: "Projects are unavailable.",
+        catalogError: "Projects are unavailable.",
       }),
     });
 
