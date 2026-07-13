@@ -40,6 +40,7 @@ const (
 
 var (
 	ErrInvalid              = errors.New("invalid project assistant proposal")
+	ErrNoSetupInputs        = errors.New("no eligible project setup inputs")
 	ErrUnknownActionKind    = errors.New("unknown project assistant action kind")
 	ErrNotFound             = errors.New("project assistant target not found")
 	ErrConflict             = errors.New("project assistant conflict")

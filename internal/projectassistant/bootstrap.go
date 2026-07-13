@@ -26,7 +26,7 @@ func (s *Service) draftBootstrap(ctx context.Context, input DraftInput, draftCon
 		warnings = append(warnings, "Project setup proposals are project-scoped; selected work context was ignored.")
 	}
 	if len(actions) == 0 {
-		return Proposal{}, fmt.Errorf("%w: no enabled guidance sources or local skill files found for project setup", ErrInvalid)
+		return Proposal{}, fmt.Errorf("%w: no enabled guidance sources or local skill files found for project setup", ErrNoSetupInputs)
 	}
 
 	proposal, err := s.Propose(ctx, ProposalInput{

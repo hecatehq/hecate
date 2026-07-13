@@ -118,23 +118,35 @@ func (h *Handler) renderProjectSetupReadiness(ctx context.Context, projectID str
 	}
 
 	summary := projectSetupReadinessSummary(project, workItems, roles, skills, entries, candidates)
-	setupStarted := summary.EnabledContextSourceCount > 0 ||
-		summary.RoleCount > 0 ||
-		summary.SkillCount > 0 ||
-		summary.SavedMemoryCount > 0 ||
-		summary.PendingMemoryCandidateCount > 0
+	setupStarted := projectSetupReadinessStarted(summary)
+	showOnboarding := summary.WorkItemCount == 0 && !setupStarted
 	firstWorkReady := summary.WorkItemCount == 0 && setupStarted
 	return ProjectSetupReadinessResponse{
 		ProjectID:      project.ID,
 		GeneratedAt:    formatOptionalTime(time.Now().UTC()),
 		ReadBackend:    "hecate",
-		ShowOnboarding: summary.WorkItemCount == 0 && !setupStarted,
+		ShowOnboarding: showOnboarding,
 		SetupStarted:   setupStarted,
 		FirstWorkReady: firstWorkReady,
 		Summary:        summary,
-		PrimaryAction:  projectSetupReadinessAction(projectSetupReadinessActionBootstrap, project.ID, "Set up project"),
+		PrimaryAction:  projectSetupReadinessPrimaryAction(project.ID, summary, showOnboarding, firstWorkReady),
 		Checks:         projectSetupReadinessChecks(project, summary),
 	}, nil
+}
+
+func projectSetupReadinessStarted(summary ProjectSetupReadinessSummaryResponse) bool {
+	return summary.EnabledContextSourceCount > 0 ||
+		summary.RoleCount > 0 ||
+		summary.SkillCount > 0 ||
+		summary.SavedMemoryCount > 0 ||
+		summary.PendingMemoryCandidateCount > 0
+}
+
+func projectSetupReadinessPrimaryAction(projectID string, summary ProjectSetupReadinessSummaryResponse, showOnboarding, firstWorkReady bool) ProjectSetupReadinessActionResponse {
+	if firstWorkReady || (showOnboarding && !summary.HasActiveRoot) {
+		return projectSetupReadinessAction(projectSetupReadinessActionCreateWorkItem, projectID, "Create first work")
+	}
+	return projectSetupReadinessAction(projectSetupReadinessActionBootstrap, projectID, "Set up project")
 }
 
 func (h *Handler) projectSetupReadinessMemoryEntries(ctx context.Context, projectID string) ([]memory.Entry, error) {
@@ -292,7 +304,7 @@ func projectSetupFirstWorkDetail(summary ProjectSetupReadinessSummaryResponse) s
 	if summary.WorkItemCount > 0 {
 		return projectSetupCountLabel(summary.WorkItemCount, "work item")
 	}
-	return "Create the first reviewable task after setup."
+	return "Create the first reviewable work item."
 }
 
 func projectSetupCountLabel(count int, singular string) string {

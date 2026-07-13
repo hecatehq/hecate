@@ -13,22 +13,65 @@ register local skills, or launch work against files.
 
 1. Create a project with a clear name and optional purpose.
 2. Attach a local folder only if the project starts from files.
-3. Set provider, model, Agent Preset, memory, and source defaults when the
+3. If a folder is attached, run **Set up project** to discover portable
+   workspace guidance and local skill metadata, then review the proposed memory
+   candidates and role changes before applying them. A rootless project starts
+   directly with **Create first work**.
+4. Set provider, model, Agent Preset, memory, and source defaults when the
    project should launch Hecate Chat, Hecate Tasks, or External Agents.
-4. Run **Set up project** to discover portable workspace guidance and local
-   skill metadata, then review the proposed memory candidates and role changes
-   before applying them.
-5. Create the first work item once the setup checklist looks right.
+5. Review and create the first work item.
+
+The guided start stays on Project Overview until the first work item exists.
+It presents one primary action at a time; supporting setup choices remain
+available without competing with that action.
+
+| Guided state           | Primary action                       | Operator control                                                                        |
+| ---------------------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
+| Checking setup         | None                                 | Wait for the server-backed readiness projection.                                        |
+| Setup unavailable      | **Retry**                            | Hecate assumes neither setup nor work state.                                            |
+| New rooted project     | **Set up project**                   | Review checklist details or open Project Settings first.                                |
+| New rootless project   | **Create first work**                | Add files, sources, roles, and launch defaults later if the work needs them.            |
+| Setup proposal         | **Apply setup**                      | Inspect every proposed action, or dismiss it without writing.                           |
+| Setup started, no work | **Create first work**                | Edit the suggested title, brief, owner, priority, and optional root before creating it. |
+| First work created     | The server's current Overview action | Open the exact work item and continue from its selected-work next action.               |
+
+```mermaid
+flowchart TD
+  A["Add project"] --> B{"Needs local files?"}
+  B -->|"No"| C["Rootless project"]
+  B -->|"Yes"| D["Attach optional workspace"]
+  C --> I["Review and create first work item"]
+  D --> E["Guided start on Overview"]
+  E --> F["Set up project"]
+  F --> G["Review setup proposal"]
+  G -->|"Dismiss"| E
+  G -->|"Apply"| H["Ready for first work"]
+  H --> I
+  I --> J["Open exact work item"]
+```
 
 Setup is reviewable. Hecate may propose roles or memory candidates, but the
 operator applies or dismisses them. Setup does not launch agents, write project
-memory automatically, install skills, or inject skill bodies into prompts.
+memory automatically, install skills, or inject skill bodies into prompts. A
+rootless project does not need a placeholder folder: purpose, sources, memory,
+and roles can provide setup context without claiming that a local folder
+exists. If a new project has no active workspace and therefore no local setup
+inputs, server readiness makes **Create first work** the primary action. Sources,
+roles, files, and runtime defaults can be added later when the work needs them.
+If setup reports that there is no guidance or skill metadata to apply, the
+guided start makes **Create first work instead** the primary recovery and keeps
+**Retry setup** available as a supporting action. Other setup failures keep
+**Retry setup** primary and surface first-work creation as an alternative.
+
 The onboarding checklist is backed by
 `GET /hecate/v1/projects/{id}/setup-readiness`, a read-only server projection
 over project defaults, roots, context sources, memory, memory candidates,
-skills, roles, and work items. Use the checklist for missing settings or
-first-work creation; use the primary **Set up project** action for discovery
-and role/memory suggestions.
+skills, roles, and work items. Use the checklist for missing settings and setup
+detail. The server returns **Set up project** when an active workspace can be
+inspected for guidance and skills, and **Create first work** when a rootless
+project can begin without that setup. The guided rail consumes the returned
+readiness flags and typed actions; it does not store a second setup-complete flag
+or derive portable project state in the browser.
 When setup context exists and the project has no work items yet, first-work
 creation opens with a draft title, brief, and owner role for operator review.
 

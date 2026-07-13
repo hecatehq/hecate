@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   ProjectRecord,
@@ -47,14 +47,25 @@ export function NewWorkItemModal({
       "",
     rootID: initialDraft?.rootID ?? "",
   }));
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
+  const wasPendingRef = useRef(pending);
   const valid = form.title.trim().length > 0;
+
+  useEffect(() => {
+    const wasPending = wasPendingRef.current;
+    wasPendingRef.current = pending;
+    if (wasPending && !pending && error) submitButtonRef.current?.focus();
+  }, [error, pending]);
+
   return (
     <Modal
       title="New work item"
+      dismissible={!pending}
       onClose={onClose}
       width={560}
       footer={
         <button
+          ref={submitButtonRef}
           className="btn btn-primary"
           type="button"
           disabled={pending || !valid}
@@ -68,8 +79,9 @@ export function NewWorkItemModal({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (valid) void onCreate(form);
+          if (valid && !pending) void onCreate(form);
         }}
+        aria-busy={pending}
         style={{ display: "grid", gap: 12 }}
       >
         {error && <InlineError message={error} />}

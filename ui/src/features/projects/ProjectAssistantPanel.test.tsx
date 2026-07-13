@@ -83,18 +83,26 @@ describe("ProjectAssistantPanel", () => {
     const handlers = renderAssistantPanel({
       memoryCandidateCount: 1,
       roleCount: 2,
+      firstWorkReady: true,
       setupFirst: true,
-      setupStarted: true,
       workItemCount: 0,
     });
 
     const assistant = screen.getByRole("region", { name: "Project Assistant" });
-    expect(within(assistant).getByText("Setup ready")).toBeTruthy();
+    expect(within(assistant).getByText("Ready for first work")).toBeTruthy();
     expect(
-      within(assistant).getByText(/Project setup has 2 roles · 1 memory candidate/),
+      within(assistant).getByText(/Project setup has 2 roles · 1 memory suggestion/),
     ).toBeTruthy();
     expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
+    expect(within(assistant).getByRole("button", { name: "Create first work" })).toHaveClass(
+      "btn-primary",
+    );
+    const setupDetails = within(assistant)
+      .getByText("Setup details", { selector: "summary" })
+      .closest("details");
+    expect(setupDetails).not.toHaveAttribute("open");
 
+    await user.click(within(assistant).getByText("Setup details", { selector: "summary" }));
     await user.click(within(assistant).getByRole("button", { name: "Review memory" }));
     await user.click(within(assistant).getByRole("button", { name: "Review roles" }));
     await user.click(within(assistant).getByRole("button", { name: "Create first work" }));
@@ -118,7 +126,6 @@ describe("ProjectAssistantPanel", () => {
       memoryCandidateCount: 1,
       roleCount: 2,
       setupFirst: true,
-      setupStarted: true,
       status: "applied",
       workItemCount: 0,
     });
@@ -128,21 +135,61 @@ describe("ProjectAssistantPanel", () => {
       name: "Project Assistant apply result",
     });
     expect(within(result).getByText("Applied 2 actions")).toBeTruthy();
-    expect(within(result).getByText("Next up")).toBeTruthy();
-    expect(
-      within(result).getByText("review memory, review roles, then create first work"),
-    ).toBeTruthy();
+    expect(within(result).getByText("Setup changes are applied.")).toBeTruthy();
+    expect(within(result).queryByText("Proposal pa_setup is applied.")).toBeNull();
+    expect(within(result).getByText("Ready for first work")).toBeTruthy();
+    expect(within(result).getAllByText("Create first work").length).toBeGreaterThan(0);
     expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
+    expect(within(result).getByRole("button", { name: "Create first work" })).toHaveClass(
+      "btn-primary",
+    );
+    const setupDetails = within(result)
+      .getByText("Setup details", { selector: "summary" })
+      .closest("details");
+    expect(setupDetails).not.toHaveAttribute("open");
 
+    await user.click(within(result).getByText("Setup details", { selector: "summary" }));
+    expect(within(result).getByText("pa_setup")).toBeTruthy();
     await user.click(within(result).getByRole("button", { name: "Review memory" }));
     await user.click(within(result).getByRole("button", { name: "Review roles" }));
     await user.click(within(result).getByRole("button", { name: "Create first work" }));
-    await user.click(within(result).getByRole("button", { name: "Continue setup" }));
+    expect(within(result).queryByRole("button", { name: "Continue setup" })).toBeNull();
 
     expect(handlers.onReviewMemory).toHaveBeenCalledTimes(1);
     expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
     expect(handlers.onCreateWork).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenWork).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenWork).not.toHaveBeenCalled();
+  });
+
+  it("keeps setup proposal details collapsed behind one review action", async () => {
+    const user = userEvent.setup();
+    const handlers = renderAssistantPanel({
+      proposal: {
+        id: "pa_setup",
+        title: "Bootstrap Hecate guidance",
+        summary: "Add a role and preserve guidance as a memory suggestion.",
+        requires_confirmation: true,
+        trace_id: "trace_setup",
+        actions: [{ kind: "create_role", patch: { name: "Editor" } }],
+      },
+      setupFirst: true,
+    });
+
+    const assistant = screen.getByRole("region", { name: "Project Assistant" });
+    expect(within(assistant).getByText("Review setup")).toBeTruthy();
+    expect(within(assistant).queryByRole("button", { name: "Dismiss" })).toBeNull();
+    const proposedChanges = within(assistant)
+      .getByText("Review proposed changes", { selector: "summary" })
+      .closest("details");
+    expect(proposedChanges).not.toHaveAttribute("open");
+
+    await user.click(
+      within(assistant).getByText("Review proposed changes", { selector: "summary" }),
+    );
+    expect(within(assistant).getByText("trace_setup")).toBeTruthy();
+    expect(within(assistant).getByText("Editor")).toBeTruthy();
+    await user.click(within(assistant).getByRole("button", { name: "Apply setup" }));
+    expect(handlers.onApply).toHaveBeenCalledTimes(1);
   });
 
   it("routes applied work proposals back to the work queue", async () => {

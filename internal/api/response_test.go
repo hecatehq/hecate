@@ -15,6 +15,7 @@ func TestWriteErrorAddsDefaultOperatorMetadata(t *testing.T) {
 		code string
 	}{
 		{name: "invalid request", code: errCodeInvalidRequest},
+		{name: "project setup no inputs", code: errCodeProjectSetupNoInputs},
 		{name: "not found", code: errCodeNotFound},
 		{name: "conflict", code: errCodeConflict},
 		{name: "gateway error", code: errCodeGatewayError},

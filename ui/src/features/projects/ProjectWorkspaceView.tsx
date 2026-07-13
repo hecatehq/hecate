@@ -1,4 +1,11 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { isPlainNavigationClick, projectNavigationURL } from "../../app/navigation";
 import type {
@@ -271,13 +278,38 @@ export function ProjectWorkspaceView({
   workLoadState,
   workspaceTab,
 }: ProjectWorkspaceViewProps) {
-  const projectSetupStarted = projectSetupReadiness?.setup_started ?? false;
   const projectSetupFirst = projectSetupReadiness?.first_work_ready ?? false;
   const projectSetupAssistantMode =
     projectSetupFirst ||
     (workItems.length === 0 &&
       !selectedWorkItem &&
       (Boolean(assistant.proposal) || Boolean(assistant.applyResult)));
+  const projectGuidedStart = projectSetupAssistantMode && workItems.length === 0;
+  const guidedPrimaryActionRef = useRef<HTMLButtonElement>(null);
+  const guidedPresentationRef = useRef({
+    applyResult: projectSetupAssistantMode && Boolean(assistant.applyResult),
+    projectID: project?.id ?? "",
+    proposal: projectSetupAssistantMode && Boolean(assistant.proposal),
+  });
+  const guidedProposalVisible = projectSetupAssistantMode && Boolean(assistant.proposal);
+  const guidedResultVisible = projectSetupAssistantMode && Boolean(assistant.applyResult);
+  useEffect(() => {
+    const previous = guidedPresentationRef.current;
+    const projectID = project?.id ?? "";
+    if (
+      previous.projectID === projectID &&
+      ((!previous.proposal && guidedProposalVisible) ||
+        (previous.proposal && !guidedProposalVisible) ||
+        (previous.applyResult && !guidedResultVisible))
+    ) {
+      guidedPrimaryActionRef.current?.focus();
+    }
+    guidedPresentationRef.current = {
+      applyResult: guidedResultVisible,
+      projectID,
+      proposal: guidedProposalVisible,
+    };
+  }, [guidedProposalVisible, guidedResultVisible, project?.id]);
   const projectWorkItemCount = workItems.length || activity?.summary.work_item_count || 0;
   const operationItems = Array.isArray(operationsBrief?.items) ? operationsBrief.items : [];
   const firstSelectedWorkItemOperation =
@@ -391,9 +423,12 @@ export function ProjectWorkspaceView({
               projectSetupReadiness && (
                 <ProjectOnboardingPanel
                   bootstrapPending={assistant.bootstrapPending}
+                  bootstrapRecoveryAvailable={assistant.bootstrapRecoveryAvailable}
+                  error={assistant.error}
                   onAction={onSetupReadinessAction}
                   onOpenSettings={onOpenSettings}
                   project={project}
+                  primaryActionRef={guidedPrimaryActionRef}
                   readiness={projectSetupReadiness}
                 />
               )
@@ -426,28 +461,77 @@ export function ProjectWorkspaceView({
                     <SectionHeader
                       heading
                       title="Project Overview"
-                      detail="Current coordination status and the next operator action."
+                      detail={
+                        projectGuidedStart
+                          ? projectSetupFirst
+                            ? "Create the first reviewable work item to begin coordinating progress."
+                            : "Finish setup and create the first reviewable work item."
+                          : "Current coordination status and the next operator action."
+                      }
                     />
-                    <ProjectOperationsBriefPanel
-                      brief={operationsBrief}
-                      error={operationsBriefError}
-                      loading={operationsBriefLoadState === "loading"}
-                      onAction={onOperationAction}
-                    />
-                    {workError && <InlineError message={workError} />}
-                    <ProjectActivitySummary
-                      activity={activity}
-                      loadState={activityLoadState}
-                      memoryCandidateCount={memoryCandidates.length}
-                      onBucketChange={(bucket) => {
-                        onActivityBucketChange(bucket);
-                        onNavigateWorkspaceTab("work");
-                      }}
-                      onReviewMemory={() => onNavigateWorkspaceTab("memory")}
-                      onViewWork={() => onNavigateWorkspaceTab("work")}
-                      workItemCount={projectWorkItemCount}
-                      workItems={workItems}
-                    />
+                    {projectGuidedStart ? (
+                      <ProjectAssistantPanel
+                        applyResult={assistant.applyResult}
+                        bootstrapPending={assistant.bootstrapPending}
+                        firstWorkReady={projectSetupFirst}
+                        guidedPrimaryActionRef={guidedPrimaryActionRef}
+                        chatDraftSource={assistant.chatDraftSource}
+                        context={assistant.context}
+                        contextError={assistant.contextError}
+                        contextStatus={assistant.contextStatus}
+                        error={assistant.error}
+                        onApply={() => void assistant.apply()}
+                        onBootstrap={() => void assistant.bootstrap()}
+                        onCreateWork={onCreateWork}
+                        onInspectContext={(form) => void assistant.inspectContext(form)}
+                        onDismiss={assistant.dismiss}
+                        onManageRoles={onManageRoles}
+                        onOpenWork={() => onWorkspaceTabChange("work")}
+                        onOpenSourceChat={
+                          assistant.chatDraftSource?.sourceSessionID && onOpenChat
+                            ? () =>
+                                onOpenChat({
+                                  projectID: project.id,
+                                  chatSessionID: assistant.chatDraftSource?.sourceSessionID,
+                                })
+                            : undefined
+                        }
+                        onPropose={(form) => void assistant.propose(form)}
+                        onReviewMemory={() => onWorkspaceTabChange("memory")}
+                        project={project}
+                        proposal={assistant.proposal}
+                        roles={roles}
+                        memoryCandidateCount={memoryCandidates.length}
+                        roleCount={roles.length}
+                        setupFirst
+                        status={assistant.status}
+                        workItem={null}
+                        workItemCount={0}
+                      />
+                    ) : (
+                      <>
+                        <ProjectOperationsBriefPanel
+                          brief={operationsBrief}
+                          error={operationsBriefError}
+                          loading={operationsBriefLoadState === "loading"}
+                          onAction={onOperationAction}
+                        />
+                        {workError && <InlineError message={workError} />}
+                        <ProjectActivitySummary
+                          activity={activity}
+                          loadState={activityLoadState}
+                          memoryCandidateCount={memoryCandidates.length}
+                          onBucketChange={(bucket) => {
+                            onActivityBucketChange(bucket);
+                            onNavigateWorkspaceTab("work");
+                          }}
+                          onReviewMemory={() => onNavigateWorkspaceTab("memory")}
+                          onViewWork={() => onNavigateWorkspaceTab("work")}
+                          workItemCount={projectWorkItemCount}
+                          workItems={workItems}
+                        />
+                      </>
+                    )}
                   </section>
                 </div>
               )}
@@ -461,10 +545,11 @@ export function ProjectWorkspaceView({
                   role="tabpanel"
                 >
                   <section aria-label="Work coordination" style={projectTabPanelStyle}>
-                    {!selectedWorkItemClosed && (
+                    {!projectGuidedStart && !selectedWorkItemClosed && (
                       <ProjectAssistantPanel
                         applyResult={assistant.applyResult}
                         bootstrapPending={assistant.bootstrapPending}
+                        firstWorkReady={projectSetupFirst}
                         chatDraftSource={assistant.chatDraftSource}
                         context={assistant.context}
                         contextError={assistant.contextError}
@@ -495,7 +580,6 @@ export function ProjectWorkspaceView({
                         memoryCandidateCount={memoryCandidates.length}
                         roleCount={roles.length}
                         setupFirst={projectSetupAssistantMode}
-                        setupStarted={projectSetupStarted}
                         status={assistant.status}
                         workItem={selectedWorkItem}
                         workItemCount={workItems.length}
@@ -804,87 +888,163 @@ function SectionHeader({
 
 function ProjectOnboardingPanel({
   bootstrapPending,
+  bootstrapRecoveryAvailable,
+  error,
   onAction,
   onOpenSettings,
   project,
+  primaryActionRef,
   readiness,
 }: {
   bootstrapPending: boolean;
+  bootstrapRecoveryAvailable: boolean;
+  error: string;
   onAction: (action: ProjectSetupReadinessAction) => void;
   onOpenSettings: (origin?: "onboarding") => void;
   project: ProjectRecord;
+  primaryActionRef: RefObject<HTMLButtonElement | null>;
   readiness: ProjectSetupReadiness;
 }) {
   const primaryAction = readiness.primary_action;
+  const fallbackWorkAction =
+    error && primaryAction.type === "bootstrap_project"
+      ? readiness.checks.find((check) => check.action?.type === "create_work_item")?.action
+      : undefined;
+  const recoveryWorkAction = bootstrapRecoveryAvailable ? fallbackWorkAction : undefined;
+  const displayedPrimaryAction = recoveryWorkAction ?? primaryAction;
+  const primaryPending = bootstrapPending && displayedPrimaryAction.type === "bootstrap_project";
+  const startsWithWork = displayedPrimaryAction.type === "create_work_item";
+  const coveredCheckCount = readiness.checks.filter(
+    (check) => check.status === "ready" || check.optional,
+  ).length;
   return (
-    <section aria-label="Project onboarding" style={projectOnboardingStyle}>
+    <section
+      aria-busy={bootstrapPending}
+      aria-label="Project onboarding"
+      style={projectOnboardingStyle}
+    >
       <div style={projectOnboardingCopyStyle}>
         <div>
-          <div style={sectionLabelStyle}>Project Onboarding</div>
+          <div style={sectionLabelStyle}>Guided start</div>
           <h1 style={{ ...projectOnboardingTitleStyle, margin: "8px 0 0" }}>
-            Set up {project.name}
+            {startsWithWork ? "Create the first work item" : `Set up ${project.name}`}
           </h1>
         </div>
         <div style={projectOnboardingDetailStyle}>
-          Let Hecate discover safe project metadata, suggest roles, and prepare setup actions for
-          review. Attach local files only when this project needs a workspace.
+          {recoveryWorkAction
+            ? "Setup found no guidance or skills to apply. Start coordinating work now, or add setup inputs and retry."
+            : error
+              ? "Setup did not complete. Retry setup, or start coordinating work without it."
+              : startsWithWork
+                ? "This project can start without local setup. Add files, sources, roles, and runtime defaults when the work needs them."
+                : "Hecate will find useful guidance and suggest roles. You review every change before it is applied. Local files are optional."}
         </div>
         <div style={projectOnboardingActionsStyle}>
           <button
+            ref={primaryActionRef}
+            aria-disabled={primaryPending || undefined}
             className="btn btn-primary btn-sm"
             type="button"
-            disabled={bootstrapPending && primaryAction.type === "bootstrap_project"}
-            onClick={() => onAction(primaryAction)}
+            onClick={() => {
+              if (!primaryPending) onAction(displayedPrimaryAction);
+            }}
           >
-            <Icon d={Icons.refresh} size={13} />
-            {bootstrapPending && primaryAction.type === "bootstrap_project"
-              ? "Setting up…"
-              : primaryAction.label}
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            data-project-settings-origin="onboarding"
-            type="button"
-            onClick={() => onOpenSettings("onboarding")}
-          >
-            <Icon d={Icons.settings} size={13} />
-            Project settings
+            <Icon
+              d={displayedPrimaryAction.type === "create_work_item" ? Icons.plus : Icons.refresh}
+              size={13}
+            />
+            {primaryPending
+              ? "Preparing setup…"
+              : recoveryWorkAction
+                ? "Create first work instead"
+                : error && displayedPrimaryAction.type === "bootstrap_project"
+                  ? "Retry setup"
+                  : displayedPrimaryAction.label}
           </button>
         </div>
       </div>
-      <div style={projectOnboardingChecklistStyle}>
-        {readiness.checks.map((check) => (
-          <div
-            aria-label={check.label}
-            key={check.id}
-            role="group"
-            style={projectOnboardingCheckStyle}
-          >
-            <span
-              className={projectOnboardingCheckBadgeClass(check)}
-              style={projectOnboardingCheckBadgeStyle}
-            >
-              {projectOnboardingCheckBadgeLabel(check)}
-            </span>
-            <div style={{ minWidth: 0 }}>
-              <div style={titleStyle}>{check.label}</div>
-              <div style={subtleTextStyle}>{check.detail}</div>
-            </div>
-            {check.status !== "ready" && !check.optional && check.action && (
+      {error && (
+        <div style={{ display: "grid", gap: 8 }}>
+          <InlineError message={error} />
+          {fallbackWorkAction && (
+            <div>
               <button
-                aria-label={`${check.action.label}: ${check.label}`}
                 className="btn btn-ghost btn-sm"
-                disabled={bootstrapPending && check.action.type === "bootstrap_project"}
-                onClick={() => onAction(check.action!)}
-                style={projectOnboardingCheckActionStyle}
+                disabled={bootstrapPending}
+                onClick={() => {
+                  if (recoveryWorkAction) {
+                    primaryActionRef.current?.focus();
+                    onAction(primaryAction);
+                    return;
+                  }
+                  onAction(fallbackWorkAction);
+                }}
                 type="button"
               >
-                {check.action.label}
+                <Icon d={recoveryWorkAction ? Icons.refresh : Icons.plus} size={13} />
+                {recoveryWorkAction ? "Retry setup" : "Create first work instead"}
               </button>
-            )}
+            </div>
+          )}
+        </div>
+      )}
+      <details style={projectOnboardingDetailsStyle}>
+        <summary style={projectOnboardingSummaryStyle}>
+          <span>Setup details</span>
+          <span className="badge badge-muted">
+            {coveredCheckCount}/{readiness.checks.length} covered
+          </span>
+        </summary>
+        <div style={projectOnboardingDetailsBodyStyle}>
+          <div style={projectOnboardingChecklistStyle}>
+            {readiness.checks.map((check) => (
+              <div
+                aria-label={check.label}
+                key={check.id}
+                role="group"
+                style={projectOnboardingCheckStyle}
+              >
+                <span
+                  className={projectOnboardingCheckBadgeClass(check)}
+                  style={projectOnboardingCheckBadgeStyle}
+                >
+                  {projectOnboardingCheckBadgeLabel(check)}
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={titleStyle}>{check.label}</div>
+                  <div style={subtleTextStyle}>{check.detail}</div>
+                </div>
+                {check.status !== "ready" &&
+                  !check.optional &&
+                  check.action?.type === "create_work_item" &&
+                  !fallbackWorkAction &&
+                  displayedPrimaryAction.type !== "create_work_item" && (
+                    <button
+                      aria-label={`${check.action.label}: ${check.label}`}
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => onAction(check.action!)}
+                      style={projectOnboardingCheckActionStyle}
+                      type="button"
+                    >
+                      {check.action.label}
+                    </button>
+                  )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+          <div>
+            <button
+              className="btn btn-ghost btn-sm"
+              data-project-settings-origin="onboarding"
+              type="button"
+              onClick={() => onOpenSettings("onboarding")}
+            >
+              <Icon d={Icons.settings} size={13} />
+              Project settings
+            </button>
+          </div>
+        </div>
+      </details>
     </section>
   );
 }
@@ -1616,6 +1776,34 @@ const projectOnboardingChecklistStyle: CSSProperties = {
   minWidth: 0,
 };
 
+const projectOnboardingDetailsStyle: CSSProperties = {
+  alignSelf: "center",
+  background: "var(--bg0)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  minWidth: 0,
+};
+
+const projectOnboardingSummaryStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t1)",
+  cursor: "pointer",
+  display: "flex",
+  fontSize: 12,
+  fontWeight: 600,
+  gap: 8,
+  justifyContent: "space-between",
+  listStylePosition: "inside",
+  padding: 12,
+};
+
+const projectOnboardingDetailsBodyStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  gap: 10,
+  padding: 10,
+};
+
 const projectOnboardingCheckStyle: CSSProperties = {
   alignItems: "center",
   background: "var(--bg0)",
@@ -1628,14 +1816,14 @@ const projectOnboardingCheckStyle: CSSProperties = {
   padding: 10,
 };
 
-const projectOnboardingCheckBadgeStyle: CSSProperties = {
-  justifySelf: "start",
-  textTransform: "uppercase",
-};
-
 const projectOnboardingCheckActionStyle: CSSProperties = {
   justifySelf: "end",
   whiteSpace: "nowrap",
+};
+
+const projectOnboardingCheckBadgeStyle: CSSProperties = {
+  justifySelf: "start",
+  textTransform: "uppercase",
 };
 
 const projectWorkspaceTabsStyle: CSSProperties = {

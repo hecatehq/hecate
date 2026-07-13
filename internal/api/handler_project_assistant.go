@@ -333,6 +333,8 @@ func writeProjectAssistantError(w http.ResponseWriter, err error) {
 
 func projectAssistantErrorStatusCode(err error) (int, string) {
 	switch {
+	case errors.Is(err, projectassistant.ErrNoSetupInputs):
+		return http.StatusUnprocessableEntity, errCodeProjectSetupNoInputs
 	case errors.Is(err, projectassistant.ErrUnknownActionKind), errors.Is(err, projectassistant.ErrInvalid):
 		return http.StatusBadRequest, errCodeInvalidRequest
 	case errors.Is(err, projectassistant.ErrNotFound):

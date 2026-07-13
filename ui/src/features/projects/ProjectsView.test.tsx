@@ -203,7 +203,7 @@ function projectSetupReadinessData(
   projectID: string,
   overrides: Partial<ProjectSetupReadiness> = {},
 ): ProjectSetupReadiness {
-  return {
+  const readiness: ProjectSetupReadiness = {
     project_id: projectID,
     generated_at: "2026-06-20T00:00:00Z",
     show_onboarding: false,
@@ -228,6 +228,18 @@ function projectSetupReadinessData(
     checks: [],
     ...overrides,
   };
+  if (
+    !overrides.primary_action &&
+    (readiness.first_work_ready ||
+      (readiness.show_onboarding && !readiness.summary.has_active_root))
+  ) {
+    readiness.primary_action = {
+      type: "create_work_item",
+      project_id: projectID,
+      label: "Create first work",
+    };
+  }
+  return readiness;
 }
 
 async function openProjectWorkspaceTab(name: RegExp | string) {
@@ -1554,18 +1566,73 @@ describe("ProjectsView index", () => {
         draft_mode: "bootstrap",
       });
     });
-    const workTab = await screen.findByRole("tab", { name: "Work" });
-    await waitFor(() => expect(workTab).toHaveFocus());
+    const overviewTab = await screen.findByRole("tab", { name: "Overview" });
+    expect(overviewTab).toHaveAttribute("aria-selected", "true");
     const assistant = await screen.findByRole("region", {
       name: "Project Assistant",
     });
     expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
-    expect(within(assistant).getByRole("button", { name: "Dismiss proposal" })).toBeTruthy();
+    expect(within(assistant).getByRole("button", { name: "Dismiss setup" })).toBeTruthy();
+    const applySetup = within(assistant).getByRole("button", { name: "Apply setup" });
+    await waitFor(() => expect(applySetup).toHaveFocus());
     expect(within(assistant).queryByLabelText("Request")).toBeNull();
     expect(within(assistant).queryByRole("button", { name: "Draft proposal" })).toBeNull();
   });
 
-  it("restores onboarding settings focus after a delayed setup refresh", async () => {
+  it("opens first work directly from authoritative rootless readiness", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_work_roles",
+      data: [],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
+    vi.mocked(getProjectSetupReadiness).mockResolvedValue({
+      object: "project_setup_readiness",
+      data: projectSetupReadinessData(project.id, {
+        show_onboarding: true,
+        setup_started: false,
+        first_work_ready: false,
+        summary: {
+          work_item_count: 0,
+          role_count: 0,
+          skill_count: 0,
+          enabled_context_source_count: 0,
+          saved_memory_count: 0,
+          pending_memory_candidate_count: 0,
+          has_purpose: true,
+          has_active_root: false,
+          missing_defaults: false,
+        },
+        primary_action: {
+          type: "create_work_item",
+          project_id: project.id,
+          label: "Create first work",
+        },
+        checks: [],
+      }),
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [{ ...project, roots: [] }] }),
+    });
+
+    const onboarding = await screen.findByRole("region", { name: "Project onboarding" });
+    await user.click(within(onboarding).getByRole("button", { name: "Create first work" }));
+
+    expect(await screen.findByRole("dialog", { name: "New work item" })).toBeTruthy();
+    expect(draftProjectAssistant).not.toHaveBeenCalled();
+  });
+
+  it("restores onboarding disclosure focus after a delayed setup refresh", async () => {
     resetProjectWorkMocks();
     const readiness = projectSetupReadinessData(project.id, {
       show_onboarding: true,
@@ -1604,6 +1671,7 @@ describe("ProjectsView index", () => {
     });
 
     let onboarding = await screen.findByRole("region", { name: "Project onboarding" });
+    await userEvent.click(within(onboarding).getByText("Setup details"));
     const settingsTrigger = within(onboarding).getByRole("button", {
       name: "Project settings",
     });
@@ -1628,7 +1696,7 @@ describe("ProjectsView index", () => {
 
     onboarding = await screen.findByRole("region", { name: "Project onboarding" });
     await waitFor(() => {
-      expect(within(onboarding).getByRole("button", { name: "Project settings" })).toHaveFocus();
+      expect(within(onboarding).getByText("Setup details").closest("summary")).toHaveFocus();
     });
   });
 
@@ -1718,7 +1786,7 @@ describe("ProjectsView index", () => {
     expect(await screen.findByRole("region", { name: "Project setup unavailable" })).toBeTruthy();
   });
 
-  it("returns bootstrapped projects without work to the cockpit instead of setup-only mode", async () => {
+  it("guides bootstrapped projects from Overview to their first work item", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectActivity).mockResolvedValue({
       object: "project_activity",
@@ -1769,17 +1837,20 @@ describe("ProjectsView index", () => {
     };
     window.localStorage.setItem("hecate.project", bootstrappedProject.id);
 
-    render(<WorkProjects />, {
+    render(<ProjectsView />, {
       wrapper: directWrapper({ projects: [bootstrappedProject] }),
     });
 
     expect(await screen.findByRole("region", { name: "Project Assistant" })).toBeTruthy();
     expect(screen.queryByText("Set up Hecate")).toBeNull();
     expect(screen.getByRole("tablist", { name: "Project workspace views" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Work" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Project overview" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Work coordination" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set up project" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Inspect context" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create first work" })).toHaveClass("btn-primary");
+    expect(
+      screen.getByText("Setup details", { selector: "summary" }).closest("details"),
+    ).not.toHaveAttribute("open");
     expect(screen.queryByLabelText("Request")).toBeNull();
     expect(screen.queryByRole("button", { name: "Draft proposal" })).toBeNull();
   });
@@ -1845,14 +1916,14 @@ describe("ProjectsView index", () => {
     const user = userEvent.setup();
     window.localStorage.setItem("hecate.project", bootstrappedProject.id);
 
-    render(<WorkProjects />, {
+    render(<ProjectsView />, {
       wrapper: directWrapper({ projects: [bootstrappedProject] }),
     });
 
     const assistant = await screen.findByRole("region", {
       name: "Project Assistant",
     });
-    await within(assistant).findByText(/1 role · 1 memory candidate/);
+    await within(assistant).findByText(/1 role · 1 memory suggestion/);
     await user.click(within(assistant).getByRole("button", { name: "Create first work" }));
 
     const dialog = await screen.findByRole("dialog", { name: "New work item" });
@@ -7205,6 +7276,212 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("submits a pending work item only once and keeps its dialog open", async () => {
+    resetProjectWorkMocks();
+    const createdWork = {
+      ...workItem,
+      id: "work_once",
+      title: "Create exactly once",
+      assignments: [],
+    };
+    let resolveCreate = (_value: { object: "project_work_item"; data: typeof createdWork }) => {};
+    const createRequest = new Promise<{
+      object: "project_work_item";
+      data: typeof createdWork;
+    }>((resolve) => {
+      resolveCreate = resolve;
+    });
+    vi.mocked(createProjectWorkItem).mockImplementation(async () => createRequest);
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: createdWork,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Work" }));
+    const dialog = await screen.findByRole("dialog", { name: "New work item" });
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: createdWork.title },
+    });
+    const form = within(dialog).getByLabelText("Title").closest("form");
+    act(() => {
+      fireEvent.submit(form!);
+      fireEvent.submit(form!);
+    });
+
+    expect(createProjectWorkItem).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "New work item" })).toBeTruthy();
+
+    await act(async () => {
+      resolveCreate({ object: "project_work_item", data: createdWork });
+      await createRequest;
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "New work item" })).toBeNull();
+      expect(screen.getByRole("heading", { name: createdWork.title })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: /Work/ })).toHaveFocus();
+    });
+  });
+
+  it("releases first-work creation while its detail refresh is still pending", async () => {
+    resetProjectWorkMocks();
+    const createdWork = {
+      ...workItem,
+      id: "work_slow_detail",
+      title: "Created before detail refresh",
+      assignments: [],
+    };
+    let resolveDetail = (_value: { object: "project_work_item"; data: typeof createdWork }) => {};
+    const detailRequest = new Promise<{
+      object: "project_work_item";
+      data: typeof createdWork;
+    }>((resolve) => {
+      resolveDetail = resolve;
+    });
+    let resolveOperations = (_value: {
+      object: "project_operations_brief";
+      data: ProjectOperationsBrief;
+    }) => {};
+    const operationsRequest = new Promise<{
+      object: "project_operations_brief";
+      data: ProjectOperationsBrief;
+    }>((resolve) => {
+      resolveOperations = resolve;
+    });
+    vi.mocked(getProjectOperationsBrief)
+      .mockResolvedValueOnce({
+        object: "project_operations_brief",
+        data: emptyOperationsBriefData(),
+      })
+      .mockImplementation(async () => operationsRequest);
+    vi.mocked(createProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: createdWork,
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) =>
+      workItemID === createdWork.id
+        ? detailRequest
+        : { object: "project_work_item", data: workItem },
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Work" }));
+    const firstDialog = await screen.findByRole("dialog", { name: "New work item" });
+    await user.type(within(firstDialog).getByLabelText("Title"), createdWork.title);
+    await user.click(within(firstDialog).getByRole("button", { name: "Create work item" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "New work item" })).toBeNull();
+      expect(getProjectWorkItem).toHaveBeenCalledWith(project.id, createdWork.id);
+      expect(vi.mocked(getProjectOperationsBrief).mock.calls.length).toBeGreaterThan(1);
+    });
+
+    vi.mocked(createProjectWorkItem).mockRejectedValueOnce(new Error("Second create failed."));
+    await user.click(screen.getByRole("button", { name: "Work" }));
+    const secondDialog = await screen.findByRole("dialog", { name: "New work item" });
+    await user.type(within(secondDialog).getByLabelText("Title"), "Another work item");
+    expect(within(secondDialog).getByRole("button", { name: "Create work item" })).toBeEnabled();
+    await user.click(within(secondDialog).getByRole("button", { name: "Create work item" }));
+    expect(await within(secondDialog).findByRole("alert")).toHaveTextContent(
+      "Second create failed.",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "New work item" })).toBeNull();
+
+    await act(async () => {
+      resolveOperations({
+        object: "project_operations_brief",
+        data: emptyOperationsBriefData(),
+      });
+      await operationsRequest;
+      resolveDetail({ object: "project_work_item", data: createdWork });
+      await detailRequest;
+    });
+  });
+
+  it("ignores a pending work-item response after Projects unmounts", async () => {
+    resetProjectWorkMocks();
+    const createdWork = {
+      ...workItem,
+      id: "work_after_unmount",
+      title: "Late first work",
+      assignments: [],
+    };
+    let resolveCreate = (_value: { object: "project_work_item"; data: typeof createdWork }) => {};
+    const createRequest = new Promise<{
+      object: "project_work_item";
+      data: typeof createdWork;
+    }>((resolve) => {
+      resolveCreate = resolve;
+    });
+    vi.mocked(createProjectWorkItem).mockImplementation(async () => createRequest);
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const onNavigate = vi.fn();
+    function Harness() {
+      const [inProjects, setInProjects] = useState(true);
+      return (
+        <>
+          <button onClick={() => setInProjects(false)}>Leave Projects</button>
+          {inProjects ? (
+            <WorkProjects onNavigate={onNavigate} />
+          ) : (
+            <main aria-label="Chats workspace">Chats</main>
+          )}
+        </>
+      );
+    }
+    render(withRuntimeConsole(<Harness />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Work" }));
+    const dialog = await screen.findByRole("dialog", { name: "New work item" });
+    fireEvent.change(within(dialog).getByLabelText("Title"), {
+      target: { value: createdWork.title },
+    });
+    fireEvent.submit(within(dialog).getByLabelText("Title").closest("form")!);
+    await waitFor(() => expect(createProjectWorkItem).toHaveBeenCalledTimes(1));
+    onNavigate.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave Projects" }));
+    expect(screen.getByRole("main", { name: "Chats workspace" })).toBeTruthy();
+
+    await act(async () => {
+      resolveCreate({ object: "project_work_item", data: createdWork });
+      await createRequest;
+    });
+
+    expect(screen.getByRole("main", { name: "Chats workspace" })).toBeTruthy();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(getProjectWorkItem).not.toHaveBeenCalledWith(project.id, createdWork.id);
+  });
+
   it("does not commit a slow work-item response after an A-B-A project switch", async () => {
     resetProjectWorkMocks();
     const secondProject: ProjectRecord = {
@@ -7452,7 +7729,7 @@ describe("ProjectsView cockpit", () => {
       };
     });
     window.localStorage.setItem("hecate.project", bootstrappedProject.id);
-    render(<WorkProjects />, {
+    render(<ProjectsView />, {
       wrapper: directWrapper({ projects: [bootstrappedProject] }),
     });
 

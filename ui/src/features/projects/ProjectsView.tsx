@@ -319,6 +319,8 @@ export function ProjectsView({
   const [newWorkDraft, setNewWorkDraft] = useState<Partial<NewWorkItemForm> | undefined>();
   const [newWorkPending, setNewWorkPending] = useState(false);
   const [newWorkError, setNewWorkError] = useState("");
+  const newWorkInFlightRef = useRef(false);
+  const newWorkRequestSequenceRef = useRef(0);
   const [editingWorkItem, setEditingWorkItem] = useState<ProjectWorkItemRecord | null>(null);
   const [editWorkPending, setEditWorkPending] = useState(false);
   const [editWorkError, setEditWorkError] = useState("");
@@ -491,6 +493,8 @@ export function ProjectsView({
   useEffect(
     () => () => {
       createProjectRequestSequenceRef.current += 1;
+      newWorkRequestSequenceRef.current += 1;
+      newWorkInFlightRef.current = false;
     },
     [],
   );
@@ -597,10 +601,15 @@ export function ProjectsView({
           (element) => element.dataset.projectSettingsOrigin === returnFocusOrigin,
         ) ?? null)
       : null;
+    const replacementDetails = replacement?.closest("details");
+    const visibleReplacement =
+      replacementDetails instanceof HTMLDetailsElement && !replacementDetails.open
+        ? replacementDetails.querySelector<HTMLElement>(":scope > summary")
+        : replacement;
     const available = (element: HTMLElement | null) =>
       Boolean(element?.isConnected && !(element instanceof HTMLButtonElement && element.disabled));
-    const target = available(replacement)
-      ? replacement
+    const target = available(visibleReplacement)
+      ? visibleReplacement
       : available(returnFocus)
         ? returnFocus
         : null;
@@ -639,6 +648,8 @@ export function ProjectsView({
     setNewWorkDraft(undefined);
     setNewWorkPending(false);
     setNewWorkError("");
+    newWorkInFlightRef.current = false;
+    newWorkRequestSequenceRef.current += 1;
     setEditingWorkItem(null);
     setEditWorkPending(false);
     setEditWorkError("");
@@ -691,10 +702,10 @@ export function ProjectsView({
   }
 
   const navigateWorkspaceTab = useCallback(
-    (tab: ProjectWorkspaceTab) => {
+    (tab: ProjectWorkspaceTab, focusTab = true) => {
       deliberateOnboardingNavigationRef.current = true;
       setWorkspaceTab(tab);
-      setWorkspaceTabFocusTarget(tab);
+      setWorkspaceTabFocusTarget(focusTab ? tab : null);
       const projectID = selectedProjectIDRef.current;
       if (!projectID) return;
       onNavigate?.({
@@ -1870,16 +1881,24 @@ export function ProjectsView({
   }
 
   async function handleCreateWorkItem(form: NewWorkItemForm) {
-    if (!selectedProjectID) return;
+    if (!selectedProjectID || newWorkInFlightRef.current) return;
     const title = form.title.trim();
     if (!title) return;
     const projectID = selectedProjectID;
     const selectionGeneration = projectSelectionGenerationRef.current;
+    const requestSequence = newWorkRequestSequenceRef.current + 1;
+    newWorkRequestSequenceRef.current = requestSequence;
+    newWorkInFlightRef.current = true;
+    const requestIsCurrent = () =>
+      newWorkRequestSequenceRef.current === requestSequence &&
+      isCurrentProjectMutation(projectID, selectionGeneration);
+    let createdWorkItem: ProjectWorkItemRecord | null = null;
     setNewWorkPending(true);
     setNewWorkError("");
     try {
       const payload = await createProjectWorkItem(projectID, workItemCreatePayloadFromForm(form));
-      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
+      if (!requestIsCurrent()) return;
+      createdWorkItem = payload.data;
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       setWorkItemSummaries((current) => ({
         ...current,
@@ -1891,17 +1910,21 @@ export function ProjectsView({
         },
       }));
       setSelectedWorkItemOperationID("");
-      navigateWorkItem(payload.data.id, false);
+      navigateWorkItem(payload.data.id);
       setNewWorkModalOpen(false);
       setNewWorkDraft(undefined);
-      await loadWorkItemDetail(projectID, payload.data.id);
       void refreshProjectOverview(projectID);
     } catch (error) {
-      if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
+      if (!requestIsCurrent()) return;
       setNewWorkError(errorMessage(error, "Failed to create work item."));
     } finally {
-      if (isCurrentProjectMutation(projectID, selectionGeneration)) setNewWorkPending(false);
+      if (newWorkRequestSequenceRef.current === requestSequence) {
+        newWorkInFlightRef.current = false;
+        if (requestIsCurrent()) setNewWorkPending(false);
+      }
     }
+    if (!createdWorkItem || !requestIsCurrent()) return;
+    await loadWorkItemDetail(projectID, createdWorkItem.id);
   }
 
   async function handleUpdateWorkItem(form: EditWorkItemForm) {
@@ -2178,7 +2201,7 @@ export function ProjectsView({
         return;
       }
       case "bootstrap_project":
-        navigateWorkspaceTab("work");
+        navigateWorkspaceTab("overview", false);
         void assistant.bootstrap();
         return;
       case "create_work_item":

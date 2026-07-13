@@ -512,6 +512,33 @@ func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t
 	}
 }
 
+func TestService_DraftBootstrapReturnsTypedNoSetupInputsAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project, err := fixture.projects.Create(ctx, projects.Project{
+				ID:   "proj_bootstrap_empty",
+				Name: "Empty Bootstrap Project",
+			})
+			if err != nil {
+				t.Fatalf("Create project: %v", err)
+			}
+
+			_, err = fixture.service.Draft(ctx, DraftInput{
+				ProjectID: project.ID,
+				Request:   "Set up project guidance",
+				DraftMode: DraftModeBootstrap,
+			})
+			if !errors.Is(err, ErrNoSetupInputs) {
+				t.Fatalf("Draft bootstrap err = %v, want ErrNoSetupInputs", err)
+			}
+		})
+	}
+}
+
 func TestService_DraftBootstrapIgnoresRepoSpecificDocsAISkills(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

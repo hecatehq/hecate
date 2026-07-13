@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,6 +60,25 @@ type projectAssistantErrorResponse struct {
 		ResumeActionIndex    int                          `json:"resume_action_index"`
 		PartialResult        projectassistant.ApplyResult `json:"partial_result"`
 	} `json:"error"`
+}
+
+func TestProjectAssistantNoSetupInputsUsesTypedRecoveryError(t *testing.T) {
+	t.Parallel()
+	err := fmt.Errorf("%w: no enabled guidance sources or local skill files found", projectassistant.ErrNoSetupInputs)
+	status, code := projectAssistantErrorStatusCode(err)
+	if status != http.StatusUnprocessableEntity || code != errCodeProjectSetupNoInputs {
+		t.Fatalf("status/code = %d/%q, want %d/%q", status, code, http.StatusUnprocessableEntity, errCodeProjectSetupNoInputs)
+	}
+
+	rec := httptest.NewRecorder()
+	writeProjectAssistantError(rec, err)
+	var payload projectAssistantErrorResponse
+	if decodeErr := json.NewDecoder(rec.Body).Decode(&payload); decodeErr != nil {
+		t.Fatalf("decode response: %v", decodeErr)
+	}
+	if rec.Code != http.StatusUnprocessableEntity || payload.Error.Type != errCodeProjectSetupNoInputs {
+		t.Fatalf("response = %d/%+v, want typed no-input recovery", rec.Code, payload.Error)
+	}
 }
 
 func newProjectAssistantTestServer() http.Handler {
