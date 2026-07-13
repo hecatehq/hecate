@@ -122,7 +122,7 @@ describe("ProjectsProvider", () => {
     expect(getProjects).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves a newer create failure when a catalog load succeeds", async () => {
+  it("returns create failures to the owning surface without changing catalog feedback", async () => {
     let resolveLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
     vi.mocked(getProjects).mockReturnValue(
       new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
@@ -137,9 +137,10 @@ describe("ProjectsProvider", () => {
       loadPromise = result.current.actions.loadProjects();
     });
     await act(async () => {
-      await result.current.actions.createProject({ name: "Keep this draft" });
+      await expect(
+        result.current.actions.createProject({ name: "Keep this draft" }),
+      ).rejects.toThrow("create failed");
     });
-    expect(result.current.state.createError).toBe("create failed");
     expect(result.current.state.error).toBe("");
 
     resolveLoad({ object: "projects", data: [] });
@@ -149,7 +150,6 @@ describe("ProjectsProvider", () => {
 
     expect(result.current.state.loaded).toBe(true);
     expect(result.current.state.catalogError).toBe("");
-    expect(result.current.state.createError).toBe("create failed");
     expect(result.current.state.error).toBe("");
   });
 
@@ -190,7 +190,7 @@ describe("ProjectsProvider", () => {
     await act(async () => {
       await result.current.actions.createProject({ name: createdProject.name });
     });
-    expect(result.current.activeProjectID).toBe(createdProject.id);
+    expect(result.current.activeProjectID).toBe(project.id);
 
     resolveInitialLoad({ object: "projects", data: [project] });
     await act(async () => {
@@ -199,8 +199,8 @@ describe("ProjectsProvider", () => {
 
     expect(getProjects).toHaveBeenCalledTimes(2);
     expect(result.current.state.projects).toEqual([project, createdProject]);
-    expect(result.current.activeProjectID).toBe(createdProject.id);
-    expect(window.localStorage.getItem("hecate.project")).toBe(createdProject.id);
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
   });
 
   it("validates the current selection when a catalog load finishes", async () => {
@@ -290,7 +290,7 @@ describe("ProjectsProvider", () => {
     expect(result.current.activeProjectID).toBe(opaqueProject.id);
   });
 
-  it("creates a rootless project and selects it", async () => {
+  it("creates a rootless project without taking presentation selection ownership", async () => {
     const created = { ...project, id: "proj_research", name: "Research", roots: [] };
     vi.mocked(createProject).mockResolvedValue({ object: "project", data: created });
     const { result } = renderHook(() => useProjects(), { wrapper });
@@ -307,8 +307,8 @@ describe("ProjectsProvider", () => {
       description: "Durable research workspace.",
     });
     expect(result.current.state.projects).toEqual([created]);
-    expect(result.current.activeProjectID).toBe("proj_research");
-    expect(window.localStorage.getItem("hecate.project")).toBe("proj_research");
+    expect(result.current.activeProjectID).toBe("");
+    expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
 
   it("renames a project and upserts the returned record", async () => {

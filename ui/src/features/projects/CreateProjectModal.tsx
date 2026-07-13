@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { Icon, Icons, InlineError, Modal } from "../shared/ui";
 import type { CreateProjectForm } from "./projectSettings";
@@ -33,8 +33,13 @@ export function CreateProjectModal({
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [choosingWorkspace, setChoosingWorkspace] = useState(false);
   const [chooseError, setChooseError] = useState("");
+  const createButtonRef = useRef<HTMLButtonElement>(null);
   const valid = form.name.trim().length > 0;
   const hasWorkspace = form.rootPath.trim().length > 0;
+
+  useEffect(() => {
+    if (pending) createButtonRef.current?.focus();
+  }, [pending]);
 
   async function handleChooseWorkspace() {
     setChoosingWorkspace(true);
@@ -69,11 +74,13 @@ export function CreateProjectModal({
       width={560}
       footer={
         <button
+          aria-disabled={pending || undefined}
           className="btn btn-primary"
-          disabled={pending || !valid}
+          disabled={!valid}
           onClick={() => {
             if (!pending) void onSave(form);
           }}
+          ref={createButtonRef}
           style={{ justifyContent: "center", width: "100%" }}
           type="button"
         >

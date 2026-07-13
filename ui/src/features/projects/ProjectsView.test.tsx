@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { type ComponentProps, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
@@ -2218,6 +2218,7 @@ describe("ProjectsView index", () => {
 
     expect(actions.createProject).toHaveBeenCalledTimes(1);
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Creating..." })).toHaveFocus();
     await user.keyboard("{Escape}");
     fireEvent.click(dialog.parentElement as HTMLElement);
     expect(screen.getByRole("dialog", { name: "Create project" })).toBe(dialog);
@@ -2230,6 +2231,52 @@ describe("ProjectsView index", () => {
       expect(screen.queryByRole("dialog", { name: "Create project" })).toBeNull();
     });
     expect(actions.selectProject).toHaveBeenCalledWith(project.id);
+  });
+
+  it("does not navigate when a pending create outlives the Projects surface", async () => {
+    resetProjectWorkMocks();
+    let resolveCreate!: (value: ProjectRecord | null) => void;
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      createProject: vi.fn(
+        () =>
+          new Promise<ProjectRecord | null>((resolve) => {
+            resolveCreate = resolve;
+          }),
+      ),
+      selectProject: vi.fn(async () => undefined),
+    };
+    const state = createRuntimeConsoleFixture({ projects: [], activeProjectID: "" });
+    const onNavigate = vi.fn();
+    function Harness() {
+      const [inProjects, setInProjects] = useState(true);
+      return (
+        <>
+          <button onClick={() => setInProjects(false)}>Leave Projects</button>
+          {inProjects ? (
+            <WorkProjects onNavigate={onNavigate} />
+          ) : (
+            <main aria-label="Chats workspace">Chats</main>
+          )}
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(withRuntimeConsole(<Harness />, { state, actions }));
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("Name"), "Late project");
+    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
+    fireEvent.click(screen.getByRole("button", { name: "Leave Projects" }));
+    expect(screen.getByRole("main", { name: "Chats workspace" })).toBeTruthy();
+
+    await act(async () => {
+      resolveCreate(project);
+    });
+
+    expect(screen.getByRole("main", { name: "Chats workspace" })).toBeTruthy();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(actions.selectProject).not.toHaveBeenCalled();
   });
 });
 
@@ -10645,19 +10692,22 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
-  it("keeps unrelated operation feedback outside the create dialog", async () => {
+  it("keeps unrelated operation feedback outside a locally owned create failure", async () => {
     let setProjectError!: (message: string) => void;
-    let setCreateProjectError!: (message: string) => void;
     function Harness() {
       const projectActions = useProjects().actions;
       setProjectError = projectActions.setError;
-      setCreateProjectError = projectActions.setCreateError;
       return <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />;
     }
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      createProject: vi.fn(async () => {
+        throw new Error("create failed");
+      }),
+    };
+    const state = createRuntimeConsoleFixture({ projects: [], activeProjectID: "" });
     const user = userEvent.setup();
-    render(<Harness />, {
-      wrapper: directWrapper({ projects: [], loaded: true }),
-    });
+    render(withRuntimeConsole(<Harness />, { state, actions }));
 
     await user.click(screen.getByRole("button", { name: "Add" }));
     act(() => setProjectError("select failed"));
@@ -10667,8 +10717,9 @@ describe("ProjectsView navigation destinations", () => {
     expect(within(dialog).queryByRole("alert")).toBeNull();
     expect(within(dialog).queryByText("select failed")).toBeNull();
 
-    act(() => setCreateProjectError("create failed"));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("create failed");
+    await user.type(within(dialog).getByLabelText("Name"), "Keep this draft");
+    await user.click(within(dialog).getByRole("button", { name: "Create project" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("create failed");
     expect(screen.getAllByText("create failed")).toHaveLength(1);
     expect(screen.getAllByText("select failed")).toHaveLength(1);
   });
@@ -10922,6 +10973,49 @@ describe("ProjectsView navigation destinations", () => {
     expect(restoredViewStatus).not.toBeNull();
     expect(restoredViewStatus).toHaveAttribute("aria-live", "polite");
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("never announces a known project history destination as missing", async () => {
+    resetProjectWorkMocks();
+    const otherProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Atlas",
+    };
+    const state = createRuntimeConsoleFixture({
+      projects: [project, otherProject],
+      activeProjectID: project.id,
+    });
+    const actions = createRuntimeConsoleActions();
+    const route = (projectID: string) =>
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID, view: "overview", workItemID: null }}
+          onNavigate={vi.fn()}
+        />,
+        { state, actions },
+      );
+    const rendered = render(route(project.id));
+    await screen.findByRole("region", { name: "Project overview" });
+    const emittedText: string[] = [];
+    const captureMutations: MutationCallback = (records) => {
+      for (const record of records) {
+        emittedText.push(record.target.textContent ?? "");
+        for (const node of record.addedNodes) emittedText.push(node.textContent ?? "");
+      }
+    };
+    const observer = new MutationObserver(captureMutations);
+    observer.observe(rendered.container, { characterData: true, childList: true, subtree: true });
+
+    rendered.rerender(route(otherProject.id));
+
+    await waitFor(() => {
+      expect(getProjectSetupReadiness).toHaveBeenLastCalledWith(otherProject.id);
+    });
+    captureMutations(observer.takeRecords(), observer);
+    observer.disconnect();
+    expect(emittedText.join(" ")).not.toContain("Project not found");
+    expect(screen.queryByText("Project not found", { exact: true })).toBeNull();
   });
 
   it("announces exact same-view work-item history changes", async () => {
