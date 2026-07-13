@@ -344,10 +344,12 @@ The Projects UI should stay lightweight but operational:
   primary action. Show Assigned, recorded Started, current status, and recorded
   Finished milestones without treating `updated_at` as transition history.
   Keep approvals, failures, and missing links visible; place canonical
-  `execution_ref`, activity-linked task/run/chat/message/context/trace IDs,
+  `execution_ref`, projected task/run/chat/message/context/trace IDs,
   provider/model, counts, root, readiness, and Context Inspector behind native
   disclosure. The full Context Inspector remains the place to inspect the
-  persisted packet sections the agent actually saw.
+  persisted packet sections the agent actually saw. Activity remains a separate
+  inbox projection and must not override the selected assignment's current
+  execution state, evidence, links, or actions.
 - Show handoff source evidence separately from target assignment evidence.
   Source assignment/run/chat/message/context refs explain provenance; target
   assignment refs explain the follow-up work. Accepting or linking a handoff

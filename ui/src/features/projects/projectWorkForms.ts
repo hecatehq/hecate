@@ -11,8 +11,12 @@ import type {
   UpdateProjectAssignmentPayload,
   UpdateProjectWorkItemPayload,
 } from "../../types/project";
-import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
-import { splitIDs, splitRoleIDs } from "./projectUtils";
+import {
+  toProjectActivityAssignmentExecutionViewModel,
+  toProjectAssignmentExecutionViewModel,
+  type ProjectAssignmentExecutionViewModel,
+} from "./projectAssignmentViewModels";
+import { firstNonEmpty, splitIDs, splitRoleIDs } from "./projectUtils";
 
 export const WORK_ITEM_STATUSES = [
   "backlog",
@@ -272,10 +276,7 @@ export function handoffFormFromAssignment(
   const sourceChatSessionID = execution.chatSessionID;
   const sourceRunID = execution.runID;
   const sourceMessageID =
-    execution.messageID ||
-    activityItem?.linked_message_id ||
-    activityItem?.linked_chat?.latest_message_id ||
-    "";
+    execution.messageID || matchingActivityMessageID(assignment, execution, activityItem);
   const contextRefs = [
     execution.contextSnapshotID,
     execution.taskID,
@@ -303,6 +304,32 @@ export function handoffFormFromAssignment(
     provenanceKind: "operator",
     trustLabel: "operator_reviewed",
   };
+}
+
+function matchingActivityMessageID(
+  assignment: ProjectAssignmentRecord,
+  execution: ProjectAssignmentExecutionViewModel,
+  activityItem?: ProjectActivityItemRecord,
+): string {
+  if (
+    !activityItem ||
+    activityItem.assignment.id !== assignment.id ||
+    activityItem.assignment.project_id !== assignment.project_id ||
+    activityItem.assignment.work_item_id !== assignment.work_item_id ||
+    activityItem.assignment.updated_at !== assignment.updated_at
+  ) {
+    return "";
+  }
+  const activityExecution = toProjectActivityAssignmentExecutionViewModel(activityItem);
+  const hasCanonicalRuntime = Boolean(
+    execution.taskID || execution.runID || execution.chatSessionID,
+  );
+  const sameRuntime =
+    execution.taskID === activityExecution.taskID &&
+    execution.runID === activityExecution.runID &&
+    execution.chatSessionID === activityExecution.chatSessionID;
+  if (!hasCanonicalRuntime || !sameRuntime) return "";
+  return firstNonEmpty(activityItem.linked_message_id, activityItem.linked_chat?.latest_message_id);
 }
 
 export function reviewHandoffFormFromAssignment(

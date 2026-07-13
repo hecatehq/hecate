@@ -3636,6 +3636,93 @@ describe("ProjectsView cockpit", () => {
     expect(within(detail).getAllByText("ollama / qwen2.5-coder").length).toBeGreaterThan(0);
   });
 
+  it("keeps selected assignment execution authoritative over same-version activity", async () => {
+    resetProjectWorkMocks();
+    const onOpenTask = vi.fn();
+    const staleActivityAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      execution_ref: {
+        ...hecateAssignment.execution_ref,
+        kind: "task_run",
+        task_id: "task_stale",
+        run_id: "run_stale",
+        pending_approval_count: 1,
+      },
+      execution: {
+        ...hecateAssignment.execution,
+        task_id: "task_stale",
+        run_id: "run_stale",
+        pending_approval_count: 1,
+      },
+      updated_at: hecateAssignment.updated_at,
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        ...emptyActivityData(),
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 1,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [],
+          blocked: [
+            {
+              id: staleActivityAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: staleActivityAssignment,
+              role,
+              status: "awaiting_approval",
+              blocking_signal: "awaiting_approval",
+              status_summary: "1 approval pending",
+              linked_task_id: "task_stale",
+              linked_run_id: "run_stale",
+              artifact_summary: { count: 0 },
+              handoff_summary: { count: 0 },
+              updated_at: staleActivityAssignment.updated_at,
+            },
+          ],
+          completed: [],
+          recent: [],
+        },
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects onOpenTask={onOpenTask} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    expect(await within(detail).findByText("2 approvals need operator review.")).toBeTruthy();
+    expect(within(detail).queryByText("1 approval pending")).toBeNull();
+
+    await userEvent.click(within(detail).getByText("Execution details"));
+    const evidence = within(detail).getByRole("region", { name: "Execution evidence" });
+    expect(within(evidence).getByText("task_1")).toBeTruthy();
+    expect(within(evidence).queryByText("task_stale")).toBeNull();
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Review in task" }));
+    expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+  });
+
   it("renders project activity inbox states and actions", async () => {
     resetProjectWorkMocks();
     const onOpenTask = vi.fn();
@@ -3886,7 +3973,7 @@ describe("ProjectsView cockpit", () => {
     expect(onOpenChat.mock.calls[0]?.[0].draft).toContain("- Driver: external_agent");
   });
 
-  it("opens a current activity-linked chat instead of drafting a new one", async () => {
+  it("does not treat an activity-only chat as selected execution", async () => {
     resetProjectWorkMocks();
     const onOpenChat = vi.fn();
     const activityOnlyAssignment: ProjectAssignmentRecord = {
@@ -3963,13 +4050,19 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    expect(within(detail).queryByRole("button", { name: "Open chat" })).toBeNull();
+    await userEvent.click(within(detail).getByText("Execution details"));
+    await userEvent.click(within(detail).getByRole("button", { name: "Start related chat" }));
 
-    expect(onOpenChat).toHaveBeenCalledWith({
-      projectID: project.id,
-      chatSessionID: "chat_activity_1",
-    });
-    expect(onOpenChat.mock.calls[0]?.[0].draft).toBeUndefined();
+    expect(onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: project.id,
+        model: "qwen2.5-coder",
+        draft: expect.stringContaining("Launch context"),
+      }),
+    );
+    expect(onOpenChat.mock.calls[0]?.[0].chatSessionID).toBeUndefined();
   });
 
   it("prefills handoffs from linked external-agent assignment context", async () => {
@@ -4060,10 +4153,9 @@ describe("ProjectsView cockpit", () => {
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
     );
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    expect(within(detail).getByText("chat completed")).toBeTruthy();
-    expect(
-      within(detail).getByText("linked chat · running · assistant completed · 2 messages"),
-    ).toBeTruthy();
+    expect(within(detail).getByText("External Agent is running.")).toBeTruthy();
+    expect(within(detail).queryByText("chat completed")).toBeNull();
+    expect(within(detail).queryByText(/linked chat · running/)).toBeNull();
 
     await userEvent.click(
       within(detail).getByRole("button", {

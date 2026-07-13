@@ -133,7 +133,9 @@ chat** is a separate supporting action that creates a new draft.
 Pending approvals, errors, missing runtime links, and missing prepared External
 Agent chats stay visible. Open **Execution details** for task/run/chat IDs,
 provider/model, root, readiness, Context Inspector, and canonical evidence.
-These are supporting facts; Tasks, Chats, and External Agents remain the
+The selected assignment projection is authoritative for those facts and
+actions; the separately refreshed activity inbox does not fill in or override
+them. These are supporting facts; Tasks, Chats, and External Agents remain the
 execution authorities.
 
 Preset surface is part of readiness: a native Hecate Task assignment accepts

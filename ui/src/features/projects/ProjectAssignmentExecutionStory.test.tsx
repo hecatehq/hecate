@@ -2,11 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  ProjectActivityItemRecord,
-  ProjectAssignmentRecord,
-  ProjectWorkRoleRecord,
-} from "../../types/project";
+import type { ProjectAssignmentRecord, ProjectWorkRoleRecord } from "../../types/project";
 import {
   ProjectAssignmentExecutionStory,
   type ProjectAssignmentExecutionStoryProps,
@@ -40,30 +36,6 @@ const role: ProjectWorkRoleRecord = {
   created_at: "2026-07-01T00:00:00Z",
   updated_at: "2026-07-01T00:00:00Z",
 };
-
-function activityItem(
-  record: ProjectAssignmentRecord,
-  overrides: Partial<ProjectActivityItemRecord> = {},
-): ProjectActivityItemRecord {
-  return {
-    id: record.id,
-    project_id: record.project_id,
-    work_item: {
-      id: record.work_item_id,
-      title: "Test work",
-      status: "running",
-      priority: "normal",
-    },
-    assignment: record,
-    role,
-    status: record.status,
-    blocking_signal: "running",
-    status_summary: "",
-    artifact_summary: { count: 0 },
-    updated_at: record.updated_at,
-    ...overrides,
-  };
-}
 
 function renderStory(
   record: ProjectAssignmentRecord,
@@ -180,9 +152,7 @@ describe("ProjectAssignmentExecutionStory", () => {
         status: "awaiting_approval",
       },
     });
-    const { handlers } = renderStory(record, {
-      activityItem: activityItem(record, { status_summary: "awaiting approval" }),
-    });
+    const { handlers } = renderStory(record);
 
     expect(screen.getAllByText("review", { exact: true })).toHaveLength(2);
     expect(screen.getByText("Assignment needs operator review.")).toBeTruthy();
@@ -321,73 +291,15 @@ describe("ProjectAssignmentExecutionStory", () => {
     ).toBeTruthy();
   });
 
-  it("ignores stale activity prose that disagrees with the current assignment", () => {
-    const completed = assignment({
-      status: "completed",
-      completed_at: "2026-07-10T10:30:00Z",
-      execution_ref: { kind: "task_run", task_id: "task_done", status: "completed" },
-    });
-    renderStory(completed, {
-      activityItem: activityItem(completed, {
-        status: "running",
-        status_summary: "The old activity projection still says this is running.",
-      }),
-    });
-
-    expect(
-      screen.getByText("Execution completed. Review the outcome and choose the follow-through."),
-    ).toBeTruthy();
-    expect(screen.queryByText(/old activity projection/i)).toBeNull();
-  });
-
-  it("does not restore execution evidence from an older assignment version", () => {
-    const current = assignment({
-      status: "running",
-      execution_ref: { kind: "none", status: "running" },
-      started_at: undefined,
-      updated_at: "2026-07-12T12:00:00Z",
-    });
-    const stale = assignment({
-      status: "running",
-      execution_ref: {
-        kind: "task_run",
-        task_id: "task_stale",
-        run_id: "run_stale",
-        status: "running",
-      },
-      started_at: "2026-07-10T10:05:00Z",
-      updated_at: "2026-07-11T11:00:00Z",
-    });
-    renderStory(current, {
-      activityItem: activityItem(stale, {
-        linked_task_id: "task_stale",
-        linked_run_id: "run_stale",
-        status_summary: "The old linked task is running.",
-      }),
-    });
-
-    expect(screen.queryByRole("button", { name: "Open task" })).toBeNull();
-    expect(screen.queryByText("Started", { exact: true })).toBeNull();
-    expect(screen.queryByText(/old linked task/i)).toBeNull();
-    expect(
-      screen.getByText("No linked task or chat is available for this assignment."),
-    ).toBeTruthy();
-  });
-
-  it("wraps long server-provided status content", () => {
+  it("wraps long server-provided role and milestone content", () => {
     const running = assignment({
       status: "running",
       execution_ref: { kind: "task_run", task_id: "task_long", status: "running" },
     });
-    const longSummary = `Waiting-${"unbroken".repeat(40)}`;
-    renderStory(running, {
-      activityItem: activityItem(running, {
-        status: "running",
-        status_summary: longSummary,
-      }),
-    });
+    const longRoleName = `Specialist-${"unbroken".repeat(40)}`;
+    renderStory(running, { role: { ...role, name: longRoleName } });
 
-    expect(screen.getByText(longSummary)).toHaveStyle({ overflowWrap: "anywhere" });
+    expect(screen.getByText(longRoleName)).toHaveStyle({ overflowWrap: "anywhere" });
     expect(screen.getByText("Execution is in progress.")).toHaveStyle({
       overflowWrap: "anywhere",
     });

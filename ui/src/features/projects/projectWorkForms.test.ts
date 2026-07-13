@@ -173,6 +173,71 @@ describe("projectWorkForms", () => {
     });
   });
 
+  it("rejects stale activity messages when drafting handoff provenance", () => {
+    const assignment: ProjectAssignmentRecord = {
+      id: "assign_1",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      role_id: "developer",
+      driver_kind: "external_agent",
+      status: "running",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_current",
+        context_snapshot_id: "ctx_current",
+        status: "running",
+      },
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T02:00:00Z",
+    };
+    const staleVersionAssignment: ProjectAssignmentRecord = {
+      ...assignment,
+      updated_at: "2026-06-12T01:00:00Z",
+    };
+    const staleVersionActivity: ProjectActivityItemRecord = {
+      id: assignment.id,
+      project_id: assignment.project_id,
+      work_item: {
+        id: assignment.work_item_id,
+        title: "Build cockpit",
+        status: "running",
+        priority: "normal",
+      },
+      assignment: staleVersionAssignment,
+      role: { id: "developer", project_id: "proj_1", name: "Developer", built_in: false },
+      status: "running",
+      blocking_signal: "running",
+      status_summary: "linked chat running",
+      linked_chat_id: "chat_current",
+      linked_message_id: "msg_stale_version",
+      artifact_summary: { count: 0 },
+      updated_at: staleVersionAssignment.updated_at,
+    };
+    const differentRuntimeAssignment: ProjectAssignmentRecord = {
+      ...assignment,
+      execution_ref: {
+        ...assignment.execution_ref,
+        kind: "chat_session",
+        chat_session_id: "chat_stale",
+      },
+    };
+    const differentRuntimeActivity: ProjectActivityItemRecord = {
+      ...staleVersionActivity,
+      assignment: differentRuntimeAssignment,
+      linked_chat_id: "chat_stale",
+      linked_message_id: "msg_stale_runtime",
+      updated_at: assignment.updated_at,
+    };
+
+    for (const activity of [staleVersionActivity, differentRuntimeActivity]) {
+      expect(handoffFormFromAssignment(assignment, null, activity)).toMatchObject({
+        sourceChatSessionID: "chat_current",
+        sourceMessageID: "",
+        contextRefs: "ctx_current, chat_current",
+      });
+    }
+  });
+
   it("drafts reviewer handoffs with target role and source evidence", () => {
     const assignment: ProjectAssignmentRecord = {
       id: "assign_1234567890",
