@@ -717,7 +717,7 @@ const milestoneContentStyle: CSSProperties = { display: "grid", gap: 3, minWidth
 
 const milestoneHeaderStyle: CSSProperties = {
   alignItems: "baseline",
-  color: "var(--t3)",
+  color: "var(--t2)",
   display: "flex",
   flexWrap: "wrap",
   fontSize: 10,
@@ -741,7 +741,7 @@ const currentLabelStyle: CSSProperties = {
 };
 
 const milestoneDetailStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   fontSize: 11,
   lineHeight: 1.4,
   overflowWrap: "anywhere",
@@ -803,7 +803,7 @@ const followThroughStyle: CSSProperties = {
 };
 
 const followThroughLabelStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   fontFamily: "var(--font-mono)",
   fontSize: 9,
   letterSpacing: "0.05em",
@@ -839,7 +839,7 @@ const evidenceGridStyle: CSSProperties = {
 const evidenceItemStyle: CSSProperties = { display: "grid", gap: 3, minWidth: 0 };
 
 const evidenceLabelStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   fontFamily: "var(--font-mono)",
   fontSize: 9,
   textTransform: "uppercase",
