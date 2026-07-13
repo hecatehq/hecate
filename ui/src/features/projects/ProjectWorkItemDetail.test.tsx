@@ -188,7 +188,7 @@ function preflightPacket(): ContextPacketRecord {
     items: [
       {
         kind: "launch_preflight",
-        title: "Launch preflight",
+        title: "Launch details",
         trust_level: "runtime",
         origin: "project_assignment.preflight",
         included: false,
@@ -359,6 +359,15 @@ describe("ProjectWorkItemDetail", () => {
       within(status).getByText("Loading assignments and collaboration artifacts."),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("describes pending closeout checks in operator language", () => {
+    renderDetail({ closeoutReadiness: null, loading: true });
+
+    expect(
+      screen.getAllByText("Checking assignments, reviews, evidence, and handoffs."),
+    ).not.toHaveLength(0);
+    expect(screen.queryByText(/operations contract/i)).toBeNull();
   });
 
   it("treats null detail lists as empty", () => {
@@ -1170,7 +1179,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(getProjectAssignmentPreflightMock).toHaveBeenCalledWith("proj_1", "work_1", "assign_1");
 
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment assign_1 launch preflight",
+      name: "Assignment assign_1 launch details",
     });
     const posture = within(preflight).getByRole("region", {
       name: "Resolved launch posture",
@@ -1197,6 +1206,11 @@ describe("ProjectWorkItemDetail", () => {
       name: "Assignment launch readiness",
     });
     expect(within(readiness).getByText("not checked")).toBeTruthy();
+    expect(
+      within(readiness).getByText(
+        "Check the work destination, workspace, preset, and target before reviewing launch details.",
+      ),
+    ).toBeTruthy();
 
     await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
 
@@ -1271,7 +1285,7 @@ describe("ProjectWorkItemDetail", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Review & prepare chat" }));
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment assign_1 launch preflight",
+      name: "Assignment assign_1 launch details",
     });
     const posture = within(preflight).getByRole("region", {
       name: "Resolved launch posture",
@@ -1299,7 +1313,7 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(
       await screen.findByRole("dialog", {
-        name: "Assignment assign_prepared launch preflight",
+        name: "Assignment assign_prepared launch details",
       }),
     ).toBeTruthy();
     expect(getProjectAssignmentPreflightMock).toHaveBeenCalledWith(
@@ -1341,7 +1355,7 @@ describe("ProjectWorkItemDetail", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Review & start" }));
     const preflight = await screen.findByRole("dialog", {
-      name: "Assignment assign_1 launch preflight",
+      name: "Assignment assign_1 launch details",
     });
 
     expect(within(preflight).getByText("Provider/model not ready")).toBeTruthy();

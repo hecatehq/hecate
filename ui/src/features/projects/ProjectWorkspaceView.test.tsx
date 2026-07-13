@@ -520,13 +520,19 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
   });
 
+  it("gives the active Work view a top-level heading", () => {
+    renderWorkspace({ workspaceTab: "work" });
+
+    expect(screen.getByRole("heading", { level: 1, name: "Work Queue" })).toBeTruthy();
+  });
+
   it("renders project operations brief items", async () => {
     const operationItem = {
       id: "start_queued_assignment:proj_1:asgn_1",
       kind: "start_queued_assignment",
       priority: "high",
       title: "Review queued assignment: Build cockpit UI",
-      detail: "Open launch preflight before starting this assignment.",
+      detail: "Review launch details before starting this assignment.",
       action_label: "Review start",
       status: "not_started",
       target: {

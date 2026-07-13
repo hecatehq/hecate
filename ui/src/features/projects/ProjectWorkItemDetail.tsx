@@ -1017,11 +1017,11 @@ function unavailableCloseoutReadiness(
     work_item_id: workItem.id,
     ready: false,
     status: "blocked",
-    title: loading ? "Checking closeout readiness" : "Closeout readiness unavailable",
+    title: loading ? "Checking whether this work can close" : "Closeout check unavailable",
     detail: loading
-      ? "Loading closeout readiness from the project operations contract."
-      : "Refresh work item detail before marking done.",
-    blockers: [loading ? "Closeout readiness is loading." : "Closeout readiness is unavailable."],
+      ? "Checking assignments, reviews, evidence, and handoffs."
+      : "Refresh work details before marking done.",
+    blockers: [loading ? "Closeout checks are still loading." : "Closeout checks are unavailable."],
     warnings: [],
     assignment_count: 0,
     completed_assignments: 0,
@@ -1583,13 +1583,10 @@ function AssignmentLaunchReadinessPreview({
       </div>
       {state.status === "idle" && (
         <div style={subtleTextStyle}>
-          Check the resolved driver, workspace, preset, and launch target before opening the full
-          preflight.
+          Check the work destination, workspace, preset, and target before reviewing launch details.
         </div>
       )}
-      {state.status === "loading" && (
-        <div style={subtleTextStyle}>Loading typed launch readiness…</div>
-      )}
+      {state.status === "loading" && <div style={subtleTextStyle}>Checking launch readiness…</div>}
       {state.status === "error" && <InlineError message={state.detail} />}
       {readiness && (
         <>
@@ -1648,7 +1645,7 @@ function AssignmentLaunchPreflightModal({
   );
   return (
     <Modal
-      title={`Assignment ${assignmentID} launch preflight`}
+      title={`Assignment ${assignmentID} launch details`}
       width={860}
       onClose={onClose}
       footer={
@@ -1678,7 +1675,7 @@ function AssignmentLaunchPreflightModal({
       <div style={{ padding: 16, overflowY: "auto" }}>
         {state.status === "idle" || state.status === "loading" ? (
           <div style={{ display: "grid", gap: 6 }}>
-            <div style={titleStyle}>Loading launch preflight...</div>
+            <div style={titleStyle}>Loading launch details…</div>
             <div style={subtleTextStyle}>
               Checking the assignment launch context before any task, run, or chat session is
               created.

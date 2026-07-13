@@ -191,7 +191,7 @@ func assignmentOperationItemFromCairnline(projectID string, item cairnline.Proje
 		if assignment.DriverKind == projectwork.AssignmentDriverManual {
 			return assignmentOperationItemFromHecate(projectID, workItem, assignment, "start_queued_assignment", projectOperationsPriorityHigh, "Human work ready", "This assignment is ready for a person to begin.", "Open work", "not_started", "blocked"), true
 		}
-		return assignmentOperationItemFromHecate(projectID, workItem, assignment, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Open launch preflight before starting this assignment.", "Review start", "not_started", "blocked"), true
+		return assignmentOperationItemFromHecate(projectID, workItem, assignment, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Review launch details before starting this assignment.", "Review start", "not_started", "blocked"), true
 	case projectwork.AssignmentStatusFailed:
 		return assignmentOperationItemFromHecate(projectID, workItem, assignment, "review_failed_assignment", projectOperationsPriorityHigh, "Review failed assignment", firstNonEmpty(item.Detail, "failed run"), "Open work", "failed", "blocked"), true
 	case projectwork.AssignmentStatusCancelled:

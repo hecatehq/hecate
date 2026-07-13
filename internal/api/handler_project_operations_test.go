@@ -513,7 +513,7 @@ func TestProjectOperationItemFromActivity_StartQueuedUsesPreflightAction(t *test
 		WorkItem:        ProjectActivityWorkItemResponse{ID: "work_ops", Title: "Prepare release"},
 		Assignment:      ProjectWorkAssignmentResponse{ID: "asgn_ops", ProjectID: "proj_ops", WorkItemID: "work_ops"},
 		ArtifactSummary: ProjectActivityArtifactSummaryResponse{},
-	}, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Open launch preflight before starting this assignment.", "Review start")
+	}, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Review launch details before starting this assignment.", "Review start")
 
 	if item.Action.Type != projectOperationsActionOpenAssignmentPreflight {
 		t.Fatalf("operation action = %+v, want assignment preflight action", item.Action)
