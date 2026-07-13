@@ -31,6 +31,57 @@ func TestProjectWorkProjection_StatusPrefersStoredTerminalUntilRunIsNewer(t *tes
 	}
 }
 
+func TestProjectWorkProjection_WorkItemStatusPreservesStoredClosureAuthority(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		storedStatus string
+		assignments  []ProjectWorkAssignmentResponse
+		want         string
+	}{
+		{
+			name:         "completed assignment leaves review open",
+			storedStatus: projectwork.WorkItemStatusReview,
+			assignments:  []ProjectWorkAssignmentResponse{{Status: projectwork.AssignmentStatusCompleted}},
+			want:         projectwork.WorkItemStatusReview,
+		},
+		{
+			name:         "cancelled assignment blocks open work",
+			storedStatus: projectwork.WorkItemStatusReady,
+			assignments:  []ProjectWorkAssignmentResponse{{Status: projectwork.AssignmentStatusCancelled}},
+			want:         projectwork.WorkItemStatusBlocked,
+		},
+		{
+			name:         "active assignment projects running",
+			storedStatus: projectwork.WorkItemStatusReady,
+			assignments:  []ProjectWorkAssignmentResponse{{Status: projectwork.AssignmentStatusRunning}},
+			want:         projectwork.WorkItemStatusRunning,
+		},
+		{
+			name:         "stored done remains done",
+			storedStatus: projectwork.WorkItemStatusDone,
+			assignments:  []ProjectWorkAssignmentResponse{{Status: projectwork.AssignmentStatusRunning}},
+			want:         projectwork.WorkItemStatusDone,
+		},
+		{
+			name:         "stored cancellation remains cancelled",
+			storedStatus: projectwork.WorkItemStatusCancelled,
+			assignments:  []ProjectWorkAssignmentResponse{{Status: projectwork.AssignmentStatusRunning}},
+			want:         projectwork.WorkItemStatusCancelled,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := projectWorkItemStatusFromAssignments(test.storedStatus, test.assignments); got != test.want {
+				t.Fatalf("projectWorkItemStatusFromAssignments(%q) = %q, want %q", test.storedStatus, got, test.want)
+			}
+		})
+	}
+}
+
 func TestProjectWorkProjection_AssignmentExecutionHydratesAwaitingRun(t *testing.T) {
 	t.Parallel()
 

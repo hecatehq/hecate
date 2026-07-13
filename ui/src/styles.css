@@ -219,6 +219,54 @@ textarea {
   outline: none;
 }
 
+.project-work-focus-target:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--teal) 58%, transparent);
+  outline: none;
+}
+
+.project-work-advanced-fields {
+  border-top: 1px solid var(--border);
+  color: var(--t2);
+  font-size: 12px;
+  padding-top: 10px;
+}
+
+.project-work-advanced-fields > summary {
+  color: var(--t1);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.project-work-modal-context {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--t1);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 9px 10px;
+}
+
+.project-closeout-summary > div {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+}
+
+.project-closeout-summary strong {
+  color: var(--t0);
+  font-size: 16px;
+}
+
+.project-closeout-summary span {
+  color: var(--t2);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .project-work-coordination-grid {
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
 }
@@ -313,13 +361,28 @@ textarea {
   .project-activity-summary-actions {
     justify-content: flex-start !important;
   }
+
+  .project-work-follow-through {
+    align-items: stretch !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 @media (max-width: 520px) {
   .project-assignment-plan-grid,
   .project-assignment-form-grid,
+  .project-work-modal-grid,
   .project-role-defaults-grid,
   .project-roles-modal-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .project-work-follow-through-action {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .project-closeout-summary {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 

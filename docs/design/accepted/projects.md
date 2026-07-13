@@ -6,11 +6,12 @@ Current source of truth: [Agent runtime](../../runtime/agent-runtime.md), [Chat 
 
 Projects V1 is the durable local cockpit for project-scoped work: roots,
 defaults, memory/context, skills metadata, roles, work items, assignments,
-handoffs, reviews, evidence, activity, and context inspection. Remaining
-near-term work should be beta hardening and dogfood-driven UX polish. Planner /
-Manager agents, runbooks, browser QA, automatic memory promotion, skill-body
-injection, and team project management should be handled as separate proposals
-instead of expanding this foundation document.
+handoffs, reviews, evidence, explicit closeout, activity, and context
+inspection. Remaining near-term work should be beta hardening and
+dogfood-driven UX polish. Planner / Manager agents, runbooks, browser QA,
+automatic memory promotion, skill-body injection, and team project management
+should be handled as separate proposals instead of expanding this foundation
+document.
 
 ## Summary
 
@@ -340,6 +341,11 @@ The Projects UI should stay lightweight but operational:
 - Treat the selected work item as one card. The work title, brief,
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.
+- Start selected-work detail with one follow-through rail driven by the first
+  server-ordered operation for that work item. Use typed assignment, review
+  artifact, and handoff identifiers to focus the exact existing record. Do not
+  parse blocker copy, reorder operations in the client, or derive a parallel
+  next-action cascade.
 - Present each assignment as a readable execution story with one state-driven
   primary action. Show Assigned, recorded Started, current status, and recorded
   Finished milestones without treating `updated_at` as transition history.
@@ -363,6 +369,14 @@ The Projects UI should stay lightweight but operational:
   Source assignment/run/chat/message/context refs explain provenance; target
   assignment refs explain the follow-up work. Accepting or linking a handoff
   still records operator intent only and must not auto-dispatch work.
+- Keep routine evidence, review, and handoff forms short. Require an explicit
+  review verdict, preserve advanced source/runtime/provenance fields behind
+  disclosure, and collapse multi-column form layouts at narrow widths.
+- Treat closeout as an explicit operator transition. Completed assignments may
+  project active or blocked work signals, but they do not close the work item.
+  Confirm **Mark work done**, retain a server conflict as an actionable error,
+  and use the Cairnline-backed readiness status to make completed work
+  read-only while preserving inspection.
 - Open Project Settings as the same right-side inspector pattern used by Chat
   settings, with the same right-panel width behavior. The project header stays
   above the workspace/settings split so the inspector starts below the header,
@@ -428,8 +442,11 @@ Cairnline coordination state. The current flow supports:
   direct Human progress and launch preflight for execution-backed destinations;
 - state-driven assignment execution stories with truthful recorded milestones
   and progressively disclosed runtime evidence;
-- context inspection, evidence, reviews, handoffs, closeout readiness, and
-  project activity;
+- a selected-work follow-through rail that preserves server priority and
+  focuses the exact assignment, review, handoff, or closeout target;
+- context inspection, progressively disclosed evidence/review/handoff forms,
+  explicit closeout confirmation, read-only completed work, and project
+  activity;
 - accepted project memory and operator-reviewed memory candidates;
 - deterministic and model-assisted Project Assistant proposals with confirmed
   apply;
@@ -494,10 +511,12 @@ Out of scope for this document and Projects V1:
   start assignment, inspect context, create handoff/follow-up assignment.
 - UI journeys: create rootless and workspace-backed projects, run setup, create
   work, start/complete Human work or draft/start an agent assignment, inspect
-  context, record review/evidence, complete closeout, and verify
-  no-project/new-project onboarding states. A browser-level Projects journey
-  now covers create project -> setup proposal -> first work -> assignment
-  draft/start -> evidence -> closeout.
+  context, record review/evidence, resolve a handoff or review follow-up,
+  confirm closeout, and verify the read-only completed state across desktop and
+  narrow widths, alongside no-project/new-project onboarding states. A
+  browser-level Projects journey now covers create project -> setup proposal ->
+  first work -> assignment draft/start -> evidence -> closeout; its
+  follow-through coverage should stay representative as the cockpit evolves.
 
 ## Open Questions
 

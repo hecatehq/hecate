@@ -9,6 +9,9 @@ import type {
 export const PROJECT_ATTENTION_STALE_MESSAGE =
   "Project attention target changed. Refresh project work and try again.";
 
+export const PROJECT_OPERATION_STALE_MESSAGE =
+  "Project operation target changed. Refresh project work and try again.";
+
 export type ProjectActionRoute =
   | { kind: "bootstrap_project" }
   | { kind: "create_work_item" }
@@ -28,7 +31,15 @@ export type ProjectActionRoute =
   | { kind: "open_roles" }
   | { kind: "open_skills" }
   | { kind: "open_task"; taskID: string; runID?: string }
-  | { kind: "open_work_item"; bucket?: ProjectActivityBucketKey; workItemID: string }
+  | {
+      kind: "open_work_item";
+      artifactID?: string;
+      assignmentID?: string;
+      bucket?: ProjectActivityBucketKey;
+      handoffID?: string;
+      operationKind?: string;
+      workItemID: string;
+    }
   | { kind: "review_memory_candidate"; candidateID: string };
 
 export function routeProjectOperationAction(
@@ -36,14 +47,38 @@ export function routeProjectOperationAction(
   selectedProjectID: string,
   options: { hasMemoryCandidate?: boolean } = {},
 ): ProjectActionRoute {
-  return routeProjectAction(item.action, {
+  if (projectOperationHasActionTargetMismatch(item)) {
+    return { kind: "error", message: PROJECT_OPERATION_STALE_MESSAGE };
+  }
+  const route = routeProjectAction(item.action, {
     hasMemoryCandidate: options.hasMemoryCandidate,
     missingMessage: "Project operation is missing an action. Refresh project work and try again.",
     selectedProjectID,
     source: "Project operation",
-    staleMessage: "Project operation target changed. Refresh project work and try again.",
+    staleMessage: PROJECT_OPERATION_STALE_MESSAGE,
     unsupportedMessage:
       "Project operation action is not supported. Refresh project work and try again.",
+  });
+  if (route.kind !== "open_work_item") return route;
+  return {
+    ...route,
+    operationKind: item.kind,
+  };
+}
+
+export function projectOperationHasActionTargetMismatch(item: ProjectOperationsBriefItem): boolean {
+  const action = item.action;
+  if (!action) return false;
+  return [
+    [item.target.project_id, action.project_id],
+    [item.target.work_item_id, action.work_item_id],
+    [item.target.assignment_id, action.assignment_id],
+    [item.target.artifact_id, action.artifact_id],
+    [item.target.handoff_id, action.handoff_id],
+    [item.target.activity_bucket, action.activity_bucket],
+  ].some(([targetValue, actionValue]) => {
+    const describedTarget = targetValue?.trim();
+    return Boolean(describedTarget) && describedTarget !== actionValue?.trim();
   });
 }
 
@@ -186,6 +221,9 @@ function routeProjectWorkTarget(action: ProjectAction, source: string): ProjectA
     kind: "open_work_item",
     bucket: projectActivityBucket(action.activity_bucket),
     workItemID: action.work_item_id,
+    ...(action.artifact_id ? { artifactID: action.artifact_id } : {}),
+    ...(action.assignment_id ? { assignmentID: action.assignment_id } : {}),
+    ...(action.handoff_id ? { handoffID: action.handoff_id } : {}),
   };
 }
 

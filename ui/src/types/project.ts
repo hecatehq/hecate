@@ -617,6 +617,7 @@ export type ProjectWorkItemReadinessRecord = {
   review_follow_up_artifact_ids?: string[];
   review_follow_ups?: ProjectWorkItemReviewFollowUpRecord[];
   missing_evidence_assignment_ids?: string[];
+  open_handoff_ids?: string[];
 };
 
 export type ProjectWorkItemReviewFollowUpRecord = {
@@ -964,6 +965,7 @@ export type ProjectAction = {
   project_id: string;
   work_item_id?: string;
   assignment_id?: string;
+  artifact_id?: string;
   handoff_id?: string;
   activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
   task_id?: string;
@@ -1082,6 +1084,7 @@ export type ProjectOperationsBriefTarget = {
   project_id: string;
   work_item_id?: string;
   assignment_id?: string;
+  artifact_id?: string;
   handoff_id?: string;
   activity_bucket?: "all" | "active" | "blocked" | "completed" | "recent" | (string & {});
 };

@@ -3137,6 +3137,19 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHeca
 	requireCairnlineOnlyProjectReadsForTest(t, handler, projectID)
 
 	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("work item status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var workItem ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &workItem); err != nil {
+		t.Fatalf("decode work item response: %v", err)
+	}
+	if workItem.Data.Status != projectwork.WorkItemStatusReady || len(workItem.Data.Assignments) != 1 || workItem.Data.Assignments[0].Status != projectwork.AssignmentStatusCompleted {
+		t.Fatalf("work item = %+v, want stored ready status with completed assignment projection", workItem.Data)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+projectID+"/work-items/work_embedded/readiness", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("readiness status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -3153,6 +3166,9 @@ func TestProjectWorkAPI_StrictEmbeddedReadModelReadsCloseoutReadinessWithoutHeca
 	}
 	if !containsString(response.Data.MissingEvidenceAssignmentIDs, "asgn_embedded") || !containsString(response.Data.Blockers, "1 completed assignment is missing evidence") || !containsString(response.Data.Blockers, "1 handoff is pending") {
 		t.Fatalf("readiness blockers = %+v missing=%+v, want missing evidence and pending handoff blockers", response.Data.Blockers, response.Data.MissingEvidenceAssignmentIDs)
+	}
+	if len(response.Data.OpenHandoffIDs) != 1 || response.Data.OpenHandoffIDs[0] != "handoff_embedded" {
+		t.Fatalf("open handoff ids = %+v, want handoff_embedded", response.Data.OpenHandoffIDs)
 	}
 
 	rec = httptest.NewRecorder()
@@ -6666,7 +6682,7 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			if completed.Status != projectwork.AssignmentStatusCompleted || completed.CompletedAt == "" || completed.Execution == nil || completed.Execution.RunStatus != "completed" {
 				t.Fatalf("completed assignment = %+v, want completed projection", completed)
 			}
-			assertProjectWorkStatusForTest(t, server, "work_completed", projectwork.WorkItemStatusDone)
+			assertProjectWorkStatusForTest(t, server, "work_completed", projectwork.WorkItemStatusReady)
 
 			failed := getProjectWorkAssignmentForTest(t, server, "work_failed", "asgn_failed")
 			if failed.Status != projectwork.AssignmentStatusFailed || failed.Execution == nil || failed.Execution.LastError != "model failed" {
@@ -6678,7 +6694,7 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			if cancelled.Status != projectwork.AssignmentStatusCancelled || cancelled.Execution == nil || cancelled.Execution.RunStatus != "cancelled" {
 				t.Fatalf("cancelled assignment = %+v, want cancelled projection", cancelled)
 			}
-			assertProjectWorkStatusForTest(t, server, "work_cancelled", projectwork.WorkItemStatusCancelled)
+			assertProjectWorkStatusForTest(t, server, "work_cancelled", projectwork.WorkItemStatusBlocked)
 
 			missing := getProjectWorkAssignmentForTest(t, server, "work_missing", "asgn_missing")
 			if missing.Status != projectwork.AssignmentStatusQueued || missing.Execution == nil || !missing.Execution.Missing {
@@ -7352,8 +7368,8 @@ func TestProjectWorkAPI_ProjectWorkItemReadsCairnlineConfiguredUseReadModel(t *t
 		t.Fatalf("listed work item = %+v, want Hecate runtime projection over Cairnline work item", awaitingListItem)
 	}
 	evidenceListItem := findProjectWorkItemForTest(t, listed.Data, "work_needs_evidence")
-	if evidenceListItem.ReadBackend != "cairnline" || evidenceListItem.Status != projectwork.WorkItemStatusDone {
-		t.Fatalf("listed evidence work item = %+v, want Cairnline item with completed assignment projection", evidenceListItem)
+	if evidenceListItem.ReadBackend != "cairnline" || evidenceListItem.Status != projectwork.WorkItemStatusReview {
+		t.Fatalf("listed evidence work item = %+v, want Cairnline stored review status with completed assignment projection", evidenceListItem)
 	}
 
 	rec = httptest.NewRecorder()
@@ -7495,6 +7511,9 @@ func normalizeProjectWorkItemReadinessForParity(item ProjectWorkItemReadinessRes
 	}
 	if len(item.MissingEvidenceAssignmentIDs) == 0 {
 		item.MissingEvidenceAssignmentIDs = nil
+	}
+	if len(item.OpenHandoffIDs) == 0 {
+		item.OpenHandoffIDs = nil
 	}
 	return item
 }

@@ -47,6 +47,7 @@ type Props = {
   onReviewMemory?: () => void;
   project: ProjectRecord | null;
   proposal: ProjectAssistantProposal | null;
+  primaryEmphasis?: boolean;
   roles: ProjectWorkRoleRecord[];
   bootstrapPending: boolean;
   memoryCandidateCount?: number;
@@ -83,6 +84,7 @@ export function ProjectAssistantPanel({
   onReviewMemory,
   project,
   proposal,
+  primaryEmphasis = true,
   roles,
   bootstrapPending,
   memoryCandidateCount = 0,
@@ -255,7 +257,7 @@ export function ProjectAssistantPanel({
             </label>
             <div style={assistantPrimaryActionsStyle}>
               <button
-                className="btn btn-primary btn-sm"
+                className={`btn ${primaryEmphasis ? "btn-primary" : "btn-ghost"} btn-sm`}
                 type="submit"
                 disabled={!valid || busy}
                 style={assistantSubmitStyle}

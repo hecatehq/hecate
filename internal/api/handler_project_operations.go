@@ -76,6 +76,7 @@ type ProjectOperationsBriefTargetResponse struct {
 	ProjectID      string `json:"project_id"`
 	WorkItemID     string `json:"work_item_id,omitempty"`
 	AssignmentID   string `json:"assignment_id,omitempty"`
+	ArtifactID     string `json:"artifact_id,omitempty"`
 	HandoffID      string `json:"handoff_id,omitempty"`
 	ActivityBucket string `json:"activity_bucket,omitempty"`
 }
@@ -421,7 +422,10 @@ func reviewFollowUpOperationItem(projectID string, workItem projectwork.WorkItem
 		Surface:    "work",
 		ProjectID:  projectID,
 		WorkItemID: workItem.ID,
+		ArtifactID: artifact.ID,
 	}
+	action := projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, "", "", "")
+	action.ArtifactID = artifact.ID
 	return ProjectOperationsBriefItemResponse{
 		ID:          projectOperationsItemID("review_follow_up", projectID, artifact.ID),
 		Kind:        "review_follow_up",
@@ -431,7 +435,7 @@ func reviewFollowUpOperationItem(projectID string, workItem projectwork.WorkItem
 		ActionLabel: "Open review",
 		Status:      status,
 		Target:      target,
-		Action:      projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, "", "", ""),
+		Action:      action,
 		WorkItem:    &renderedWorkItem,
 		UpdatedAt:   formatOptionalTime(projectworkTime(artifact.UpdatedAt, artifact.CreatedAt, workItem.UpdatedAt, workItem.CreatedAt)),
 		Metadata: map[string]string{

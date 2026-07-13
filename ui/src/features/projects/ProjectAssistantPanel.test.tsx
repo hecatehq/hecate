@@ -53,6 +53,12 @@ function renderAssistantPanel(
 }
 
 describe("ProjectAssistantPanel", () => {
+  it("supports secondary emphasis when the selected work has a guided next action", () => {
+    renderAssistantPanel({ primaryEmphasis: false });
+
+    expect(screen.getByRole("button", { name: "Draft proposal" })).toHaveClass("btn-ghost");
+  });
+
   it("offers Human as an assignment destination", async () => {
     const user = userEvent.setup();
     const handlers = renderAssistantPanel();

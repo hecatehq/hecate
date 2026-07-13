@@ -31,6 +31,7 @@ type ProjectWorkItemReadinessResponse struct {
 	ReviewFollowUpArtifactIDs    []string                                `json:"review_follow_up_artifact_ids,omitempty"`
 	ReviewFollowUps              []ProjectWorkItemReviewFollowUpResponse `json:"review_follow_ups,omitempty"`
 	MissingEvidenceAssignmentIDs []string                                `json:"missing_evidence_assignment_ids,omitempty"`
+	OpenHandoffIDs               []string                                `json:"open_handoff_ids,omitempty"`
 }
 
 type ProjectWorkItemReviewFollowUpResponse struct {
@@ -93,6 +94,7 @@ func renderProjectWorkItemReadiness(readiness projectworkapp.WorkItemReadiness) 
 		ReviewFollowUpArtifactIDs:    append([]string(nil), readiness.ReviewFollowUpArtifactIDs...),
 		ReviewFollowUps:              renderProjectWorkItemReviewFollowUps(readiness.ReviewFollowUps),
 		MissingEvidenceAssignmentIDs: append([]string(nil), readiness.MissingEvidenceAssignmentIDs...),
+		OpenHandoffIDs:               append([]string(nil), readiness.OpenHandoffIDs...),
 	}
 }
 

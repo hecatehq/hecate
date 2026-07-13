@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,12 +8,17 @@ import type {
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
   ProjectHandoffRecord,
+  ProjectOperationsBriefItem,
   ProjectRecord,
   ProjectWorkItemReadinessRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
-import { ProjectWorkItemDetail, type ProjectWorkItemDetailProps } from "./ProjectWorkItemDetail";
+import {
+  ProjectWorkItemDetail,
+  projectOperationRequestsFocusTarget,
+  type ProjectWorkItemDetailProps,
+} from "./ProjectWorkItemDetail";
 import { getProjectAssignmentLaunchReadiness, getProjectAssignmentPreflight } from "../../lib/api";
 
 vi.mock("../../lib/api", async (importOriginal) => {
@@ -268,11 +273,11 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onOpenWorkItem: vi.fn(),
     onRefresh: vi.fn(),
     onStartAssignment: vi.fn(),
-    onStartHandoff: vi.fn(),
     onSetHandoffStatus: vi.fn(),
   };
   const props: ProjectWorkItemDetailProps = {
     activityByAssignmentID: new Map(),
+    assistantProposalOpen: false,
     assignments: [assign],
     artifacts: [],
     artifactActionID: "",
@@ -294,8 +299,15 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     ...overrides,
   };
 
-  render(<ProjectWorkItemDetail {...props} />);
-  return { props, handlers, assignment: assign, project: record, role: developer };
+  const view = render(<ProjectWorkItemDetail {...props} />);
+  return {
+    ...view,
+    props,
+    handlers,
+    assignment: assign,
+    project: record,
+    role: developer,
+  };
 }
 
 describe("ProjectWorkItemDetail", () => {
@@ -318,7 +330,9 @@ describe("ProjectWorkItemDetail", () => {
       workItem: null,
     });
 
-    const unavailable = screen.getByRole("region", { name: "Work item unavailable" });
+    const unavailable = screen.getByRole("region", {
+      name: "Work item unavailable",
+    });
     expect(within(unavailable).getByText("Work item unavailable")).toBeTruthy();
     expect(
       within(unavailable).getByText("Refresh project work to try loading this item again."),
@@ -393,10 +407,9 @@ describe("ProjectWorkItemDetail", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open target work" }));
 
     expect(handlers.onOpenWorkItem).toHaveBeenCalledWith("work_target");
-    expect(handlers.onStartHandoff).not.toHaveBeenCalled();
   });
 
-  it("locks handoff decisions while its linked assignment is starting", () => {
+  it("keeps handoff decisions independent from the linked assignment launch", () => {
     const target = assignment();
     renderDetail({
       assignments: [target],
@@ -404,17 +417,25 @@ describe("ProjectWorkItemDetail", () => {
       startingAssignmentIDs: new Set([target.id]),
     });
 
-    const handoffActions = screen.getByRole("group", { name: "Follow-up review handoff" });
+    const handoffActions = screen.getByRole("group", {
+      name: "Follow-up review handoff",
+    });
     for (const name of ["Edit", "Delete", "Accept", "Dismiss", "Supersede"]) {
-      expect(within(handoffActions).getByRole("button", { name })).toBeDisabled();
+      expect(within(handoffActions).getByRole("button", { name })).toBeEnabled();
     }
-    for (const button of within(handoffActions).getAllByRole("button", { name: /Starting/ })) {
-      expect(button).toBeDisabled();
-    }
+    expect(
+      within(handoffActions).getByRole("button", {
+        name: "Open linked assignment",
+      }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Starting/ })).toBeDisabled();
   });
 
   it("does not offer follow-up assignments for closed handoffs", () => {
-    const dismissedTarget = assignment({ id: "assign_dismissed", driver_kind: "manual" });
+    const dismissedTarget = assignment({
+      id: "assign_dismissed",
+      driver_kind: "manual",
+    });
     const supersededTarget = assignment({ id: "assign_superseded" });
     renderDetail({
       assignments: [dismissedTarget, supersededTarget],
@@ -435,8 +456,12 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Create follow-up assignment" })).toBeNull();
-    const dismissed = screen.getByRole("group", { name: "Dismissed follow-up handoff" });
-    const superseded = screen.getByRole("group", { name: "Superseded follow-up handoff" });
+    const dismissed = screen.getByRole("group", {
+      name: "Dismissed follow-up handoff",
+    });
+    const superseded = screen.getByRole("group", {
+      name: "Superseded follow-up handoff",
+    });
     expect(within(dismissed).queryByRole("button", { name: "Start work" })).toBeNull();
     expect(within(superseded).queryByRole("button", { name: "Start from handoff" })).toBeNull();
   });
@@ -489,7 +514,9 @@ describe("ProjectWorkItemDetail", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open task" }));
     await userEvent.click(screen.getByRole("button", { name: "Start related chat" }));
     await userEvent.click(
-      screen.getByRole("button", { name: "Create handoff from assignment assign_1" }),
+      screen.getByRole("button", {
+        name: "Create handoff from assignment assign_1",
+      }),
     );
 
     expect(handlers.onOpenTask).toHaveBeenCalledWith("task_123", "run_123");
@@ -520,7 +547,9 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Request review for assignment assign_1" }),
+      screen.getByRole("button", {
+        name: "Request review for assignment assign_1",
+      }),
     );
 
     expect(handlers.onAddReviewHandoffFromAssignment).toHaveBeenCalledWith(
@@ -533,8 +562,14 @@ describe("ProjectWorkItemDetail", () => {
   it("only exposes review recording for assignments owned by reviewer roles", async () => {
     const developer = role();
     const reviewer = role({ id: "architect", name: "Architect reviewer" });
-    const developerAssignment = assignment({ id: "assign_dev", role_id: "developer" });
-    const reviewerAssignment = assignment({ id: "assign_review", role_id: "architect" });
+    const developerAssignment = assignment({
+      id: "assign_dev",
+      role_id: "developer",
+    });
+    const reviewerAssignment = assignment({
+      id: "assign_review",
+      role_id: "architect",
+    });
     const { handlers } = renderDetail({
       assignments: [developerAssignment, reviewerAssignment],
       roleByID: new Map([
@@ -545,10 +580,14 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(
-      screen.queryByRole("button", { name: "Record review for assignment assign_dev" }),
+      screen.queryByRole("button", {
+        name: "Record review for assignment assign_dev",
+      }),
     ).toBeNull();
     await userEvent.click(
-      screen.getByRole("button", { name: "Record review for assignment assign_review" }),
+      screen.getByRole("button", {
+        name: "Record review for assignment assign_review",
+      }),
     );
 
     expect(handlers.onAddReviewArtifactFromAssignment).toHaveBeenCalledWith(reviewerAssignment);
@@ -572,7 +611,10 @@ describe("ProjectWorkItemDetail", () => {
 
   it("guides pristine work items through assignment proposal drafting", async () => {
     const architect = role({ id: "architect", name: "Architect" });
-    const item = workItem({ owner_role_id: "architect", reviewer_role_ids: [] });
+    const item = workItem({
+      owner_role_id: "architect",
+      reviewer_role_ids: [],
+    });
     const { handlers } = renderDetail({
       assignments: [],
       artifacts: [],
@@ -589,7 +631,9 @@ describe("ProjectWorkItemDetail", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Prepare next step" }));
     await userEvent.click(screen.getByText("Add manually"));
-    const manualActions = screen.getByRole("group", { name: "Manual work item actions" });
+    const manualActions = screen.getByRole("group", {
+      name: "Manual work item actions",
+    });
     await userEvent.click(within(manualActions).getByRole("button", { name: "Assignment" }));
     await userEvent.click(within(manualActions).getByRole("button", { name: "Evidence" }));
     await userEvent.click(within(manualActions).getByRole("button", { name: "Handoff" }));
@@ -614,6 +658,23 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.queryByRole("button", { name: /Queue/ })).toBeNull();
     expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the pristine start action secondary while a proposal awaits approval", () => {
+    const architect = role({ id: "architect", name: "Architect" });
+    renderDetail({
+      assistantProposalOpen: true,
+      assignments: [],
+      artifacts: [],
+      handoffs: [],
+      roleByID: new Map([[architect.id, architect]]),
+      workItem: workItem({
+        owner_role_id: architect.id,
+        reviewer_role_ids: [],
+      }),
+    });
+
+    expect(screen.getByRole("button", { name: "Prepare next step" })).toHaveClass("btn-ghost");
   });
 
   it("guides setup when configured reviewer roles are missing", () => {
@@ -641,13 +702,311 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Closeout is blocked")).toBeTruthy();
     expect(screen.getByText("1 assignment is still active")).toBeTruthy();
-    const markDone = screen.getByRole("button", { name: "Mark done" });
-    expect(markDone).toBeDisabled();
-    expect(markDone).toHaveClass("btn-ghost");
-    expect(markDone).not.toHaveClass("btn-primary");
+    expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review closeout" })).toBeNull();
   });
 
-  it("delegates mark-done when closeout is ready", async () => {
+  it.each(["done", "cancelled"] as const)(
+    "keeps persisted %s work read-only when readiness is stale",
+    (status) => {
+      const reviewArtifact = artifact({
+        review_follow_up_required: true,
+        review_verdict: "changes_requested",
+      });
+      renderDetail({
+        assignments: [
+          assignment({
+            status: "completed",
+            execution_ref: { kind: "none", status: "completed" },
+          }),
+        ],
+        artifacts: [reviewArtifact],
+        handoffs: [handoff()],
+        closeoutReadiness: closeoutReadiness({
+          ready: false,
+          status: "blocked",
+          title: "Closeout is blocked",
+          blockers: ["Completion evidence is missing"],
+          missing_evidence_assignment_ids: ["assign_1"],
+          open_handoff_ids: ["handoff_1"],
+          review_follow_up_count: 1,
+          review_follow_up_artifact_ids: [reviewArtifact.id],
+          review_follow_ups: [
+            {
+              artifact_id: reviewArtifact.id,
+              title: reviewArtifact.title ?? "Review follow-up",
+              status: "needs_path",
+            },
+          ],
+        }),
+        workItem: workItem({ status }),
+      });
+
+      expect(screen.queryByRole("button", { name: "Add evidence" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Draft follow-up" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    },
+  );
+
+  it("focuses exact structured work targets after detail records load", () => {
+    const targetAssignment = assignment({ id: "assignment_target" });
+    const targetArtifact = artifact({ id: "artifact_target" });
+    const targetHandoff = handoff({
+      id: "handoff_target",
+      title: "Target handoff",
+    });
+    const onFocusTargetHandled = vi.fn();
+    const view = renderDetail({
+      assignments: [assignment({ id: "assignment_decoy" }), targetAssignment],
+      artifacts: [artifact({ id: "artifact_decoy" }), targetArtifact],
+      handoffs: [handoff({ id: "handoff_decoy" }), targetHandoff],
+      focusTarget: { artifactID: targetArtifact.id, workItemID: "work_1" },
+      onFocusTargetHandled,
+    });
+
+    expect(document.activeElement).toHaveAttribute("id", "project-work-artifact-artifact_target");
+    expect(onFocusTargetHandled).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <ProjectWorkItemDetail
+        {...view.props}
+        focusTarget={{ handoffID: targetHandoff.id, workItemID: "work_1" }}
+      />,
+    );
+    expect(document.activeElement).toHaveAttribute("id", "project-work-handoff-handoff_target");
+
+    view.rerender(
+      <ProjectWorkItemDetail
+        {...view.props}
+        focusTarget={{
+          assignmentID: targetAssignment.id,
+          workItemID: "work_1",
+        }}
+      />,
+    );
+    expect(document.activeElement).toHaveAttribute(
+      "id",
+      "project-work-assignment-assignment_target",
+    );
+
+    view.rerender(
+      <ProjectWorkItemDetail
+        {...view.props}
+        focusTarget={{ operationKind: "close_work_item", workItemID: "work_1" }}
+      />,
+    );
+    expect(document.activeElement).toHaveAttribute("id", "project-work-closeout");
+  });
+
+  it("announces a stale exact target and focuses the selected work item without using a decoy", async () => {
+    const onFocusTargetHandled = vi.fn();
+    const { handlers } = renderDetail({
+      assignments: [assignment({ id: "assignment_decoy" })],
+      focusTarget: {
+        artifactID: "artifact_removed",
+        assignmentID: "assignment_decoy",
+        workItemID: "work_1",
+      },
+      onFocusTargetHandled,
+    });
+
+    expect(document.activeElement).toHaveAttribute("id", "project-work-item-work_1");
+    expect(
+      screen.getByText(
+        "The requested record is no longer available. Showing the selected work item instead.",
+      ),
+    ).toHaveTextContent(
+      "The requested record is no longer available. Showing the selected work item instead.",
+    );
+    expect(document.activeElement).not.toHaveAttribute(
+      "id",
+      "project-work-assignment-assignment_decoy",
+    );
+    expect(onFocusTargetHandled).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Refresh work" }));
+    expect(handlers.onRefresh).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "The requested record is no longer available. Showing the selected work item instead.",
+        ),
+      ).toBeNull(),
+    );
+    expect(document.activeElement).toHaveAttribute("id", "project-work-item-work_1");
+  });
+
+  it("keeps stale-target recovery in control until authoritative refresh succeeds", async () => {
+    let resolveRefresh: (result: boolean) => void = () => {};
+    const onRefresh = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    renderDetail({
+      assignments: [assignment({ id: "assignment_decoy" })],
+      focusTarget: {
+        assignmentID: "assignment_removed",
+        workItemID: "work_1",
+      },
+      onRefresh,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh work" }));
+    expect(screen.getByRole("button", { name: "Refreshing work…" })).toBeDisabled();
+    expect(screen.getByText(/The requested record is no longer available/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Record evidence" })).toBeNull();
+
+    await act(async () => {
+      resolveRefresh(false);
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh work" })).toBeEnabled());
+    expect(screen.getByText(/The requested record is no longer available/)).toBeTruthy();
+  });
+
+  it("stays fail-closed when refreshed operations still target a missing record", async () => {
+    const removedAssignmentID = "assignment_removed";
+    renderDetail({
+      assignments: [assignment({ id: "assignment_decoy" })],
+      focusTarget: { assignmentID: removedAssignmentID, workItemID: "work_1" },
+      onRefresh: vi.fn().mockResolvedValue(true),
+      operation: {
+        id: `record_completion_evidence:proj_1:${removedAssignmentID}`,
+        kind: "record_completion_evidence",
+        priority: "high",
+        title: "Record missing evidence",
+        detail: "The assignment should exist before evidence is recorded.",
+        action_label: "Open work",
+        target: {
+          surface: "work",
+          project_id: "proj_1",
+          work_item_id: "work_1",
+          assignment_id: removedAssignmentID,
+        },
+        action: {
+          type: "open_work_item",
+          project_id: "proj_1",
+          work_item_id: "work_1",
+          assignment_id: removedAssignmentID,
+        },
+      },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh work" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh work" })).toBeEnabled());
+    expect(screen.getByText(/The requested record is no longer available/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Record evidence" })).toBeNull();
+  });
+
+  it("uses the header refresh and clears a stale target when the server operation changes", async () => {
+    let resolveRefresh: (result: boolean) => void = () => {};
+    const onRefresh = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const staleCloseoutOperation: ProjectOperationsBriefItem = {
+      id: "close_work_item:proj_1:work_1",
+      kind: "close_work_item",
+      priority: "low",
+      title: "Close work",
+      detail: "Review closeout.",
+      action_label: "Open closeout",
+      target: { surface: "work", project_id: "proj_1", work_item_id: "work_1" },
+      action: { type: "open_work_item", project_id: "proj_1", work_item_id: "work_1" },
+    };
+    const staleArtifactOperation: ProjectOperationsBriefItem = {
+      id: "review_follow_up:proj_1:artifact_removed",
+      kind: "review_follow_up",
+      priority: "high",
+      title: "Review removed artifact",
+      detail: "The artifact no longer exists.",
+      action_label: "Open review",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        artifact_id: "artifact_removed",
+      },
+      action: {
+        type: "open_work_item",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        artifact_id: "artifact_removed",
+      },
+    };
+    const nextOperation: ProjectOperationsBriefItem = {
+      id: "record_completion_evidence:proj_1:assignment_replacement_missing",
+      kind: "record_completion_evidence",
+      priority: "high",
+      title: "Record current evidence",
+      detail: "The next server operation replaced closeout.",
+      action_label: "Open work",
+      target: {
+        surface: "work",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        assignment_id: "assignment_replacement_missing",
+      },
+      action: {
+        type: "open_work_item",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        assignment_id: "assignment_replacement_missing",
+      },
+    };
+    const view = renderDetail({
+      assignments: [assignment({ id: "assignment_decoy", status: "completed" })],
+      closeoutReadiness: closeoutReadiness({
+        ready: false,
+        status: "blocked",
+        title: "Closeout is blocked",
+        missing_evidence_assignment_ids: ["assignment_decoy"],
+      }),
+      focusTarget: { artifactID: "artifact_removed", workItemID: "work_1" },
+      onRefresh,
+      operation: staleArtifactOperation,
+    });
+
+    expect(
+      projectOperationRequestsFocusTarget(staleCloseoutOperation, {
+        operationKind: "close_work_item",
+        workItemID: "work_1",
+      }),
+    ).toBe(true);
+    expect(
+      projectOperationRequestsFocusTarget(nextOperation, {
+        operationKind: "close_work_item",
+        workItemID: "work_1",
+      }),
+    ).toBe(false);
+    expect(screen.getByText(/The requested record is no longer available/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(screen.getByRole("button", { name: "Refreshing…" })).toBeDisabled();
+    view.rerender(
+      <ProjectWorkItemDetail
+        {...view.props}
+        focusTarget={null}
+        onRefresh={onRefresh}
+        operation={nextOperation}
+      />,
+    );
+
+    await act(async () => resolveRefresh(true));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/The requested record is no longer available/)).toBeNull(),
+    );
+    expect(screen.getByText("Next action unavailable")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh work" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Record evidence" })).toBeNull();
+  });
+
+  it("confirms closeout before delegating mark-done", async () => {
     const item = workItem();
     const developer = role();
     const reviewer = role({ id: "architect", name: "Architect reviewer" });
@@ -655,7 +1014,11 @@ describe("ProjectWorkItemDetail", () => {
       assignments: [
         assignment({
           status: "completed",
-          execution_ref: { kind: "task_run", task_id: "task_done", status: "completed" },
+          execution_ref: {
+            kind: "task_run",
+            task_id: "task_done",
+            status: "completed",
+          },
         }),
       ],
       roleByID: new Map([
@@ -666,14 +1029,86 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(screen.getByText("Ready to mark done")).toBeTruthy();
-    const work = screen.getByRole("article", { name: "Decompose project UI work item" });
-    expect(work.querySelectorAll(".btn-primary")).toHaveLength(1);
+    const work = screen.getByRole("article", {
+      name: "Decompose project UI work item",
+    });
+    expect(work.querySelectorAll(".btn-primary")).toHaveLength(0);
     expect(
-      screen.getByRole("button", { name: "Request review for assignment assign_1" }),
+      screen.getByRole("button", {
+        name: "Request review for assignment assign_1",
+      }),
     ).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Mark done" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review closeout" }));
+    const dialog = screen.getByRole("dialog", { name: "Review closeout" });
+    expect(handlers.onCloseWorkItem).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(handlers.onCloseWorkItem).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Review closeout" }));
+    await userEvent.click(
+      within(screen.getByRole("dialog", { name: "Review closeout" })).getByRole("button", {
+        name: "Mark work done",
+      }),
+    );
 
     expect(handlers.onCloseWorkItem).toHaveBeenCalledWith(item);
+  });
+
+  it("locks closeout confirmation while the decision is being recorded", async () => {
+    const item = workItem();
+    const view = renderDetail({ workItem: item });
+
+    await userEvent.click(screen.getByRole("button", { name: "Review closeout" }));
+    view.rerender(<ProjectWorkItemDetail {...view.props} closingWorkItemID={item.id} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Review closeout" });
+    expect(within(dialog).getByRole("button", { name: "Marking work done…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Review closeout" })).toBeTruthy();
+    await userEvent.click(dialog.parentElement as HTMLElement);
+    expect(screen.getByRole("dialog", { name: "Review closeout" })).toBeTruthy();
+  });
+
+  it("restores focus to the surviving next-action region after closeout succeeds", async () => {
+    const item = workItem();
+    const view = renderDetail({ workItem: item });
+
+    await userEvent.click(screen.getByRole("button", { name: "Review closeout" }));
+    view.rerender(
+      <ProjectWorkItemDetail
+        {...view.props}
+        closeoutReadiness={closeoutReadiness({
+          ready: false,
+          status: "done",
+          title: "Work item is done",
+        })}
+        workItem={workItem({ status: "done" })}
+      />,
+    );
+
+    expect(screen.queryByRole("dialog", { name: "Review closeout" })).toBeNull();
+    expect(document.activeElement).toHaveAttribute("id", "project-work-follow-through");
+    expect(document.activeElement).toHaveTextContent("Work closed");
+  });
+
+  it("closes a pending closeout decision when the selected work item changes", async () => {
+    const view = renderDetail();
+
+    await userEvent.click(screen.getByRole("button", { name: "Review closeout" }));
+    expect(screen.getByRole("dialog", { name: "Review closeout" })).toBeTruthy();
+
+    view.rerender(
+      <ProjectWorkItemDetail
+        {...view.props}
+        closeoutReadiness={closeoutReadiness({ work_item_id: "work_2" })}
+        workItem={workItem({ id: "work_2", title: "Verify the next slice" })}
+      />,
+    );
+
+    expect(screen.queryByRole("dialog", { name: "Review closeout" })).toBeNull();
   });
 
   it("groups manual record creation for active work items", async () => {
@@ -697,6 +1132,8 @@ describe("ProjectWorkItemDetail", () => {
   it("shows already-done closeout state without a mark-done action", () => {
     renderDetail({
       assignments: [assignment({ status: "failed", execution_ref: { kind: "none" } })],
+      artifacts: [artifact()],
+      handoffs: [handoff()],
       closeoutReadiness: closeoutReadiness({
         ready: false,
         status: "done",
@@ -705,12 +1142,20 @@ describe("ProjectWorkItemDetail", () => {
         blockers: [],
         completed_assignments: 0,
       }),
-      workItem: workItem({ status: "done" }),
+      workItem: workItem({ status: "review" }),
     });
 
     expect(screen.getByText("Work item is done")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Add to work item" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Draft follow-up/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Record review/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+    expect(screen.getByText("Architect review")).toBeTruthy();
+    expect(screen.getByText("Follow-up review")).toBeTruthy();
   });
 
   it("loads launch preflight before starting an assignment", async () => {
@@ -727,7 +1172,9 @@ describe("ProjectWorkItemDetail", () => {
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment assign_1 launch preflight",
     });
-    const posture = within(preflight).getByRole("region", { name: "Resolved launch posture" });
+    const posture = within(preflight).getByRole("region", {
+      name: "Resolved launch posture",
+    });
     expect(within(posture).getByText("Launch posture")).toBeTruthy();
     expect(within(posture).getByText("Hecate task")).toBeTruthy();
     expect(within(posture).getByText("/workspace/hecate")).toBeTruthy();
@@ -746,7 +1193,9 @@ describe("ProjectWorkItemDetail", () => {
     renderDetail();
 
     await userEvent.click(screen.getByText("Execution details"));
-    const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
+    const readiness = screen.getByRole("region", {
+      name: "Assignment launch readiness",
+    });
     expect(within(readiness).getByText("not checked")).toBeTruthy();
 
     await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
@@ -787,7 +1236,9 @@ describe("ProjectWorkItemDetail", () => {
     renderDetail();
 
     await userEvent.click(screen.getByText("Execution details"));
-    const readiness = screen.getByRole("region", { name: "Assignment launch readiness" });
+    const readiness = screen.getByRole("region", {
+      name: "Assignment launch readiness",
+    });
     await userEvent.click(within(readiness).getByRole("button", { name: "Check readiness" }));
 
     expect(await within(readiness).findByText("missing_profile (preset missing)")).toBeTruthy();
@@ -810,21 +1261,30 @@ describe("ProjectWorkItemDetail", () => {
       }),
     });
     renderDetail({
-      assignments: [assignment({ driver_kind: "external_agent", execution_ref: { kind: "none" } })],
+      assignments: [
+        assignment({
+          driver_kind: "external_agent",
+          execution_ref: { kind: "none" },
+        }),
+      ],
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Review & prepare chat" }));
     const preflight = await screen.findByRole("dialog", {
       name: "Assignment assign_1 launch preflight",
     });
-    const posture = within(preflight).getByRole("region", { name: "Resolved launch posture" });
+    const posture = within(preflight).getByRole("region", {
+      name: "Resolved launch posture",
+    });
 
     expect(within(posture).getAllByText("External Agent").length).toBeGreaterThan(0);
     expect(within(posture).getByText("Codex (codex)")).toBeTruthy();
     expect(within(posture).getByText("Implementation follow-up")).toBeTruthy();
     expect(within(posture).getByText("tools on · writes on · network off")).toBeTruthy();
     expect(
-      within(preflight).getByRole("status", { name: "Launch readiness warnings" }),
+      within(preflight).getByRole("status", {
+        name: "Launch readiness warnings",
+      }),
     ).toBeTruthy();
     expect(within(preflight).getByText(/Project skill Review/)).toBeTruthy();
     expect(within(posture).queryByText("openai / gpt-5")).toBeNull();
@@ -885,7 +1345,11 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(within(preflight).getByText("Provider/model not ready")).toBeTruthy();
-    expect(within(preflight).getByRole("region", { name: "Resolved launch posture" })).toBeTruthy();
+    expect(
+      within(preflight).getByRole("region", {
+        name: "Resolved launch posture",
+      }),
+    ).toBeTruthy();
     expect(within(preflight).getByRole("status").textContent).toContain(
       'No routable provider reports model "dogfood-model"',
     );
@@ -902,6 +1366,8 @@ describe("ProjectWorkItemDetail", () => {
 
     expect(screen.getByText("Follow-up review")).toBeTruthy();
     expect(screen.getByLabelText("Source evidence")).toBeTruthy();
+    expect(screen.getByText("Source Operator")).toBeTruthy();
+    expect(screen.getByText("Operator memory")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
@@ -974,7 +1440,9 @@ describe("ProjectWorkItemDetail", () => {
       }),
     });
 
-    const notice = screen.getByRole("region", { name: "Review follow-up required" });
+    const notice = screen.getByRole("region", {
+      name: "Review follow-up required",
+    });
     expect(within(notice).getByText("Architect review")).toBeTruthy();
     expect(within(notice).getByText("follow-up required")).toBeTruthy();
 
@@ -1019,8 +1487,12 @@ describe("ProjectWorkItemDetail", () => {
       ],
     });
 
-    expect(screen.getByText("source_document")).toBeTruthy();
-    expect(screen.getByText("operator_provided")).toBeTruthy();
+    const evidenceArtifact = screen.getByRole("group", {
+      name: "Source document Evidence artifact",
+    });
+    expect(within(evidenceArtifact).getByText("Evidence")).toBeTruthy();
+    expect(within(evidenceArtifact).getByText("Document")).toBeTruthy();
+    expect(within(evidenceArtifact).getByText("Operator provided")).toBeTruthy();
     expect(screen.getByRole("link", { name: "https://example.invalid/source" })).toBeTruthy();
     expect(screen.getByText("provider docs · external DOC-42")).toBeTruthy();
 
@@ -1056,7 +1528,9 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Create follow-up from review artifact art_review" }),
+      screen.getByRole("button", {
+        name: "Create follow-up from review artifact art_review",
+      }),
     ).toBeDisabled();
     expect(
       screen.getByRole("button", {

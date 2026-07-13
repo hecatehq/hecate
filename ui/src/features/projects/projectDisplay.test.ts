@@ -5,6 +5,7 @@ import {
   assignmentStatusLabel,
   formatProjectRowRelativeTime,
   handoffStatusLabel,
+  projectRoleLabel,
   projectRootDisplayLabel,
   projectRootTitle,
   workStatusLabel,
@@ -60,6 +61,17 @@ describe("projectDisplay", () => {
     expect(workStatusLabel("ready_for_review")).toBe("ready for review");
     expect(assignmentStatusLabel("awaiting_approval")).toBe("approval");
     expect(assignmentStatusLabel("completed")).toBe("done");
+    expect(projectRoleLabel("release_reviewer", [])).toBe("Release reviewer");
+    expect(
+      projectRoleLabel("release_reviewer", [
+        {
+          id: "release_reviewer",
+          project_id: "proj_1",
+          name: "Release reviewer",
+          built_in: false,
+        },
+      ]),
+    ).toBe("Release reviewer");
     expect(handoffStatusLabel("dismissed")).toBe("Dismissed");
     expect(projectRootDisplayLabel(record, "root_main")).toBe("hecate");
     expect(projectRootDisplayLabel(record, "root_worktree")).toBe("feature/project-ui");

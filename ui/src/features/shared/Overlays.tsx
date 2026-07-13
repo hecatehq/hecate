@@ -17,6 +17,7 @@ function DialogChrome({
   title,
   ariaLabel,
   children,
+  dismissible = true,
   footer,
   onClose,
   surface,
@@ -24,20 +25,26 @@ function DialogChrome({
   title: string;
   ariaLabel?: string;
   children: React.ReactNode;
+  dismissible?: boolean;
   footer: React.ReactNode;
   onClose: () => void;
   surface: React.CSSProperties;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
 
   useEffect(() => {
-    const previousFocus =
+    const activeElement =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusable = focusableDialogElements(dialogRef.current);
-    (focusable[0] ?? dialogRef.current)?.focus();
+    if (!activeElement || !dialogRef.current?.contains(activeElement)) {
+      const focusable = focusableDialogElements(dialogRef.current);
+      (focusable[0] ?? dialogRef.current)?.focus();
+    }
     return () => {
-      if (previousFocus && document.contains(previousFocus)) {
-        previousFocus.focus();
+      if (previousFocusRef.current && document.contains(previousFocusRef.current)) {
+        previousFocusRef.current.focus();
       }
     };
   }, []);
@@ -45,7 +52,7 @@ function DialogChrome({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        if (dismissible) onClose();
         return;
       }
       if (e.key === "Tab") {
@@ -54,7 +61,7 @@ function DialogChrome({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [dismissible, onClose]);
 
   return (
     <div
@@ -68,7 +75,7 @@ function DialogChrome({
         background: "var(--scrim)",
         backdropFilter: "blur(2px)",
       }}
-      onClick={onClose}
+      onClick={dismissible ? onClose : undefined}
     >
       <div
         ref={dialogRef}
@@ -104,14 +111,23 @@ function DialogChrome({
           <button
             className="btn btn-ghost btn-sm"
             style={{ marginLeft: "auto", padding: "3px 6px" }}
+            disabled={!dismissible}
             onClick={onClose}
             aria-label="Close"
-            title="Close (Esc)"
+            title={dismissible ? "Close (Esc)" : "Wait for the current action to finish"}
+            type="button"
           >
             <Icon d={Icons.x} size={14} />
           </button>
         </div>
-        <div style={{ padding: 16, flex: 1, overflowY: "auto", overscrollBehavior: "contain" }}>
+        <div
+          style={{
+            padding: 16,
+            flex: 1,
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+          }}
+        >
           {children}
         </div>
         <div
@@ -132,9 +148,29 @@ function focusableDialogElements(root: HTMLElement | null): HTMLElement[] {
   if (!root) return [];
   return Array.from(
     root.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'a[href], button:not([disabled]), summary, textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ),
-  ).filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
+  ).filter(isRenderedDialogControl);
+}
+
+function isRenderedDialogControl(element: HTMLElement): boolean {
+  if (element.hasAttribute("disabled")) return false;
+  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+    if (
+      current.hidden ||
+      current.hasAttribute("inert") ||
+      current.getAttribute("aria-hidden") === "true" ||
+      current.style.display === "none" ||
+      current.style.visibility === "hidden"
+    ) {
+      return false;
+    }
+    if (current instanceof HTMLDetailsElement && !current.open) {
+      const summary = current.querySelector(":scope > summary");
+      if (summary !== element) return false;
+    }
+  }
+  return true;
 }
 
 function trapDialogFocus(event: KeyboardEvent, root: HTMLElement | null) {
@@ -145,23 +181,18 @@ function trapDialogFocus(event: KeyboardEvent, root: HTMLElement | null) {
     root.focus();
     return;
   }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
   const active = document.activeElement;
-  if (!root.contains(active)) {
-    event.preventDefault();
-    first.focus();
-    return;
-  }
-  if (event.shiftKey && active === first) {
-    event.preventDefault();
-    last.focus();
-    return;
-  }
-  if (!event.shiftKey && active === last) {
-    event.preventDefault();
-    first.focus();
-  }
+  const activeIndex = active instanceof HTMLElement ? focusable.indexOf(active) : -1;
+  const nextIndex =
+    activeIndex < 0
+      ? event.shiftKey
+        ? focusable.length - 1
+        : 0
+      : event.shiftKey
+        ? (activeIndex - 1 + focusable.length) % focusable.length
+        : (activeIndex + 1) % focusable.length;
+  event.preventDefault();
+  focusable[nextIndex].focus();
 }
 
 // SlideOver is the right-anchored panel used across the console for
@@ -209,6 +240,7 @@ export function Modal({
   title,
   ariaLabel,
   children,
+  dismissible = true,
   footer,
   onClose,
   width = 560,
@@ -216,6 +248,7 @@ export function Modal({
   title: string;
   ariaLabel?: string;
   children: React.ReactNode;
+  dismissible?: boolean;
   footer: React.ReactNode;
   onClose: () => void;
   width?: number;
@@ -224,6 +257,7 @@ export function Modal({
     <DialogChrome
       title={title}
       ariaLabel={ariaLabel}
+      dismissible={dismissible}
       footer={footer}
       onClose={onClose}
       surface={{
