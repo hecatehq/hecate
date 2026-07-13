@@ -162,6 +162,34 @@ describe("AgentPresetsModal", () => {
     expect(screen.getByLabelText("Use skill Backend")).toBeDisabled();
   });
 
+  it("locks dismissal and repeat submission while a preset is saving", async () => {
+    const onClose = vi.fn();
+    const onUpdate = vi.fn();
+
+    render(
+      <AgentPresetsModal
+        error=""
+        pending
+        presets={[preset()]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={onClose}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Implementation" })).toBeDisabled();
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
   it("confirms deletion with project and role references", async () => {
     const onDelete = vi.fn(async () => true);
 

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 
 import { useProjects } from "../../app/state/projects";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -229,6 +237,7 @@ export function ProjectsView({
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const { rightPanelWidth, setRightPanelWidth } = useStoredRightPanelWidth();
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
@@ -1011,6 +1020,7 @@ export function ProjectsView({
       void refreshProjectOverview(projectID);
       if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setSettingsPanelOpen(false);
+      window.requestAnimationFrame(() => settingsButtonRef.current?.focus());
     } catch (error) {
       if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
@@ -2480,6 +2490,7 @@ export function ProjectsView({
             setSelectedWorkItemID(workItemID);
           }}
           onRefresh={refreshSelectedWorkItem}
+          settingsButtonRef={settingsButtonRef}
           settingsOpen={settingsPanelOpen}
           onEditDefaults={() => {
             setDefaultsError("");
@@ -2494,7 +2505,12 @@ export function ProjectsView({
             setRolesModalOpen(true);
           }}
         />
-        <div style={projectMainBodyStyle}>
+        <div
+          className={`projects-cockpit-main-body${
+            settingsPanelOpen ? " projects-cockpit-main-body--settings" : ""
+          }`}
+          style={projectMainBodyStyle}
+        >
           <ProjectWorkspaceView
             activity={activity}
             activityLoadState={activityLoadState}
@@ -2700,6 +2716,7 @@ export function ProjectsView({
           {selectedProject && settingsPanelOpen && (
             <ChatRightPanel
               ariaLabel="Project settings panel"
+              className="project-settings-inspector"
               width={rightPanelWidth}
               onWidthChange={setRightPanelWidth}
             >
@@ -3158,6 +3175,7 @@ function ProjectHeader({
   omittedAttentionCount,
   memoryCandidates,
   project,
+  settingsButtonRef,
   settingsOpen,
   onAttentionBucket,
   onAttentionDefaults,
@@ -3179,6 +3197,7 @@ function ProjectHeader({
   omittedAttentionCount: number;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   project: ProjectRecord | null;
+  settingsButtonRef: RefObject<HTMLButtonElement | null>;
   settingsOpen: boolean;
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
   onAttentionDefaults: () => void;
@@ -3256,6 +3275,7 @@ function ProjectHeader({
             <Icon d={Icons.model} size={13} />
           </button>
           <button
+            ref={settingsButtonRef}
             className="btn btn-ghost btn-sm"
             type="button"
             aria-expanded={settingsOpen}

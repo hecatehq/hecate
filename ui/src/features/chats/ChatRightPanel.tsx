@@ -8,11 +8,13 @@ const KEYBOARD_RESIZE_STEP = 8;
 export function ChatRightPanel({
   ariaLabel,
   children,
+  className,
   onWidthChange,
   width,
 }: {
   ariaLabel: string;
   children: ReactNode;
+  className?: string;
   onWidthChange: (width: number) => void;
   width: number;
 }) {
@@ -30,6 +32,7 @@ export function ChatRightPanel({
   return (
     <aside
       aria-label={ariaLabel}
+      className={className}
       style={{
         background: "var(--bg1)",
         borderLeft: "1px solid var(--border)",

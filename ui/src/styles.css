@@ -308,6 +308,19 @@ textarea {
   opacity: 1;
 }
 
+.project-support-details > summary,
+.project-support-collection > summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.project-support-details > summary:focus-visible,
+.project-support-collection > summary:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid color-mix(in srgb, var(--teal) 72%, transparent);
+  outline-offset: 3px;
+}
+
 @media (max-width: 1180px) {
   .project-work-coordination-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -332,6 +345,32 @@ textarea {
 
   .project-cockpit-workspace {
     padding: 10px !important;
+  }
+
+  .projects-cockpit-main-body--settings .project-workspace-content {
+    display: none !important;
+  }
+
+  .project-settings-inspector {
+    border-left: 0 !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .project-settings-inspector .chat-right-panel-resize-handle {
+    display: none;
+  }
+
+  .project-support-header,
+  .project-support-row-header {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .project-support-actions {
+    justify-content: flex-start !important;
   }
 
   .project-workspace-tabs {
@@ -373,7 +412,11 @@ textarea {
   .project-assignment-form-grid,
   .project-work-modal-grid,
   .project-role-defaults-grid,
-  .project-roles-modal-grid {
+  .project-roles-modal-grid,
+  .agent-presets-modal-grid,
+  .agent-presets-form-grid,
+  .project-support-form-grid,
+  .project-skill-edit-grid {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
@@ -386,11 +429,13 @@ textarea {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
-  .project-roles-modal-grid {
+  .project-roles-modal-grid,
+  .agent-presets-modal-grid {
     min-height: 0 !important;
   }
 
-  .project-roles-modal-list {
+  .project-roles-modal-list,
+  .agent-presets-modal-list {
     border-bottom: 1px solid var(--border);
     border-right: 0 !important;
     max-height: 156px;

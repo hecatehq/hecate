@@ -18,6 +18,7 @@ import {
   normalizeWorkspaceMode,
   projectDefaultsFormFromProject,
   projectRootOptionLabel,
+  projectRootPayloadsEqual,
   projectRootSummary,
   type ProjectDefaultsForm,
 } from "./projectSettings";
@@ -64,6 +65,23 @@ export function ProjectSettingsPanel({
     () => agentPresets.find((preset) => preset.id === form.defaultAgentPreset) ?? null,
     [agentPresets, form.defaultAgentPreset],
   );
+  const savedForm = useMemo(() => projectDefaultsFormFromProject(project), [project]);
+  const dirty = useMemo(
+    () =>
+      form.provider.trim() !== savedForm.provider.trim() ||
+      form.model.trim() !== savedForm.model.trim() ||
+      form.defaultAgentPreset.trim() !== savedForm.defaultAgentPreset.trim() ||
+      form.workspaceMode.trim() !== savedForm.workspaceMode.trim() ||
+      form.defaultRootID.trim() !== savedForm.defaultRootID.trim() ||
+      form.roots.length !== savedForm.roots.length ||
+      form.roots.some((root, index) => {
+        const savedRoot = savedForm.roots[index];
+        return !savedRoot || !projectRootPayloadsEqual(root, savedRoot);
+      }),
+    [form, savedForm],
+  );
+  const workspaceMode = normalizeWorkspaceMode(form.workspaceMode);
+  const knownWorkspaceMode = ["", "ephemeral", "persistent", "in_place"].includes(workspaceMode);
 
   function handleProviderChange(provider: string) {
     setForm((current) => {
@@ -148,7 +166,9 @@ export function ProjectSettingsPanel({
         }}
       >
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Project settings</div>
+          <h2 style={{ fontSize: 14, fontWeight: 650, color: "var(--t0)", margin: 0 }}>
+            Project settings
+          </h2>
           <div
             style={{
               marginTop: 4,
@@ -157,25 +177,27 @@ export function ProjectSettingsPanel({
               lineHeight: 1.45,
             }}
           >
-            Controls defaults for future native project assignments. Existing task runs keep the
-            settings they started with.
+            Choose defaults for future agent work and optional local files. Existing assignments
+            keep the settings they started with.
           </div>
         </div>
       </div>
       <div style={{ overflowY: "auto", padding: 14, display: "grid", gap: 14 }}>
         <form
+          aria-busy={pending}
           onSubmit={(event) => {
             event.preventDefault();
-            void submitForm();
+            if (!pending && dirty) void submitForm();
           }}
           style={{ display: "grid", gap: 14 }}
         >
           {error && <InlineError message={error} />}
           {rootChooseError && <InlineError message={rootChooseError} />}
           {agentPresetsError && <InlineError message={agentPresetsError} />}
-          <ProjectSettingsSection title="Assignment defaults">
+          <ProjectSettingsSection title="Launch defaults">
             <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
-              Native Hecate assignments copy these defaults when creating the backing task.
+              Used for future Hecate Task and External Agent assignments. Human work does not need a
+              provider or model.
             </div>
             <div style={{ display: "grid", gap: 12 }}>
               <div style={fieldStyle}>
@@ -201,7 +223,7 @@ export function ProjectSettingsPanel({
                 </div>
               </div>
               <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Agent preset</span>
+                <span style={fieldLabelStyle}>Agent behavior</span>
                 <select
                   aria-label="Default agent preset"
                   className="input"
@@ -214,22 +236,22 @@ export function ProjectSettingsPanel({
                   }
                   style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
                 >
-                  <option value="">built-in project_assignment</option>
+                  <option value="">Standard project assignment</option>
                   {agentPresets.map((preset) => (
                     <option key={preset.id} value={preset.id}>
-                      {preset.name || preset.id} ({preset.id})
+                      {preset.name || preset.id}
                     </option>
                   ))}
                 </select>
                 <PresetPosturePreview preset={selectedPreset} />
               </div>
               <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Workspace mode</span>
+                <span style={fieldLabelStyle}>Workspace behavior</span>
                 <div style={{ position: "relative", width: "100%" }}>
                   <select
-                    aria-label="Workspace mode"
+                    aria-label="Workspace behavior"
                     className="input"
-                    value={normalizeWorkspaceMode(form.workspaceMode)}
+                    value={workspaceMode}
                     onChange={(event) =>
                       setForm((current) => ({ ...current, workspaceMode: event.target.value }))
                     }
@@ -242,9 +264,13 @@ export function ProjectSettingsPanel({
                       paddingRight: 34,
                     }}
                   >
-                    <option value="in_place">in_place</option>
-                    <option value="persistent">persistent</option>
-                    <option value="ephemeral">ephemeral</option>
+                    <option value="">Isolated copy (recommended)</option>
+                    <option value="ephemeral">Isolated copy (ephemeral setting)</option>
+                    <option value="persistent">Isolated copy (persistent setting)</option>
+                    <option value="in_place">Attached folder (writes directly)</option>
+                    {!knownWorkspaceMode && (
+                      <option value={workspaceMode}>Isolated copy ({workspaceMode})</option>
+                    )}
                   </select>
                   <span
                     aria-hidden="true"
@@ -262,33 +288,29 @@ export function ProjectSettingsPanel({
                     <Icon d={Icons.chevD} size={12} />
                   </span>
                 </div>
+                <div style={subtleTextStyle}>
+                  Isolated modes currently use a fresh copy for each run. Writing directly to an
+                  attached folder is always an explicit choice.
+                </div>
               </div>
-              <button
-                className="btn btn-primary"
-                type="submit"
-                disabled={pending}
-                style={{ width: "100%", justifyContent: "center" }}
-              >
-                {pending ? "Saving…" : "Save defaults"}
-              </button>
             </div>
           </ProjectSettingsSection>
-          <ProjectSettingsSection title="Project context">
+          <ProjectSettingsSection title="Local files">
             <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
-              Project roots are optional local folders or checkouts. Use them when this project
-              needs local files, code, or workspace guidance.
+              Folders are optional. Attach one when this project needs documents, code, or local
+              guidance.
             </div>
             <div style={{ display: "grid", gap: 12, marginBottom: 14 }}>
               <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Default root</span>
+                <span style={fieldLabelStyle}>Default folder</span>
                 <select
-                  aria-label="Default project root"
+                  aria-label="Default folder"
                   className="input"
                   value={form.defaultRootID}
                   onChange={(event) => handleDefaultRootChange(event.target.value)}
                   style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
                 >
-                  <option value="">no default root</option>
+                  <option value="">No default folder</option>
                   {form.roots.map((root) => (
                     <option key={root.id || root.path} value={root.id ?? ""}>
                       {projectRootOptionLabel(root)}
@@ -298,7 +320,7 @@ export function ProjectSettingsPanel({
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
-                  className="btn btn-primary btn-sm"
+                  className="btn btn-ghost btn-sm"
                   type="button"
                   onClick={() => void handleChooseRoot()}
                 >
@@ -318,12 +340,12 @@ export function ProjectSettingsPanel({
                   disabled={rootsPending || rootCount === 0}
                   onClick={() => void onDiscoverRoots()}
                 >
-                  {rootsPending ? "Discovering…" : "Discover worktrees"}
+                  {rootsPending ? "Finding…" : "Find worktrees"}
                 </button>
                 <span style={subtleTextStyle}>
                   {rootCount === 0
-                    ? "No roots configured."
-                    : `${rootCount} root${rootCount === 1 ? "" : "s"}`}
+                    ? "No folders attached."
+                    : `${rootCount} folder${rootCount === 1 ? "" : "s"}`}
                 </span>
               </div>
               {form.roots.length > 0 && (
@@ -382,7 +404,9 @@ export function ProjectSettingsPanel({
               }}
             >
               <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>Workspace</span>
+                <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>
+                  Current folder
+                </span>
                 <span
                   title={workspace}
                   style={{
@@ -397,6 +421,25 @@ export function ProjectSettingsPanel({
               </div>
             </div>
           </ProjectSettingsSection>
+          <div
+            style={{
+              background: "var(--bg1)",
+              borderTop: "1px solid var(--border)",
+              bottom: -14,
+              margin: "0 -14px -14px",
+              padding: 14,
+              position: "sticky",
+            }}
+          >
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={pending || !dirty}
+              style={{ width: "100%", justifyContent: "center" }}
+            >
+              {pending ? "Saving…" : "Save settings"}
+            </button>
+          </div>
         </form>
       </div>
     </div>
@@ -406,9 +449,9 @@ export function ProjectSettingsPanel({
 function ProjectSettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <div className="kicker" style={{ marginBottom: 7 }}>
+      <h3 className="kicker" style={{ margin: "0 0 7px" }}>
         {title}
-      </div>
+      </h3>
       {children}
     </section>
   );
@@ -418,7 +461,7 @@ function PresetPosturePreview({ preset }: { preset: AgentPresetRecord | null }) 
   if (!preset) {
     return (
       <div style={{ ...subtleTextStyle, marginTop: 4 }}>
-        Uses the built-in project_assignment posture until a saved preset is selected.
+        Uses Hecate's standard project-assignment behavior.
       </div>
     );
   }
@@ -435,7 +478,12 @@ function PresetPosturePreview({ preset }: { preset: AgentPresetRecord | null }) 
     `memory ${preset.project_memory_policy}`,
     `sources ${preset.context_source_policy}`,
   ].filter(Boolean);
-  return <div style={{ ...subtleTextStyle, marginTop: 4 }}>{details.join(" · ")}</div>;
+  return (
+    <details className="project-support-details" style={{ ...runtimeDetailsStyle, marginTop: 4 }}>
+      <summary>Runtime details</summary>
+      <div style={{ ...subtleTextStyle, marginTop: 8 }}>{details.join(" · ")}</div>
+    </details>
+  );
 }
 
 const subtleTextStyle: CSSProperties = {
@@ -454,4 +502,11 @@ const fieldLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   textTransform: "uppercase",
+};
+
+const runtimeDetailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  color: "var(--t2)",
+  fontSize: 12,
+  paddingTop: 7,
 };

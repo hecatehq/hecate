@@ -68,17 +68,18 @@ describe("ProjectSettingsPanel", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Default project root"), {
+    fireEvent.change(screen.getByLabelText("Default folder"), {
       target: { value: "root_feature" },
     });
 
     expect(screen.getAllByText("/workspace/feature")).toHaveLength(2);
 
-    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         defaultRootID: "root_feature",
+        workspaceMode: "",
         roots: expect.arrayContaining([
           expect.objectContaining({ id: "root_feature", active: true }),
         ]),
@@ -110,13 +111,13 @@ describe("ProjectSettingsPanel", () => {
       />,
     );
 
-    expect(screen.getByText("No roots configured.")).toBeTruthy();
+    expect(screen.getByText("No folders attached.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create worktree" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Discover worktrees" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Find worktrees" })).toBeDisabled();
 
     await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
     expect(await screen.findAllByText("/workspace/research")).toHaveLength(2);
-    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -128,6 +129,67 @@ describe("ProjectSettingsPanel", () => {
           }),
         ],
       }),
+    );
+  });
+
+  it.each([
+    ["Isolated copy (recommended)", ""],
+    ["Isolated copy (ephemeral setting)", "ephemeral"],
+    ["Isolated copy (persistent setting)", "persistent"],
+    ["Attached folder (writes directly)", "in_place"],
+  ])("maps %s to the exact workspace value", async (label, value) => {
+    const onSave = vi.fn();
+    render(
+      <ProjectSettingsPanel
+        agentPresets={[]}
+        agentPresetsError=""
+        error=""
+        models={[]}
+        pending={false}
+        providerOptions={[]}
+        providerPresets={[]}
+        project={project({ default_workspace_mode: value === "" ? "persistent" : "" })}
+        rootsPending={false}
+        onDiscoverRoots={vi.fn()}
+        onOpenCreateWorktree={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("Workspace behavior"), label);
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ workspaceMode: value }));
+  });
+
+  it("preserves an unknown isolated workspace value on unrelated saves", async () => {
+    const onSave = vi.fn();
+    render(
+      <ProjectSettingsPanel
+        agentPresets={[]}
+        agentPresetsError=""
+        error=""
+        models={[]}
+        pending={false}
+        providerOptions={[]}
+        providerPresets={[]}
+        project={project({ default_workspace_mode: "future_clone" })}
+        rootsPending={false}
+        onDiscoverRoots={vi.fn()}
+        onOpenCreateWorktree={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByLabelText("Workspace behavior")).toHaveValue("future_clone");
+    expect(screen.getByRole("option", { name: "Isolated copy (future_clone)" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Default folder"), {
+      target: { value: "root_feature" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceMode: "future_clone", defaultRootID: "root_feature" }),
     );
   });
 });

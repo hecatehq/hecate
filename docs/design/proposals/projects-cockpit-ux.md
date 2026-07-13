@@ -1,7 +1,8 @@
 # Projects Cockpit UX
 
 > **Status:** Proposal with the overview-first, work-item execution,
-> assignment-destination, and follow-through slices implemented.
+> assignment-destination, follow-through, and supporting-surface hierarchy
+> slices implemented. Shareable navigation remains.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -41,6 +42,15 @@ Concrete issues from the current UI and browser behavior:
   review, or handoff target. That forced another scan, especially at 390px.
 - Review and handoff forms exposed advanced record details in the routine path,
   and closeout could be committed without a final confirmation.
+- Memory mixed pending review, saved guidance, source management, and raw
+  provenance into one dense surface with several competing header actions.
+- Skills rendered every registered skill as an always-open editor, so status
+  and warnings were harder to scan than paths, trust labels, and runtime needs.
+- Project Settings exposed stored workspace-mode values instead of product
+  language and squeezed the project workspace beside a fixed-width inspector at
+  390px.
+- Rootless projects offered file discovery even though skills discovery without
+  an active folder can mark previously registered skills missing.
 
 Existing strengths stay intact: rootless creation is first-class, setup and
 assistant changes remain reviewable, launch preflight is explicit, evidence is
@@ -133,11 +143,13 @@ flowchart TD
    `manual` execution mode.
 4. **Review, handoff, and closeout rail:** make follow-through legible without
    auto-dispatching or auto-closing work.
-5. **Supporting inspectors and navigation:** progressively disclose context and
-   runtime detail, then add shareable project/work navigation and broader
-   accessibility coverage.
+5. **Supporting inspectors and navigation:** progressively disclose memory,
+   skills, context, and runtime detail; make Settings responsive and preserve
+   exact launch semantics; then add shareable project/work navigation and
+   broader accessibility coverage.
 
-Slices 1 through 4 are implemented. Slice 1 rearranges existing server
+Slices 1 through 4 and the supporting-surface half of slice 5 are implemented.
+Slice 1 rearranges existing server
 projections and action routing. Slice 2 reshapes each assignment into a
 state-driven story. Slice 3 adds Human as a faithful facade label for
 Cairnline's `manual` execution mode, with direct Start work, Resume work, and
@@ -146,7 +158,15 @@ Slice 4 adds one server-directed follow-through action to selected work, exact
 assignment/review/handoff focus, progressive evidence and handoff forms, an
 explicit closeout confirmation, and a read-only completed state. It also keeps
 work-item closure explicit: completed assignments no longer make an open work
-item appear closed.
+item appear closed. The implemented part of slice 5 puts pending memory review
+before saved guidance, collapses resolved history and technical metadata,
+turns Skills into a status-first registry, gives Timeline semantic structure,
+and makes Project Settings a full-width narrow inspector. Workspace behavior
+labels preserve the exact stored mode: an unset value remains the recommended
+isolated copy, `ephemeral` and `persistent` remain distinct isolated settings,
+and only `in_place` is described as writing directly to the attached folder.
+File-backed discovery is unavailable without an active nonblank root, while
+rootless projects retain normal memory and skill management.
 None of the slices add local project lifecycle state or inferred execution
 events.
 
@@ -230,6 +250,21 @@ containment before test-driven scrolling; explicit closeout; and the durable
 read-only completed state. Focus requests for records that disappeared fail
 closed to the selected work item with an announced refresh action. Unexpected
 fixture routes fail the journey instead of receiving generic success data.
+
+The supporting-surface journey verifies pending and saved memory hierarchy,
+collapsed source and skill details, memory creation, skill editing through the
+existing mutations, a clean Settings form, focus restoration, and horizontal
+containment at desktop and 390px widths. Focused component tests also cover
+loading, empty, error, pending-review, resolved-history, editing, and
+save-pending states.
+
+![Read-first project memory at desktop width](../../screenshots/projects-memory.jpg)
+
+![Project Settings at narrow width](../../screenshots/projects-settings-narrow.jpg)
+
+Regenerate these images with
+`HECATE_CAPTURE_PROJECTS_SUPPORTING=1 bunx playwright test e2e/projects.spec.ts -g "Projects supporting surfaces stay read-first"`
+from `ui/`.
 
 ![Work-item closeout confirmation at desktop width](../../screenshots/projects-follow-through.jpg)
 

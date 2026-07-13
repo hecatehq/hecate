@@ -184,12 +184,15 @@ describe("ProjectTimelinePanel", () => {
       />,
     );
 
-    expect(
-      screen.getByText("3 project story items from activity, memory, and collaboration artifacts."),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Timeline" })).toBeTruthy();
+    expect(screen.getByText("3 story items from work, memory, and collaboration.")).toBeTruthy();
     expect(screen.getByText("Extract timeline")).toBeTruthy();
     expect(screen.getAllByText("Use panel extraction")).toHaveLength(2);
     expect(screen.getByText("Context memory: UI lane")).toBeTruthy();
+    expect(screen.getByText("Decision", { selector: "span" })).toBeTruthy();
+
+    await userEvent.click(screen.getAllByText("Technical references", { selector: "summary" })[0]!);
+    expect(screen.getByText("run run_123")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Open timeline task task_123" }));
     await userEvent.click(
@@ -235,7 +238,7 @@ describe("ProjectTimelinePanel", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "No explicit decision notes yet. Existing decision_note artifacts will be collected here without creating durable decisions automatically.",
+        "No decision notes yet. Recorded collaboration decisions will appear here without creating new records automatically.",
       ),
     ).toBeTruthy();
   });

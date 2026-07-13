@@ -86,76 +86,67 @@ export function ProjectMemoryPanel({
 }: ProjectMemoryPanelProps) {
   if (!project) return null;
   const enabledCount = entries.filter((entry) => entry.enabled).length;
-  const pendingCount = candidates.filter((candidate) => candidate.status === "pending").length;
+  const pendingCandidates = candidates.filter((candidate) => candidate.status === "pending");
+  const resolvedCandidates = candidates.filter((candidate) => candidate.status !== "pending");
+  const firstPendingCandidate = pendingCandidates[0] ?? null;
+  const pendingCount = pendingCandidates.length;
   const contextSources = project.context_sources ?? [];
   const enabledSourceCount = contextSources.filter((source) => source.enabled).length;
+  const enabledSourceSummary = `${enabledSourceCount} source${enabledSourceCount === 1 ? "" : "s"} enabled`;
+  const canDiscoverSources = project.roots.some((root) => root.active && root.path.trim());
   return (
-    <div>
-      <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <div>
-            <div style={sectionLabelStyle}>Memory / Context</div>
-            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
-              {loading
-                ? "Loading project memory…"
-                : `${enabledSourceCount}/${contextSources.length} sources · ${enabledCount}/${entries.length} memory · ${pendingCount} pending`}
-            </div>
+    <section aria-busy={loading} aria-label="Project memory" style={panelStyle}>
+      <header className="project-support-header" style={supportHeaderStyle}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={surfaceTitleStyle}>Memory</h1>
+          <div aria-live="polite" role="status" style={{ ...subtleTextStyle, marginTop: 3 }}>
+            {loading
+              ? "Loading project memory…"
+              : `${entries.length} saved · ${enabledCount} enabled · ${pendingCount} to review · ${enabledSourceSummary}`}
           </div>
+        </div>
+        <div style={supportActionsStyle}>
           <button
             className="btn btn-ghost btn-sm"
             type="button"
             aria-label="Refresh project memory"
             title="Refresh"
             onClick={onRefresh}
-            style={{ marginLeft: "auto" }}
           >
             <Icon d={Icons.refresh} size={12} />
           </button>
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-primary btn-sm"
             type="button"
-            disabled={discoveringContext}
-            onClick={onDiscoverContextSources}
+            onClick={() =>
+              firstPendingCandidate ? onPromoteCandidate(firstPendingCandidate) : onNew()
+            }
           >
-            <Icon d={Icons.search} size={12} />
-            {discoveringContext ? "Discovering…" : "Discover"}
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onNewSource}>
-            <Icon d={Icons.plus} size={12} />
-            Source
-          </button>
-          <button className="btn btn-primary btn-sm" type="button" onClick={onNew}>
-            <Icon d={Icons.plus} size={12} />
-            Memory
+            <Icon d={firstPendingCandidate ? Icons.check : Icons.plus} size={12} />
+            {firstPendingCandidate ? "Review suggestion" : "Add memory"}
           </button>
         </div>
-        {error && (
-          <div style={{ marginBottom: 10 }}>
-            <InlineError message={error} />
-          </div>
-        )}
-        <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-          <div style={sectionLabelStyle}>Project sources</div>
-          {contextSources.length === 0 ? (
-            <div style={subtleTextStyle}>
-              No project sources yet. Add URLs, notes, local paths, or discover workspace guidance
-              from configured roots.
+      </header>
+      {error && (
+        <div style={{ marginBottom: 10 }}>
+          <InlineError message={error} />
+        </div>
+      )}
+      {pendingCandidates.length > 0 && (
+        <section aria-labelledby="project-memory-suggestions" style={contentSectionStyle}>
+          <div style={sectionHeadingRowStyle}>
+            <div>
+              <h2 id="project-memory-suggestions" style={sectionHeadingStyle}>
+                Suggestions to review
+              </h2>
+              <div style={{ ...subtleTextStyle, marginTop: 2 }}>
+                Nothing is saved until you review and confirm it.
+              </div>
             </div>
-          ) : (
-            contextSources.map((source) => (
-              <ProjectContextSourceRow
-                key={source.id}
-                source={source}
-                onDelete={() => onDeleteSource(source)}
-                onEdit={() => onEditSource(source)}
-              />
-            ))
-          )}
-        </div>
-        {candidates.length > 0 && (
-          <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-            <div style={sectionLabelStyle}>Candidates</div>
-            {candidates.map((candidate) => (
+            {pendingCount > 0 && <span className="badge badge-amber">{pendingCount} pending</span>}
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {pendingCandidates.map((candidate) => (
               <ProjectMemoryCandidateRow
                 key={candidate.id}
                 candidate={candidate}
@@ -165,9 +156,48 @@ export function ProjectMemoryPanel({
               />
             ))}
           </div>
-        )}
+        </section>
+      )}
+      {resolvedCandidates.length > 0 && (
+        <details className="project-support-collection" style={collectionDetailsStyle}>
+          <summary>
+            <span>Reviewed suggestions</span>
+            <span style={collectionSummaryMetaStyle}>{resolvedCandidates.length}</span>
+          </summary>
+          <div style={{ ...collectionBodyStyle, display: "grid", gap: 8 }}>
+            {resolvedCandidates.map((candidate) => (
+              <ProjectMemoryCandidateRow
+                key={candidate.id}
+                candidate={candidate}
+                pendingReject={false}
+                onPromote={() => onPromoteCandidate(candidate)}
+                onReject={() => onRejectCandidate(candidate)}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+      <section aria-labelledby="project-saved-memory" style={contentSectionStyle}>
+        <div style={sectionHeadingRowStyle}>
+          <div>
+            <h2 id="project-saved-memory" style={sectionHeadingStyle}>
+              Saved memory
+            </h2>
+            <div style={{ ...subtleTextStyle, marginTop: 2 }}>
+              Confirmed guidance available to this project.
+            </div>
+          </div>
+          {firstPendingCandidate && (
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onNew}>
+              <Icon d={Icons.plus} size={12} />
+              Add memory
+            </button>
+          )}
+        </div>
         {entries.length === 0 && !loading ? (
-          <div style={subtleTextStyle}>No project memory entries saved yet.</div>
+          <div style={emptyStateStyle}>
+            No saved memory yet. Add only durable guidance the operator has confirmed.
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             {entries.map((entry) => (
@@ -180,8 +210,61 @@ export function ProjectMemoryPanel({
             ))}
           </div>
         )}
-      </div>
-    </div>
+      </section>
+      <details className="project-support-collection" style={collectionDetailsStyle}>
+        <summary>
+          <span>Sources</span>
+          <span style={collectionSummaryMetaStyle}>
+            {enabledSourceCount} enabled · {contextSources.length} total
+          </span>
+        </summary>
+        <div style={collectionBodyStyle}>
+          <div className="project-support-actions" style={supportActionsStyle}>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onNewSource}>
+              <Icon d={Icons.plus} size={12} />
+              Add source
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={discoveringContext || !canDiscoverSources}
+              onClick={onDiscoverContextSources}
+              title={
+                canDiscoverSources
+                  ? "Find guidance in attached folders"
+                  : "Attach or enable a folder first"
+              }
+            >
+              <Icon d={Icons.search} size={12} />
+              {discoveringContext ? "Finding…" : "Find from folders"}
+            </button>
+          </div>
+          {!canDiscoverSources && (
+            <div style={guidanceStyle}>
+              Attach or enable a folder to find local guidance. Notes and links can be added without
+              local files.
+            </div>
+          )}
+          {contextSources.length === 0 ? (
+            <div style={emptyStateStyle}>
+              Sources are optional. Add a note, link, or local path when the project needs reference
+              material.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {contextSources.map((source) => (
+                <ProjectContextSourceRow
+                  key={source.id}
+                  source={source}
+                  onDelete={() => onDeleteSource(source)}
+                  onEdit={() => onEditSource(source)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -209,13 +292,16 @@ export function ProjectSourceModal({
     <Modal
       title={source ? "Edit project source" : "New project source"}
       onClose={onClose}
+      dismissible={!pending}
       width={620}
       footer={
         <button
           className="btn btn-primary"
           type="button"
           disabled={pending || !valid}
-          onClick={() => void onSave(form)}
+          onClick={() => {
+            if (!pending) void onSave(form);
+          }}
           style={{ width: "100%", justifyContent: "center" }}
         >
           {pending ? "Saving…" : source ? "Save source" : "Create source"}
@@ -223,14 +309,15 @@ export function ProjectSourceModal({
       }
     >
       <form
+        aria-busy={pending}
         onSubmit={(event) => {
           event.preventDefault();
-          if (valid) void onSave(form);
+          if (!pending && valid) void onSave(form);
         }}
         style={{ display: "grid", gap: 12 }}
       >
         {error && <InlineError message={error} />}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="project-support-form-grid" style={twoColumnFormStyle}>
           <label style={fieldStyle}>
             <span style={fieldLabelStyle}>Kind</span>
             <select
@@ -301,54 +388,59 @@ export function ProjectSourceModal({
             style={{ resize: "vertical", minHeight: 92 }}
           />
         </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Trust label</span>
-            <input
-              className="input"
-              value={form.trustLabel}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, trustLabel: event.target.value }))
-              }
-              placeholder="operator_source"
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Category</span>
-            <input
-              className="input"
-              value={form.sourceCategory}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sourceCategory: event.target.value }))
-              }
-              placeholder="operator_source"
-            />
-          </label>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Format</span>
-            <input
-              className="input"
-              value={form.format}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, format: event.target.value }))
-              }
-              placeholder="url, text, agents_md"
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Scope</span>
-            <input
-              className="input"
-              value={form.scope}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, scope: event.target.value }))
-              }
-              placeholder="project, workspace, path:docs"
-            />
-          </label>
-        </div>
+        <details className="project-work-advanced-fields">
+          <summary>Advanced source details</summary>
+          <div style={{ display: "grid", gap: 10, paddingTop: 10 }}>
+            <div className="project-support-form-grid" style={twoColumnFormStyle}>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>Trust label</span>
+                <input
+                  className="input"
+                  value={form.trustLabel}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, trustLabel: event.target.value }))
+                  }
+                  placeholder="operator_source"
+                />
+              </label>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>Category</span>
+                <input
+                  className="input"
+                  value={form.sourceCategory}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, sourceCategory: event.target.value }))
+                  }
+                  placeholder="operator_source"
+                />
+              </label>
+            </div>
+            <div className="project-support-form-grid" style={twoColumnFormStyle}>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>Format</span>
+                <input
+                  className="input"
+                  value={form.format}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, format: event.target.value }))
+                  }
+                  placeholder="url, text, agents_md"
+                />
+              </label>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>Scope</span>
+                <input
+                  className="input"
+                  value={form.scope}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, scope: event.target.value }))
+                  }
+                  placeholder="project, workspace, path:docs"
+                />
+              </label>
+            </div>
+          </div>
+        </details>
       </form>
     </Modal>
   );
@@ -381,25 +473,28 @@ export function ProjectMemoryModal({
     <Modal
       title={
         isCandidate
-          ? "Promote memory candidate"
+          ? "Review memory suggestion"
           : entry
             ? "Edit project memory"
             : "New project memory"
       }
       onClose={onClose}
+      dismissible={!pending}
       width={620}
       footer={
         <button
           className="btn btn-primary"
           type="button"
           disabled={pending || !valid}
-          onClick={() => void onSave(form)}
+          onClick={() => {
+            if (!pending) void onSave(form);
+          }}
           style={{ width: "100%", justifyContent: "center" }}
         >
           {pending
             ? "Saving…"
             : isCandidate
-              ? "Promote memory"
+              ? "Save to memory"
               : entry
                 ? "Save memory"
                 : "Create memory"}
@@ -407,9 +502,10 @@ export function ProjectMemoryModal({
       }
     >
       <form
+        aria-busy={pending}
         onSubmit={(event) => {
           event.preventDefault();
-          if (valid) void onSave(form);
+          if (!pending && valid) void onSave(form);
         }}
         style={{ display: "grid", gap: 12 }}
       >
@@ -425,7 +521,7 @@ export function ProjectMemoryModal({
               padding: "9px 10px",
             }}
           >
-            <div style={sectionLabelStyle}>Candidate provenance</div>
+            <div style={sectionLabelStyle}>Suggestion source</div>
             <div style={metaLineStyle}>
               <span>{formatCandidateSource(candidate)}</span>
               <span>{candidate.suggested_trust_label}</span>
@@ -457,51 +553,6 @@ export function ProjectMemoryModal({
             style={{ resize: "vertical", minHeight: 150 }}
           />
         </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Trust label</span>
-            <select
-              className="input"
-              value={form.trustLabel}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, trustLabel: event.target.value }))
-              }
-            >
-              {MEMORY_TRUST_LABELS.map((label) => (
-                <option key={label} value={label}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Source kind</span>
-            <select
-              className="input"
-              value={form.sourceKind}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sourceKind: event.target.value }))
-              }
-            >
-              {MEMORY_SOURCE_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Source ID</span>
-          <input
-            className="input"
-            value={form.sourceID}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, sourceID: event.target.value }))
-            }
-            placeholder="optional artifact, chat, message, or handoff id"
-          />
-        </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--t1)" }}>
           <input
             type="checkbox"
@@ -510,8 +561,58 @@ export function ProjectMemoryModal({
               setForm((current) => ({ ...current, enabled: event.target.checked }))
             }
           />
-          Enabled for project context packets
+          Enabled for this project
         </label>
+        <details className="project-work-advanced-fields">
+          <summary>Advanced memory details</summary>
+          <div style={{ display: "grid", gap: 10, paddingTop: 10 }}>
+            <div className="project-support-form-grid" style={twoColumnFormStyle}>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>Trust label</span>
+                <select
+                  className="input"
+                  value={form.trustLabel}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, trustLabel: event.target.value }))
+                  }
+                >
+                  {MEMORY_TRUST_LABELS.map((label) => (
+                    <option key={label} value={label}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={fieldStyle}>
+                <span style={fieldLabelStyle}>Source kind</span>
+                <select
+                  className="input"
+                  value={form.sourceKind}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, sourceKind: event.target.value }))
+                  }
+                >
+                  {MEMORY_SOURCE_KINDS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Source ID</span>
+              <input
+                className="input"
+                value={form.sourceID}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, sourceID: event.target.value }))
+                }
+                placeholder="optional artifact, chat, message, or handoff id"
+              />
+            </label>
+          </div>
+        </details>
       </form>
     </Modal>
   );
@@ -530,54 +631,70 @@ function ProjectContextSourceRow({
   const note = source.metadata?.note;
   const title = source.title || source.path;
   return (
-    <div style={memoryEntryStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        <span
-          className={
-            source.kind === "workspace_instruction" ? "badge badge-green" : "badge badge-muted"
-          }
+    <article aria-label={`Source ${title}`} style={memoryEntryStyle}>
+      <div className="project-support-row-header" style={rowHeaderStyle}>
+        <div
+          style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}
         >
-          {sourceKindLabel(source.kind)}
-        </span>
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{title}</div>
+          <span
+            className={
+              source.kind === "workspace_instruction" ? "badge badge-green" : "badge badge-muted"
+            }
+          >
+            {sourceKindLabel(source.kind)}
+          </span>
+          <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{title}</div>
+        </div>
         <span className={source.enabled ? "badge badge-muted" : "badge badge-amber"}>
           {source.enabled ? "enabled" : "disabled"}
         </span>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Edit source ${title}`}
-          onClick={onEdit}
-          title="Edit"
-        >
-          <Icon d={Icons.edit} size={12} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Delete source ${title}`}
-          onClick={onDelete}
-          title="Delete"
-          style={{ color: "var(--red)" }}
-        >
-          <Icon d={Icons.trash} size={12} />
-        </button>
       </div>
       {note && <div style={memoryBodyStyle}>{note}</div>}
-      <div style={metaLineStyle}>
-        {isLinkableSourceLocator(source.path) ? (
-          <a href={source.path} target="_blank" rel="noreferrer">
-            {source.path}
-          </a>
-        ) : (
-          <span>{source.path}</span>
-        )}
-        {source.format && <span>{source.format}</span>}
-        {source.scope && <span>{source.scope}</span>}
-        {source.trust_label && <span>{source.trust_label}</span>}
-        {host && <span>{host}</span>}
-      </div>
-    </div>
+      {source.path && (
+        <div style={{ ...subtleTextStyle, marginTop: 6, overflowWrap: "anywhere" }}>
+          {isLinkableSourceLocator(source.path) ? (
+            <a href={source.path} target="_blank" rel="noreferrer">
+              {source.path}
+            </a>
+          ) : (
+            <span>{source.path}</span>
+          )}
+        </div>
+      )}
+      <details className="project-support-details" style={rowDetailsStyle}>
+        <summary>Details and actions</summary>
+        <div style={rowDetailsBodyStyle}>
+          <div style={metaLineStyle}>
+            {source.format && <span>{source.format}</span>}
+            {source.scope && <span>{source.scope}</span>}
+            {source.trust_label && <span>{source.trust_label}</span>}
+            {host && <span>{host}</span>}
+            <CopyableID text={source.id} compact />
+          </div>
+          <div style={rowActionStyle}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Edit source ${title}`}
+              onClick={onEdit}
+            >
+              <Icon d={Icons.edit} size={12} />
+              Edit
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Delete source ${title}`}
+              onClick={onDelete}
+              style={{ color: "var(--red)" }}
+            >
+              <Icon d={Icons.trash} size={12} />
+              Delete
+            </button>
+          </div>
+        </div>
+      </details>
+    </article>
   );
 }
 
@@ -592,40 +709,47 @@ function ProjectMemoryRow({
 }) {
   const source = formatMemorySource(entry);
   return (
-    <div style={memoryEntryStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+    <article aria-label={`Memory ${entry.title}`} style={memoryEntryStyle}>
+      <div className="project-support-row-header" style={rowHeaderStyle}>
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{entry.title}</div>
         <span className={entry.enabled ? "badge badge-muted" : "badge badge-amber"}>
           {entry.enabled ? "enabled" : "disabled"}
         </span>
-        <span className="badge badge-muted">{entry.trust_label}</span>
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{entry.title}</div>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Edit memory ${entry.title}`}
-          onClick={onEdit}
-          title="Edit"
-        >
-          <Icon d={Icons.edit} size={12} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Delete memory ${entry.title}`}
-          onClick={onDelete}
-          title="Delete"
-          style={{ color: "var(--red)" }}
-        >
-          <Icon d={Icons.trash} size={12} />
-        </button>
       </div>
       <div style={memoryBodyStyle}>{entry.body}</div>
-      <div style={metaLineStyle}>
-        <span>{source}</span>
-        <span>Updated {formatAbsoluteTime(entry.updated_at)}</span>
-        <CopyableID text={entry.id} compact />
-      </div>
-    </div>
+      <details className="project-support-details" style={rowDetailsStyle}>
+        <summary>Details and actions</summary>
+        <div style={rowDetailsBodyStyle}>
+          <div style={metaLineStyle}>
+            <span>{entry.trust_label}</span>
+            <span>{source}</span>
+            <span>Updated {formatAbsoluteTime(entry.updated_at)}</span>
+            <CopyableID text={entry.id} compact />
+          </div>
+          <div style={rowActionStyle}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Edit memory ${entry.title}`}
+              onClick={onEdit}
+            >
+              <Icon d={Icons.edit} size={12} />
+              Edit
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Delete memory ${entry.title}`}
+              onClick={onDelete}
+              style={{ color: "var(--red)" }}
+            >
+              <Icon d={Icons.trash} size={12} />
+              Delete
+            </button>
+          </div>
+        </div>
+      </details>
+    </article>
   );
 }
 
@@ -644,50 +768,57 @@ function ProjectMemoryCandidateRow({
   const sourceRefs = formatCandidateSourceRefs(candidate);
   const pending = candidate.status === "pending";
   return (
-    <div style={memoryEntryStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        <span className={pending ? "badge badge-amber" : "badge badge-muted"}>
-          {candidate.status}
-        </span>
-        <span className="badge badge-muted">{candidate.suggested_trust_label}</span>
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{candidate.title}</div>
+    <article aria-label={`Memory suggestion ${candidate.title}`} style={memoryEntryStyle}>
+      <div className="project-support-row-header" style={rowHeaderStyle}>
+        <div
+          style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}
+        >
+          <span className={pending ? "badge badge-amber" : "badge badge-muted"}>
+            {candidate.status}
+          </span>
+          <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{candidate.title}</div>
+        </div>
         {pending && (
-          <>
+          <div style={rowActionStyle}>
             <button
-              className="btn btn-primary btn-sm"
+              className="btn btn-ghost btn-sm"
               type="button"
-              aria-label={`Promote memory candidate ${candidate.title}`}
+              aria-label={`Review memory suggestion ${candidate.title}`}
               onClick={onPromote}
-              title="Promote"
             >
               <Icon d={Icons.check} size={12} />
+              Review
             </button>
             <button
               className="btn btn-ghost btn-sm"
               type="button"
-              aria-label={`Reject memory candidate ${candidate.title}`}
+              aria-label={`Dismiss memory suggestion ${candidate.title}`}
               disabled={pendingReject}
               onClick={onReject}
-              title="Reject"
               style={{ color: "var(--red)" }}
             >
               <Icon d={Icons.x} size={12} />
+              {pendingReject ? "Dismissing…" : "Dismiss"}
             </button>
-          </>
+          </div>
         )}
       </div>
       <div style={memoryBodyStyle}>{candidate.body}</div>
-      <div style={metaLineStyle}>
-        <span>{source}</span>
-        <span>Suggested {formatAbsoluteTime(candidate.created_at)}</span>
-        <CopyableID text={candidate.id} compact />
-      </div>
-      {sourceRefs.length > 0 && (
-        <div style={{ ...subtleTextStyle, marginTop: 6 }}>
-          Source refs: {sourceRefs.join(" · ")}
+      <details className="project-support-details" style={rowDetailsStyle}>
+        <summary>Suggestion source</summary>
+        <div style={rowDetailsBodyStyle}>
+          <div style={metaLineStyle}>
+            <span>{candidate.suggested_trust_label}</span>
+            <span>{source}</span>
+            <span>Suggested {formatAbsoluteTime(candidate.created_at)}</span>
+            <CopyableID text={candidate.id} compact />
+          </div>
+          {sourceRefs.length > 0 && (
+            <div style={subtleTextStyle}>Source refs: {sourceRefs.join(" · ")}</div>
+          )}
         </div>
-      )}
-    </div>
+      </details>
+    </article>
   );
 }
 
@@ -754,9 +885,7 @@ const titleStyle: CSSProperties = {
   color: "var(--t0)",
   fontSize: 13,
   fontWeight: 600,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+  overflowWrap: "anywhere",
 };
 
 const subtleTextStyle: CSSProperties = {
@@ -793,11 +922,12 @@ const panelStyle: CSSProperties = {
   boxSizing: "border-box",
   maxWidth: "100%",
   minWidth: 0,
-  padding: 12,
+  padding: 14,
 };
 
 const memoryEntryStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
+  minWidth: 0,
   paddingTop: 8,
 };
 
@@ -808,4 +938,132 @@ const memoryBodyStyle: CSSProperties = {
   lineHeight: 1.45,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
+};
+
+const surfaceTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 18,
+  fontWeight: 650,
+  lineHeight: 1.25,
+  margin: 0,
+};
+
+const supportHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  gap: 12,
+  justifyContent: "space-between",
+  marginBottom: 12,
+  minWidth: 0,
+};
+
+const supportActionsStyle: CSSProperties = {
+  display: "flex",
+  flexShrink: 0,
+  flexWrap: "wrap",
+  gap: 6,
+  justifyContent: "flex-end",
+};
+
+const contentSectionStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  gap: 10,
+  marginTop: 12,
+  minWidth: 0,
+  paddingTop: 12,
+};
+
+const sectionHeadingRowStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  gap: 10,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const sectionHeadingStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 13,
+  fontWeight: 650,
+  lineHeight: 1.35,
+  margin: 0,
+};
+
+const emptyStateStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  padding: "4px 0",
+};
+
+const collectionDetailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  color: "var(--t1)",
+  fontSize: 13,
+  fontWeight: 600,
+  marginTop: 12,
+  minWidth: 0,
+  paddingTop: 10,
+};
+
+const collectionSummaryMetaStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 11,
+  fontWeight: 400,
+  marginLeft: 8,
+};
+
+const collectionBodyStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  minWidth: 0,
+  paddingTop: 10,
+};
+
+const guidanceStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--t2)",
+  fontSize: 12,
+  fontWeight: 400,
+  lineHeight: 1.45,
+  padding: "9px 10px",
+};
+
+const rowHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  gap: 10,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const rowDetailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  color: "var(--t2)",
+  fontSize: 12,
+  marginTop: 9,
+  paddingTop: 7,
+};
+
+const rowDetailsBodyStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  minWidth: 0,
+  paddingTop: 8,
+};
+
+const rowActionStyle: CSSProperties = {
+  display: "flex",
+  flexShrink: 0,
+  flexWrap: "wrap",
+  gap: 6,
+};
+
+const twoColumnFormStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "1fr 1fr",
 };

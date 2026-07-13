@@ -333,7 +333,10 @@ The Projects UI should stay lightweight but operational:
   work detail. It should use one Work Queue with All / activity filters instead
   of separate Activity Inbox and Work Items lists. Timeline owns project story
   and durable decisions. Memory owns saved entries, candidates, and context
-  sources.
+  sources. Skills owns the project skill registry. These supporting tabs start
+  with readable status and summaries; source configuration, resolved candidate
+  history, provenance, paths, declared access, and runtime identifiers stay
+  available through native disclosure.
 - Treat setup readiness and Overview operations as authoritative projections.
   While setup readiness is unknown, show a loading or retry state instead of
   assuming a new project is ready. Clear stale operations during refresh and do
@@ -380,7 +383,18 @@ The Projects UI should stay lightweight but operational:
 - Open Project Settings as the same right-side inspector pattern used by Chat
   settings, with the same right-panel width behavior. The project header stays
   above the workspace/settings split so the inspector starts below the header,
-  not beside it. Do not use a modal for routine project defaults.
+  not beside it. At narrow widths, Settings replaces the workspace body instead
+  of crushing it and returns focus to its trigger when closed. Do not use a
+  modal for routine project defaults.
+- Preserve workspace behavior values exactly when Project Settings loads and
+  saves. An unset value is the recommended isolated copy; `ephemeral` and
+  `persistent` are distinct stored isolated-copy settings; only `in_place`
+  writes directly to the attached folder. Unknown stored values remain
+  selectable and must not be coerced during an unrelated settings save.
+- Keep file discovery conditional on an active root with a nonblank path.
+  Rootless projects can still add and manage memory and sources, and manage
+  registered skills, but should not offer source or skill discovery as if a
+  folder were available.
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 
@@ -447,7 +461,10 @@ Cairnline coordination state. The current flow supports:
 - context inspection, progressively disclosed evidence/review/handoff forms,
   explicit closeout confirmation, read-only completed work, and project
   activity;
-- accepted project memory and operator-reviewed memory candidates;
+- accepted project memory, operator-reviewed memory candidates, and
+  summary-first memory/source management;
+- a status-first skill registry and responsive Project Settings inspector that
+  preserves exact workspace behavior;
 - deterministic and model-assisted Project Assistant proposals with confirmed
   apply;
 - worktree-aware roots and explicit workspace selection;

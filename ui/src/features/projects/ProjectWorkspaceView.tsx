@@ -345,7 +345,11 @@ export function ProjectWorkspaceView({
     Boolean(assistant.proposal);
 
   return (
-    <section style={detailStyle} aria-label="Project workspace content">
+    <section
+      className="project-workspace-content"
+      style={detailStyle}
+      aria-label="Project workspace content"
+    >
       <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
         {project ? (
           <section style={domainSectionStyle} aria-label="Project workspace">
