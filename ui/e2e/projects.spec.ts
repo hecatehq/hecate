@@ -930,7 +930,7 @@ test("Projects links restore exact work across reload, history, and narrow width
 }) => {
   await page.clock.setFixedTime(new Date(NOW));
   const state = await mockProjectJourneyAPIs(page);
-  const { project, secondWorkItem } = seedNavigationProject(state);
+  const { firstWorkItem, project, secondWorkItem } = seedNavigationProject(state);
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.workspace", "chats");
     window.localStorage.setItem("hecate.project", "remembered_elsewhere");
@@ -941,6 +941,14 @@ test("Projects links restore exact work across reload, history, and narrow width
   await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
   await expect(page.getByRole("heading", { name: "First queued item" })).toHaveCount(0);
+
+  await page.getByRole("link", { name: `Open work item ${firstWorkItem.title}` }).click();
+  await expect(page.getByRole("heading", { name: firstWorkItem.title })).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/projects\\?project=${project.id}&view=work&work=${firstWorkItem.id}$`),
+  );
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
 
   await page.getByRole("tab", { name: /Memory/ }).click();
   await expect(page).toHaveURL(new RegExp(`/projects\\?project=${project.id}&view=memory$`));

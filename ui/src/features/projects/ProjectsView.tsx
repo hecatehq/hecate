@@ -262,6 +262,21 @@ function projectNavigationStateKey(navigation: ProjectNavigationState | null | u
     : "";
 }
 
+function projectNavigationAnnouncementMessage(
+  navigation: ProjectNavigationState,
+  projectName: string,
+  workItemTitle: string,
+): string {
+  if (navigation.workItemID) {
+    if (workItemTitle) return `Work item opened: ${workItemTitle}`;
+    return projectName ? `Work item opened in ${projectName}.` : "Work item opened.";
+  }
+  const viewLabel = `${navigation.view.charAt(0).toUpperCase()}${navigation.view.slice(1)}`;
+  return navigation.projectID && projectName
+    ? `${viewLabel} opened for ${projectName}.`
+    : `${viewLabel} view opened.`;
+}
+
 export function ProjectsView({
   initialWorkspaceTab = "overview",
   navigation,
@@ -337,8 +352,8 @@ export function ProjectsView({
   );
   const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
     useState<ProjectWorkspaceTab | null>(null);
-  const [navigationAnnouncement, setNavigationAnnouncement] = useState("");
-  const previousNavigationKeyRef = useRef(projectNavigationStateKey(navigation));
+  const [navigationAnnouncement, setNavigationAnnouncement] = useState({ key: "", message: "" });
+  const previousNavigationRef = useRef(navigation);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [workItemFocusTarget, setWorkItemFocusTarget] = useState<ProjectWorkItemFocusTarget | null>(
@@ -1102,16 +1117,32 @@ export function ProjectsView({
     void loadWorkItemDetail(resolvedProjectID, selectedWorkItemID);
   }, [loadWorkItemDetail, resolvedProjectID, selectedWorkItemID]);
 
+  const navigationProjectName = navigation?.projectID
+    ? projects.state.projects.find((project) => project.id === navigation.projectID)?.name || ""
+    : "";
+  const navigationWorkItemTitle = navigation?.workItemID
+    ? workItems.find(
+        (item) => item.id === navigation.workItemID && item.project_id === navigation.projectID,
+      )?.title || ""
+    : "";
+
   useEffect(() => {
     if (!navigation) {
-      previousNavigationKeyRef.current = "";
+      previousNavigationRef.current = navigation;
+      setNavigationAnnouncement({ key: "", message: "" });
       return;
     }
+    const previousNavigation = previousNavigationRef.current;
     const nextNavigationKey = projectNavigationStateKey(navigation);
-    const routeChanged = previousNavigationKeyRef.current !== nextNavigationKey;
-    previousNavigationKeyRef.current = nextNavigationKey;
+    const routeChanged = projectNavigationStateKey(previousNavigation) !== nextNavigationKey;
+    previousNavigationRef.current = navigation;
     setWorkspaceTab(navigation.view);
     if (!routeChanged) return;
+
+    const viewChanged = previousNavigation?.view !== navigation.view;
+    const recordChanged =
+      previousNavigation?.projectID !== navigation.projectID ||
+      previousNavigation?.workItemID !== navigation.workItemID;
 
     const activeElement = document.activeElement;
     const focusIsInWorkspaceTabs = Boolean(
@@ -1119,15 +1150,30 @@ export function ProjectsView({
       activeElement.closest('[role="tablist"][aria-label="Project workspace views"]'),
     );
     if (focusIsInWorkspaceTabs) {
-      setWorkspaceTabFocusTarget(navigation.view);
-      setNavigationAnnouncement("");
-      return;
+      setWorkspaceTabFocusTarget(viewChanged ? navigation.view : null);
+      if (!recordChanged) {
+        setNavigationAnnouncement({ key: nextNavigationKey, message: "" });
+        return;
+      }
+    } else {
+      setWorkspaceTabFocusTarget(null);
     }
 
-    setWorkspaceTabFocusTarget(null);
-    const viewLabel = `${navigation.view.charAt(0).toUpperCase()}${navigation.view.slice(1)}`;
-    setNavigationAnnouncement(`${viewLabel} view opened.`);
-  }, [navigation?.projectID, navigation?.view, navigation?.workItemID]);
+    setNavigationAnnouncement({
+      key: nextNavigationKey,
+      message: projectNavigationAnnouncementMessage(
+        navigation,
+        navigationProjectName,
+        navigationWorkItemTitle,
+      ),
+    });
+  }, [
+    navigation?.projectID,
+    navigation?.view,
+    navigation?.workItemID,
+    navigationProjectName,
+    navigationWorkItemTitle,
+  ]);
 
   const persistedRouteProjectRef = useRef("");
   useEffect(() => {
@@ -2724,9 +2770,9 @@ export function ProjectsView({
   const projectEmptyDetail = explicitProjectMissing
     ? "Choose an available project from the list. The requested project was not opened."
     : navigation?.projectID && projects.state.error && managedCatalogPending
-      ? "Hecate could not verify this project yet. Retry the project catalog request to keep the link intact."
+      ? "Hecate could not verify this project yet. Retry loading projects to keep the link intact."
       : managedCatalogPending
-        ? "Checking the project catalog."
+        ? "Checking available projects."
         : projects.state.projects.length === 0
           ? "Create a project from a name and purpose. A local folder is optional and can be attached now or later."
           : "Choose a project from the list to view its work, memory, skills, and settings.";
@@ -2736,7 +2782,7 @@ export function ProjectsView({
   return (
     <div className="projects-cockpit-shell" style={shellStyle}>
       <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStatusStyle}>
-        {navigationAnnouncement}
+        <span key={navigationAnnouncement.key}>{navigationAnnouncement.message}</span>
       </div>
       <section className="projects-cockpit-index" style={sidePanelStyle} aria-label="Projects">
         <div style={topbarStyle}>
@@ -2861,7 +2907,7 @@ export function ProjectsView({
             <span>{navigationNotice}</span>
             {managedCatalogUnavailable && (
               <button
-                className="btn btn-ghost btn-sm"
+                className="btn btn-primary btn-sm"
                 onClick={() => void projects.actions.loadProjects()}
                 type="button"
               >
