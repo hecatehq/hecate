@@ -95,4 +95,34 @@ describe("CreateProjectModal", () => {
       rootGitBranch: "main",
     });
   });
+
+  it("owns dismissal and ignores form resubmission while creation is pending", async () => {
+    const onClose = vi.fn();
+    const onSave = vi.fn();
+    const props = {
+      error: "",
+      onChooseWorkspace: vi.fn(async () => null),
+      onClose,
+      onSave,
+    };
+    const { rerender } = render(<CreateProjectModal {...props} pending={false} />);
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "Launch plan" },
+    });
+
+    rerender(<CreateProjectModal {...props} pending />);
+
+    const form = within(dialog).getByLabelText("Name").closest("form");
+    expect(form).toHaveAttribute("aria-busy", "true");
+    expect(within(dialog).getByLabelText("Name")).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Creating..." })).toBeDisabled();
+    fireEvent.submit(form as HTMLFormElement);
+    await userEvent.keyboard("{Escape}");
+    fireEvent.click(dialog.parentElement as HTMLElement);
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

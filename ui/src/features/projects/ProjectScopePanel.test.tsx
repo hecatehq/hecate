@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -97,6 +97,37 @@ describe("ProjectScopePanel catalog recovery", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("create failed");
     expect(screen.getAllByText("create failed")).toHaveLength(1);
     expect(screen.getByText("Projects could not be loaded.")).toBeTruthy();
+  });
+
+  it("submits create once and keeps its pending result in the dialog", async () => {
+    let rejectCreate!: (reason: Error) => void;
+    vi.mocked(createProject).mockReturnValue(
+      new Promise<{ object: "project"; data: ProjectRecord }>((_resolve, reject) => {
+        rejectCreate = reject;
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel({ projects: [], loaded: true });
+
+    await user.click(screen.getByRole("button", { name: "Add project" }));
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    await user.type(within(dialog).getByLabelText("Name"), "Keep this draft");
+    const form = within(dialog).getByLabelText("Name").closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(createProject).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    expect(screen.getByRole("dialog", { name: "Create project" })).toBe(dialog);
+
+    await act(async () => {
+      rejectCreate(new Error("create failed"));
+    });
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("create failed");
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeEnabled();
   });
 
   it("keeps a delayed selection failure outside an open create dialog", async () => {

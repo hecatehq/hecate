@@ -2188,6 +2188,49 @@ describe("ProjectsView index", () => {
     await user.click(screen.getByRole("button", { name: "Delete project record" }));
     expect(actions.deleteProject).toHaveBeenCalledWith(project.id);
   });
+
+  it("guards repeated project create submissions while pending", async () => {
+    resetProjectWorkMocks();
+    let resolveCreate!: (value: ProjectRecord | null) => void;
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      createProject: vi.fn(
+        () =>
+          new Promise<ProjectRecord | null>((resolve) => {
+            resolveCreate = resolve;
+          }),
+      ),
+      selectProject: vi.fn(async () => undefined),
+    };
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+    render(withRuntimeConsole(<WorkProjects />, { state, actions }));
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    const dialog = await screen.findByRole("dialog", { name: "Create project" });
+    await user.type(within(dialog).getByLabelText("Name"), "Research notebook");
+    const form = within(dialog).getByLabelText("Name").closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(actions.createProject).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    expect(screen.getByRole("dialog", { name: "Create project" })).toBe(dialog);
+
+    await act(async () => {
+      resolveCreate(project);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Create project" })).toBeNull();
+    });
+    expect(actions.selectProject).toHaveBeenCalledWith(project.id);
+  });
 });
 
 describe("ProjectsView cockpit", () => {

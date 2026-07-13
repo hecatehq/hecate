@@ -299,6 +299,7 @@ export function ProjectsView({
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
+  const createProjectInFlightRef = useRef(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -1459,11 +1460,13 @@ export function ProjectsView({
   }
 
   async function handleCreateProject(form: CreateProjectForm) {
+    if (createProjectInFlightRef.current) return;
     const payload = createProjectPayloadFromForm(form);
     if (!payload.name) {
       setCreateProjectError("Project name is required.");
       return;
     }
+    createProjectInFlightRef.current = true;
     setCreateProjectPending(true);
     setCreateProjectError("");
     try {
@@ -1472,6 +1475,7 @@ export function ProjectsView({
       setCreateProjectOpen(false);
       openProject(created.id);
     } finally {
+      createProjectInFlightRef.current = false;
       setCreateProjectPending(false);
     }
   }
