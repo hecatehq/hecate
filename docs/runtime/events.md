@@ -433,18 +433,25 @@ The event is an audit signal rather than a runtime failure. Its task step uses
 receives a tool-error result and may choose a permitted path on its next turn.
 Common payload fields are:
 
-| Extra key      | Type     | Notes                                                   |
-| -------------- | -------- | ------------------------------------------------------- |
-| `tool_call_id` | `string` | Assistant tool-call correlation id                      |
-| `tool_name`    | `string` | Native or namespaced MCP tool name                      |
-| `kind`         | `string` | `builtin` for native policy, `mcp` for external MCP     |
-| `result`       | `string` | Always `blocked`                                        |
-| `policy`       | `string` | Policy key on the corresponding task step               |
-| `reason`       | `string` | The task sandbox or MCP-server policy that refused call |
+| Extra key      | Type     | Notes                                                                               |
+| -------------- | -------- | ----------------------------------------------------------------------------------- |
+| `tool_call_id` | `string` | Assistant tool-call correlation id                                                  |
+| `tool_name`    | `string` | Native or namespaced MCP tool name                                                  |
+| `kind`         | `string` | `builtin` for native policy, `mcp` for a namespaced MCP attempt                     |
+| `result`       | `string` | Always `blocked`                                                                    |
+| `policy`       | `string` | Policy key on the corresponding task step                                           |
+| `reason`       | `string` | The runtime, Agent Preset, task sandbox, or MCP-server policy that refused the call |
 
 ## MCP
 
-Generic `tool.*` and `policy.*` events form the audit trail for external MCP tool calls in `agent_loop` runs. Together they cover every dispatch outcome the loop's MCP dispatcher produces — successful calls (including upstream-side tool errors), protocol failures, and policy-blocked calls. See [mcp.md](mcp.md#hecate-as-mcp-client) for the underlying configuration and policy model.
+Generic `tool.*` and `policy.*` events form the audit trail for namespaced MCP
+tool attempts in `agent_loop` runs. Together they cover configured calls that
+reach an upstream (including upstream-side tool errors), protocol failures,
+MCP-server policy blocks, and preset-wide blocks before MCP startup. A blocked
+attempt may be derived solely from an unexpected `mcp__<server>__<tool>` name
+returned by the model; its namespace fields do not by themselves prove that a
+server or tool was configured. See [mcp.md](mcp.md#hecate-as-mcp-client) for the
+underlying configuration and policy model.
 
 MCP events carry the same shared payload shape:
 
@@ -454,9 +461,9 @@ MCP events carry the same shared payload shape:
 | `tool_name`    | `string` | Full OpenAI-compatible tool name, e.g. `mcp__filesystem__read_file`                                                                                                           |
 | `kind`         | `string` | Always `mcp` for namespaced MCP tool events                                                                                                                                   |
 | `mcp_server`   | `string` | Parsed `<server>` segment of `mcp__<server>__<tool>`. Normally a configured alias; preset-wide blocks may record an unexpected, unconfigured namespace returned by the model. |
-| `mcp_tool`     | `string` | Un-namespaced upstream tool name                                                                                                                                              |
+| `mcp_tool`     | `string` | Parsed `<tool>` segment. For configured calls this is the upstream tool name; preset-wide blocks may record an unexpected value returned by the model.                        |
 | `result`       | `string` | One of `dispatched`, `tool_error`, `failed`, `blocked` — finer-grained than the event-type split                                                                              |
-| `duration_ms`  | `int64`  | Wall-clock from dispatch start to result-in-hand                                                                                                                              |
+| `duration_ms`  | `int64`  | Wall-clock processing time from dispatcher entry to local denial or upstream result                                                                                           |
 | `error`        | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error`                                                             |
 | `reason`       | `string` | Present on `policy.tool_blocked`                                                                                                                                              |
 | `policy`       | `string` | Present on `policy.tool_blocked`: `mcp_approval_policy` or `agent_preset_tools`                                                                                               |
