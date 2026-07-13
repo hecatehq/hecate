@@ -88,7 +88,7 @@ describe("ProjectSkillsPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh project skills" }));
     await userEvent.click(screen.getByRole("button", { name: "Find skills" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Use skill Backend" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Enable skill Backend" }));
 
     const titleInput = screen.getByLabelText("Title for Backend");
     await userEvent.clear(titleInput);

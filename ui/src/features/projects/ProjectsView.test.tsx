@@ -1991,7 +1991,7 @@ describe("ProjectsView index", () => {
     const workspace = screen.getByRole("region", { name: "Project workspace" });
     expect(within(workspace).getByText("Build backend changes.", { selector: "div" })).toBeTruthy();
     const enabledCheckbox = within(workspace).getByRole("checkbox", {
-      name: "Use skill Backend",
+      name: "Enable skill Backend",
     });
     await userEvent.click(enabledCheckbox);
     await waitFor(() => {
@@ -3288,7 +3288,19 @@ describe("ProjectsView cockpit", () => {
         name: "Dismiss memory suggestion Temporary note",
       }),
     );
-    expect(rejectProjectMemoryCandidate).toHaveBeenCalledWith(project.id, "memcand_2", {});
+    await waitFor(() => {
+      expect(rejectProjectMemoryCandidate).toHaveBeenCalledWith(project.id, "memcand_2", {});
+    });
+    await user.click(screen.getByText("Reviewed suggestions", { selector: "span" }));
+    const rejectedSuggestion = screen.getByRole("article", {
+      name: "Memory suggestion Temporary note",
+    });
+    expect(within(rejectedSuggestion).getByText("rejected", { exact: true })).toBeTruthy();
+    expect(
+      within(rejectedSuggestion).queryByRole("button", {
+        name: "Review memory suggestion Temporary note",
+      }),
+    ).toBeNull();
 
     await user.click(
       screen.getByRole("button", {
@@ -3588,7 +3600,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await openProjectWorkspaceTab(/Skills/);
-    await user.click(await screen.findByRole("checkbox", { name: "Use skill Backend" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Enable skill Backend" }));
     await waitFor(() => {
       expect(updateProjectSkill).toHaveBeenCalledWith(project.id, projectSkill.id, {
         enabled: false,
@@ -6361,7 +6373,7 @@ describe("ProjectsView cockpit", () => {
 
     expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByRole("heading", { level: 1, name: "Skills" })).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Use skill Backend" })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Enable skill Backend" })).toBeTruthy();
     expect(screen.getByDisplayValue("Backend")).toBeTruthy();
   });
 
@@ -9668,7 +9680,74 @@ describe("ProjectsView cockpit", () => {
       default_model: "qwen2.5-coder",
       default_agent_profile: "",
       default_workspace_mode: "",
-      default_root_id: "",
+      default_root_id: "root_created",
+    });
+  });
+
+  it("resolves a newly attached folder before saving it as the default", async () => {
+    resetProjectWorkMocks();
+    const existingProject: ProjectRecord = {
+      ...project,
+      default_root_id: "root_1",
+    };
+    const createdRoot = {
+      id: "root_created",
+      path: "/Users/alice/dev/hecate-feature",
+      kind: "local",
+      git_branch: "feature/default-root",
+      active: true,
+      created_at: "2026-06-20T12:00:00Z",
+      updated_at: "2026-06-20T12:00:00Z",
+    };
+    const projectWithCreatedRoot: ProjectRecord = {
+      ...existingProject,
+      roots: [...existingProject.roots, createdRoot],
+    };
+    vi.mocked(chooseWorkspaceDirectory).mockResolvedValue({
+      object: "workspace_dialog",
+      data: { path: createdRoot.path, branch: createdRoot.git_branch },
+    });
+    vi.mocked(createProjectRoot).mockResolvedValue({
+      object: "project",
+      data: projectWithCreatedRoot,
+    });
+    vi.mocked(updateProject).mockResolvedValue({
+      object: "project",
+      data: { ...projectWithCreatedRoot, default_root_id: createdRoot.id },
+    });
+    window.localStorage.setItem("hecate.project", existingProject.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [existingProject],
+      activeProjectID: existingProject.id,
+      providers: [],
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
+    await userEvent.selectOptions(
+      screen.getByLabelText("Default folder"),
+      screen.getByRole("option", { name: /\/Users\/alice\/dev\/hecate-feature/ }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(createProjectRoot).toHaveBeenCalledWith(existingProject.id, {
+      path: createdRoot.path,
+      kind: "local",
+      git_branch: createdRoot.git_branch,
+      active: true,
+    });
+    expect(updateProject).toHaveBeenCalledWith(existingProject.id, {
+      default_provider: "ollama",
+      default_model: "qwen2.5-coder",
+      default_agent_profile: "",
+      default_workspace_mode: "",
+      default_root_id: createdRoot.id,
     });
   });
 

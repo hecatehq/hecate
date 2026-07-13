@@ -307,6 +307,90 @@ describe("ProjectMemoryPanel", () => {
     });
   });
 
+  it("locks memory and source drafts while saving", async () => {
+    const memoryClose = vi.fn();
+    const memorySave = vi.fn();
+    const memoryRender = render(
+      <ProjectMemoryModal
+        entry={memoryEntry()}
+        error=""
+        pending
+        onClose={memoryClose}
+        onSave={memorySave}
+      />,
+    );
+
+    const memoryTitle = screen.getByLabelText("Title");
+    expect(memoryTitle).toBeDisabled();
+    expect(screen.getByLabelText("Body")).toBeDisabled();
+    expect(screen.getByLabelText("Enabled for this project")).toBeDisabled();
+    expect(screen.getByLabelText("Trust label")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    fireEvent.submit(memoryTitle.closest("form")!);
+    await userEvent.keyboard("{Escape}");
+    expect(memorySave).not.toHaveBeenCalled();
+    expect(memoryClose).not.toHaveBeenCalled();
+
+    memoryRender.unmount();
+    const sourceClose = vi.fn();
+    const sourceSave = vi.fn();
+    render(
+      <ProjectSourceModal
+        source={contextSource()}
+        error=""
+        pending
+        onClose={sourceClose}
+        onSave={sourceSave}
+      />,
+    );
+
+    const sourceTitle = screen.getByLabelText("Title");
+    expect(screen.getByLabelText("Kind")).toBeDisabled();
+    expect(sourceTitle).toBeDisabled();
+    expect(screen.getByLabelText("Locator")).toBeDisabled();
+    expect(screen.getByLabelText("Trust label")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    fireEvent.submit(sourceTitle.closest("form")!);
+    await userEvent.keyboard("{Escape}");
+    expect(sourceSave).not.toHaveBeenCalled();
+    expect(sourceClose).not.toHaveBeenCalled();
+  });
+
+  it("locks both review actions while the suggestion is being dismissed", () => {
+    const candidate = memoryCandidate();
+    render(
+      <ProjectMemoryPanel
+        candidates={[candidate]}
+        discoveringContext={false}
+        entries={[]}
+        error=""
+        loading={false}
+        onDiscoverContextSources={vi.fn()}
+        onDeleteSource={vi.fn()}
+        onEditSource={vi.fn()}
+        onPromoteCandidate={vi.fn()}
+        onRejectCandidate={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onNew={vi.fn()}
+        onNewSource={vi.fn()}
+        onRefresh={vi.fn()}
+        project={project()}
+        rejectingCandidateID={candidate.id}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Review suggestion" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Review memory suggestion Generated summary" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Dismiss memory suggestion Generated summary" }),
+    ).toBeDisabled();
+  });
+
   it("separates resolved suggestion history from pending review", async () => {
     render(
       <ProjectMemoryPanel

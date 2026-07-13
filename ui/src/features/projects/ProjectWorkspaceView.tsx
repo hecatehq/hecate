@@ -119,7 +119,7 @@ export type ProjectWorkspaceViewProps = {
   onNewSource: () => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenConnections?: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (origin?: "onboarding") => void;
   onOperationAction: (item: ProjectOperationsBriefItem) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
@@ -800,7 +800,7 @@ function ProjectOnboardingPanel({
 }: {
   bootstrapPending: boolean;
   onAction: (action: ProjectSetupReadinessAction) => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (origin?: "onboarding") => void;
   project: ProjectRecord;
   readiness: ProjectSetupReadiness;
 }) {
@@ -830,7 +830,12 @@ function ProjectOnboardingPanel({
               ? "Setting up…"
               : primaryAction.label}
           </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenSettings}>
+          <button
+            className="btn btn-ghost btn-sm"
+            data-project-settings-origin="onboarding"
+            type="button"
+            onClick={() => onOpenSettings("onboarding")}
+          >
             <Icon d={Icons.settings} size={13} />
             Project settings
           </button>

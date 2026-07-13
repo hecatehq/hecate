@@ -939,37 +939,115 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
   await page.getByLabel("Purpose").fill("Coordinate research notes and reusable guidance.");
   await page.getByRole("button", { name: "Create project" }).click();
 
-  const projectSettingsButton = page.getByRole("button", { name: "Project settings" });
-  await projectSettingsButton.click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const onboarding = page.getByRole("region", { name: "Project onboarding" });
+  const onboardingSettings = onboarding.getByRole("button", { name: "Project settings" });
+  await onboardingSettings.click();
   let settings = page.getByRole("complementary", { name: "Project settings panel" });
-  await settings.getByRole("button", { name: "Add folder" }).click();
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole("heading", { level: 1, name: "Project settings" })).toBeFocused();
+  await expect(settings.getByRole("button", { name: "Back to project" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Project workspace content" })).toBeHidden();
+  expect(await settings.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true,
+  );
+  await settings.getByRole("button", { name: "Back to project" }).click();
+  await expect(settings).toBeHidden();
+  await expect(page.getByRole("region", { name: "Project workspace content" })).toBeVisible();
+  await expect(onboardingSettings).toBeFocused();
+
+  await onboardingSettings.click();
+  settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await settings.getByLabel("Workspace behavior").selectOption("persistent");
   await settings.getByRole("button", { name: "Save settings" }).click();
   await expect(settings).toBeHidden();
+  await expect(onboardingSettings).toBeFocused();
+  expect(state.projects[0]?.roots).toEqual([]);
 
-  await page
-    .getByRole("region", { name: "Project onboarding" })
-    .getByRole("button", { name: "Set up project" })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Apply proposal" }).click();
-  await expect(page.getByText("Applied 3 actions")).toBeVisible();
-  await page.getByRole("button", { name: "Dismiss" }).click();
+  await onboarding.getByRole("button", { name: "Create work: First work item" }).click();
+  await page.getByLabel("Title").fill("Organize research notes");
+  await page.getByLabel("Brief").fill("Collect the confirmed findings and source guidance.");
+  await page.getByRole("button", { name: "Create work item" }).click();
+  await expect(page.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
 
   await page.getByRole("tab", { name: /Memory/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Memory" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Review suggestion" })).toBeVisible();
-  await expect(page.getByText("Guidance source: AGENTS.md")).toBeVisible();
-  const sourcesDisclosure = page.locator("details.project-support-collection").filter({
+  let sourcesDisclosure = page.locator("details.project-support-collection").filter({
     hasText: "Sources",
   });
   await expect(sourcesDisclosure).not.toHaveAttribute("open", "");
+  await sourcesDisclosure.locator(":scope > summary").click();
+  await expect(sourcesDisclosure.getByRole("button", { name: "Find from folders" })).toBeDisabled();
+  await expect(
+    sourcesDisclosure.getByRole("button", { name: "Find from folders" }),
+  ).toHaveAttribute("title", "Attach or enable a folder first");
+  await expect(sourcesDisclosure.getByRole("button", { name: "Add source" })).toBeEnabled();
 
   await page.getByRole("button", { name: "Add memory" }).click();
   const memoryDialog = page.getByRole("dialog", { name: "New project memory" });
   await memoryDialog.getByLabel("Title").fill("Research principle");
-  await memoryDialog.getByLabel("Body").fill("Record only findings that the operator confirmed.");
+  await memoryDialog
+    .getByLabel("Body")
+    .fill(
+      "Record only findings that the operator confirmed. Keep uncertain notes in review until evidence and provenance are clear, then save reusable guidance for future work.",
+    );
+  expect(
+    await memoryDialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
   await memoryDialog.getByRole("button", { name: "Create memory" }).click();
-  await expect(page.getByRole("article", { name: "Memory Research principle" })).toBeVisible();
+  const memoryEntry = page.getByRole("article", { name: "Memory Research principle" });
+  await expect(memoryEntry).toBeVisible();
+  expect(
+    await memoryEntry.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  expect(
+    await page
+      .getByRole("region", { name: "Project memory" })
+      .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+
+  await page.getByRole("tab", { name: /Skills/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Skills" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find skills" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Find skills" })).toHaveAttribute(
+    "title",
+    "Attach or enable a folder first",
+  );
+  await expect(page.getByText("No skills found")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Attach or enable a folder to find skills. Existing skills remain available below.",
+    ),
+  ).toBeVisible();
+  expect(
+    await page
+      .getByRole("region", { name: "Project skills" })
+      .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
+  expect(state.projects[0]?.roots).toEqual([]);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const projectSettingsButton = page.getByRole("button", { name: "Project settings" });
+  await projectSettingsButton.click();
+  settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await settings.getByRole("button", { name: "Add folder" }).click();
+  await settings.getByRole("button", { name: "Save settings" }).click();
+  await expect(settings).toBeHidden();
+  await expect(projectSettingsButton).toBeFocused();
+
+  await page.getByRole("tab", { name: /Memory/ }).click();
+  sourcesDisclosure = page.locator("details.project-support-collection").filter({
+    hasText: "Sources",
+  });
+  await sourcesDisclosure.locator(":scope > summary").click();
+  await sourcesDisclosure.getByRole("button", { name: "Find from folders" }).click();
+  await expect(page.getByRole("article", { name: "Source AGENTS.md" })).toBeVisible();
+  await sourcesDisclosure.locator(":scope > summary").click();
 
   if (process.env.HECATE_CAPTURE_PROJECTS_SUPPORTING === "1") {
     await page.screenshot({
@@ -981,6 +1059,7 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
 
   await page.getByRole("tab", { name: /Skills/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Skills" })).toBeVisible();
+  await page.getByRole("button", { name: "Find skills" }).click();
   const skill = page.getByRole("article", { name: "Skill Implementation" });
   await expect(skill).toBeVisible();
   const skillDetails = skill.getByText("Settings and source");
@@ -999,10 +1078,25 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
   await expect(page.getByRole("article", { name: "Skill Implementation review" })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  const narrowSkill = page.getByRole("article", { name: "Skill Implementation review" });
+  const narrowSkillDetails = narrowSkill.getByText("Settings and source");
+  if ((await narrowSkillDetails.locator("xpath=..").getAttribute("open")) === null) {
+    await narrowSkillDetails.click();
+  }
+  expect(
+    await narrowSkill.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
+
   await projectSettingsButton.click();
   settings = page.getByRole("complementary", { name: "Project settings panel" });
   await expect(settings).toBeVisible();
-  await expect(settings.getByRole("heading", { name: "Project settings" })).toBeVisible();
+  await expect(settings.getByRole("heading", { level: 1, name: "Project settings" })).toBeFocused();
+  await expect(settings.getByRole("button", { name: "Back to project" })).toBeVisible();
   await expect(settings.getByLabel("Workspace behavior")).toBeVisible();
   await expect(settings.getByRole("button", { name: "Save settings" })).toBeDisabled();
   await expect(page.getByRole("region", { name: "Project workspace content" })).toBeHidden();
@@ -1022,7 +1116,8 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
     });
   }
 
-  await projectSettingsButton.click();
+  await settings.getByLabel("Workspace behavior").selectOption("ephemeral");
+  await settings.getByRole("button", { name: "Save settings" }).click();
   await expect(settings).toBeHidden();
   await expect(projectSettingsButton).toBeFocused();
 
@@ -1369,7 +1464,7 @@ async function mockProjectJourneyAPIs(page: Page) {
             project_id: projectID,
             title: "Implementation",
             description: "Build and verify changes.",
-            path: "docs-ai/skills/backend/SKILL.md",
+            path: "docs-ai/skills/implementation-review-and-verification/SKILL.md",
             format: "skill_md",
             enabled: true,
             status: "available",

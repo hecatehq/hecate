@@ -130,6 +130,8 @@ import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 import { ProjectEvidenceLinkModal } from "./ProjectEvidenceLinkModal";
 import {
   createProjectPayloadFromForm,
+  isUnsavedProjectRootFormKey,
+  projectRootFormKey,
   projectRootPayloadFromRecord,
   projectRootPayloadsEqual,
   type CreateProjectForm,
@@ -238,6 +240,9 @@ export function ProjectsView({
   const [createProjectError, setCreateProjectError] = useState("");
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
+  const settingsReturnFocusOriginRef = useRef("");
+  const settingsFocusRestoreGenerationRef = useRef(0);
   const { rightPanelWidth, setRightPanelWidth } = useStoredRightPanelWidth();
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
@@ -456,10 +461,55 @@ export function ProjectsView({
     );
   }
 
+  function openProjectSettings(origin?: "header" | "onboarding") {
+    setDefaultsError("");
+    if (!settingsPanelOpen) {
+      settingsFocusRestoreGenerationRef.current += 1;
+      const activeElement =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      settingsReturnFocusRef.current = activeElement;
+      settingsReturnFocusOriginRef.current =
+        origin ?? activeElement?.dataset.projectSettingsOrigin?.trim() ?? "";
+    }
+    setSettingsPanelOpen(true);
+  }
+
+  function closeProjectSettings() {
+    const returnFocus = settingsReturnFocusRef.current;
+    const returnFocusOrigin = settingsReturnFocusOriginRef.current;
+    const restoreGeneration = ++settingsFocusRestoreGenerationRef.current;
+    setSettingsPanelOpen(false);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (restoreGeneration !== settingsFocusRestoreGenerationRef.current) return;
+        const replacement = returnFocusOrigin
+          ? (Array.from(
+              document.querySelectorAll<HTMLElement>("[data-project-settings-origin]"),
+            ).find((element) => element.dataset.projectSettingsOrigin === returnFocusOrigin) ??
+            null)
+          : null;
+        const target =
+          replacement?.isConnected &&
+          !(replacement instanceof HTMLButtonElement && replacement.disabled)
+            ? replacement
+            : returnFocus?.isConnected &&
+                !(returnFocus instanceof HTMLButtonElement && returnFocus.disabled)
+              ? returnFocus
+              : settingsButtonRef.current;
+        target?.focus();
+        settingsReturnFocusRef.current = null;
+        settingsReturnFocusOriginRef.current = "";
+      });
+    });
+  }
+
   function resetProjectScopedInteractions() {
     setWorkspaceTab(initialWorkspaceTab);
     setWorkspaceTabFocusTarget(null);
     setSettingsPanelOpen(false);
+    settingsFocusRestoreGenerationRef.current += 1;
+    settingsReturnFocusRef.current = null;
+    settingsReturnFocusOriginRef.current = "";
     setDefaultsPending(false);
     setDefaultsError("");
     setDiscoveringRoots(false);
@@ -984,16 +1034,14 @@ export function ProjectsView({
     const selectionGeneration = projectSelectionGenerationRef.current;
     setDefaultsPending(true);
     setDefaultsError("");
-    const patch: UpdateProjectPayload = {
-      default_provider: form.provider.trim(),
-      default_model: form.model.trim(),
-      default_agent_profile: form.defaultAgentPreset.trim(),
-      default_workspace_mode: form.workspaceMode.trim(),
-      default_root_id: form.defaultRootID.trim(),
-    };
     try {
       const existingRootsByID = new Map(project.roots.map((root) => [root.id, root]));
       const nextRootIDs = new Set(form.roots.map((root) => root.id?.trim() ?? "").filter(Boolean));
+      const resolvedRootIDs = new Map(
+        form.roots.flatMap((root) =>
+          root.id?.trim() ? [[projectRootFormKey(root), root.id.trim()] as const] : [],
+        ),
+      );
       let currentProject = project;
       const applyRootProject = (project: ProjectRecord) => {
         currentProject = project;
@@ -1004,7 +1052,14 @@ export function ProjectsView({
         const existing = rootID ? existingRootsByID.get(rootID) : undefined;
         let payload: { data: ProjectRecord } | null = null;
         if (!existing) {
+          const previousRootIDs = new Set(currentProject.roots.map((item) => item.id));
           payload = await createProjectRoot(projectID, root);
+          const createdRoot =
+            payload.data.roots.find((item) => !previousRootIDs.has(item.id)) ??
+            payload.data.roots.find(
+              (item) => item.path === root.path && !existingRootsByID.has(item.id),
+            );
+          if (createdRoot) resolvedRootIDs.set(projectRootFormKey(root), createdRoot.id);
         } else if (!projectRootPayloadsEqual(projectRootPayloadFromRecord(existing), root)) {
           payload = await updateProjectRoot(projectID, rootID, root);
         }
@@ -1015,12 +1070,29 @@ export function ProjectsView({
         const payload = await deleteProjectRoot(projectID, root.id);
         applyRootProject(payload.data);
       }
+      const requestedDefaultRootID = form.defaultRootID.trim();
+      const resolvedDefaultRootID =
+        resolvedRootIDs.get(requestedDefaultRootID) ?? requestedDefaultRootID;
+      if (
+        isUnsavedProjectRootFormKey(requestedDefaultRootID) &&
+        resolvedDefaultRootID === requestedDefaultRootID
+      ) {
+        throw new Error(
+          "The new default folder could not be resolved. Save the folder and try again.",
+        );
+      }
+      const patch: UpdateProjectPayload = {
+        default_provider: form.provider.trim(),
+        default_model: form.model.trim(),
+        default_agent_profile: form.defaultAgentPreset.trim(),
+        default_workspace_mode: form.workspaceMode.trim(),
+        default_root_id: resolvedDefaultRootID,
+      };
       const payload = await updateProject(currentProject.id, patch);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
       void refreshProjectOverview(projectID);
       if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
-      setSettingsPanelOpen(false);
-      window.requestAnimationFrame(() => settingsButtonRef.current?.focus());
+      closeProjectSettings();
     } catch (error) {
       if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
@@ -1444,7 +1516,11 @@ export function ProjectsView({
     try {
       const res = await rejectProjectMemoryCandidate(projectID, candidate.id, {});
       if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
-      setMemoryCandidates((current) => current.filter((item) => item.id !== res.data.id));
+      setMemoryCandidates((current) => {
+        const exists = current.some((item) => item.id === res.data.id);
+        if (!exists) return [...current, res.data];
+        return current.map((item) => (item.id === res.data.id ? res.data : item));
+      });
       void refreshProjectOverview(projectID);
     } catch (error) {
       if (!isCurrentProjectMutation(projectID, selectionGeneration)) return;
@@ -1711,8 +1787,7 @@ export function ProjectsView({
         );
         return;
       case "open_project_settings":
-        setDefaultsError("");
-        setSettingsPanelOpen(true);
+        openProjectSettings();
         return;
       case "open_memory_review":
         navigateWorkspaceTab("memory");
@@ -2468,8 +2543,7 @@ export function ProjectsView({
             navigateWorkspaceTab("work");
           }}
           onAttentionDefaults={() => {
-            setDefaultsError("");
-            setSettingsPanelOpen(true);
+            openProjectSettings();
           }}
           onAttentionError={setWorkError}
           onAttentionMemory={() => navigateWorkspaceTab("memory")}
@@ -2493,8 +2567,11 @@ export function ProjectsView({
           settingsButtonRef={settingsButtonRef}
           settingsOpen={settingsPanelOpen}
           onEditDefaults={() => {
-            setDefaultsError("");
-            setSettingsPanelOpen((open) => !open);
+            if (settingsPanelOpen) {
+              closeProjectSettings();
+              return;
+            }
+            openProjectSettings("header");
           }}
           onManagePresets={() => {
             setPresetsError("");
@@ -2649,9 +2726,8 @@ export function ProjectsView({
               setRolesError("");
               setRolesModalOpen(true);
             }}
-            onOpenSettings={() => {
-              setDefaultsError("");
-              setSettingsPanelOpen(true);
+            onOpenSettings={(origin) => {
+              openProjectSettings(origin);
             }}
             onOperationAction={handleOperationsBriefAction}
             onOpenTask={onOpenTask}
@@ -2730,6 +2806,7 @@ export function ProjectsView({
                 providerPresets={providerPresets}
                 project={selectedProject}
                 rootsPending={discoveringRoots}
+                onClose={closeProjectSettings}
                 onDiscoverRoots={handleDiscoverProjectRoots}
                 onOpenCreateWorktree={() => {
                   setCreateWorktreeError("");
@@ -3277,6 +3354,7 @@ function ProjectHeader({
           <button
             ref={settingsButtonRef}
             className="btn btn-ghost btn-sm"
+            data-project-settings-origin="header"
             type="button"
             aria-expanded={settingsOpen}
             aria-label="Project settings"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { chooseWorkspaceDirectory } from "../../lib/api";
 import { projectDefaultWorkspaceFromRoots } from "../../lib/project-workspace";
@@ -17,6 +17,7 @@ import {
 import {
   normalizeWorkspaceMode,
   projectDefaultsFormFromProject,
+  projectRootFormKey,
   projectRootOptionLabel,
   projectRootPayloadsEqual,
   projectRootSummary,
@@ -33,6 +34,7 @@ export function ProjectSettingsPanel({
   providerPresets,
   project,
   rootsPending,
+  onClose,
   onDiscoverRoots,
   onOpenCreateWorktree,
   onSave,
@@ -46,6 +48,7 @@ export function ProjectSettingsPanel({
   providerPresets: ProviderPresetRecord[];
   project: ProjectRecord;
   rootsPending: boolean;
+  onClose: () => void;
   onDiscoverRoots: () => void | Promise<void>;
   onOpenCreateWorktree: () => void;
   onSave: (form: ProjectDefaultsForm) => void | Promise<void>;
@@ -53,7 +56,11 @@ export function ProjectSettingsPanel({
   const [form, setForm] = useState<ProjectDefaultsForm>(() =>
     projectDefaultsFormFromProject(project),
   );
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const [rootChooseError, setRootChooseError] = useState("");
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
   useEffect(() => {
     setForm(projectDefaultsFormFromProject(project));
   }, [project]);
@@ -105,14 +112,12 @@ export function ProjectSettingsPanel({
     setForm((current) => ({
       ...current,
       defaultRootID: rootID,
-      roots: current.roots.map((root) => (root.id === rootID ? { ...root, active: true } : root)),
     }));
   }
-  function handleRootActiveChange(rootID: string, active: boolean) {
+  function handleRootActiveChange(rootIndex: number, active: boolean) {
     setForm((current) => ({
       ...current,
-      defaultRootID: !active && current.defaultRootID === rootID ? "" : current.defaultRootID,
-      roots: current.roots.map((root) => (root.id === rootID ? { ...root, active } : root)),
+      roots: current.roots.map((root, index) => (index === rootIndex ? { ...root, active } : root)),
     }));
   }
   async function handleChooseRoot() {
@@ -131,7 +136,8 @@ export function ProjectSettingsPanel({
         };
         return {
           ...current,
-          defaultRootID: current.defaultRootID,
+          defaultRootID:
+            current.roots.length === 0 ? projectRootFormKey(nextRoot) : current.defaultRootID,
           roots: [...current.roots, nextRoot],
         };
       });
@@ -141,7 +147,11 @@ export function ProjectSettingsPanel({
   }
   const submitForm = () => onSave(form);
 
-  const workspace = projectDefaultWorkspaceFromRoots(form.roots, form.defaultRootID);
+  const selectedFormRoot = form.roots.find(
+    (root) => projectRootFormKey(root) === form.defaultRootID,
+  );
+  const workspace =
+    selectedFormRoot?.path || projectDefaultWorkspaceFromRoots(form.roots, form.defaultRootID);
   const rootCount = form.roots.length;
 
   return (
@@ -166,9 +176,13 @@ export function ProjectSettingsPanel({
         }}
       >
         <div style={{ minWidth: 0 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 650, color: "var(--t0)", margin: 0 }}>
+          <h1
+            ref={titleRef}
+            tabIndex={-1}
+            style={{ fontSize: 14, fontWeight: 650, color: "var(--t0)", margin: 0 }}
+          >
             Project settings
-          </h2>
+          </h1>
           <div
             style={{
               marginTop: 4,
@@ -181,6 +195,17 @@ export function ProjectSettingsPanel({
             keep the settings they started with.
           </div>
         </div>
+        <button
+          aria-label="Back to project"
+          className="btn btn-ghost btn-sm"
+          disabled={pending}
+          title={pending ? "Wait for settings to finish saving" : "Back to project"}
+          type="button"
+          onClick={onClose}
+        >
+          <Icon d={Icons.chevL} size={13} />
+          Back
+        </button>
       </div>
       <div style={{ overflowY: "auto", padding: 14, display: "grid", gap: 14 }}>
         <form
@@ -194,252 +219,254 @@ export function ProjectSettingsPanel({
           {error && <InlineError message={error} />}
           {rootChooseError && <InlineError message={rootChooseError} />}
           {agentPresetsError && <InlineError message={agentPresetsError} />}
-          <ProjectSettingsSection title="Launch defaults">
-            <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
-              Used for future Hecate Task and External Agent assignments. Human work does not need a
-              provider or model.
-            </div>
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Provider and model</span>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <ProviderPicker
-                    value={form.provider}
-                    onChange={handleProviderChange}
-                    options={providerOptions}
-                    emptyLabel={
-                      providerOptions.length === 0 ? "no providers configured" : "select provider"
+          <fieldset disabled={pending} style={settingsFieldsetStyle}>
+            <ProjectSettingsSection title="Launch defaults">
+              <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
+                Used for future Hecate Task and External Agent assignments. Human work does not need
+                a provider or model.
+              </div>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Provider and model</span>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <ProviderPicker
+                      value={form.provider}
+                      onChange={handleProviderChange}
+                      options={providerOptions}
+                      emptyLabel={
+                        providerOptions.length === 0 ? "no providers configured" : "select provider"
+                      }
+                    />
+                    <ModelPicker
+                      value={form.model}
+                      onChange={(model) => setForm((current) => ({ ...current, model }))}
+                      models={scopedModels}
+                      presets={providerPresets}
+                      includeAll
+                      allLabel="inherit runtime default"
+                      showProvider={!form.provider}
+                    />
+                  </div>
+                </div>
+                <div style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Agent behavior</span>
+                  <select
+                    aria-label="Default agent preset"
+                    className="input"
+                    value={form.defaultAgentPreset}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        defaultAgentPreset: event.target.value,
+                      }))
                     }
-                  />
-                  <ModelPicker
-                    value={form.model}
-                    onChange={(model) => setForm((current) => ({ ...current, model }))}
-                    models={scopedModels}
-                    presets={providerPresets}
-                    includeAll
-                    allLabel="inherit runtime default"
-                    showProvider={!form.provider}
-                  />
+                    style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
+                  >
+                    <option value="">Standard project assignment</option>
+                    {agentPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name || preset.id}
+                      </option>
+                    ))}
+                  </select>
+                  <PresetPosturePreview preset={selectedPreset} />
+                </div>
+                <div style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Workspace behavior</span>
+                  <div style={{ position: "relative", width: "100%" }}>
+                    <select
+                      aria-label="Workspace behavior"
+                      className="input"
+                      value={workspaceMode}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, workspaceMode: event.target.value }))
+                      }
+                      style={{
+                        appearance: "none",
+                        cursor: "pointer",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12,
+                        minHeight: 36,
+                        paddingRight: 34,
+                      }}
+                    >
+                      <option value="">Isolated copy (recommended)</option>
+                      <option value="ephemeral">Isolated copy (ephemeral setting)</option>
+                      <option value="persistent">Isolated copy (persistent setting)</option>
+                      <option value="in_place">Attached folder (writes directly)</option>
+                      {!knownWorkspaceMode && (
+                        <option value={workspaceMode}>Existing setting ({workspaceMode})</option>
+                      )}
+                    </select>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        alignItems: "center",
+                        color: "var(--t2)",
+                        display: "inline-flex",
+                        height: "100%",
+                        pointerEvents: "none",
+                        position: "absolute",
+                        right: 11,
+                        top: 0,
+                      }}
+                    >
+                      <Icon d={Icons.chevD} size={12} />
+                    </span>
+                  </div>
+                  <div style={subtleTextStyle}>
+                    Isolated modes currently use a fresh copy for each run. Writing directly to an
+                    attached folder is always an explicit choice.
+                  </div>
                 </div>
               </div>
-              <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Agent behavior</span>
-                <select
-                  aria-label="Default agent preset"
-                  className="input"
-                  value={form.defaultAgentPreset}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      defaultAgentPreset: event.target.value,
-                    }))
-                  }
-                  style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
-                >
-                  <option value="">Standard project assignment</option>
-                  {agentPresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.name || preset.id}
-                    </option>
-                  ))}
-                </select>
-                <PresetPosturePreview preset={selectedPreset} />
+            </ProjectSettingsSection>
+            <ProjectSettingsSection title="Local files">
+              <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
+                Folders are optional. Attach one when this project needs documents, code, or local
+                guidance.
               </div>
-              <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Workspace behavior</span>
-                <div style={{ position: "relative", width: "100%" }}>
+              <div style={{ display: "grid", gap: 12, marginBottom: 14 }}>
+                <div style={fieldStyle}>
+                  <span style={fieldLabelStyle}>Default folder</span>
                   <select
-                    aria-label="Workspace behavior"
+                    aria-label="Default folder"
                     className="input"
-                    value={workspaceMode}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, workspaceMode: event.target.value }))
-                    }
-                    style={{
-                      appearance: "none",
-                      cursor: "pointer",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 12,
-                      minHeight: 36,
-                      paddingRight: 34,
-                    }}
+                    value={form.defaultRootID}
+                    onChange={(event) => handleDefaultRootChange(event.target.value)}
+                    style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
                   >
-                    <option value="">Isolated copy (recommended)</option>
-                    <option value="ephemeral">Isolated copy (ephemeral setting)</option>
-                    <option value="persistent">Isolated copy (persistent setting)</option>
-                    <option value="in_place">Attached folder (writes directly)</option>
-                    {!knownWorkspaceMode && (
-                      <option value={workspaceMode}>Isolated copy ({workspaceMode})</option>
-                    )}
+                    {form.roots.length === 0 && <option value="">No default folder</option>}
+                    {form.roots.map((root) => (
+                      <option key={root.id || root.path} value={projectRootFormKey(root)}>
+                        {projectRootOptionLabel(root)}
+                      </option>
+                    ))}
                   </select>
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      alignItems: "center",
-                      color: "var(--t2)",
-                      display: "inline-flex",
-                      height: "100%",
-                      pointerEvents: "none",
-                      position: "absolute",
-                      right: 11,
-                      top: 0,
-                    }}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    onClick={() => void handleChooseRoot()}
                   >
-                    <Icon d={Icons.chevD} size={12} />
+                    Add folder
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    disabled={rootCount === 0}
+                    onClick={onOpenCreateWorktree}
+                  >
+                    Create worktree
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    disabled={rootsPending || rootCount === 0}
+                    onClick={() => void onDiscoverRoots()}
+                  >
+                    {rootsPending ? "Finding…" : "Find worktrees"}
+                  </button>
+                  <span style={subtleTextStyle}>
+                    {rootCount === 0
+                      ? "No folders attached."
+                      : `${rootCount} folder${rootCount === 1 ? "" : "s"}`}
                   </span>
                 </div>
-                <div style={subtleTextStyle}>
-                  Isolated modes currently use a fresh copy for each run. Writing directly to an
-                  attached folder is always an explicit choice.
-                </div>
-              </div>
-            </div>
-          </ProjectSettingsSection>
-          <ProjectSettingsSection title="Local files">
-            <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
-              Folders are optional. Attach one when this project needs documents, code, or local
-              guidance.
-            </div>
-            <div style={{ display: "grid", gap: 12, marginBottom: 14 }}>
-              <div style={fieldStyle}>
-                <span style={fieldLabelStyle}>Default folder</span>
-                <select
-                  aria-label="Default folder"
-                  className="input"
-                  value={form.defaultRootID}
-                  onChange={(event) => handleDefaultRootChange(event.target.value)}
-                  style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
-                >
-                  <option value="">No default folder</option>
-                  {form.roots.map((root) => (
-                    <option key={root.id || root.path} value={root.id ?? ""}>
-                      {projectRootOptionLabel(root)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  onClick={() => void handleChooseRoot()}
-                >
-                  Add folder
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  disabled={rootCount === 0}
-                  onClick={onOpenCreateWorktree}
-                >
-                  Create worktree
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  disabled={rootsPending || rootCount === 0}
-                  onClick={() => void onDiscoverRoots()}
-                >
-                  {rootsPending ? "Finding…" : "Find worktrees"}
-                </button>
-                <span style={subtleTextStyle}>
-                  {rootCount === 0
-                    ? "No folders attached."
-                    : `${rootCount} folder${rootCount === 1 ? "" : "s"}`}
-                </span>
-              </div>
-              {form.roots.length > 0 && (
-                <div style={{ display: "grid", gap: 8 }}>
-                  {form.roots.map((root) => {
-                    const rootID = root.id ?? root.path;
-                    const isDefault = form.defaultRootID !== "" && root.id === form.defaultRootID;
-                    return (
-                      <label
-                        key={rootID}
-                        style={{
-                          border: "1px solid var(--border)",
-                          borderRadius: 8,
-                          display: "grid",
-                          gap: 5,
-                          padding: "9px 10px",
-                        }}
-                      >
-                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <input
-                            aria-label={`Active project root ${root.path}`}
-                            type="checkbox"
-                            checked={Boolean(root.active)}
-                            onChange={(event) =>
-                              handleRootActiveChange(root.id ?? "", event.target.checked)
-                            }
-                          />
-                          <span
-                            style={{
-                              color: "var(--t1)",
-                              fontFamily: "var(--font-mono)",
-                              fontSize: 11,
-                              wordBreak: "break-all",
-                            }}
-                          >
-                            {root.path}
+                {form.roots.length > 0 && (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {form.roots.map((root, rootIndex) => {
+                      const rootID = root.id ?? root.path;
+                      const isDefault = projectRootFormKey(root) === form.defaultRootID;
+                      return (
+                        <label
+                          key={rootID}
+                          style={{
+                            border: "1px solid var(--border)",
+                            borderRadius: 8,
+                            display: "grid",
+                            gap: 5,
+                            padding: "9px 10px",
+                          }}
+                        >
+                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <input
+                              aria-label={`Active project root ${root.path}`}
+                              type="checkbox"
+                              checked={Boolean(root.active)}
+                              onChange={(event) =>
+                                handleRootActiveChange(rootIndex, event.target.checked)
+                              }
+                            />
+                            <span
+                              style={{
+                                color: "var(--t1)",
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 11,
+                                wordBreak: "break-all",
+                              }}
+                            >
+                              {root.path}
+                            </span>
                           </span>
-                        </span>
-                        <span style={{ ...subtleTextStyle, paddingLeft: 22 }}>
-                          {projectRootSummary(root)}
-                          {isDefault ? " · default" : ""}
-                        </span>
-                      </label>
-                    );
-                  })}
+                          <span style={{ ...subtleTextStyle, paddingLeft: 22 }}>
+                            {projectRootSummary(root)}
+                            {isDefault ? " · default" : ""}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gap: 5,
+                  fontSize: 11,
+                  color: "var(--t3)",
+                  lineHeight: 1.45,
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                  <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>
+                    Current folder
+                  </span>
+                  <span
+                    title={workspace}
+                    style={{
+                      color: "var(--t1)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    {workspace || "No local files attached"}
+                  </span>
                 </div>
-              )}
-            </div>
+              </div>
+            </ProjectSettingsSection>
             <div
               style={{
-                display: "grid",
-                gap: 5,
-                fontSize: 11,
-                color: "var(--t3)",
-                lineHeight: 1.45,
+                background: "var(--bg1)",
+                borderTop: "1px solid var(--border)",
+                bottom: -14,
+                margin: "0 -14px -14px",
+                padding: 14,
+                position: "sticky",
               }}
             >
-              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>
-                  Current folder
-                </span>
-                <span
-                  title={workspace}
-                  style={{
-                    color: "var(--t1)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {workspace || "No local files attached"}
-                </span>
-              </div>
+              <button
+                className="btn btn-primary"
+                type="submit"
+                disabled={pending || !dirty}
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                {pending ? "Saving…" : "Save settings"}
+              </button>
             </div>
-          </ProjectSettingsSection>
-          <div
-            style={{
-              background: "var(--bg1)",
-              borderTop: "1px solid var(--border)",
-              bottom: -14,
-              margin: "0 -14px -14px",
-              padding: 14,
-              position: "sticky",
-            }}
-          >
-            <button
-              className="btn btn-primary"
-              type="submit"
-              disabled={pending || !dirty}
-              style={{ width: "100%", justifyContent: "center" }}
-            >
-              {pending ? "Saving…" : "Save settings"}
-            </button>
-          </div>
+          </fieldset>
         </form>
       </div>
     </div>
@@ -449,9 +476,9 @@ export function ProjectSettingsPanel({
 function ProjectSettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="kicker" style={{ margin: "0 0 7px" }}>
+      <h2 className="kicker" style={{ margin: "0 0 7px" }}>
         {title}
-      </h3>
+      </h2>
       {children}
     </section>
   );
@@ -502,6 +529,15 @@ const fieldLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   textTransform: "uppercase",
+};
+
+const settingsFieldsetStyle: CSSProperties = {
+  border: 0,
+  display: "grid",
+  gap: 14,
+  margin: 0,
+  minWidth: 0,
+  padding: 0,
 };
 
 const runtimeDetailsStyle: CSSProperties = {

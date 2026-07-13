@@ -151,9 +151,7 @@ export function AgentPresetsModal({
             }}
           >
             <button
-              className={
-                selectedPresetID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
-              }
+              className="btn btn-ghost btn-sm agent-preset-choice"
               type="button"
               aria-pressed={selectedPresetID === "new"}
               disabled={pending}
@@ -166,9 +164,7 @@ export function AgentPresetsModal({
             {presets.map((preset) => (
               <button
                 key={preset.id}
-                className={
-                  selectedPresetID === preset.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
-                }
+                className="btn btn-ghost btn-sm agent-preset-choice"
                 type="button"
                 aria-pressed={selectedPresetID === preset.id}
                 disabled={pending}
