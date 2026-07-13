@@ -360,6 +360,15 @@ export function ProjectsView({
     message: "",
     pendingWorkItem: false,
   });
+  const [catalogRetryPending, setCatalogRetryPending] = useState(false);
+  const [catalogRetryAnnouncement, setCatalogRetryAnnouncement] = useState({
+    key: "",
+    message: "",
+  });
+  const catalogRetryAnnouncementSequenceRef = useRef(0);
+  const catalogRetryInFlightRef = useRef(false);
+  const catalogRetryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const projectsShellRef = useRef<HTMLDivElement | null>(null);
   const previousNavigationRef = useRef<ProjectNavigationState | null | undefined>(undefined);
   const navigationEffectHasRunRef = useRef(false);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
@@ -2801,9 +2810,11 @@ export function ProjectsView({
     ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."
     : explicitWorkItemMissing
       ? "Work item not found in this project. Choose another item from the queue."
-      : managedCatalogUnavailable
-        ? "Projects could not be loaded. This link has been kept so you can retry."
-        : "";
+      : catalogRetryPending
+        ? "Retrying projects…"
+        : managedCatalogUnavailable
+          ? "Projects could not be loaded. This link has been kept so you can retry."
+          : "";
   const managedCatalogPending = Boolean(navigation && !projects.state.loaded);
   const projectEmptyTitle = explicitProjectMissing
     ? "Project not found"
@@ -2832,10 +2843,34 @@ export function ProjectsView({
   const addProjectIsPrimary =
     projects.state.projects.length === 0 && (!navigation || projects.state.loaded);
 
+  const retryProjectCatalog = async () => {
+    if (catalogRetryInFlightRef.current) return;
+    catalogRetryInFlightRef.current = true;
+    setCatalogRetryPending(true);
+    try {
+      await projects.actions.loadProjects();
+    } finally {
+      catalogRetryInFlightRef.current = false;
+      setCatalogRetryPending(false);
+      window.requestAnimationFrame(() => {
+        if (catalogRetryButtonRef.current) return;
+        catalogRetryAnnouncementSequenceRef.current += 1;
+        setCatalogRetryAnnouncement({
+          key: String(catalogRetryAnnouncementSequenceRef.current),
+          message: "Projects loaded.",
+        });
+        projectsShellRef.current?.querySelector<HTMLElement>(".project-workspace-content")?.focus();
+      });
+    }
+  };
+
   return (
-    <div className="projects-cockpit-shell" style={shellStyle}>
+    <div className="projects-cockpit-shell" ref={projectsShellRef} style={shellStyle}>
       <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStatusStyle}>
         <span key={navigationAnnouncement.key}>{navigationAnnouncement.message}</span>
+      </div>
+      <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStatusStyle}>
+        <span key={catalogRetryAnnouncement.key}>{catalogRetryAnnouncement.message}</span>
       </div>
       <section className="projects-cockpit-index" style={sidePanelStyle} aria-label="Projects">
         <div style={topbarStyle}>
@@ -2960,13 +2995,15 @@ export function ProjectsView({
         {navigationNotice && (
           <div aria-atomic="true" aria-live="polite" role="status" style={navigationNoticeStyle}>
             <span>{navigationNotice}</span>
-            {managedCatalogUnavailable && (
+            {(managedCatalogUnavailable || catalogRetryPending) && (
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => void projects.actions.loadProjects()}
+                disabled={catalogRetryPending}
+                onClick={() => void retryProjectCatalog()}
+                ref={catalogRetryButtonRef}
                 type="button"
               >
-                Retry
+                {catalogRetryPending ? "Retrying…" : "Retry"}
               </button>
             )}
           </div>
