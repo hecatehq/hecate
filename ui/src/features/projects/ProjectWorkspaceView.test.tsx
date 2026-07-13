@@ -286,6 +286,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     onEditWorkItem: vi.fn(),
     onManagePresets: vi.fn(),
     onManageRoles: vi.fn(),
+    onNavigateWorkspaceTab: vi.fn(),
     onNewMemory: vi.fn(),
     onNewSource: vi.fn(),
     onOpenChat: vi.fn(),
@@ -310,6 +311,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     activity: null,
     activityBucket: "all",
     activityByAssignmentID: new Map(),
+    activityLoadState: "loaded",
     artifacts: [],
     artifactActionID: "",
     assignmentErrors: {},
@@ -350,7 +352,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
     closingWorkItemID: "",
     skillsError: "",
     skillsLoadState: "idle",
-    startingAssignmentID: "",
+    startingAssignmentIDs: new Set<string>(),
     updatingSkillID: "",
     workError: "",
     workItemSummaries: {},
@@ -460,6 +462,7 @@ describe("ProjectWorkspaceView", () => {
     expect(overviewTab).toHaveAttribute("tabindex", "0");
     expect(workTab).toHaveAttribute("tabindex", "-1");
     expect(overviewTab).toHaveAttribute("aria-controls", overviewPanel.id);
+    expect(workTab).not.toHaveAttribute("aria-controls");
     expect(overviewPanel).toHaveAttribute("aria-labelledby", overviewTab.id);
 
     overviewTab.focus();
@@ -518,10 +521,17 @@ describe("ProjectWorkspaceView", () => {
   });
 
   it("renders explicit overview loading state", () => {
-    renderWorkspace({ operationsBriefLoadState: "loading", workLoadState: "loading" });
+    renderWorkspace({
+      activityLoadState: "loading",
+      operationsBriefLoadState: "loading",
+      workItems: [workItem()],
+      workLoadState: "loaded",
+    });
 
     const overview = screen.getByRole("region", { name: "Project overview" });
-    const operationsStatus = within(overview).getByRole("status");
+    const operationsStatus = within(
+      within(overview).getByRole("region", { name: "Project operations" }),
+    ).getByRole("status");
     expect(operationsStatus).toHaveAttribute("aria-live", "polite");
     expect(operationsStatus).toHaveAttribute("aria-atomic", "true");
     expect(operationsStatus).toHaveAttribute("aria-busy", "true");
@@ -531,11 +541,21 @@ describe("ProjectWorkspaceView", () => {
         "Checking project work, memory candidates, handoffs, and launch defaults.",
       ),
     ).toBeTruthy();
-    expect(within(overview).getByText("Loading activity…")).toBeTruthy();
-    expect(within(overview).getByText("Checking project work and assignment status.")).toBeTruthy();
+    const activitySummary = within(overview).getByRole("region", {
+      name: "Project activity summary",
+    });
+    const activityStatus = within(activitySummary).getByRole("status");
+    expect(activityStatus).toHaveAttribute("aria-live", "polite");
+    expect(activityStatus).toHaveAttribute("aria-atomic", "true");
+    expect(activityStatus).toHaveAttribute("aria-busy", "true");
+    expect(within(activitySummary).getByText("Updating activity…")).toBeTruthy();
+    expect(
+      within(activitySummary).getByText("Checking assignment progress and blockers."),
+    ).toHaveStyle({ color: "var(--t2)" });
     expect(within(overview).queryByText("No project work yet")).toBeNull();
     expect(within(overview).queryByText(/Create a work item/)).toBeNull();
     expect(within(overview).queryByRole("button", { name: /Blocked/ })).toBeNull();
+    expect(within(activitySummary).getByRole("button", { name: "View work" })).toBeTruthy();
   });
 
   it("holds the guided shell while project setup is still loading", () => {
@@ -577,18 +597,141 @@ describe("ProjectWorkspaceView", () => {
 
   it("distinguishes an overview load failure from an empty project", () => {
     renderWorkspace({
-      workError: "Project coordination is temporarily unavailable.",
-      workLoadState: "error",
+      activityLoadState: "error",
+      overviewError: "Project coordination is temporarily unavailable.",
+      workItems: [workItem()],
+      workLoadState: "loaded",
     });
 
     const overview = screen.getByRole("region", { name: "Project overview" });
-    expect(within(overview).getByText("Activity unavailable")).toBeTruthy();
-    expect(within(overview).getByText("Refresh project work to try again.")).toBeTruthy();
-    expect(
-      within(overview).getByText("Project coordination is temporarily unavailable."),
-    ).toBeTruthy();
+    const activitySummary = within(overview).getByRole("region", {
+      name: "Project activity summary",
+    });
+    const activityStatus = within(activitySummary).getByRole("status");
+    expect(activityStatus).toHaveAttribute("aria-busy", "false");
+    expect(within(activitySummary).getByText("Activity unavailable")).toBeTruthy();
+    expect(within(activitySummary).getByText("Refresh project work to try again.")).toBeTruthy();
+    expect(screen.getByText("Project coordination is temporarily unavailable.")).toBeTruthy();
     expect(within(overview).queryByText("No project work yet")).toBeNull();
-    expect(within(overview).queryByRole("button", { name: /Blocked/ })).toBeNull();
+    expect(within(activitySummary).queryByRole("button", { name: /Blocked/ })).toBeNull();
+    expect(within(activitySummary).getByRole("button", { name: "View work" })).toBeTruthy();
+  });
+
+  it("uses projected work count when the work list is unavailable", () => {
+    const projectedActivity = activity({
+      summary: {
+        work_item_count: 2,
+        assignment_count: 0,
+        active_count: 0,
+        blocked_count: 0,
+        completed_count: 0,
+        recent_count: 0,
+      },
+      buckets: { active: [], blocked: [], completed: [], recent: [] },
+      recent: [],
+    });
+    const { handlers, props, rerender } = renderWorkspace({
+      activity: projectedActivity,
+      activityLoadState: "loaded",
+      workItems: [],
+      workLoadState: "error",
+    });
+
+    const summary = screen.getByRole("region", { name: "Project activity summary" });
+    expect(within(summary).getByText("2 work items")).toBeTruthy();
+    expect(within(summary).getByText("Project activity reports current work.")).toBeTruthy();
+    expect(within(summary).queryByText("No project work yet")).toBeNull();
+    expect(screen.getByRole("tab", { name: /Work/ })).toHaveTextContent("2");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={projectedActivity}
+        activityLoadState="loaded"
+        workItems={[]}
+        workLoadState="error"
+        workspaceTab="work"
+      />,
+    );
+    expect(
+      screen.getByText("Work items are unavailable. Refresh project work to try again."),
+    ).toBeTruthy();
+    expect(screen.queryByText("No work items for this project.")).toBeNull();
+  });
+
+  it("keeps activity filters non-authoritative while the projection updates or fails", () => {
+    const item = workItem();
+    const { handlers, props, rerender } = renderWorkspace({
+      activity: null,
+      activityBucket: "blocked",
+      activityLoadState: "loading",
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+
+    let filters = screen.getByLabelText("Work activity filters");
+    expect(within(filters).getByRole("button", { name: "Show all work items" })).toHaveTextContent(
+      "1",
+    );
+    expect(within(filters).getByRole("button", { name: "Show all work items" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(filters).queryByRole("button", { name: "Show blocked assignments" })).toBeNull();
+    let status = within(filters).getByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveAttribute("aria-atomic", "true");
+    expect(status).not.toHaveAttribute("aria-busy");
+    expect(status).toHaveTextContent("Updating assignment activity…");
+    expect(screen.queryByText("No activity is recorded for this project yet.")).toBeNull();
+    expect(screen.queryByText("No blocked assignments for this project.")).toBeNull();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={null}
+        activityBucket="blocked"
+        activityLoadState="error"
+        workItems={[item]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+
+    filters = screen.getByLabelText("Work activity filters");
+    status = within(filters).getByRole("status");
+    expect(status).not.toHaveAttribute("aria-busy");
+    expect(status).toHaveTextContent(
+      "Assignment activity unavailable. Refresh project work to try again.",
+    );
+    expect(within(filters).queryByRole("button", { name: "Show blocked assignments" })).toBeNull();
+    expect(screen.queryByText("No activity is recorded for this project yet.")).toBeNull();
+    expect(screen.queryByText("No blocked assignments for this project.")).toBeNull();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={activity()}
+        activityBucket="blocked"
+        activityLoadState="loaded"
+        workItems={[item]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+
+    filters = screen.getByLabelText("Work activity filters");
+    expect(within(filters).getByRole("button", { name: "Show all work items" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(
+      within(filters).getByRole("button", { name: "Show blocked assignments" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("explains compact project operations limits", () => {
@@ -658,8 +801,9 @@ describe("ProjectWorkspaceView", () => {
 
     expect(handlers.onActivityBucketChange).toHaveBeenNthCalledWith(1, "blocked");
     expect(handlers.onActivityBucketChange).toHaveBeenNthCalledWith(2, "recent");
-    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("memory");
-    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+    expect(handlers.onNavigateWorkspaceTab).toHaveBeenCalledWith("memory");
+    expect(handlers.onNavigateWorkspaceTab).toHaveBeenCalledWith("work");
+    expect(handlers.onWorkspaceTabChange).not.toHaveBeenCalled();
     expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
   });
 
@@ -714,7 +858,7 @@ describe("ProjectWorkspaceView", () => {
     ).toBeTruthy();
 
     await userEvent.click(within(resume).getByRole("button", { name: "View work" }));
-    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+    expect(handlers.onNavigateWorkspaceTab).toHaveBeenCalledWith("work");
     expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
 
     rerender(
@@ -742,7 +886,7 @@ describe("ProjectWorkspaceView", () => {
     resume = screen.getByRole("region", { name: "Project activity summary" });
     expect(within(resume).getByText("1 work item")).toBeTruthy();
     await userEvent.click(within(resume).getByRole("button", { name: "View work" }));
-    expect(handlers.onWorkspaceTabChange).toHaveBeenCalledWith("work");
+    expect(handlers.onNavigateWorkspaceTab).toHaveBeenCalledWith("work");
     expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
 
     rerender(

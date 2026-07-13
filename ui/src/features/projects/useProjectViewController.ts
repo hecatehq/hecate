@@ -30,6 +30,7 @@ export function useProjectSelectionController({
   const [selectedProjectID, setSelectedProjectID] = useState(activeProjectID);
   const selectedProjectIDRef = useRef(activeProjectID);
   const lastActiveProjectIDRef = useRef(activeProjectID);
+  const pendingActiveProjectIDRef = useRef(activeProjectID);
   const onProjectChangeRef = useRef(onProjectChange);
   onProjectChangeRef.current = onProjectChange;
   const selectedProject = useMemo(
@@ -40,14 +41,19 @@ export function useProjectSelectionController({
   useEffect(() => {
     const currentProjectID = selectedProjectIDRef.current;
     const activeProjectChanged = activeProjectID !== lastActiveProjectIDRef.current;
-    lastActiveProjectIDRef.current = activeProjectID;
+    if (activeProjectChanged) {
+      lastActiveProjectIDRef.current = activeProjectID;
+      pendingActiveProjectIDRef.current = activeProjectID;
+    }
     const hasProject = (projectID: string) =>
       Boolean(projectID && projects.some((project) => project.id === projectID));
+    const pendingActiveProjectID = pendingActiveProjectIDRef.current;
     let nextProjectID = currentProjectID;
     if (projects.length === 0) {
       nextProjectID = "";
-    } else if (activeProjectChanged && hasProject(activeProjectID)) {
-      nextProjectID = activeProjectID;
+    } else if (pendingActiveProjectID && hasProject(pendingActiveProjectID)) {
+      nextProjectID = pendingActiveProjectID;
+      pendingActiveProjectIDRef.current = "";
     } else if (!hasProject(currentProjectID)) {
       nextProjectID = hasProject(activeProjectID) ? activeProjectID : projects[0]?.id || "";
     }

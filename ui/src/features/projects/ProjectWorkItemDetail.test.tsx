@@ -264,6 +264,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     onOpenConnections: vi.fn(),
     onOpenSettings: vi.fn(),
     onOpenTask: vi.fn(),
+    onOpenWorkItem: vi.fn(),
     onRefresh: vi.fn(),
     onStartAssignment: vi.fn(),
     onStartHandoff: vi.fn(),
@@ -286,7 +287,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
     roleByID,
     closingWorkItemID: "",
     closeoutReadiness: closeoutReadiness(),
-    startingAssignmentID: "",
+    startingAssignmentIDs: new Set<string>(),
     workItem: workItem(),
     ...handlers,
     ...overrides,
@@ -309,6 +310,42 @@ describe("ProjectWorkItemDetail", () => {
     });
   });
 
+  it("keeps a detail-load failure visible without exposing stale work controls", async () => {
+    const { handlers } = renderDetail({
+      detailError: "Failed to load selected work item detail.",
+      loading: false,
+      workItem: null,
+    });
+
+    const unavailable = screen.getByRole("region", { name: "Work item unavailable" });
+    expect(within(unavailable).getByText("Work item unavailable")).toBeTruthy();
+    expect(
+      within(unavailable).getByText("Refresh project work to try loading this item again."),
+    ).toBeTruthy();
+    expect(within(unavailable).getByRole("alert")).toHaveTextContent(
+      "Failed to load selected work item detail.",
+    );
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+
+    await userEvent.click(within(unavailable).getByRole("button", { name: "Retry" }));
+    expect(handlers.onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces a pending detail load", () => {
+    renderDetail({ detailError: "", loading: true, workItem: null });
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveAttribute("aria-atomic", "true");
+    expect(status).not.toHaveAttribute("aria-busy");
+    expect(within(status).getByText("Loading detail…")).toBeTruthy();
+    expect(
+      within(status).getByText("Loading assignments and collaboration artifacts."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   it("treats null detail lists as empty", () => {
     renderDetail({
       assignments: null as unknown as ProjectAssignmentRecord[],
@@ -319,6 +356,72 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.getByRole("article", { name: "Decompose project UI work item" })).toBeTruthy();
     expect(screen.getByText("Let Hecate prepare the first step")).toBeTruthy();
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
+  });
+
+  it("keeps every concurrently starting assignment disabled", () => {
+    const first = assignment();
+    const second = assignment({
+      id: "assign_2",
+      execution: undefined,
+      execution_ref: undefined,
+    });
+    renderDetail({
+      assignments: [first, second],
+      startingAssignmentIDs: new Set([first.id, second.id]),
+    });
+
+    const startingButtons = screen.getAllByRole("button", { name: /Starting/ });
+    expect(startingButtons).toHaveLength(2);
+    for (const button of startingButtons) expect(button).toBeDisabled();
+  });
+
+  it("routes cross-work handoff targets without duplicating or launching the assignment", async () => {
+    const targetAssignmentID = "assign_target";
+    const { handlers } = renderDetail({
+      assignments: [],
+      handoffs: [
+        handoff({
+          target_assignment_id: targetAssignmentID,
+          target_work_item_id: "work_target",
+        }),
+      ],
+    });
+
+    expect(screen.queryByRole("button", { name: "Create follow-up assignment" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start from handoff" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Open target work" }));
+
+    expect(handlers.onOpenWorkItem).toHaveBeenCalledWith("work_target");
+    expect(handlers.onStartHandoff).not.toHaveBeenCalled();
+  });
+
+  it("locks handoff decisions while its linked assignment is starting", () => {
+    const target = assignment();
+    renderDetail({
+      assignments: [target],
+      handoffs: [handoff({ target_assignment_id: target.id })],
+      startingAssignmentIDs: new Set([target.id]),
+    });
+
+    const handoffActions = screen.getByRole("group", { name: "Follow-up review handoff" });
+    for (const name of ["Edit", "Delete", "Accept", "Dismiss", "Supersede"]) {
+      expect(within(handoffActions).getByRole("button", { name })).toBeDisabled();
+    }
+    for (const button of within(handoffActions).getAllByRole("button", { name: /Starting/ })) {
+      expect(button).toBeDisabled();
+    }
+  });
+
+  it("does not offer follow-up assignments for closed handoffs", () => {
+    renderDetail({
+      assignments: [],
+      handoffs: [
+        handoff({ id: "handoff_dismissed", status: "dismissed" }),
+        handoff({ id: "handoff_superseded", status: "superseded" }),
+      ],
+    });
+
+    expect(screen.queryByRole("button", { name: "Create follow-up assignment" })).toBeNull();
   });
 
   it("treats null closeout lists as empty", () => {

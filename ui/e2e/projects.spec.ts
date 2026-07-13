@@ -223,6 +223,7 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   }
 
   await page.getByRole("button", { name: "View work" }).click();
+  await expect(page.getByRole("tab", { name: /Work/ })).toBeFocused();
   await expect(page.getByRole("article", { name: /Review launch narrative/ })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });

@@ -129,7 +129,12 @@ export function ProjectAssistantPanel({
         detail={panelDetail}
         action={
           proposal || applyResult ? (
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onDismiss}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={status === "applying"}
+              onClick={onDismiss}
+            >
               <Icon d={Icons.x} size={12} />
               Dismiss
             </button>
@@ -383,7 +388,12 @@ export function ProjectAssistantPanel({
             ))}
           </div>
           <div style={assistantProposalActionsStyle}>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onDismiss}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={status === "applying"}
+              onClick={onDismiss}
+            >
               <Icon d={Icons.x} size={12} />
               Dismiss proposal
             </button>

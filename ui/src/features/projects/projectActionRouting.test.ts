@@ -70,6 +70,22 @@ describe("projectActionRouting", () => {
         "proj_1",
       ),
     ).toEqual({ kind: "open_memory_review" });
+
+    const candidateOperation = operationItem({
+      action: {
+        type: "review_memory_candidate",
+        project_id: "proj_1",
+        candidate_id: "cand_1",
+      },
+    });
+    expect(routeProjectOperationAction(candidateOperation, "proj_1")).toEqual({
+      kind: "open_memory_review",
+    });
+    expect(
+      routeProjectOperationAction(candidateOperation, "proj_1", {
+        hasMemoryCandidate: true,
+      }),
+    ).toEqual({ kind: "review_memory_candidate", candidateID: "cand_1" });
   });
 
   it("rejects stale or incomplete server operations", () => {

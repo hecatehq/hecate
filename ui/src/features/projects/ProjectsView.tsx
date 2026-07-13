@@ -259,6 +259,7 @@ export function ProjectsView({
   const [workItems, setWorkItems] = useState<ProjectWorkItemRecord[]>([]);
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
+  const [activityLoadState, setActivityLoadState] = useState<LoadState>("idle");
   const [projectHealth, setProjectHealth] = useState<ProjectHealth | null>(null);
   const [projectSetupReadiness, setProjectSetupReadiness] = useState<ProjectSetupReadiness | null>(
     null,
@@ -272,6 +273,8 @@ export function ProjectsView({
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
   const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("all");
   const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>(initialWorkspaceTab);
+  const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
+    useState<ProjectWorkspaceTab | null>(null);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -295,12 +298,22 @@ export function ProjectsView({
   const [workLoadState, setWorkLoadState] = useState<LoadState>("idle");
   const [loadedProjectID, setLoadedProjectID] = useState("");
   const [detailLoadState, setDetailLoadState] = useState<LoadState>("idle");
+  const [detailTarget, setDetailTarget] = useState<{
+    projectID: string;
+    workItemID: string;
+  } | null>(null);
   const [workError, setWorkError] = useState("");
   const [detailError, setDetailError] = useState("");
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
-  const [startingAssignmentID, setStartingAssignmentID] = useState("");
-  const [preparingAssignmentID, setPreparingAssignmentID] = useState("");
-  const startingAssignmentIDsRef = useRef<Set<string>>(new Set());
+  const [startingAssignmentKeys, setStartingAssignmentKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [preparingAssignmentTarget, setPreparingAssignmentTarget] = useState<{
+    assignmentID: string;
+    projectID: string;
+    workItemID: string;
+  } | null>(null);
+  const startingAssignmentPromisesRef = useRef<Map<string, Promise<boolean>>>(new Map());
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
   const [projectSkills, setProjectSkills] = useState<ProjectSkillRecord[]>([]);
@@ -355,6 +368,19 @@ export function ProjectsView({
 
   useEffect(() => {
     workItemSelectionGenerationRef.current += 1;
+    detailLoadGenerationRef.current += 1;
+    setSelectedWorkItem(null);
+    setSelectedWorkItemReadiness(null);
+    setAssignments([]);
+    setArtifacts([]);
+    setHandoffs([]);
+    setDetailError("");
+    setDetailLoadState(selectedWorkItemID ? "loading" : "idle");
+    setDetailTarget(
+      selectedProjectID && selectedWorkItemID
+        ? { projectID: selectedProjectID, workItemID: selectedWorkItemID }
+        : null,
+    );
     setEditingWorkItem(null);
     setEditWorkPending(false);
     setEditWorkError("");
@@ -382,10 +408,17 @@ export function ProjectsView({
     setReviewArtifactPending(false);
     setReviewArtifactError("");
     setAssignmentErrors({});
-    startingAssignmentIDsRef.current.clear();
-    setStartingAssignmentID("");
-    setPreparingAssignmentID("");
-  }, [selectedWorkItemID]);
+  }, [selectedProjectID, selectedWorkItemID]);
+
+  useEffect(() => {
+    setPreparingAssignmentTarget((current) => {
+      if (!current) return null;
+      return current.projectID === selectedProjectIDRef.current &&
+        current.workItemID === selectedWorkItemID
+        ? current
+        : null;
+    });
+  }, [selectedProjectID, selectedWorkItemID]);
 
   function isCurrentProjectMutation(projectID: string, selectionGeneration: number) {
     return (
@@ -409,6 +442,7 @@ export function ProjectsView({
 
   function resetProjectScopedInteractions() {
     setWorkspaceTab(initialWorkspaceTab);
+    setWorkspaceTabFocusTarget(null);
     setSettingsPanelOpen(false);
     setDefaultsPending(false);
     setDefaultsError("");
@@ -430,6 +464,7 @@ export function ProjectsView({
     setDeleteWorkPending(false);
     setClosingWorkItemID("");
     setSelectedWorkItemID("");
+    setDetailTarget(null);
     setNewAssignmentModalOpen(false);
     setNewAssignmentPending(false);
     setNewAssignmentError("");
@@ -467,10 +502,13 @@ export function ProjectsView({
     setUpdatingSkillID("");
     setSkillsError("");
     setAssignmentErrors({});
-    startingAssignmentIDsRef.current.clear();
-    setStartingAssignmentID("");
-    setPreparingAssignmentID("");
+    setPreparingAssignmentTarget(null);
   }
+
+  const navigateWorkspaceTab = useCallback((tab: ProjectWorkspaceTab) => {
+    setWorkspaceTab(tab);
+    setWorkspaceTabFocusTarget(tab);
+  }, []);
 
   const refreshProjectOverview = useCallback(async (projectID: string) => {
     if (!projectID || selectedProjectIDRef.current !== projectID) return;
@@ -484,6 +522,7 @@ export function ProjectsView({
       );
     };
     setActivity(null);
+    setActivityLoadState("loading");
     setProjectHealth(null);
     setProjectSetupReadiness(null);
     setProjectSetupReadinessLoadState("loading");
@@ -494,11 +533,14 @@ export function ProjectsView({
     setOperationsBriefError("");
     const activityLoad = getProjectActivity(projectID)
       .then((payload) => {
-        if (!isStale()) setActivity(payload.data ?? null);
+        if (isStale()) return;
+        setActivity(payload.data ?? null);
+        setActivityLoadState("loaded");
       })
       .catch(() => {
         if (isStale()) return;
         setActivity(null);
+        setActivityLoadState("error");
         markCoordinationUnavailable();
       });
     const healthLoad = getProjectHealth(projectID)
@@ -642,6 +684,8 @@ export function ProjectsView({
         setHandoffs([]);
       }
       if (!projectID) {
+        setActivity(null);
+        setActivityLoadState("idle");
         setWorkLoadState("idle");
         setLoadedProjectID("");
         setOperationsBriefLoadState("idle");
@@ -773,10 +817,13 @@ export function ProjectsView({
     if (selectedProjectIDRef.current !== projectID) return;
     const generation = ++detailLoadGenerationRef.current;
     const isStale = () =>
-      generation !== detailLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
+      generation !== detailLoadGenerationRef.current ||
+      selectedProjectIDRef.current !== projectID ||
+      selectedWorkItemIDRef.current !== workItemID;
     setDetailError("");
     setAssignmentErrors({});
     if (!projectID || !workItemID) {
+      setDetailTarget(null);
       setSelectedWorkItem(null);
       setSelectedWorkItemReadiness(null);
       setAssignments([]);
@@ -785,6 +832,7 @@ export function ProjectsView({
       setDetailLoadState("idle");
       return;
     }
+    setDetailTarget({ projectID, workItemID });
     setSelectedWorkItemReadiness(null);
     setDetailLoadState("loading");
     try {
@@ -853,28 +901,21 @@ export function ProjectsView({
   }, [loadWorkItemDetail, selectedProjectID, selectedWorkItemID]);
 
   useEffect(() => {
-    assistant.dismiss();
-  }, [assistant.dismiss, selectedProjectID, selectedWorkItemID]);
-
-  useEffect(() => {
-    setPreparingAssignmentID("");
-  }, [selectedProjectID, selectedWorkItemID]);
-
-  useEffect(() => {
     if (!selectedProjectID) return;
     if (workLoadState !== "loaded" && workLoadState !== "error") return;
     const handoff = readProjectAssistantChatHandoff();
     if (!handoff || handoff.project_id !== selectedProjectID) return;
-    assistant.loadProposal(handoff.proposal, {
+    const loaded = assistant.loadProposal(handoff.proposal, {
       chatDraftSource: {
         request: handoff.request,
         sourceSessionID: handoff.source_session_id,
         createdAt: handoff.created_at,
       },
     });
-    setWorkspaceTab("work");
+    if (!loaded) return;
+    navigateWorkspaceTab("work");
     clearProjectAssistantChatHandoff();
-  }, [assistant.loadProposal, selectedProjectID, workLoadState]);
+  }, [assistant.loadProposal, navigateWorkspaceTab, selectedProjectID, workLoadState]);
 
   function startRename(project: ProjectRecord) {
     setRenamingProjectID(project.id);
@@ -1593,7 +1634,14 @@ export function ProjectsView({
   }
 
   function handleOperationsBriefAction(item: ProjectOperationsBriefItem) {
-    handleProjectActionRoute(routeProjectOperationAction(item, selectedProjectID));
+    const candidateID = item.action?.candidate_id;
+    handleProjectActionRoute(
+      routeProjectOperationAction(item, selectedProjectID, {
+        hasMemoryCandidate: Boolean(
+          candidateID && memoryCandidates.some((candidate) => candidate.id === candidateID),
+        ),
+      }),
+    );
   }
 
   function handleSetupReadinessAction(action: ProjectSetupReadiness["primary_action"]) {
@@ -1606,7 +1654,7 @@ export function ProjectsView({
         setWorkError(route.message);
         return;
       case "draft_project_proposal":
-        setWorkspaceTab("work");
+        navigateWorkspaceTab("work");
         if (route.workItemID) {
           setSelectedWorkItemID(route.workItemID);
         }
@@ -1625,7 +1673,7 @@ export function ProjectsView({
         setSettingsPanelOpen(true);
         return;
       case "open_memory_review":
-        setWorkspaceTab("memory");
+        navigateWorkspaceTab("memory");
         return;
       case "open_agent_presets":
         setPresetsError("");
@@ -1636,23 +1684,53 @@ export function ProjectsView({
         setRolesModalOpen(true);
         return;
       case "open_skills":
-        setWorkspaceTab("skills");
+        navigateWorkspaceTab("skills");
         return;
-      case "open_assignment_preflight":
+      case "open_assignment_preflight": {
+        const workItemID = route.workItemID || selectedWorkItemIDRef.current;
+        if (!selectedProjectID || !workItemID) {
+          setWorkError("Assignment preflight is missing a work item target.");
+          return;
+        }
         selectProjectWorkRoute(route);
-        setPreparingAssignmentID(route.assignmentID);
+        setPreparingAssignmentTarget({
+          assignmentID: route.assignmentID,
+          projectID: selectedProjectID,
+          workItemID,
+        });
         return;
+      }
       case "open_work_item":
         selectProjectWorkRoute(route);
         return;
+      case "open_activity_bucket":
+        setActivityBucket(route.bucket);
+        navigateWorkspaceTab("work");
+        return;
+      case "open_task":
+        if (onOpenTask) {
+          onOpenTask(route.taskID, route.runID);
+          return;
+        }
+        setWorkError("Task navigation is unavailable in this view.");
+        return;
+      case "review_memory_candidate": {
+        const candidate = memoryCandidates.find((item) => item.id === route.candidateID);
+        if (candidate) {
+          setPromotingCandidate(candidate);
+          return;
+        }
+        navigateWorkspaceTab("memory");
+        return;
+      }
       case "bootstrap_project":
-        setWorkspaceTab("work");
+        navigateWorkspaceTab("work");
         void assistant.bootstrap();
         return;
       case "create_work_item":
         openNewWorkItemModal();
         return;
-      default:
+      case "none":
         return;
     }
   }
@@ -1660,7 +1738,7 @@ export function ProjectsView({
   function selectProjectWorkRoute(
     route: Extract<ProjectActionRoute, { kind: "open_assignment_preflight" | "open_work_item" }>,
   ) {
-    setWorkspaceTab("work");
+    navigateWorkspaceTab("work");
     if (route.bucket) {
       setActivityBucket(route.bucket);
     }
@@ -1895,6 +1973,10 @@ export function ProjectsView({
     options: { failureMessage?: string; prefixFailureMessage?: boolean } = {},
   ) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    if (handoff.status === "dismissed" || handoff.status === "superseded") {
+      setHandoffError("This handoff is closed and cannot create a follow-up assignment.");
+      return;
+    }
     const projectID = selectedProjectID;
     const workItemID = selectedWorkItemID;
     const projectSelectionGeneration = projectSelectionGenerationRef.current;
@@ -1906,27 +1988,25 @@ export function ProjectsView({
         workItemID,
         workSelectionGeneration,
       );
-    const roleID = (handoff.target_role_id || "software_developer").trim();
-    if (!roleID) return;
+    const roleID = handoff.target_role_id?.trim() || "";
+    if (!roleID) {
+      setHandoffError("Choose a target role before creating a follow-up assignment.");
+      return;
+    }
     const targetWorkItemID = (handoff.target_work_item_id || workItemID).trim();
     if (!targetWorkItemID) return;
-    const targetRole = roleByID.get(roleID);
-    const driverKind = targetRole?.default_driver_kind || "hecate_task";
     setHandoffActionID(handoff.id);
     setHandoffError("");
     try {
       const assignment = await createProjectAssignment(projectID, targetWorkItemID, {
         role_id: roleID,
-        driver_kind: driverKind,
       });
-      if (!isCurrent()) return;
-      if (targetWorkItemID === workItemID) {
+      if (isCurrent() && targetWorkItemID === workItemID) {
         setAssignments((current) => upsertAssignment(current, assignment.data));
       }
       const updated = await updateProjectHandoff(projectID, workItemID, handoff.id, {
         target_assignment_id: assignment.data.id,
         target_role_id: assignment.data.role_id,
-        status: "accepted",
       });
       if (!isCurrent()) return;
       setHandoffs((current) => upsertHandoff(current, updated.data));
@@ -1971,26 +2051,13 @@ export function ProjectsView({
 
   async function handleStartHandoff(handoff: ProjectHandoffRecord) {
     if (!selectedProjectID || !selectedWorkItemID) return;
-    const projectID = selectedProjectID;
     const workItemID = selectedWorkItemID;
-    const projectSelectionGeneration = projectSelectionGenerationRef.current;
-    const workSelectionGeneration = workItemSelectionGenerationRef.current;
-    const isCurrent = () =>
-      isCurrentWorkItemMutation(
-        projectID,
-        projectSelectionGeneration,
-        workItemID,
-        workSelectionGeneration,
-      );
     const assignment = assignments.find((item) => item.id === handoff.target_assignment_id);
     if (!assignment) {
       setHandoffError("Handoff has no loaded target assignment to start.");
       return;
     }
     await handleStartAssignment(assignment, workItemID);
-    if (isCurrent() && handoff.status === "pending") {
-      await handleSetHandoffStatus(handoff, "accepted");
-    }
   }
 
   async function refreshSelectedWorkItem() {
@@ -2004,52 +2071,59 @@ export function ProjectsView({
   async function handleStartAssignment(
     assignment: ProjectAssignmentRecord,
     workItemID = selectedWorkItemID,
-  ) {
-    if (!selectedProjectID || !workItemID) return;
+  ): Promise<boolean> {
+    if (!selectedProjectID || !workItemID) return false;
     const projectID = selectedProjectID;
-    const projectSelectionGeneration = projectSelectionGenerationRef.current;
-    const workSelectionGeneration = workItemSelectionGenerationRef.current;
     const isCurrent = () =>
-      isCurrentWorkItemMutation(
-        projectID,
-        projectSelectionGeneration,
-        workItemID,
-        workSelectionGeneration,
-      );
-    if (startingAssignmentIDsRef.current.has(assignment.id)) return;
-    startingAssignmentIDsRef.current.add(assignment.id);
-    setStartingAssignmentID(assignment.id);
+      selectedProjectIDRef.current === projectID && selectedWorkItemIDRef.current === workItemID;
+    const assignmentKey = projectAssignmentStartKey(projectID, workItemID, assignment.id);
+    const existingStart = startingAssignmentPromisesRef.current.get(assignmentKey);
+    if (existingStart) return existingStart;
+
+    setStartingAssignmentKeys((current) => {
+      const next = new Set(current);
+      next.add(assignmentKey);
+      return next;
+    });
     setAssignmentErrors((current) => ({ ...current, [assignment.id]: "" }));
-    try {
-      const res = await startProjectAssignment(
-        projectID,
-        workItemID,
-        assignment.id,
-        assignment.driver_kind || "hecate_task",
-      );
-      if (!isCurrent()) return;
-      setAssignments((current) => upsertAssignment(current, res.data));
-      openPreparedExternalAgentChat(res.data, workItemID);
-      await loadWorkForProject(projectID, workItemID);
-      if (!isCurrent()) return;
-      await loadWorkItemDetail(projectID, workItemID);
-    } catch (error) {
-      if (!isCurrent()) return;
-      setAssignmentErrors((current) => ({
-        ...current,
-        [assignment.id]: errorMessage(error, "Failed to start assignment."),
-      }));
-      if (error instanceof ApiError && error.status === 409) {
-        await loadWorkForProject(projectID, workItemID);
-        if (!isCurrent()) return;
-        await loadWorkItemDetail(projectID, workItemID);
+    const pendingStart = (async () => {
+      try {
+        const res = await startProjectAssignment(
+          projectID,
+          workItemID,
+          assignment.id,
+          assignment.driver_kind || "hecate_task",
+        );
+        if (isCurrent()) {
+          setAssignments((current) => upsertAssignment(current, res.data));
+          openPreparedExternalAgentChat(res.data, workItemID);
+          await loadWorkForProject(projectID, workItemID);
+          if (isCurrent()) await loadWorkItemDetail(projectID, workItemID);
+        }
+        return true;
+      } catch (error) {
+        if (isCurrent()) {
+          setAssignmentErrors((current) => ({
+            ...current,
+            [assignment.id]: errorMessage(error, "Failed to start assignment."),
+          }));
+          if (error instanceof ApiError && error.status === 409) {
+            await loadWorkForProject(projectID, workItemID);
+            if (isCurrent()) await loadWorkItemDetail(projectID, workItemID);
+          }
+        }
+        return false;
+      } finally {
+        startingAssignmentPromisesRef.current.delete(assignmentKey);
+        setStartingAssignmentKeys((current) => {
+          const next = new Set(current);
+          next.delete(assignmentKey);
+          return next;
+        });
       }
-    } finally {
-      if (isCurrent()) {
-        startingAssignmentIDsRef.current.delete(assignment.id);
-        setStartingAssignmentID("");
-      }
-    }
+    })();
+    startingAssignmentPromisesRef.current.set(assignmentKey, pendingStart);
+    return pendingStart;
   }
 
   function openPreparedExternalAgentChat(assignment: ProjectAssignmentRecord, workItemID: string) {
@@ -2083,6 +2157,46 @@ export function ProjectsView({
     });
   }
 
+  const detailIdentityCurrent =
+    detailTarget?.projectID === selectedProjectID && detailTarget.workItemID === selectedWorkItemID;
+  const currentSelectedWorkItem =
+    detailIdentityCurrent &&
+    selectedWorkItem?.project_id === selectedProjectID &&
+    selectedWorkItem.id === selectedWorkItemID
+      ? selectedWorkItem
+      : null;
+  const currentAssignments = detailIdentityCurrent ? assignments : [];
+  const currentArtifacts = detailIdentityCurrent ? artifacts : [];
+  const currentHandoffs = detailIdentityCurrent ? handoffs : [];
+  const currentSelectedWorkItemReadiness = detailIdentityCurrent ? selectedWorkItemReadiness : null;
+  const currentEditingWorkItem =
+    editingWorkItem?.id === currentSelectedWorkItem?.id ? editingWorkItem : null;
+  const currentEditingAssignment =
+    editingAssignment?.work_item_id === currentSelectedWorkItem?.id ? editingAssignment : null;
+  const currentDeleteWorkItem =
+    deleteWorkItem?.id === currentSelectedWorkItem?.id ? deleteWorkItem : null;
+  const currentDeleteAssignment =
+    deleteAssignment?.work_item_id === currentSelectedWorkItem?.id ? deleteAssignment : null;
+  const currentDetailLoadState = detailIdentityCurrent
+    ? detailLoadState
+    : selectedWorkItemID
+      ? "loading"
+      : "idle";
+  const currentDetailError = detailIdentityCurrent ? detailError : "";
+  const preparingAssignmentID =
+    preparingAssignmentTarget?.projectID === selectedProjectID &&
+    preparingAssignmentTarget.workItemID === selectedWorkItemID
+      ? preparingAssignmentTarget.assignmentID
+      : "";
+  const startingAssignmentIDs = new Set(
+    currentAssignments
+      .filter((assignment) =>
+        startingAssignmentKeys.has(
+          projectAssignmentStartKey(selectedProjectID, selectedWorkItemID, assignment.id),
+        ),
+      )
+      .map((assignment) => assignment.id),
+  );
   const hasWorkItemDetail =
     Boolean(selectedWorkItemID) || detailLoadState === "loading" || Boolean(detailError);
   const projectSetupPending = Boolean(
@@ -2105,6 +2219,28 @@ export function ProjectsView({
     workItems.length === 0 &&
     !assistant.proposal &&
     !assistant.applyResult;
+
+  useEffect(() => {
+    if (
+      !workspaceTabFocusTarget ||
+      workspaceTabFocusTarget !== workspaceTab ||
+      projectSetupPending ||
+      projectSetupError ||
+      projectNeedsOnboarding
+    ) {
+      return;
+    }
+    const tab = document.getElementById(`project-workspace-tab-${workspaceTabFocusTarget}`);
+    if (!tab) return;
+    tab.focus();
+    setWorkspaceTabFocusTarget(null);
+  }, [
+    projectNeedsOnboarding,
+    projectSetupError,
+    projectSetupPending,
+    workspaceTab,
+    workspaceTabFocusTarget,
+  ]);
   const projectEmptyTitle =
     projects.state.projects.length === 0 ? "Add a project to begin" : "Select a project";
   const projectEmptyDetail =
@@ -2118,7 +2254,10 @@ export function ProjectsView({
         <div style={topbarStyle}>
           <div>
             <div style={sidebarSectionLabelStyle}>Projects</div>
-            <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
+            <div style={subtleTextStyle}>
+              {projects.state.projects.length}{" "}
+              {projects.state.projects.length === 1 ? "record" : "records"}
+            </div>
           </div>
           <div style={topbarActionsStyle}>
             <button
@@ -2187,14 +2326,14 @@ export function ProjectsView({
           project={selectedProject}
           onAttentionBucket={(bucket) => {
             setActivityBucket(bucket);
-            setWorkspaceTab("work");
+            navigateWorkspaceTab("work");
           }}
           onAttentionDefaults={() => {
             setDefaultsError("");
             setSettingsPanelOpen(true);
           }}
           onAttentionError={setWorkError}
-          onAttentionMemory={() => setWorkspaceTab("memory")}
+          onAttentionMemory={() => navigateWorkspaceTab("memory")}
           onAttentionPresets={() => {
             setPresetsError("");
             setAgentPresetsModalOpen(true);
@@ -2204,10 +2343,10 @@ export function ProjectsView({
             setRolesError("");
             setRolesModalOpen(true);
           }}
-          onAttentionSkills={() => setWorkspaceTab("skills")}
+          onAttentionSkills={() => navigateWorkspaceTab("skills")}
           onAttentionTask={onOpenTask}
           onAttentionWorkItem={(workItemID) => {
-            setWorkspaceTab("work");
+            navigateWorkspaceTab("work");
             setSelectedWorkItemID(workItemID);
           }}
           onRefresh={refreshSelectedWorkItem}
@@ -2228,21 +2367,22 @@ export function ProjectsView({
         <div style={projectMainBodyStyle}>
           <ProjectWorkspaceView
             activity={activity}
+            activityLoadState={activityLoadState}
             activityBucket={activityBucket}
             activityByAssignmentID={activityByAssignmentID}
-            artifacts={artifacts}
+            artifacts={currentArtifacts}
             artifactActionID={artifactActionID}
             assignmentErrors={assignmentErrors}
-            assignments={assignments}
+            assignments={currentAssignments}
             assistant={assistant}
             draftingDefaultAssignment={assistant.status === "proposing"}
-            detailError={detailError}
-            detailLoadState={detailLoadState}
+            detailError={currentDetailError}
+            detailLoadState={currentDetailLoadState}
             discoveringContext={discoveringContext}
             discoveringSkills={discoveringSkills}
             handoffActionID={handoffActionID}
             handoffError={handoffError}
-            handoffs={handoffs}
+            handoffs={currentHandoffs}
             hasWorkItemDetail={hasWorkItemDetail}
             closingWorkItemID={closingWorkItemID}
             memoryCandidates={memoryCandidates}
@@ -2275,40 +2415,46 @@ export function ProjectsView({
               setEditingHandoff("new");
             }}
             onAddReviewHandoffFromAssignment={(assignment, reviewRole, activityItem) => {
-              if (!selectedWorkItem) return;
+              if (!currentSelectedWorkItem) return;
               setHandoffError("");
               setNewHandoffDraft(
                 reviewHandoffFormFromAssignment(
                   assignment,
                   roleByID.get(assignment.role_id) ?? null,
                   reviewRole,
-                  selectedWorkItem,
+                  currentSelectedWorkItem,
                   activityItem,
                 ),
               );
               setEditingHandoff("new");
             }}
             onAddReviewArtifactFromAssignment={(assignment) => {
-              if (!selectedWorkItem) return;
+              if (!currentSelectedWorkItem) return;
               setReviewArtifactError("");
               setReviewArtifactDraft(
                 reviewArtifactFormFromAssignment(
                   assignment,
                   roleByID.get(assignment.role_id) ?? null,
-                  selectedWorkItem,
-                  handoffs,
+                  currentSelectedWorkItem,
+                  currentHandoffs,
                 ),
               );
             }}
             onAddHandoffFromReviewArtifact={(artifact) => {
-              if (!selectedWorkItem) return;
+              if (!currentSelectedWorkItem) return;
               setHandoffError("");
-              setNewHandoffDraft(handoffFormFromReviewArtifact(artifact, selectedWorkItem));
+              setNewHandoffDraft(handoffFormFromReviewArtifact(artifact, currentSelectedWorkItem));
               setEditingHandoff("new");
             }}
             onDraftDefaultAssignment={handleDraftDefaultAssignment}
             onPreparedAssignmentPreflightOpened={(assignmentID) => {
-              setPreparingAssignmentID((current) => (current === assignmentID ? "" : current));
+              setPreparingAssignmentTarget((current) =>
+                current?.assignmentID === assignmentID &&
+                current.projectID === selectedProjectIDRef.current &&
+                current.workItemID === selectedWorkItemIDRef.current
+                  ? null
+                  : current,
+              );
             }}
             onCreateAssignmentFromReviewArtifact={(artifactID) =>
               void handleCreateAssignmentFromReviewArtifact(artifactID)
@@ -2383,6 +2529,7 @@ export function ProjectsView({
             onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
             onSetupReadinessAction={handleSetupReadinessAction}
             onUpdateProjectSkill={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
+            onNavigateWorkspaceTab={navigateWorkspaceTab}
             onWorkspaceTabChange={setWorkspaceTab}
             project={selectedProject}
             projectEmptyDetail={projectEmptyDetail}
@@ -2400,12 +2547,12 @@ export function ProjectsView({
             rejectingCandidateID={rejectingCandidateID}
             roleByID={roleByID}
             roles={roles}
-            selectedWorkItem={selectedWorkItem}
-            selectedWorkItemReadiness={selectedWorkItemReadiness}
+            selectedWorkItem={currentSelectedWorkItem}
+            selectedWorkItemReadiness={currentSelectedWorkItemReadiness}
             selectedWorkItemID={selectedWorkItemID}
             skillsError={skillsError}
             skillsLoadState={skillsLoadState}
-            startingAssignmentID={startingAssignmentID}
+            startingAssignmentIDs={startingAssignmentIDs}
             updatingSkillID={updatingSkillID}
             workError={workError}
             workItemSummaries={workItemSummaries}
@@ -2485,22 +2632,22 @@ export function ProjectsView({
           />
         )}
 
-        {selectedProject && selectedWorkItem && newAssignmentModalOpen && (
+        {selectedProject && currentSelectedWorkItem && newAssignmentModalOpen && (
           <NewAssignmentModal
             error={newAssignmentError}
             pending={newAssignmentPending}
             project={selectedProject}
-            workItem={selectedWorkItem}
+            workItem={currentSelectedWorkItem}
             roles={roles}
             onClose={() => setNewAssignmentModalOpen(false)}
             onCreate={handleCreateAssignment}
           />
         )}
 
-        {selectedProject && editingWorkItem && (
+        {selectedProject && currentEditingWorkItem && (
           <EditWorkItemModal
             error={editWorkError}
-            item={editingWorkItem}
+            item={currentEditingWorkItem}
             pending={editWorkPending}
             project={selectedProject}
             roles={roles}
@@ -2509,13 +2656,13 @@ export function ProjectsView({
           />
         )}
 
-        {selectedProject && editingAssignment && (
+        {selectedProject && currentSelectedWorkItem && currentEditingAssignment && (
           <EditAssignmentModal
-            assignment={editingAssignment}
+            assignment={currentEditingAssignment}
             error={editAssignmentError}
             pending={editAssignmentPending}
             project={selectedProject}
-            workItem={selectedWorkItem}
+            workItem={currentSelectedWorkItem}
             roles={roles}
             onClose={() => setEditingAssignment(null)}
             onSave={handleUpdateAssignment}
@@ -2580,10 +2727,10 @@ export function ProjectsView({
           />
         )}
 
-        {editingHandoff && selectedWorkItem && (
+        {editingHandoff && currentSelectedWorkItem && (
           <ProjectHandoffModal
             key={editingHandoff === "new" ? "new" : editingHandoff.id}
-            assignments={assignments}
+            assignments={currentAssignments}
             handoff={editingHandoff === "new" ? null : editingHandoff}
             draft={editingHandoff === "new" ? newHandoffDraft : null}
             error={handoffError}
@@ -2597,10 +2744,10 @@ export function ProjectsView({
           />
         )}
 
-        {reviewArtifactDraft && selectedWorkItem && (
+        {reviewArtifactDraft && currentSelectedWorkItem && (
           <ProjectReviewArtifactModal
             key={`${reviewArtifactDraft.assignmentID}:${reviewArtifactDraft.authorRoleID}`}
-            assignments={assignments}
+            assignments={currentAssignments}
             draft={reviewArtifactDraft}
             error={reviewArtifactError}
             pending={reviewArtifactPending}
@@ -2613,9 +2760,9 @@ export function ProjectsView({
           />
         )}
 
-        {evidenceLinkModalOpen && selectedWorkItem && (
+        {evidenceLinkModalOpen && currentSelectedWorkItem && (
           <ProjectEvidenceLinkModal
-            assignments={assignments}
+            assignments={currentAssignments}
             error={evidenceLinkError}
             pending={evidenceLinkPending}
             onClose={() => {
@@ -2644,7 +2791,7 @@ export function ProjectsView({
           />
         )}
 
-        {deleteWorkItem && (
+        {currentDeleteWorkItem && (
           <ConfirmModal
             title="Delete work item"
             danger
@@ -2654,15 +2801,15 @@ export function ProjectsView({
             onConfirm={confirmDeleteWorkItem}
             message={
               <>
-                Delete <strong>{deleteWorkItem.title}</strong> and its assignments and collaboration
-                artifacts. Linked tasks, runs, chats, workspace files, and git history are not
-                deleted.
+                Delete <strong>{currentDeleteWorkItem.title}</strong> and its assignments and
+                collaboration artifacts. Linked tasks, runs, chats, workspace files, and git history
+                are not deleted.
               </>
             }
           />
         )}
 
-        {deleteAssignment && (
+        {currentDeleteAssignment && (
           <ConfirmModal
             title="Delete assignment"
             danger
@@ -2674,7 +2821,8 @@ export function ProjectsView({
               <>
                 Delete the assignment metadata record for{" "}
                 <strong>
-                  {roleByID.get(deleteAssignment.role_id)?.name ?? deleteAssignment.role_id}
+                  {roleByID.get(currentDeleteAssignment.role_id)?.name ??
+                    currentDeleteAssignment.role_id}
                 </strong>
                 . Linked tasks, runs, chats, and external-agent executions are not deleted or
                 cancelled.
@@ -3065,6 +3213,10 @@ function upsertAssignment(items: ProjectAssignmentRecord[], item: ProjectAssignm
   const next = items.slice();
   next[index] = item;
   return next;
+}
+
+function projectAssignmentStartKey(projectID: string, workItemID: string, assignmentID: string) {
+  return JSON.stringify([projectID, workItemID, assignmentID]);
 }
 
 function upsertArtifact(

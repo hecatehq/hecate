@@ -142,4 +142,25 @@ describe("ProjectAssistantPanel", () => {
 
     expect(handlers.onOpenWork).toHaveBeenCalledTimes(1);
   });
+
+  it("prevents dismissing a proposal while apply reconciliation is pending", async () => {
+    const user = userEvent.setup();
+    const handlers = renderAssistantPanel({
+      proposal: {
+        id: "pa_applying",
+        title: "Create coordinated work",
+        summary: "",
+        requires_confirmation: true,
+        actions: [{ kind: "create_work_item", patch: { title: "New work" } }],
+      },
+      status: "applying",
+    });
+
+    const dismiss = screen.getByRole("button", { name: "Dismiss proposal" });
+    expect(dismiss).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Applying..." })).toBeDisabled();
+
+    await user.click(dismiss);
+    expect(handlers.onDismiss).not.toHaveBeenCalled();
+  });
 });
