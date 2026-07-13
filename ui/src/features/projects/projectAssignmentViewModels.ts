@@ -96,19 +96,6 @@ export function toProjectActivityAssignmentExecutionViewModel(
   });
 }
 
-export function projectActivityMatchesAssignmentVersion(
-  assignment: ProjectAssignmentRecord,
-  activityItem?: ProjectActivityItemRecord,
-): boolean {
-  if (!activityItem) return false;
-  return (
-    activityItem.assignment.id === assignment.id &&
-    activityItem.assignment.project_id === assignment.project_id &&
-    activityItem.assignment.work_item_id === assignment.work_item_id &&
-    activityItem.assignment.updated_at === assignment.updated_at
-  );
-}
-
 export function toProjectActivityItemViewModel(
   item: ProjectActivityItemRecord,
 ): ProjectActivityItemViewModel {
@@ -127,12 +114,8 @@ export function toProjectActivityItemViewModel(
 
 export function toProjectAssignmentEvidenceViewModel(
   assignment: ProjectAssignmentRecord,
-  activityItem?: ProjectActivityItemRecord,
 ): ProjectAssignmentEvidenceViewModel {
-  const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
-  const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
-  const execution =
-    assignmentExecution.hasAnyLink || !activityView ? assignmentExecution : activityView.execution;
+  const execution = toProjectAssignmentExecutionViewModel(assignment);
   const summary = assignment.execution;
   const items: ProjectAssignmentEvidenceItem[] = [];
 
@@ -144,24 +127,6 @@ export function toProjectAssignmentEvidenceViewModel(
   pushEvidenceItem(items, "message", "Message", execution.messageID);
   pushEvidenceItem(items, "context", "Context snapshot", execution.contextSnapshotID);
   pushEvidenceItem(items, "trace", "Trace", execution.traceID);
-  if (activityItem?.linked_chat) {
-    pushEvidenceItem(
-      items,
-      "agent_implementation",
-      "Agent implementation",
-      [activityItem.linked_chat.agent_title, activityItem.linked_chat.agent_version]
-        .filter(Boolean)
-        .join(" "),
-    );
-    pushEvidenceItem(
-      items,
-      "available_commands",
-      "Commands",
-      typeof activityItem.linked_chat.available_command_count === "number"
-        ? String(activityItem.linked_chat.available_command_count)
-        : "",
-    );
-  }
   pushEvidenceItem(
     items,
     "provider_model",
@@ -184,11 +149,8 @@ export function toProjectAssignmentEvidenceViewModel(
   if (execution.pendingApprovalCount > 0) {
     addEvidenceWarning(warnings, `${execution.pendingApprovalCount} approval pending`);
   }
-  if (execution.missing || summary?.missing || activityItem?.linked_chat?.missing) {
+  if (execution.missing || summary?.missing) {
     addEvidenceWarning(warnings, "Linked runtime record is missing or unavailable.");
-  }
-  if (activityItem?.linked_chat?.latest_error) {
-    addEvidenceWarning(warnings, activityItem.linked_chat.latest_error);
   }
   if (!execution.hasAnyLink && assignment.status !== "queued") {
     addEvidenceWarning(warnings, "No canonical execution refs are stored for this assignment.");

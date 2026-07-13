@@ -22,8 +22,6 @@ import type {
 import { ContextInspectorModalTrigger, ContextInspectorPanel } from "../shared/ContextInspector";
 import { Badge, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import {
-  projectActivityMatchesAssignmentVersion,
-  toProjectActivityAssignmentExecutionViewModel,
   toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
   type ProjectAssignmentEvidenceViewModel,
@@ -351,13 +349,7 @@ export function ProjectWorkItemDetail({
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {safeAssignments.map((assignment) => {
-                  const projectedActivityItem = activityByAssignmentID.get(assignment.id);
-                  const activityItem = projectActivityMatchesAssignmentVersion(
-                    assignment,
-                    projectedActivityItem,
-                  )
-                    ? projectedActivityItem
-                    : undefined;
+                  const activityItem = activityByAssignmentID.get(assignment.id);
                   const reviewRole = reviewerRoleForAssignment(workItem, assignment, roleByID);
                   const reviewAuthorRole = reviewAuthorRoleForAssignment(
                     workItem,
@@ -367,7 +359,6 @@ export function ProjectWorkItemDetail({
                   return (
                     <AssignmentRow
                       key={assignment.id}
-                      activityItem={activityItem}
                       assignment={assignment}
                       chatModel={
                         assignment.execution?.model ||
@@ -381,14 +372,8 @@ export function ProjectWorkItemDetail({
                       onOpenChat={
                         project
                           ? () => {
-                              const assignmentExecution =
+                              const executionRef =
                                 toProjectAssignmentExecutionViewModel(assignment);
-                              const activityExecution = activityItem
-                                ? toProjectActivityAssignmentExecutionViewModel(activityItem)
-                                : null;
-                              const executionRef = assignmentExecution.hasAnyLink
-                                ? assignmentExecution
-                                : (activityExecution ?? assignmentExecution);
                               const chatRequest = buildProjectAssignmentChatLaunchRequest({
                                 project,
                                 workItem,
@@ -949,7 +934,6 @@ function ReviewerSetupNotice({
 }
 
 function AssignmentRow({
-  activityItem,
   assignment,
   autoOpenPreflight,
   chatModel,
@@ -972,7 +956,6 @@ function AssignmentRow({
   role,
   starting,
 }: {
-  activityItem?: ProjectActivityItemRecord;
   assignment: ProjectAssignmentRecord;
   autoOpenPreflight?: boolean;
   chatModel: string;
@@ -1061,7 +1044,6 @@ function AssignmentRow({
   return (
     <>
       <ProjectAssignmentExecutionStory
-        activityItem={activityItem}
         assignment={assignment}
         chatModel={chatModel}
         contextControl={

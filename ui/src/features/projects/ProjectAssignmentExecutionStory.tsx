@@ -2,15 +2,12 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { formatAbsoluteTime } from "../../lib/format";
 import type {
-  ProjectActivityItemRecord,
   ProjectAssignmentRecord,
   ProjectRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { Badge, CopyableID, Icon, Icons, InlineError } from "../shared/ui";
 import {
-  projectActivityMatchesAssignmentVersion,
-  toProjectActivityItemViewModel,
   toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
   type ProjectAssignmentEvidenceViewModel,
@@ -18,7 +15,6 @@ import {
 import { assignmentStatusLabel, projectRootDisplayLabel, projectRootTitle } from "./projectDisplay";
 
 export type ProjectAssignmentExecutionStoryProps = {
-  activityItem?: ProjectActivityItemRecord;
   assignment: ProjectAssignmentRecord;
   chatModel: string;
   contextControl: ReactNode;
@@ -64,7 +60,6 @@ type ProjectAssignmentFollowThroughAction = {
 };
 
 export function ProjectAssignmentExecutionStory({
-  activityItem,
   assignment,
   chatModel,
   contextControl,
@@ -83,18 +78,9 @@ export function ProjectAssignmentExecutionStory({
   role,
   starting,
 }: ProjectAssignmentExecutionStoryProps) {
-  const currentActivityItem = projectActivityMatchesAssignmentVersion(assignment, activityItem)
-    ? activityItem
-    : undefined;
-  const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
-  const activityView = currentActivityItem
-    ? toProjectActivityItemViewModel(currentActivityItem)
-    : null;
-  const evidence = toProjectAssignmentEvidenceViewModel(assignment, currentActivityItem);
-  const execution = assignmentExecution.hasAnyLink
-    ? assignmentExecution
-    : (activityView?.execution ?? assignmentExecution);
-  const status = assignmentExecution.status || activityView?.status || assignment.status;
+  const execution = toProjectAssignmentExecutionViewModel(assignment);
+  const evidence = toProjectAssignmentEvidenceViewModel(assignment);
+  const status = execution.status || assignment.status;
   const destination = projectAssignmentDestinationLabel(assignment.driver_kind);
   const external = assignment.driver_kind === "external_agent";
   const startable = (assignment.driver_kind === "hecate_task" || external) && status === "queued";
@@ -103,7 +89,7 @@ export function ProjectAssignmentExecutionStory({
   const canStartRelatedChat = Boolean(
     onOpenChat && !external && !execution.chatSessionID && chatModel,
   );
-  const milestones = projectAssignmentExecutionMilestones(assignment, currentActivityItem);
+  const milestones = projectAssignmentExecutionMilestones(assignment);
   const primaryAction = projectAssignmentPrimaryAction({
     assignmentID: assignment.id,
     canOpenChat,
@@ -122,7 +108,6 @@ export function ProjectAssignmentExecutionStory({
   });
   const statusSummary = projectAssignmentStatusSummary(
     assignment,
-    currentActivityItem,
     destination,
     execution.pendingApprovalCount,
   );
@@ -155,10 +140,7 @@ export function ProjectAssignmentExecutionStory({
       onClick: onCreateReviewArtifact,
     });
   }
-  const linkedChat = currentActivityItem?.linked_chat;
-  const runtimeMissing = Boolean(
-    execution.missing || assignment.execution?.missing || linkedChat?.missing,
-  );
+  const runtimeMissing = Boolean(execution.missing || assignment.execution?.missing);
 
   return (
     <article
@@ -299,11 +281,6 @@ export function ProjectAssignmentExecutionStory({
             {execution.taskID && <CopyableID text={execution.taskID} compact />}
             {execution.runID && <CopyableID text={execution.runID} compact />}
             {execution.chatSessionID && <CopyableID text={execution.chatSessionID} compact />}
-            {linkedChat && !linkedChat.missing && (
-              <span className="badge badge-muted" title={linkedChat.latest_error || undefined}>
-                chat {linkedChat.latest_status || linkedChat.status || "active"}
-              </span>
-            )}
             {typeof assignment.execution?.step_count === "number" && (
               <span className="badge badge-muted">
                 {projectCountLabel(assignment.execution.step_count, "step")}
@@ -369,28 +346,11 @@ export function projectAssignmentDestinationLabel(driverKind: string): string {
 
 export function projectAssignmentExecutionMilestones(
   assignment: ProjectAssignmentRecord,
-  activityItem?: ProjectActivityItemRecord,
 ): ProjectAssignmentExecutionMilestone[] {
-  const currentActivityItem = projectActivityMatchesAssignmentVersion(assignment, activityItem)
-    ? activityItem
-    : undefined;
-  const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
-  const activityView = currentActivityItem
-    ? toProjectActivityItemViewModel(currentActivityItem)
-    : null;
-  const execution = assignmentExecution.hasAnyLink
-    ? assignmentExecution
-    : (activityView?.execution ?? assignmentExecution);
-  const status = assignmentExecution.status || activityView?.status || assignment.status;
-  const activityMatchesCurrentStatus = activityView?.status === status;
-  const startedAt =
-    assignment.execution?.started_at ||
-    assignment.started_at ||
-    (activityMatchesCurrentStatus ? activityView?.startedAt : "");
-  const finishedAt =
-    assignment.execution?.finished_at ||
-    assignment.completed_at ||
-    (activityMatchesCurrentStatus ? activityView?.finishedAt : "");
+  const execution = toProjectAssignmentExecutionViewModel(assignment);
+  const status = execution.status || assignment.status;
+  const startedAt = assignment.execution?.started_at || assignment.started_at;
+  const finishedAt = assignment.execution?.finished_at || assignment.completed_at;
   const terminal = status === "completed" || status === "failed" || status === "cancelled";
   const milestones: ProjectAssignmentExecutionMilestone[] = [
     {
@@ -533,23 +493,11 @@ function projectAssignmentPrimaryAction({
 
 function projectAssignmentStatusSummary(
   assignment: ProjectAssignmentRecord,
-  activityItem: ProjectActivityItemRecord | undefined,
   destination: string,
   pendingApprovalCount: number,
 ): string {
   const execution = toProjectAssignmentExecutionViewModel(assignment);
-  const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
-  const status = execution.status || activityView?.status || assignment.status;
-  const reported = activityView?.statusSummary;
-  if (
-    reported &&
-    activityView?.status === status &&
-    (status !== "awaiting_approval" || pendingApprovalCount > 0) &&
-    reported !== status &&
-    reported !== "linked run missing"
-  ) {
-    return reported;
-  }
+  const status = execution.status || assignment.status;
   switch (status) {
     case "queued":
       return `Review launch context before starting this ${destination}.`;
