@@ -65,6 +65,11 @@ duplicate project records. A shared link works only for someone connected to
 the same Hecate runtime and Cairnline project store; it is not a portable export
 and does not grant permission to launch or change work.
 
+Workspace icons, project rows, workspace tabs, and work-item rows are browser
+links. Use the browser context menu, middle click, or Command/Ctrl-click to copy
+or open a destination separately; an ordinary click stays in the current Hecate
+session.
+
 Hecate keeps an exact link in place while it checks the project catalog. If the
 project does not exist in this runtime, the cockpit shows **Project not found**
 and does not open another project. If the project exists but the work item does

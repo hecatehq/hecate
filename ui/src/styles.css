@@ -213,10 +213,18 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.project-index-row:focus-visible,
+.project-index-row__link:focus-visible,
 .project-work-item-row:focus-visible {
   box-shadow: inset 0 0 0 1px var(--teal);
   outline: none;
+}
+
+.project-index-row__link:hover {
+  color: var(--t0) !important;
+}
+
+.project-work-item-row:hover {
+  color: var(--t0) !important;
 }
 
 .project-work-focus-target:focus {

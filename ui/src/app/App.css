@@ -97,6 +97,12 @@ html[data-tauri-os="macos"] .hecate-shell {
     color 0.1s,
     background 0.1s;
   padding: 0;
+  text-decoration: none;
+}
+
+.hecate-activitybtn:focus-visible {
+  outline: 1px solid var(--teal-border);
+  outline-offset: -2px;
 }
 
 .hecate-activitybtn:hover {

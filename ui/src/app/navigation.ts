@@ -33,6 +33,15 @@ export type ProjectNavigationDestination = {
 
 export type NavigationURLInput = string | Pick<Location, "pathname" | "search" | "hash">;
 
+export type NavigationClickEvent = {
+  altKey: boolean;
+  button: number;
+  ctrlKey: boolean;
+  defaultPrevented: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+};
+
 const NAVIGATION_BASE_URL = "http://hecate.local";
 const PROJECT_QUERY_KEYS = ["project", "view", "work"] as const;
 const PROJECT_QUERY_VIEWS = new Set<ProjectNavigationView>([
@@ -102,6 +111,17 @@ export function projectNavigationURL(
 
 export function navigationURLsEqual(left: NavigationURLInput, right: NavigationURLInput): boolean {
   return relativeURL(toURL(left)) === relativeURL(toURL(right));
+}
+
+export function isPlainNavigationClick(event: NavigationClickEvent): boolean {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey
+  );
 }
 
 function parsedResult(

@@ -11,7 +11,12 @@ import {
 import { useProjects } from "../../app/state/projects";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
-import type { ProjectNavigationDestination, ProjectNavigationState } from "../../app/navigation";
+import {
+  isPlainNavigationClick,
+  projectNavigationURL,
+  type ProjectNavigationDestination,
+  type ProjectNavigationState,
+} from "../../app/navigation";
 import {
   ApiError,
   chooseWorkspaceDirectory,
@@ -239,6 +244,24 @@ const navigationNoticeStyle: CSSProperties = {
   padding: "8px 16px",
 };
 
+const visuallyHiddenStatusStyle: CSSProperties = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: 1,
+};
+
+function projectNavigationStateKey(navigation: ProjectNavigationState | null | undefined): string {
+  return navigation
+    ? JSON.stringify([navigation.projectID, navigation.view, navigation.workItemID])
+    : "";
+}
+
 export function ProjectsView({
   initialWorkspaceTab = "overview",
   navigation,
@@ -314,6 +337,8 @@ export function ProjectsView({
   );
   const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
     useState<ProjectWorkspaceTab | null>(null);
+  const [navigationAnnouncement, setNavigationAnnouncement] = useState("");
+  const previousNavigationKeyRef = useRef(projectNavigationStateKey(navigation));
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [workItemFocusTarget, setWorkItemFocusTarget] = useState<ProjectWorkItemFocusTarget | null>(
@@ -341,6 +366,7 @@ export function ProjectsView({
   const [reviewArtifactError, setReviewArtifactError] = useState("");
   const [workLoadState, setWorkLoadState] = useState<LoadState>("idle");
   const [loadedProjectID, setLoadedProjectID] = useState("");
+  const loadedProjectIDRef = useRef(loadedProjectID);
   const [detailLoadState, setDetailLoadState] = useState<LoadState>("idle");
   const [detailTarget, setDetailTarget] = useState<{
     projectID: string;
@@ -821,7 +847,9 @@ export function ProjectsView({
       setWorkError("");
       setDetailError("");
       setAssignmentErrors({});
-      if (!preferredWorkItemID) {
+      const crossesProjectBoundary = loadedProjectIDRef.current !== projectID;
+      if (!preferredWorkItemID || crossesProjectBoundary) {
+        if (crossesProjectBoundary) setRoles([]);
         setWorkItems([]);
         setWorkItemSummaries({});
         setSelectedWorkItemID("");
@@ -835,6 +863,7 @@ export function ProjectsView({
         setActivity(null);
         setActivityLoadState("idle");
         setWorkLoadState("idle");
+        loadedProjectIDRef.current = "";
         setLoadedProjectID("");
         setOperationsBriefLoadState("idle");
         setProjectSetupReadiness(null);
@@ -862,6 +891,7 @@ export function ProjectsView({
         if (!rolesRes || !workRes) {
           setWorkLoadState("error");
           setWorkError(workDataError || "Failed to load project work.");
+          loadedProjectIDRef.current = projectID;
           setLoadedProjectID(projectID);
           return "";
         }
@@ -881,6 +911,7 @@ export function ProjectsView({
           workSelectionGeneration !== workItemSelectionGenerationRef.current
         ) {
           setWorkLoadState("loaded");
+          loadedProjectIDRef.current = projectID;
           setLoadedProjectID(projectID);
           return finishWorkLoad(selectedWorkItemIDRef.current);
         }
@@ -892,12 +923,14 @@ export function ProjectsView({
             : nextItems[0]?.id || "";
         setSelectedWorkItemID(nextSelectedID);
         setWorkLoadState("loaded");
+        loadedProjectIDRef.current = projectID;
         setLoadedProjectID(projectID);
         return finishWorkLoad(nextSelectedID);
       } catch (error) {
         if (isStale()) return "";
         setWorkLoadState("error");
         setWorkError(errorMessage(error, "Failed to load project work."));
+        loadedProjectIDRef.current = projectID;
         setLoadedProjectID(projectID);
         return "";
       }
@@ -1070,9 +1103,30 @@ export function ProjectsView({
   }, [loadWorkItemDetail, resolvedProjectID, selectedWorkItemID]);
 
   useEffect(() => {
-    if (!navigation) return;
+    if (!navigation) {
+      previousNavigationKeyRef.current = "";
+      return;
+    }
+    const nextNavigationKey = projectNavigationStateKey(navigation);
+    const routeChanged = previousNavigationKeyRef.current !== nextNavigationKey;
+    previousNavigationKeyRef.current = nextNavigationKey;
     setWorkspaceTab(navigation.view);
+    if (!routeChanged) return;
+
+    const activeElement = document.activeElement;
+    const focusIsInWorkspaceTabs = Boolean(
+      activeElement instanceof HTMLElement &&
+      activeElement.closest('[role="tablist"][aria-label="Project workspace views"]'),
+    );
+    if (focusIsInWorkspaceTabs) {
+      setWorkspaceTabFocusTarget(navigation.view);
+      setNavigationAnnouncement("");
+      return;
+    }
+
     setWorkspaceTabFocusTarget(null);
+    const viewLabel = `${navigation.view.charAt(0).toUpperCase()}${navigation.view.slice(1)}`;
+    setNavigationAnnouncement(`${viewLabel} view opened.`);
   }, [navigation?.projectID, navigation?.view, navigation?.workItemID]);
 
   const persistedRouteProjectRef = useRef("");
@@ -2676,9 +2730,14 @@ export function ProjectsView({
         : projects.state.projects.length === 0
           ? "Create a project from a name and purpose. A local folder is optional and can be attached now or later."
           : "Choose a project from the list to view its work, memory, skills, and settings.";
+  const addProjectIsPrimary =
+    projects.state.projects.length === 0 && (!navigation || projects.state.loaded);
 
   return (
     <div className="projects-cockpit-shell" style={shellStyle}>
+      <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStatusStyle}>
+        {navigationAnnouncement}
+      </div>
       <section className="projects-cockpit-index" style={sidePanelStyle} aria-label="Projects">
         <div style={topbarStyle}>
           <div>
@@ -2690,7 +2749,7 @@ export function ProjectsView({
           </div>
           <div style={topbarActionsStyle}>
             <button
-              className={`btn ${selectedProject ? "btn-ghost" : "btn-primary"} btn-sm`}
+              className={`btn ${addProjectIsPrimary ? "btn-primary" : "btn-ghost"} btn-sm`}
               type="button"
               onClick={() => {
                 setCreateProjectError("");
@@ -2728,6 +2787,7 @@ export function ProjectsView({
             <ProjectIndexRow
               key={project.id}
               active={project.id === selectedProjectID}
+              href={projectNavigationURL(window.location, { projectID: project.id })}
               project={project}
               renaming={renamingProjectID === project.id}
               renameValue={renameValue}
@@ -3334,6 +3394,7 @@ export function ProjectsView({
 function ProjectIndexRow({
   actionsVisible,
   active,
+  href,
   project,
   renaming,
   renameValue,
@@ -3347,6 +3408,7 @@ function ProjectIndexRow({
 }: {
   actionsVisible: boolean;
   active: boolean;
+  href: string;
   project: ProjectRecord;
   renaming: boolean;
   renameValue: string;
@@ -3362,24 +3424,13 @@ function ProjectIndexRow({
   return (
     <div
       className="project-index-row"
-      role="button"
-      tabIndex={0}
-      aria-current={active ? "true" : undefined}
-      aria-label={`Open project ${project.name}`}
       onBlur={(event) => {
         const nextFocus = event.relatedTarget;
         if (!(nextFocus instanceof Node) || !event.currentTarget.contains(nextFocus)) {
           onInteractionChange(false);
         }
       }}
-      onClick={onOpen}
       onFocus={() => onInteractionChange(true)}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onOpen();
-      }}
       onMouseEnter={() => onInteractionChange(true)}
       onMouseLeave={() => onInteractionChange(false)}
       style={{
@@ -3387,7 +3438,6 @@ function ProjectIndexRow({
         borderBottom: "1px solid var(--border)",
         borderLeft: active ? "2px solid var(--teal)" : "2px solid transparent",
         background: active ? "var(--teal-bg)" : "transparent",
-        cursor: "pointer",
         transition: "background 0.1s",
       }}
     >
@@ -3416,8 +3466,19 @@ function ProjectIndexRow({
           </button>
         </form>
       ) : (
-        <>
-          <div style={projectIndexTitleRowStyle}>
+        <div style={projectIndexTitleRowStyle}>
+          <a
+            aria-current={active ? "page" : undefined}
+            aria-label={`Open project ${project.name}`}
+            className="project-index-row__link"
+            href={href}
+            onClick={(event) => {
+              if (!isPlainNavigationClick(event)) return;
+              event.preventDefault();
+              onOpen();
+            }}
+            style={projectIndexLinkStyle}
+          >
             <div
               style={{
                 ...projectIndexTitleStyle,
@@ -3427,48 +3488,42 @@ function ProjectIndexRow({
             >
               {project.name}
             </div>
-            <div
+            <div style={projectIndexMetaStyle}>
+              <Icon d={Icons.folder} size={12} />
+              <span>Updated {updated}</span>
+            </div>
+          </a>
+          <div
+            style={{
+              ...projectIndexActionsStyle,
+              opacity: actionsVisible ? 1 : 0,
+            }}
+          >
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Rename project ${project.name}`}
+              title="Rename"
+              onClick={onRenameStart}
+              style={projectIndexActionButtonStyle}
+            >
+              <Icon d={Icons.edit} size={10} />
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Delete project ${project.name}`}
+              title="Delete"
+              onClick={onDelete}
               style={{
-                ...projectIndexActionsStyle,
-                opacity: actionsVisible ? 1 : 0,
+                ...projectIndexActionButtonStyle,
+                color: "var(--red)",
               }}
             >
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                aria-label={`Rename project ${project.name}`}
-                title="Rename"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRenameStart();
-                }}
-                style={projectIndexActionButtonStyle}
-              >
-                <Icon d={Icons.edit} size={10} />
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                aria-label={`Delete project ${project.name}`}
-                title="Delete"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDelete();
-                }}
-                style={{
-                  ...projectIndexActionButtonStyle,
-                  color: "var(--red)",
-                }}
-              >
-                <Icon d={Icons.trash} size={10} />
-              </button>
-            </div>
+              <Icon d={Icons.trash} size={10} />
+            </button>
           </div>
-          <div style={projectIndexMetaStyle}>
-            <Icon d={Icons.folder} size={12} />
-            <span>Updated {updated}</span>
-          </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -3837,6 +3892,14 @@ const projectIndexTitleStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
+};
+
+const projectIndexLinkStyle: CSSProperties = {
+  color: "inherit",
+  display: "block",
+  flex: 1,
+  minWidth: 0,
+  textDecoration: "none",
 };
 
 const projectIndexActionsStyle: CSSProperties = {

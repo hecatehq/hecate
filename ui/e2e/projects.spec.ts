@@ -775,7 +775,7 @@ test("Projects follow-through journey: review, handoff, evidence, and durable cl
 
   await page
     .getByRole("region", { name: "Work queue" })
-    .getByRole("button", { name: "Open work item Unrelated planning note" })
+    .getByRole("link", { name: "Open work item Unrelated planning note" })
     .click();
   await expect(detail.getByRole("heading", { name: "Unrelated planning note" })).toBeVisible();
   await page.getByRole("tab", { name: "Overview" }).click();
@@ -823,7 +823,7 @@ test("Projects follow-through journey: review, handoff, evidence, and durable cl
   await page.getByRole("tab", { name: /Work/ }).click();
   await page
     .getByRole("region", { name: "Work queue" })
-    .getByRole("button", { name: "Open work item Ship editorial release" })
+    .getByRole("link", { name: "Open work item Ship editorial release" })
     .click();
   await expect(detail.getByRole("heading", { name: "Ship editorial release" })).toBeVisible();
   await expect(nextAction.getByText("Work closed", { exact: true })).toBeVisible();
@@ -951,7 +951,7 @@ test("Projects links restore exact work across reload, history, and narrow width
   await page.reload();
   await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
 
-  await page.getByRole("button", { name: "Chats" }).click();
+  await page.getByRole("link", { name: "Chats" }).click();
   await expect(page).toHaveURL(/\/chats$/);
   await page.goBack();
   await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
@@ -1009,10 +1009,10 @@ test("Projects links fail closed for missing projects and work items", async ({ 
   ).toBeVisible();
   await expect(page.getByRole("region", { name: "Work queue" })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: `Open work item ${firstWorkItem.title}` }),
+    page.getByRole("link", { name: `Open work item ${firstWorkItem.title}` }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: `Open work item ${secondWorkItem.title}` }),
+    page.getByRole("link", { name: `Open work item ${secondWorkItem.title}` }),
   ).toBeVisible();
   await expect(page).toHaveURL(
     new RegExp(`/projects\\?project=${project.id}&view=work&work=missing_work$`),

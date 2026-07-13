@@ -1,12 +1,25 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isPlainNavigationClick,
   navigationURLsEqual,
   parseNavigationURL,
   projectNavigationURL,
   workspaceNavigationURL,
   WORKSPACE_PATHS,
 } from "./navigation";
+
+const navigationClick = (
+  overrides: Partial<Parameters<typeof isPlainNavigationClick>[0]> = {},
+): Parameters<typeof isPlainNavigationClick>[0] => ({
+  altKey: false,
+  button: 0,
+  ctrlKey: false,
+  defaultPrevented: false,
+  metaKey: false,
+  shiftKey: false,
+  ...overrides,
+});
 
 describe("workspace navigation URLs", () => {
   it.each([
@@ -60,6 +73,18 @@ describe("workspace navigation URLs", () => {
       canonicalURL: "/connections?source=notification#providers",
       isCanonical: false,
     });
+  });
+});
+
+describe("native navigation clicks", () => {
+  it("intercepts only unmodified primary-button navigation", () => {
+    expect(isPlainNavigationClick(navigationClick())).toBe(true);
+    expect(isPlainNavigationClick(navigationClick({ button: 1 }))).toBe(false);
+    expect(isPlainNavigationClick(navigationClick({ ctrlKey: true }))).toBe(false);
+    expect(isPlainNavigationClick(navigationClick({ metaKey: true }))).toBe(false);
+    expect(isPlainNavigationClick(navigationClick({ shiftKey: true }))).toBe(false);
+    expect(isPlainNavigationClick(navigationClick({ altKey: true }))).toBe(false);
+    expect(isPlainNavigationClick(navigationClick({ defaultPrevented: true }))).toBe(false);
   });
 });
 
