@@ -98,19 +98,54 @@ describe("ProjectAssignmentModals", () => {
       />,
     );
 
-    const plan = screen.getByRole("region", { name: "Queued assignment plan" });
-    expect(within(plan).getByText("Review before start")).toBeTruthy();
+    const plan = screen.getByRole("region", { name: "Assignment plan" });
+    expect(within(plan).getByText("Ready to add")).toBeTruthy();
     expect(within(plan).getByText("Software developer")).toBeTruthy();
-    expect(within(plan).getByText("Uses the work item root")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "researcher" } });
-    expect(screen.getByLabelText("Driver")).toHaveValue("external_agent");
+    expect(within(plan).getByText("Uses the work item's workspace")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Responsibility"), {
+      target: { value: "researcher" },
+    });
+    expect(screen.getByLabelText("Work done by")).toHaveValue("external_agent");
     expect(within(plan).getByText("Researcher")).toBeTruthy();
-    expect(within(plan).getByText("external_agent")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Create queued assignment" }));
+    expect(within(plan).getByText("External Agent")).toBeTruthy();
+    expect(within(plan).queryByText("external_agent")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
 
     expect(onCreate).toHaveBeenCalledWith({
       roleID: "researcher",
       driverKind: "external_agent",
+      rootID: "",
+    });
+  });
+
+  it("defaults to the selected work item's owner when built-in roles are present", async () => {
+    const onCreate = vi.fn();
+
+    render(
+      <NewAssignmentModal
+        error=""
+        pending={false}
+        project={{ ...project(), roots: [] }}
+        workItem={workItem({ owner_role_id: "researcher", root_id: undefined })}
+        roles={[
+          role({ built_in: true }),
+          role({
+            id: "researcher",
+            name: "Researcher",
+            default_driver_kind: "manual",
+          }),
+        ]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+
+    expect(screen.getByLabelText("Responsibility")).toHaveValue("researcher");
+    expect(screen.getByLabelText("Work done by")).toHaveValue("manual");
+    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+    expect(onCreate).toHaveBeenCalledWith({
+      roleID: "researcher",
+      driverKind: "manual",
       rootID: "",
     });
   });
@@ -128,10 +163,83 @@ describe("ProjectAssignmentModals", () => {
       />,
     );
 
-    const plan = screen.getByRole("region", { name: "Queued assignment plan" });
-    expect(screen.getByRole("dialog", { name: "Create queued assignment" })).toBeTruthy();
-    expect(within(plan).getAllByText("Select a role")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Create queued assignment" })).toBeDisabled();
+    const plan = screen.getByRole("region", { name: "Assignment plan" });
+    expect(screen.getByRole("dialog", { name: "Add assignment" })).toBeTruthy();
+    expect(within(plan).getAllByText("Select a responsibility")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Add assignment" })).toBeDisabled();
+  });
+
+  it("does not resubmit assignment forms while a mutation is pending", () => {
+    const onCreate = vi.fn();
+    const firstRender = render(
+      <NewAssignmentModal
+        error=""
+        pending
+        project={project()}
+        workItem={workItem()}
+        roles={[role()]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+
+    fireEvent.submit(screen.getByRole("dialog", { name: "Add assignment" }).querySelector("form")!);
+    expect(onCreate).not.toHaveBeenCalled();
+    firstRender.unmount();
+
+    const onSave = vi.fn();
+    render(
+      <EditAssignmentModal
+        assignment={assignment()}
+        error=""
+        pending
+        project={project()}
+        workItem={workItem()}
+        roles={[role()]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.submit(
+      screen.getByRole("dialog", { name: "Edit assignment" }).querySelector("form")!,
+    );
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("adds rootless Human assignments without workspace controls", async () => {
+    const onCreate = vi.fn();
+
+    render(
+      <NewAssignmentModal
+        error=""
+        pending={false}
+        project={{ ...project(), roots: [] }}
+        workItem={workItem({ root_id: undefined })}
+        roles={[role({ default_driver_kind: "manual" })]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+
+    const destination = screen.getByLabelText("Work done by");
+    expect(destination).toHaveValue("manual");
+    expect(destination).toHaveAccessibleDescription(
+      "Track work completed by a person outside Hecate.",
+    );
+    expect(screen.getByRole("option", { name: "Human" })).toBeTruthy();
+    expect(screen.queryByLabelText("Workspace (optional)")).toBeNull();
+    expect(
+      within(screen.getByRole("region", { name: "Assignment plan" })).queryByText("Workspace"),
+    ).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+
+    expect(onCreate).toHaveBeenCalledWith({
+      roleID: "software_developer",
+      driverKind: "manual",
+      rootID: "",
+    });
   });
 
   it("edits canonical assignment execution reference fields", async () => {
@@ -171,5 +279,161 @@ describe("ProjectAssignmentModals", () => {
         contextSnapshotID: "ctx_new",
       }),
     );
+  });
+
+  it("keeps queued Human assignment details editable without exposing runtime fields", async () => {
+    const onSave = vi.fn();
+
+    render(
+      <EditAssignmentModal
+        assignment={assignment({ driver_kind: "manual", root_id: "root_main" })}
+        error=""
+        pending={false}
+        project={project()}
+        workItem={workItem()}
+        roles={[role()]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    const destination = screen.getByLabelText("Work done by");
+    expect(destination).toHaveValue("manual");
+    expect(destination).toHaveAccessibleDescription(/Use the work item actions/);
+    expect(destination).not.toBeDisabled();
+    expect(screen.getByLabelText("Workspace (optional)")).toHaveValue("root_main");
+    expect(screen.getByLabelText("Status")).toHaveValue("queued");
+    expect(screen.queryByLabelText("Task ID")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save assignment" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ driverKind: "manual", rootID: "root_main" }),
+    );
+  });
+
+  it("resets and locks queued Human details when cancellation is selected", async () => {
+    const onSave = vi.fn();
+
+    render(
+      <EditAssignmentModal
+        assignment={assignment({ driver_kind: "manual", root_id: "root_main" })}
+        error=""
+        pending={false}
+        project={{
+          ...project(),
+          roots: [
+            root({ id: "root_main", path: "/workspace/main" }),
+            root({ id: "root_other", path: "/workspace/other" }),
+          ],
+        }}
+        workItem={workItem()}
+        roles={[
+          role(),
+          role({ id: "researcher", name: "Researcher", default_driver_kind: "manual" }),
+        ]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("Responsibility"), "researcher");
+    await userEvent.selectOptions(screen.getByLabelText("Workspace (optional)"), "root_other");
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "cancelled");
+
+    expect(screen.getByLabelText("Responsibility")).toHaveValue("software_developer");
+    expect(screen.getByLabelText("Workspace (optional)")).toHaveValue("root_main");
+    expect(screen.getByLabelText("Responsibility")).toBeDisabled();
+    expect(screen.getByLabelText("Work done by")).toBeDisabled();
+    expect(screen.getByLabelText("Workspace (optional)")).toBeDisabled();
+    expect(screen.getByText(/Progress is saved separately/)).toBeTruthy();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "I understand this closes the assignment" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save assignment" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roleID: "software_developer",
+        driverKind: "manual",
+        rootID: "root_main",
+        status: "cancelled",
+      }),
+    );
+  });
+
+  it("locks active Human assignment details while preserving explicit status control", async () => {
+    const onSave = vi.fn();
+
+    render(
+      <EditAssignmentModal
+        assignment={assignment({
+          driver_kind: "manual",
+          root_id: "root_main",
+          status: "running",
+          started_at: "2026-07-13T10:00:00Z",
+        })}
+        error=""
+        pending={false}
+        project={project()}
+        workItem={workItem()}
+        roles={[role()]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByLabelText("Responsibility")).toBeDisabled();
+    expect(screen.getByLabelText("Work done by")).toBeDisabled();
+    expect(screen.getByLabelText("Workspace (optional)")).toBeDisabled();
+    const status = screen.getByLabelText("Status");
+    expect(status).not.toBeDisabled();
+    expect(status).toHaveValue("running");
+    expect(within(status).queryByRole("option", { name: "queued" })).toBeNull();
+
+    await userEvent.selectOptions(status, "awaiting_approval");
+    await userEvent.click(screen.getByRole("button", { name: "Save assignment" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status: "awaiting_approval" }));
+  });
+
+  it.each([
+    ["failed", "Mark this work as failed?"],
+    ["cancelled", "Cancel this work?"],
+  ])("requires explicit confirmation before saving Human status %s", async (status, warning) => {
+    const onSave = vi.fn();
+
+    render(
+      <EditAssignmentModal
+        assignment={assignment({
+          driver_kind: "manual",
+          status: "running",
+          started_at: "2026-07-13T10:00:00Z",
+        })}
+        error=""
+        pending={false}
+        project={project()}
+        workItem={workItem()}
+        roles={[role()]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("Status"), status);
+    expect(screen.getByText(warning)).toBeTruthy();
+    const save = screen.getByRole("button", { name: "Save assignment" });
+    expect(save).toBeDisabled();
+
+    fireEvent.submit(
+      screen.getByRole("dialog", { name: "Edit assignment" }).querySelector("form")!,
+    );
+    expect(onSave).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "I understand this closes the assignment" }),
+    );
+    expect(save).not.toBeDisabled();
+    await userEvent.click(save);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ status }));
   });
 });

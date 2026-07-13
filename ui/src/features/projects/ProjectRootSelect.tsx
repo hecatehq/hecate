@@ -3,6 +3,7 @@ import { projectRootOptionLabel } from "./projectSettings";
 import { projectWorkFieldLabelStyle, projectWorkFieldStyle } from "./projectWorkModalStyles";
 
 type ProjectRootSelectProps = {
+  disabled?: boolean;
   inheritLabel: string;
   label?: string;
   project: ProjectRecord;
@@ -11,6 +12,7 @@ type ProjectRootSelectProps = {
 };
 
 export function ProjectRootSelect({
+  disabled = false,
   inheritLabel,
   label = "Root",
   project,
@@ -24,6 +26,7 @@ export function ProjectRootSelect({
       <select
         aria-label={label}
         className="input"
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}

@@ -38,10 +38,10 @@ Project names and concrete root paths are unique in the Projects coordination st
 
 For each work item:
 
-1. Draft the first assignment from the owner role, or create one manually.
-2. Inspect launch readiness and launch context before starting work when
-   defaults, roots, or provider/model posture are uncertain.
-3. Start a Hecate Task or External Agent assignment.
+1. Draft the first assignment from the owner role, or add one directly.
+2. Choose who does the work: **Human**, **Hecate Task**, or **External Agent**.
+3. Start Human work directly, or inspect launch readiness and context before
+   starting an execution-backed assignment.
 4. Record evidence, reviews, and handoffs as the work moves between roles.
 5. Close the work item only after assignments and review follow-up are clear.
 
@@ -50,6 +50,19 @@ Tasks, Chats, and External Agents remain the execution surfaces.
 Starting a Hecate Task assignment requires the task runtime. Preparing an
 External Agent assignment uses the agent-chat adapter runtime and does not
 require the Hecate task runtime to be configured.
+Human assignments create neither runtime. **Start work** claims the portable
+assignment for the Hecate operator and records its Cairnline start time;
+**Mark complete** records Cairnline completion. **Resume work** returns work
+that is waiting for review to active progress. Advanced assignment editing can
+record review, failure, or cancellation explicitly, but responsibility,
+destination, and workspace stay fixed once Human work starts. A workspace is
+optional, so the same flow works for rootless research, planning, design, and
+administrative projects. Failed and cancelled assignments currently block
+closeout; Cairnline does not yet define a retry or supersession transition, so
+Projects does not fabricate one locally.
+Human-only projects do not report a missing workspace as a Health setup gap;
+workspace guidance remains relevant only when an agent-backed assignment needs
+launch prerequisites.
 
 The project header's **Needs Attention** menu is server-derived from
 `GET /hecate/v1/projects/{id}/health`. It surfaces compact setup and operations
@@ -108,21 +121,36 @@ open selected-work detail. Closeout readiness is the server contract shared by
 Project Operations and selected-work detail; the operator still creates
 follow-up paths or marks work done explicitly from that surface.
 Assignment launch readiness is also server-backed. Before `Start assignment`,
-`Prepare chat`, or `Start from handoff`, the detail view loads
+`Prepare chat`, or `Start from handoff` for Hecate Task and External Agent work,
+the detail view loads
 `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/launch-readiness`
 and uses its typed `ready`/`blockers` fields as the launch gate. The separate
 preflight context packet remains inspectable evidence for the operator; it is
 not parsed by the client as the readiness authority.
+Human work does not use launch readiness or preflight because it has no runtime
+to configure or dispatch.
 
 Each assignment is presented as an execution story. The leading action follows
-the current assignment state: **Review & start** or **Review & prepare chat**
-while queued, **Open task/chat** while running, **Review in task** for pending
-approval, **Inspect task/chat** after failure or cancellation, and a review
-action after completion when the work item has a suitable reviewer role. The
+the current assignment state: **Start work** and **Mark complete** for Human
+work, **Record review** while Human work waits for review, **Review & start** or
+**Review & prepare chat** while an agent assignment is queued, **Open
+task/chat** while running, **Review in task** for pending approval, **Inspect
+task/chat** after failure or cancellation, and a review action after completion
+when the work item has a suitable reviewer role. **Resume work** remains a
+secondary action while Human work waits for review. The
 Assigned, Started, current, and Finished milestones use timestamps actually
 recorded by Cairnline or the linked Hecate runtime. If no start or finish time
 exists, Projects says so instead of using the assignment's general update time
 as execution history.
+
+If a Human start was interrupted after Cairnline saved the operator claim but
+before work began, the story says **Starting** and offers **Finish starting**.
+Only a pristine same-operator claim can use this recovery; a prepared or
+competing claim remains blocked without offering progress actions. Editing is
+hidden after Human work reaches a terminal outcome. Marking Human work failed
+or cancelled requires a second, explicit confirmation; choosing a progress
+change resets unsaved destination edits so the two changes remain reviewable.
+Cancelling work that never started keeps the start time empty.
 
 Hecate currently receives Cairnline's review-waiting and approval-waiting states
 through the same assignment status. Projects says **Review task** and uses

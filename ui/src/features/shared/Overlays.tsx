@@ -111,7 +111,9 @@ function DialogChrome({
             <Icon d={Icons.x} size={14} />
           </button>
         </div>
-        <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>{children}</div>
+        <div style={{ padding: 16, flex: 1, overflowY: "auto", overscrollBehavior: "contain" }}>
+          {children}
+        </div>
         <div
           style={{
             padding: "12px 16px",
@@ -226,10 +228,12 @@ export function Modal({
       onClose={onClose}
       surface={{
         width,
-        maxHeight: "80vh",
+        maxWidth: "calc(100vw - 24px)",
+        maxHeight: "min(80vh, calc(100dvh - 24px))",
         background: "var(--bg1)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius)",
+        boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",

@@ -141,6 +141,10 @@ func (h *Handler) renderNativeProjectOperationsBrief(ctx context.Context, projec
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
+	roles, err := h.projectWork.ListRoles(ctx, projectID)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
 	handoffs, err := h.projectWork.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID})
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
@@ -155,7 +159,7 @@ func (h *Handler) renderNativeProjectOperationsBrief(ctx context.Context, projec
 	}
 
 	items := make([]ProjectOperationsBriefItemResponse, 0, projectOperationsBriefItemLimit)
-	items = append(items, projectDefaultOperationItems(project)...)
+	items = append(items, projectDefaultOperationItems(project, assignments, roles)...)
 	items = append(items, assignmentOperationItems(activity)...)
 	items = append(items, handoffOperationItems(projectID, handoffs)...)
 	items = append(items, selectedWorkFollowThroughOperationItems(projectID, workItems, assignments, artifacts, handoffs)...)
@@ -215,7 +219,10 @@ func (h *Handler) pendingProjectMemoryCandidateCount(ctx context.Context, projec
 	return len(items), nil
 }
 
-func projectDefaultOperationItems(project projects.Project) []ProjectOperationsBriefItemResponse {
+func projectDefaultOperationItems(project projects.Project, assignments []projectwork.Assignment, roles []projectwork.AgentRoleProfile) []ProjectOperationsBriefItemResponse {
+	if projectAssignmentsAreHumanOnly(assignments) || (len(assignments) == 0 && projectRolesAreHumanOnly(roles)) {
+		return nil
+	}
 	missing := make([]string, 0, 3)
 	if strings.TrimSpace(project.DefaultProvider) == "" {
 		missing = append(missing, "provider")
@@ -248,23 +255,65 @@ func projectDefaultOperationItems(project projects.Project) []ProjectOperationsB
 	}}
 }
 
+func projectRolesAreHumanOnly(roles []projectwork.AgentRoleProfile) bool {
+	roles = projectSetupCustomRoles(roles)
+	if len(roles) == 0 {
+		return false
+	}
+	for _, role := range roles {
+		if strings.TrimSpace(role.DefaultDriverKind) != projectwork.AssignmentDriverManual {
+			return false
+		}
+	}
+	return true
+}
+
+func projectAssignmentsAreHumanOnly(assignments []projectwork.Assignment) bool {
+	if len(assignments) == 0 {
+		return false
+	}
+	for _, assignment := range assignments {
+		if strings.TrimSpace(assignment.DriverKind) != projectwork.AssignmentDriverManual {
+			return false
+		}
+	}
+	return true
+}
+
 func assignmentOperationItems(activity ProjectActivityDataResponse) []ProjectOperationsBriefItemResponse {
 	items := make([]ProjectOperationsBriefItemResponse, 0, len(activity.Buckets.Blocked)+len(activity.Buckets.Active))
 	for _, item := range activity.Buckets.Blocked {
 		switch item.BlockingSignal {
 		case "awaiting_approval":
+			if item.Assignment.DriverKind == projectwork.AssignmentDriverManual {
+				items = append(items, projectOperationItemFromActivity(item, "review_human_assignment", projectOperationsPriorityHigh, "Human work needs review", "Review the work and record the outcome.", "Open work"))
+				continue
+			}
 			items = append(items, projectOperationItemFromActivity(item, "approve_assignment", projectOperationsPriorityHigh, "Review pending approval", item.StatusSummary, "Open approval"))
 		case "failed":
+			if item.Assignment.DriverKind == projectwork.AssignmentDriverManual {
+				items = append(items, projectOperationItemFromActivity(item, "review_human_assignment", projectOperationsPriorityHigh, "Review Human work", "Human work ended without completion. Review evidence and choose the next step.", "Open work"))
+				continue
+			}
 			items = append(items, projectOperationItemFromActivity(item, "review_failed_assignment", projectOperationsPriorityHigh, "Review failed assignment", item.StatusSummary, "Open work"))
 		case "cancelled":
 			items = append(items, projectOperationItemFromActivity(item, "review_cancelled_assignment", projectOperationsPriorityMedium, "Review cancelled assignment", item.StatusSummary, "Open work"))
 		case "stale_unknown":
 			items = append(items, projectOperationItemFromActivity(item, "inspect_stale_assignment", projectOperationsPriorityHigh, "Inspect stale assignment link", item.StatusSummary, "Open work"))
 		case "not_started":
+			if item.Assignment.DriverKind == projectwork.AssignmentDriverManual {
+				items = append(items, projectOperationItemFromActivity(item, "start_queued_assignment", projectOperationsPriorityHigh, "Human work ready", "This assignment is ready for a person to begin.", "Open work"))
+				continue
+			}
 			items = append(items, projectOperationItemFromActivity(item, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Open launch preflight before starting this assignment.", "Review start"))
 		}
 	}
 	for _, item := range activity.Buckets.Active {
+		if item.Assignment.DriverKind == projectwork.AssignmentDriverManual &&
+			item.Status == projectwork.AssignmentStatusRunning && item.Assignment.StartedAt == "" {
+			items = append(items, projectOperationItemFromActivity(item, "finish_human_start", projectOperationsPriorityHigh, "Finish starting Human work", "The start was saved before work began. Finish starting to continue.", "Open work"))
+			continue
+		}
 		items = append(items, projectOperationItemFromActivity(item, "inspect_active_assignment", projectOperationsPriorityLow, "Inspect active assignment", item.StatusSummary, "Inspect work"))
 	}
 	return items
@@ -281,7 +330,7 @@ func projectOperationItemFromActivity(activity ProjectActivityItemResponse, kind
 		ActivityBucket: projectActivityBucket(activity),
 	}
 	action := projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, "", target.ActivityBucket)
-	if kind == "start_queued_assignment" {
+	if kind == "start_queued_assignment" && assignment.DriverKind != projectwork.AssignmentDriverManual {
 		action = projectOperationsOpenAssignmentPreflightAction(target.ProjectID, target.WorkItemID, target.AssignmentID, target.ActivityBucket)
 	}
 	return ProjectOperationsBriefItemResponse{
@@ -317,7 +366,7 @@ func handoffOperationItems(projectID string, handoffs []projectwork.Handoff) []P
 		items = append(items, ProjectOperationsBriefItemResponse{
 			ID:          projectOperationsItemID("review_pending_handoff", projectID, handoff.ID),
 			Kind:        "review_pending_handoff",
-			Priority:    projectOperationsPriorityMedium,
+			Priority:    projectOperationsPriorityHigh,
 			Title:       "Review pending handoff: " + firstNonEmpty(handoff.Title, handoff.ID),
 			Detail:      firstNonEmpty(handoff.RecommendedNextAction, handoff.Summary, "Review the handoff and decide the next assignment."),
 			ActionLabel: "Open handoff",
@@ -473,7 +522,7 @@ func assignmentGapOperationItems(projectID string, workItems []projectwork.WorkI
 		items = append(items, ProjectOperationsBriefItemResponse{
 			ID:          projectOperationsItemID("create_first_work_item", projectID),
 			Kind:        "create_first_work_item",
-			Priority:    projectOperationsPriorityMedium,
+			Priority:    projectOperationsPriorityHigh,
 			Title:       "Create the first work item",
 			Detail:      "Start with one reviewable project work item before queueing assignments.",
 			ActionLabel: "Draft work",
@@ -588,8 +637,12 @@ func projectOperationsKindRank(kind string) int {
 		return 20
 	case "start_queued_assignment":
 		return 30
+	case "finish_human_start":
+		return 25
 	case "configure_project_defaults":
 		return 40
+	case "create_first_work_item":
+		return 35
 	case "review_cancelled_assignment":
 		return 50
 	case "review_pending_handoff":
@@ -598,8 +651,6 @@ func projectOperationsKindRank(kind string) int {
 		return 65
 	case "prepare_first_assignment":
 		return 70
-	case "create_first_work_item":
-		return 80
 	case "review_memory_candidates":
 		return 90
 	case "inspect_active_assignment":

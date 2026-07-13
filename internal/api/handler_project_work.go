@@ -694,6 +694,11 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !usesCairnlineAuthority && !h.requireProjectRootRef(w, r, projectID, req.RootID) {
 		return
 	}
+	if !usesCairnlineAuthority {
+		if err := h.validateProjectHumanAssignmentAuthority(r.Context(), projectID, req.RoleID, req.DriverKind); !writeProjectWorkError(w, err) {
+			return
+		}
+	}
 	startedAt, completedAt, ok := parseProjectWorkRequestTimes(w, req.StartedAt, req.CompletedAt)
 	if !ok {
 		return
@@ -757,6 +762,28 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	}
 	if !usesCairnlineAuthority && req.RootID != nil && !h.requireProjectRootRef(w, r, projectID, *req.RootID) {
 		return
+	}
+	if !usesCairnlineAuthority {
+		existing, ok, err := h.loadProjectWorkAssignment(r.Context(), projectID, workItemID, assignmentID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment not found")
+			return
+		}
+		roleID := existing.RoleID
+		if req.RoleID != nil {
+			roleID = *req.RoleID
+		}
+		driverKind := existing.DriverKind
+		if req.DriverKind != nil {
+			driverKind = *req.DriverKind
+		}
+		if err := h.validateProjectHumanAssignmentAuthority(r.Context(), projectID, roleID, driverKind); !writeProjectWorkError(w, err) {
+			return
+		}
 	}
 	startedAt, completedAt, ok := parseProjectWorkOptionalRequestTimes(w, req.StartedAt, req.CompletedAt)
 	if !ok {

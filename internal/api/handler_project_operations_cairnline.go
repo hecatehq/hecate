@@ -40,12 +40,15 @@ func (h *Handler) renderCairnlineProjectOperationsBriefFromService(ctx context.C
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
-	cairnlineAssignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	assignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
+	if err != nil {
+		return ProjectOperationsBriefResponse{}, err
+	}
+	cairnlineRoles, err := service.ListRoles(ctx, snapshot.Project.ID)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
 	}
 	workItems := projectWorkItemsFromCairnline(cairnlineWorkItems)
-	assignments := projectWorkAssignmentsFromCairnline(cairnlineAssignments, snapshot.Assignments)
 	artifacts, err := projectHealthCairnlineArtifacts(ctx, service, snapshot.Project.ID, cairnlineWorkItems)
 	if err != nil {
 		return ProjectOperationsBriefResponse{}, err
@@ -63,7 +66,7 @@ func (h *Handler) renderCairnlineProjectOperationsBriefFromService(ctx context.C
 	}
 
 	items := make([]ProjectOperationsBriefItemResponse, 0, projectOperationsBriefItemLimit)
-	items = append(items, projectDefaultOperationItems(project)...)
+	items = append(items, projectDefaultOperationItems(project, assignments, projectSetupRolesFromCairnline(cairnlineRoles))...)
 	items = append(items, assignmentOperationItems(activity)...)
 	items = append(items, handoffOperationItems(project.ID, handoffs)...)
 	items = append(items, selectedWorkFollowThroughOperationItems(project.ID, workItems, assignments, artifacts, handoffs)...)
@@ -185,6 +188,9 @@ func assignmentOperationItemFromCairnline(projectID string, item cairnline.Proje
 	}
 	switch status {
 	case projectwork.AssignmentStatusQueued:
+		if assignment.DriverKind == projectwork.AssignmentDriverManual {
+			return assignmentOperationItemFromHecate(projectID, workItem, assignment, "start_queued_assignment", projectOperationsPriorityHigh, "Human work ready", "This assignment is ready for a person to begin.", "Open work", "not_started", "blocked"), true
+		}
 		return assignmentOperationItemFromHecate(projectID, workItem, assignment, "start_queued_assignment", projectOperationsPriorityHigh, "Review queued assignment", "Open launch preflight before starting this assignment.", "Review start", "not_started", "blocked"), true
 	case projectwork.AssignmentStatusFailed:
 		return assignmentOperationItemFromHecate(projectID, workItem, assignment, "review_failed_assignment", projectOperationsPriorityHigh, "Review failed assignment", firstNonEmpty(item.Detail, "failed run"), "Open work", "failed", "blocked"), true
@@ -208,7 +214,7 @@ func assignmentOperationItemFromHecate(projectID string, workItem projectwork.Wo
 		ActivityBucket: bucket,
 	}
 	action := projectOperationsOpenWorkItemAction(target.ProjectID, target.WorkItemID, target.AssignmentID, "", target.ActivityBucket)
-	if kind == "start_queued_assignment" {
+	if kind == "start_queued_assignment" && assignment.DriverKind != projectwork.AssignmentDriverManual {
 		action = projectOperationsOpenAssignmentPreflightAction(target.ProjectID, target.WorkItemID, target.AssignmentID, target.ActivityBucket)
 	}
 	return ProjectOperationsBriefItemResponse{

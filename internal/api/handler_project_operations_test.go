@@ -364,7 +364,7 @@ func TestProjectOperationsBrief_StrictEmbeddedReadModelReadsWithoutHecateProject
 	if response.Object != "project_operations_brief" || response.Data.ProjectID != projectID || response.Data.ReadBackend != "cairnline" {
 		t.Fatalf("operations response = %+v, want embedded Cairnline operations", response)
 	}
-	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 || response.Data.Summary.HighCount != 2 || response.Data.Summary.MediumCount == 0 {
+	if response.Data.Summary.PendingMemoryCandidateCount != 1 || response.Data.Summary.PendingHandoffCount != 1 || response.Data.Summary.HighCount != 3 || response.Data.Summary.MediumCount == 0 {
 		t.Fatalf("operations summary = %+v, want missing runtime defaults, queued assignment, memory, and handoff counts", response.Data.Summary)
 	}
 	start := findProjectOperationsItemForTest(t, response.Data.Items, "start_queued_assignment")
@@ -500,6 +500,185 @@ func TestProjectOperationItemFromActivity_StartQueuedUsesPreflightAction(t *test
 	}
 	if item.Action.ProjectID != "proj_ops" || item.Action.WorkItemID != "work_ops" || item.Action.AssignmentID != "asgn_ops" || item.Action.ActivityBucket != "blocked" {
 		t.Fatalf("operation action = %+v, want project/work/assignment/bucket refs", item.Action)
+	}
+}
+
+func TestAssignmentOperationItems_QueuedManualOpensWork(t *testing.T) {
+	t.Parallel()
+	items := assignmentOperationItems(ProjectActivityDataResponse{
+		Buckets: ProjectActivityBucketsResponse{
+			Blocked: []ProjectActivityItemResponse{{
+				ProjectID:      "proj_manual_ops",
+				BlockingSignal: "not_started",
+				StatusSummary:  "queued",
+				UpdatedAt:      "2026-07-13T12:00:00Z",
+				WorkItem: ProjectActivityWorkItemResponse{
+					ID:    "work_manual_ops",
+					Title: "Review interview notes",
+				},
+				Assignment: ProjectWorkAssignmentResponse{
+					ID:         "asgn_manual_ops",
+					ProjectID:  "proj_manual_ops",
+					WorkItemID: "work_manual_ops",
+					DriverKind: projectwork.AssignmentDriverManual,
+					Status:     projectwork.AssignmentStatusQueued,
+				},
+			}},
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("manual operation items = %+v, want one queued assignment item", items)
+	}
+	item := items[0]
+	if item.Kind != "start_queued_assignment" || item.Title != "Human work ready: Review interview notes" || item.Detail != "This assignment is ready for a person to begin." || item.ActionLabel != "Open work" {
+		t.Fatalf("manual operation item = %+v, want Human work ready copy", item)
+	}
+	if item.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("manual operation action = %+v, want open work item", item.Action)
+	}
+	if item.Action.ProjectID != "proj_manual_ops" || item.Action.WorkItemID != "work_manual_ops" || item.Action.AssignmentID != "asgn_manual_ops" || item.Action.ActivityBucket != "blocked" {
+		t.Fatalf("manual operation action = %+v, want project/work/assignment/bucket refs", item.Action)
+	}
+}
+
+func TestAssignmentOperationItems_InterruptedManualStartIsHighPriority(t *testing.T) {
+	t.Parallel()
+	items := assignmentOperationItems(ProjectActivityDataResponse{
+		Buckets: ProjectActivityBucketsResponse{
+			Active: []ProjectActivityItemResponse{{
+				ProjectID:     "proj_manual_ops",
+				Status:        projectwork.AssignmentStatusRunning,
+				StatusSummary: "running",
+				UpdatedAt:     "2026-07-13T12:00:00Z",
+				WorkItem: ProjectActivityWorkItemResponse{
+					ID:    "work_manual_ops",
+					Title: "Review interview notes",
+				},
+				Assignment: ProjectWorkAssignmentResponse{
+					ID:         "asgn_manual_ops",
+					ProjectID:  "proj_manual_ops",
+					WorkItemID: "work_manual_ops",
+					DriverKind: projectwork.AssignmentDriverManual,
+					Status:     projectwork.AssignmentStatusRunning,
+				},
+			}},
+		},
+	})
+
+	if len(items) != 1 || items[0].Kind != "finish_human_start" || items[0].Priority != projectOperationsPriorityHigh || items[0].ActionLabel != "Open work" {
+		t.Fatalf("interrupted Human operation = %+v, want one high-priority finish-start action", items)
+	}
+	if items[0].Action.Type != projectOperationsActionOpenWorkItem || items[0].Target.AssignmentID != "asgn_manual_ops" {
+		t.Fatalf("interrupted Human operation action = %+v target=%+v", items[0].Action, items[0].Target)
+	}
+}
+
+func TestProjectAgentLaunchPrerequisitesRequiredForMixedCoordination(t *testing.T) {
+	t.Parallel()
+	manualRole := projectwork.AgentRoleProfile{ID: "human", DefaultDriverKind: projectwork.AssignmentDriverManual}
+	taskRole := projectwork.AgentRoleProfile{ID: "agent", DefaultDriverKind: projectwork.AssignmentDriverHecateTask}
+	manualAssignment := projectwork.Assignment{ID: "manual", DriverKind: projectwork.AssignmentDriverManual}
+	taskAssignment := projectwork.Assignment{ID: "task", DriverKind: projectwork.AssignmentDriverHecateTask}
+
+	if projectAgentLaunchPrerequisitesRequired(nil, []projectwork.AgentRoleProfile{manualRole}) {
+		t.Fatal("Human-only custom roles should not require agent launch defaults")
+	}
+	if projectAgentLaunchPrerequisitesRequired([]projectwork.Assignment{manualAssignment}, []projectwork.AgentRoleProfile{manualRole, taskRole}) {
+		t.Fatal("Human-only assignments should not require agent launch defaults")
+	}
+	if !projectAgentLaunchPrerequisitesRequired(nil, []projectwork.AgentRoleProfile{manualRole, taskRole}) {
+		t.Fatal("mixed custom roles should require agent launch defaults before the first assignment")
+	}
+	if !projectAgentLaunchPrerequisitesRequired([]projectwork.Assignment{manualAssignment, taskAssignment}, []projectwork.AgentRoleProfile{manualRole}) {
+		t.Fatal("mixed Human and task assignments should require agent launch defaults")
+	}
+}
+
+func TestAssignmentOperationItemFromCairnline_QueuedManualOpensWork(t *testing.T) {
+	t.Parallel()
+	item, ok := assignmentOperationItemFromCairnline(
+		"proj_manual_ops",
+		cairnline.ProjectOperationItem{
+			Status:       cairnline.AssignmentQueued,
+			WorkItemID:   "work_manual_ops",
+			AssignmentID: "asgn_manual_ops",
+		},
+		map[string]projectwork.WorkItem{
+			"work_manual_ops": {
+				ID:        "work_manual_ops",
+				ProjectID: "proj_manual_ops",
+				Title:     "Review interview notes",
+			},
+		},
+		map[string]projectwork.Assignment{
+			"asgn_manual_ops": {
+				ID:         "asgn_manual_ops",
+				ProjectID:  "proj_manual_ops",
+				WorkItemID: "work_manual_ops",
+				DriverKind: projectwork.AssignmentDriverManual,
+				Status:     projectwork.AssignmentStatusQueued,
+			},
+		},
+	)
+
+	if !ok {
+		t.Fatal("queued manual Cairnline assignment did not produce an operation item")
+	}
+	if item.Kind != "start_queued_assignment" || item.Title != "Human work ready: Review interview notes" || item.Detail != "This assignment is ready for a person to begin." || item.ActionLabel != "Open work" {
+		t.Fatalf("manual Cairnline operation item = %+v, want Human work ready copy", item)
+	}
+	if item.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("manual Cairnline operation action = %+v, want open work item", item.Action)
+	}
+	if item.Action.ProjectID != "proj_manual_ops" || item.Action.WorkItemID != "work_manual_ops" || item.Action.AssignmentID != "asgn_manual_ops" || item.Action.ActivityBucket != "blocked" {
+		t.Fatalf("manual Cairnline operation action = %+v, want project/work/assignment/bucket refs", item.Action)
+	}
+}
+
+func TestProjectOperationsBrief_CairnlineRootlessHumanWorkOmitsLaunchDefaults(t *testing.T) {
+	t.Parallel()
+	const projectID = "proj_rootless_human_operations"
+	handler, server := newProjectWorkCairnlineAssignmentAuthorityTestServer(t)
+	seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+		ID:   projectID,
+		Name: "Community interview study",
+	}, []cairnline.Role{{
+		ID:                   "researcher",
+		ProjectID:            projectID,
+		Name:                 "Researcher",
+		DefaultExecutionMode: cairnline.ExecutionManual,
+	}}, []cairnline.WorkItem{{
+		ID:        "work_interviews",
+		ProjectID: projectID,
+		Title:     "Review interview notes",
+		Status:    cairnline.WorkStatusReady,
+		Priority:  cairnline.PriorityNormal,
+	}}, []cairnline.Assignment{{
+		ID:            "asgn_researcher",
+		ProjectID:     projectID,
+		WorkItemID:    "work_interviews",
+		RoleID:        "researcher",
+		ExecutionMode: cairnline.ExecutionManual,
+		Status:        cairnline.AssignmentQueued,
+		DesiredAgent:  cairnline.DesiredAgent{Kind: "human"},
+	}})
+	handler.config.Projects.CairnlineReadSource = "embedded"
+	handler.projects = nil
+	handler.projectWork = nil
+
+	response := mustRequestJSONStatus[ProjectOperationsBriefEnvelope](newAPITestClient(t, server), http.StatusOK, http.MethodGet, "/hecate/v1/projects/"+projectID+"/operations/brief", "")
+	for _, item := range response.Data.Items {
+		if item.Kind == "configure_project_defaults" {
+			t.Fatalf("rootless Human operations = %+v, want no agent launch-default pressure", response.Data.Items)
+		}
+	}
+	if response.Data.Summary.HighCount != 1 {
+		t.Fatalf("rootless Human operations summary = %+v, want Human work as the only high-priority action", response.Data.Summary)
+	}
+	start := findProjectOperationsItemForTest(t, response.Data.Items, "start_queued_assignment")
+	if start.Title != "Human work ready: Review interview notes" || start.Action.Type != projectOperationsActionOpenWorkItem {
+		t.Fatalf("rootless Human start operation = %+v, want direct work action", start)
 	}
 }
 

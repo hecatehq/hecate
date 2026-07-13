@@ -92,6 +92,7 @@ export type ProjectWorkspaceViewProps = {
   onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onCreateWork: () => void;
   onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
+  onSetAssignmentStatus: (assignment: ProjectAssignmentRecord, status: string) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteMemory: (entry: ProjectMemoryRecord) => void;
@@ -194,6 +195,7 @@ export function ProjectWorkspaceView({
   onCreateAssignmentFromHandoff,
   onCreateWork,
   onCloseWorkItem,
+  onSetAssignmentStatus,
   onDeleteAssignment,
   onDeleteHandoff,
   onDeleteMemory,
@@ -478,6 +480,7 @@ export function ProjectWorkspaceView({
                             onDeleteHandoff={onDeleteHandoff}
                             onDeleteWorkItem={onDeleteWorkItem}
                             onCloseWorkItem={onCloseWorkItem}
+                            onSetAssignmentStatus={onSetAssignmentStatus}
                             onEditHandoff={onEditHandoff}
                             onEditAssignment={onEditAssignment}
                             onEditWorkItem={onEditWorkItem}

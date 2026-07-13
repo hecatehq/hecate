@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -15,13 +17,20 @@ import (
 const (
 	projectAssignmentStartClaimedByHecate          = "hecate"
 	projectAssignmentStartClaimedByExternalAdapter = "external_adapter"
+	projectAssignmentStartClaimedByOperator        = cairnlinebridge.AssignmentClaimedByOperator
 )
 
 func (h *Handler) projectAssignmentStartUsesCairnlineAuthority() bool {
 	return h.projectAssignmentWritesUseCairnlineAuthority()
 }
 
-func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Context, project projects.Project, assignment projectwork.Assignment, claimedBy string) (projectwork.Assignment, bool, error) {
+func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(
+	ctx context.Context,
+	project projects.Project,
+	assignment projectwork.Assignment,
+	claimedBy string,
+	expectedCoordination *cairnline.AssignmentCoordination,
+) (projectwork.Assignment, bool, error) {
 	if !h.projectAssignmentStartUsesCairnlineAuthority() {
 		return projectwork.Assignment{}, false, nil
 	}
@@ -31,6 +40,7 @@ func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Co
 	}
 	var recorded projectwork.Assignment
 	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
+		var expected cairnline.AssignmentCoordination
 		existing, err := service.GetAssignment(ctx, assignment.ProjectID, assignment.ID)
 		if err != nil {
 			if !errors.Is(err, cairnline.ErrNotFound) {
@@ -42,12 +52,31 @@ func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Co
 			}
 			seeded := assignment
 			seeded.DriverKind = resolvedProjectAssignmentDriverKind(seeded.DriverKind, role.DefaultDriverKind)
-			if _, upsertErr := cairnlinebridge.UpsertAssignment(ctx, service, seeded, role); upsertErr != nil {
+			seededPortable, upsertErr := cairnlinebridge.UpsertAssignment(ctx, service, seeded, role)
+			if upsertErr != nil {
 				return upsertErr
 			}
-		} else if existing.ID != "" && existing.WorkItemID != assignment.WorkItemID {
-			return cairnline.ErrNotFound
+			existing = seededPortable
+		} else {
+			if existing.ID != "" && existing.WorkItemID != assignment.WorkItemID {
+				return cairnline.ErrNotFound
+			}
+			if existing.ExecutionMode == cairnline.ExecutionManual &&
+				existing.Status == cairnline.AssignmentClaimed &&
+				strings.TrimSpace(existing.ClaimedBy) == projectAssignmentStartClaimedByOperator &&
+				strings.TrimSpace(claimedBy) == projectAssignmentStartClaimedByOperator &&
+				existing.ExecutionRef.Empty() &&
+				strings.TrimSpace(existing.ContextSnapshotID) == "" {
+				expected = projectAssignmentExpectedStartCoordination(assignment, existing, expectedCoordination)
+				if !projectAssignmentClaimMatchesStart(existing, expected) {
+					recorded = projectWorkAssignmentFromCairnlineAuthority(existing, assignment)
+					return projectworkapp.ErrAssignmentStartConflict
+				}
+				recorded = projectWorkAssignmentFromCairnlineAuthority(existing, assignment)
+				return nil
+			}
 		}
+		expected = projectAssignmentExpectedStartCoordination(assignment, existing, expectedCoordination)
 
 		claimed, err := service.ClaimAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy)
 		if err != nil {
@@ -58,6 +87,13 @@ func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Co
 				return projectworkapp.ErrAssignmentStartConflict
 			}
 			return err
+		}
+		if !projectAssignmentClaimMatchesStart(claimed, expected) {
+			if _, releaseErr := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, claimedBy); releaseErr != nil && !errors.Is(releaseErr, cairnline.ErrConflict) {
+				return releaseErr
+			}
+			recorded = projectWorkAssignmentFromCairnlineAuthority(claimed, assignment)
+			return projectworkapp.ErrAssignmentStartConflict
 		}
 		recorded = projectWorkAssignmentFromCairnlineAuthority(claimed, assignment)
 		return nil
@@ -75,6 +111,33 @@ func (h *Handler) claimProjectAssignmentStartInCairnlineAuthority(ctx context.Co
 		h.shadowProjectAssignmentToHecate(ctx, "project_assignment_cairnline_authority_start_claim", recorded)
 	}
 	return recorded, true, nil
+}
+
+func projectAssignmentExpectedStartCoordination(
+	assignment projectwork.Assignment,
+	portable cairnline.Assignment,
+	expected *cairnline.AssignmentCoordination,
+) cairnline.AssignmentCoordination {
+	if expected != nil {
+		return *expected
+	}
+	coordination := portable.Coordination()
+	coordination.WorkItemID = strings.TrimSpace(assignment.WorkItemID)
+	coordination.RoleID = strings.TrimSpace(assignment.RoleID)
+	coordination.RootID = strings.TrimSpace(assignment.RootID)
+	coordination.ExecutionMode = cairnlinebridge.ExecutionMode(assignment.DriverKind)
+	coordination.DesiredAgent.Kind = cairnlinebridge.DesiredAgentKind(assignment.DriverKind)
+	return coordination
+}
+
+func projectAssignmentClaimMatchesStart(claimed cairnline.Assignment, expected cairnline.AssignmentCoordination) bool {
+	actual := claimed.Coordination()
+	return actual.WorkItemID == expected.WorkItemID &&
+		actual.RoleID == expected.RoleID &&
+		actual.RootID == expected.RootID &&
+		actual.ExecutionMode == expected.ExecutionMode &&
+		actual.DesiredAgent.Kind == expected.DesiredAgent.Kind &&
+		slices.Equal(actual.DesiredAgent.SkillIDs, expected.DesiredAgent.SkillIDs)
 }
 
 func (h *Handler) releaseProjectAssignmentStartInCairnlineAuthority(ctx context.Context, assignment projectwork.Assignment, claimedBy string) {
@@ -107,8 +170,46 @@ func (h *Handler) releaseProjectAssignmentStartInCairnlineAuthority(ctx context.
 }
 
 func projectAssignmentStartClaimedBy(assignment projectwork.Assignment) string {
-	if strings.TrimSpace(assignment.DriverKind) == projectwork.AssignmentDriverExternalAgent {
+	switch strings.TrimSpace(assignment.DriverKind) {
+	case projectwork.AssignmentDriverExternalAgent:
 		return projectAssignmentStartClaimedByExternalAdapter
+	case projectwork.AssignmentDriverManual:
+		return projectAssignmentStartClaimedByOperator
+	default:
+		return projectAssignmentStartClaimedByHecate
 	}
-	return projectAssignmentStartClaimedByHecate
+}
+
+func (h *Handler) startManualProjectAssignmentWithCairnlineAuthority(
+	ctx context.Context,
+	project projects.Project,
+	assignment projectwork.Assignment,
+	expectedCoordination *cairnline.AssignmentCoordination,
+) (projectwork.Assignment, error) {
+	claimedBy := projectAssignmentStartClaimedBy(assignment)
+	claimed, claimedOK, err := h.claimProjectAssignmentStartInCairnlineAuthority(ctx, project, assignment, claimedBy, expectedCoordination)
+	if err != nil {
+		return claimed, err
+	}
+
+	var recorded projectwork.Assignment
+	err = h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
+		started, updateErr := service.UpdateAssignmentStatus(ctx, assignment.ProjectID, assignment.ID, cairnline.AssignmentRunning, cairnline.ExecutionRef{})
+		if updateErr != nil {
+			return updateErr
+		}
+		recorded = projectWorkAssignmentFromCairnlineAuthority(started, claimed)
+		return nil
+	})
+	if err != nil {
+		if claimedOK {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			h.releaseProjectAssignmentStartInCairnlineAuthority(cleanupCtx, assignment, claimedBy)
+			cancel()
+		}
+		return assignment, err
+	}
+
+	h.shadowProjectAssignmentToHecate(ctx, "project_assignment_cairnline_authority_manual_start", recorded)
+	return recorded, nil
 }

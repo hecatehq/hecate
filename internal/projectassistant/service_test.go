@@ -860,7 +860,7 @@ func TestService_ContextBuildsProjectAssistantPacketAcrossStores(t *testing.T) {
 			if packet.Selection.RoleID != role.ID || packet.Selection.RoleSource != "selected_work_owner" || packet.Selection.DriverKind != projectwork.AssignmentDriverExternalAgent || packet.Selection.DriverSource != "role_default" {
 				t.Fatalf("selection = %+v, want owner role and role default driver", packet.Selection)
 			}
-			if !strings.Contains(packet.Selection.Reason, "Selected work item is owned by Planning Lead") || !strings.Contains(packet.Selection.Reason, "Using external_agent") {
+			if !strings.Contains(packet.Selection.Reason, "Selected work item is owned by Planning Lead") || !strings.Contains(packet.Selection.Reason, "Using External Agent") {
 				t.Fatalf("selection reason = %q, want owner/default explanation", packet.Selection.Reason)
 			}
 			if len(packet.Roles) == 0 || !contextRoleExists(packet.Roles, role.ID) {

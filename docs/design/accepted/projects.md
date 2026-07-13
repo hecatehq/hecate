@@ -350,6 +350,15 @@ The Projects UI should stay lightweight but operational:
   persisted packet sections the agent actually saw. Activity remains a separate
   inbox projection and must not override the selected assignment's current
   execution state, evidence, links, or actions.
+- Present assignment destinations in product language: **Human**, **Hecate
+  Task**, and **External Agent**. Human maps to Cairnline `manual`; it starts
+  and completes through Cairnline assignment transitions without creating a
+  Task or Chat. Human work may be rootless, and V1 does not imply a named-person
+  identity model. Human assignment metadata is mutable only before start;
+  review/resume and terminal progress remain explicit operator actions.
+- Cairnline currently treats failed and cancelled assignments as terminal
+  closeout blockers and has no retry/supersession transition. Hecate must not
+  disguise a new assignment as recovery while the original blocker remains.
 - Show handoff source evidence separately from target assignment evidence.
   Source assignment/run/chat/message/context refs explain provenance; target
   assignment refs explain the follow-up work. Accepting or linking a handoff
@@ -415,8 +424,8 @@ Cairnline coordination state. The current flow supports:
 - rootless or workspace-backed project creation and onboarding;
 - root, guidance, context-source, and skill discovery;
 - project roles and Hecate Agent Preset defaults;
-- work items, assignments, launch preflight, Hecate task launch, and External
-  Agent launch;
+- work items and Human, Hecate Task, and External Agent assignments, including
+  direct Human progress and launch preflight for execution-backed destinations;
 - state-driven assignment execution stories with truthful recorded milestones
   and progressively disclosed runtime evidence;
 - context inspection, evidence, reviews, handoffs, closeout readiness, and
@@ -442,9 +451,10 @@ Projects V1 is considered structurally complete when an operator can:
   proposed memory/role changes before applying them.
 - Configure project defaults, roles, skills, provider/model posture,
   memory/source policies, roots, and worktrees explicitly.
-- Create a work item, draft or manually create assignments, start Hecate Task
-  or External Agent execution, inspect launch context, record evidence/reviews,
-  hand off to another role, and close the work item deliberately.
+- Create a work item, draft or manually create assignments, complete Human work
+  or start Hecate Task/External Agent execution, inspect relevant context,
+  record evidence/reviews, hand off to another role, and close the work item
+  deliberately.
 - See actionable project activity and health without a separate persisted
   health model.
 
@@ -483,10 +493,11 @@ Out of scope for this document and Projects V1:
 - API journey: create project, discover guidance/skills, add memory, create and
   start assignment, inspect context, create handoff/follow-up assignment.
 - UI journeys: create rootless and workspace-backed projects, run setup, create
-  work, draft/start assignment, inspect context, record review/evidence,
-  complete closeout, and verify no-project/new-project onboarding states. A
-  browser-level Projects journey now covers create project -> setup proposal ->
-  first work -> assignment draft/start -> evidence -> closeout.
+  work, start/complete Human work or draft/start an agent assignment, inspect
+  context, record review/evidence, complete closeout, and verify
+  no-project/new-project onboarding states. A browser-level Projects journey
+  now covers create project -> setup proposal -> first work -> assignment
+  draft/start -> evidence -> closeout.
 
 ## Open Questions
 

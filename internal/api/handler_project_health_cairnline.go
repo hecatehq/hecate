@@ -32,7 +32,7 @@ func (h *Handler) renderCairnlineProjectHealthFromService(ctx context.Context, s
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
-	assignments, err := service.ListAssignments(ctx, snapshot.Project.ID)
+	convertedAssignments, err := h.cairnlineProjectAssignments(ctx, service, snapshot)
 	if err != nil {
 		return ProjectHealthResponse{}, err
 	}
@@ -63,8 +63,8 @@ func (h *Handler) renderCairnlineProjectHealthFromService(ctx context.Context, s
 	now := time.Now().UTC()
 	project := snapshot.Project
 	convertedWorkItems := projectWorkItemsFromCairnline(workItems)
-	convertedAssignments := projectWorkAssignmentsFromCairnline(assignments, snapshot.Assignments)
 	staleAssignments := projectHealthStaleAssignments(project, activity, convertedWorkItems, convertedAssignments, now)
+	convertedRoles := projectSetupRolesFromCairnline(roles)
 	summary := projectHealthSummary(
 		project,
 		projectSetupMemoryEntriesFromCairnline(memoryEntries),
@@ -73,11 +73,16 @@ func (h *Handler) renderCairnlineProjectHealthFromService(ctx context.Context, s
 		artifacts,
 		staleAssignments,
 	)
+	if !projectAgentLaunchPrerequisitesRequired(convertedAssignments, convertedRoles) {
+		summary.MissingDefaults = false
+		summary.MissingProjectRoot = false
+	}
 	attention := projectHealthAttentionItems(
 		project,
 		activity,
 		convertedWorkItems,
-		projectSetupRolesFromCairnline(roles),
+		convertedAssignments,
+		convertedRoles,
 		handoffs,
 		artifacts,
 		projectSetupMemoryEntriesFromCairnline(memoryEntries),
@@ -132,7 +137,7 @@ func projectWorkAssignmentsFromCairnline(items []cairnline.Assignment, native []
 	out := make([]projectwork.Assignment, 0, len(items))
 	for _, item := range items {
 		projected := projectWorkAssignmentFromCairnline(item)
-		if nativeItem, ok := nativeByID[item.ID]; ok {
+		if nativeItem, ok := nativeByID[item.ID]; ok && projected.DriverKind != projectwork.AssignmentDriverManual {
 			projected.ExecutionRef = nativeItem.ExecutionRef
 			projected.ContextPacket = append([]byte(nil), nativeItem.ContextPacket...)
 			if !nativeItem.CreatedAt.IsZero() {

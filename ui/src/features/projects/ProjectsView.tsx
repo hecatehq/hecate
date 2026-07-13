@@ -1764,7 +1764,12 @@ export function ProjectsView({
     if (!roleID) return;
     setEditAssignmentPending(true);
     setEditAssignmentError("");
-    const patch = assignmentUpdatePayloadFromForm(form);
+    const originalAssignment = assignments.find((assignment) => assignment.id === form.id);
+    const patch =
+      originalAssignment?.driver_kind === "manual" &&
+      (originalAssignment.status !== "queued" || form.status !== originalAssignment.status)
+        ? { status: form.status }
+        : assignmentUpdatePayloadFromForm(form);
     try {
       const payload = await updateProjectAssignment(projectID, workItemID, form.id, patch);
       if (!isCurrent()) return;
@@ -2124,6 +2129,62 @@ export function ProjectsView({
     })();
     startingAssignmentPromisesRef.current.set(assignmentKey, pendingStart);
     return pendingStart;
+  }
+
+  async function handleSetAssignmentStatus(
+    assignment: ProjectAssignmentRecord,
+    status: EditAssignmentForm["status"],
+    workItemID = selectedWorkItemID,
+  ): Promise<boolean> {
+    if (!selectedProjectID || !workItemID) return false;
+    const projectID = selectedProjectID;
+    const isCurrent = () =>
+      selectedProjectIDRef.current === projectID && selectedWorkItemIDRef.current === workItemID;
+    const assignmentKey = projectAssignmentStartKey(projectID, workItemID, assignment.id);
+    const existingMutation = startingAssignmentPromisesRef.current.get(assignmentKey);
+    if (existingMutation) return existingMutation;
+
+    setStartingAssignmentKeys((current) => {
+      const next = new Set(current);
+      next.add(assignmentKey);
+      return next;
+    });
+    setAssignmentErrors((current) => ({ ...current, [assignment.id]: "" }));
+    const pendingCompletion = (async () => {
+      try {
+        const res = await updateProjectAssignment(projectID, workItemID, assignment.id, {
+          status,
+        });
+        if (isCurrent()) {
+          setAssignments((current) => upsertAssignment(current, res.data));
+          await loadWorkForProject(projectID, workItemID);
+          if (isCurrent()) await loadWorkItemDetail(projectID, workItemID);
+          void refreshProjectOverview(projectID);
+        }
+        return true;
+      } catch (error) {
+        if (isCurrent()) {
+          setAssignmentErrors((current) => ({
+            ...current,
+            [assignment.id]: errorMessage(error, "Failed to update Human work progress."),
+          }));
+          if (error instanceof ApiError && error.status === 409) {
+            await loadWorkForProject(projectID, workItemID);
+            if (isCurrent()) await loadWorkItemDetail(projectID, workItemID);
+          }
+        }
+        return false;
+      } finally {
+        startingAssignmentPromisesRef.current.delete(assignmentKey);
+        setStartingAssignmentKeys((current) => {
+          const next = new Set(current);
+          next.delete(assignmentKey);
+          return next;
+        });
+      }
+    })();
+    startingAssignmentPromisesRef.current.set(assignmentKey, pendingCompletion);
+    return pendingCompletion;
   }
 
   function openPreparedExternalAgentChat(assignment: ProjectAssignmentRecord, workItemID: string) {
@@ -2525,6 +2586,9 @@ export function ProjectsView({
             onRejectCandidate={handleRejectCandidate}
             onSelectWorkItem={setSelectedWorkItemID}
             onSetHandoffStatus={(handoff, status) => void handleSetHandoffStatus(handoff, status)}
+            onSetAssignmentStatus={(assignment, status) =>
+              void handleSetAssignmentStatus(assignment, status as EditAssignmentForm["status"])
+            }
             onStartAssignment={handleStartAssignment}
             onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
             onSetupReadinessAction={handleSetupReadinessAction}
@@ -2819,13 +2883,13 @@ export function ProjectsView({
             onConfirm={confirmDeleteAssignment}
             message={
               <>
-                Delete the assignment metadata record for{" "}
+                Delete the assignment record for{" "}
                 <strong>
                   {roleByID.get(currentDeleteAssignment.role_id)?.name ??
                     currentDeleteAssignment.role_id}
                 </strong>
-                . Linked tasks, runs, chats, and external-agent executions are not deleted or
-                cancelled.
+                , including assignment-scoped evidence, reviews, and collaboration records. Linked
+                tasks, runs, chats, and external-agent executions are not deleted or cancelled.
               </>
             }
           />

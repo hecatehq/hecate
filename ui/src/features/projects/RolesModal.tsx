@@ -3,6 +3,10 @@ import { useState } from "react";
 import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
 import { Icon, Icons, InlineError, Modal } from "../shared/ui";
+import {
+  HUMAN_ASSIGNMENT_DESCRIPTION,
+  PROJECT_ASSIGNMENT_DESTINATIONS,
+} from "./projectAssignmentDestinations";
 import { ProjectSkillPicker } from "./ProjectSkillPicker";
 import { emptyRoleForm, roleFormFromRecord, type RoleForm } from "./projectPresetsRoles";
 import {
@@ -118,8 +122,12 @@ export function RolesModal({
         </div>
       }
     >
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 420 }}>
+      <div
+        className="project-roles-modal-grid"
+        style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 420 }}
+      >
         <div
+          className="project-roles-modal-list"
           style={{
             borderRight: "1px solid var(--border)",
             paddingRight: 10,
@@ -129,6 +137,7 @@ export function RolesModal({
           }}
         >
           <button
+            aria-pressed={selectedRoleID === "new"}
             className={selectedRoleID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
             type="button"
             onClick={() => selectRole("new")}
@@ -140,6 +149,7 @@ export function RolesModal({
           {roles.map((role) => (
             <button
               key={role.id}
+              aria-pressed={selectedRoleID === role.id}
               className={
                 selectedRoleID === role.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
               }
@@ -200,10 +210,18 @@ export function RolesModal({
               }
             />
           </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div
+            className="project-role-defaults-grid"
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+          >
             <label style={presetRoleFieldStyle}>
-              <span style={presetRoleFieldLabelStyle}>Default driver</span>
+              <span style={presetRoleFieldLabelStyle}>Default destination</span>
               <select
+                aria-describedby={
+                  form.defaultDriverKind === "manual"
+                    ? "role-human-default-destination-help"
+                    : undefined
+                }
                 className="input"
                 value={form.defaultDriverKind}
                 disabled={editingBuiltIn}
@@ -211,10 +229,18 @@ export function RolesModal({
                   setForm((current) => ({ ...current, defaultDriverKind: event.target.value }))
                 }
               >
-                <option value="">assignment default</option>
-                <option value="hecate_task">hecate_task</option>
-                <option value="external_agent">external_agent</option>
+                <option value="">Choose per assignment</option>
+                {PROJECT_ASSIGNMENT_DESTINATIONS.map((destination) => (
+                  <option key={destination.kind} value={destination.kind}>
+                    {destination.label}
+                  </option>
+                ))}
               </select>
+              {form.defaultDriverKind === "manual" && (
+                <span id="role-human-default-destination-help" style={presetRoleSubtleTextStyle}>
+                  {HUMAN_ASSIGNMENT_DESCRIPTION}
+                </span>
+              )}
             </label>
             <label style={presetRoleFieldStyle}>
               <span style={presetRoleFieldLabelStyle}>Default preset</span>
@@ -269,8 +295,8 @@ export function RolesModal({
             value={form.skillIDs}
           />
           <div style={presetRoleSubtleTextStyle}>
-            Role defaults are execution hints. Assignments can still override the driver, and
-            project defaults remain the fallback.
+            Role defaults are suggestions. Each assignment can choose another destination, with
+            project settings as the fallback.
           </div>
         </form>
       </div>

@@ -10,6 +10,11 @@ import type {
 } from "../../types/project";
 import { formatAbsoluteTime } from "../../lib/format";
 import { CopyableID, Icon, Icons, InlineError } from "../shared/ui";
+import {
+  HUMAN_ASSIGNMENT_DESCRIPTION,
+  PROJECT_ASSIGNMENT_DESTINATIONS,
+  projectAssignmentDestinationLabel,
+} from "./projectAssignmentDestinations";
 
 export const PROJECT_ASSISTANT_AUTO = "__auto__";
 
@@ -281,7 +286,7 @@ export function ProjectAssistantPanel({
                 </select>
               </label>
               <label style={routeFieldStyle}>
-                <span style={fieldLabelStyle}>Run as</span>
+                <span style={fieldLabelStyle}>Responsibility</span>
                 <select
                   className="input"
                   value={form.roleID}
@@ -308,8 +313,13 @@ export function ProjectAssistantPanel({
                 </select>
               </label>
               <label style={routeFieldStyle}>
-                <span style={fieldLabelStyle}>Via</span>
+                <span style={fieldLabelStyle}>Work done by</span>
                 <select
+                  aria-describedby={
+                    form.driverKind === "manual"
+                      ? "project-assistant-human-destination-help"
+                      : undefined
+                  }
                   className="input"
                   value={form.driverKind}
                   onChange={(event) =>
@@ -317,9 +327,20 @@ export function ProjectAssistantPanel({
                   }
                 >
                   <option value={PROJECT_ASSISTANT_AUTO}>Auto</option>
-                  <option value="hecate_task">Hecate task</option>
-                  <option value="external_agent">External agent</option>
+                  {PROJECT_ASSIGNMENT_DESTINATIONS.map((destination) => (
+                    <option key={destination.kind} value={destination.kind}>
+                      {destination.label}
+                    </option>
+                  ))}
                 </select>
+                {form.driverKind === "manual" && (
+                  <span
+                    id="project-assistant-human-destination-help"
+                    style={assistantRouteHelpStyle}
+                  >
+                    {HUMAN_ASSIGNMENT_DESCRIPTION}
+                  </span>
+                )}
               </label>
             </div>
             <div style={assistantSecondaryActionsStyle}>
@@ -697,14 +718,7 @@ function projectAssistantSelectionLabel(context: ProjectAssistantContextRecord):
 }
 
 function projectAssistantDriverLabel(kind: string): string {
-  switch (kind) {
-    case "hecate_task":
-      return "Hecate task";
-    case "external_agent":
-      return "External agent";
-    default:
-      return kind.replace(/_/g, " ");
-  }
+  return projectAssignmentDestinationLabel(kind);
 }
 
 function projectAssistantActionLabel(kind: string): string {
@@ -960,6 +974,12 @@ const routeFieldStyle: CSSProperties = {
   gap: 5,
   maxWidth: 220,
   minWidth: 128,
+};
+
+const assistantRouteHelpStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 11,
+  lineHeight: 1.35,
 };
 
 const assistantSecondaryActionsStyle: CSSProperties = {

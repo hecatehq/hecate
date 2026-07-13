@@ -478,6 +478,93 @@ func normalizeProjectHealthDetailForParity(detail string) string {
 	return projectHealthParityUpdatedAtPattern.ReplaceAllString(detail, "updated <time>")
 }
 
+func TestProjectHealth_RootlessHumanOnlyHasNoRootSetupGap(t *testing.T) {
+	t.Run("hecate", func(t *testing.T) {
+		handler, server := newProjectWorkTestServer()
+		const projectID = "proj_health_rootless_human"
+		if _, err := handler.projects.Create(t.Context(), projects.Project{ID: projectID, Name: "Rootless Human health"}); err != nil {
+			t.Fatalf("Create project: %v", err)
+		}
+		if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+			ID:                "researcher",
+			ProjectID:         projectID,
+			Name:              "Researcher",
+			DefaultDriverKind: projectwork.AssignmentDriverManual,
+		}); err != nil {
+			t.Fatalf("CreateRole: %v", err)
+		}
+		if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+			ID:          "work_research",
+			ProjectID:   projectID,
+			Title:       "Synthesize interviews",
+			Status:      projectwork.WorkItemStatusReady,
+			OwnerRoleID: "researcher",
+		}); err != nil {
+			t.Fatalf("CreateWorkItem: %v", err)
+		}
+		if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+			ID:         "asgn_research",
+			ProjectID:  projectID,
+			WorkItemID: "work_research",
+			RoleID:     "researcher",
+			DriverKind: projectwork.AssignmentDriverManual,
+			Status:     projectwork.AssignmentStatusQueued,
+		}); err != nil {
+			t.Fatalf("CreateAssignment: %v", err)
+		}
+
+		response := mustRequestJSONStatus[ProjectHealthEnvelope](
+			newAPITestClient(t, server),
+			http.StatusOK,
+			http.MethodGet,
+			"/hecate/v1/projects/"+projectID+"/health",
+			"",
+		)
+		if response.Data.Summary.MissingProjectRoot || response.Data.Summary.MissingDefaults {
+			t.Fatalf("rootless Human Hecate health = %+v, want no launch setup gaps", response.Data.Summary)
+		}
+	})
+
+	t.Run("cairnline", func(t *testing.T) {
+		handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+		const projectID = "proj_health_rootless_human_cairnline"
+		seedCairnlineOnlyProjectWorkGraphForTest(t, handler, cairnline.Project{
+			ID:   projectID,
+			Name: "Rootless Human Cairnline health",
+		}, []cairnline.Role{{
+			ID:                   "researcher",
+			ProjectID:            projectID,
+			Name:                 "Researcher",
+			DefaultExecutionMode: cairnline.ExecutionManual,
+		}}, []cairnline.WorkItem{{
+			ID:          "work_research",
+			ProjectID:   projectID,
+			Title:       "Synthesize interviews",
+			Status:      cairnline.WorkStatusReady,
+			Priority:    cairnline.PriorityNormal,
+			OwnerRoleID: "researcher",
+		}}, []cairnline.Assignment{{
+			ID:            "asgn_research",
+			ProjectID:     projectID,
+			WorkItemID:    "work_research",
+			RoleID:        "researcher",
+			ExecutionMode: cairnline.ExecutionManual,
+			DesiredAgent:  cairnline.DesiredAgent{Kind: "human"},
+		}})
+
+		response := mustRequestJSONStatus[ProjectHealthEnvelope](
+			newAPITestClient(t, server),
+			http.StatusOK,
+			http.MethodGet,
+			"/hecate/v1/projects/"+projectID+"/health",
+			"",
+		)
+		if response.Data.Summary.MissingProjectRoot || response.Data.Summary.MissingDefaults {
+			t.Fatalf("rootless Human Cairnline health = %+v, want no launch setup gaps", response.Data.Summary)
+		}
+	})
+}
+
 func TestProjectHealth_ProfileAndSkillReferences(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()

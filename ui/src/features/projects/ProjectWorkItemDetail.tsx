@@ -115,6 +115,7 @@ export type ProjectWorkItemDetailProps = {
   onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteWorkItem: (item: ProjectWorkItemRecord) => void;
   onCloseWorkItem: (item: ProjectWorkItemRecord) => void;
+  onSetAssignmentStatus: (assignment: ProjectAssignmentRecord, status: string) => void;
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
   onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
@@ -165,6 +166,7 @@ export function ProjectWorkItemDetail({
   onDeleteHandoff,
   onDeleteWorkItem,
   onCloseWorkItem,
+  onSetAssignmentStatus,
   onEditAssignment,
   onEditHandoff,
   onEditWorkItem,
@@ -395,6 +397,8 @@ export function ProjectWorkItemDetail({
                           : undefined
                       }
                       onOpenTask={onOpenTask}
+                      onComplete={() => onSetAssignmentStatus(assignment, "completed")}
+                      onResume={() => onSetAssignmentStatus(assignment, "running")}
                       onStart={() => onStartAssignment(assignment)}
                       autoOpenPreflight={preparingAssignmentID === assignment.id}
                       onAutoOpenPreflightHandled={onPreparedAssignmentPreflightOpened}
@@ -945,10 +949,12 @@ function AssignmentRow({
   onCreateReviewHandoff,
   onCreateReviewArtifact,
   onAutoOpenPreflightHandled,
+  onComplete,
   onDelete,
   onEdit,
   onOpenChat,
   onOpenTask,
+  onResume,
   onStart,
   project,
   promoteCompletionAction,
@@ -967,10 +973,12 @@ function AssignmentRow({
   onCreateReviewHandoff?: () => void;
   onCreateReviewArtifact?: () => void;
   onAutoOpenPreflightHandled?: (assignmentID: string) => void;
+  onComplete: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onOpenChat?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
+  onResume: () => void;
   onStart: () => void;
   project: ProjectRecord | null;
   promoteCompletionAction: boolean;
@@ -1060,11 +1068,14 @@ function AssignmentRow({
         onCreateHandoff={onCreateHandoff}
         onCreateReviewArtifact={onCreateReviewArtifact}
         onCreateReviewHandoff={onCreateReviewHandoff}
+        onCompleteWork={onComplete}
         onDelete={onDelete}
         onEdit={onEdit}
         onOpenChat={onOpenChat}
         onOpenTask={onOpenTask}
         onReviewLaunch={() => void openPreflight()}
+        onResumeWork={onResume}
+        onStartWork={onStart}
         project={project}
         promoteCompletionAction={promoteCompletionAction}
         readinessControl={
@@ -1418,15 +1429,19 @@ function ProjectHandoffRow({
   const [preflightState, setPreflightState] = useState<AssignmentPreflightState>({
     status: "idle",
   });
+  const handoffClosed = handoff.status === "dismissed" || handoff.status === "superseded";
   const executionRef = assignment ? toProjectAssignmentExecutionViewModel(assignment) : null;
   const targetEvidence = assignment ? toProjectAssignmentEvidenceViewModel(assignment) : null;
   const startable =
-    (assignment?.driver_kind === "hecate_task" || assignment?.driver_kind === "external_agent") &&
+    !handoffClosed &&
+    (assignment?.driver_kind === "manual" ||
+      assignment?.driver_kind === "hecate_task" ||
+      assignment?.driver_kind === "external_agent") &&
     executionRef?.status === "queued";
   const external = assignment?.driver_kind === "external_agent";
+  const manual = assignment?.driver_kind === "manual";
   const interactionPending = actionPending || starting;
   const hasLinkedAssignment = Boolean(handoff.target_assignment_id);
-  const handoffClosed = handoff.status === "dismissed" || handoff.status === "superseded";
   const canCreateAssignment = !handoffClosed && !hasLinkedAssignment && !assignment;
   const sourceRefs = handoffSourceRefs(handoff);
 
@@ -1547,25 +1562,33 @@ function ProjectHandoffRow({
               Open target work
             </button>
           )}
-          {assignment && (
+          {assignment && !handoffClosed && (
             <button
               className="btn btn-primary btn-sm"
               type="button"
-              onClick={() => void openPreflight()}
+              onClick={() => (manual ? onStart() : void openPreflight())}
               disabled={!startable || interactionPending}
               title={
                 startable
-                  ? "Review launch context before starting the linked assignment."
+                  ? manual
+                    ? "Start this Human assignment."
+                    : "Review launch context before starting the linked assignment."
                   : "Linked assignment is not queued."
               }
             >
               <Icon d={external ? Icons.chat : Icons.send} size={12} />
-              {starting ? (external ? "Preparing..." : "Starting...") : "Start from handoff"}
+              {starting
+                ? external
+                  ? "Preparing..."
+                  : "Starting..."
+                : manual
+                  ? "Start work"
+                  : "Start from handoff"}
             </button>
           )}
         </div>
       </div>
-      {preflightOpen && assignment && (
+      {preflightOpen && assignment && !manual && (
         <AssignmentLaunchPreflightModal
           assignmentID={assignment.id}
           confirmLabel={external ? "Prepare chat" : "Start assignment"}

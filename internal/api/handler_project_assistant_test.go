@@ -3257,6 +3257,64 @@ func TestProjectAssistantAPI_ApplyCreateWorkUsesCairnlineProjectAuthority(t *tes
 	}
 }
 
+func TestProjectAssistantAPI_ApplyHumanAssignmentRequiresCairnlineAuthority(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	client := newAPITestClient(t, server)
+	const projectID = "proj_assistant_manual_guard"
+	if _, err := handler.projects.Create(t.Context(), projects.Project{ID: projectID, Name: "Assistant Human guard"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:                "role_assistant_manual",
+		ProjectID:         projectID,
+		Name:              "Human owner",
+		DefaultDriverKind: projectwork.AssignmentDriverManual,
+	}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:          "work_assistant_manual",
+		ProjectID:   projectID,
+		Title:       "Guard assistant Human work",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: "role_assistant_manual",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_assistant_manual_guard",
+		Title:                "Create Human assignment",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind: projectassistant.ActionCreateAssignment,
+			Patch: json.RawMessage(`{
+				"id":"asgn_assistant_manual",
+				"project_id":"proj_assistant_manual_guard",
+				"work_item_id":"work_assistant_manual",
+				"role_id":"role_assistant_manual",
+				"driver_kind":"manual",
+				"status":"queued"
+			}`),
+		}},
+	}
+	payload := mustRequestJSONStatus[projectAssistantErrorResponse](client, http.StatusConflict, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if payload.Error.Type != errCodeConflict || !strings.Contains(payload.Error.Message, "require Cairnline assignment authority") || payload.Error.CommittedActionCount != 0 {
+		t.Fatalf("assistant Human apply error = %+v, want uncommitted authority conflict", payload.Error)
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: projectID, WorkItemID: "work_assistant_manual"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 0 {
+		t.Fatalf("assignments after rejected assistant Human apply = %+v, want none", assignments)
+	}
+}
+
 func TestProjectAssistantAPI_ApplyCreatesAssignmentGraphWithCairnlineAuthority(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)

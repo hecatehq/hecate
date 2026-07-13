@@ -829,7 +829,7 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 }
 
 func (app *Application) ApplyAssignmentRuntime(ctx context.Context, assignment projectwork.Assignment) (projectwork.Assignment, error) {
-	if app == nil || app.runtimeStore == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.ID) == "" {
+	if app == nil || app.runtimeStore == nil || strings.TrimSpace(assignment.ProjectID) == "" || strings.TrimSpace(assignment.ID) == "" || strings.TrimSpace(assignment.DriverKind) == projectwork.AssignmentDriverManual {
 		return assignment, nil
 	}
 	runtime, ok, err := app.runtimeStore.Get(ctx, assignment.ProjectID, assignment.ID)

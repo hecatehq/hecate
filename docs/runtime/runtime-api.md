@@ -2433,10 +2433,12 @@ built-in role ids and default preset mappings are:
 Supported work-item statuses are `backlog`, `ready`, `running`, `review`,
 `blocked`, `done`, and `cancelled`. Supported assignment statuses are `queued`,
 `running`, `awaiting_approval`, `completed`, `failed`, and `cancelled`.
-Supported assignment driver kinds are `hecate_task` and `external_agent`.
-Assignment start dispatches `hecate_task` assignments through the native task
-runtime and prepares `external_agent` assignments as supervised External Agent
-chat sessions.
+Supported assignment driver kinds are `manual`, `hecate_task`, and
+`external_agent`. The facade exposes `manual` as Human work and maps it to
+Cairnline's portable manual execution mode. Assignment start claims Human work
+without creating a runtime, dispatches `hecate_task` assignments through the
+native task runtime, and prepares `external_agent` assignments as supervised
+External Agent chat sessions.
 Work items and assignments may carry `root_id` to select a concrete project
 root. Launch workspace resolution uses assignment `root_id`, then work-item
 `root_id`, then project `default_root_id`, then the first active project root.
@@ -2452,9 +2454,8 @@ Assignment responses are projected from linked canonical task/run state when
 `execution_ref.kind="task_run"` and `execution_ref.task_id` /
 `execution_ref.run_id` point at a Hecate task run. If
 `execution_ref.task_id` is present and `execution_ref.run_id` is empty, Hecate
-uses that task's `latest_run_id` when available. The stored assignment row is
-coordination metadata; task/run reads do not mutate the task, run, or
-assignment rows. Run statuses map directly into assignment statuses:
+uses that task's `latest_run_id` when available. Run statuses map directly into
+assignment statuses:
 
 | Task/run status     | Project assignment status |
 | ------------------- | ------------------------- |
@@ -2472,6 +2473,22 @@ explicit project-work terminal status instead of being overwritten by stale
 runtime state. The `execution` summary may include `task_status`, `run_status`,
 projected `status`, pending approval count, step/approval/artifact counts,
 model/provider, last error, run timestamps, and trace ID.
+
+In strict embedded assignment-authority mode, Projects reads also reconcile a
+linked, present task run into the Cairnline assignment before computing work,
+activity, operations, readiness, health, chat context, or Project Assistant
+projections. Cairnline's claim, progress, and completion transitions record
+`running`, `awaiting_approval`, `completed`, `failed`, or `cancelled` plus the
+portable execution ref. A missing or queued host execution never moves the
+portable row backwards, and Cairnline's first terminal outcome remains final
+if a stale host event later reports another outcome. Outside strict embedded
+authority mode, task/run state remains a read-only response projection.
+Before any reconciliation write, Hecate requires the linked Task and selected
+Run to carry the same project, work-item, and assignment ids as the portable
+row. A mismatched link is stale evidence and cannot mutate Cairnline. If a Task
+has been resumed, reconciliation follows its matching `latest_run_id` and moves
+the portable execution ref forward instead of closing work from the obsolete
+terminal run.
 
 External Agent assignments use the linked project-scoped chat session as their
 canonical execution state when `execution_ref.kind="chat_session"` and
@@ -3289,6 +3306,18 @@ Returns:
 Updates assignment status, role, `root_id`, link fields, `started_at`, or
 `completed_at`. An empty `root_id` clears the assignment root override. It does
 not mutate or start the linked Task or Chat.
+For a `manual` assignment, terminal status changes use Cairnline's completion
+transition so authoritative start/completion timestamps remain portable. A
+queued-to-running PATCH returns `409 conflict`; the dedicated `/start` action is
+the sole queued-start path and claims the assignment before recording progress.
+Running Human work can move to `awaiting_approval` and resume to `running`
+through status-only PATCH requests. Human assignment details are editable only
+while the portable row remains queued, unclaimed, and free of execution links.
+The UI saves a queued Human progress change separately from destination edits;
+selecting cancellation resets and locks unsaved responsibility, destination,
+and workspace changes before confirmation.
+`failed` and `cancelled` are terminal Cairnline outcomes and currently remain
+closeout blockers; this API does not invent a local retry or supersession state.
 
 #### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}`
 
@@ -3327,6 +3356,10 @@ resolution.
 In strict embedded mode, the endpoint reads the launch packet directly from the
 embedded Cairnline database and does not require a matching Hecate-native
 project, work item, assignment, or role row.
+
+Human (`manual`) assignments do not have launch configuration. The Projects UI
+does not call this endpoint for them; callers receive a blocked projection that
+directs the operator to start work from the work item.
 
 The response envelope is:
 
@@ -3393,6 +3426,8 @@ start: project/work/assignment/role lookup, stored driver support, active
 execution checks, workspace resolution, resolved Agent Preset, provider/model hints
 for native assignments, External Agent adapter/options for external-agent
 assignments, skill metadata resolution, and prompt-context policy metadata.
+Human (`manual`) assignments return `409 conflict` because they start directly
+and have no runtime launch packet.
 The packet includes a `project_work` / `project_root` item describing the
 selected root, path, Git branch/remote when known, and whether the root came
 from an assignment override, work-item default, or project default/fallback.
@@ -3555,6 +3590,17 @@ empty until the operator sends a turn in the linked chat.
   }
 }
 ```
+
+For `driver_kind="manual"`, starting uses Cairnline's claim and progress
+transitions with claimant `hecate_operator`, returns the running assignment,
+and creates no Task, Run, Chat, context snapshot, or execution reference. The
+project and work item may be rootless. Repeated or conflicting starts return
+`409` without duplicating lifecycle state. A pristine interrupted claim by the
+same operator may be finished safely; a claim with an execution ref or context
+snapshot is treated as prepared elsewhere and still returns `409`.
+Start revalidation compares the claimed row with the assignment's portable
+coordination snapshot, including desired skills. Later role-skill edits do not
+rewrite that snapshot or make an existing assignment unstartable.
 
 Repeated starts for an assignment that already has an active execution return
 `409` with the current assignment envelope and do not create another task/run.

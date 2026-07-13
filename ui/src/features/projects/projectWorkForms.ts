@@ -217,12 +217,13 @@ export function assignmentCreatePayloadFromForm(form: NewAssignmentForm) {
 export function assignmentUpdatePayloadFromForm(
   form: EditAssignmentForm,
 ): UpdateProjectAssignmentPayload {
+  const executionRef = projectAssignmentExecutionRefFromForm(form);
   return {
     role_id: form.roleID.trim(),
     root_id: form.rootID.trim(),
     driver_kind: form.driverKind || "hecate_task",
     status: form.status,
-    execution_ref: projectAssignmentExecutionRefFromForm(form),
+    ...(executionRef.kind === "none" ? {} : { execution_ref: executionRef }),
   };
 }
 

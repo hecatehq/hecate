@@ -308,7 +308,9 @@ func (authority projectAssistantWorkAuthority) CreateAssignment(ctx context.Cont
 	if h.projectAssignmentWritesUseCairnlineAuthority() {
 		assignment, err = h.createProjectWorkAssignmentWithCairnlineAuthority(ctx, projectID, workItemID, appCmd)
 	} else {
-		assignment, err = h.projectWorkApplication().CreateAssignment(ctx, projectID, workItemID, appCmd)
+		if err = h.validateProjectHumanAssignmentAuthority(ctx, projectID, appCmd.RoleID, appCmd.DriverKind); err == nil {
+			assignment, err = h.projectWorkApplication().CreateAssignment(ctx, projectID, workItemID, appCmd)
+		}
 	}
 	return assignment, projectAssistantApplyWorkError(err)
 }
@@ -377,6 +379,9 @@ func projectAssistantApplyWorkError(err error) error {
 		return nil
 	}
 	if errors.Is(err, projectworkapp.ErrWorkItemCloseoutBlocked) {
+		return fmt.Errorf("%w: %w", projectassistant.ErrConflict, err)
+	}
+	if errors.Is(err, cairnline.ErrConflict) {
 		return fmt.Errorf("%w: %w", projectassistant.ErrConflict, err)
 	}
 	return err

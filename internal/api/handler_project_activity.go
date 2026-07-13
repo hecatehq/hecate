@@ -302,6 +302,8 @@ func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment Proj
 func projectActivityAssignmentInput(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, artifactCount int) projectworkapp.ActivityAssignmentInput {
 	return projectworkapp.ActivityAssignmentInput{
 		Status:        assignment.Status,
+		DriverKind:    assignment.DriverKind,
+		Started:       assignment.StartedAt != "",
 		Execution:     projectActivityExecutionSummaryForApp(assignment.Execution),
 		ExecutionRef:  projectActivityExecutionRefForApp(assignment.ExecutionRef),
 		LinkedChat:    projectActivityLinkedChatForApp(linkedChat),

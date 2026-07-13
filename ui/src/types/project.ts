@@ -676,7 +676,7 @@ export type ProjectAssignmentStatus =
   | "failed"
   | "cancelled";
 
-export type ProjectAssignmentDriverKind = "hecate_task" | "external_agent";
+export type ProjectAssignmentDriverKind = "manual" | "hecate_task" | "external_agent";
 
 export type ProjectAssignmentExecutionSummary = {
   task_id?: string;

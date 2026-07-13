@@ -121,11 +121,10 @@ func (store projectAssistantCairnlineWorkReadStore) ListAssignments(ctx context.
 		return nil, projectAssistantWorkReadError(err)
 	}
 	defer view.Close()
-	items, err := view.service.ListAssignments(ctx, view.snapshot.Project.ID)
+	assignments, err := store.handler.cairnlineProjectAssignments(ctx, view.service, view.snapshot)
 	if err != nil {
 		return nil, projectAssistantWorkReadError(err)
 	}
-	assignments := projectWorkAssignmentsFromCairnline(items, view.snapshot.Assignments)
 	projected, err := store.handler.applyRuntimeForCairnlineReadiness(ctx, assignments)
 	if err != nil {
 		return nil, projectAssistantWorkReadError(err)

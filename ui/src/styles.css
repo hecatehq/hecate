@@ -315,6 +315,28 @@ textarea {
   }
 }
 
+@media (max-width: 520px) {
+  .project-assignment-plan-grid,
+  .project-assignment-form-grid,
+  .project-role-defaults-grid,
+  .project-roles-modal-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .project-roles-modal-grid {
+    min-height: 0 !important;
+  }
+
+  .project-roles-modal-list {
+    border-bottom: 1px solid var(--border);
+    border-right: 0 !important;
+    max-height: 156px;
+    overflow-y: auto;
+    padding-bottom: 10px;
+    padding-right: 0 !important;
+  }
+}
+
 /* ─── Badge ─── */
 .badge {
   display: inline-flex;

@@ -400,13 +400,24 @@ func selectDraftRole(roleID string, roles []projectwork.AgentRoleProfile, workIt
 
 func selectDraftDriver(driverKind string, role *projectwork.AgentRoleProfile) (string, string, string) {
 	if driverKind != "" {
-		return driverKind, "explicit", fmt.Sprintf("Operator selected driver %s.", driverKind)
+		return driverKind, "explicit", fmt.Sprintf("Operator selected %s.", draftDriverLabel(driverKind))
 	}
 	if role != nil && strings.TrimSpace(role.DefaultDriverKind) != "" {
 		driver := strings.TrimSpace(role.DefaultDriverKind)
-		return driver, "role_default", fmt.Sprintf("Using %s from the selected role default.", driver)
+		return driver, "role_default", fmt.Sprintf("Using %s from the selected role default.", draftDriverLabel(driver))
 	}
-	return projectwork.AssignmentDriverHecateTask, "fallback", "No driver hint was set; using hecate_task."
+	return projectwork.AssignmentDriverHecateTask, "fallback", "No destination was selected; using Hecate Task."
+}
+
+func draftDriverLabel(driverKind string) string {
+	switch strings.TrimSpace(driverKind) {
+	case projectwork.AssignmentDriverManual:
+		return "Human"
+	case projectwork.AssignmentDriverExternalAgent:
+		return "External Agent"
+	default:
+		return "Hecate Task"
+	}
 }
 
 func findDraftRole(roleID string, roles []projectwork.AgentRoleProfile) *projectwork.AgentRoleProfile {

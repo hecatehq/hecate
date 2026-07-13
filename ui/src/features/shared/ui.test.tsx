@@ -257,7 +257,11 @@ describe("Modal", () => {
     renderModal();
     const dialog = screen.getByRole("dialog", { name: "Test modal" });
     expect(dialog).toBeTruthy();
-    expect(within(dialog).getByTestId("content")).toBeTruthy();
+    expect(dialog.style.maxWidth).toBe("calc(100vw - 24px)");
+    expect(dialog.style.maxHeight).toBe("min(80vh, calc(100dvh - 24px))");
+    const content = within(dialog).getByTestId("content");
+    expect(content).toBeTruthy();
+    expect(content.parentElement?.style.overscrollBehavior).toBe("contain");
     expect(within(dialog).getByRole("button", { name: "OK" })).toBeTruthy();
   });
 

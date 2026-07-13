@@ -196,7 +196,7 @@ func validateProjectRoleForCairnlineAuthority(role projectwork.AgentRoleProfile)
 
 func validProjectRoleDefaultDriverForCairnlineAuthority(driver string) bool {
 	switch strings.TrimSpace(driver) {
-	case "", projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent:
+	case "", projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent, projectwork.AssignmentDriverManual:
 		return true
 	default:
 		return false

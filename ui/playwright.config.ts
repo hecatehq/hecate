@@ -20,7 +20,9 @@ export default defineConfig({
   expect: { timeout: 5_000 },
   use: {
     baseURL: "http://localhost:5173",
+    locale: "en-US",
     screenshot: "only-on-failure",
+    timezoneId: "Europe/Madrid",
     trace: "on-first-retry",
   },
   projects: [

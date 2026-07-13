@@ -1174,19 +1174,16 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 		RootID:     "root_main",
 		DriverKind: projectwork.AssignmentDriverHecateTask,
 		Status:     projectwork.AssignmentStatusQueued,
-		ExecutionRef: projectwork.AssignmentExecutionRef{
-			ContextSnapshotID: "ctx_queued",
-		},
-		CreatedAt: now,
-		UpdatedAt: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	queued, err := UpsertAssignment(ctx, service, assignment, role)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(queued) error = %v", err)
 	}
-	if queued.Status != cairnline.AssignmentQueued || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "ctx_queued" {
-		t.Fatalf("queued assignment = %+v, want created orchestrated assignment metadata", queued)
+	if queued.Status != cairnline.AssignmentQueued || queued.ExecutionMode != cairnline.ExecutionOrchestrated || queued.ContextSnapshotID != "" || !queued.ExecutionRef.Empty() {
+		t.Fatalf("queued assignment = %+v, want pristine orchestrated coordination", queued)
 	}
 	if queued.DesiredAgent.Kind != "hecate" || len(queued.DesiredAgent.SkillIDs) != 1 || queued.DesiredAgent.SkillIDs[0] != "backend" {
 		t.Fatalf("queued desired agent = %+v, want Hecate desired agent with role skill ids", queued.DesiredAgent)
@@ -1233,12 +1230,12 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	assignment.WorkItemID = followUpWork.ID
 	assignment.RoleID = externalRole.ID
 	assignment.DriverKind = projectwork.AssignmentDriverExternalAgent
-	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{ContextSnapshotID: "ctx_updated"}
+	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{}
 	updatedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole)
 	if err != nil {
 		t.Fatalf("UpsertAssignment(update queued metadata) error = %v", err)
 	}
-	if updatedQueued.Status != cairnline.AssignmentQueued || updatedQueued.WorkItemID != followUpWork.ID || updatedQueued.RoleID != externalRole.ID || updatedQueued.ExecutionMode != cairnline.ExecutionExternalAdapter || updatedQueued.ContextSnapshotID != "ctx_updated" {
+	if updatedQueued.Status != cairnline.AssignmentQueued || updatedQueued.WorkItemID != followUpWork.ID || updatedQueued.RoleID != externalRole.ID || updatedQueued.ExecutionMode != cairnline.ExecutionExternalAdapter || updatedQueued.ContextSnapshotID != "" {
 		t.Fatalf("updated queued assignment = %+v, want retargeted queued assignment metadata", updatedQueued)
 	}
 	if !updatedQueued.CreatedAt.Equal(queued.CreatedAt) {
@@ -1254,9 +1251,9 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	assignment.ExecutionRef = projectwork.AssignmentExecutionRef{}
 	assignment.StartedAt = time.Time{}
 	assignment.CompletedAt = time.Time{}
-	releasedQueued, err := UpsertAssignment(ctx, service, assignment, externalRole)
+	releasedQueued, err := service.ReleaseAssignment(ctx, assignment.ProjectID, assignment.ID, "external_adapter")
 	if err != nil {
-		t.Fatalf("UpsertAssignment(release queued) error = %v", err)
+		t.Fatalf("ReleaseAssignment(retry rollback) error = %v", err)
 	}
 	if releasedQueued.Status != cairnline.AssignmentQueued || releasedQueued.ClaimedBy != "" || !releasedQueued.ExecutionRef.Empty() || releasedQueued.ContextSnapshotID != "" || !releasedQueued.StartedAt.IsZero() || !releasedQueued.CompletedAt.IsZero() {
 		t.Fatalf("released queued assignment = %+v, want claimed assignment released for retry", releasedQueued)
@@ -1269,7 +1266,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAssignment(running) error = %v", err)
 	}
-	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_1", RunID: "run_1"}) || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID || !running.StartedAt.Equal(assignment.StartedAt) {
+	if running.Status != cairnline.AssignmentRunning || running.ClaimedBy != "external_adapter" || running.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_1", RunID: "run_1"}) || running.ContextSnapshotID != "ctx_running" || running.WorkItemID != followUpWork.ID || running.RoleID != externalRole.ID || running.StartedAt.IsZero() {
 		t.Fatalf("running assignment = %+v, want claimed running assignment", running)
 	}
 	if _, err := UpsertAssignment(ctx, service, assignment, externalRole); err != nil {
@@ -1282,7 +1279,7 @@ func TestUpsertAssignmentCreatesAndSyncsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAssignment(completed) error = %v", err)
 	}
-	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_1", RunID: "run_1"}) || !completed.StartedAt.Equal(assignment.StartedAt) || !completed.CompletedAt.Equal(assignment.CompletedAt) {
+	if completed.Status != cairnline.AssignmentCompleted || completed.ExecutionRef != (cairnline.ExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_1", RunID: "run_1"}) || completed.StartedAt.IsZero() || completed.CompletedAt.IsZero() || completed.CompletedAt.Before(completed.StartedAt) {
 		t.Fatalf("completed assignment = %+v, want completed assignment with execution ref", completed)
 	}
 	if _, err := UpsertAssignment(ctx, service, assignment, externalRole); err != nil {
@@ -1832,6 +1829,7 @@ func TestExecutionModeMapsHecateDrivers(t *testing.T) {
 	}{
 		{name: "hecate task", driver: projectwork.AssignmentDriverHecateTask, want: cairnline.ExecutionOrchestrated},
 		{name: "external agent", driver: projectwork.AssignmentDriverExternalAgent, want: cairnline.ExecutionExternalAdapter},
+		{name: "manual", driver: projectwork.AssignmentDriverManual, want: cairnline.ExecutionManual},
 		{name: "unspecified", driver: "", want: cairnline.ExecutionMCPPull},
 	}
 	for _, tt := range tests {
@@ -1840,6 +1838,44 @@ func TestExecutionModeMapsHecateDrivers(t *testing.T) {
 				t.Fatalf("ExecutionMode(%q) = %q, want %q", tt.driver, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestManualAssignmentMapsToPortableContract(t *testing.T) {
+	role := projectwork.AgentRoleProfile{
+		ID:                "operator",
+		ProjectID:         "proj_manual",
+		Name:              "Operator",
+		DefaultDriverKind: projectwork.AssignmentDriverManual,
+		SkillIDs:          []string{"review"},
+	}
+	portableRole := Role(role)
+	if portableRole.DefaultExecutionMode != cairnline.ExecutionManual {
+		t.Fatalf("Role() default execution mode = %q, want %q", portableRole.DefaultExecutionMode, cairnline.ExecutionManual)
+	}
+
+	portableAssignment := Assignment(projectwork.Assignment{
+		ID:         "asgn_manual",
+		ProjectID:  role.ProjectID,
+		WorkItemID: "work_manual",
+		RoleID:     role.ID,
+		DriverKind: projectwork.AssignmentDriverManual,
+		Status:     projectwork.AssignmentStatusRunning,
+	}, role)
+	if portableAssignment.ExecutionMode != cairnline.ExecutionManual {
+		t.Fatalf("Assignment() execution mode = %q, want %q", portableAssignment.ExecutionMode, cairnline.ExecutionManual)
+	}
+	if portableAssignment.DesiredAgent.Kind != "human" {
+		t.Fatalf("Assignment() desired agent kind = %q, want human", portableAssignment.DesiredAgent.Kind)
+	}
+	if got := claimedBy(portableAssignment); got != AssignmentClaimedByOperator {
+		t.Fatalf("claimedBy(manual) = %q, want %q", got, AssignmentClaimedByOperator)
+	}
+	if got := DriverKind(cairnline.ExecutionManual); got != projectwork.AssignmentDriverManual {
+		t.Fatalf("DriverKind(manual) = %q, want %q", got, projectwork.AssignmentDriverManual)
+	}
+	if got := DesiredAgentKind(""); got != cairnline.DesiredAgentAny {
+		t.Fatalf("DesiredAgentKind(unspecified) = %q, want %q", got, cairnline.DesiredAgentAny)
 	}
 }
 

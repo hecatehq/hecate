@@ -153,7 +153,11 @@ func (h *Handler) renderNativeProjectHealth(ctx context.Context, projectID strin
 	now := time.Now().UTC()
 	staleAssignments := projectHealthStaleAssignments(project, activity, workItems, assignments, now)
 	summary := projectHealthSummary(project, memoryEntries, memoryCandidates, handoffs, artifacts, staleAssignments)
-	attention := projectHealthAttentionItems(project, activity, workItems, roles, handoffs, artifacts, memoryEntries, memoryCandidates, agentProfiles, skills, staleAssignments)
+	if !projectAgentLaunchPrerequisitesRequired(assignments, roles) {
+		summary.MissingDefaults = false
+		summary.MissingProjectRoot = false
+	}
+	attention := projectHealthAttentionItems(project, activity, workItems, assignments, roles, handoffs, artifacts, memoryEntries, memoryCandidates, agentProfiles, skills, staleAssignments)
 	availableAttentionCount := len(attention)
 	attention = boundedProjectHealthAttention(attention, projectHealthAttentionLimit)
 	summary.AttentionCount = len(attention)
@@ -254,19 +258,20 @@ func projectHealthSummary(project projects.Project, entries []memory.Entry, cand
 	return summary
 }
 
-func projectHealthAttentionItems(project projects.Project, activity ProjectActivityDataResponse, workItems []projectwork.WorkItem, roles []projectwork.AgentRoleProfile, handoffs []projectwork.Handoff, artifacts []projectwork.CollaborationArtifact, memoryEntries []memory.Entry, memoryCandidates []memory.Candidate, agentProfiles []agentprofiles.Profile, skills []projectskills.Skill, staleAssignments []ProjectActivityItemResponse) []ProjectHealthAttentionItem {
+func projectHealthAttentionItems(project projects.Project, activity ProjectActivityDataResponse, workItems []projectwork.WorkItem, assignments []projectwork.Assignment, roles []projectwork.AgentRoleProfile, handoffs []projectwork.Handoff, artifacts []projectwork.CollaborationArtifact, memoryEntries []memory.Entry, memoryCandidates []memory.Candidate, agentProfiles []agentprofiles.Profile, skills []projectskills.Skill, staleAssignments []ProjectActivityItemResponse) []ProjectHealthAttentionItem {
 	items := make([]ProjectHealthAttentionItem, 0, projectHealthAttentionLimit+4)
-	if !projectHasActiveRoot(project) {
+	requiresAgentLaunch := projectAgentLaunchPrerequisitesRequired(assignments, roles)
+	if requiresAgentLaunch && !projectHasActiveRoot(project) {
 		items = append(items, ProjectHealthAttentionItem{
 			ID:        projectHealthItemID(project.ID, "root"),
 			ProjectID: project.ID,
 			Title:     "No project root configured",
-			Detail:    "Assignment starts need an active local workspace root for files, tools, and guidance discovery.",
+			Detail:    "Agent and External Agent starts need an active local workspace root for files, tools, and guidance discovery.",
 			Status:    "stale_unknown",
 			Action:    newProjectActionOpenProjectSettings(project.ID),
 		})
 	}
-	if projectHealthMissingDefaults(project) {
+	if requiresAgentLaunch && projectHealthMissingDefaults(project) {
 		items = append(items, ProjectHealthAttentionItem{
 			ID:        projectHealthItemID(project.ID, "defaults"),
 			ProjectID: project.ID,
@@ -312,6 +317,11 @@ func projectHealthAttentionItems(project projects.Project, activity ProjectActiv
 		})
 	}
 	return uniqueProjectHealthAttention(items)
+}
+
+func projectAgentLaunchPrerequisitesRequired(assignments []projectwork.Assignment, roles []projectwork.AgentRoleProfile) bool {
+	return !projectAssignmentsAreHumanOnly(assignments) &&
+		!(len(assignments) == 0 && projectRolesAreHumanOnly(roles))
 }
 
 func projectHealthProfileAttentionItems(project projects.Project, roles []projectwork.AgentRoleProfile, profiles []agentprofiles.Profile) []ProjectHealthAttentionItem {

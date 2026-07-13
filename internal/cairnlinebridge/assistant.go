@@ -734,6 +734,8 @@ func DriverKind(mode string) string {
 		return projectwork.AssignmentDriverHecateTask
 	case cairnline.ExecutionExternalAdapter:
 		return projectwork.AssignmentDriverExternalAgent
+	case cairnline.ExecutionManual:
+		return projectwork.AssignmentDriverManual
 	default:
 		return ""
 	}

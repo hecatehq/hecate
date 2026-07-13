@@ -7,6 +7,7 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { Badge, CopyableID, Icon, Icons, InlineError } from "../shared/ui";
+import { projectAssignmentDestinationLabel } from "./projectAssignmentDestinations";
 import {
   toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
@@ -22,11 +23,14 @@ export type ProjectAssignmentExecutionStoryProps = {
   onCreateHandoff: () => void;
   onCreateReviewArtifact?: () => void;
   onCreateReviewHandoff?: () => void;
+  onCompleteWork: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onOpenChat?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onReviewLaunch: () => void;
+  onResumeWork: () => void;
+  onStartWork: () => void;
   project: ProjectRecord | null;
   promoteCompletionAction?: boolean;
   readinessControl?: ReactNode;
@@ -46,15 +50,16 @@ type ProjectAssignmentPrimaryAction = {
   ariaLabel?: string;
   disabled?: boolean;
   icon: string;
-  key: "launch" | "open-chat" | "open-task" | "record-review" | "request-review";
+  key: "launch" | "open-chat" | "open-task" | "progress-work" | "record-review" | "request-review";
   label: string;
   onClick: () => void;
 };
 
 type ProjectAssignmentFollowThroughAction = {
   ariaLabel: string;
+  disabled?: boolean;
   icon: string;
-  key: "handoff" | "record-review" | "request-review";
+  key: "handoff" | "record-review" | "request-review" | "resume-work";
   label: string;
   onClick: () => void;
 };
@@ -67,11 +72,14 @@ export function ProjectAssignmentExecutionStory({
   onCreateHandoff,
   onCreateReviewArtifact,
   onCreateReviewHandoff,
+  onCompleteWork,
   onDelete,
   onEdit,
   onOpenChat,
   onOpenTask,
   onReviewLaunch,
+  onResumeWork,
+  onStartWork,
   project,
   promoteCompletionAction = true,
   readinessControl,
@@ -83,11 +91,19 @@ export function ProjectAssignmentExecutionStory({
   const status = execution.status || assignment.status;
   const destination = projectAssignmentDestinationLabel(assignment.driver_kind);
   const external = assignment.driver_kind === "external_agent";
+  const manual = assignment.driver_kind === "manual";
+  const manualMissingStart = Boolean(
+    manual && status === "running" && !assignment.started_at && !assignment.execution?.started_at,
+  );
+  const manualStartClaimBlocked = manualMissingStart && execution.hasAnyLink;
+  const manualStartInterrupted = manualMissingStart && !execution.hasAnyLink;
+  const manualTerminal =
+    manual && (status === "completed" || status === "failed" || status === "cancelled");
   const startable = (assignment.driver_kind === "hecate_task" || external) && status === "queued";
   const canOpenTask = Boolean(execution.taskID && onOpenTask);
   const canOpenChat = Boolean(onOpenChat && execution.chatSessionID);
   const canStartRelatedChat = Boolean(
-    onOpenChat && !external && !execution.chatSessionID && chatModel,
+    onOpenChat && !external && !manual && !execution.chatSessionID && chatModel,
   );
   const milestones = projectAssignmentExecutionMilestones(assignment);
   const primaryAction = projectAssignmentPrimaryAction({
@@ -96,24 +112,34 @@ export function ProjectAssignmentExecutionStory({
     canOpenTask,
     execution,
     external,
+    manual,
+    manualStartClaimBlocked,
+    manualStartInterrupted,
+    onCompleteWork,
     onCreateReviewArtifact,
     onCreateReviewHandoff,
     onOpenChat,
     onOpenTask,
     onReviewLaunch,
+    onResumeWork,
+    onStartWork,
     promoteCompletionAction,
     startable,
     starting,
     status,
   });
-  const statusSummary = projectAssignmentStatusSummary(
-    assignment,
-    destination,
-    execution.pendingApprovalCount,
-  );
+  const statusSummary = manual
+    ? projectManualAssignmentStatusSummary(
+        status,
+        execution.pendingApprovalCount,
+        manualStartInterrupted,
+        manualStartClaimBlocked,
+      )
+    : projectAssignmentStatusSummary(assignment, destination, execution.pendingApprovalCount);
   const primaryKey = primaryAction?.key;
   const followThroughActions: ProjectAssignmentFollowThroughAction[] = [];
-  if (execution.hasAnyLink) {
+  const canFollowThrough = manual || execution.hasAnyLink;
+  if (canFollowThrough) {
     followThroughActions.push({
       ariaLabel: `Create handoff from assignment ${assignment.id}`,
       key: "handoff",
@@ -122,7 +148,7 @@ export function ProjectAssignmentExecutionStory({
       onClick: onCreateHandoff,
     });
   }
-  if (execution.hasAnyLink && onCreateReviewHandoff && primaryKey !== "request-review") {
+  if (canFollowThrough && onCreateReviewHandoff && primaryKey !== "request-review") {
     followThroughActions.push({
       ariaLabel: `Request review for assignment ${assignment.id}`,
       key: "request-review",
@@ -140,6 +166,16 @@ export function ProjectAssignmentExecutionStory({
       onClick: onCreateReviewArtifact,
     });
   }
+  if (manual && status === "awaiting_approval" && primaryKey === "record-review") {
+    followThroughActions.unshift({
+      ariaLabel: `Resume work on assignment ${assignment.id}`,
+      disabled: starting,
+      key: "resume-work",
+      label: "Resume work",
+      icon: Icons.refresh,
+      onClick: onResumeWork,
+    });
+  }
   const runtimeMissing = Boolean(execution.missing || assignment.execution?.missing);
 
   return (
@@ -151,16 +187,21 @@ export function ProjectAssignmentExecutionStory({
         <div style={storyIdentityStyle}>
           <div style={storyBadgesStyle}>
             <Badge
-              status={status}
-              label={projectAssignmentStateLabel(status, execution.pendingApprovalCount)}
+              status={manualStartClaimBlocked ? "warn" : status}
+              label={
+                manual
+                  ? manualStartClaimBlocked
+                    ? "Start blocked"
+                    : manualStartInterrupted
+                      ? "Starting"
+                      : projectManualAssignmentStateLabel(status)
+                  : projectAssignmentStateLabel(status, execution.pendingApprovalCount)
+              }
             />
             <span className="badge badge-muted">{destination}</span>
           </div>
           <h3 style={storyTitleStyle}>{role?.name ?? assignment.role_id}</h3>
-          <p
-            aria-live={status === "awaiting_approval" ? "polite" : undefined}
-            style={storySummaryStyle}
-          >
+          <p aria-busy={starting} aria-live="polite" role="status" style={storySummaryStyle}>
             {statusSummary}
           </p>
         </div>
@@ -178,7 +219,10 @@ export function ProjectAssignmentExecutionStory({
         )}
       </header>
 
-      <ol aria-label="Execution milestones" style={milestoneListStyle}>
+      <ol
+        aria-label={manual ? "Assignment progress" : "Execution milestones"}
+        style={milestoneListStyle}
+      >
         {milestones.map((milestone) => (
           <li key={milestone.key} style={milestoneStyle}>
             <span
@@ -203,7 +247,7 @@ export function ProjectAssignmentExecutionStory({
         ))}
       </ol>
 
-      {runtimeMissing && (
+      {!manual && runtimeMissing && (
         <div aria-live="polite" role="status" style={attentionStyle}>
           <Icon d={Icons.warning} size={13} />
           <span>The linked runtime record is missing or unavailable.</span>
@@ -231,7 +275,9 @@ export function ProjectAssignmentExecutionStory({
       {error && <InlineError message={error} />}
 
       <details style={detailsStyle}>
-        <summary style={detailsSummaryStyle}>Execution details</summary>
+        <summary style={detailsSummaryStyle}>
+          {manual ? "Assignment details" : "Execution details"}
+        </summary>
         <div style={detailsBodyStyle}>
           <div style={detailsActionsStyle}>
             {canOpenTask && primaryKey !== "open-task" && (
@@ -251,25 +297,34 @@ export function ProjectAssignmentExecutionStory({
               </button>
             )}
             {canStartRelatedChat && (
-              <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenChat}>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={starting}
+                type="button"
+                onClick={onOpenChat}
+              >
                 <Icon d={Icons.chat} size={12} />
                 Start related chat
               </button>
             )}
             {contextControl}
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              aria-label={`Edit assignment ${assignment.id}`}
-              onClick={onEdit}
-            >
-              <Icon d={Icons.edit} size={12} />
-              Edit
-            </button>
+            {!manualTerminal && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                aria-label={`Edit assignment ${assignment.id}`}
+                disabled={starting || manualStartClaimBlocked}
+                onClick={onEdit}
+              >
+                <Icon d={Icons.edit} size={12} />
+                Edit
+              </button>
+            )}
             <button
               className="btn btn-ghost btn-sm"
               type="button"
               aria-label={`Delete assignment ${assignment.id}`}
+              disabled={starting}
               onClick={onDelete}
               style={{ color: "var(--red)" }}
             >
@@ -321,6 +376,7 @@ export function ProjectAssignmentExecutionStory({
               aria-label={action.ariaLabel}
               className="btn btn-ghost btn-sm"
               type="button"
+              disabled={starting || action.disabled}
               onClick={action.onClick}
             >
               <Icon d={action.icon} size={12} />
@@ -333,30 +389,28 @@ export function ProjectAssignmentExecutionStory({
   );
 }
 
-export function projectAssignmentDestinationLabel(driverKind: string): string {
-  switch (driverKind) {
-    case "hecate_task":
-      return "Hecate Task";
-    case "external_agent":
-      return "External Agent";
-    default:
-      return driverKind || "Unspecified destination";
-  }
-}
-
 export function projectAssignmentExecutionMilestones(
   assignment: ProjectAssignmentRecord,
 ): ProjectAssignmentExecutionMilestone[] {
   const execution = toProjectAssignmentExecutionViewModel(assignment);
   const status = execution.status || assignment.status;
+  const manual = assignment.driver_kind === "manual";
   const startedAt = assignment.execution?.started_at || assignment.started_at;
   const finishedAt = assignment.execution?.finished_at || assignment.completed_at;
+  const manualMissingStart = Boolean(manual && status === "running" && !startedAt);
+  const manualStartClaimBlocked = manualMissingStart && execution.hasAnyLink;
+  const manualStartInterrupted = manualMissingStart && !execution.hasAnyLink;
   const terminal = status === "completed" || status === "failed" || status === "cancelled";
   const milestones: ProjectAssignmentExecutionMilestone[] = [
     {
       at: assignment.created_at,
       current: status === "queued",
-      detail: status === "queued" ? "Waiting for launch review." : "Assignment recorded.",
+      detail:
+        status === "queued"
+          ? manual
+            ? "Ready for a person to begin."
+            : "Waiting for launch review."
+          : "Assignment recorded.",
       key: "assigned",
       label: "Assigned",
     },
@@ -365,7 +419,7 @@ export function projectAssignmentExecutionMilestones(
     milestones.push({
       at: startedAt,
       current: false,
-      detail: "Execution began.",
+      detail: manual ? "Work began." : "Execution began.",
       key: "started",
       label: "Started",
     });
@@ -374,16 +428,30 @@ export function projectAssignmentExecutionMilestones(
     milestones.push({
       at: finishedAt,
       current: true,
-      detail: projectAssignmentTerminalDetail(status),
+      detail: manual
+        ? projectManualAssignmentTerminalDetail(status)
+        : projectAssignmentTerminalDetail(status),
       key: "finished",
       label: "Finished",
     });
   } else if (status !== "queued") {
     milestones.push({
       current: true,
-      detail: projectAssignmentCurrentMilestoneDetail(status, execution.pendingApprovalCount),
+      detail: manual
+        ? manualStartClaimBlocked
+          ? "This start was prepared elsewhere and cannot be recovered here."
+          : manualStartInterrupted
+            ? "The start claim was saved, but work did not begin. Finish starting to recover."
+            : projectManualAssignmentCurrentMilestoneDetail(status, execution.pendingApprovalCount)
+        : projectAssignmentCurrentMilestoneDetail(status, execution.pendingApprovalCount),
       key: "current",
-      label: projectAssignmentStateLabel(status, execution.pendingApprovalCount),
+      label: manual
+        ? manualStartClaimBlocked
+          ? "Start blocked"
+          : manualStartInterrupted
+            ? "Starting"
+            : projectManualAssignmentStateLabel(status)
+        : projectAssignmentStateLabel(status, execution.pendingApprovalCount),
     });
   }
   return milestones;
@@ -395,11 +463,17 @@ function projectAssignmentPrimaryAction({
   canOpenTask,
   execution,
   external,
+  manual,
+  manualStartClaimBlocked,
+  manualStartInterrupted,
+  onCompleteWork,
   onCreateReviewArtifact,
   onCreateReviewHandoff,
   onOpenChat,
   onOpenTask,
   onReviewLaunch,
+  onResumeWork,
+  onStartWork,
   promoteCompletionAction,
   startable,
   starting,
@@ -410,16 +484,69 @@ function projectAssignmentPrimaryAction({
   canOpenTask: boolean;
   execution: ReturnType<typeof toProjectAssignmentExecutionViewModel>;
   external: boolean;
+  manual: boolean;
+  manualStartClaimBlocked: boolean;
+  manualStartInterrupted: boolean;
+  onCompleteWork: () => void;
   onCreateReviewArtifact?: () => void;
   onCreateReviewHandoff?: () => void;
   onOpenChat?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onReviewLaunch: () => void;
+  onResumeWork: () => void;
+  onStartWork: () => void;
   promoteCompletionAction: boolean;
   startable: boolean;
   starting: boolean;
   status: string;
 }): ProjectAssignmentPrimaryAction | null {
+  if (manual && status === "queued") {
+    return {
+      disabled: starting,
+      icon: Icons.send,
+      key: "progress-work",
+      label: starting ? "Starting…" : "Start work",
+      onClick: onStartWork,
+    };
+  }
+  if (manual && status === "running") {
+    if (manualStartClaimBlocked) return null;
+    if (manualStartInterrupted) {
+      return {
+        disabled: starting,
+        icon: Icons.refresh,
+        key: "progress-work",
+        label: starting ? "Finishing start…" : "Finish starting",
+        onClick: onStartWork,
+      };
+    }
+    return {
+      disabled: starting,
+      icon: Icons.check,
+      key: "progress-work",
+      label: starting ? "Completing…" : "Mark complete",
+      onClick: onCompleteWork,
+    };
+  }
+  if (manual && status === "awaiting_approval") {
+    if (onCreateReviewArtifact) {
+      return {
+        ariaLabel: `Record review for assignment ${assignmentID}`,
+        disabled: starting,
+        icon: Icons.check,
+        key: "record-review",
+        label: "Record review",
+        onClick: onCreateReviewArtifact,
+      };
+    }
+    return {
+      disabled: starting,
+      icon: Icons.refresh,
+      key: "progress-work",
+      label: starting ? "Resuming…" : "Resume work",
+      onClick: onResumeWork,
+    };
+  }
   if (startable) {
     return {
       disabled: starting,
@@ -446,7 +573,7 @@ function projectAssignmentPrimaryAction({
         onClick: onCreateReviewArtifact,
       };
     }
-    if (execution.hasAnyLink && onCreateReviewHandoff) {
+    if ((manual || execution.hasAnyLink) && onCreateReviewHandoff) {
       return {
         ariaLabel: `Request review for assignment ${assignmentID}`,
         icon: Icons.check,
@@ -515,6 +642,88 @@ function projectAssignmentStatusSummary(
       return "Execution completed. Review the outcome and choose the follow-through.";
     default:
       return `Current state: ${assignmentStatusLabel(status)}.`;
+  }
+}
+
+function projectManualAssignmentStatusSummary(
+  status: string,
+  pendingApprovalCount: number,
+  startInterrupted = false,
+  startClaimBlocked = false,
+): string {
+  switch (status) {
+    case "queued":
+      return "Ready for a person to begin.";
+    case "running":
+      if (startClaimBlocked) {
+        return "This start was prepared elsewhere. Resolve it with the owning operator or system.";
+      }
+      if (startInterrupted) {
+        return "Starting was interrupted before work began. Finish starting to continue.";
+      }
+      return "Human work is in progress.";
+    case "awaiting_approval":
+      return pendingApprovalCount > 0
+        ? "Human work needs review."
+        : "This work is waiting for review.";
+    case "completed":
+      return "Human work is complete. Add evidence or choose the follow-through.";
+    case "failed":
+      return "This work failed and blocks closeout. Review the evidence before deciding whether to replace this record.";
+    case "cancelled":
+      return "This work was cancelled and blocks closeout. Review the record before choosing the next step.";
+    default:
+      return `Current state: ${assignmentStatusLabel(status)}.`;
+  }
+}
+
+function projectManualAssignmentCurrentMilestoneDetail(
+  status: string,
+  pendingApprovalCount: number,
+): string {
+  switch (status) {
+    case "running":
+      return "Human work is in progress.";
+    case "awaiting_approval":
+      return pendingApprovalCount > 0
+        ? "Work is paused for operator review."
+        : "Work is waiting for review.";
+    case "failed":
+      return "Work is currently marked failed; no finish time was recorded.";
+    case "cancelled":
+      return "Work is currently marked cancelled; no finish time was recorded.";
+    case "completed":
+      return "Work is currently marked complete; no finish time was recorded.";
+    default:
+      return `Current assignment state: ${assignmentStatusLabel(status)}.`;
+  }
+}
+
+function projectManualAssignmentTerminalDetail(status: string): string {
+  switch (status) {
+    case "completed":
+      return "Work marked complete.";
+    case "failed":
+      return "Work finished without completion.";
+    case "cancelled":
+      return "Work was cancelled.";
+    default:
+      return `Work finished with status ${assignmentStatusLabel(status)}.`;
+  }
+}
+
+function projectManualAssignmentStateLabel(status: string): string {
+  switch (status) {
+    case "queued":
+      return "Ready";
+    case "running":
+      return "In progress";
+    case "awaiting_approval":
+      return "Needs review";
+    case "completed":
+      return "Done";
+    default:
+      return assignmentStatusLabel(status);
   }
 }
 
