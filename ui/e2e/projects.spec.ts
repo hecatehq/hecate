@@ -963,6 +963,9 @@ test("Projects links restore exact work across reload, history, and narrow width
   await expect(page).toHaveURL(/\/chats$/);
   await page.goBack();
   await expect(page.getByRole("heading", { name: secondWorkItem.title })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: `Opening linked work item in ${project.name}.` }),
+  ).toHaveText(`Opening linked work item in ${project.name}.`);
 
   if (process.env.HECATE_CAPTURE_PROJECTS_NAVIGATION === "1") {
     await page.screenshot({
