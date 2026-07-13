@@ -355,7 +355,11 @@ export function ProjectsView({
   );
   const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
     useState<ProjectWorkspaceTab | null>(null);
-  const [navigationAnnouncement, setNavigationAnnouncement] = useState({ key: "", message: "" });
+  const [navigationAnnouncement, setNavigationAnnouncement] = useState({
+    key: "",
+    message: "",
+    pendingWorkItem: false,
+  });
   const previousNavigationRef = useRef<ProjectNavigationState | null | undefined>(undefined);
   const navigationEffectHasRunRef = useRef(false);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
@@ -1141,7 +1145,7 @@ export function ProjectsView({
     navigationEffectHasRunRef.current = true;
     if (!navigation) {
       previousNavigationRef.current = navigation;
-      setNavigationAnnouncement({ key: "", message: "" });
+      setNavigationAnnouncement({ key: "", message: "", pendingWorkItem: false });
       return;
     }
     const previousNavigation = previousNavigationRef.current;
@@ -1155,19 +1159,12 @@ export function ProjectsView({
       if (navigationWorkItemKnownMissing) {
         setNavigationAnnouncement((current) =>
           current.key === nextNavigationKey && current.message
-            ? { key: nextNavigationKey, message: "" }
+            ? { key: nextNavigationKey, message: "", pendingWorkItem: false }
             : current,
         );
       } else if (navigation.workItemID && navigationWorkItemTitle) {
-        const genericPendingMessage = projectNavigationAnnouncementMessage(navigation, "", "");
-        const namedPendingMessage = projectNavigationAnnouncementMessage(
-          navigation,
-          navigationProjectName,
-          "",
-        );
         setNavigationAnnouncement((current) =>
-          current.key === nextNavigationKey &&
-          (current.message === genericPendingMessage || current.message === namedPendingMessage)
+          current.key === nextNavigationKey && current.pendingWorkItem
             ? {
                 key: nextNavigationKey,
                 message: projectNavigationAnnouncementMessage(
@@ -1175,6 +1172,7 @@ export function ProjectsView({
                   navigationProjectName,
                   navigationWorkItemTitle,
                 ),
+                pendingWorkItem: false,
               }
             : current,
         );
@@ -1196,7 +1194,7 @@ export function ProjectsView({
     if (focusIsInWorkspaceTabs) {
       setWorkspaceTabFocusTarget(viewChanged ? navigation.view : null);
       if (!recordChanged) {
-        setNavigationAnnouncement({ key: nextNavigationKey, message: "" });
+        setNavigationAnnouncement({ key: nextNavigationKey, message: "", pendingWorkItem: false });
         return;
       }
     } else {
@@ -1204,7 +1202,7 @@ export function ProjectsView({
     }
 
     if (navigationWorkItemKnownMissing) {
-      setNavigationAnnouncement({ key: nextNavigationKey, message: "" });
+      setNavigationAnnouncement({ key: nextNavigationKey, message: "", pendingWorkItem: false });
       return;
     }
 
@@ -1215,6 +1213,7 @@ export function ProjectsView({
         navigationProjectName,
         navigationWorkItemTitle,
       ),
+      pendingWorkItem: Boolean(navigation.workItemID && !navigationWorkItemTitle),
     });
   }, [
     navigation?.projectID,
@@ -2796,7 +2795,7 @@ export function ProjectsView({
     !workItems.some((item) => item.id === navigation.workItemID),
   );
   const managedCatalogUnavailable = Boolean(
-    navigation && projects.state.error && !projects.state.loaded,
+    navigation && projects.state.error && !projects.state.loaded && !projects.state.loading,
   );
   const navigationNotice = explicitProjectMissing
     ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."

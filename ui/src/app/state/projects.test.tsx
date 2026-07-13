@@ -85,6 +85,39 @@ describe("ProjectsProvider", () => {
     expect(result.current.state.error).toBe("catalog unavailable");
   });
 
+  it("clears the prior error while a catalog retry is pending", async () => {
+    let resolveRetry!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const retryRequest = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      resolveRetry = resolve;
+    });
+    vi.mocked(getProjects)
+      .mockRejectedValueOnce(new Error("catalog unavailable"))
+      .mockReturnValueOnce(retryRequest);
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await act(async () => {
+      await result.current.actions.loadProjects();
+    });
+    expect(result.current.state.error).toBe("catalog unavailable");
+
+    let retryPromise!: Promise<void>;
+    act(() => {
+      retryPromise = result.current.actions.loadProjects();
+    });
+    await waitFor(() => {
+      expect(result.current.state.loading).toBe(true);
+      expect(result.current.state.error).toBe("");
+    });
+
+    resolveRetry({ object: "projects", data: [] });
+    await act(async () => {
+      await retryPromise;
+    });
+    expect(result.current.state.loading).toBe(false);
+    expect(result.current.state.loaded).toBe(true);
+    expect(getProjects).toHaveBeenCalledTimes(2);
+  });
+
   it("clears a stale persisted project id after loading current projects", async () => {
     window.localStorage.setItem("hecate.project", "proj_old");
     vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });

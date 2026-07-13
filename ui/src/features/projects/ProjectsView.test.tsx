@@ -4,7 +4,7 @@ import { type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
-import { ProjectsProvider } from "../../app/state/projects";
+import { ProjectsProvider, useProjects } from "../../app/state/projects";
 import { SettingsProvider } from "../../app/state/settings";
 import {
   ApiError,
@@ -44,6 +44,7 @@ import {
   getProjectHandoffs,
   getProjectMemory,
   getProjectMemoryCandidates,
+  getProjects,
   getProjectSkills,
   getProjectSetupReadiness,
   getProjectWorkItem,
@@ -242,6 +243,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
+    getProjects: vi.fn(async () => ({ object: "projects", data: [] })),
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
@@ -1400,6 +1402,7 @@ function expectNoProjectSubresourceCalls(projectID: string) {
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  vi.mocked(getProjects).mockClear();
   vi.mocked(getProjectActivity).mockReset();
   vi.mocked(getProjectHealth).mockReset();
   vi.mocked(getProjectOperationsBrief).mockReset();
@@ -10578,6 +10581,36 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
   });
 
+  it("replaces a failed catalog state with one pending retry", async () => {
+    let resolveRetry!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects).mockReturnValueOnce(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />, {
+      wrapper: directWrapper({
+        projects: [],
+        loaded: false,
+        error: "Projects are unavailable.",
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Projects unavailable")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      expect(screen.getAllByText("Loading projects…")).toHaveLength(2);
+    });
+    expect(screen.queryByText("No projects yet")).toBeNull();
+    expect(getProjects).toHaveBeenCalledTimes(1);
+
+    resolveRetry({ object: "projects", data: [] });
+    expect(await screen.findByText("No projects yet")).toBeTruthy();
+    expect(screen.getByText("Add a project to begin")).toBeTruthy();
+  });
+
   it("keeps the Work queue visible for a missing routed work item without fetching another detail", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -10825,6 +10858,61 @@ describe("ProjectsView navigation destinations", () => {
     });
     expect(workTab).toHaveFocus();
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("resolves a pending work announcement after the project name refreshes", async () => {
+    resetProjectWorkMocks();
+    let resolveWorkItems!: (value: {
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }) => void;
+    vi.mocked(getProjectWorkItems).mockReturnValueOnce(
+      new Promise<{ object: "project_work_items"; data: ProjectWorkItemRecord[] }>((resolve) => {
+        resolveWorkItems = resolve;
+      }),
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+
+    function ProjectRefreshHarness() {
+      const projects = useProjects();
+      return (
+        <>
+          <button
+            onClick={() =>
+              projects.actions.setProjects((current) =>
+                current.map((item) =>
+                  item.id === project.id ? { ...item, name: "Hecate refreshed" } : item,
+                ),
+              )
+            }
+            type="button"
+          >
+            Refresh project name
+          </button>
+          <ProjectsView
+            navigation={{ projectID: project.id, view: "work", workItemID: workItem.id }}
+          />
+        </>
+      );
+    }
+
+    render(<ProjectRefreshHarness />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    expect(await screen.findByText("Opening linked work item in Hecate.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Refresh project name" }));
+    await waitFor(() => {
+      expect(screen.getAllByText("Hecate refreshed").length).toBeGreaterThan(0);
+    });
+
+    resolveWorkItems({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [] }],
+    });
+    expect(await screen.findByText("Work item opened: Build cockpit UI")).toBeTruthy();
+    expect(screen.queryByText("Opening linked work item in Hecate.")).toBeNull();
   });
 
   it("replaces a child route with Overview while the project is onboarding", async () => {
