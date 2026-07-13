@@ -57,6 +57,7 @@ export function ProjectScopePanel({
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
+  const createProjectInFlightRef = useRef(false);
   const [catalogRetryPending, setCatalogRetryPending] = useState(false);
   const [catalogRetryAnnouncement, setCatalogRetryAnnouncement] = useState({
     key: "0",
@@ -97,11 +98,13 @@ export function ProjectScopePanel({
   }
 
   async function handleCreateProject(form: CreateProjectForm) {
+    if (createProjectInFlightRef.current) return;
     const payload = createProjectPayloadFromForm(form);
     if (!payload.name) {
       setCreateProjectError("Project name is required.");
       return;
     }
+    createProjectInFlightRef.current = true;
     setCreateProjectPending(true);
     setCreateProjectError("");
     try {
@@ -111,6 +114,7 @@ export function ProjectScopePanel({
       setProjectsExpanded(false);
       onProjectSelected?.(created.id, created);
     } finally {
+      createProjectInFlightRef.current = false;
       setCreateProjectPending(false);
     }
   }

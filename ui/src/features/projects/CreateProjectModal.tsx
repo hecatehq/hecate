@@ -64,13 +64,16 @@ export function CreateProjectModal({
   return (
     <Modal
       title="Create project"
+      dismissible={!pending}
       onClose={onClose}
       width={560}
       footer={
         <button
           className="btn btn-primary"
           disabled={pending || !valid}
-          onClick={() => void onSave(form)}
+          onClick={() => {
+            if (!pending) void onSave(form);
+          }}
           style={{ justifyContent: "center", width: "100%" }}
           type="button"
         >
@@ -79,9 +82,10 @@ export function CreateProjectModal({
       }
     >
       <form
+        aria-busy={pending}
         onSubmit={(event) => {
           event.preventDefault();
-          if (valid) void onSave(form);
+          if (valid && !pending) void onSave(form);
         }}
         style={formStyle}
       >
@@ -92,6 +96,7 @@ export function CreateProjectModal({
           <input
             autoFocus
             className="input"
+            disabled={pending}
             onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Project name"
             value={form.name}
@@ -101,6 +106,7 @@ export function CreateProjectModal({
           <span style={fieldLabelStyle}>Purpose</span>
           <textarea
             className="input"
+            disabled={pending}
             onChange={(event) =>
               setForm((current) => ({ ...current, description: event.target.value }))
             }
@@ -123,7 +129,7 @@ export function CreateProjectModal({
             </div>
             <button
               className="btn btn-ghost btn-sm"
-              disabled={choosingWorkspace}
+              disabled={pending || choosingWorkspace}
               onClick={() => void handleChooseWorkspace()}
               type="button"
             >
@@ -134,6 +140,7 @@ export function CreateProjectModal({
           {!hasWorkspace && !workspaceOpen && (
             <button
               className="btn btn-ghost btn-sm"
+              disabled={pending}
               onClick={() => setWorkspaceOpen(true)}
               style={manualPathButtonStyle}
               type="button"
@@ -147,6 +154,7 @@ export function CreateProjectModal({
                 <span style={fieldLabelStyle}>Folder path</span>
                 <input
                   className="input"
+                  disabled={pending}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, rootPath: event.target.value }))
                   }
@@ -159,6 +167,7 @@ export function CreateProjectModal({
                   <span style={fieldLabelStyle}>Git branch</span>
                   <input
                     className="input"
+                    disabled={pending}
                     onChange={(event) =>
                       setForm((current) => ({ ...current, rootGitBranch: event.target.value }))
                     }
@@ -169,6 +178,7 @@ export function CreateProjectModal({
                 {hasWorkspace && (
                   <button
                     className="btn btn-ghost btn-sm"
+                    disabled={pending}
                     onClick={clearWorkspace}
                     style={removeWorkspaceButtonStyle}
                     type="button"
