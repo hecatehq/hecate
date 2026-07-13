@@ -10602,6 +10602,25 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
+  it("lets the create dialog exclusively announce its shared operation failure", async () => {
+    let setProjectError!: (message: string) => void;
+    function Harness() {
+      setProjectError = useProjects().actions.setError;
+      return <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />;
+    }
+    const user = userEvent.setup();
+    render(<Harness />, {
+      wrapper: directWrapper({ projects: [], loaded: true }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    act(() => setProjectError("create failed"));
+
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("create failed");
+    expect(screen.getAllByText("create failed")).toHaveLength(1);
+  });
+
   it("replaces a failed catalog state with one pending retry", async () => {
     let resolveRetry!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
     vi.mocked(getProjects).mockReturnValueOnce(

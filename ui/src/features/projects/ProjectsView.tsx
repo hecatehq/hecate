@@ -2807,7 +2807,8 @@ export function ProjectsView({
     navigation && projects.state.catalogError && !projects.state.loaded && !projects.state.loading,
   );
   const projectIndexError =
-    projects.state.error || (managedCatalogUnavailable ? "" : projects.state.catalogError);
+    (createProjectOpen ? "" : projects.state.error) ||
+    (managedCatalogUnavailable ? "" : projects.state.catalogError);
   const navigationNotice = explicitProjectMissing
     ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."
     : explicitWorkItemMissing

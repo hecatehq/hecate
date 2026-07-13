@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 import { useProjects } from "../../app/state/projects";
 import { chooseWorkspaceDirectory } from "../../lib/api";
@@ -28,6 +28,19 @@ const sidebarSectionActionStyle: CSSProperties = {
   width: 24,
 };
 
+const visuallyHiddenStatusStyle: CSSProperties = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  clipPath: "inset(50%)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: 1,
+};
+
 export function ProjectScopePanel({
   noProjectDetail,
   emptyHint,
@@ -44,6 +57,15 @@ export function ProjectScopePanel({
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
+  const [catalogRetryPending, setCatalogRetryPending] = useState(false);
+  const [catalogRetryAnnouncement, setCatalogRetryAnnouncement] = useState({
+    key: "0",
+    message: "",
+  });
+  const catalogRetryAnnouncementSequenceRef = useRef(0);
+  const catalogRetryButtonRef = useRef<HTMLButtonElement>(null);
+  const catalogRetryInFlightRef = useRef(false);
+  const projectsToggleButtonRef = useRef<HTMLButtonElement>(null);
   const activeProject =
     projects.activeProjectID === ""
       ? null
@@ -101,8 +123,37 @@ export function ProjectScopePanel({
     };
   }
 
+  async function retryProjectCatalog() {
+    if (catalogRetryInFlightRef.current) return;
+    const retryOwnedFocusAtStart = document.activeElement === catalogRetryButtonRef.current;
+    catalogRetryInFlightRef.current = true;
+    setCatalogRetryPending(true);
+    try {
+      await projects.actions.loadProjects();
+    } finally {
+      const retryStillOwnsFocus =
+        retryOwnedFocusAtStart && document.activeElement === catalogRetryButtonRef.current;
+      catalogRetryInFlightRef.current = false;
+      setCatalogRetryPending(false);
+      window.requestAnimationFrame(() => {
+        if (catalogRetryButtonRef.current) return;
+        catalogRetryAnnouncementSequenceRef.current += 1;
+        setCatalogRetryAnnouncement({
+          key: String(catalogRetryAnnouncementSequenceRef.current),
+          message: "Projects loaded.",
+        });
+        if (retryStillOwnsFocus) {
+          projectsToggleButtonRef.current?.focus();
+        }
+      });
+    }
+  }
+
   return (
     <>
+      <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStatusStyle}>
+        <span key={catalogRetryAnnouncement.key}>{catalogRetryAnnouncement.message}</span>
+      </div>
       <div style={{ padding: "8px 8px 6px", borderBottom: "1px solid var(--border)" }}>
         <SidebarSectionHeader
           actionLabel="Add project"
@@ -114,6 +165,7 @@ export function ProjectScopePanel({
             setCreateProjectOpen(true);
           }}
           onToggle={() => setProjectsExpanded((value) => !value)}
+          toggleButtonRef={projectsToggleButtonRef}
         />
         {projectsExpanded ? (
           <>
@@ -164,9 +216,35 @@ export function ProjectScopePanel({
             {emptyHint}
           </div>
         )}
-        {(projects.state.error || projects.state.catalogError) && (
+        {projects.state.error && !createProjectOpen && (
           <div role="status" style={{ padding: "6px 8px 0", color: "var(--yellow)", fontSize: 11 }}>
-            {projects.state.error || projects.state.catalogError}
+            {projects.state.error}
+          </div>
+        )}
+        {(projects.state.catalogError || catalogRetryPending) && (
+          <div
+            style={{
+              alignItems: "center",
+              color: "var(--yellow)",
+              display: "flex",
+              fontSize: 11,
+              gap: 8,
+              justifyContent: "space-between",
+              padding: "6px 8px 0",
+            }}
+          >
+            <span aria-atomic="true" aria-live="polite" role="status">
+              {catalogRetryPending ? "Retrying projects…" : "Projects could not be loaded."}
+            </span>
+            <button
+              aria-disabled={catalogRetryPending || undefined}
+              className="btn btn-primary btn-sm"
+              onClick={() => void retryProjectCatalog()}
+              ref={catalogRetryButtonRef}
+              type="button"
+            >
+              {catalogRetryPending ? "Retrying…" : "Retry"}
+            </button>
           </div>
         )}
       </div>
@@ -208,12 +286,14 @@ function SidebarSectionHeader({
   label,
   onAction,
   onToggle,
+  toggleButtonRef,
 }: {
   actionLabel: string;
   expanded: boolean;
   label: string;
   onAction: () => void;
   onToggle: () => void;
+  toggleButtonRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <div
@@ -254,6 +334,7 @@ function SidebarSectionHeader({
           aria-label={expanded ? "Collapse projects" : "Expand projects"}
           title={expanded ? "Collapse projects" : "Expand projects"}
           onClick={onToggle}
+          ref={toggleButtonRef}
           style={sidebarSectionActionStyle}
         >
           <Icon d={expanded ? Icons.chevD : Icons.chevR} size={12} />
