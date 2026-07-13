@@ -459,6 +459,7 @@ MCP events carry the same shared payload shape:
 | `duration_ms`  | `int64`  | Wall-clock from dispatch start to result-in-hand                                                                  |
 | `error`        | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error` |
 | `reason`       | `string` | Present on `policy.tool_blocked`                                                                                  |
+| `policy`       | `string` | Present on `policy.tool_blocked`: `mcp_approval_policy` or `agent_preset_tools`                                   |
 
 ### `tool.completed` for MCP
 
@@ -470,12 +471,17 @@ Protocol-level failure before a result was in hand: transport closed, RPC error,
 
 ### `policy.tool_blocked` for MCP
 
-The matching task `mcp_servers[]` entry's `approval_policy=block`
-short-circuited the call. The upstream was never contacted; the LLM saw a tool
-error suggesting it pick a different path. Distinct from `tool.failed` so
-operators can alert on failed execution without their pages firing on the
-legitimate block path. Distinct from `approval.requested` because block does
-not pause the run; it is a hard refusal, not a gate.
+Emitted for either of two hard-refusal paths:
+
+- the matching task `mcp_servers[]` entry has `approval_policy=block`
+  (`policy=mcp_approval_policy`); or
+- the task's Agent Preset snapshot explicitly disables every tool
+  (`policy=agent_preset_tools`).
+
+The upstream is never contacted; the LLM sees a tool error suggesting it pick
+a different path. This is distinct from `tool.failed` so operators can alert on
+failed execution without their pages firing on a legitimate policy block. It
+is also distinct from `approval.requested`: neither policy pauses the run.
 
 ## Typed file tool events
 

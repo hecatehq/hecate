@@ -304,7 +304,7 @@ The `kind` field on a `task_approval` is one of:
 - `shell_command` — pre-execution gate for `execution_kind=shell` tasks
 - `git_exec` — pre-execution gate for `execution_kind=git` tasks
 - `file_write` — pre-execution gate for `execution_kind=file` tasks
-- `network_egress` — pre-execution gate when `sandbox_network=true`
+- `network_egress` — pre-execution gate when `sandbox_network=true`, except for an `agent_loop` task whose Agent Preset snapshot explicitly disables tools
 - `agent_loop_tool_call` — mid-loop gate when an `agent_loop` run calls a gated tool (`shell_exec`, `http_request`, etc.). The reason text lists the tools the agent wants to use. See [`agent-runtime.md`](agent-runtime.md#approval-gating) for the full flow.
 
 Resolve payload: `{"decision": "approve" | "reject", "note": "..."}`.
@@ -325,7 +325,7 @@ Approval resolution is owned by the task runtime so approval, run, task, step, a
 | `shell_exec`     | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls.                                                                                                                                                                                                                            |
 | `git_exec`       | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` / `git_status` / `git_diff` tool calls.                                                                                                                                                                                                    |
 | `file_write`     | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` / `apply_patch` tool calls.                                                                                                                                                                                               |
-| `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` / configured `web_search` tool calls.                                                                                                                                                                                  |
+| `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` / configured `web_search` tool calls. A tools-disabled Agent Preset snapshot skips both gates because no executable tool capability remains.                                                                           |
 | `read_file`      | Gate `agent_loop` `read_file` / `grep` / `glob` / `artifact_read` tool calls. Useful when operators want visibility into every file, search, or persisted artifact the agent reads, not just what it writes.                                                                                                  |
 | `all_tools`      | Gate every agent tool call (`shell_exec`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`) and all pre-execution task gates. Short-circuits to the full set. |
 

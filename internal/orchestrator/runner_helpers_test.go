@@ -121,6 +121,8 @@ func runnerWithPolicies(policies ...string) *Runner {
 }
 
 func TestApprovalSpecForTask(t *testing.T) {
+	toolsDisabled := false
+	toolsEnabled := true
 	cases := []struct {
 		name       string
 		policies   []string
@@ -203,6 +205,37 @@ func TestApprovalSpecForTask(t *testing.T) {
 			name:       "all_tools + network-only task → network_egress",
 			policies:   []string{"all_tools"},
 			task:       types.Task{ExecutionKind: "agent_loop", SandboxNetwork: true},
+			wantKind:   "network_egress",
+			wantReason: true,
+		},
+		{
+			name:     "network policy + tools-disabled agent loop → no approval",
+			policies: []string{"network_egress"},
+			task: types.Task{
+				ExecutionKind:           "agent_loop",
+				SandboxNetwork:          true,
+				AgentPresetToolsEnabled: &toolsDisabled,
+			},
+			wantKind: "",
+		},
+		{
+			name:     "all_tools + tools-disabled agent loop → no approval",
+			policies: []string{"all_tools"},
+			task: types.Task{
+				ExecutionKind:           "agent_loop",
+				SandboxNetwork:          true,
+				AgentPresetToolsEnabled: &toolsDisabled,
+			},
+			wantKind: "",
+		},
+		{
+			name:     "network policy + tools-enabled agent loop → network_egress",
+			policies: []string{"network_egress"},
+			task: types.Task{
+				ExecutionKind:           "agent_loop",
+				SandboxNetwork:          true,
+				AgentPresetToolsEnabled: &toolsEnabled,
+			},
 			wantKind:   "network_egress",
 			wantReason: true,
 		},

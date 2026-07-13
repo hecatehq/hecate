@@ -366,7 +366,7 @@ Two distinct approval flows:
 
 ### Pre-execution approval
 
-Triggered when the task's `execution_kind` is `shell` / `git` / `file` (or `sandbox_network=true`) AND a matching policy is in `HECATE_TASK_APPROVAL_POLICIES`. The run is created in `awaiting_approval` status before it ever leaves the queue. The UI shows an amber banner with the command being approved. Approve → run becomes `queued` → executes. Cancel before approval → run becomes `cancelled` and the pending approval is marked `cancelled` so stale approval buttons cannot resurrect the run.
+Triggered when the task's `execution_kind` is `shell` / `git` / `file` (or `sandbox_network=true`) AND a matching policy is in `HECATE_TASK_APPROVAL_POLICIES`. An `agent_loop` task whose Agent Preset snapshot explicitly sets `tools_enabled=false` skips the network pre-execution gate: it advertises no tools, starts no MCP clients, and has no executable network capability to approve. The run is otherwise created in `awaiting_approval` status before it ever leaves the queue. The UI shows an amber banner with the command being approved. Approve → run becomes `queued` → executes. Cancel before approval → run becomes `cancelled` and the pending approval is marked `cancelled` so stale approval buttons cannot resurrect the run.
 
 ### Mid-loop approval (`agent_loop_tool_call`)
 

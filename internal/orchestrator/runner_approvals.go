@@ -329,7 +329,11 @@ func (r *Runner) approvalSpecForTask(task types.Task) (kind string, reason strin
 			return "file_write", "File writes require approval before execution."
 		}
 	}
-	if task.SandboxNetwork {
+	// A tools-disabled agent loop has no executable sandbox capability: it
+	// sends no tool catalog, does not start MCP clients, and fail-closes any
+	// unexpected tool call. SandboxNetwork can still be true on the immutable
+	// preset snapshot, but there is no network-capable action to approve.
+	if task.SandboxNetwork && !(task.ExecutionKind == "agent_loop" && agentPresetDisablesTools(task)) {
 		if r.hasPolicy("network_egress") || r.hasPolicy("all_tools") {
 			return "network_egress", "Network-enabled tasks require approval before execution."
 		}
