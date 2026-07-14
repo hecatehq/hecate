@@ -111,6 +111,11 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(
     page.getByText("Queue the implementation role for the selected work item."),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Create assignment",
+    }),
+  ).toBeFocused();
   await page.getByRole("button", { name: "Apply proposal" }).click();
 
   await page.getByRole("tab", { name: "Overview" }).click();

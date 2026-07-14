@@ -640,7 +640,14 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Assign work" }));
-    await userEvent.click(screen.getByText("More options"));
+    const moreOptions = screen.getByText("More options");
+    expect(moreOptions).toHaveStyle({
+      color: "var(--t2)",
+      fontSize: "11px",
+      minHeight: "28px",
+      padding: "6px 2px",
+    });
+    await userEvent.click(moreOptions);
     const moreActions = screen.getByRole("group", {
       name: "More work item actions",
     });

@@ -2638,10 +2638,13 @@ const manualAddDetailsStyle: CSSProperties = {
 };
 
 const manualAddSummaryStyle: CSSProperties = {
-  color: "var(--t3)",
+  color: "var(--t2)",
   cursor: "pointer",
   fontFamily: "var(--font-mono)",
-  fontSize: 10,
+  fontSize: 11,
+  lineHeight: 1.4,
+  minHeight: 28,
+  padding: "6px 2px",
   textTransform: "uppercase",
 };
 

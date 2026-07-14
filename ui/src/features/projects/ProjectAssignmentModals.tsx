@@ -48,6 +48,7 @@ export function NewAssignmentModal({
   onCreate,
 }: NewAssignmentModalProps) {
   const responsibilitySelectRef = useRef<HTMLSelectElement>(null);
+  const submitInFlightRef = useRef(false);
   const defaultRole =
     roles.find((role) => role.id === workItem?.owner_role_id) ??
     roles.find((role) => role.id === "software_developer") ??
@@ -74,9 +75,19 @@ export function NewAssignmentModal({
   const driverSummary = selectedRole
     ? projectAssignmentDestinationLabel(form.driverKind || defaultDriverForRole(selectedRole))
     : "Select a responsibility";
+  const submit = async () => {
+    if (pending || submitInFlightRef.current || !valid) return;
+    submitInFlightRef.current = true;
+    try {
+      await onCreate(form);
+    } finally {
+      submitInFlightRef.current = false;
+    }
+  };
   return (
     <Modal
       title="Add assignment"
+      dismissible={!pending}
       initialFocusRef={responsibilitySelectRef}
       onClose={onClose}
       width={520}
@@ -85,7 +96,7 @@ export function NewAssignmentModal({
           className="btn btn-primary"
           type="button"
           disabled={pending || !valid}
-          onClick={() => void onCreate(form)}
+          onClick={() => void submit()}
           style={{ width: "100%", justifyContent: "center" }}
         >
           {pending ? "Adding…" : "Add assignment"}
@@ -93,9 +104,10 @@ export function NewAssignmentModal({
       }
     >
       <form
+        aria-busy={pending}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!pending && valid) void onCreate(form);
+          void submit();
         }}
         style={{ display: "grid", gap: 12 }}
       >

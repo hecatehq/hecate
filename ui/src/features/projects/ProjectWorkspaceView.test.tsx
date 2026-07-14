@@ -763,6 +763,38 @@ describe("ProjectWorkspaceView", () => {
     ).toHaveAttribute("open");
   });
 
+  it("opens the project assistant when a proposal arrives from collapsed idle state", () => {
+    const item = workItem();
+    const { props, rerender } = renderWorkspace({
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workspaceTab: "work",
+    });
+    const disclosure = screen
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("details")!;
+    expect(disclosure).not.toHaveAttribute("open");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        assistant={{
+          ...assistant(),
+          proposal: {
+            id: "proposal_1",
+            title: "Assign work",
+            summary: "",
+            actions: [],
+            requires_confirmation: true,
+          },
+        }}
+      />,
+    );
+
+    expect(disclosure).toHaveAttribute("open");
+  });
+
   it.each([
     [
       "proposal",
@@ -776,34 +808,59 @@ describe("ProjectWorkspaceView", () => {
         },
       },
     ],
-    ["drafting", { status: "proposing" }],
     ["error", { error: "Drafting failed." }],
-  ])(
-    "keeps the project assistant open while %s needs attention",
-    async (_label, assistantState) => {
-      const item = workItem();
-      renderWorkspace({
-        assistant: {
-          ...assistant(),
-          ...(assistantState as Partial<NonNullable<ProjectWorkspaceViewProps["assistant"]>>),
-        },
-        selectedWorkItem: item,
-        selectedWorkItemID: item.id,
-        workItems: [item],
-        workspaceTab: "work",
-      });
+  ])("allows settled %s attention to be collapsed", async (_label, assistantState) => {
+    const item = workItem();
+    renderWorkspace({
+      assistant: {
+        ...assistant(),
+        ...(assistantState as Partial<NonNullable<ProjectWorkspaceViewProps["assistant"]>>),
+      },
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workspaceTab: "work",
+    });
 
-      const disclosure = screen
-        .getByText("Project Assistant", { selector: "span" })
-        .closest("details")!;
-      const summary = within(disclosure)
-        .getByText("Project Assistant", { selector: "span" })
-        .closest("summary")!;
-      expect(disclosure).toHaveAttribute("open");
-      await userEvent.click(summary);
-      expect(disclosure).toHaveAttribute("open");
-    },
-  );
+    const disclosure = screen
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("details")!;
+    const summary = within(disclosure)
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("summary")!;
+    expect(disclosure).toHaveAttribute("open");
+    expect(summary).toHaveAttribute("aria-disabled", "false");
+    await userEvent.click(summary);
+    expect(disclosure).not.toHaveAttribute("open");
+  });
+
+  it.each([
+    ["drafting", { status: "proposing" }],
+    ["context inspection", { contextStatus: "loading" }],
+  ])("keeps the project assistant open during %s", async (_label, assistantState) => {
+    const item = workItem();
+    renderWorkspace({
+      assistant: {
+        ...assistant(),
+        ...(assistantState as Partial<NonNullable<ProjectWorkspaceViewProps["assistant"]>>),
+      },
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workspaceTab: "work",
+    });
+
+    const disclosure = screen
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("details")!;
+    const summary = within(disclosure)
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("summary")!;
+    expect(disclosure).toHaveAttribute("open");
+    expect(summary).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(summary);
+    expect(disclosure).toHaveAttribute("open");
+  });
 
   it.each(["done", "cancelled"] as const)(
     "removes proposal controls from persisted %s work",

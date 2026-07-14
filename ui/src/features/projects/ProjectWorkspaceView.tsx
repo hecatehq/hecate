@@ -389,18 +389,26 @@ export function ProjectWorkspaceView({
     assistant.status !== "idle" ||
     assistant.contextStatus !== "idle",
   );
+  const assistantOperationActive =
+    assistant.status === "proposing" ||
+    assistant.status === "applying" ||
+    assistant.contextStatus === "loading";
   const assistantDisclosureSummaryRef = useRef<HTMLElement>(null);
   const [assistantDisclosureOpen, setAssistantDisclosureOpen] = useState(assistantNeedsAttention);
   const previousAssistantAttentionRef = useRef(assistantNeedsAttention);
   const previousAssistantWorkItemIDRef = useRef(selectedWorkItem?.id ?? "");
+  const assistantAttentionJustArrived =
+    assistantNeedsAttention && !previousAssistantAttentionRef.current;
+  const assistantDisclosureRenderedOpen =
+    assistantOperationActive || assistantDisclosureOpen || assistantAttentionJustArrived;
   useEffect(() => {
     const previousAttention = previousAssistantAttentionRef.current;
     previousAssistantAttentionRef.current = assistantNeedsAttention;
-    if (assistantNeedsAttention) {
+    if (assistantNeedsAttention && !previousAttention) {
       setAssistantDisclosureOpen(true);
       return;
     }
-    if (!previousAttention) return;
+    if (assistantNeedsAttention || !previousAttention) return;
     setAssistantDisclosureOpen(false);
     const summary = assistantDisclosureSummaryRef.current;
     const disclosure = summary?.closest("details");
@@ -408,6 +416,9 @@ export function ProjectWorkspaceView({
       summary.focus();
     }
   }, [assistantNeedsAttention]);
+  useEffect(() => {
+    if (assistantOperationActive) setAssistantDisclosureOpen(true);
+  }, [assistantOperationActive]);
   useEffect(() => {
     const workItemID = selectedWorkItem?.id ?? "";
     if (previousAssistantWorkItemIDRef.current !== workItemID && !assistantNeedsAttention) {
@@ -703,10 +714,10 @@ export function ProjectWorkspaceView({
                     {!projectGuidedStart && !selectedWorkItemClosed && (
                       <details
                         className="project-assistant-disclosure"
-                        open={assistantDisclosureOpen}
+                        open={assistantDisclosureRenderedOpen}
                         onToggle={(event) => {
                           const nextOpen = event.currentTarget.open;
-                          if (assistantNeedsAttention && !nextOpen) {
+                          if (assistantOperationActive && !nextOpen) {
                             event.currentTarget.open = true;
                             setAssistantDisclosureOpen(true);
                             return;
@@ -717,7 +728,14 @@ export function ProjectWorkspaceView({
                       >
                         <summary
                           ref={assistantDisclosureSummaryRef}
-                          style={assistantDisclosureSummaryStyle}
+                          aria-disabled={assistantOperationActive}
+                          onClick={(event) => {
+                            if (assistantOperationActive) event.preventDefault();
+                          }}
+                          style={{
+                            ...assistantDisclosureSummaryStyle,
+                            cursor: assistantOperationActive ? "default" : "pointer",
+                          }}
                         >
                           <span style={assistantDisclosureTitleStyle}>Project Assistant</span>
                           <span style={assistantDisclosureDetailStyle}>
