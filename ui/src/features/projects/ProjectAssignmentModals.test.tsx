@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -220,6 +220,7 @@ describe("ProjectAssignmentModals", () => {
       resolveCreate = resolve;
     });
     const onCreate = vi.fn(() => creation);
+    const onClose = vi.fn();
 
     render(
       <NewAssignmentModal
@@ -228,7 +229,7 @@ describe("ProjectAssignmentModals", () => {
         project={project()}
         workItem={workItem()}
         roles={[role()]}
-        onClose={vi.fn()}
+        onClose={onClose}
         onCreate={onCreate}
       />,
     );
@@ -238,8 +239,16 @@ describe("ProjectAssignmentModals", () => {
     fireEvent.submit(form);
 
     expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(form).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "Adding…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
     resolveCreate();
     await creation;
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Add assignment" })).toBeEnabled(),
+    );
   });
 
   it("adds rootless Human assignments without workspace controls", async () => {

@@ -393,14 +393,18 @@ export function ProjectWorkspaceView({
     assistant.status === "proposing" ||
     assistant.status === "applying" ||
     assistant.contextStatus === "loading";
+  const assistantActionableAttentionKey = projectAssistantActionableAttentionKey(assistant);
   const assistantDisclosureSummaryRef = useRef<HTMLElement>(null);
   const [assistantDisclosureOpen, setAssistantDisclosureOpen] = useState(assistantNeedsAttention);
   const previousAssistantAttentionRef = useRef(assistantNeedsAttention);
+  const previousAssistantActionableAttentionKeyRef = useRef(assistantActionableAttentionKey);
   const previousAssistantWorkItemIDRef = useRef(selectedWorkItem?.id ?? "");
-  const assistantAttentionJustArrived =
-    assistantNeedsAttention && !previousAssistantAttentionRef.current;
+  const assistantActionableAttentionChanged = Boolean(
+    assistantActionableAttentionKey &&
+    assistantActionableAttentionKey !== previousAssistantActionableAttentionKeyRef.current,
+  );
   const assistantDisclosureRenderedOpen =
-    assistantOperationActive || assistantDisclosureOpen || assistantAttentionJustArrived;
+    assistantOperationActive || assistantDisclosureOpen || assistantActionableAttentionChanged;
   useEffect(() => {
     const previousAttention = previousAssistantAttentionRef.current;
     previousAssistantAttentionRef.current = assistantNeedsAttention;
@@ -419,6 +423,16 @@ export function ProjectWorkspaceView({
   useEffect(() => {
     if (assistantOperationActive) setAssistantDisclosureOpen(true);
   }, [assistantOperationActive]);
+  useEffect(() => {
+    const previousAttentionKey = previousAssistantActionableAttentionKeyRef.current;
+    previousAssistantActionableAttentionKeyRef.current = assistantActionableAttentionKey;
+    if (
+      assistantActionableAttentionKey &&
+      assistantActionableAttentionKey !== previousAttentionKey
+    ) {
+      setAssistantDisclosureOpen(true);
+    }
+  }, [assistantActionableAttentionKey]);
   useEffect(() => {
     const workItemID = selectedWorkItem?.id ?? "";
     if (previousAssistantWorkItemIDRef.current !== workItemID && !assistantNeedsAttention) {
@@ -876,6 +890,24 @@ export function ProjectWorkspaceView({
       </div>
     </section>
   );
+}
+
+function projectAssistantActionableAttentionKey(
+  assistant: ProjectWorkspaceViewProps["assistant"],
+): string {
+  if (assistant.proposal) return `proposal:${assistant.proposal.id}`;
+  if (assistant.applyResult) {
+    return `apply-result:${assistant.applyResult.proposal_id}:${assistant.applyResult.status}`;
+  }
+  if (assistant.error) return `error:${assistant.error}`;
+  if (assistant.contextError) return `context-error:${assistant.contextError}`;
+  if (assistant.chatDraftSource) {
+    return `chat-draft:${assistant.chatDraftSource.sourceSessionID}`;
+  }
+  if (assistant.context) return "context";
+  if (assistant.status !== "idle") return `status:${assistant.status}`;
+  if (assistant.contextStatus !== "idle") return `context-status:${assistant.contextStatus}`;
+  return "";
 }
 
 function WorkItemRow({
