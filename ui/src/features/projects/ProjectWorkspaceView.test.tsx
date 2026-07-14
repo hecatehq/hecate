@@ -795,6 +795,49 @@ describe("ProjectWorkspaceView", () => {
     expect(disclosure).toHaveAttribute("open");
   });
 
+  it("reopens collapsed context when a new proposal arrives", async () => {
+    const item = workItem();
+    const inspectedContext = {
+      ...assistant(),
+      context: {} as NonNullable<ProjectWorkspaceViewProps["assistant"]["context"]>,
+      contextStatus: "loaded" as const,
+    };
+    const { props, rerender } = renderWorkspace({
+      assistant: inspectedContext,
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workspaceTab: "work",
+    });
+    const disclosure = screen
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("details")!;
+    const summary = within(disclosure)
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("summary")!;
+    expect(disclosure).toHaveAttribute("open");
+    await userEvent.click(summary);
+    expect(disclosure).not.toHaveAttribute("open");
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        assistant={{
+          ...inspectedContext,
+          proposal: {
+            id: "proposal_from_chat",
+            title: "Assign work",
+            summary: "",
+            actions: [],
+            requires_confirmation: true,
+          },
+        }}
+      />,
+    );
+
+    expect(disclosure).toHaveAttribute("open");
+  });
+
   it.each([
     [
       "proposal",

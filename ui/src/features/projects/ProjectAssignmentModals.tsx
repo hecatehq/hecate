@@ -49,6 +49,7 @@ export function NewAssignmentModal({
 }: NewAssignmentModalProps) {
   const responsibilitySelectRef = useRef<HTMLSelectElement>(null);
   const submitInFlightRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const defaultRole =
     roles.find((role) => role.id === workItem?.owner_role_id) ??
     roles.find((role) => role.id === "software_developer") ??
@@ -62,6 +63,7 @@ export function NewAssignmentModal({
   const valid = form.roleID.trim().length > 0;
   const selectedRole = roles.find((role) => role.id === form.roleID) ?? null;
   const selectedRoot = project.roots.find((root) => root.id === form.rootID) ?? null;
+  const busy = pending || submitting;
   const humanDestination = form.driverKind === "manual";
   const hasWorkspaceOptions = project.roots.length > 0;
   const inheritedRootLabel = workItem?.root_id
@@ -76,18 +78,20 @@ export function NewAssignmentModal({
     ? projectAssignmentDestinationLabel(form.driverKind || defaultDriverForRole(selectedRole))
     : "Select a responsibility";
   const submit = async () => {
-    if (pending || submitInFlightRef.current || !valid) return;
+    if (busy || submitInFlightRef.current || !valid) return;
     submitInFlightRef.current = true;
+    setSubmitting(true);
     try {
       await onCreate(form);
     } finally {
       submitInFlightRef.current = false;
+      setSubmitting(false);
     }
   };
   return (
     <Modal
       title="Add assignment"
-      dismissible={!pending}
+      dismissible={!busy}
       initialFocusRef={responsibilitySelectRef}
       onClose={onClose}
       width={520}
@@ -95,16 +99,16 @@ export function NewAssignmentModal({
         <button
           className="btn btn-primary"
           type="button"
-          disabled={pending || !valid}
+          disabled={busy || !valid}
           onClick={() => void submit()}
           style={{ width: "100%", justifyContent: "center" }}
         >
-          {pending ? "Adding…" : "Add assignment"}
+          {busy ? "Adding…" : "Add assignment"}
         </button>
       }
     >
       <form
-        aria-busy={pending}
+        aria-busy={busy}
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
