@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
@@ -18,6 +18,7 @@ import {
 type RolesModalProps = {
   agentPresets: AgentPresetRecord[];
   error: string;
+  mode?: "manage" | "quick-create";
   pending: boolean;
   projectSkills: ProjectSkillRecord[];
   roles: ProjectWorkRoleRecord[];
@@ -26,6 +27,7 @@ type RolesModalProps = {
     form: RoleForm,
   ) => ProjectWorkRoleRecord | undefined | Promise<ProjectWorkRoleRecord | undefined>;
   onDelete: (role: ProjectWorkRoleRecord) => boolean | Promise<boolean>;
+  onCreated?: (role: ProjectWorkRoleRecord) => void;
   onUpdate: (
     roleID: string,
     form: RoleForm,
@@ -35,17 +37,24 @@ type RolesModalProps = {
 export function RolesModal({
   agentPresets,
   error,
+  mode = "manage",
   pending,
   projectSkills,
   roles,
   onClose,
   onCreate,
+  onCreated,
   onDelete,
   onUpdate,
 }: RolesModalProps) {
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const submitInFlightRef = useRef(false);
+  const quickCreate = mode === "quick-create";
   const customRoles = roles.filter((role) => !role.built_in);
   const firstEditable = customRoles[0] ?? null;
-  const [selectedRoleID, setSelectedRoleID] = useState(firstEditable?.id ?? "new");
+  const [selectedRoleID, setSelectedRoleID] = useState(
+    quickCreate ? "new" : (firstEditable?.id ?? "new"),
+  );
   const selectedRole = roles.find((role) => role.id === selectedRoleID) ?? null;
   const editingBuiltIn = Boolean(selectedRole?.built_in);
   const editingNew = selectedRoleID === "new";
@@ -66,17 +75,26 @@ export function RolesModal({
 
   const canSave = form.name.trim().length > 0 && !editingBuiltIn;
   const submit = async () => {
-    if (!canSave) return;
-    if (editingNew) {
-      const role = await onCreate(form);
+    if (pending || submitInFlightRef.current || !canSave) return;
+    submitInFlightRef.current = true;
+    try {
+      if (editingNew) {
+        const role = await onCreate(form);
+        if (role) {
+          if (quickCreate) {
+            onCreated?.(role);
+          } else {
+            selectRoleRecord(role);
+          }
+        }
+        return;
+      }
+      const role = await onUpdate(selectedRoleID, form);
       if (role) {
         selectRoleRecord(role);
       }
-      return;
-    }
-    const role = await onUpdate(selectedRoleID, form);
-    if (role) {
-      selectRoleRecord(role);
+    } finally {
+      submitInFlightRef.current = false;
     }
   };
 
@@ -92,14 +110,121 @@ export function RolesModal({
     setForm(emptyRoleForm());
   }
 
+  const advancedFields = (
+    <>
+      <label style={presetRoleFieldStyle}>
+        <span style={presetRoleFieldLabelStyle}>Instructions</span>
+        <textarea
+          className="input"
+          value={form.instructions}
+          disabled={editingBuiltIn}
+          rows={5}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, instructions: event.target.value }))
+          }
+        />
+      </label>
+      <div
+        className="project-role-defaults-grid"
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+      >
+        <label style={presetRoleFieldStyle}>
+          <span style={presetRoleFieldLabelStyle}>Default destination</span>
+          <select
+            aria-describedby={
+              form.defaultDriverKind === "manual"
+                ? "role-human-default-destination-help"
+                : undefined
+            }
+            className="input"
+            value={form.defaultDriverKind}
+            disabled={editingBuiltIn}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, defaultDriverKind: event.target.value }))
+            }
+          >
+            <option value="">Choose per assignment</option>
+            {PROJECT_ASSIGNMENT_DESTINATIONS.map((destination) => (
+              <option key={destination.kind} value={destination.kind}>
+                {destination.label}
+              </option>
+            ))}
+          </select>
+          {form.defaultDriverKind === "manual" && (
+            <span id="role-human-default-destination-help" style={presetRoleSubtleTextStyle}>
+              {HUMAN_ASSIGNMENT_DESCRIPTION}
+            </span>
+          )}
+        </label>
+        <label style={presetRoleFieldStyle}>
+          <span style={presetRoleFieldLabelStyle}>Default preset</span>
+          <select
+            className="input"
+            value={form.defaultAgentPreset}
+            disabled={editingBuiltIn}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                defaultAgentPreset: event.target.value,
+              }))
+            }
+          >
+            <option value="">inherit project default</option>
+            {agentPresets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name || preset.id} ({preset.id})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={presetRoleFieldStyle}>
+          <span style={presetRoleFieldLabelStyle}>Default provider</span>
+          <input
+            className="input"
+            value={form.defaultProvider}
+            disabled={editingBuiltIn}
+            placeholder="ollama"
+            onChange={(event) =>
+              setForm((current) => ({ ...current, defaultProvider: event.target.value }))
+            }
+          />
+        </label>
+        <label style={presetRoleFieldStyle}>
+          <span style={presetRoleFieldLabelStyle}>Default model</span>
+          <input
+            className="input"
+            value={form.defaultModel}
+            disabled={editingBuiltIn}
+            placeholder="ministral-3:latest"
+            onChange={(event) =>
+              setForm((current) => ({ ...current, defaultModel: event.target.value }))
+            }
+          />
+        </label>
+      </div>
+      <ProjectSkillPicker
+        disabled={editingBuiltIn}
+        onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
+        skills={projectSkills}
+        value={form.skillIDs}
+      />
+      <div style={presetRoleSubtleTextStyle}>
+        Responsibility defaults are suggestions. Each assignment can choose another destination,
+        with project settings as the fallback.
+      </div>
+    </>
+  );
+
   return (
     <Modal
-      title="Project roles"
+      title={quickCreate ? "Add responsibility" : "Project roles"}
+      dismissible={!pending}
+      initialFocusRef={nameInputRef}
       onClose={onClose}
-      width={760}
+      width={quickCreate ? 520 : 760}
       footer={
         <div style={{ display: "flex", gap: 8, width: "100%" }}>
-          {selectedRole && !selectedRole.built_in && !editingNew && (
+          {!quickCreate && selectedRole && !selectedRole.built_in && !editingNew && (
             <button
               className="btn btn-ghost"
               type="button"
@@ -117,52 +242,69 @@ export function RolesModal({
             onClick={() => void submit()}
             style={{ marginLeft: "auto" }}
           >
-            {pending ? "Saving…" : editingNew ? "Create role" : "Save role"}
+            {pending
+              ? quickCreate
+                ? "Adding…"
+                : "Saving…"
+              : quickCreate
+                ? "Add responsibility"
+                : editingNew
+                  ? "Create role"
+                  : "Save role"}
           </button>
         </div>
       }
     >
       <div
-        className="project-roles-modal-grid"
-        style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 420 }}
+        className={quickCreate ? "project-roles-modal-quick" : "project-roles-modal-grid"}
+        style={
+          quickCreate
+            ? { display: "grid", minHeight: 0 }
+            : { display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 420 }
+        }
       >
-        <div
-          className="project-roles-modal-list"
-          style={{
-            borderRight: "1px solid var(--border)",
-            paddingRight: 10,
-            display: "grid",
-            alignContent: "start",
-            gap: 6,
-          }}
-        >
-          <button
-            aria-pressed={selectedRoleID === "new"}
-            className={selectedRoleID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
-            type="button"
-            onClick={() => selectRole("new")}
-            style={{ justifyContent: "flex-start" }}
+        {!quickCreate && (
+          <div
+            className="project-roles-modal-list"
+            style={{
+              borderRight: "1px solid var(--border)",
+              paddingRight: 10,
+              display: "grid",
+              alignContent: "start",
+              gap: 6,
+            }}
           >
-            <Icon d={Icons.plus} size={12} />
-            New custom role
-          </button>
-          {roles.map((role) => (
             <button
-              key={role.id}
-              aria-pressed={selectedRoleID === role.id}
+              aria-pressed={selectedRoleID === "new"}
               className={
-                selectedRoleID === role.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+                selectedRoleID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
               }
               type="button"
-              onClick={() => selectRole(role.id)}
-              style={{ justifyContent: "flex-start", minWidth: 0 }}
+              onClick={() => selectRole("new")}
+              style={{ justifyContent: "flex-start" }}
             >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{role.name}</span>
-              {role.built_in && <span className="badge badge-muted">built-in</span>}
+              <Icon d={Icons.plus} size={12} />
+              New custom role
             </button>
-          ))}
-        </div>
+            {roles.map((role) => (
+              <button
+                key={role.id}
+                aria-pressed={selectedRoleID === role.id}
+                className={
+                  selectedRoleID === role.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+                }
+                type="button"
+                onClick={() => selectRole(role.id)}
+                style={{ justifyContent: "flex-start", minWidth: 0 }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{role.name}</span>
+                {role.built_in && <span className="badge badge-muted">built-in</span>}
+              </button>
+            ))}
+          </div>
+        )}
         <form
+          aria-busy={pending}
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
@@ -170,6 +312,12 @@ export function RolesModal({
           style={{ display: "grid", gap: 12, alignContent: "start" }}
         >
           {error && <InlineError message={error} />}
+          {quickCreate && (
+            <div style={presetRoleSubtleTextStyle}>
+              Name the responsibility this work needs. Instructions and execution defaults can be
+              added now or later.
+            </div>
+          )}
           {editingBuiltIn && (
             <div style={presetRoleSubtleTextStyle}>
               Built-in roles are read-only. Create a custom role to override instructions or
@@ -179,17 +327,21 @@ export function RolesModal({
           <label style={presetRoleFieldStyle}>
             <span style={presetRoleFieldLabelStyle}>Name</span>
             <input
+              ref={nameInputRef}
+              autoComplete="off"
               className="input"
+              name="responsibility-name"
               value={form.name}
               disabled={editingBuiltIn}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-              autoFocus={editingNew}
             />
           </label>
           <label style={presetRoleFieldStyle}>
             <span style={presetRoleFieldLabelStyle}>Description</span>
             <textarea
+              autoComplete="off"
               className="input"
+              name="responsibility-description"
               value={form.description}
               disabled={editingBuiltIn}
               rows={2}
@@ -198,106 +350,19 @@ export function RolesModal({
               }
             />
           </label>
-          <label style={presetRoleFieldStyle}>
-            <span style={presetRoleFieldLabelStyle}>Instructions</span>
-            <textarea
-              className="input"
-              value={form.instructions}
-              disabled={editingBuiltIn}
-              rows={5}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, instructions: event.target.value }))
-              }
-            />
-          </label>
-          <div
-            className="project-role-defaults-grid"
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-          >
-            <label style={presetRoleFieldStyle}>
-              <span style={presetRoleFieldLabelStyle}>Default destination</span>
-              <select
-                aria-describedby={
-                  form.defaultDriverKind === "manual"
-                    ? "role-human-default-destination-help"
-                    : undefined
-                }
-                className="input"
-                value={form.defaultDriverKind}
-                disabled={editingBuiltIn}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, defaultDriverKind: event.target.value }))
-                }
-              >
-                <option value="">Choose per assignment</option>
-                {PROJECT_ASSIGNMENT_DESTINATIONS.map((destination) => (
-                  <option key={destination.kind} value={destination.kind}>
-                    {destination.label}
-                  </option>
-                ))}
-              </select>
-              {form.defaultDriverKind === "manual" && (
-                <span id="role-human-default-destination-help" style={presetRoleSubtleTextStyle}>
-                  {HUMAN_ASSIGNMENT_DESCRIPTION}
-                </span>
-              )}
-            </label>
-            <label style={presetRoleFieldStyle}>
-              <span style={presetRoleFieldLabelStyle}>Default preset</span>
-              <select
-                className="input"
-                value={form.defaultAgentPreset}
-                disabled={editingBuiltIn}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    defaultAgentPreset: event.target.value,
-                  }))
-                }
-              >
-                <option value="">inherit project default</option>
-                {agentPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name || preset.id} ({preset.id})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={presetRoleFieldStyle}>
-              <span style={presetRoleFieldLabelStyle}>Default provider</span>
-              <input
-                className="input"
-                value={form.defaultProvider}
-                disabled={editingBuiltIn}
-                placeholder="ollama"
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, defaultProvider: event.target.value }))
-                }
-              />
-            </label>
-            <label style={presetRoleFieldStyle}>
-              <span style={presetRoleFieldLabelStyle}>Default model</span>
-              <input
-                className="input"
-                value={form.defaultModel}
-                disabled={editingBuiltIn}
-                placeholder="ministral-3:latest"
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, defaultModel: event.target.value }))
-                }
-              />
-            </label>
-          </div>
-          <ProjectSkillPicker
-            disabled={editingBuiltIn}
-            onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
-            skills={projectSkills}
-            value={form.skillIDs}
-          />
-          <div style={presetRoleSubtleTextStyle}>
-            Role defaults are suggestions. Each assignment can choose another destination, with
-            project settings as the fallback.
-          </div>
+          {quickCreate ? (
+            <details
+              className="project-support-details"
+              style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}
+            >
+              <summary style={{ color: "var(--t1)", cursor: "pointer", fontSize: 12 }}>
+                Instructions &amp; execution defaults
+              </summary>
+              <div style={{ display: "grid", gap: 12, marginTop: 12 }}>{advancedFields}</div>
+            </details>
+          ) : (
+            advancedFields
+          )}
         </form>
       </div>
     </Modal>

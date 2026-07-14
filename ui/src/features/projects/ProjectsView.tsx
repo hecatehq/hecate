@@ -193,6 +193,8 @@ type Props = {
   onNavigate?: (destination: ProjectNavigationDestination, mode?: "push" | "replace") => void;
 };
 
+type RolesModalIntent = "manage" | "work-kickoff";
+
 const PROJECTS_LIST_PANEL_WIDTH = 220;
 
 const shellStyle: CSSProperties = {
@@ -312,13 +314,14 @@ export function ProjectsView({
   const [createWorktreeOpen, setCreateWorktreeOpen] = useState(false);
   const [createWorktreePending, setCreateWorktreePending] = useState(false);
   const [createWorktreeError, setCreateWorktreeError] = useState("");
-  const [rolesModalOpen, setRolesModalOpen] = useState(false);
+  const [rolesModalIntent, setRolesModalIntent] = useState<RolesModalIntent | null>(null);
   const [rolesPending, setRolesPending] = useState(false);
   const [rolesError, setRolesError] = useState("");
   const [newWorkModalOpen, setNewWorkModalOpen] = useState(false);
   const [newWorkDraft, setNewWorkDraft] = useState<Partial<NewWorkItemForm> | undefined>();
   const [newWorkPending, setNewWorkPending] = useState(false);
   const [newWorkError, setNewWorkError] = useState("");
+  const [newWorkKickoffFocusID, setNewWorkKickoffFocusID] = useState("");
   const newWorkInFlightRef = useRef(false);
   const newWorkRequestSequenceRef = useRef(0);
   const [editingWorkItem, setEditingWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -590,6 +593,11 @@ export function ProjectsView({
     setSettingsPanelOpen(false);
   }
 
+  function openRolesModal(intent: RolesModalIntent = "manage") {
+    setRolesError("");
+    setRolesModalIntent(intent);
+  }
+
   useEffect(() => {
     if (settingsPanelOpen) return;
     const returnFocus = settingsReturnFocusRef.current;
@@ -641,13 +649,14 @@ export function ProjectsView({
     setCreateWorktreeOpen(false);
     setCreateWorktreePending(false);
     setCreateWorktreeError("");
-    setRolesModalOpen(false);
+    setRolesModalIntent(null);
     setRolesPending(false);
     setRolesError("");
     setNewWorkModalOpen(false);
     setNewWorkDraft(undefined);
     setNewWorkPending(false);
     setNewWorkError("");
+    setNewWorkKickoffFocusID("");
     newWorkInFlightRef.current = false;
     newWorkRequestSequenceRef.current += 1;
     setEditingWorkItem(null);
@@ -1910,7 +1919,8 @@ export function ProjectsView({
         },
       }));
       setSelectedWorkItemOperationID("");
-      navigateWorkItem(payload.data.id);
+      navigateWorkItem(payload.data.id, false);
+      setNewWorkKickoffFocusID(payload.data.id);
       setNewWorkModalOpen(false);
       setNewWorkDraft(undefined);
       void refreshProjectOverview(projectID);
@@ -2055,6 +2065,17 @@ export function ProjectsView({
       setAssignments((current) => upsertAssignment(current, payload.data));
       setNewAssignmentModalOpen(false);
       await loadWorkItemDetail(projectID, workItemID);
+      if (
+        !isCurrentWorkItemMutation(
+          projectID,
+          selectionGeneration,
+          workItemID,
+          workSelectionGeneration,
+        )
+      ) {
+        return;
+      }
+      setWorkItemFocusTarget({ assignmentID: payload.data.id, workItemID });
       void refreshProjectOverview(projectID);
     } catch (error) {
       if (
@@ -2148,8 +2169,7 @@ export function ProjectsView({
         setAgentPresetsModalOpen(true);
         return;
       case "open_roles":
-        setRolesError("");
-        setRolesModalOpen(true);
+        openRolesModal();
         return;
       case "open_skills":
         navigateWorkspaceTab("skills");
@@ -2832,6 +2852,15 @@ export function ProjectsView({
     workspaceTab,
     workspaceTabFocusTarget,
   ]);
+  useEffect(() => {
+    if (!newWorkKickoffFocusID || newWorkModalOpen) return;
+    if (selectedWorkItemID !== newWorkKickoffFocusID) {
+      setNewWorkKickoffFocusID("");
+      return;
+    }
+    setWorkItemFocusTarget({ kickoff: true, workItemID: newWorkKickoffFocusID });
+    setNewWorkKickoffFocusID("");
+  }, [newWorkKickoffFocusID, newWorkModalOpen, selectedWorkItemID]);
   const explicitProjectMissing = Boolean(
     navigation?.projectID &&
     projects.state.loaded &&
@@ -3016,8 +3045,7 @@ export function ProjectsView({
           }}
           onAttentionReviewCandidate={setPromotingCandidate}
           onAttentionRoles={() => {
-            setRolesError("");
-            setRolesModalOpen(true);
+            openRolesModal();
           }}
           onAttentionSkills={() => navigateWorkspaceTab("skills")}
           onAttentionTask={onOpenTask}
@@ -3040,8 +3068,7 @@ export function ProjectsView({
             setAgentPresetsModalOpen(true);
           }}
           onManageRoles={() => {
-            setRolesError("");
-            setRolesModalOpen(true);
+            openRolesModal();
           }}
         />
         {navigationNotice && (
@@ -3097,6 +3124,7 @@ export function ProjectsView({
               setNewAssignmentError("");
               setNewAssignmentModalOpen(true);
             }}
+            onAddResponsibility={() => openRolesModal("work-kickoff")}
             onAddEvidenceLink={(assignmentID = "") => {
               setEvidenceLinkError("");
               setEvidenceLinkAssignmentID(assignmentID);
@@ -3203,8 +3231,7 @@ export function ProjectsView({
               setAgentPresetsModalOpen(true);
             }}
             onManageRoles={() => {
-              setRolesError("");
-              setRolesModalOpen(true);
+              openRolesModal();
             }}
             onOpenSettings={(origin) => {
               openProjectSettings(origin);
@@ -3298,15 +3325,19 @@ export function ProjectsView({
           )}
         </div>
 
-        {selectedProject && rolesModalOpen && (
+        {selectedProject && rolesModalIntent && (
           <RolesModal
             agentPresets={agentPresets}
             error={rolesError}
+            mode={rolesModalIntent === "work-kickoff" ? "quick-create" : "manage"}
             pending={rolesPending}
             projectSkills={projectSkills}
             roles={roles}
-            onClose={() => setRolesModalOpen(false)}
+            onClose={() => setRolesModalIntent(null)}
             onCreate={handleCreateRole}
+            onCreated={
+              rolesModalIntent === "work-kickoff" ? () => setRolesModalIntent(null) : undefined
+            }
             onDelete={handleDeleteRole}
             onUpdate={handleUpdateRole}
           />

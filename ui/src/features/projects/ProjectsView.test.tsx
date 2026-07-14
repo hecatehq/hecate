@@ -1379,6 +1379,15 @@ function directWrapper(initialState: Parameters<typeof ProjectsProvider>[0]["ini
   };
 }
 
+async function openProjectAssistant() {
+  const summary = await screen.findByText("Project Assistant", { selector: "span" });
+  const disclosure = summary.closest("details");
+  if (disclosure && !disclosure.open) {
+    await userEvent.click(summary);
+  }
+  return screen.findByRole("region", { name: "Project Assistant" });
+}
+
 function expectLaunchContextContract(text: string) {
   const sectionLabels = launchContextContract.sections.map((section) =>
     section === "Project" ? "Project:" : section,
@@ -2542,10 +2551,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
 
     await waitFor(() => {
@@ -2713,10 +2719,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.selectOptions(within(assistant).getByLabelText("Draft"), "model");
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
 
@@ -2744,10 +2747,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
 
     expect(within(assistant).queryByText("Project onboarding")).toBeNull();
     expect(within(assistant).queryByText("Set up project context")).toBeNull();
@@ -2775,12 +2775,9 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
 
-    expect(within(assistant).getByText("Selected work: Build cockpit UI")).toBeTruthy();
+    expect(screen.getByText("Draft a proposal for the selected work.")).toBeTruthy();
     expect(within(assistant).getByLabelText("Request")).toBeTruthy();
     expect(within(assistant).queryByText("Project setup")).toBeNull();
     expect(within(assistant).queryByRole("button", { name: "Set up project" })).toBeNull();
@@ -2894,10 +2891,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Inspect context" }));
 
     await waitFor(() => {
@@ -2989,10 +2983,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Inspect context" }));
 
     const context = await within(assistant).findByLabelText("Project Assistant context");
@@ -3020,10 +3011,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Inspect context" }));
 
     expect(await within(assistant).findByText("project assistant target not found")).toBeTruthy();
@@ -3108,10 +3096,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
     expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
 
@@ -3139,10 +3124,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
     await within(assistant).findByText("Create assignment");
     await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
@@ -3225,10 +3207,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await screen.findByText("Selected work: Build cockpit UI");
-    const assistant = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
+    const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
     await within(assistant).findByText("Create memory candidate");
     await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
@@ -7296,6 +7275,10 @@ describe("ProjectsView cockpit", () => {
       object: "project_work_item",
       data: createdWork,
     });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [],
+    });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -7332,7 +7315,7 @@ describe("ProjectsView cockpit", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "New work item" })).toBeNull();
       expect(screen.getByRole("heading", { name: createdWork.title })).toBeTruthy();
-      expect(screen.getByRole("tab", { name: /Work/ })).toHaveFocus();
+      expect(screen.getByRole("button", { name: "Assign work" })).toHaveFocus();
     });
   });
 
@@ -8155,6 +8138,123 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("adds a responsibility before explicitly assigning pristine work", async () => {
+    resetProjectWorkMocks();
+    const pristineWork = {
+      ...workItem,
+      assignments: [],
+      owner_role_id: undefined,
+      reviewer_role_ids: [],
+    };
+    const researcher: ProjectWorkRoleRecord = {
+      id: "researcher",
+      project_id: project.id,
+      name: "Researcher",
+      built_in: false,
+    };
+    const humanAssignment: ProjectAssignmentRecord = {
+      id: "asgn_kickoff",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      role_id: researcher.id,
+      root_id: workItem.root_id,
+      driver_kind: "manual",
+      status: "queued",
+      created_at: "2026-07-14T00:00:00Z",
+      updated_at: "2026-07-14T00:00:00Z",
+    };
+    let roles: ProjectWorkRoleRecord[] = [];
+    let assignments: ProjectAssignmentRecord[] = [];
+    vi.mocked(getProjectWorkRoles).mockImplementation(async () => ({
+      object: "project_work_roles",
+      data: roles,
+    }));
+    vi.mocked(getProjectWorkItems).mockImplementation(async () => ({
+      object: "project_work_items",
+      data: [{ ...pristineWork, assignments }],
+    }));
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: pristineWork,
+    });
+    vi.mocked(getProjectAssignments).mockImplementation(async () => ({
+      object: "project_assignments",
+      data: assignments,
+    }));
+    vi.mocked(createProjectWorkRole).mockImplementation(async () => {
+      roles = [researcher];
+      return { object: "project_role", data: researcher };
+    });
+    vi.mocked(createProjectAssignment).mockImplementation(async () => {
+      assignments = [humanAssignment];
+      return { object: "project_assignment", data: humanAssignment };
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    const addResponsibility = await within(detail).findByRole("button", {
+      name: "Add responsibility",
+    });
+    expect(addResponsibility).toHaveClass("btn-primary");
+    await userEvent.click(addResponsibility);
+    const responsibilityDialog = await screen.findByRole("dialog", {
+      name: "Add responsibility",
+    });
+    expect(
+      within(responsibilityDialog)
+        .getByText("Instructions & execution defaults")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    await userEvent.type(within(responsibilityDialog).getByLabelText("Name"), "Researcher");
+    await userEvent.click(
+      within(responsibilityDialog).getByRole("button", { name: "Add responsibility" }),
+    );
+
+    expect(createProjectWorkRole).toHaveBeenCalledWith(project.id, {
+      name: "Researcher",
+      description: "",
+      instructions: "",
+      default_driver_kind: "",
+      default_provider: "",
+      default_model: "",
+      default_agent_profile: "",
+      skill_ids: [],
+    });
+    expect(createProjectAssignment).not.toHaveBeenCalled();
+    const assignWork = await within(detail).findByRole("button", { name: "Assign work" });
+    await waitFor(() => expect(assignWork).toHaveFocus());
+    await userEvent.click(assignWork);
+    const assignmentDialog = await screen.findByRole("dialog", { name: "Add assignment" });
+    expect(within(assignmentDialog).getByLabelText("Responsibility")).toHaveValue(researcher.id);
+    expect(within(assignmentDialog).getByLabelText("Responsibility")).toHaveFocus();
+    fireEvent.change(within(assignmentDialog).getByLabelText("Work done by"), {
+      target: { value: "manual" },
+    });
+    await userEvent.click(within(assignmentDialog).getByRole("button", { name: "Add assignment" }));
+
+    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+      role_id: researcher.id,
+      driver_kind: "manual",
+    });
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute(
+        "id",
+        `project-work-assignment-${humanAssignment.id}`,
+      ),
+    );
+  });
+
   it("drafts a guided assignment proposal from a pristine work item", async () => {
     resetProjectWorkMocks();
     const emptyWorkItem = {
@@ -8189,20 +8289,19 @@ describe("ProjectsView cockpit", () => {
     const detail = await screen.findByRole("region", {
       name: "Selected work item",
     });
-    await within(detail).findByText("Let Hecate prepare the first step");
-    const assistantBeforeProposal = await screen.findByRole("region", {
-      name: "Project Assistant",
-    });
-    expect(within(detail).getByRole("button", { name: "Prepare next step" })).toHaveClass(
-      "btn-primary",
-    );
+    await within(detail).findByText("Choose who does this work");
+    const assistantBeforeProposal = await openProjectAssistant();
+    expect(within(detail).getByRole("button", { name: "Assign work" })).toHaveClass("btn-primary");
     expect(
       within(assistantBeforeProposal).getByRole("button", {
         name: "Draft proposal",
       }),
     ).toHaveClass("btn-ghost");
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
-    await userEvent.click(within(detail).getByRole("button", { name: "Prepare next step" }));
+    await userEvent.click(within(detail).getByText("More options"));
+    await userEvent.click(
+      within(detail).getByRole("button", { name: "Draft with Project Assistant" }),
+    );
 
     await waitFor(() =>
       expect(draftProjectAssistant).toHaveBeenCalledWith({
@@ -8218,9 +8317,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(assistant).getByRole("button", { name: "Apply proposal" })).toHaveClass(
       "btn-primary",
     );
-    expect(within(detail).getByRole("button", { name: "Prepare next step" })).toHaveClass(
-      "btn-ghost",
-    );
+    expect(within(detail).getByRole("button", { name: "Assign work" })).toHaveClass("btn-ghost");
     expect(createProjectAssignment).not.toHaveBeenCalled();
     expect(getProjectAssignmentPreflight).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();

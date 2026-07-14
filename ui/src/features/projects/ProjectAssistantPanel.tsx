@@ -1,4 +1,11 @@
-import { useEffect, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import type {
   ProjectAssistantApplyResult,
@@ -55,6 +62,7 @@ type Props = {
   memoryCandidateCount?: number;
   roleCount?: number;
   setupFirst?: boolean;
+  showHeader?: boolean;
   status: ProjectAssistantStatus;
   workItem: ProjectWorkItemRecord | null;
   workItemCount?: number;
@@ -93,6 +101,7 @@ export function ProjectAssistantPanel({
   memoryCandidateCount = 0,
   roleCount = roles.length,
   setupFirst = false,
+  showHeader = true,
   status,
   workItem,
   workItemCount = workItem ? 1 : 0,
@@ -100,10 +109,20 @@ export function ProjectAssistantPanel({
   const [form, setForm] = useState<ProjectAssistantDraftForm>(() =>
     projectAssistantDraftForm(project, workItem, roles),
   );
+  const proposalTitleRef = useRef<HTMLHeadingElement>(null);
+  const previousProposalIDRef = useRef("");
 
   useEffect(() => {
     setForm(projectAssistantDraftForm(project, workItem, roles));
   }, [project, roles, workItem]);
+
+  useEffect(() => {
+    const proposalID = proposal?.id ?? "";
+    if (!setupFirst && proposalID && proposalID !== previousProposalIDRef.current) {
+      proposalTitleRef.current?.focus();
+    }
+    previousProposalIDRef.current = proposalID;
+  }, [proposal?.id, setupFirst]);
 
   if (!project) return null;
 
@@ -132,24 +151,43 @@ export function ProjectAssistantPanel({
   });
 
   return (
-    <section style={assistantPanelStyle} aria-label="Project Assistant">
-      <MiniSectionHeader
-        title={setupFirst ? "Guided start" : "Project Assistant"}
-        detail={panelDetail}
-        action={
-          applyResult || (proposal && !setupFirst) ? (
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              disabled={status === "applying"}
-              onClick={onDismiss}
-            >
-              <Icon d={Icons.x} size={12} />
-              Dismiss
-            </button>
-          ) : null
-        }
-      />
+    <section
+      aria-busy={busy || contextBusy}
+      aria-label="Project Assistant"
+      style={assistantPanelStyle}
+    >
+      {showHeader && (
+        <MiniSectionHeader
+          title={setupFirst ? "Guided start" : "Project Assistant"}
+          detail={panelDetail}
+          action={
+            applyResult || (proposal && !setupFirst) ? (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={status === "applying"}
+                onClick={onDismiss}
+              >
+                <Icon d={Icons.x} size={12} />
+                Dismiss
+              </button>
+            ) : null
+          }
+        />
+      )}
+      {!showHeader && !proposal && (applyResult || error || contextError || context) && (
+        <div style={assistantCompactActionsStyle}>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={status === "applying"}
+            onClick={onDismiss}
+          >
+            <Icon d={Icons.x} size={12} />
+            Dismiss
+          </button>
+        </div>
+      )}
       {showSetupRow && (
         <div style={assistantOnboardingStyle} aria-label="Project onboarding">
           <div style={assistantOnboardingMainStyle}>
@@ -203,7 +241,7 @@ export function ProjectAssistantPanel({
                 onClick={() => onInspectContext(bootstrapForm)}
               >
                 <Icon d={Icons.eye} size={13} />
-                {contextBusy ? "Inspecting..." : "Inspect context"}
+                {contextBusy ? "Inspecting…" : "Inspect context"}
               </button>
               {firstWorkReady && memoryCandidateCount > 0 && onReviewMemory && (
                 <button
@@ -235,7 +273,7 @@ export function ProjectAssistantPanel({
                   onClick={onBootstrap}
                 >
                   <Icon d={Icons.refresh} size={13} />
-                  {bootstrapPending ? "Refreshing..." : "Refresh setup"}
+                  {bootstrapPending ? "Refreshing…" : "Refresh setup"}
                 </button>
               )}
             </div>
@@ -272,7 +310,7 @@ export function ProjectAssistantPanel({
                 style={assistantSubmitStyle}
               >
                 <Icon d={Icons.send} size={13} />
-                {status === "proposing" ? "Drafting..." : "Draft proposal"}
+                {status === "proposing" ? "Drafting…" : "Draft proposal"}
               </button>
             </div>
           </div>
@@ -362,7 +400,7 @@ export function ProjectAssistantPanel({
                 onClick={() => onInspectContext(form)}
               >
                 <Icon d={Icons.eye} size={13} />
-                {contextBusy ? "Inspecting..." : "Inspect context"}
+                {contextBusy ? "Inspecting…" : "Inspect context"}
               </button>
             </div>
           </div>
@@ -383,7 +421,14 @@ export function ProjectAssistantPanel({
         <div style={assistantProposalStyle}>
           <div style={assistantProposalHeaderStyle}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={titleStyle}>{setupFirst ? "Review setup" : proposal.title}</div>
+              <h3
+                ref={proposalTitleRef}
+                className="project-assistant-proposal-title"
+                style={{ ...titleStyle, margin: 0 }}
+                tabIndex={-1}
+              >
+                {setupFirst ? "Review setup" : proposal.title}
+              </h3>
               {proposal.summary && (
                 <div style={assistantProposalSummaryStyle}>{proposal.summary}</div>
               )}
@@ -446,7 +491,7 @@ export function ProjectAssistantPanel({
               {status === "applying"
                 ? setupFirst
                   ? "Applying setup…"
-                  : "Applying..."
+                  : "Applying…"
                 : setupFirst
                   ? "Apply setup"
                   : "Apply proposal"}
@@ -1294,6 +1339,11 @@ const assistantProposalActionsStyle: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: 8,
+  justifyContent: "flex-end",
+};
+
+const assistantCompactActionsStyle: CSSProperties = {
+  display: "flex",
   justifyContent: "flex-end",
 };
 

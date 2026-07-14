@@ -329,14 +329,16 @@ The Projects UI should stay lightweight but operational:
 - Keep the cockpit workspace tabbed by operator intent: Overview, Work,
   Timeline, Memory, and Skills. Overview is the ready project's default and
   owns the server-ordered next action plus compact activity navigation. Work
-  owns Project Assistant, work items, assignment launch, handoffs, and selected
-  work detail. It should use one Work Queue with All / activity filters instead
-  of separate Activity Inbox and Work Items lists. Timeline owns project story
-  and durable decisions. Memory owns saved entries, candidates, and context
-  sources. Skills owns the project skill registry. These supporting tabs start
-  with readable status and summaries; source configuration, resolved candidate
-  history, provenance, paths, declared access, and runtime identifiers stay
-  available through native disclosure.
+  owns work items, assignment launch, handoffs, and selected-work detail. The
+  idle Project Assistant follows the queue and detail as a native disclosure
+  instead of leading the Work surface. Attention state opens that disclosure;
+  it does not create another project-state model. Work should use one Work Queue
+  with All / activity filters instead of separate Activity Inbox and Work Items
+  lists. Timeline owns project story and durable decisions. Memory owns saved
+  entries, candidates, and context sources. Skills owns the project skill
+  registry. These supporting tabs start with readable status and summaries;
+  source configuration, resolved candidate history, provenance, paths, declared
+  access, and runtime identifiers stay available through native disclosure.
 - Treat setup readiness and Overview operations as authoritative projections.
   While setup readiness is unknown, show a loading or retry state instead of
   assuming a new project is ready. Clear stale operations during refresh and do
@@ -349,6 +351,13 @@ The Projects UI should stay lightweight but operational:
   artifact, and handoff identifiers to focus the exact existing record. Do not
   parse blocker copy, reorder operations in the client, or derive a parallel
   next-action cascade.
+- When pristine selected work has no active server-directed follow-through, its
+  explicit kickoff owns the primary action. If no role is available, **Add
+  responsibility** exposes Name and Description first and progressively
+  discloses instructions, execution defaults, and skills. Saving a
+  responsibility must not create an assignment. **Assign work** creates only
+  the reviewed assignment and must not launch it. Optional Assistant drafting,
+  evidence, and handoff actions remain under **More options**.
 - Present each assignment as a readable execution story with one state-driven
   primary action. Show Assigned, recorded Started, current status, and recorded
   Finished milestones without treating `updated_at` as transition history.
@@ -489,10 +498,10 @@ In the Projects UI, Bootstrap is project onboarding: it prepares setup proposals
 by refreshing workspace guidance and project skills, without inheriting nested
 worktree containers as parent-root input. It does not auto-start work, run
 agents, or write durable memory directly.
-For a selected work item, the guided first-assignment action also uses the
-Project Assistant proposal rail. It drafts a queued assignment proposal from the
-work item owner/default role and preserves the selected work root, but applying
-the proposal and starting the assignment remain separate operator actions.
+For pristine selected work, direct **Assign work** is the routine path. **Draft
+with Project Assistant** remains an optional reviewable proposal path under
+**More options** and continues to use the owner/default role and selected root.
+Applying a proposal and starting an assignment remain separate operator actions.
 Planner and Manager are future proposal/monitoring layers. The orchestrator is
 the runtime coordinator that executes approved work through Tasks, External
 Agents, approvals, artifacts, traces, and events.
@@ -528,6 +537,8 @@ Cairnline coordination state. The current flow supports:
   and progressively disclosed runtime evidence;
 - a selected-work follow-through rail that preserves server priority and
   focuses the exact assignment, review, handoff, or closeout target;
+- direct selected-work kickoff with responsibility quick-create, optional
+  Assistant disclosure, and exact post-create focus;
 - context inspection, progressively disclosed evidence/review/handoff forms,
   explicit closeout confirmation, read-only completed work, and project
   activity;
@@ -557,10 +568,10 @@ Projects V1 is considered structurally complete when an operator can:
   proposed memory/role changes before applying them.
 - Configure project defaults, roles, skills, provider/model posture,
   memory/source policies, roots, and worktrees explicitly.
-- Create a work item, draft or manually create assignments, complete Human work
-  or start Hecate Task/External Agent execution, inspect relevant context,
-  record evidence/reviews, hand off to another role, and close the work item
-  deliberately.
+- Create a work item, create assignments directly or optionally draft them with
+  Project Assistant, complete Human work or start Hecate Task/External Agent
+  execution, inspect relevant context, record evidence/reviews, hand off to
+  another role, and close the work item deliberately.
 - See actionable project activity and health without a separate persisted
   health model.
 
@@ -569,7 +580,7 @@ Remaining Projects V1 hardening:
 - Keep the browser-level project journey test representative as setup,
   assignment, evidence, and closeout flows evolve.
 - Keep polishing onboarding and first-work UI so setup is the obvious path and
-  manual forms remain available but secondary.
+  supporting configuration remains available but secondary.
 - Continue dogfooding Hecate development through a Hecate project and capture
   only concrete gaps as follow-up issues.
 
@@ -606,6 +617,10 @@ Out of scope for this document and Projects V1:
   browser-level Projects journey now covers create project -> setup proposal ->
   first work -> assignment draft/start -> evidence -> closeout; its
   follow-through coverage should stay representative as the cockpit evolves.
+  Kickoff coverage quick-creates a responsibility without implicitly creating
+  an assignment, explicitly creates a rootless Human assignment, returns focus
+  to **Assign work** and then the exact assignment story, and verifies the
+  idle/attention Assistant disclosure at desktop and 390px widths.
   URL coverage opens a non-first work item directly, reloads it, traverses
   workspace/tab history, repeats at 390px, and proves that missing project/work
   identifiers do not load an unrelated record.

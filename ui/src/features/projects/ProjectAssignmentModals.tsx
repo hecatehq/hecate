@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 
 import type {
   ProjectAssignmentRecord,
@@ -47,6 +47,7 @@ export function NewAssignmentModal({
   onClose,
   onCreate,
 }: NewAssignmentModalProps) {
+  const responsibilitySelectRef = useRef<HTMLSelectElement>(null);
   const defaultRole =
     roles.find((role) => role.id === workItem?.owner_role_id) ??
     roles.find((role) => role.id === "software_developer") ??
@@ -76,6 +77,7 @@ export function NewAssignmentModal({
   return (
     <Modal
       title="Add assignment"
+      initialFocusRef={responsibilitySelectRef}
       onClose={onClose}
       width={520}
       footer={
@@ -133,8 +135,9 @@ export function NewAssignmentModal({
         <label style={projectWorkFieldStyle}>
           <span style={projectWorkFieldLabelStyle}>Responsibility</span>
           <select
+            ref={responsibilitySelectRef}
             className="input"
-            autoFocus
+            name="assignment-responsibility"
             value={form.roleID}
             onChange={(event) => {
               const roleID = event.target.value;
@@ -160,6 +163,7 @@ export function NewAssignmentModal({
               humanDestination ? "new-assignment-human-destination-help" : undefined
             }
             className="input"
+            name="assignment-destination"
             value={form.driverKind}
             onChange={(event) => {
               const driverKind = event.target.value;

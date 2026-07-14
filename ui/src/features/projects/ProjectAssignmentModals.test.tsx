@@ -99,6 +99,7 @@ describe("ProjectAssignmentModals", () => {
     );
 
     const plan = screen.getByRole("region", { name: "Assignment plan" });
+    expect(screen.getByLabelText("Responsibility")).toHaveFocus();
     expect(within(plan).getByText("Ready to add")).toBeTruthy();
     expect(within(plan).getByText("Software developer")).toBeTruthy();
     expect(within(plan).getByText("Uses the work item's workspace")).toBeTruthy();
