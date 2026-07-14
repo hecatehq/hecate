@@ -23,6 +23,7 @@ import {
   buildProjectAssignmentChatLaunchRequest,
   type ProjectAssignmentChatLaunchRequest,
 } from "./ProjectWorkItemDetail";
+import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
 import { shortID } from "./projectUtils";
 
 export type ProjectTimelinePanelProps = {
@@ -183,10 +184,17 @@ function ProjectTimelineRow({
     (item.chatID || item.assignment?.execution_ref?.chat_session_id) &&
     (item.assignment?.execution_ref?.missing || item.assignment?.execution?.missing),
   );
+  const linkedChatPrepared =
+    item.assignment &&
+    toProjectAssignmentExecutionViewModel(item.assignment).externalAgentPhase === "prepared";
   const timelineChatRequest: ProjectAssignmentChatLaunchRequest | null = linkedChatMissing
     ? null
     : item.chatID
-      ? { projectID: project.id, chatSessionID: item.chatID }
+      ? {
+          projectID: project.id,
+          chatSessionID: item.chatID,
+          ...(linkedChatPrepared && chatRequest?.draft ? { draft: chatRequest.draft } : {}),
+        }
       : chatRequest;
   const memoryEntry = item.memoryEntry;
   return (

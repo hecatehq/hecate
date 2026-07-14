@@ -957,7 +957,10 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Continue in chat" }));
 
-    expect(selectChatSession).toHaveBeenCalledWith("chat_external_1");
+    expect(selectChatSession).toHaveBeenCalledWith(
+      "chat_external_1",
+      expect.objectContaining({ draft: expect.stringContaining("Launch context") }),
+    );
     expect(createChatSession).not.toHaveBeenCalled();
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
     return { selectChatSession, setMessage };

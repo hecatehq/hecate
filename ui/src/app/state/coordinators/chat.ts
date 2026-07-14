@@ -392,6 +392,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     providerFilter,
   } = chat.state;
   const {
+    beginChatSessionSelection,
+    isCurrentChatSessionSelection,
     setDefaultChatTarget,
     setChatTargetBySessionID,
     setDefaultChatToolsEnabled,
@@ -440,11 +442,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   function rememberChatComposerDraft(sessionID: string, draft: string) {
     if (!sessionID) return;
     setComposerDraftsBySessionID((current) => {
-      if (draft && current.get(sessionID) === draft) return current;
-      if (!draft && !current.has(sessionID)) return current;
+      if (current.has(sessionID) && current.get(sessionID) === draft) return current;
       const next = new Map(current);
-      if (draft) next.set(sessionID, draft);
-      else next.delete(sessionID);
+      next.set(sessionID, draft);
       return next;
     });
   }
@@ -1121,8 +1121,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     id: string,
     options: SelectChatSessionOptions = {},
   ): Promise<boolean> {
+    const selectionGeneration = beginChatSessionSelection();
     rememberChatComposerDraft(activeChatSessionID, message);
-    const targetDraft = composerDraftsBySessionID.get(id) ?? options.draft ?? "";
+    const activeDraftIsOwned = composerDraftsBySessionID.has(id) || Boolean(message);
+    const targetDraft =
+      id === activeChatSessionID && activeDraftIsOwned
+        ? message
+        : (composerDraftsBySessionID.get(id) ?? options.draft ?? "");
     if (id && options.draft !== undefined && !composerDraftsBySessionID.has(id)) {
       rememberChatComposerDraft(id, options.draft);
     }
@@ -1132,8 +1137,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setMessage("");
       return true;
     }
+    // Transfer composer ownership with the selected id. A later response may
+    // refresh the session snapshot, but it must not overwrite edits made while
+    // that request is in flight.
+    setMessage(targetDraft);
     try {
       const payload = await getChatSession(id);
+      if (!isCurrentChatSessionSelection(selectionGeneration)) return false;
       setActiveChatSession(payload.data);
       if (payload.data.agent_id && payload.data.agent_id !== "hecate") {
         setAgentAdapterID(payload.data.agent_id);
@@ -1147,9 +1157,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       setAgentWorkspace(payload.data.workspace ?? "");
       setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
-      setMessage(targetDraft);
       return true;
     } catch (error) {
+      if (!isCurrentChatSessionSelection(selectionGeneration)) return false;
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
       setActiveChatSessionID("");
       setActiveChatSession(null);
@@ -1162,6 +1172,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function startNewChat() {
+    beginChatSessionSelection();
     rememberChatComposerDraft(activeChatSessionID, message);
     if (activeChatSessionID) {
       setQueuedChatMessages((current) =>

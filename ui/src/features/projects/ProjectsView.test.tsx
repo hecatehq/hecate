@@ -4908,10 +4908,13 @@ describe("ProjectsView cockpit", () => {
     });
     await userEvent.click(within(detail).getByRole("button", { name: "Continue in chat" }));
 
-    expect(onOpenChat).toHaveBeenCalledWith({
-      projectID: project.id,
-      chatSessionID: "chat_external_1",
-    });
+    expect(onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: project.id,
+        chatSessionID: "chat_external_1",
+        draft: expect.stringContaining("Launch context"),
+      }),
+    );
   });
 
   it("does not treat an activity-only chat as selected execution", async () => {
