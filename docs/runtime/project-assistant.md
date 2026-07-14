@@ -620,6 +620,11 @@ Every action has the same envelope:
 | `update_handoff`          | `internal/projectwork` | Sparse compatibility update for a handoff target assignment, target role, or status. Requires the exact `expected_updated_at` revision. Review follow-up drafts do not emit it. Cairnline-origin full-replacement updates are rejected instead of being narrowed into this action. |
 | `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                                                                                                                                                                 |
 
+A proposal may contain at most one `update_handoff` action for a given handoff.
+Combine target-role, target-assignment, and status changes into that single
+revision-checked patch so preflight can reject conflicts before any action
+commits.
+
 ## UI contract
 
 The first visible UI should stay small and inspectable:

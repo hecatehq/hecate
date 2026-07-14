@@ -33,8 +33,23 @@ func (s *Service) preflightApply(ctx context.Context, actions []Action, committe
 	}
 	preflight.seedActionResults(committedResults)
 	startIndex := len(committedResults)
-	for idx := startIndex; idx < len(actions); idx++ {
-		if err := preflight.action(ctx, actions[idx]); err != nil {
+	updatedHandoffs := make(map[string]struct{})
+	for idx, action := range actions {
+		if strings.TrimSpace(action.Kind) == ActionUpdateHandoff {
+			projectID := targetValue(action, "project_id")
+			handoffID := targetValue(action, "handoff_id")
+			if projectID != "" && handoffID != "" {
+				key := scopedKey(projectID, handoffID)
+				if _, exists := updatedHandoffs[key]; exists {
+					return idx, fmt.Errorf("%w: proposal contains multiple update_handoff actions for handoff %q", ErrInvalid, handoffID)
+				}
+				updatedHandoffs[key] = struct{}{}
+			}
+		}
+		if idx < startIndex {
+			continue
+		}
+		if err := preflight.action(ctx, action); err != nil {
 			return idx, err
 		}
 	}
@@ -73,7 +88,7 @@ func (p *applyPreflight) seedActionResults(results []ActionResult) {
 					WorkItemID: strings.TrimSpace(result.Data["work_item_id"]),
 				}
 			}
-		case ActionCreateHandoff, ActionUpdateHandoff:
+		case ActionCreateHandoff:
 			handoffID := strings.TrimSpace(result.Data["handoff_id"])
 			if handoffID == "" {
 				handoffID = strings.TrimSpace(result.ID)
@@ -85,6 +100,10 @@ func (p *applyPreflight) seedActionResults(results []ActionResult) {
 					WorkItemID: strings.TrimSpace(result.Data["work_item_id"]),
 				}
 			}
+		case ActionUpdateHandoff:
+			// A committed update creates no identity for later actions to
+			// reference. Leave it unseeded so resumed preflight reloads the
+			// complete, current handoff from the Projects read authority.
 		case ActionCreateMemoryCandidate:
 			candidateID := strings.TrimSpace(result.Data["candidate_id"])
 			if candidateID == "" {

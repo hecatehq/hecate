@@ -1389,6 +1389,97 @@ func TestProjectAssistantAPI_CairnlineFullHandoffUpdateRejectsBeforeMutation(t *
 	}
 }
 
+func TestProjectAssistantAPI_CairnlineHandoffAuthorityRejectsRepeatedUpdatesBeforeMutation(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectCollaboration
+	client := newAPITestClient(t, server)
+	const (
+		projectID  = "proj_pa_repeated_handoff"
+		workItemID = "work_pa_repeated_handoff"
+		handoffID  = "handoff_pa_repeated_update"
+	)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{ID: projectID, Name: "Repeated handoff guard"}); err != nil {
+		t.Fatalf("Create native project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        workItemID,
+		ProjectID: projectID,
+		Title:     "Keep handoff updates atomic",
+	}); err != nil {
+		t.Fatalf("Create native work item: %v", err)
+	}
+	created := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/"+workItemID+"/handoffs", projectJourneyJSON(t, map[string]any{
+		"id":                      handoffID,
+		"title":                   "One decision per proposal",
+		"summary":                 "Reject repeated updates before either one commits.",
+		"recommended_next_action": "Choose one handoff outcome.",
+	}))
+	var before cairnline.Handoff
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		var err error
+		before, err = service.GetHandoff(t.Context(), projectID, workItemID, handoffID)
+		return err
+	}); err != nil {
+		t.Fatalf("GetHandoff before apply: %v", err)
+	}
+
+	target := map[string]string{
+		"project_id":   projectID,
+		"work_item_id": workItemID,
+		"handoff_id":   handoffID,
+	}
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_repeated_cairnline_handoff_update",
+		Title:                "Reject repeated handoff updates",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:   projectassistant.ActionUpdateHandoff,
+				Target: target,
+				Patch: json.RawMessage(projectJourneyJSON(t, map[string]any{
+					"expected_updated_at": created.Data.UpdatedAt,
+					"status":              projectwork.HandoffStatusAccepted,
+				})),
+			},
+			{
+				Kind:   projectassistant.ActionUpdateHandoff,
+				Target: target,
+				Patch: json.RawMessage(projectJourneyJSON(t, map[string]any{
+					"expected_updated_at": created.Data.UpdatedAt,
+					"status":              projectwork.HandoffStatusDismissed,
+				})),
+			},
+		},
+	}
+	payload := mustRequestJSONStatus[projectAssistantErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if payload.Error.Type != errCodeInvalidRequest || payload.Error.ApplyStatus != projectassistant.ApplyStatusBlockedBeforeApply || payload.Error.FailedActionIndex != 1 || payload.Error.CommittedActionCount != 0 {
+		t.Fatalf("apply error = %+v, want invalid repeated update at action 1 before any commit", payload.Error)
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		after, err := service.GetHandoff(t.Context(), projectID, workItemID, handoffID)
+		if err != nil {
+			return err
+		}
+		if after.Status != cairnline.HandoffStatusOpen || !after.UpdatedAt.Equal(before.UpdatedAt) || after.Body != before.Body {
+			t.Fatalf("portable handoff after repeated update proposal = %+v, want unchanged %+v", after, before)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify portable handoff after rejected proposal: %v", err)
+	}
+	shadow, err := handler.projectWork.ListHandoffs(t.Context(), projectwork.HandoffFilter{ProjectID: projectID, WorkItemID: workItemID})
+	if err != nil {
+		t.Fatalf("ListHandoffs shadow: %v", err)
+	}
+	if len(shadow) != 1 || shadow[0].Status != projectwork.HandoffStatusPending || !shadow[0].UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("handoff shadow after rejected proposal = %+v, want unchanged pending shadow", shadow)
+	}
+}
+
 func TestProjectAssistantApplyMirrorDoesNotOverwriteCairnlineHandoffAuthority(t *testing.T) {
 	t.Parallel()
 	handler, _ := newProjectAssistantCairnlineMirrorTestHandler(t)

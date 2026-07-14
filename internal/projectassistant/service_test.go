@@ -1993,6 +1993,133 @@ func TestService_ApplyLoopFailureReportsCommittedProgressAcrossStores(t *testing
 	}
 }
 
+func TestService_ApplyResumeReloadsCommittedHandoffUpdateAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:        "work_handoff_resume",
+				ProjectID: project.ID,
+				Title:     "Resume handoff closeout",
+				Status:    projectwork.WorkItemStatusReview,
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+			artifact, err := fixture.work.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+				ID:                     "artifact_handoff_resume",
+				ProjectID:              project.ID,
+				WorkItemID:             workItem.ID,
+				Kind:                   projectwork.ArtifactKindReview,
+				Title:                  "Review follow-up",
+				Body:                   "Changes requested before closeout.",
+				ReviewVerdict:          projectwork.ReviewVerdictChangesRequested,
+				ReviewFollowUpRequired: true,
+			})
+			if err != nil {
+				t.Fatalf("CreateArtifact: %v", err)
+			}
+			handoff, err := fixture.work.CreateHandoff(ctx, projectwork.Handoff{
+				ID:                    "handoff_resume",
+				ProjectID:             project.ID,
+				WorkItemID:            workItem.ID,
+				Title:                 "Resolve review follow-up",
+				Summary:               "The operator decided no follow-up assignment is needed.",
+				RecommendedNextAction: "Dismiss the handoff and close the work item.",
+				LinkedArtifactIDs:     []string{artifact.ID},
+				Status:                projectwork.HandoffStatusPending,
+			})
+			if err != nil {
+				t.Fatalf("CreateHandoff: %v", err)
+			}
+
+			fixture.service.memoryCandidateAuthority = nil
+			proposal := Proposal{
+				ID:                   "pa_handoff_resume_" + builder.name,
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind: ActionUpdateHandoff,
+						Target: map[string]string{
+							"project_id":   project.ID,
+							"work_item_id": workItem.ID,
+							"handoff_id":   handoff.ID,
+						},
+						Patch: rawPatch(t, map[string]any{
+							"expected_updated_at": handoff.UpdatedAt,
+							"status":              projectwork.HandoffStatusDismissed,
+						}),
+					},
+					{
+						Kind: ActionCreateMemoryCandidate,
+						Patch: rawPatch(t, map[string]any{
+							"id":         "memcand_handoff_resume",
+							"project_id": project.ID,
+							"title":      "Handoff closeout decision",
+							"body":       "The operator dismissed the review follow-up handoff.",
+						}),
+					},
+					{
+						Kind:   ActionUpdateWorkItem,
+						Target: map[string]string{"project_id": project.ID, "work_item_id": workItem.ID},
+						Patch:  rawPatch(t, map[string]string{"status": projectwork.WorkItemStatusDone}),
+					},
+				},
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if !errors.Is(err, ErrStoreNotConfigured) {
+				t.Fatalf("Apply err = %v result=%+v, want injected memory authority failure", err, result)
+			}
+			if result.Status != ApplyStatusPartialDueToRuntimeFailure || result.CommittedActionCount != 1 || result.ResumeActionIndex != 1 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
+				t.Fatalf("partial result = %+v, want committed handoff update and failure at action 1", result)
+			}
+			storedHandoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+			if err != nil {
+				t.Fatalf("ListHandoffs after partial apply: %v", err)
+			}
+			if len(storedHandoffs) != 1 || storedHandoffs[0].Status != projectwork.HandoffStatusDismissed || len(storedHandoffs[0].LinkedArtifactIDs) != 1 || storedHandoffs[0].LinkedArtifactIDs[0] != artifact.ID {
+				t.Fatalf("handoffs after partial apply = %+v, want authoritative dismissed linked handoff", storedHandoffs)
+			}
+
+			resumed := NewService(Stores{
+				Projects:         fixture.projects,
+				Chats:            fixture.chats,
+				Work:             fixture.work,
+				ProjectSkills:    fixture.projectSkills,
+				Memory:           fixture.memoryEntries,
+				MemoryCandidates: fixture.memoryCandidates,
+				Proposals:        fixture.proposals,
+			}, func(prefix string) string { return prefix + "_resume" })
+			result, err = resumed.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("resumed Apply: %v", err)
+			}
+			if !result.Applied || result.CommittedActionCount != 3 || len(result.Actions) != 3 {
+				t.Fatalf("resumed result = %+v, want all three actions committed", result)
+			}
+			storedWorkItem, ok, err := fixture.work.GetWorkItem(ctx, project.ID, workItem.ID)
+			if err != nil || !ok {
+				t.Fatalf("GetWorkItem after resume ok=%v err=%v", ok, err)
+			}
+			if storedWorkItem.Status != projectwork.WorkItemStatusDone {
+				t.Fatalf("work item status after resume = %q, want done", storedWorkItem.Status)
+			}
+			candidates, err := fixture.memoryCandidates.ListCandidates(ctx, memory.CandidateFilter{ProjectID: project.ID})
+			if err != nil {
+				t.Fatalf("ListCandidates after resume: %v", err)
+			}
+			if len(candidates) != 1 || candidates[0].ID != "memcand_handoff_resume" {
+				t.Fatalf("memory candidates after resume = %+v, want resumed candidate", candidates)
+			}
+		})
+	}
+}
+
 func TestService_PreflightApplyUsesCommittedActionResults(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {
@@ -2357,6 +2484,82 @@ func TestService_ApplyPreflightBlocksCloseoutBeforeMutatingAcrossStores(t *testi
 				t.Fatalf("work item status = %q, want not done after preflight closeout block", stored.Status)
 			}
 		})
+	}
+}
+
+func TestService_ApplyPreflightRejectsRepeatedHandoffUpdatesBeforeMutation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+	workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_repeated_handoff_update",
+		ProjectID: project.ID,
+		Title:     "Reject repeated handoff updates",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	handoff, err := fixture.work.CreateHandoff(ctx, projectwork.Handoff{
+		ID:                    "handoff_repeated_update",
+		ProjectID:             project.ID,
+		WorkItemID:            workItem.ID,
+		Title:                 "One decision per proposal",
+		Summary:               "Keep the original handoff until preflight succeeds.",
+		RecommendedNextAction: "Reject duplicate update actions.",
+	})
+	if err != nil {
+		t.Fatalf("CreateHandoff: %v", err)
+	}
+
+	proposal := Proposal{
+		ID:                   "pa_repeated_handoff_update",
+		RequiresConfirmation: true,
+		Actions: []Action{
+			{
+				Kind: ActionUpdateHandoff,
+				Target: map[string]string{
+					"project_id":   project.ID,
+					"work_item_id": workItem.ID,
+					"handoff_id":   handoff.ID,
+				},
+				Patch: rawPatch(t, map[string]any{
+					"expected_updated_at": handoff.UpdatedAt,
+					"status":              projectwork.HandoffStatusAccepted,
+				}),
+			},
+			{
+				Kind: ActionUpdateHandoff,
+				Target: map[string]string{
+					"project_id":   project.ID,
+					"work_item_id": workItem.ID,
+					"handoff_id":   handoff.ID,
+				},
+				Patch: rawPatch(t, map[string]any{
+					"expected_updated_at": handoff.UpdatedAt,
+					"status":              projectwork.HandoffStatusDismissed,
+				}),
+			},
+		},
+	}
+
+	result, err := fixture.service.Apply(ctx, proposal, true)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Apply(repeated handoff updates) error = %v result=%+v, want ErrInvalid", err, result)
+	}
+	var applyErr *ApplyError
+	if !errors.As(err, &applyErr) || applyErr.FailedActionIndex != 1 {
+		t.Fatalf("Apply(repeated handoff updates) error = %T %v, want ApplyError at action 1", err, err)
+	}
+	if result.Status != ApplyStatusBlockedBeforeApply || result.CommittedActionCount != 0 || len(result.Actions) != 0 {
+		t.Fatalf("Apply(repeated handoff updates) result = %+v, want preflight block with no committed actions", result)
+	}
+	stored, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+	if err != nil {
+		t.Fatalf("ListHandoffs: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Status != projectwork.HandoffStatusPending || !stored[0].UpdatedAt.Equal(handoff.UpdatedAt) {
+		t.Fatalf("handoff after repeated update proposal = %+v, want unchanged pending handoff %+v", stored, handoff)
 	}
 }
 
