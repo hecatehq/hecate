@@ -57,6 +57,13 @@ async function completeGuidedProjectSetup(page: Page) {
   await expect(page.getByRole("button", { name: "Create first work" })).toBeFocused();
 }
 
+async function returnProjectsToForeground(page: Page) {
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+  });
+}
+
 test("Projects journey: setup, first work, assignment, evidence, closeout", async ({ page }) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {
@@ -170,7 +177,7 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(page.getByRole("region", { name: "Selected work item" })).toBeVisible();
 
   completeProjectJourneyAssignment(state);
-  await page.getByRole("button", { name: "Refresh project work" }).click();
+  await returnProjectsToForeground(page);
   await expect(executionStory.locator("header").getByText("done", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByText("Record completion evidence: Verify launch checklist")).toBeVisible();

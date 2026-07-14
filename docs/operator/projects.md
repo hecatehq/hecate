@@ -194,7 +194,23 @@ After a project mutation, the client reloads Overview activity, health, setup
 readiness, and operations from the server. These are refreshed projections, not
 locally maintained project state, and a response for a previously selected
 project must not replace the current project's Overview.
-The client clears the previous operation while that refresh is in flight. If
+While Projects remains visible, Hecate quietly rechecks operational projections,
+the work list, and selected-work detail about every 10 seconds. It checks the
+project catalog about every 30 seconds so projects created, renamed, or removed
+through Cairnline appear without an app reload. Returning to Hecate after the
+window or tab was inactive performs one full catch-up; Memory or Skills also
+refreshes when it is the active supporting view.
+
+Passive refresh keeps the last-good content on screen and preserves keyboard
+focus. If a refreshed action no longer exists, focus moves to a stable nearby
+control and Hecate announces the change. Refresh pauses while Project Settings,
+an editor, or a confirmation is open so unsaved operator input is not replaced.
+If a read fails, Projects says it is showing the last-known state and keeps that
+source represented in the notice until it recovers. Use **Refresh project work**
+for operational state, or the active supporting view's own Refresh action for
+Memory or Skills.
+That explicit foreground refresh clears the previous operation while its read
+is in flight; passive refresh does not. If
 setup readiness cannot be confirmed before the first work item exists, Projects
 shows an explicit retry state instead of assuming setup is complete. If work
 already exists, a projection failure is announced without hiding that work, and

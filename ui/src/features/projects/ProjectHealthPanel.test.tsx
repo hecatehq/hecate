@@ -121,15 +121,14 @@ function renderPanel(overrides: Partial<Parameters<typeof ProjectHealthPanel>[0]
     onAttentionTask: vi.fn(),
     onAttentionWorkItem: vi.fn(),
   };
-  render(
-    <ProjectHealthPanel
-      attentionItems={attentionItems}
-      memoryCandidates={[candidate]}
-      {...handlers}
-      {...overrides}
-    />,
-  );
-  return { candidate, handlers };
+  const props: Parameters<typeof ProjectHealthPanel>[0] = {
+    attentionItems,
+    memoryCandidates: [candidate],
+    ...handlers,
+    ...overrides,
+  };
+  const result = render(<ProjectHealthPanel {...props} />);
+  return { candidate, handlers, props, ...result };
 }
 
 async function openMenu() {
@@ -169,6 +168,78 @@ describe("ProjectHealthPanel", () => {
     await openMenu();
     await userEvent.click(screen.getByRole("button", { name: "Review memory candidate" }));
     expect(handlers.onAttentionReviewCandidate).toHaveBeenCalledWith(candidate);
+  });
+
+  it("returns focus to the trigger when refreshed attention removes the focused row", async () => {
+    const result = renderPanel();
+    expect(screen.getByRole("status")).toHaveTextContent(/^$/);
+    await openMenu();
+    screen
+      .getByRole("button", { name: "Open attention item Provider/model defaults missing" })
+      .focus();
+
+    result.rerender(
+      <ProjectHealthPanel
+        {...result.props}
+        attentionItems={result.props.attentionItems.filter((item) => item.id !== "proj_1:defaults")}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Project attention: 4" })).toHaveFocus();
+    expect(
+      screen.getByText("Project attention changed. Focus returned to the attention button."),
+    ).toBeTruthy();
+  });
+
+  it("returns focus when a same-label attention item changes its canonical target", async () => {
+    const result = renderPanel();
+    await openMenu();
+    screen.getByRole("button", { name: "Open attention item Work item needs attention" }).focus();
+    const attentionItems = result.props.attentionItems.map((item) =>
+      item.id === "work_1:item"
+        ? {
+            ...item,
+            action: projectAction("open_work_item", { work_item_id: "work_2" }),
+            work_item_id: "work_2",
+          }
+        : item,
+    );
+
+    result.rerender(<ProjectHealthPanel {...result.props} attentionItems={attentionItems} />);
+
+    expect(screen.getByRole("button", { name: "Project attention: 5" })).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Project attention changed. Focus returned to the attention button.",
+    );
+  });
+
+  it("re-announces repeated identical focus recovery events", async () => {
+    const result = renderPanel();
+    const withoutDefaults = result.props.attentionItems.filter(
+      (item) => item.id !== "proj_1:defaults",
+    );
+    await openMenu();
+    screen
+      .getByRole("button", { name: "Open attention item Provider/model defaults missing" })
+      .focus();
+
+    result.rerender(<ProjectHealthPanel {...result.props} attentionItems={withoutDefaults} />);
+    const firstAnnouncement = screen.getByRole("status").firstElementChild;
+    expect(firstAnnouncement).toHaveTextContent(
+      "Project attention changed. Focus returned to the attention button.",
+    );
+
+    result.rerender(<ProjectHealthPanel {...result.props} />);
+    screen
+      .getByRole("button", { name: "Open attention item Provider/model defaults missing" })
+      .focus();
+    result.rerender(<ProjectHealthPanel {...result.props} attentionItems={withoutDefaults} />);
+
+    const secondAnnouncement = screen.getByRole("status").firstElementChild;
+    expect(secondAnnouncement).toHaveTextContent(
+      "Project attention changed. Focus returned to the attention button.",
+    );
+    expect(secondAnnouncement).not.toBe(firstAnnouncement);
   });
 
   it("falls back to the memory view when candidate details are missing", async () => {

@@ -109,12 +109,38 @@ export function ProjectAssistantPanel({
   const [form, setForm] = useState<ProjectAssistantDraftForm>(() =>
     projectAssistantDraftForm(project, workItem, roles),
   );
+  const formContextKey = JSON.stringify([project?.id ?? "", workItem?.id ?? ""]);
+  const previousFormContextKeyRef = useRef(formContextKey);
+  const previousDerivedFormRef = useRef(projectAssistantDraftForm(project, workItem, roles));
   const proposalTitleRef = useRef<HTMLHeadingElement>(null);
   const previousProposalIDRef = useRef("");
 
   useEffect(() => {
-    setForm(projectAssistantDraftForm(project, workItem, roles));
-  }, [project, roles, workItem]);
+    const nextDerivedForm = projectAssistantDraftForm(project, workItem, roles);
+    const previousDerivedForm = previousDerivedFormRef.current;
+    if (previousFormContextKeyRef.current !== formContextKey) {
+      previousFormContextKeyRef.current = formContextKey;
+      previousDerivedFormRef.current = nextDerivedForm;
+      setForm(nextDerivedForm);
+      return;
+    }
+    setForm((current) => {
+      if (projectAssistantDraftFormsEqual(current, previousDerivedForm)) {
+        return nextDerivedForm;
+      }
+      if (
+        current.roleID === PROJECT_ASSISTANT_AUTO ||
+        roles.some((role) => role.id === current.roleID)
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        roleID: nextDerivedForm.roleID,
+      };
+    });
+    previousDerivedFormRef.current = nextDerivedForm;
+  }, [formContextKey, project, roles, workItem]);
 
   useEffect(() => {
     const proposalID = proposal?.id ?? "";
@@ -793,6 +819,18 @@ function projectAssistantDraftForm(
     driverKind: PROJECT_ASSISTANT_AUTO,
     draftMode: "deterministic",
   };
+}
+
+function projectAssistantDraftFormsEqual(
+  a: ProjectAssistantDraftForm,
+  b: ProjectAssistantDraftForm,
+) {
+  return (
+    a.request === b.request &&
+    a.roleID === b.roleID &&
+    a.driverKind === b.driverKind &&
+    a.draftMode === b.draftMode
+  );
 }
 
 function projectAssistantDraftMode(

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 import type {
   ProjectActivityBucketKey,
@@ -59,6 +59,8 @@ export function ProjectHealthPanel({
   const attentionMenu = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
     portalSelector: null,
   });
+  const focusNoticeSequenceRef = useRef(0);
+  const [focusNotice, setFocusNotice] = useState({ key: 0, message: "" });
   const attentionCount = attentionItems.length;
   const totalAttentionCount =
     summary?.available_attention_count ?? attentionCount + omittedAttentionCount;
@@ -77,6 +79,30 @@ export function ProjectHealthPanel({
       : "Project attention";
   const attentionBadge = hiddenAttentionCount > 0 ? `${attentionCount}+` : `${attentionCount}`;
   const postureRows = projectHealthPostureRows(summary);
+  const focusedAttention =
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest<HTMLElement>("[data-project-attention-identity]")
+      : null;
+  const focusedAttentionIdentity =
+    focusedAttention && attentionMenu.menuRef.current?.contains(focusedAttention)
+      ? (focusedAttention.dataset.projectAttentionIdentity ?? "")
+      : "";
+  const focusedAttentionWillChange = Boolean(
+    focusedAttentionIdentity &&
+    !attentionItems.some(
+      (item) => projectHealthAttentionIdentity(item) === focusedAttentionIdentity,
+    ),
+  );
+
+  useLayoutEffect(() => {
+    if (!focusedAttentionWillChange) return;
+    attentionMenu.triggerRef.current?.focus();
+    focusNoticeSequenceRef.current += 1;
+    setFocusNotice({
+      key: focusNoticeSequenceRef.current,
+      message: "Project attention changed. Focus returned to the attention button.",
+    });
+  }, [attentionMenu.triggerRef, focusedAttentionWillChange]);
   const closeMenu = () => attentionMenu.close();
   const handleAttentionAction = (item: ProjectHealthAttention) => {
     const candidateID = projectHealthAttentionCandidateID(item);
@@ -142,6 +168,9 @@ export function ProjectHealthPanel({
   };
   return (
     <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>
+      <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStyle}>
+        <span key={focusNotice.key}>{focusNotice.message}</span>
+      </div>
       <button
         ref={attentionMenu.triggerRef}
         className="btn btn-ghost btn-sm"
@@ -241,6 +270,7 @@ function ProjectHealthAttentionRow({
   return (
     <div
       className="project-attention-item"
+      data-project-attention-identity={projectHealthAttentionIdentity(item)}
       role="button"
       tabIndex={0}
       aria-label={`Open attention item ${item.title}`}
@@ -356,6 +386,13 @@ function projectHealthAttentionCandidateID(item: ProjectHealthAttention): string
   return item.action?.type === "review_memory_candidate" ? item.action.candidate_id : undefined;
 }
 
+function projectHealthAttentionIdentity(item: ProjectHealthAttention) {
+  const actionFingerprint = Object.entries(item.action).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  return JSON.stringify([item.id, item.title, item.action_label ?? "", actionFingerprint]);
+}
+
 type ProjectHealthPostureRow = {
   id: string;
   title: string;
@@ -429,6 +466,18 @@ function plural(count: number): string {
 
 const projectAttentionMenuStyle: CSSProperties = {
   position: "relative",
+};
+
+const visuallyHiddenStyle: CSSProperties = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: 1,
 };
 
 const projectAttentionCountStyle: CSSProperties = {

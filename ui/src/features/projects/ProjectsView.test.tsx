@@ -20,6 +20,7 @@ import {
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
+  deleteProject as deleteProjectRequest,
   deleteProjectAssignment,
   deleteAgentPreset,
   deleteProjectHandoff,
@@ -251,11 +252,28 @@ async function openProjectAttentionMenu() {
   return screen.getByRole("menu", { name: "Project attention" });
 }
 
+function returnProjectsToForeground() {
+  window.dispatchEvent(new Event("blur"));
+  window.dispatchEvent(new Event("focus"));
+}
+
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
     getProjects: vi.fn(async () => ({ object: "projects", data: [] })),
+    deleteProject: vi.fn(async () => ({
+      object: "project_delete",
+      data: {
+        project_id: project.id,
+        project_name: project.name,
+        chat_sessions_deleted: 0,
+        project_work_rows_deleted: 0,
+        project_skills_deleted: 0,
+        memory_entries_deleted: 0,
+        memory_candidates_deleted: 0,
+      },
+    })),
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
@@ -741,6 +759,18 @@ const projectSkill: ProjectSkillRecord = {
 };
 
 function resetProjectWorkMocks() {
+  vi.mocked(deleteProjectRequest).mockResolvedValue({
+    object: "project_delete",
+    data: {
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 0,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    },
+  });
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
     data: {
@@ -1421,9 +1451,11 @@ function expectNoProjectSubresourceCalls(projectID: string) {
 }
 
 afterEach(() => {
+  cleanup();
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.mocked(getProjects).mockClear();
+  vi.mocked(deleteProjectRequest).mockReset();
   vi.mocked(getProjectActivity).mockReset();
   vi.mocked(getProjectHealth).mockReset();
   vi.mocked(getProjectOperationsBrief).mockReset();
@@ -4340,6 +4372,772 @@ describe("ProjectsView cockpit", () => {
       });
       await operationsRequest;
     });
+  });
+
+  it("catches up catalog and execution state without clearing visible work or focus", async () => {
+    resetProjectWorkMocks();
+    const renamedProject = { ...project, name: "Hecate refreshed" };
+    const completedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        status: "completed",
+      },
+      execution: {
+        ...hecateAssignment.execution,
+        status: "completed",
+        pending_approval_count: 0,
+        finished_at: "2026-06-04T10:00:00Z",
+      },
+      updated_at: "2026-06-04T10:00:00Z",
+      completed_at: "2026-06-04T10:00:00Z",
+    };
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [renamedProject] });
+    window.localStorage.setItem("hecate.project", project.id);
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await within(detail).findByText("Expose project work and native starts.");
+    expect(within(detail).getAllByText("approval").length).toBeGreaterThan(0);
+    await waitFor(() => expect(getProjectAssignments).toHaveBeenCalledTimes(1));
+
+    let releaseWorkRefresh!: (value: {
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }) => void;
+    const workRefresh = new Promise<{
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }>((resolve) => {
+      releaseWorkRefresh = resolve;
+    });
+    vi.mocked(getProjectWorkItems).mockImplementationOnce(async () => workRefresh);
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [completedAssignment],
+    });
+    const refreshButton = screen.getByRole("button", { name: "Refresh project work" });
+    refreshButton.focus();
+
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(2));
+
+    expect(within(detail).getAllByText("approval").length).toBeGreaterThan(0);
+    expect(refreshButton).toHaveFocus();
+    expect(screen.queryByText("Loading detail…")).toBeNull();
+
+    await act(async () => {
+      releaseWorkRefresh({
+        object: "project_work_items",
+        data: [{ ...workItem, assignments: [completedAssignment] }],
+      });
+      await workRefresh;
+    });
+
+    await waitFor(() =>
+      expect(within(detail).getAllByText("done", { exact: true }).length).toBeGreaterThan(0),
+    );
+    expect(screen.getAllByText("Hecate refreshed").length).toBeGreaterThan(0);
+    expect(getProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps last-known work visible when passive refresh fails and clears the notice on recovery", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    window.localStorage.setItem("hecate.project", project.id);
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    expect(await within(detail).findByText("Expose project work and native starts.")).toBeTruthy();
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(1));
+    vi.mocked(getProjectWorkItems).mockRejectedValueOnce(new Error("temporary refresh failure"));
+
+    act(returnProjectsToForeground);
+
+    expect(
+      await screen.findByText(
+        /Project updates could not be checked\. Showing the last known state/,
+      ),
+    ).toBeTruthy();
+    expect(within(detail).getByText("Expose project work and native starts.")).toBeTruthy();
+    expect(within(detail).getAllByText("approval").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Refresh project work" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Project updates could not be checked\. Showing the last known state/),
+      ).toBeNull(),
+    );
+    expect(getProjectWorkItems).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a catalog outage visible across a successful operational refresh", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockRejectedValueOnce(new Error("catalog unavailable"));
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await screen.findByRole("region", { name: "Selected work item" });
+    act(returnProjectsToForeground);
+    const warning = await screen.findByText(
+      "Projects could not be checked. Showing the last known catalog; Hecate will try again while this window is active.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Refresh project work" }));
+    expect(warning).toBeTruthy();
+    expect(screen.getByText(/Projects could not be checked\. Showing the last known catalog/)).toBe(
+      warning,
+    );
+
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    act(returnProjectsToForeground);
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Projects could not be checked\. Showing the last known catalog/),
+      ).toBeNull(),
+    );
+  });
+
+  it("moves focus to stable content when passive catalog refresh removes a routed project", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+    };
+    window.localStorage.setItem("hecate.project", project.id);
+    render(
+      <ProjectsView navigation={{ projectID: project.id, view: "overview", workItemID: null }} />,
+      {
+        wrapper: directWrapper({ projects: [project, remainingProject], loaded: true }),
+      },
+    );
+
+    const settingsButton = await screen.findByRole("button", { name: "Project settings" });
+    settingsButton.focus();
+    vi.mocked(getProjects).mockResolvedValue({
+      object: "projects",
+      data: [remainingProject],
+    });
+
+    act(returnProjectsToForeground);
+
+    expect(
+      await screen.findByText("The selected project was removed. Choose another project."),
+    ).toBeTruthy();
+    const workspace = screen.getByRole("region", { name: "Project workspace content" });
+    await waitFor(() => expect(workspace).toHaveFocus());
+    expect(screen.getByText("Project not found", { exact: true })).toBeTruthy();
+  });
+
+  it("announces and focuses passive fallback selection after the active project is removed", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+    };
+    window.localStorage.setItem("hecate.project", project.id);
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project, remainingProject], loaded: true }),
+    });
+
+    const refreshButton = await screen.findByRole("button", { name: "Refresh project work" });
+    refreshButton.focus();
+    vi.mocked(getProjects).mockResolvedValue({
+      object: "projects",
+      data: [remainingProject],
+    });
+
+    act(returnProjectsToForeground);
+
+    expect(
+      await screen.findByText("The selected project was removed. Moving to Apollo."),
+    ).toBeTruthy();
+    const workspace = screen.getByRole("region", { name: "Project workspace content" });
+    await waitFor(() => {
+      expect(workspace).toHaveFocus();
+      expect(screen.getByRole("link", { name: "Open project Apollo" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    });
+  });
+
+  it("does not recover stale catalog focus after the operator switches projects", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+    };
+    let releaseCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const catalog = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    let releaseSelection!: (value: { object: "project"; data: ProjectRecord }) => void;
+    vi.mocked(getProjects).mockImplementationOnce(async () => catalog);
+    vi.mocked(updateProject).mockImplementationOnce(
+      async () =>
+        new Promise<{ object: "project"; data: ProjectRecord }>((resolve) => {
+          releaseSelection = resolve;
+        }),
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project, remainingProject], loaded: true }),
+    });
+
+    const settingsButton = await screen.findByRole("button", { name: "Project settings" });
+    settingsButton.focus();
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+
+    const apolloLink = screen.getByRole("link", { name: "Open project Apollo" });
+    await user.click(apolloLink);
+    await waitFor(() => expect(apolloLink).toHaveAttribute("aria-current", "page"));
+    expect(apolloLink).toHaveFocus();
+
+    await act(async () => {
+      releaseCatalog({ object: "projects", data: [remainingProject] });
+      await catalog;
+    });
+    expect(screen.queryByText(/The selected project was removed/)).toBeNull();
+    expect(apolloLink).toHaveFocus();
+
+    await act(async () => {
+      releaseSelection({ object: "project", data: remainingProject });
+    });
+  });
+
+  it("does not move focus from a surviving control before catalog removal commits", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+    };
+    let releaseCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const catalog = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    vi.mocked(getProjects).mockImplementationOnce(async () => catalog);
+    window.localStorage.setItem("hecate.project", project.id);
+    render(
+      <ProjectsView navigation={{ projectID: project.id, view: "overview", workItemID: null }} />,
+      {
+        wrapper: directWrapper({ projects: [project, remainingProject], loaded: true }),
+      },
+    );
+
+    const settingsButton = await screen.findByRole("button", { name: "Project settings" });
+    settingsButton.focus();
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+    const addButton = screen.getByRole("button", { name: "Add" });
+    addButton.focus();
+
+    await act(async () => {
+      releaseCatalog({ object: "projects", data: [remainingProject] });
+      await catalog;
+    });
+    expect(
+      await screen.findByText("The selected project was removed. Choose another project."),
+    ).toBe(screen.getByText("The selected project was removed. Choose another project."));
+    expect(addButton).toHaveFocus();
+  });
+
+  it("ignores stale passive catalog focus context during explicit project deletion", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+    };
+    let releaseCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const catalog = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    vi.mocked(getProjects).mockImplementationOnce(async () => catalog);
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project, remainingProject], loaded: true }),
+    });
+
+    const refreshButton = await screen.findByRole("button", { name: "Refresh project work" });
+    refreshButton.focus();
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    await user.click(screen.getByRole("button", { name: "Delete project record" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "Open project Hecate" })).toBeNull(),
+    );
+
+    await act(async () => {
+      releaseCatalog({ object: "projects", data: [remainingProject] });
+      await catalog;
+    });
+    expect(screen.queryByText(/The selected project was removed/)).toBeNull();
+  });
+
+  it.each([
+    ["an empty catalog", { projectID: null, view: "overview" as const, workItemID: null }, []],
+    [
+      "a missing project",
+      { projectID: "proj_missing", view: "overview" as const, workItemID: null },
+      [project],
+    ],
+  ])(
+    "reports and recovers a catalog catch-up failure for %s",
+    async (_label, navigation, projects) => {
+      resetProjectWorkMocks();
+      vi.mocked(getProjects).mockRejectedValueOnce(new Error("catalog unavailable"));
+      render(<ProjectsView navigation={navigation} />, {
+        wrapper: directWrapper({ projects, loaded: true }),
+      });
+
+      act(returnProjectsToForeground);
+      expect(
+        await screen.findByText(
+          "Projects could not be checked. Showing the last known catalog; Hecate will try again while this window is active.",
+        ),
+      ).toBeTruthy();
+
+      vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+      act(returnProjectsToForeground);
+      await waitFor(() => expect(screen.queryByText(/Projects could not be checked/)).toBeNull());
+      if (navigation.projectID) expectNoProjectSubresourceCalls(navigation.projectID);
+    },
+  );
+
+  it("keeps manual selected-work refresh independent from an auxiliary Overview failure", async () => {
+    resetProjectWorkMocks();
+    const completedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        status: "completed",
+      },
+      execution: {
+        ...hecateAssignment.execution,
+        status: "completed",
+        pending_approval_count: 0,
+        finished_at: "2026-06-04T11:00:00Z",
+      },
+      completed_at: "2026-06-04T11:00:00Z",
+      updated_at: "2026-06-04T11:00:00Z",
+    };
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await within(detail).findByText("Expose project work and native starts.");
+    await waitFor(() => expect(getProjectAssignments).toHaveBeenCalledTimes(1));
+    vi.mocked(getProjectHealth).mockRejectedValueOnce(new Error("health temporarily unavailable"));
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [completedAssignment],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Refresh project work" }));
+
+    await waitFor(() => expect(getProjectAssignments).toHaveBeenCalledTimes(2));
+    expect(within(detail).getAllByText("done", { exact: true }).length).toBeGreaterThan(0);
+  });
+
+  it("does not start a passive wave while an explicit refresh is pending", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await screen.findByRole("region", { name: "Selected work item" });
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(1));
+    let releaseManualRefresh!: (value: {
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }) => void;
+    const manualRefresh = new Promise<{
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }>((resolve) => {
+      releaseManualRefresh = resolve;
+    });
+    vi.mocked(getProjectWorkItems).mockImplementationOnce(async () => manualRefresh);
+
+    const refreshButton = screen.getByRole("button", { name: "Refresh project work" });
+    await user.click(refreshButton);
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(2));
+    expect(refreshButton).not.toBeDisabled();
+    expect(refreshButton).toHaveAttribute("aria-disabled", "true");
+    expect(refreshButton).toHaveFocus();
+
+    act(returnProjectsToForeground);
+    await act(async () => Promise.resolve());
+    expect(getProjectWorkItems).toHaveBeenCalledTimes(2);
+    expect(getProjects).not.toHaveBeenCalled();
+
+    await act(async () => {
+      releaseManualRefresh({ object: "project_work_items", data: [workItem] });
+      await manualRefresh;
+    });
+    await waitFor(() => expect(refreshButton).not.toHaveAttribute("aria-disabled"));
+    expect(refreshButton).toHaveFocus();
+  });
+
+  it("refreshes the active supporting surface when returning to Projects", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await openProjectWorkspaceTab(/Memory/);
+    expect(await screen.findByText("Commit style")).toBeTruthy();
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [{ ...memoryEntry, title: "Review policy", body: "Require explicit review." }],
+    });
+
+    act(returnProjectsToForeground);
+
+    expect(await screen.findByText("Review policy")).toBeTruthy();
+    expect(screen.queryByText("Commit style")).toBeNull();
+  });
+
+  it("clears a passive Memory failure after the panel refresh succeeds", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await openProjectWorkspaceTab(/Memory/);
+    await waitFor(() => expect(getProjectMemory).toHaveBeenCalledTimes(1));
+    vi.mocked(getProjectMemory).mockRejectedValueOnce(new Error("memory temporarily unavailable"));
+
+    act(returnProjectsToForeground);
+    expect(
+      await screen.findByText(
+        /Project updates could not be checked\. Showing the last known state/,
+      ),
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Refresh project memory" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Project updates could not be checked\. Showing the last known state/),
+      ).toBeNull(),
+    );
+    expect(getProjectMemory).toHaveBeenCalledTimes(3);
+  });
+
+  it("clears a passive Skills failure after the panel refresh succeeds", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await openProjectWorkspaceTab(/Skills/);
+    await waitFor(() => expect(getProjectSkills).toHaveBeenCalledTimes(1));
+    vi.mocked(getProjectSkills).mockRejectedValueOnce(new Error("skills temporarily unavailable"));
+
+    act(returnProjectsToForeground);
+    expect(
+      await screen.findByText(
+        /Project updates could not be checked\. Showing the last known state/,
+      ),
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Refresh project skills" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Project updates could not be checked\. Showing the last known state/),
+      ).toBeNull(),
+    );
+    expect(getProjectSkills).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives an explicit Memory refresh priority over an in-flight passive wave", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await openProjectWorkspaceTab(/Memory/);
+    expect(await screen.findByText("Commit style")).toBeTruthy();
+    let releaseWorkRefresh!: (value: {
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }) => void;
+    const workRefresh = new Promise<{
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }>((resolve) => {
+      releaseWorkRefresh = resolve;
+    });
+    vi.mocked(getProjectWorkItems).mockImplementationOnce(async () => workRefresh);
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [{ ...memoryEntry, title: "Manual recovery" }],
+    });
+
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: "Refresh project memory" }));
+    expect(await screen.findByText("Manual recovery")).toBeTruthy();
+
+    await act(async () => {
+      releaseWorkRefresh({ object: "project_work_items", data: [workItem] });
+      await workRefresh;
+    });
+    await act(async () => Promise.resolve());
+    expect(getProjectMemory).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Manual recovery")).toBeTruthy();
+  });
+
+  it("fences passive refresh during Project Assistant apply reconciliation", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    const assistant = await openProjectAssistant();
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    await within(assistant).findByText("Create assignment");
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(1));
+
+    let releasePassiveWork!: (value: {
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }) => void;
+    const passiveWork = new Promise<{
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }>((resolve) => {
+      releasePassiveWork = resolve;
+    });
+    vi.mocked(getProjectWorkItems).mockImplementationOnce(async () => passiveWork);
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(2));
+
+    const reconciledWorkItem = { ...workItem, title: "Applied cockpit UI" };
+    let releaseReconciledWork!: (value: {
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }) => void;
+    const reconciledWork = new Promise<{
+      object: "project_work_items";
+      data: ProjectWorkItemRecord[];
+    }>((resolve) => {
+      releaseReconciledWork = resolve;
+    });
+    vi.mocked(getProjectWorkItems).mockImplementationOnce(async () => reconciledWork);
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [reconciledWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: reconciledWorkItem,
+    });
+
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(3));
+    act(returnProjectsToForeground);
+    await act(async () => Promise.resolve());
+    expect(getProjectWorkItems).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      releaseReconciledWork({ object: "project_work_items", data: [reconciledWorkItem] });
+      await reconciledWork;
+    });
+    expect(await within(assistant).findByText("Applied 1 action")).toBeTruthy();
+
+    await act(async () => {
+      releasePassiveWork({ object: "project_work_items", data: [workItem] });
+      await passiveWork;
+    });
+    expect(
+      await screen.findByRole("article", { name: "Applied cockpit UI work item" }),
+    ).toBeTruthy();
+
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjectWorkItems).toHaveBeenCalledTimes(4));
+  });
+
+  it("does not let an older passive Memory read overwrite a completed edit", async () => {
+    resetProjectWorkMocks();
+    const updatedMemory = {
+      ...memoryEntry,
+      body: "Keep the operator version.",
+      updated_at: "2026-06-04T11:00:00Z",
+    };
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry],
+    });
+    vi.mocked(updateProjectMemory).mockResolvedValue({
+      object: "project_memory_entry",
+      data: updatedMemory,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await openProjectWorkspaceTab(/Memory/);
+    expect(await screen.findByText("Commit style")).toBeTruthy();
+    await waitFor(() => expect(getProjectMemory).toHaveBeenCalledTimes(1));
+    let releaseMemoryRefresh!: (value: {
+      object: "project_memory";
+      data: ProjectMemoryRecord[];
+    }) => void;
+    const memoryRefresh = new Promise<{
+      object: "project_memory";
+      data: ProjectMemoryRecord[];
+    }>((resolve) => {
+      releaseMemoryRefresh = resolve;
+    });
+    vi.mocked(getProjectMemory).mockImplementationOnce(async () => memoryRefresh);
+
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjectMemory).toHaveBeenCalledTimes(2));
+
+    await user.click(
+      within(screen.getByRole("article", { name: "Memory Commit style" })).getByText(
+        "Details and actions",
+        { selector: "summary" },
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
+    await user.clear(screen.getByLabelText("Body"));
+    await user.type(screen.getByLabelText("Body"), "Keep the operator version.");
+    await user.click(screen.getByRole("button", { name: "Save memory" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save memory" })).toBeNull());
+
+    await act(async () => {
+      releaseMemoryRefresh({ object: "project_memory", data: [memoryEntry] });
+      await memoryRefresh;
+    });
+
+    expect(screen.getByText("Keep the operator version.")).toBeTruthy();
+    expect(screen.queryByText("Use conventional commits.")).toBeNull();
+  });
+
+  it("pauses passive refresh while the operator is editing project settings", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({
+      object: "projects",
+      data: [{ ...project, default_workspace_mode: "in_place" }],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await screen.findByRole("region", { name: "Project overview" });
+    await user.click(screen.getByRole("button", { name: "Project settings" }));
+    const workspaceBehavior = screen.getByRole("combobox", { name: "Workspace behavior" });
+    await user.selectOptions(workspaceBehavior, "persistent");
+
+    act(returnProjectsToForeground);
+
+    expect(getProjects).not.toHaveBeenCalled();
+    expect(workspaceBehavior).toHaveValue("persistent");
+
+    await user.click(screen.getByRole("button", { name: "Back to project" }));
+    act(returnProjectsToForeground);
+
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not let an already-started catalog read replace a Settings draft", async () => {
+    resetProjectWorkMocks();
+    let releaseCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const catalogRefresh = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    vi.mocked(getProjects).mockReturnValue(catalogRefresh);
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    await screen.findByRole("region", { name: "Project overview" });
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Project settings" }));
+    const workspaceBehavior = screen.getByRole("combobox", { name: "Workspace behavior" });
+    await user.selectOptions(workspaceBehavior, "persistent");
+
+    await act(async () => {
+      releaseCatalog({
+        object: "projects",
+        data: [
+          {
+            ...project,
+            name: "Late catalog name",
+            default_workspace_mode: "in_place",
+            updated_at: "2026-06-04T11:00:00Z",
+          },
+        ],
+      });
+      await catalogRefresh;
+    });
+
+    expect(workspaceBehavior).toHaveValue("persistent");
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    expect(screen.queryByText("Late catalog name")).toBeNull();
   });
 
   it("shows selected work item assignments and projected execution state", async () => {
@@ -11001,6 +11799,25 @@ describe("ProjectsView navigation destinations", () => {
     expect(selectProject).not.toHaveBeenCalled();
     expectNoProjectSubresourceCalls("proj_missing");
     expectNoProjectSubresourceCalls(project.id);
+  });
+
+  it("keeps catalog catch-up active for a missing project without polling its subresources", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [project] });
+    render(
+      <ProjectsView
+        navigation={{ projectID: "proj_missing", view: "overview", workItemID: null }}
+      />,
+      {
+        wrapper: directWrapper({ projects: [project], loaded: true }),
+      },
+    );
+
+    expect(await screen.findByText("Project not found")).toBeTruthy();
+    act(returnProjectsToForeground);
+
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+    expectNoProjectSubresourceCalls("proj_missing");
   });
 
   it("makes retry the primary action when a routed project catalog cannot load", async () => {

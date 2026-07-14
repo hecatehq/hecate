@@ -4,7 +4,8 @@
 > assignment-destination, follow-through, supporting-surface hierarchy, and
 > shareable-navigation slices implemented. The Overview-hosted guided-start
 > selected-work kickoff, and External Agent continuity slices are also
-> implemented.
+> implemented, with passive freshness hardening over the same server-backed
+> projections.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -450,6 +451,37 @@ follows the assignments it describes; ready and completed closeout stays
 promoted near the work brief. Because the current Hecate facade also maps
 Cairnline's `awaiting_review` to `awaiting_approval`, the cockpit uses neutral
 review language unless a linked runtime reports a pending approval.
+
+## Passive Freshness
+
+Projects stays current through serialized reads of existing Hecate facade
+projections. Visible operational state refreshes every 10 seconds; the catalog
+refreshes every 30 seconds. A visibility or window-focus return requests one
+full catch-up and coalesces paired browser events. Hidden windows do not poll.
+
+```mermaid
+flowchart LR
+  V["Projects visible"] --> O["Operational read · 10 seconds"]
+  V --> C["Catalog read · 30 seconds"]
+  H["Window hidden or unfocused"] --> R["Operator returns"]
+  R --> F["Full catch-up"]
+  O --> A["Hecate facade"]
+  C --> A
+  F --> A
+  A --> D["Cairnline-authoritative projections"]
+  E["Editor or confirmation open"] --> P["Pause passive reads"]
+  P --> V
+```
+
+Passive reads use stale-while-revalidate presentation: last-good work remains
+visible and focus stays where the operator left it. If refreshed authority
+removes the focused action, focus moves to a stable nearby control and the
+change is announced. Each failed source remains represented in one
+last-known-state notice until that source recovers. Project Settings and other
+editing or confirmation surfaces pause passive reads so a refreshed record
+cannot reset an unsaved draft. Memory and Skills join the foreground catch-up
+only when that supporting view is active. The explicit header refresh keeps its
+existing foreground loading and recovery semantics.
 
 ## Verified Screen States
 

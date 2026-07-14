@@ -122,6 +122,102 @@ describe("ProjectsProvider", () => {
     expect(getProjects).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps background catalog failures quiet and lets the cockpit report them politely", async () => {
+    const onError = vi.fn();
+    vi.mocked(getProjects).mockRejectedValue(new Error("catalog unavailable"));
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider
+          initialState={{ projects: [project], loaded: true, catalogError: "prior outage" }}
+        >
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    await act(async () => {
+      await result.current.actions.loadProjects({ background: true, onError });
+    });
+
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.state.loading).toBe(false);
+    expect(result.current.state.catalogError).toBe("prior outage");
+    expect(onError).toHaveBeenCalledWith("catalog unavailable");
+  });
+
+  it("does not commit a background catalog response after its interaction becomes stale", async () => {
+    const renamed = { ...project, name: "Late catalog" };
+    let resolveCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    let shouldApply = true;
+    vi.mocked(getProjects).mockReturnValue(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveCatalog = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let loadPromise!: Promise<void>;
+    act(() => {
+      loadPromise = result.current.actions.loadProjects({
+        background: true,
+        shouldApply: () => shouldApply,
+      });
+    });
+    shouldApply = false;
+    resolveCatalog({ object: "projects", data: [renamed] });
+    await act(async () => {
+      await loadPromise;
+    });
+
+    expect(result.current.state.projects).toEqual([project]);
+  });
+
+  it("queues a fresh foreground catalog load behind an invalidated background read", async () => {
+    const backgroundProject = { ...project, name: "Background snapshot" };
+    const foregroundProject = { ...project, name: "Foreground snapshot" };
+    let resolveBackground!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    let backgroundCurrent = true;
+    vi.mocked(getProjects)
+      .mockReturnValueOnce(
+        new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+          resolveBackground = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({ object: "projects", data: [foregroundProject] });
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let backgroundPromise!: Promise<void>;
+    let foregroundPromise!: Promise<void>;
+    act(() => {
+      backgroundPromise = result.current.actions.loadProjects({
+        background: true,
+        shouldApply: () => backgroundCurrent,
+      });
+      backgroundCurrent = false;
+      foregroundPromise = result.current.actions.loadProjects();
+    });
+    resolveBackground({ object: "projects", data: [backgroundProject] });
+    await act(async () => {
+      await backgroundPromise;
+      await foregroundPromise;
+    });
+
+    expect(getProjects).toHaveBeenCalledTimes(2);
+    expect(result.current.state.projects).toEqual([foregroundProject]);
+  });
+
   it("returns create failures to the owning surface without changing catalog feedback", async () => {
     let resolveLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
     vi.mocked(getProjects).mockReturnValue(

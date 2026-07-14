@@ -2,7 +2,11 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectRecord } from "../../types/project";
+import type {
+  ProjectRecord,
+  ProjectWorkItemRecord,
+  ProjectWorkRoleRecord,
+} from "../../types/project";
 import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
 
 function project(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
@@ -31,25 +35,24 @@ function renderAssistantPanel(
     onReviewMemory: vi.fn(),
   };
 
-  render(
-    <ProjectAssistantPanel
-      applyResult={null}
-      bootstrapPending={false}
-      context={null}
-      contextError=""
-      contextStatus="idle"
-      error=""
-      project={project()}
-      proposal={null}
-      roles={[]}
-      status="idle"
-      workItem={null}
-      {...handlers}
-      {...overrides}
-    />,
-  );
+  const props: Parameters<typeof ProjectAssistantPanel>[0] = {
+    applyResult: null,
+    bootstrapPending: false,
+    context: null,
+    contextError: "",
+    contextStatus: "idle",
+    error: "",
+    project: project(),
+    proposal: null,
+    roles: [],
+    status: "idle",
+    workItem: null,
+    ...handlers,
+    ...overrides,
+  };
+  const result = render(<ProjectAssistantPanel {...props} />);
 
-  return handlers;
+  return { ...handlers, ...result, props };
 }
 
 describe("ProjectAssistantPanel", () => {
@@ -76,6 +79,82 @@ describe("ProjectAssistantPanel", () => {
     expect(handlers.onPropose).toHaveBeenCalledWith(
       expect.objectContaining({ driverKind: "manual" }),
     );
+  });
+
+  it("preserves a draft when passive reads refresh the same work and roles", async () => {
+    const user = userEvent.setup();
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: "proj_1",
+      title: "Refresh safely",
+      brief: "Keep operator input stable.",
+      status: "ready",
+      priority: "normal",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const role: ProjectWorkRoleRecord = {
+      id: "role_1",
+      project_id: "proj_1",
+      name: "Reviewer",
+      built_in: false,
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const result = renderAssistantPanel({ roles: [role], workItem });
+    const request = screen.getByLabelText("Request");
+    const destination = screen.getByLabelText("Work done by");
+    await user.clear(request);
+    await user.type(request, "Keep this operator draft");
+    await user.selectOptions(destination, "manual");
+
+    result.rerender(
+      <ProjectAssistantPanel
+        {...result.props}
+        project={{ ...result.props.project!, updated_at: "2026-06-12T00:01:00Z" }}
+        roles={[{ ...role }]}
+        workItem={{ ...workItem, updated_at: "2026-06-12T00:01:00Z" }}
+      />,
+    );
+
+    expect(request).toHaveValue("Keep this operator draft");
+    expect(destination).toHaveValue("manual");
+    expect(destination).toHaveFocus();
+  });
+
+  it("rebases an untouched draft when authoritative work defaults change", () => {
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: "proj_1",
+      title: "Old title",
+      brief: "Keep defaults current.",
+      status: "ready",
+      priority: "normal",
+      owner_role_id: "role_1",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const role: ProjectWorkRoleRecord = {
+      id: "role_1",
+      project_id: "proj_1",
+      name: "Reviewer",
+      built_in: false,
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+    };
+    const result = renderAssistantPanel({ roles: [role], workItem });
+    const request = screen.getByLabelText("Request");
+    expect(request).toHaveValue("Queue Reviewer for Old title");
+
+    result.rerender(
+      <ProjectAssistantPanel
+        {...result.props}
+        roles={[{ ...role, name: "Release reviewer" }]}
+        workItem={{ ...workItem, title: "Current title", updated_at: "2026-06-12T00:01:00Z" }}
+      />,
+    );
+
+    expect(request).toHaveValue("Queue Release reviewer for Current title");
   });
 
   it("shows setup-ready actions after project setup has begun", async () => {

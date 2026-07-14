@@ -107,6 +107,10 @@ import { AgentPresetsModal } from "./AgentPresetsModal";
 import { EditWorkItemModal, NewWorkItemModal } from "./ProjectWorkItemModals";
 import { RolesModal } from "./RolesModal";
 import { useProjectAssistantController } from "./useProjectAssistantController";
+import {
+  useProjectPassiveRefresh,
+  type ProjectPassiveRefreshRequest,
+} from "./useProjectPassiveRefresh";
 import type {
   ProjectActivityBucketKey,
   ProjectAssignmentRecord,
@@ -195,6 +199,12 @@ type Props = {
 
 type RolesModalIntent = "manage" | "work-kickoff";
 
+type PassiveLoadOptions = {
+  background?: boolean;
+  onError?: () => void;
+  shouldApply?: () => boolean;
+};
+
 const PROJECTS_LIST_PANEL_WIDTH = 220;
 
 const shellStyle: CSSProperties = {
@@ -257,6 +267,24 @@ const visuallyHiddenStatusStyle: CSSProperties = {
   whiteSpace: "nowrap",
   width: 1,
 };
+
+function passiveRefreshFailureMessage({
+  catalogFailed,
+  hasProject,
+  operationalFailed,
+  supportFailed,
+}: {
+  catalogFailed: boolean;
+  hasProject: boolean;
+  operationalFailed: boolean;
+  supportFailed: boolean;
+}) {
+  if (!catalogFailed && !operationalFailed && !supportFailed) return "";
+  if (!hasProject || (catalogFailed && !operationalFailed && !supportFailed)) {
+    return "Projects could not be checked. Showing the last known catalog; Hecate will try again while this window is active.";
+  }
+  return "Project updates could not be checked. Showing the last known state; use the affected view's Refresh action to try again while Hecate keeps checking automatically.";
+}
 
 function projectNavigationStateKey(navigation: ProjectNavigationState | null | undefined): string {
   return navigation
@@ -350,6 +378,11 @@ export function ProjectsView({
     useState<LoadState>("idle");
   const [projectSetupReadinessError, setProjectSetupReadinessError] = useState("");
   const [overviewProjectionError, setOverviewProjectionError] = useState("");
+  const [passiveRefreshError, setPassiveRefreshError] = useState("");
+  const passiveCatalogRefreshFailedRef = useRef(false);
+  const passiveMemoryRefreshFailedRef = useRef(false);
+  const passiveOperationalRefreshFailedRef = useRef(false);
+  const passiveSkillsRefreshFailedRef = useRef(false);
   const [operationsBrief, setOperationsBrief] = useState<ProjectOperationsBrief | null>(null);
   const [operationsBriefError, setOperationsBriefError] = useState("");
   const [operationsBriefLoadState, setOperationsBriefLoadState] = useState<LoadState>("idle");
@@ -360,6 +393,8 @@ export function ProjectsView({
   const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>(
     navigation?.view ?? initialWorkspaceTab,
   );
+  const workspaceTabRef = useRef(workspaceTab);
+  workspaceTabRef.current = workspaceTab;
   const [workspaceTabFocusTarget, setWorkspaceTabFocusTarget] =
     useState<ProjectWorkspaceTab | null>(null);
   const [navigationAnnouncement, setNavigationAnnouncement] = useState({
@@ -376,6 +411,11 @@ export function ProjectsView({
   const catalogRetryInFlightRef = useRef(false);
   const catalogRetryButtonRef = useRef<HTMLButtonElement | null>(null);
   const projectsShellRef = useRef<HTMLDivElement | null>(null);
+  const passiveCatalogContextRef = useRef<{
+    epoch: number;
+    focusedElement: HTMLElement | null;
+    projectID: string;
+  } | null>(null);
   const previousNavigationRef = useRef<ProjectNavigationState | null | undefined>(undefined);
   const navigationEffectHasRunRef = useRef(false);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
@@ -404,6 +444,8 @@ export function ProjectsView({
   const [reviewArtifactPending, setReviewArtifactPending] = useState(false);
   const [reviewArtifactError, setReviewArtifactError] = useState("");
   const [workLoadState, setWorkLoadState] = useState<LoadState>("idle");
+  const [foregroundRefreshPending, setForegroundRefreshPending] = useState(false);
+  const foregroundRefreshPendingRef = useRef(false);
   const [loadedProjectID, setLoadedProjectID] = useState("");
   const loadedProjectIDRef = useRef(loadedProjectID);
   const [detailLoadState, setDetailLoadState] = useState<LoadState>("idle");
@@ -453,6 +495,73 @@ export function ProjectsView({
   const [memoryPending, setMemoryPending] = useState(false);
   const [deleteMemory, setDeleteMemory] = useState<ProjectMemoryRecord | null>(null);
   const [deleteMemoryPending, setDeleteMemoryPending] = useState(false);
+  const passiveRefreshBlockedRef = useRef(false);
+  const passiveRefreshEpochRef = useRef(0);
+  const assistantApplyPendingRef = useRef(false);
+  const supportRefreshPendingRef = useRef(false);
+  const setAssistantApplyPending = useCallback((pending: boolean) => {
+    if (assistantApplyPendingRef.current === pending) return;
+    assistantApplyPendingRef.current = pending;
+    passiveRefreshEpochRef.current += 1;
+  }, []);
+  const passiveRefreshBlocked = Boolean(
+    renamingProjectID ||
+    deleteProjectID ||
+    deletePending ||
+    createProjectOpen ||
+    createProjectPending ||
+    settingsPanelOpen ||
+    defaultsPending ||
+    discoveringRoots ||
+    createWorktreeOpen ||
+    createWorktreePending ||
+    rolesModalIntent ||
+    rolesPending ||
+    newWorkModalOpen ||
+    newWorkPending ||
+    editingWorkItem ||
+    editWorkPending ||
+    deleteWorkItem ||
+    deleteWorkPending ||
+    closingWorkItemID ||
+    newAssignmentModalOpen ||
+    newAssignmentPending ||
+    editingAssignment ||
+    editAssignmentPending ||
+    deleteAssignment ||
+    deleteAssignmentPending ||
+    editingHandoff ||
+    handoffPending ||
+    evidenceLinkModalOpen ||
+    evidenceLinkPending ||
+    reviewArtifactDraft ||
+    reviewArtifactPending ||
+    editingMemory ||
+    editingSource ||
+    sourcePending ||
+    deleteSource ||
+    deleteSourcePending ||
+    promotingCandidate ||
+    rejectingCandidateID ||
+    memoryPending ||
+    deleteMemory ||
+    deleteMemoryPending ||
+    presetsModalOpen ||
+    presetsPending ||
+    discoveringContext ||
+    discoveringSkills ||
+    updatingSkillID ||
+    handoffActionID ||
+    artifactActionID ||
+    catalogRetryPending ||
+    foregroundRefreshPending ||
+    startingAssignmentKeys.size > 0 ||
+    preparingAssignmentTarget,
+  );
+  if (passiveRefreshBlockedRef.current !== passiveRefreshBlocked) {
+    passiveRefreshBlockedRef.current = passiveRefreshBlocked;
+    passiveRefreshEpochRef.current += 1;
+  }
   const projectSelectionGenerationRef = useRef(0);
   const routeProjectID = navigation?.projectID ?? "";
   const {
@@ -474,6 +583,8 @@ export function ProjectsView({
     routeProjectID && controllerSelectedProject?.id !== routeProjectID
       ? null
       : controllerSelectedProject;
+  const selectedProjectRecordIDRef = useRef(selectedProject?.id ?? "");
+  selectedProjectRecordIDRef.current = selectedProject?.id ?? "";
   const selectedProjectIDRef = useRef(selectedProjectID);
   const selectedWorkItemIDRef = useRef(selectedWorkItemID);
   const workItemSelectionGenerationRef = useRef(0);
@@ -708,6 +819,11 @@ export function ProjectsView({
     setSkillsError("");
     setAssignmentErrors({});
     setPreparingAssignmentTarget(null);
+    passiveCatalogRefreshFailedRef.current = false;
+    passiveMemoryRefreshFailedRef.current = false;
+    passiveOperationalRefreshFailedRef.current = false;
+    passiveSkillsRefreshFailedRef.current = false;
+    setPassiveRefreshError("");
   }
 
   const navigateWorkspaceTab = useCallback(
@@ -737,85 +853,113 @@ export function ProjectsView({
     [onNavigate],
   );
 
-  const refreshProjectOverview = useCallback(async (projectID: string) => {
-    if (!projectID || selectedProjectIDRef.current !== projectID) return false;
-    const generation = ++overviewProjectionGenerationRef.current;
-    const isStale = () =>
-      generation !== overviewProjectionGenerationRef.current ||
-      selectedProjectIDRef.current !== projectID;
-    const markCoordinationUnavailable = () => {
-      setOverviewProjectionError(
-        "Project coordination status could not be refreshed. Use Refresh project work to try again.",
-      );
-    };
-    setActivity(null);
-    setActivityLoadState("loading");
-    setProjectHealth(null);
-    setProjectSetupReadiness(null);
-    setProjectSetupReadinessLoadState("loading");
-    setProjectSetupReadinessError("");
-    setOverviewProjectionError("");
-    setOperationsBrief(null);
-    setOperationsBriefLoadState("loading");
-    setOperationsBriefError("");
-    let operationsLoaded = false;
-    const activityLoad = getProjectActivity(projectID)
-      .then((payload) => {
-        if (isStale()) return;
-        setActivity(payload.data ?? null);
-        setActivityLoadState("loaded");
-      })
-      .catch(() => {
-        if (isStale()) return;
+  const refreshProjectOverview = useCallback(
+    async (projectID: string, options: PassiveLoadOptions = {}) => {
+      if (!projectID || selectedProjectIDRef.current !== projectID) return false;
+      const generation = ++overviewProjectionGenerationRef.current;
+      const background = Boolean(options.background);
+      let refreshFailed = false;
+      const isStale = () =>
+        generation !== overviewProjectionGenerationRef.current ||
+        selectedProjectIDRef.current !== projectID ||
+        Boolean(background && options.shouldApply && !options.shouldApply());
+      const markCoordinationUnavailable = () => {
+        refreshFailed = true;
+        options.onError?.();
+        if (background) return;
+        setOverviewProjectionError(
+          "Project coordination status could not be refreshed. Use Refresh project work to try again.",
+        );
+      };
+      if (!background) {
         setActivity(null);
-        setActivityLoadState("error");
-        markCoordinationUnavailable();
-      });
-    const healthLoad = getProjectHealth(projectID)
-      .then((payload) => {
-        if (!isStale()) setProjectHealth(payload.data ?? null);
-      })
-      .catch(() => {
-        if (isStale()) return;
+        setActivityLoadState("loading");
         setProjectHealth(null);
-        markCoordinationUnavailable();
-      });
-    const readinessLoad = getProjectSetupReadiness(projectID)
-      .then((payload) => {
-        if (isStale()) return;
-        const readiness = payload.data ?? null;
-        setProjectSetupReadiness(readiness);
-        if (readiness) {
-          setProjectSetupReadinessLoadState("loaded");
-          return;
-        }
-        setProjectSetupReadinessError("Project setup status was unavailable.");
-        setProjectSetupReadinessLoadState("error");
-        markCoordinationUnavailable();
-      })
-      .catch((error) => {
-        if (isStale()) return;
         setProjectSetupReadiness(null);
-        setProjectSetupReadinessError(errorMessage(error, "Failed to load project setup status."));
-        setProjectSetupReadinessLoadState("error");
-        markCoordinationUnavailable();
-      });
-    const operationsLoad = getProjectOperationsBrief(projectID)
-      .then((payload) => {
-        if (isStale()) return;
-        setOperationsBrief(payload.data ?? null);
-        setOperationsBriefLoadState("loaded");
-        operationsLoaded = true;
-      })
-      .catch((error) => {
-        if (isStale()) return;
+        setProjectSetupReadinessLoadState("loading");
+        setProjectSetupReadinessError("");
+        setOverviewProjectionError("");
         setOperationsBrief(null);
-        setOperationsBriefError(errorMessage(error, "Failed to load project operations."));
-        setOperationsBriefLoadState("error");
-      });
-    await Promise.allSettled([activityLoad, healthLoad, readinessLoad, operationsLoad]);
-    return operationsLoaded && !isStale();
-  }, []);
+        setOperationsBriefLoadState("loading");
+        setOperationsBriefError("");
+      }
+      let operationsLoaded = false;
+      const activityLoad = getProjectActivity(projectID)
+        .then((payload) => {
+          if (isStale()) return;
+          setActivity(payload.data ?? null);
+          setActivityLoadState("loaded");
+        })
+        .catch(() => {
+          if (isStale()) return;
+          if (!background) {
+            setActivity(null);
+            setActivityLoadState("error");
+          }
+          markCoordinationUnavailable();
+        });
+      const healthLoad = getProjectHealth(projectID)
+        .then((payload) => {
+          if (!isStale()) setProjectHealth(payload.data ?? null);
+        })
+        .catch(() => {
+          if (isStale()) return;
+          if (!background) setProjectHealth(null);
+          markCoordinationUnavailable();
+        });
+      const readinessLoad = getProjectSetupReadiness(projectID)
+        .then((payload) => {
+          if (isStale()) return;
+          const readiness = payload.data ?? null;
+          if (readiness) {
+            setProjectSetupReadiness(readiness);
+            setProjectSetupReadinessLoadState("loaded");
+            return;
+          }
+          if (!background) {
+            setProjectSetupReadiness(null);
+            setProjectSetupReadinessError("Project setup status was unavailable.");
+            setProjectSetupReadinessLoadState("error");
+          }
+          markCoordinationUnavailable();
+        })
+        .catch((error) => {
+          if (isStale()) return;
+          if (!background) {
+            setProjectSetupReadiness(null);
+            setProjectSetupReadinessError(
+              errorMessage(error, "Failed to load project setup status."),
+            );
+            setProjectSetupReadinessLoadState("error");
+          }
+          markCoordinationUnavailable();
+        });
+      const operationsLoad = getProjectOperationsBrief(projectID)
+        .then((payload) => {
+          if (isStale()) return;
+          setOperationsBrief(payload.data ?? null);
+          setOperationsBriefLoadState("loaded");
+          operationsLoaded = true;
+        })
+        .catch((error) => {
+          if (isStale()) return;
+          refreshFailed = true;
+          options.onError?.();
+          if (background) return;
+          setOperationsBrief(null);
+          setOperationsBriefError(errorMessage(error, "Failed to load project operations."));
+          setOperationsBriefLoadState("error");
+        });
+      await Promise.allSettled([activityLoad, healthLoad, readinessLoad, operationsLoad]);
+      if (background && !refreshFailed && !isStale()) {
+        setProjectSetupReadinessError("");
+        setOverviewProjectionError("");
+        setOperationsBriefError("");
+      }
+      return operationsLoaded && !isStale();
+    },
+    [],
+  );
 
   const loadAgentPresets = useCallback(async (cancelled?: () => boolean) => {
     try {
@@ -898,18 +1042,23 @@ export function ProjectsView({
       projectID: string,
       preferredWorkItemID = "",
       awaitOverview = false,
-      options: { exactPreferred?: boolean } = {},
+      options: PassiveLoadOptions & { exactPreferred?: boolean } = {},
     ) => {
       if (selectedProjectIDRef.current !== projectID) return "";
       const generation = ++workLoadGenerationRef.current;
       const workSelectionGeneration = workItemSelectionGenerationRef.current;
-      const isStale = () =>
-        generation !== workLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
-      setWorkError("");
-      setDetailError("");
-      setAssignmentErrors({});
       const crossesProjectBoundary = loadedProjectIDRef.current !== projectID;
-      if (!preferredWorkItemID || crossesProjectBoundary) {
+      const background = Boolean(options.background && !crossesProjectBoundary);
+      const isStale = () =>
+        generation !== workLoadGenerationRef.current ||
+        selectedProjectIDRef.current !== projectID ||
+        Boolean(background && options.shouldApply && !options.shouldApply());
+      if (!background) {
+        setWorkError("");
+        setDetailError("");
+        setAssignmentErrors({});
+      }
+      if ((!preferredWorkItemID || crossesProjectBoundary) && !background) {
         if (crossesProjectBoundary) setRoles([]);
         setWorkItems([]);
         setWorkItemSummaries({});
@@ -931,10 +1080,14 @@ export function ProjectsView({
         setProjectSetupReadinessLoadState("idle");
         return "";
       }
-      setWorkLoadState("loading");
-      const overviewRefresh = refreshProjectOverview(projectID);
+      if (!background) setWorkLoadState("loading");
+      const overviewRefresh = refreshProjectOverview(projectID, {
+        background,
+        onError: options.onError,
+        shouldApply: options.shouldApply,
+      });
       const finishWorkLoad = async (workItemID: string) => {
-        if (awaitOverview && !(await overviewRefresh)) return "";
+        if (awaitOverview && !(await overviewRefresh) && !background) return "";
         return workItemID;
       };
       try {
@@ -950,6 +1103,11 @@ export function ProjectsView({
         const [rolesRes, workRes] = await Promise.all([rolesLoad, workItemsLoad]);
         if (isStale()) return "";
         if (!rolesRes || !workRes) {
+          if (background) {
+            options.onError?.();
+            if (awaitOverview) await overviewRefresh;
+            return "";
+          }
           setWorkLoadState("error");
           setWorkError(workDataError || "Failed to load project work.");
           loadedProjectIDRef.current = projectID;
@@ -958,6 +1116,7 @@ export function ProjectsView({
         }
         const nextRoles = rolesRes.data ?? [];
         const nextItems = workRes.data ?? [];
+        setWorkError("");
         setRoles(nextRoles);
         setWorkItems(nextItems);
         setWorkItemSummaries(
@@ -989,6 +1148,11 @@ export function ProjectsView({
         return finishWorkLoad(nextSelectedID);
       } catch (error) {
         if (isStale()) return "";
+        if (background) {
+          options.onError?.();
+          if (awaitOverview) await overviewRefresh;
+          return "";
+        }
         setWorkLoadState("error");
         setWorkError(errorMessage(error, "Failed to load project work."));
         loadedProjectIDRef.current = projectID;
@@ -999,120 +1163,317 @@ export function ProjectsView({
     [refreshProjectOverview],
   );
 
-  const loadProjectMemory = useCallback(async (projectID: string) => {
-    if (selectedProjectIDRef.current !== projectID) return;
-    const generation = ++memoryLoadGenerationRef.current;
-    const isStale = () =>
-      generation !== memoryLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
-    setMemoryError("");
-    if (!projectID) {
-      setMemoryEntries([]);
-      setMemoryCandidates([]);
-      setEditingMemory(null);
-      setPromotingCandidate(null);
-      setDeleteMemory(null);
-      setMemoryLoadState("idle");
-      return;
-    }
-    setMemoryEntries([]);
-    setMemoryCandidates([]);
-    setEditingMemory(null);
-    setPromotingCandidate(null);
-    setDeleteMemory(null);
-    setMemoryLoadState("loading");
-    try {
-      const [memoryPayload, candidatePayload] = await Promise.all([
-        getProjectMemory(projectID, true),
-        getProjectMemoryCandidates(projectID, true),
-      ]);
-      if (isStale()) return;
-      setMemoryEntries(memoryPayload.data ?? []);
-      setMemoryCandidates(candidatePayload.data ?? []);
-      setMemoryLoadState("loaded");
-    } catch (error) {
-      if (isStale()) return;
-      setMemoryLoadState("error");
-      setMemoryError(errorMessage(error, "Failed to load project memory."));
-    }
-  }, []);
+  const loadProjectMemory = useCallback(
+    async (projectID: string, options: PassiveLoadOptions = {}) => {
+      if (selectedProjectIDRef.current !== projectID) return false;
+      const generation = ++memoryLoadGenerationRef.current;
+      const background = Boolean(options.background);
+      const isStale = () =>
+        generation !== memoryLoadGenerationRef.current ||
+        selectedProjectIDRef.current !== projectID ||
+        Boolean(background && options.shouldApply && !options.shouldApply());
+      if (!background) setMemoryError("");
+      if (!projectID) {
+        setMemoryEntries([]);
+        setMemoryCandidates([]);
+        setEditingMemory(null);
+        setPromotingCandidate(null);
+        setDeleteMemory(null);
+        setMemoryLoadState("idle");
+        return true;
+      }
+      if (!background) {
+        setMemoryEntries([]);
+        setMemoryCandidates([]);
+        setEditingMemory(null);
+        setPromotingCandidate(null);
+        setDeleteMemory(null);
+        setMemoryLoadState("loading");
+      }
+      try {
+        const [memoryPayload, candidatePayload] = await Promise.all([
+          getProjectMemory(projectID, true),
+          getProjectMemoryCandidates(projectID, true),
+        ]);
+        if (isStale()) return false;
+        setMemoryEntries(memoryPayload.data ?? []);
+        setMemoryCandidates(candidatePayload.data ?? []);
+        setMemoryError("");
+        setMemoryLoadState("loaded");
+        return true;
+      } catch (error) {
+        if (isStale()) return false;
+        if (background) {
+          options.onError?.();
+          return false;
+        }
+        setMemoryLoadState("error");
+        setMemoryError(errorMessage(error, "Failed to load project memory."));
+        return false;
+      }
+    },
+    [],
+  );
 
-  const loadProjectSkills = useCallback(async (projectID: string) => {
-    if (selectedProjectIDRef.current !== projectID) return;
-    const generation = ++skillsLoadGenerationRef.current;
-    const isStale = () =>
-      generation !== skillsLoadGenerationRef.current || selectedProjectIDRef.current !== projectID;
-    setSkillsError("");
-    setUpdatingSkillID("");
-    if (!projectID) {
-      setProjectSkills([]);
-      setSkillsLoadState("idle");
-      return;
-    }
-    setProjectSkills([]);
-    setSkillsLoadState("loading");
-    try {
-      const payload = await getProjectSkills(projectID);
-      if (isStale()) return;
-      setProjectSkills(payload.data ?? []);
-      setSkillsLoadState("loaded");
-    } catch (error) {
-      if (isStale()) return;
-      setSkillsLoadState("error");
-      setSkillsError(errorMessage(error, "Failed to load project skills."));
-    }
-  }, []);
+  const loadProjectSkills = useCallback(
+    async (projectID: string, options: PassiveLoadOptions = {}) => {
+      if (selectedProjectIDRef.current !== projectID) return false;
+      const generation = ++skillsLoadGenerationRef.current;
+      const background = Boolean(options.background);
+      const isStale = () =>
+        generation !== skillsLoadGenerationRef.current ||
+        selectedProjectIDRef.current !== projectID ||
+        Boolean(background && options.shouldApply && !options.shouldApply());
+      if (!background) {
+        setSkillsError("");
+        setUpdatingSkillID("");
+      }
+      if (!projectID) {
+        setProjectSkills([]);
+        setSkillsLoadState("idle");
+        return true;
+      }
+      if (!background) {
+        setProjectSkills([]);
+        setSkillsLoadState("loading");
+      }
+      try {
+        const payload = await getProjectSkills(projectID);
+        if (isStale()) return false;
+        setProjectSkills(payload.data ?? []);
+        setSkillsError("");
+        setSkillsLoadState("loaded");
+        return true;
+      } catch (error) {
+        if (isStale()) return false;
+        if (background) {
+          options.onError?.();
+          return false;
+        }
+        setSkillsLoadState("error");
+        setSkillsError(errorMessage(error, "Failed to load project skills."));
+        return false;
+      }
+    },
+    [],
+  );
 
-  const loadWorkItemDetail = useCallback(async (projectID: string, workItemID: string) => {
-    if (selectedProjectIDRef.current !== projectID) return false;
-    const generation = ++detailLoadGenerationRef.current;
-    const isStale = () =>
-      generation !== detailLoadGenerationRef.current ||
-      selectedProjectIDRef.current !== projectID ||
-      selectedWorkItemIDRef.current !== workItemID;
-    setDetailError("");
-    setAssignmentErrors({});
-    if (!projectID || !workItemID) {
-      setDetailTarget(null);
-      setSelectedWorkItem(null);
-      setSelectedWorkItemReadiness(null);
-      setAssignments([]);
-      setArtifacts([]);
-      setHandoffs([]);
-      setDetailLoadState("idle");
-      return false;
-    }
-    setDetailTarget({ projectID, workItemID });
-    setSelectedWorkItemReadiness(null);
-    setDetailLoadState("loading");
-    try {
-      const [itemRes, assignmentRes, artifactRes, handoffRes, readinessRes] = await Promise.all([
-        getProjectWorkItem(projectID, workItemID),
-        getProjectAssignments(projectID, workItemID),
-        getProjectCollaborationArtifacts(projectID, workItemID),
-        getProjectHandoffs(projectID, workItemID),
-        getProjectWorkItemReadiness(projectID, workItemID),
-      ]);
-      if (isStale()) return false;
-      setSelectedWorkItem(itemRes.data);
-      setSelectedWorkItemReadiness(readinessRes.data);
-      setAssignments(assignmentRes.data ?? []);
-      setArtifacts(artifactRes.data ?? []);
-      setHandoffs(handoffRes.data ?? []);
-      setWorkItems((current) => upsertWorkItem(current, itemRes.data));
-      setWorkItemSummaries((current) => ({
-        ...current,
-        [workItemID]: summarizeAssignments(assignmentRes.data ?? []),
-      }));
-      setDetailLoadState("loaded");
-      return true;
-    } catch (error) {
-      if (isStale()) return false;
-      setSelectedWorkItemReadiness(null);
-      setDetailLoadState("error");
-      setDetailError(errorMessage(error, "Failed to load work item detail."));
-      return false;
-    }
-  }, []);
+  const loadWorkItemDetail = useCallback(
+    async (projectID: string, workItemID: string, options: PassiveLoadOptions = {}) => {
+      if (selectedProjectIDRef.current !== projectID) return false;
+      const generation = ++detailLoadGenerationRef.current;
+      const background = Boolean(options.background);
+      const isStale = () =>
+        generation !== detailLoadGenerationRef.current ||
+        selectedProjectIDRef.current !== projectID ||
+        selectedWorkItemIDRef.current !== workItemID ||
+        Boolean(background && options.shouldApply && !options.shouldApply());
+      if (!background) {
+        setDetailError("");
+        setAssignmentErrors({});
+      }
+      if (!projectID || !workItemID) {
+        setDetailTarget(null);
+        setSelectedWorkItem(null);
+        setSelectedWorkItemReadiness(null);
+        setAssignments([]);
+        setArtifacts([]);
+        setHandoffs([]);
+        setDetailLoadState("idle");
+        return false;
+      }
+      setDetailTarget({ projectID, workItemID });
+      if (!background) {
+        setSelectedWorkItemReadiness(null);
+        setDetailLoadState("loading");
+      }
+      try {
+        const [itemRes, assignmentRes, artifactRes, handoffRes, readinessRes] = await Promise.all([
+          getProjectWorkItem(projectID, workItemID),
+          getProjectAssignments(projectID, workItemID),
+          getProjectCollaborationArtifacts(projectID, workItemID),
+          getProjectHandoffs(projectID, workItemID),
+          getProjectWorkItemReadiness(projectID, workItemID),
+        ]);
+        if (isStale()) return false;
+        setSelectedWorkItem(itemRes.data);
+        setSelectedWorkItemReadiness(readinessRes.data);
+        setAssignments(assignmentRes.data ?? []);
+        setArtifacts(artifactRes.data ?? []);
+        setHandoffs(handoffRes.data ?? []);
+        setDetailError("");
+        setWorkItems((current) => upsertWorkItem(current, itemRes.data));
+        setWorkItemSummaries((current) => ({
+          ...current,
+          [workItemID]: summarizeAssignments(assignmentRes.data ?? []),
+        }));
+        setDetailLoadState("loaded");
+        return true;
+      } catch (error) {
+        if (isStale()) return false;
+        if (background) {
+          options.onError?.();
+          return false;
+        }
+        setSelectedWorkItemReadiness(null);
+        setDetailLoadState("error");
+        setDetailError(errorMessage(error, "Failed to load work item detail."));
+        return false;
+      }
+    },
+    [],
+  );
+
+  const refreshProjectFromAuthority = useCallback(
+    async (request: ProjectPassiveRefreshRequest) => {
+      if (
+        passiveRefreshBlockedRef.current ||
+        foregroundRefreshPendingRef.current ||
+        assistantApplyPendingRef.current ||
+        supportRefreshPendingRef.current
+      ) {
+        return;
+      }
+      const refreshEpoch = passiveRefreshEpochRef.current;
+      const projectID = selectedProjectIDRef.current;
+      const selectedIDAtStart = selectedWorkItemIDRef.current;
+      const passiveWaveIsCurrent = () =>
+        passiveRefreshEpochRef.current === refreshEpoch &&
+        !passiveRefreshBlockedRef.current &&
+        !foregroundRefreshPendingRef.current &&
+        !assistantApplyPendingRef.current &&
+        !supportRefreshPendingRef.current;
+      let catalogFailed = false;
+      let memoryFailed = false;
+      let operationalFailed = false;
+      let skillsFailed = false;
+      if (request.includeCatalog && projectID && selectedProjectRecordIDRef.current === projectID) {
+        const activeElement = document.activeElement;
+        const projectMain = projectsShellRef.current?.querySelector(".projects-cockpit-main");
+        const projectRow =
+          activeElement instanceof HTMLElement
+            ? activeElement.closest<HTMLElement>(".project-index-row")
+            : null;
+        const focusOwned = Boolean(
+          activeElement &&
+          (projectMain?.contains(activeElement) || projectRow?.dataset.projectId === projectID),
+        );
+        passiveCatalogContextRef.current = {
+          epoch: refreshEpoch,
+          focusedElement: focusOwned && activeElement instanceof HTMLElement ? activeElement : null,
+          projectID,
+        };
+      }
+      const catalogRefresh = request.includeCatalog
+        ? projects.actions.loadProjects({
+            background: true,
+            onError: () => {
+              catalogFailed = true;
+            },
+            shouldApply: passiveWaveIsCurrent,
+          })
+        : Promise.resolve();
+      if (!projectID || selectedProjectRecordIDRef.current !== projectID) {
+        await catalogRefresh;
+        if (!request.includeCatalog || !passiveWaveIsCurrent()) {
+          if (passiveCatalogContextRef.current?.epoch === refreshEpoch) {
+            passiveCatalogContextRef.current = null;
+          }
+          return;
+        }
+        passiveCatalogRefreshFailedRef.current = catalogFailed;
+        passiveOperationalRefreshFailedRef.current = false;
+        setPassiveRefreshError(
+          passiveRefreshFailureMessage({
+            catalogFailed: passiveCatalogRefreshFailedRef.current,
+            hasProject: false,
+            operationalFailed: false,
+            supportFailed: false,
+          }),
+        );
+        return;
+      }
+      const operationalRefresh = (async () => {
+        const refreshedWorkItemID = await loadWorkForProject(projectID, selectedIDAtStart, true, {
+          background: true,
+          exactPreferred: Boolean(selectedIDAtStart),
+          onError: () => {
+            operationalFailed = true;
+          },
+          shouldApply: passiveWaveIsCurrent,
+        });
+        if (
+          refreshedWorkItemID &&
+          selectedProjectIDRef.current === projectID &&
+          selectedWorkItemIDRef.current === refreshedWorkItemID
+        ) {
+          await loadWorkItemDetail(projectID, refreshedWorkItemID, {
+            background: true,
+            onError: () => {
+              operationalFailed = true;
+            },
+            shouldApply: passiveWaveIsCurrent,
+          });
+        }
+        if (request.reason !== "foreground") return;
+        if (!passiveWaveIsCurrent()) return;
+        if (workspaceTabRef.current === "memory") {
+          await loadProjectMemory(projectID, {
+            background: true,
+            onError: () => {
+              memoryFailed = true;
+            },
+            shouldApply: passiveWaveIsCurrent,
+          });
+        } else if (workspaceTabRef.current === "skills") {
+          await loadProjectSkills(projectID, {
+            background: true,
+            onError: () => {
+              skillsFailed = true;
+            },
+            shouldApply: passiveWaveIsCurrent,
+          });
+        }
+      })();
+      await Promise.all([catalogRefresh, operationalRefresh]);
+      if (!passiveWaveIsCurrent()) {
+        if (passiveCatalogContextRef.current?.epoch === refreshEpoch) {
+          passiveCatalogContextRef.current = null;
+        }
+        return;
+      }
+      if (selectedProjectIDRef.current !== projectID) return;
+      if (catalogFailed && passiveCatalogContextRef.current?.epoch === refreshEpoch) {
+        passiveCatalogContextRef.current = null;
+      }
+      if (request.includeCatalog) passiveCatalogRefreshFailedRef.current = catalogFailed;
+      passiveOperationalRefreshFailedRef.current = operationalFailed;
+      if (request.reason === "foreground" && workspaceTabRef.current === "memory") {
+        passiveMemoryRefreshFailedRef.current = memoryFailed;
+      }
+      if (request.reason === "foreground" && workspaceTabRef.current === "skills") {
+        passiveSkillsRefreshFailedRef.current = skillsFailed;
+      }
+      setPassiveRefreshError(
+        passiveRefreshFailureMessage({
+          catalogFailed: passiveCatalogRefreshFailedRef.current,
+          hasProject: true,
+          operationalFailed: passiveOperationalRefreshFailedRef.current,
+          supportFailed:
+            passiveMemoryRefreshFailedRef.current || passiveSkillsRefreshFailedRef.current,
+        }),
+      );
+    },
+    [
+      loadProjectMemory,
+      loadProjectSkills,
+      loadWorkForProject,
+      loadWorkItemDetail,
+      projects.actions,
+    ],
+  );
+
+  useProjectPassiveRefresh(refreshProjectFromAuthority);
 
   const assistant = useProjectAssistantController({
     project: selectedProject,
@@ -1128,12 +1489,15 @@ export function ProjectsView({
     onDiscoveringSkills: setDiscoveringSkills,
     onMemoryError: setMemoryError,
     onSkillsError: setSkillsError,
+    onApplyPending: setAssistantApplyPending,
     refreshProjects: projects.actions.loadProjects,
     loadWorkForProject,
     loadWorkItemDetail: async (projectID, workItemID) => {
       await loadWorkItemDetail(projectID, workItemID);
     },
-    loadProjectMemory,
+    loadProjectMemory: async (projectID) => {
+      await loadProjectMemory(projectID);
+    },
   });
 
   const resolvedProjectID = selectedProject?.id ?? "";
@@ -2582,18 +2946,79 @@ export function ProjectsView({
   }
 
   async function refreshSelectedWorkItem() {
-    if (!selectedProjectID) return false;
-    const refreshedWorkItemID = await loadWorkForProject(
-      selectedProjectID,
-      selectedWorkItemID,
-      true,
-    );
-    if (refreshedWorkItemID) {
-      const detailRefreshed = await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
-      if (!detailRefreshed) return false;
-      return true;
+    if (!selectedProjectID || foregroundRefreshPendingRef.current) return false;
+    const projectID = selectedProjectID;
+    foregroundRefreshPendingRef.current = true;
+    passiveRefreshEpochRef.current += 1;
+    setForegroundRefreshPending(true);
+    try {
+      const refreshedWorkItemID = await loadWorkForProject(projectID, selectedWorkItemID, true);
+      if (refreshedWorkItemID) {
+        const detailRefreshed = await loadWorkItemDetail(projectID, refreshedWorkItemID);
+        if (!detailRefreshed) return false;
+        passiveOperationalRefreshFailedRef.current = false;
+        setPassiveRefreshError(
+          passiveRefreshFailureMessage({
+            catalogFailed: passiveCatalogRefreshFailedRef.current,
+            hasProject: true,
+            operationalFailed: false,
+            supportFailed:
+              passiveMemoryRefreshFailedRef.current || passiveSkillsRefreshFailedRef.current,
+          }),
+        );
+        return true;
+      }
+      return false;
+    } finally {
+      foregroundRefreshPendingRef.current = false;
+      setForegroundRefreshPending(false);
     }
-    return false;
+  }
+
+  async function refreshProjectMemoryFromAuthority() {
+    if (!selectedProjectID || supportRefreshPendingRef.current) return;
+    const projectID = selectedProjectID;
+    supportRefreshPendingRef.current = true;
+    passiveRefreshEpochRef.current += 1;
+    try {
+      const refreshed = await loadProjectMemory(projectID);
+      if (!refreshed || selectedProjectIDRef.current !== projectID) return;
+      passiveMemoryRefreshFailedRef.current = false;
+      setPassiveRefreshError(
+        passiveRefreshFailureMessage({
+          catalogFailed: passiveCatalogRefreshFailedRef.current,
+          hasProject: true,
+          operationalFailed: passiveOperationalRefreshFailedRef.current,
+          supportFailed: passiveSkillsRefreshFailedRef.current,
+        }),
+      );
+      await refreshProjectOverview(projectID);
+    } finally {
+      supportRefreshPendingRef.current = false;
+    }
+  }
+
+  async function refreshProjectSkillsFromAuthority() {
+    if (!selectedProjectID || supportRefreshPendingRef.current) return;
+    const projectID = selectedProjectID;
+    supportRefreshPendingRef.current = true;
+    passiveRefreshEpochRef.current += 1;
+    try {
+      const refreshed = await loadProjectSkills(projectID);
+      if (!refreshed || selectedProjectIDRef.current !== projectID) return;
+      passiveSkillsRefreshFailedRef.current = false;
+      setPassiveRefreshError(
+        passiveRefreshFailureMessage({
+          catalogFailed: passiveCatalogRefreshFailedRef.current,
+          hasProject: true,
+          operationalFailed: passiveOperationalRefreshFailedRef.current,
+          supportFailed: passiveMemoryRefreshFailedRef.current,
+        }),
+      );
+      await refreshProjectOverview(projectID);
+    } finally {
+      supportRefreshPendingRef.current = false;
+    }
   }
 
   async function handleStartAssignment(
@@ -2917,6 +3342,46 @@ export function ProjectsView({
   const addProjectIsPrimary =
     projects.state.projects.length === 0 && (!navigation || projects.state.loaded);
 
+  useEffect(() => {
+    const pendingContext = passiveCatalogContextRef.current;
+    if (!pendingContext) return;
+    if (
+      pendingContext.epoch !== passiveRefreshEpochRef.current ||
+      passiveRefreshBlockedRef.current ||
+      foregroundRefreshPendingRef.current ||
+      assistantApplyPendingRef.current ||
+      supportRefreshPendingRef.current ||
+      selectedProjectIDRef.current !== pendingContext.projectID
+    ) {
+      passiveCatalogContextRef.current = null;
+      return;
+    }
+    if (projects.state.projects.some((project) => project.id === pendingContext.projectID)) {
+      passiveCatalogContextRef.current = null;
+      return;
+    }
+    passiveCatalogContextRef.current = null;
+    const fallbackProject = navigationRef.current?.projectID ? null : projects.state.projects[0];
+    catalogRetryAnnouncementSequenceRef.current += 1;
+    setCatalogRetryAnnouncement({
+      key: String(catalogRetryAnnouncementSequenceRef.current),
+      message: fallbackProject
+        ? `The selected project was removed. Moving to ${fallbackProject.name}.`
+        : projects.state.projects.length > 0
+          ? "The selected project was removed. Choose another project."
+          : "The selected project was removed. No project is selected.",
+    });
+    const activeElement = document.activeElement;
+    const shouldRestoreFocus = Boolean(
+      pendingContext.focusedElement &&
+      (activeElement === pendingContext.focusedElement ||
+        (!pendingContext.focusedElement.isConnected && activeElement === document.body)),
+    );
+    if (shouldRestoreFocus) {
+      projectsShellRef.current?.querySelector<HTMLElement>(".project-workspace-content")?.focus();
+    }
+  }, [projects.state.projects]);
+
   const retryProjectCatalog = async () => {
     if (catalogRetryInFlightRef.current) return;
     const retryOwnedFocusAtStart = document.activeElement === catalogRetryButtonRef.current;
@@ -3030,6 +3495,7 @@ export function ProjectsView({
           healthSummary={projectHealth?.summary}
           memoryCandidates={memoryCandidates}
           project={selectedProject}
+          refreshPending={foregroundRefreshPending}
           onAttentionBucket={(bucket) => {
             setActivityBucket(bucket);
             navigateWorkspaceTab("work");
@@ -3087,6 +3553,13 @@ export function ProjectsView({
                 {catalogRetryPending ? "Retrying…" : "Retry"}
               </button>
             )}
+          </div>
+        )}
+        {passiveRefreshError && (
+          <div style={navigationNoticeStyle}>
+            <span aria-atomic="true" aria-live="polite" role="status">
+              {passiveRefreshError}
+            </span>
           </div>
         )}
         <div
@@ -3239,18 +3712,8 @@ export function ProjectsView({
             onOperationAction={handleOperationsBriefAction}
             onOpenTask={onOpenTask}
             onPromoteCandidate={setPromotingCandidate}
-            onRefreshMemory={() => {
-              void (async () => {
-                await loadProjectMemory(selectedProjectID);
-                await refreshProjectOverview(selectedProjectID);
-              })();
-            }}
-            onRefreshProjectSkills={() => {
-              void (async () => {
-                await loadProjectSkills(selectedProjectID);
-                await refreshProjectOverview(selectedProjectID);
-              })();
-            }}
+            onRefreshMemory={() => void refreshProjectMemoryFromAuthority()}
+            onRefreshProjectSkills={() => void refreshProjectSkillsFromAuthority()}
             onRefreshWorkItem={refreshSelectedWorkItem}
             onRejectCandidate={handleRejectCandidate}
             onSelectWorkItem={handleSelectWorkItem}
@@ -3647,6 +4110,7 @@ function ProjectIndexRow({
   return (
     <div
       className="project-index-row"
+      data-project-id={project.id}
       onBlur={(event) => {
         const nextFocus = event.relatedTarget;
         if (!(nextFocus instanceof Node) || !event.currentTarget.contains(nextFocus)) {
@@ -3758,6 +4222,7 @@ function ProjectHeader({
   omittedAttentionCount,
   memoryCandidates,
   project,
+  refreshPending,
   settingsButtonRef,
   settingsOpen,
   onAttentionBucket,
@@ -3780,6 +4245,7 @@ function ProjectHeader({
   omittedAttentionCount: number;
   memoryCandidates: ProjectMemoryCandidateRecord[];
   project: ProjectRecord | null;
+  refreshPending: boolean;
   settingsButtonRef: RefObject<HTMLButtonElement | null>;
   settingsOpen: boolean;
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
@@ -3876,10 +4342,12 @@ function ProjectHeader({
             <Icon d={Icons.settings} size={13} />
           </button>
           <button
+            aria-busy={refreshPending}
+            aria-disabled={refreshPending || undefined}
             className="btn btn-ghost btn-sm"
             type="button"
             aria-label="Refresh project work"
-            title="Refresh"
+            title={refreshPending ? "Refreshing project work" : "Refresh"}
             onClick={onRefresh}
             disabled={!project}
             style={projectHeaderActionButtonStyle}

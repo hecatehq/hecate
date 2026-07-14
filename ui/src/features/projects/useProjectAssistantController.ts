@@ -70,6 +70,7 @@ type Options = {
   onDiscoveringSkills: (discovering: boolean) => void;
   onMemoryError: (message: string) => void;
   onSkillsError: (message: string) => void;
+  onApplyPending?: (pending: boolean) => void;
   refreshProjects: () => Promise<void>;
   loadWorkForProject: (projectID: string, preferredWorkItemID?: string) => Promise<string>;
   loadWorkItemDetail: (projectID: string, workItemID: string) => Promise<void>;
@@ -521,6 +522,7 @@ export function useProjectAssistantController(options: Options) {
       target,
     };
     applyRequestRef.current = applyRequest;
+    options.onApplyPending?.(true);
     setStatus("applying");
     setError("");
     setBootstrapRecoveryAvailable(false);
@@ -581,6 +583,7 @@ export function useProjectAssistantController(options: Options) {
       if (applyRequestRef.current === applyRequest) {
         applyRequestRef.current = null;
       }
+      options.onApplyPending?.(false);
     }
   }, [options, proposal]);
 

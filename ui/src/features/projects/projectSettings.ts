@@ -66,6 +66,108 @@ export function projectDefaultsFormFromProject(project: ProjectRecord): ProjectD
   };
 }
 
+export function projectDefaultsFormsEqual(a: ProjectDefaultsForm, b: ProjectDefaultsForm) {
+  return (
+    a.provider.trim() === b.provider.trim() &&
+    a.model.trim() === b.model.trim() &&
+    a.defaultAgentPreset.trim() === b.defaultAgentPreset.trim() &&
+    a.workspaceMode.trim() === b.workspaceMode.trim() &&
+    a.defaultRootID.trim() === b.defaultRootID.trim() &&
+    a.roots.length === b.roots.length &&
+    a.roots.every((root, index) => {
+      const other = b.roots[index];
+      return Boolean(other && projectRootPayloadsEqual(root, other));
+    })
+  );
+}
+
+export function rebaseProjectDefaultsForm(
+  current: ProjectDefaultsForm,
+  previous: ProjectDefaultsForm,
+  next: ProjectDefaultsForm,
+): ProjectDefaultsForm {
+  const consumedNextRoots = new Set<ProjectRootPayload>();
+  const roots = current.roots.flatMap((currentRoot) => {
+    const previousRoot = findMatchingRoot(previous.roots, currentRoot);
+    const nextRoot =
+      findMatchingRoot(next.roots, currentRoot) ??
+      (previousRoot ? findMatchingRoot(next.roots, previousRoot) : undefined);
+    if (!previousRoot) {
+      if (!nextRoot) return [currentRoot];
+      consumedNextRoots.add(nextRoot);
+      return [
+        {
+          ...nextRoot,
+          active: currentRoot.active ?? nextRoot.active,
+        },
+      ];
+    }
+    if (!nextRoot) {
+      return [];
+    }
+    consumedNextRoots.add(nextRoot);
+    return [rebaseProjectRoot(currentRoot, previousRoot, nextRoot)];
+  });
+  for (const nextRoot of next.roots) {
+    if (!consumedNextRoots.has(nextRoot)) roots.push(nextRoot);
+  }
+
+  const currentDefaultRoot = current.roots.find(
+    (root) => projectRootFormKey(root) === current.defaultRootID,
+  );
+  const rebasedCurrentDefaultRoot = currentDefaultRoot
+    ? findMatchingRoot(roots, currentDefaultRoot)
+    : undefined;
+  const defaultRootChanged = current.defaultRootID.trim() !== previous.defaultRootID.trim();
+
+  return {
+    provider: rebaseProjectDefault(current.provider, previous.provider, next.provider),
+    model: rebaseProjectDefault(current.model, previous.model, next.model),
+    defaultAgentPreset: rebaseProjectDefault(
+      current.defaultAgentPreset,
+      previous.defaultAgentPreset,
+      next.defaultAgentPreset,
+    ),
+    workspaceMode: rebaseProjectDefault(
+      current.workspaceMode,
+      previous.workspaceMode,
+      next.workspaceMode,
+    ),
+    defaultRootID:
+      defaultRootChanged && rebasedCurrentDefaultRoot
+        ? projectRootFormKey(rebasedCurrentDefaultRoot)
+        : next.defaultRootID,
+    roots,
+  };
+}
+
+function rebaseProjectDefault(current: string, previous: string, next: string) {
+  return current.trim() === previous.trim() ? next : current;
+}
+
+function rebaseProjectRoot(
+  current: ProjectRootPayload,
+  previous: ProjectRootPayload,
+  next: ProjectRootPayload,
+) {
+  // Root discovery owns filesystem and Git metadata. Activation is the only
+  // root field edited here, so it is the only local change carried forward.
+  return {
+    ...next,
+    active: Boolean(current.active) === Boolean(previous.active) ? next.active : current.active,
+  };
+}
+
+function findMatchingRoot(roots: ProjectRootPayload[], target: ProjectRootPayload) {
+  const targetID = target.id?.trim();
+  if (targetID) {
+    const sameID = roots.find((root) => root.id?.trim() === targetID);
+    if (sameID) return sameID;
+  }
+  const targetPath = target.path.trim();
+  return roots.find((root) => root.path.trim() === targetPath);
+}
+
 export function projectRootPayloadFromRecord(root: ProjectRootRecord): ProjectRootPayload {
   const payload: ProjectRootPayload = {
     id: root.id,
