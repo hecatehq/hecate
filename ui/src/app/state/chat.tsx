@@ -120,8 +120,10 @@ type SetStateAction<T> = T | ((prev: T) => T);
 type Setter<T> = (next: SetStateAction<T>) => void;
 
 export type ChatActions = {
-  beginChatSessionSelection: () => number;
-  isCurrentChatSessionSelection: (generation: number) => boolean;
+  beginActiveChatTransition: () => number;
+  captureActiveChatTransition: () => number | null;
+  completeActiveChatTransition: (generation: number) => void;
+  isCurrentActiveChatTransition: (generation: number) => boolean;
   setDefaultChatTarget: Setter<ChatTarget>;
   setChatTargetBySessionID: Setter<Map<string, HecateChatTarget>>;
   setDefaultChatToolsEnabled: Setter<boolean>;
@@ -307,16 +309,34 @@ export function ChatProvider({
     window.localStorage.setItem("hecate.providerFilter", providerFilter);
   }, [providerFilter]);
 
-  // useChatActions is consumed by both the shell and Chats. Keeping the
-  // generation in their shared provider lets a newer selection invalidate an
-  // older request even when the two calls came from different consumers.
-  const chatSessionSelectionGenerationRef = useRef(0);
-  const beginChatSessionSelection = useCallback(() => {
-    chatSessionSelectionGenerationRef.current += 1;
-    return chatSessionSelectionGenerationRef.current;
+  // useChatActions is consumed by both the shell and Chats, while dashboard
+  // hydration writes the same active-chat tuple. Keeping one transition
+  // generation in their shared provider makes the latest operator transition
+  // authoritative across selection, creation, new-chat, and passive hydration.
+  const activeChatTransitionGenerationRef = useRef(0);
+  const pendingActiveChatTransitionRef = useRef<number | null>(null);
+  const beginActiveChatTransition = useCallback(() => {
+    activeChatTransitionGenerationRef.current += 1;
+    pendingActiveChatTransitionRef.current = activeChatTransitionGenerationRef.current;
+    return pendingActiveChatTransitionRef.current;
   }, []);
-  const isCurrentChatSessionSelection = useCallback(
-    (generation: number) => chatSessionSelectionGenerationRef.current === generation,
+  const captureActiveChatTransition = useCallback(
+    () =>
+      pendingActiveChatTransitionRef.current === null
+        ? activeChatTransitionGenerationRef.current
+        : null,
+    [],
+  );
+  const completeActiveChatTransition = useCallback((generation: number) => {
+    if (
+      activeChatTransitionGenerationRef.current === generation &&
+      pendingActiveChatTransitionRef.current === generation
+    ) {
+      pendingActiveChatTransitionRef.current = null;
+    }
+  }, []);
+  const isCurrentActiveChatTransition = useCallback(
+    (generation: number) => activeChatTransitionGenerationRef.current === generation,
     [],
   );
 
@@ -430,8 +450,10 @@ export function ChatProvider({
 
   const actions = useMemo<ChatActions>(
     () => ({
-      beginChatSessionSelection,
-      isCurrentChatSessionSelection,
+      beginActiveChatTransition,
+      captureActiveChatTransition,
+      completeActiveChatTransition,
+      isCurrentActiveChatTransition,
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setDefaultChatToolsEnabled,
@@ -464,8 +486,10 @@ export function ChatProvider({
       setChatErrorState,
     }),
     [
-      beginChatSessionSelection,
-      isCurrentChatSessionSelection,
+      beginActiveChatTransition,
+      captureActiveChatTransition,
+      completeActiveChatTransition,
+      isCurrentActiveChatTransition,
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setDefaultChatToolsEnabled,

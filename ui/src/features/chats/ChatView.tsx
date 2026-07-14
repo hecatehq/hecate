@@ -219,7 +219,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
-  const selectedChatReady = Boolean(activeSessionID && state.activeChatSession);
+  const selectedChatReady = Boolean(
+    activeSessionID && state.activeChatSession?.id === activeSessionID,
+  );
   const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
