@@ -3,7 +3,7 @@
 > **Status:** Proposal with the overview-first, work-item execution,
 > assignment-destination, follow-through, supporting-surface hierarchy, and
 > shareable-navigation slices implemented. The Overview-hosted guided-start
-> slice is also implemented.
+> and selected-work kickoff slices are also implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -59,6 +59,9 @@ Concrete issues from the current UI and browser behavior:
   creation move into Work. Setup readiness, Project Operations, Project
   Assistant results, and the Work header can consequently offer several
   competing first-work actions after reload or proposal apply.
+- Pristine selected work led with an always-visible Assistant and a prepare
+  action. A roleless operator had to leave that work for the full role registry
+  before the ordinary assignment path became understandable.
 
 Existing strengths stay intact: rootless creation is first-class, setup and
 assistant changes remain reviewable, launch preflight is explicit, evidence is
@@ -67,8 +70,9 @@ operator-controlled.
 
 ## Design Thesis
 
-- **Visual thesis:** calm technical hierarchy with the server's next action as
-  the only accent.
+- **Visual thesis:** one current operator decision is the only accent.
+  Server-ordered follow-through wins when present; otherwise pristine selected
+  work owns its explicit kickoff.
 - **Content plan:** workspace navigation, next action, activity continuity, then
   the full work surface.
 - **Interaction thesis:** overview actions route to the exact existing surface;
@@ -94,8 +98,14 @@ flowchart LR
   S --> W
   W --> SW["Selected work item"]
   WI --> SW
-  SW --> F["Single follow-through action"]
-  F --> X["Assignment execution stories"]
+  SW --> SS{"Selected-work state"}
+  SS -->|"Server follow-through"| F["Single follow-through action"]
+  SS -->|"Pristine · no responsibility"| R["Add responsibility"]
+  R --> A["Assign work"]
+  SS -->|"Pristine · responsibility ready"| A
+  A --> X["Assignment execution story"]
+  SW -.-> PA["Project Assistant · disclosed"]
+  F --> X
   F --> CR["Evidence · review · handoff · closeout"]
   CR --> CC["Explicit closeout confirmation"]
   CC --> RC["Read-only completed record"]
@@ -107,7 +117,8 @@ flowchart LR
 
 Overview uses setup readiness, the first ordered operation, and activity counts
 already loaded through Hecate. Work continues to own the queue, selected work
-item, Project Assistant, assignments, evidence, handoffs, review, and closeout.
+item, assignments, evidence, handoffs, review, and closeout. Project Assistant
+follows the selected-work surface as supporting disclosure while idle.
 Within selected work, the first server-ordered operation for that item becomes
 its one follow-through action and routes to the exact record. Timeline, Memory,
 Skills, Roles, Agent Presets, roots, sources, and runtime detail stay supporting
@@ -132,7 +143,10 @@ flowchart TD
   I --> U["Copy the browser address when exact context matters"]
   U --> V["Reload, share, or return with Back/Forward"]
   V --> I
-  I --> J["Choose who does the work"]
+  I --> JR{"Responsibility available?"}
+  JR -->|"No"| JA["Add responsibility"]
+  JA --> J["Choose who does the work"]
+  JR -->|"Yes"| J
   J --> K{"Destination"}
   K -->|"Human"| KH["Start work directly"]
   K -->|"Hecate Task or External Agent"| KA["Review launch context and approve start"]
@@ -172,8 +186,11 @@ flowchart TD
    review/apply, and first-work creation on Overview with one primary action at
    a time. Keep root optional, use existing typed readiness and mutation
    contracts, and return to the normal cockpit only after work exists.
+7. **Selected-work kickoff:** make direct assignment the pristine-work primary
+   action, quick-create a missing responsibility, move the idle Assistant behind
+   disclosure, and preserve exact focus without chaining writes.
 
-Slices 1 through 6 are implemented. Slice 1 rearranges existing server
+Slices 1 through 7 are implemented. Slice 1 rearranges existing server
 projections and action routing. Slice 2 reshapes each assignment into a
 state-driven story. Slice 3 adds Human as a faithful facade label for
 Cairnline's `manual` execution mode, with direct Start work, Resume work, and
@@ -196,6 +213,10 @@ workspace a canonical path and records Projects presentation intent as
 omitted. Browser reload and Back/Forward restore the exact valid destination;
 missing records stay explicit instead of falling through to another project or
 work item.
+Slice 6 keeps the guided start on Overview until first work exists. Slice 7
+gives otherwise pristine selected work one direct kickoff, progressively
+discloses responsibility defaults, keeps Assistant drafting optional, and
+returns focus to the exact next control or created assignment story.
 None of the slices add local project lifecycle state or inferred execution
 events.
 
@@ -244,6 +265,42 @@ and that current loaded work is still empty, but it must not recompute
 `show_onboarding`, `setup_started`, `first_work_ready`, checklist status, or a
 portable work item. Successful first-work creation uses Cairnline's returned
 record, refreshes projections, and navigates to that exact identifier.
+
+## Selected-Work Kickoff
+
+```mermaid
+flowchart TD
+  A["Open pristine work"] --> B{"Server follow-through active?"}
+  B -->|"Yes"| S["Server action owns primary"]
+  B -->|"No"| C{"Responsibility available?"}
+  C -->|"No"| D["Add responsibility"]
+  D --> E["Name + description"]
+  E --> F["Return focus to Assign work"]
+  C -->|"Yes"| G["Assign work"]
+  F --> G
+  G --> H["Choose Human · Hecate Task · External Agent"]
+  H --> I["Create assignment"]
+  I --> J["Focus returned assignment story"]
+  C -.-> M["More options · supporting"]
+  M --> P["Draft with Project Assistant when a responsibility exists"]
+  M --> V["Record evidence"]
+  M --> K["Create handoff"]
+```
+
+Role-backed pristine work presents direct **Assign work** as its only routine
+primary action. A roleless project first exposes the smallest useful
+responsibility form: Name and Description, with instructions, execution
+defaults, and skills behind disclosure. Assistant drafting, evidence, and
+handoff remain available under **More options** without competing with the
+kickoff. The idle Assistant follows selected-work detail in a collapsed native
+disclosure and opens when progress, a proposal, inspected context, a result, or
+an error needs attention.
+
+Selected-work kickoff is presentation over existing Cairnline role and
+assignment mutations. **Add responsibility** creates only the returned role;
+**Assign work** creates only the returned assignment. Neither action chains
+creation, launches work, or persists another workflow phase. Disclosure and
+focus targets remain UI state only.
 
 ## Shareable Navigation
 
@@ -374,6 +431,9 @@ address, loads no unrelated detail, and leaves the valid Work queue available.
 
 ![Exact linked work item at narrow width](../../screenshots/projects-navigation-work-narrow.jpg)
 
+Regenerate these images from `ui/` with
+`HECATE_CAPTURE_PROJECTS_NAVIGATION=1 bunx playwright test e2e/projects.spec.ts -g "Projects links restore exact work"`.
+
 The guided-start slice includes deterministic desktop and narrow reference
 captures for the Overview-hosted first-work-ready state:
 
@@ -418,10 +478,14 @@ from `ui/`.
 
 ![Assignment execution at narrow width](../../screenshots/projects-work-execution-narrow.jpg)
 
-Regenerate the rootless Human assignment images from the deterministic browser
-journey with
-`HECATE_CAPTURE_PROJECTS_HUMAN=1 bunx playwright test e2e/projects.spec.ts -g "Projects Human assignment journey"`
-from `ui/`.
+The selected-work kickoff journey verifies a roleless direct path and produces
+both the pristine kickoff and resulting Human assignment references. Regenerate
+all four from `ui/` with
+`HECATE_CAPTURE_PROJECTS_KICKOFF=1 HECATE_CAPTURE_PROJECTS_HUMAN=1 bunx playwright test e2e/projects.spec.ts -g "Projects selected-work kickoff"`.
+
+![Roleless selected-work kickoff at desktop width](../../screenshots/projects-work-kickoff.jpg)
+
+![Roleless selected-work kickoff at narrow width](../../screenshots/projects-work-kickoff-narrow.jpg)
 
 ![Human assignment at desktop width](../../screenshots/projects-human-assignment.jpg)
 
@@ -435,6 +499,10 @@ from `ui/`.
   checklist status, and typed setup actions as server-owned projections. The UI
   does not persist or infer another setup phase, and it never applies setup or
   creates first work without the operator's explicit action.
+- Selected-work kickoff uses existing Cairnline role and assignment mutations.
+  Responsibility creation and assignment creation are separately confirmed;
+  neither action chains another write, starts execution, or persists a local
+  workflow phase.
 - The URL records presentation intent only. It may name a workspace, project
   view, and work item, but it never creates portable state, proves that a record
   exists, grants runtime permission, or substitutes for Cairnline validation.

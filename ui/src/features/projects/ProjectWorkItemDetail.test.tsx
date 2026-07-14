@@ -246,6 +246,7 @@ function renderDetail(overrides: Partial<ProjectWorkItemDetailProps> = {}) {
   const assign = assignment();
   const handlers = {
     onAddAssignment: vi.fn(),
+    onAddResponsibility: vi.fn(),
     onAddEvidenceLink: vi.fn(),
     onAddHandoff: vi.fn(),
     onAddHandoffFromAssignment: vi.fn(),
@@ -378,7 +379,7 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(screen.getByRole("article", { name: "Decompose project UI work item" })).toBeTruthy();
-    expect(screen.getByText("Let Hecate prepare the first step")).toBeTruthy();
+    expect(screen.getByText("Choose who does this work")).toBeTruthy();
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
   });
 
@@ -618,7 +619,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
   });
 
-  it("guides pristine work items through assignment proposal drafting", async () => {
+  it("guides pristine work items into an explicit assignment", async () => {
     const architect = role({ id: "architect", name: "Architect" });
     const item = workItem({
       owner_role_id: "architect",
@@ -633,27 +634,29 @@ describe("ProjectWorkItemDetail", () => {
     });
 
     expect(screen.getByRole("region", { name: "Start work" })).toBeTruthy();
-    expect(screen.getByText("Let Hecate prepare the first step")).toBeTruthy();
+    expect(screen.getByText("Choose who does this work")).toBeTruthy();
     expect(screen.queryByText("No reviewer roles configured")).toBeNull();
     expect(screen.queryByRole("button", { name: "Mark done" })).toBeNull();
     expect(screen.queryByText("No assignments recorded yet.")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Prepare next step" }));
-    await userEvent.click(screen.getByText("Add manually"));
-    const manualActions = screen.getByRole("group", {
-      name: "Manual work item actions",
+    await userEvent.click(screen.getByRole("button", { name: "Assign work" }));
+    await userEvent.click(screen.getByText("More options"));
+    const moreActions = screen.getByRole("group", {
+      name: "More work item actions",
     });
-    await userEvent.click(within(manualActions).getByRole("button", { name: "Assignment" }));
-    await userEvent.click(within(manualActions).getByRole("button", { name: "Evidence" }));
-    await userEvent.click(within(manualActions).getByRole("button", { name: "Handoff" }));
+    await userEvent.click(
+      within(moreActions).getByRole("button", { name: "Draft with Project Assistant" }),
+    );
+    await userEvent.click(within(moreActions).getByRole("button", { name: "Record evidence" }));
+    await userEvent.click(within(moreActions).getByRole("button", { name: "Create handoff" }));
 
-    expect(handlers.onDraftDefaultAssignment).toHaveBeenCalledWith(item);
     expect(handlers.onAddAssignment).toHaveBeenCalledTimes(1);
+    expect(handlers.onDraftDefaultAssignment).toHaveBeenCalledWith(item);
     expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
     expect(handlers.onAddHandoff).toHaveBeenCalledTimes(1);
   });
 
-  it("routes pristine work items without roles to role setup", async () => {
+  it("adds a responsibility before assigning roleless pristine work", async () => {
     const { handlers } = renderDetail({
       assignments: [],
       artifacts: [],
@@ -662,11 +665,23 @@ describe("ProjectWorkItemDetail", () => {
       workItem: workItem({ owner_role_id: "", reviewer_role_ids: [] }),
     });
 
-    expect(screen.getByText("Add a role before assigning work")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Manage roles" }));
+    expect(screen.getByText("Add a responsibility")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Add responsibility" }));
+    await userEvent.click(screen.getByText("More options"));
+    const moreActions = screen.getByRole("group", { name: "More work item actions" });
+    expect(within(moreActions).queryByRole("button", { name: "Assign work" })).toBeNull();
+    expect(
+      within(moreActions).queryByRole("button", { name: "Draft with Project Assistant" }),
+    ).toBeNull();
+    await userEvent.click(within(moreActions).getByRole("button", { name: "Record evidence" }));
+    await userEvent.click(within(moreActions).getByRole("button", { name: "Create handoff" }));
 
     expect(screen.queryByRole("button", { name: /Queue/ })).toBeNull();
-    expect(handlers.onManageRoles).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddResponsibility).toHaveBeenCalledTimes(1);
+    expect(handlers.onManageRoles).not.toHaveBeenCalled();
+    expect(handlers.onAddAssignment).not.toHaveBeenCalled();
+    expect(handlers.onAddEvidenceLink).toHaveBeenCalledTimes(1);
+    expect(handlers.onAddHandoff).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the pristine start action secondary while a proposal awaits approval", () => {
@@ -683,7 +698,7 @@ describe("ProjectWorkItemDetail", () => {
       }),
     });
 
-    expect(screen.getByRole("button", { name: "Prepare next step" })).toHaveClass("btn-ghost");
+    expect(screen.getByRole("button", { name: "Assign work" })).toHaveClass("btn-ghost");
   });
 
   it("guides setup when configured reviewer roles are missing", () => {

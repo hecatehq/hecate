@@ -89,6 +89,7 @@ export type ProjectWorkItemFocusTarget = {
   artifactID?: string;
   assignmentID?: string;
   handoffID?: string;
+  kickoff?: boolean;
   operationKind?: string;
   workItemID: string;
 };
@@ -109,6 +110,7 @@ export type ProjectWorkItemDetailProps = {
   loading: boolean;
   focusTarget?: ProjectWorkItemFocusTarget | null;
   onAddAssignment: () => void;
+  onAddResponsibility: () => void;
   onAddHandoff: () => void;
   onAddEvidenceLink: (assignmentID?: string) => void;
   onAddHandoffFromAssignment: (
@@ -171,6 +173,7 @@ export function ProjectWorkItemDetail({
   loading,
   focusTarget = null,
   onAddAssignment,
+  onAddResponsibility,
   onAddEvidenceLink,
   onAddHandoff,
   onAddHandoffFromAssignment,
@@ -261,6 +264,9 @@ export function ProjectWorkItemDetail({
       if (safeAssignments.some((assignment) => assignment.id === focusTarget.assignmentID)) {
         focused = focusWorkItemRecord("assignment", focusTarget.assignmentID);
       }
+    } else if (focusTarget.kickoff) {
+      exactTargetRequested = true;
+      focused = focusElementByID(workItemKickoffElementID(workItem.id));
     } else if (focusTarget.operationKind === "close_work_item") {
       exactTargetRequested = true;
       focused = focusElementByID("project-work-closeout");
@@ -520,11 +526,12 @@ export function ProjectWorkItemDetail({
             drafting={draftingDefaultAssignment}
             primaryEmphasis={!assistantProposalOpen && !operation && !focusNotice}
             onAddAssignment={onAddAssignment}
+            onAddResponsibility={onAddResponsibility}
             onAddEvidenceLink={onAddEvidenceLink}
             onAddHandoff={onAddHandoff}
             onDraftDefaultAssignment={() => onDraftDefaultAssignment(workItem)}
-            onManageRoles={onManageRoles}
             role={suggestedAssignmentRole}
+            workItemID={workItem.id}
           />
         ) : closeoutProminent ? (
           <WorkItemCloseoutPanel
@@ -856,69 +863,77 @@ function WorkItemStartPanel({
   drafting,
   primaryEmphasis,
   onAddAssignment,
+  onAddResponsibility,
   onAddEvidenceLink,
   onAddHandoff,
   onDraftDefaultAssignment,
-  onManageRoles,
   role,
+  workItemID,
 }: {
   drafting: boolean;
   primaryEmphasis: boolean;
   onAddAssignment: () => void;
+  onAddResponsibility: () => void;
   onAddEvidenceLink: () => void;
   onAddHandoff: () => void;
   onDraftDefaultAssignment: () => void;
-  onManageRoles: () => void;
   role: ProjectWorkRoleRecord | null;
+  workItemID: string;
 }) {
   return (
     <section style={startPanelStyle} aria-label="Start work">
       <div style={startPanelCopyStyle}>
         <div style={sectionLabelStyle}>Next step</div>
-        <div style={titleStyle}>
-          {role ? "Let Hecate prepare the first step" : "Add a role before assigning work"}
-        </div>
+        <div style={titleStyle}>{role ? "Choose who does this work" : "Add a responsibility"}</div>
         <div style={{ ...subtleTextStyle, marginTop: 5 }}>
           {role
-            ? `Hecate will use the ${role.name || role.id} role and this work item context to draft a reviewable assignment proposal. You still approve it before anything is created.`
-            : "Create or select a project role so Hecate can prepare this work from defaults."}
+            ? `${role.name || role.id} is preselected. Choose a Human, Hecate Task, or External Agent destination; nothing starts until you review it.`
+            : "Assignments need a project responsibility. Add one now; instructions and execution defaults can be set later."}
         </div>
       </div>
       <div style={startPanelActionsStyle}>
         {role ? (
           <button
+            id={workItemKickoffElementID(workItemID)}
             className={`btn ${primaryEmphasis ? "btn-primary" : "btn-ghost"} btn-sm`}
             type="button"
-            onClick={onDraftDefaultAssignment}
-            disabled={drafting}
+            onClick={onAddAssignment}
           >
-            <Icon d={Icons.tasks} size={13} />
-            {drafting ? "Preparing..." : "Prepare next step"}
+            <Icon d={Icons.plus} size={13} />
+            Assign work
           </button>
         ) : (
           <button
+            id={workItemKickoffElementID(workItemID)}
             className={`btn ${primaryEmphasis ? "btn-primary" : "btn-ghost"} btn-sm`}
             type="button"
-            onClick={onManageRoles}
+            onClick={onAddResponsibility}
           >
             <Icon d={Icons.user} size={13} />
-            Manage roles
+            Add responsibility
           </button>
         )}
         <details style={manualAddDetailsStyle}>
-          <summary style={manualAddSummaryStyle}>Add manually</summary>
-          <div aria-label="Manual work item actions" role="group" style={startPanelSecondaryStyle}>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onAddAssignment}>
-              <Icon d={Icons.plus} size={12} />
-              Assignment
-            </button>
+          <summary style={manualAddSummaryStyle}>More options</summary>
+          <div aria-label="More work item actions" role="group" style={startPanelSecondaryStyle}>
+            {role && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={onDraftDefaultAssignment}
+                disabled={drafting}
+              >
+                <Icon d={Icons.tasks} size={12} />
+                {drafting ? "Drafting…" : "Draft with Project Assistant"}
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" type="button" onClick={onAddEvidenceLink}>
               <Icon d={Icons.plus} size={12} />
-              Evidence
+              Record evidence
             </button>
             <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
               <Icon d={Icons.plus} size={12} />
-              Handoff
+              Create handoff
             </button>
           </div>
         </details>
@@ -1037,6 +1052,10 @@ function workItemElementID(workItemID: string): string {
   return `project-work-item-${encodeURIComponent(workItemID)}`;
 }
 
+function workItemKickoffElementID(workItemID: string): string {
+  return `project-work-kickoff-${encodeURIComponent(workItemID)}`;
+}
+
 function workItemArtifactElementID(artifactID: string): string {
   return `project-work-artifact-${encodeURIComponent(artifactID)}`;
 }
@@ -1072,6 +1091,9 @@ function workItemFocusTargetAvailable(
   if (target.assignmentID) {
     return records.assignments.some((assignment) => assignment.id === target.assignmentID);
   }
+  if (target.kickoff) {
+    return Boolean(document.getElementById(workItemKickoffElementID(target.workItemID)));
+  }
   if (target.operationKind === "close_work_item") {
     return Boolean(document.getElementById("project-work-closeout"));
   }
@@ -1094,6 +1116,7 @@ function focusWorkItemTarget(target: ProjectWorkItemFocusTarget): boolean {
   if (target.artifactID) return focusWorkItemRecord("artifact", target.artifactID);
   if (target.handoffID) return focusWorkItemRecord("handoff", target.handoffID);
   if (target.assignmentID) return focusWorkItemRecord("assignment", target.assignmentID);
+  if (target.kickoff) return focusElementByID(workItemKickoffElementID(target.workItemID));
   if (target.operationKind === "close_work_item") {
     return focusElementByID("project-work-closeout");
   }
@@ -1307,7 +1330,7 @@ function ReviewFollowUpNotice({
           style={{ marginLeft: "auto" }}
         >
           <Icon d={Icons.tasks} size={12} />
-          {pending ? "Drafting..." : "Draft follow-up"}
+          {pending ? "Drafting…" : "Draft follow-up"}
         </button>
       </div>
       <div style={{ ...titleStyle, marginTop: 8 }}>{followUp.title || "Review follow-up"}</div>
@@ -1530,7 +1553,7 @@ function AssignmentRow({
         <AssignmentLaunchPreflightModal
           assignmentID={assignment.id}
           confirmLabel={external ? "Prepare chat" : "Start assignment"}
-          loadingLabel={external ? "Preparing..." : "Starting..."}
+          loadingLabel={external ? "Preparing…" : "Starting…"}
           onClose={() => setPreflightOpen(false)}
           onConfirm={() => {
             setPreflightOpen(false);

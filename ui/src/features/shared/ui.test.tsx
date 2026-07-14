@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -361,14 +361,20 @@ describe("Modal", () => {
 
     function Harness() {
       const [open, setOpen] = useState(false);
+      const fieldRef = useRef<HTMLInputElement>(null);
       return (
         <>
           <button onClick={() => setOpen(true)}>Open modal</button>
           {open && (
-            <Modal title="Test modal" footer={<button>OK</button>} onClose={() => setOpen(false)}>
+            <Modal
+              title="Test modal"
+              footer={<button>OK</button>}
+              initialFocusRef={fieldRef}
+              onClose={() => setOpen(false)}
+            >
               <label>
                 Modal field
-                <input autoFocus />
+                <input ref={fieldRef} />
               </label>
             </Modal>
           )}
@@ -382,6 +388,44 @@ describe("Modal", () => {
     await waitFor(() => expect(screen.getByLabelText("Modal field")).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it("preserves an explicit focus handoff when a dialog closes", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const nextRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open modal</button>
+          <button ref={nextRef}>Next action</button>
+          {open && (
+            <Modal
+              title="Test modal"
+              footer={
+                <button
+                  onClick={() => {
+                    nextRef.current?.focus();
+                    setOpen(false);
+                  }}
+                >
+                  Continue
+                </button>
+              }
+              onClose={() => setOpen(false)}
+            >
+              Ready to continue.
+            </Modal>
+          )}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Open modal" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next action" })).toHaveFocus());
   });
 });
 

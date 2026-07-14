@@ -323,7 +323,9 @@ textarea {
 }
 
 .project-support-details > summary:focus-visible,
-.project-support-collection > summary:focus-visible {
+.project-support-collection > summary:focus-visible,
+.project-assistant-disclosure > summary:focus-visible,
+.project-assistant-proposal-title:focus-visible {
   border-radius: 3px;
   outline: 2px solid color-mix(in srgb, var(--teal) 72%, transparent);
   outline-offset: 3px;

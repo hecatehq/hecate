@@ -192,6 +192,40 @@ describe("ProjectAssistantPanel", () => {
     expect(handlers.onApply).toHaveBeenCalledTimes(1);
   });
 
+  it("focuses a new work proposal heading before its apply action", () => {
+    renderAssistantPanel({
+      proposal: {
+        id: "pa_assignment",
+        title: "Assign research work",
+        summary: "Create one reviewable assignment.",
+        requires_confirmation: true,
+        actions: [{ kind: "create_assignment", patch: { role_id: "researcher" } }],
+      },
+    });
+
+    const heading = screen.getByRole("heading", { name: "Assign research work" });
+    expect(heading).toHaveFocus();
+    expect(heading).not.toHaveStyle({ outline: "none" });
+    expect(screen.getByRole("button", { name: "Apply proposal" })).not.toHaveFocus();
+  });
+
+  it("keeps a dismiss action for a headerless apply result", async () => {
+    const handlers = renderAssistantPanel({
+      applyResult: {
+        proposal_id: "pa_assignment",
+        status: "applied",
+        applied: true,
+        actions: [{ kind: "create_assignment" }],
+      },
+      showHeader: false,
+      status: "applied",
+      workItemCount: 1,
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(handlers.onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it("routes applied work proposals back to the work queue", async () => {
     const user = userEvent.setup();
     const handlers = renderAssistantPanel({
@@ -230,7 +264,7 @@ describe("ProjectAssistantPanel", () => {
 
     const dismiss = screen.getByRole("button", { name: "Dismiss proposal" });
     expect(dismiss).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Applying..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Applying…" })).toBeDisabled();
 
     await user.click(dismiss);
     expect(handlers.onDismiss).not.toHaveBeenCalled();

@@ -19,6 +19,7 @@ function DialogChrome({
   children,
   dismissible = true,
   footer,
+  initialFocusRef,
   onClose,
   surface,
 }: {
@@ -27,6 +28,7 @@ function DialogChrome({
   children: React.ReactNode;
   dismissible?: boolean;
   footer: React.ReactNode;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   surface: React.CSSProperties;
 }) {
@@ -36,18 +38,36 @@ function DialogChrome({
   );
 
   useEffect(() => {
+    const dialog = dialogRef.current;
     const activeElement =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (!activeElement || !dialogRef.current?.contains(activeElement)) {
+    const requestedInitialFocus = initialFocusRef?.current;
+    if (
+      requestedInitialFocus &&
+      dialogRef.current?.contains(requestedInitialFocus) &&
+      isRenderedDialogControl(requestedInitialFocus)
+    ) {
+      requestedInitialFocus.focus();
+    } else if (!activeElement || !dialogRef.current?.contains(activeElement)) {
       const focusable = focusableDialogElements(dialogRef.current);
       (focusable[0] ?? dialogRef.current)?.focus();
     }
     return () => {
+      const activeElementOnClose =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (
+        activeElementOnClose &&
+        activeElementOnClose !== document.body &&
+        dialog &&
+        !dialog.contains(activeElementOnClose)
+      ) {
+        return;
+      }
       if (previousFocusRef.current && document.contains(previousFocusRef.current)) {
         previousFocusRef.current.focus();
       }
     };
-  }, []);
+  }, [initialFocusRef]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -242,6 +262,7 @@ export function Modal({
   children,
   dismissible = true,
   footer,
+  initialFocusRef,
   onClose,
   width = 560,
 }: {
@@ -250,6 +271,7 @@ export function Modal({
   children: React.ReactNode;
   dismissible?: boolean;
   footer: React.ReactNode;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   width?: number;
 }) {
@@ -259,6 +281,7 @@ export function Modal({
       ariaLabel={ariaLabel}
       dismissible={dismissible}
       footer={footer}
+      initialFocusRef={initialFocusRef}
       onClose={onClose}
       surface={{
         width,

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
@@ -88,6 +89,7 @@ export type ProjectWorkspaceViewProps = {
   memoryLoadState: LoadState;
   onActivityBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onAddAssignment: () => void;
+  onAddResponsibility: () => void;
   onAddEvidenceLink: (assignmentID?: string) => void;
   onAddHandoff: () => void;
   onAddHandoffFromAssignment: (
@@ -200,6 +202,7 @@ export function ProjectWorkspaceView({
   memoryLoadState,
   onActivityBucketChange,
   onAddAssignment,
+  onAddResponsibility,
   onAddEvidenceLink,
   onAddHandoff,
   onAddHandoffFromAssignment,
@@ -376,6 +379,42 @@ export function ProjectWorkspaceView({
     selectedWorkItemReadiness?.status === "ready" ||
     selectedWorkItemNeedsFirstStep ||
     Boolean(assistant.proposal);
+  const assistantNeedsAttention = Boolean(
+    assistant.proposal ||
+    assistant.applyResult ||
+    assistant.error ||
+    assistant.contextError ||
+    assistant.context ||
+    assistant.chatDraftSource ||
+    assistant.status !== "idle" ||
+    assistant.contextStatus !== "idle",
+  );
+  const assistantDisclosureSummaryRef = useRef<HTMLElement>(null);
+  const [assistantDisclosureOpen, setAssistantDisclosureOpen] = useState(assistantNeedsAttention);
+  const previousAssistantAttentionRef = useRef(assistantNeedsAttention);
+  const previousAssistantWorkItemIDRef = useRef(selectedWorkItem?.id ?? "");
+  useEffect(() => {
+    const previousAttention = previousAssistantAttentionRef.current;
+    previousAssistantAttentionRef.current = assistantNeedsAttention;
+    if (assistantNeedsAttention) {
+      setAssistantDisclosureOpen(true);
+      return;
+    }
+    if (!previousAttention) return;
+    setAssistantDisclosureOpen(false);
+    const summary = assistantDisclosureSummaryRef.current;
+    const disclosure = summary?.closest("details");
+    if (summary && disclosure?.contains(document.activeElement)) {
+      summary.focus();
+    }
+  }, [assistantNeedsAttention]);
+  useEffect(() => {
+    const workItemID = selectedWorkItem?.id ?? "";
+    if (previousAssistantWorkItemIDRef.current !== workItemID && !assistantNeedsAttention) {
+      setAssistantDisclosureOpen(false);
+    }
+    previousAssistantWorkItemIDRef.current = workItemID;
+  }, [assistantNeedsAttention, selectedWorkItem?.id]);
 
   return (
     <section
@@ -545,46 +584,6 @@ export function ProjectWorkspaceView({
                   role="tabpanel"
                 >
                   <section aria-label="Work coordination" style={projectTabPanelStyle}>
-                    {!projectGuidedStart && !selectedWorkItemClosed && (
-                      <ProjectAssistantPanel
-                        applyResult={assistant.applyResult}
-                        bootstrapPending={assistant.bootstrapPending}
-                        firstWorkReady={projectSetupFirst}
-                        chatDraftSource={assistant.chatDraftSource}
-                        context={assistant.context}
-                        contextError={assistant.contextError}
-                        contextStatus={assistant.contextStatus}
-                        error={assistant.error}
-                        onApply={() => void assistant.apply()}
-                        onBootstrap={() => void assistant.bootstrap()}
-                        onCreateWork={onCreateWork}
-                        onInspectContext={(form) => void assistant.inspectContext(form)}
-                        onDismiss={assistant.dismiss}
-                        onManageRoles={onManageRoles}
-                        onOpenWork={() => onWorkspaceTabChange("work")}
-                        onOpenSourceChat={
-                          assistant.chatDraftSource?.sourceSessionID && onOpenChat
-                            ? () =>
-                                onOpenChat({
-                                  projectID: project.id,
-                                  chatSessionID: assistant.chatDraftSource?.sourceSessionID,
-                                })
-                            : undefined
-                        }
-                        onPropose={(form) => void assistant.propose(form)}
-                        onReviewMemory={() => onWorkspaceTabChange("memory")}
-                        project={project}
-                        proposal={assistant.proposal}
-                        primaryEmphasis={!routineActionsAreSecondary}
-                        roles={roles}
-                        memoryCandidateCount={memoryCandidates.length}
-                        roleCount={roles.length}
-                        setupFirst={projectSetupAssistantMode}
-                        status={assistant.status}
-                        workItem={selectedWorkItem}
-                        workItemCount={workItems.length}
-                      />
-                    )}
                     <section aria-label="Work activity" style={workActivityPanelStyle}>
                       <SectionHeader
                         heading
@@ -676,6 +675,7 @@ export function ProjectWorkspaceView({
                             startingAssignmentIDs={startingAssignmentIDs}
                             workItem={selectedWorkItem}
                             onAddAssignment={onAddAssignment}
+                            onAddResponsibility={onAddResponsibility}
                             onAddEvidenceLink={onAddEvidenceLink}
                             onAddHandoff={onAddHandoff}
                             onAddHandoffFromAssignment={onAddHandoffFromAssignment}
@@ -700,6 +700,75 @@ export function ProjectWorkspaceView({
                         )}
                       </section>
                     </div>
+                    {!projectGuidedStart && !selectedWorkItemClosed && (
+                      <details
+                        className="project-assistant-disclosure"
+                        open={assistantDisclosureOpen}
+                        onToggle={(event) => {
+                          const nextOpen = event.currentTarget.open;
+                          if (assistantNeedsAttention && !nextOpen) {
+                            event.currentTarget.open = true;
+                            setAssistantDisclosureOpen(true);
+                            return;
+                          }
+                          setAssistantDisclosureOpen(nextOpen);
+                        }}
+                        style={assistantDisclosureStyle}
+                      >
+                        <summary
+                          ref={assistantDisclosureSummaryRef}
+                          style={assistantDisclosureSummaryStyle}
+                        >
+                          <span style={assistantDisclosureTitleStyle}>Project Assistant</span>
+                          <span style={assistantDisclosureDetailStyle}>
+                            {selectedWorkItem
+                              ? "Draft a proposal for the selected work."
+                              : "Draft a proposal for the project queue."}
+                          </span>
+                        </summary>
+                        <div style={assistantDisclosureBodyStyle}>
+                          <ProjectAssistantPanel
+                            applyResult={assistant.applyResult}
+                            bootstrapPending={assistant.bootstrapPending}
+                            firstWorkReady={projectSetupFirst}
+                            chatDraftSource={assistant.chatDraftSource}
+                            context={assistant.context}
+                            contextError={assistant.contextError}
+                            contextStatus={assistant.contextStatus}
+                            error={assistant.error}
+                            onApply={() => void assistant.apply()}
+                            onBootstrap={() => void assistant.bootstrap()}
+                            onCreateWork={onCreateWork}
+                            onInspectContext={(form) => void assistant.inspectContext(form)}
+                            onDismiss={assistant.dismiss}
+                            onManageRoles={onManageRoles}
+                            onOpenWork={() => onWorkspaceTabChange("work")}
+                            onOpenSourceChat={
+                              assistant.chatDraftSource?.sourceSessionID && onOpenChat
+                                ? () =>
+                                    onOpenChat({
+                                      projectID: project.id,
+                                      chatSessionID: assistant.chatDraftSource?.sourceSessionID,
+                                    })
+                                : undefined
+                            }
+                            onPropose={(form) => void assistant.propose(form)}
+                            onReviewMemory={() => onWorkspaceTabChange("memory")}
+                            project={project}
+                            proposal={assistant.proposal}
+                            primaryEmphasis={!routineActionsAreSecondary}
+                            roles={roles}
+                            memoryCandidateCount={memoryCandidates.length}
+                            roleCount={roles.length}
+                            setupFirst={projectSetupAssistantMode}
+                            showHeader={false}
+                            status={assistant.status}
+                            workItem={selectedWorkItem}
+                            workItemCount={workItems.length}
+                          />
+                        </div>
+                      </details>
+                    )}
                   </section>
                 </div>
               )}
@@ -1862,6 +1931,39 @@ const workActivityPanelStyle: CSSProperties = {
   ...panelStyle,
   display: "grid",
   gap: 10,
+};
+
+const assistantDisclosureStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+  minWidth: 0,
+  overflow: "hidden",
+};
+
+const assistantDisclosureSummaryStyle: CSSProperties = {
+  color: "var(--t1)",
+  cursor: "pointer",
+  lineHeight: 1.45,
+  listStylePosition: "inside",
+  padding: "10px 12px",
+};
+
+const assistantDisclosureTitleStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  marginLeft: 4,
+  marginRight: 8,
+};
+
+const assistantDisclosureDetailStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 12,
+};
+
+const assistantDisclosureBodyStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  padding: 10,
 };
 
 const projectOperationsBriefStyle: CSSProperties = {

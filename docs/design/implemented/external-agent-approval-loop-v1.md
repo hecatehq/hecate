@@ -238,9 +238,7 @@ oldest pending first.
       "adapter_id": "codex",
       "status": "pending",
       "tool_kind": "file_write",
-      "acp_payload": {
-        /* verbatim RequestPermissionRequest */
-      },
+      "acp_payload": {/* verbatim RequestPermissionRequest */},
       "acp_options": [
         { "option_id": "allow_once", "kind": "allow_once", "name": "Allow once" },
         {

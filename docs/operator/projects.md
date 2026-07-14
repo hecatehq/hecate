@@ -130,13 +130,18 @@ needed.
 
 For each work item:
 
-1. Draft the first assignment from the owner role, or add one directly.
-2. Choose who does the work: **Human**, **Hecate Task**, or **External Agent**.
-3. Start Human work directly, or inspect launch readiness and context before
+1. If pristine work has no responsibility, choose **Add responsibility**. Name
+   and description are enough; expand **Instructions & execution defaults**
+   only when needed.
+2. Choose **Assign work**, then select the responsibility and who does the work:
+   **Human**, **Hecate Task**, or **External Agent**.
+3. Optionally open **More options** to draft with Project Assistant, record
+   evidence, or create a handoff.
+4. Start Human work directly, or inspect launch readiness and context before
    starting an execution-backed assignment.
-4. Use the selected work item's **Next action** to record evidence, resolve a
+5. Use the selected work item's **Next action** to record evidence, resolve a
    review, decide a handoff, or return to the assignment that needs attention.
-5. Review closeout and mark the work done only after the readiness checks are
+6. Review closeout and mark the work done only after the readiness checks are
    clear.
 
 Assignments keep their own execution records. Projects coordinate the work, but
@@ -297,10 +302,18 @@ External Agent CLIs remain trusted local subprocesses. Their preset
 write/network fields are visible launch posture, not a Hecate sandbox around
 the vendor CLI; use the adapter's own controls and review the workspace diff.
 
-For a new work item with no assignments or artifacts yet, the detail view starts
-with a guided prepare action. Hecate can draft the first assignment from the
-work item role and context, but the operator still reviews and applies the
-proposal before execution records are created.
+For a pristine work item, selected-work detail presents one kickoff action.
+**Add responsibility** appears only when no project role can back an assignment.
+Saving it creates only the Cairnline-backed role and returns focus to the same
+control, now labeled **Assign work**. **Assign work** opens the existing
+assignment form; creating the assignment does not start it, and focus moves to
+the returned assignment story.
+
+Project Assistant follows the queue and selected-work detail in a disclosure.
+It is collapsed while idle and opens when a proposal, draft progress, inspected
+context, result, or error needs attention. **Draft with Project Assistant**
+remains under **More options**; once a proposal exists, **Apply proposal** owns
+the primary emphasis.
 
 After a work item has activity, use its Add strip to attach more assignments,
 evidence, or handoffs without scanning each section header for separate
@@ -385,7 +398,7 @@ work without operator confirmation.
 
 Projects V1 is good enough for Hecate dogfooding when an operator can:
 
-- create a rootless planning/research/design project and manage manual work
+- create a rootless planning/research/design project and manage Human work
   without attaching a workspace;
 - create a workspace-backed code project, run setup, review proposed memory and
   roles, then create the first work item;

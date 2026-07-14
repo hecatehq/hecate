@@ -20,8 +20,20 @@ import {
 } from "./ProjectWorkspaceView";
 
 vi.mock("./ProjectAssistantPanel", () => ({
-  ProjectAssistantPanel: ({ primaryEmphasis }: { primaryEmphasis: boolean }) => (
-    <div data-primary={String(primaryEmphasis)}>Assistant panel</div>
+  ProjectAssistantPanel: ({
+    primaryEmphasis,
+    showHeader = true,
+  }: {
+    primaryEmphasis: boolean;
+    showHeader?: boolean;
+  }) => (
+    <section
+      aria-label="Assistant panel"
+      data-header={String(showHeader)}
+      data-primary={String(primaryEmphasis)}
+    >
+      Assistant panel
+    </section>
   ),
 }));
 
@@ -309,6 +321,7 @@ function renderWorkspace(overrides: Partial<ProjectWorkspaceViewProps> = {}) {
   const handlers = {
     onActivityBucketChange: vi.fn(),
     onAddAssignment: vi.fn(),
+    onAddResponsibility: vi.fn(),
     onAddEvidenceLink: vi.fn(),
     onAddHandoff: vi.fn(),
     onAddHandoffFromAssignment: vi.fn(),
@@ -684,13 +697,113 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onSelectWorkItem).not.toHaveBeenCalled();
   });
 
-  it("keeps the project assistant with work coordination", () => {
-    renderWorkspace({ workspaceTab: "work" });
+  it("keeps the idle project assistant collapsed after selected work", () => {
+    const item = workItem({ owner_role_id: "developer", reviewer_role_ids: [] });
+    renderWorkspace({
+      hasWorkItemDetail: true,
+      roleByID: new Map([["developer", role()]]),
+      roles: [role()],
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
 
-    expect(screen.getByText("Assistant panel")).toBeTruthy();
+    const disclosure = screen
+      .getByText("Project Assistant", { selector: "span" })
+      .closest("details");
+    const selectedWork = screen.getByRole("region", { name: "Selected work item" });
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(screen.getByRole("region", { name: "Assistant panel", hidden: true })).toHaveAttribute(
+      "data-header",
+      "false",
+    );
+    expect(selectedWork.compareDocumentPosition(disclosure!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(screen.getByRole("region", { name: "Work coordination" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Project overview" })).toBeNull();
   });
+
+  it.each([
+    [
+      "proposal",
+      {
+        proposal: {
+          id: "proposal_1",
+          title: "Assign work",
+          summary: "",
+          actions: [],
+          requires_confirmation: true,
+        },
+      },
+    ],
+    ["error", { error: "Drafting failed." }],
+    ["context", { contextStatus: "loading" }],
+    [
+      "apply result",
+      { applyResult: { proposal_id: "proposal_1", status: "applied", applied: true, actions: [] } },
+    ],
+  ])("opens the project assistant for %s attention", (_label, assistantState) => {
+    const item = workItem();
+    renderWorkspace({
+      assistant: {
+        ...assistant(),
+        ...(assistantState as Partial<NonNullable<ProjectWorkspaceViewProps["assistant"]>>),
+      },
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workspaceTab: "work",
+    });
+
+    expect(
+      screen.getByText("Project Assistant", { selector: "span" }).closest("details"),
+    ).toHaveAttribute("open");
+  });
+
+  it.each([
+    [
+      "proposal",
+      {
+        proposal: {
+          id: "proposal_1",
+          title: "Assign work",
+          summary: "",
+          actions: [],
+          requires_confirmation: true,
+        },
+      },
+    ],
+    ["drafting", { status: "proposing" }],
+    ["error", { error: "Drafting failed." }],
+  ])(
+    "keeps the project assistant open while %s needs attention",
+    async (_label, assistantState) => {
+      const item = workItem();
+      renderWorkspace({
+        assistant: {
+          ...assistant(),
+          ...(assistantState as Partial<NonNullable<ProjectWorkspaceViewProps["assistant"]>>),
+        },
+        selectedWorkItem: item,
+        selectedWorkItemID: item.id,
+        workItems: [item],
+        workspaceTab: "work",
+      });
+
+      const disclosure = screen
+        .getByText("Project Assistant", { selector: "span" })
+        .closest("details")!;
+      const summary = within(disclosure)
+        .getByText("Project Assistant", { selector: "span" })
+        .closest("summary")!;
+      expect(disclosure).toHaveAttribute("open");
+      await userEvent.click(summary);
+      expect(disclosure).toHaveAttribute("open");
+    },
+  );
 
   it.each(["done", "cancelled"] as const)(
     "removes proposal controls from persisted %s work",
@@ -1198,8 +1311,7 @@ describe("ProjectWorkspaceView", () => {
     expect(within(followThrough).getByRole("button", { name: "Refresh work" })).toHaveClass(
       "btn-primary",
     );
-    expect(screen.getByRole("button", { name: "Prepare next step" })).toHaveClass("btn-ghost");
-    expect(screen.queryByRole("button", { name: "Record evidence" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Assign work" })).toHaveClass("btn-ghost");
   });
 
   it("hides proposal controls when authoritative readiness says work is done", () => {

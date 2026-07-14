@@ -105,7 +105,9 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await page.getByRole("tab", { name: "Overview" }).click();
   await expect(page.getByText("Prepare first assignment: Verify launch checklist")).toBeVisible();
   await page.getByRole("tab", { name: /Work/ }).click();
-  await page.getByRole("button", { name: "Prepare next step" }).click();
+  const firstWorkDetail = page.getByRole("region", { name: "Selected work item" });
+  await firstWorkDetail.getByText("More options").click();
+  await firstWorkDetail.getByRole("button", { name: "Draft with Project Assistant" }).click();
   await expect(
     page.getByText("Queue the implementation role for the selected work item."),
   ).toBeVisible();
@@ -462,7 +464,7 @@ test("Projects first work creation preserves its draft and recovers from failure
   await retry.click();
 
   await expect(page.getByRole("heading", { name: "Recover this first work item" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Work/ })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Add responsibility" })).toBeFocused();
   expect(createAttempts).toBe(2);
 });
 
@@ -503,17 +505,15 @@ test("Projects rootless journey: create work without local setup or a workspace"
   await page.getByRole("button", { name: "Create work item" }).click();
 
   await expect(page.getByRole("heading", { name: "Summarize interview themes" })).toBeVisible();
-  await expect(page.getByText("Add a role before assigning work")).toBeVisible();
-  await page.getByText("Add manually").click();
-  const manualActions = page.getByRole("group", { name: "Manual work item actions" });
-  await manualActions.getByRole("button", { name: "Evidence" }).click();
-  await page
-    .getByRole("dialog", { name: "Record evidence" })
-    .getByLabel("Title")
-    .fill("Interview source notes");
-  await page.getByLabel("URL").fill("https://example.test/interviews");
-  await page.getByLabel("Summary").fill("Source notes reviewed for the theme summary.");
-  await page.getByRole("button", { name: "Record evidence" }).click();
+  await expect(page.getByText("Add a responsibility", { exact: true })).toBeVisible();
+  await page.getByText("More options").click();
+  const moreActions = page.getByRole("group", { name: "More work item actions" });
+  await moreActions.getByRole("button", { name: "Record evidence" }).click();
+  const evidenceDialog = page.getByRole("dialog", { name: "Record evidence" });
+  await evidenceDialog.getByLabel("Title").fill("Interview source notes");
+  await evidenceDialog.getByLabel("URL").fill("https://example.test/interviews");
+  await evidenceDialog.getByLabel("Summary").fill("Source notes reviewed for the theme summary.");
+  await evidenceDialog.getByRole("button", { name: "Record evidence" }).click();
 
   await expect(page.getByText("Interview source notes", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Review closeout" }).click();
@@ -532,7 +532,7 @@ test("Projects rootless journey: create work without local setup or a workspace"
   expect(state.artifacts).toHaveLength(1);
 });
 
-test("Projects Human assignment journey: rootless work without launch preflight", async ({
+test("Projects selected-work kickoff: add responsibility and assign rootless Human work", async ({
   page,
 }) => {
   await page.clock.setFixedTime(new Date(NOW));
@@ -548,19 +548,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
       updated_at: NOW,
     },
   ];
-  state.roles = [
-    {
-      id: "researcher",
-      project_id: "proj_human",
-      name: "Researcher",
-      description: "Synthesize interview findings for review.",
-      default_driver_kind: "manual",
-      skill_ids: [],
-      built_in: false,
-      created_at: NOW,
-      updated_at: NOW,
-    },
-  ];
+  state.roles = [];
   state.workItems = [
     {
       id: "work_human",
@@ -569,7 +557,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
       brief: "Turn the interview notes into a reviewable theme summary.",
       status: "ready",
       priority: "high",
-      owner_role_id: "researcher",
+      owner_role_id: "",
       created_at: NOW,
       updated_at: NOW,
     },
@@ -590,21 +578,122 @@ test("Projects Human assignment journey: rootless work without launch preflight"
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.getByRole("tab", { name: /Work/ }).click();
+  await expect(page).toHaveURL(/\/projects\?project=proj_human&view=work&work=work_human$/);
 
   const detail = page.getByRole("region", { name: "Selected work item" });
   await expect(detail.getByRole("heading", { name: "Synthesize interview themes" })).toBeVisible();
-  await detail.getByText("Add manually").click();
-  await detail
-    .getByRole("group", { name: "Manual work item actions" })
-    .getByRole("button", { name: "Assignment" })
-    .click();
+  const addResponsibility = detail.getByRole("button", { name: "Add responsibility" });
+  await expect(addResponsibility).toBeVisible();
+  await expect(addResponsibility).toHaveClass(/btn-primary/);
+  await expect(detail.locator(".btn-primary")).toHaveCount(1);
+
+  const coordinationGrid = page.locator(".project-work-coordination-grid");
+  const assistantDisclosure = page.locator(".project-assistant-disclosure");
+  await expect(assistantDisclosure).toHaveJSProperty("open", false);
+  expect(
+    await coordinationGrid.evaluate((element) => {
+      const assistant = document.querySelector(".project-assistant-disclosure");
+      return Boolean(
+        assistant && element.compareDocumentPosition(assistant) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }),
+  ).toBe(true);
+
+  if (process.env.HECATE_CAPTURE_PROJECTS_KICKOFF === "1") {
+    await addResponsibility.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "../docs/screenshots/projects-work-kickoff.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await addResponsibility.scrollIntoViewIfNeeded();
+  await expect(page).toHaveURL(/\/projects\?project=proj_human&view=work&work=work_human$/);
+  await expect(assistantDisclosure).toHaveJSProperty("open", false);
+  expect(
+    await coordinationGrid.evaluate((element) => {
+      const assistant = document.querySelector(".project-assistant-disclosure");
+      return Boolean(
+        assistant && element.compareDocumentPosition(assistant) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
+  expect(await detail.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true,
+  );
+  if (process.env.HECATE_CAPTURE_PROJECTS_KICKOFF === "1") {
+    await page.setViewportSize({ width: 390, height: 1050 });
+    await page
+      .getByRole("region", { name: "Project workspace content" })
+      .evaluate((element) => element.scrollTo({ top: 0 }));
+    await page.screenshot({
+      path: "../docs/screenshots/projects-work-kickoff-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await addResponsibility.scrollIntoViewIfNeeded();
+  }
+
+  await addResponsibility.click();
+  const responsibilityDialog = page.getByRole("dialog", { name: "Add responsibility" });
+  await expect(responsibilityDialog).toBeVisible();
+  await expect(responsibilityDialog.getByLabel("Name")).toBeFocused();
+  await expect(responsibilityDialog.locator("details")).not.toHaveAttribute("open", "");
+  expect(
+    await responsibilityDialog.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    ),
+  ).toBe(true);
+  await responsibilityDialog.getByLabel("Name").fill("Researcher");
+  await responsibilityDialog
+    .getByLabel("Description")
+    .fill("Synthesize interview findings for review.");
+  const roleRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/hecate/v1/projects/proj_human/roles"
+    );
+  });
+  await responsibilityDialog.getByRole("button", { name: "Add responsibility" }).click();
+  const roleRequest = await roleRequestPromise;
+  await expect(responsibilityDialog).toBeHidden();
+  expect(roleRequest.postDataJSON()).toEqual({
+    name: "Researcher",
+    description: "Synthesize interview findings for review.",
+    instructions: "",
+    default_driver_kind: "",
+    default_provider: "",
+    default_model: "",
+    default_agent_profile: "",
+    skill_ids: [],
+  });
+  expect(state.roles).toHaveLength(1);
+  expect(state.assignments).toHaveLength(0);
+
+  const assignWork = detail.getByRole("button", { name: "Assign work" });
+  await expect(assignWork).toBeFocused();
+  await assignWork.click();
 
   const assignmentDialog = page.getByRole("dialog", { name: "Add assignment" });
-  await expect(assignmentDialog.getByLabel("Work done by")).toHaveValue("manual");
+  await expect(assignmentDialog.getByLabel("Responsibility")).toHaveValue("role_1");
+  await expect(assignmentDialog.getByLabel("Responsibility")).toBeFocused();
+  await assignmentDialog.getByLabel("Work done by").selectOption("manual");
   await expect(
     assignmentDialog.getByText("Track work completed by a person outside Hecate."),
   ).toBeVisible();
   await expect(assignmentDialog.getByLabel("Workspace (optional)")).toHaveCount(0);
+  expect(
+    await assignmentDialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  expect(state.assignments).toHaveLength(0);
 
   const createRequestPromise = page.waitForRequest((request) => {
     return (
@@ -616,7 +705,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
   await assignmentDialog.getByRole("button", { name: "Add assignment" }).click();
   const createRequest = await createRequestPromise;
   expect(createRequest.postDataJSON()).toEqual({
-    role_id: "researcher",
+    role_id: "role_1",
     driver_kind: "manual",
   });
 
@@ -624,6 +713,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
     name: "Researcher assignment execution assign_human",
   });
   await expect(executionStory).toBeVisible();
+  await expect(executionStory).toBeFocused();
   await expect(executionStory.getByText("Human", { exact: true })).toBeVisible();
   await expect(executionStory.getByText("Ready", { exact: true })).toBeVisible();
   await expect(executionStory.getByText("Ready for a person to begin.").first()).toBeVisible();
@@ -644,6 +734,7 @@ test("Projects Human assignment journey: rootless work without launch preflight"
   await expect(detail).toBeVisible();
   await expect(page.getByRole("dialog", { name: /launch details/i })).toHaveCount(0);
 
+  await page.setViewportSize({ width: 1280, height: 900 });
   await executionStory.scrollIntoViewIfNeeded();
   if (process.env.HECATE_CAPTURE_PROJECTS_HUMAN === "1") {
     await page.screenshot({
@@ -2128,9 +2219,33 @@ async function mockProjectJourneyAPIs(page: Page) {
       }
       failUnexpectedProjectJourneyRequest(route);
     }
-    if (resource === "roles" && parts.length === 2 && method === "GET") {
-      await route.fulfill(ok({ object: "project_roles", data: state.roles }));
-      return;
+    if (resource === "roles" && parts.length === 2) {
+      if (method === "GET") {
+        await route.fulfill(ok({ object: "project_roles", data: state.roles }));
+        return;
+      }
+      if (method === "POST") {
+        const body = JSON.parse(request.postData() || "{}") as Partial<ProjectWorkRoleRecord>;
+        const role: ProjectWorkRoleRecord = {
+          id: `role_${state.roles.length + 1}`,
+          project_id: projectID,
+          name: body.name || "Project responsibility",
+          description: body.description,
+          instructions: body.instructions,
+          default_driver_kind: body.default_driver_kind,
+          default_provider: body.default_provider,
+          default_model: body.default_model,
+          default_agent_profile: body.default_agent_profile,
+          skill_ids: body.skill_ids || [],
+          built_in: false,
+          created_at: NOW,
+          updated_at: NOW,
+        };
+        state.roles = [...state.roles, role];
+        await route.fulfill(ok({ object: "project_role", data: role }, 201));
+        return;
+      }
+      failUnexpectedProjectJourneyRequest(route);
     }
     if (resource === "activity" && parts.length === 2 && method === "GET") {
       await route.fulfill(ok({ object: "project_activity", data: projectActivity(state) }));
