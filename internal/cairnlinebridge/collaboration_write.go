@@ -72,12 +72,16 @@ func UpsertHandoff(ctx context.Context, service *cairnline.Service, handoff proj
 	if strings.TrimSpace(item.ID) == "" {
 		return cairnline.Handoff{}, errors.Join(cairnline.ErrInvalid, errors.New("handoff id is required"))
 	}
-	if _, err := service.GetHandoff(ctx, item.ProjectID, item.WorkItemID, item.ID); err != nil {
+	existing, err := service.GetHandoff(ctx, item.ProjectID, item.WorkItemID, item.ID)
+	if err != nil {
 		if !errors.Is(err, cairnline.ErrNotFound) {
 			return cairnline.Handoff{}, err
 		}
 		return service.CreateHandoff(ctx, item)
 	}
+	// Cairnline owns the live revision. Hecate supplies the replacement content,
+	// but must not reuse its mirrored timestamp as a compare-and-set token.
+	item.UpdatedAt = existing.UpdatedAt
 	return service.UpdateHandoff(ctx, item)
 }
 
@@ -85,5 +89,11 @@ func DeleteHandoff(ctx context.Context, service *cairnline.Service, projectID, w
 	if service == nil {
 		return errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))
 	}
-	return service.DeleteHandoff(ctx, projectID, workItemID, id)
+	existing, err := service.GetHandoff(ctx, projectID, workItemID, id)
+	if err != nil {
+		return err
+	}
+	return service.DeleteHandoff(ctx, projectID, workItemID, id, cairnline.HandoffDelete{
+		ExpectedUpdatedAt: existing.UpdatedAt,
+	})
 }

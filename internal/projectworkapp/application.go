@@ -188,6 +188,7 @@ type CreateHandoffCommand struct {
 }
 
 type UpdateHandoffCommand struct {
+	ExpectedUpdatedAt     time.Time
 	SourceAssignmentID    *string
 	SourceRunID           *string
 	SourceChatSessionID   *string

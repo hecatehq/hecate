@@ -624,6 +624,28 @@ describe("ProjectAssignmentExecutionStory", () => {
     ).toBeDisabled();
   });
 
+  it("disables handoff entry points while another handoff change is pending", () => {
+    renderStory(
+      assignment({
+        driver_kind: "manual",
+        status: "running",
+        started_at: "2026-07-10T10:15:00Z",
+        execution_ref: { kind: "none", status: "running" },
+      }),
+      { handoffPending: true },
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Create handoff from assignment assign_1" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Request review for assignment assign_1" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Record review for assignment assign_1" }),
+    ).toBeEnabled();
+  });
+
   it("promotes a review request for completed Human work without runtime evidence", async () => {
     const { container, handlers } = renderStory(
       assignment({

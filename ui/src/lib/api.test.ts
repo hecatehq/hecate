@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  acceptProjectHandoffWithFollowUp,
   buildRequestOptions,
   cancelChatApproval,
   chatCompletions,
@@ -388,6 +389,17 @@ describe("api client", () => {
       .mockResolvedValueOnce(jsonResponse({ object: "project_handoff", data: { id: "handoff/1" } }))
       .mockResolvedValueOnce(jsonResponse({ object: "project_handoff", data: { id: "handoff/1" } }))
       .mockResolvedValueOnce(jsonResponse({ object: "project_handoff", data: { id: "handoff/1" } }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          object: "project_handoff_follow_up",
+          data: {
+            handoff: { id: "handoff/1" },
+            assignment: { id: "asgn/2" },
+            outcome: "created",
+            replayed: false,
+          },
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse(null));
 
     await createProjectHandoff("proj/1", "work/1", {
@@ -402,11 +414,26 @@ describe("api client", () => {
       provenance_kind: "agent_draft",
       trust_label: "operator_reviewed",
     });
-    await updateProjectHandoff("proj/1", "work/1", "handoff/1", {
-      target_assignment_id: "asgn/2",
+    await updateProjectHandoff(
+      "proj/1",
+      "work/1",
+      "handoff/1",
+      { target_assignment_id: "asgn/2" },
+      "2026-06-03T12:00:00Z",
+    );
+    await updateProjectHandoffStatus(
+      "proj/1",
+      "work/1",
+      "handoff/1",
+      "accepted",
+      "2026-06-03T12:01:00Z",
+    );
+    await acceptProjectHandoffWithFollowUp("proj/1", "work/1", "handoff/1", {
+      expected_updated_at: "2026-06-03T12:02:00Z",
+      idempotency_key: "9bcf9f16-9b28-4da5-987f-9c602ac46a38",
+      intent: "accept_and_ensure_follow_up",
     });
-    await updateProjectHandoffStatus("proj/1", "work/1", "handoff/1", "accepted");
-    await deleteProjectHandoff("proj/1", "work/1", "handoff/1");
+    await deleteProjectHandoff("proj/1", "work/1", "handoff/1", "2026-06-03T12:03:00Z");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -432,7 +459,10 @@ describe("api client", () => {
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1",
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ target_assignment_id: "asgn/2" }),
+        body: JSON.stringify({
+          target_assignment_id: "asgn/2",
+          expected_updated_at: "2026-06-03T12:00:00Z",
+        }),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -440,13 +470,31 @@ describe("api client", () => {
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1/status",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ status: "accepted" }),
+        body: JSON.stringify({
+          status: "accepted",
+          expected_updated_at: "2026-06-03T12:01:00Z",
+        }),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1/accept-with-follow-up",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          expected_updated_at: "2026-06-03T12:02:00Z",
+          idempotency_key: "9bcf9f16-9b28-4da5-987f-9c602ac46a38",
+          intent: "accept_and_ensure_follow_up",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1",
-      expect.objectContaining({ method: "DELETE" }),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ expected_updated_at: "2026-06-03T12:03:00Z" }),
+      }),
     );
   });
 

@@ -1541,26 +1541,81 @@ test("Projects follow-through journey: review, handoff, evidence, and durable cl
     scrollWidth: element.scrollWidth,
   }));
   expect(detailLayout.scrollWidth).toBeLessThanOrEqual(detailLayout.clientWidth + 1);
+  let releaseAccept: () => void = () => {};
+  const acceptGate = new Promise<void>((resolve) => {
+    releaseAccept = resolve;
+  });
+  let acceptRequestCount = 0;
+  let acceptRequestBody: unknown;
+  await page.route(
+    "**/hecate/v1/projects/proj_follow_through/work-items/work_follow_through/handoffs/handoff_editorial_review/status",
+    async (route) => {
+      acceptRequestCount += 1;
+      acceptRequestBody = route.request().postDataJSON();
+      await acceptGate;
+      const handoff = state.handoffs.find((item) => item.id === "handoff_editorial_review");
+      if (!handoff) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ object: "project_handoff", data: null }),
+        });
+        return;
+      }
+      Object.assign(handoff, {
+        status: "accepted",
+        status_changed_at: NOW,
+        updated_at: NOW,
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "project_handoff", data: handoff }),
+      });
+    },
+  );
+  await handoffRow.getByRole("button", { name: "Accept" }).click();
+  await expect.poll(() => acceptRequestCount).toBe(1);
+  expect(acceptRequestBody).toEqual({ status: "accepted", expected_updated_at: NOW });
+  await expect(handoffRow).toHaveAttribute("aria-busy", "true");
+  await expect(detail.getByRole("status", { name: "Handoff update status" })).toHaveText(
+    "Updating handoff…",
+  );
+  await expect(handoffRow).toBeFocused();
+  for (const button of await handoffRow.getByRole("button").all()) {
+    await expect(button).toBeDisabled();
+  }
+
+  await page.getByRole("link", { name: "Open work item Unrelated planning note" }).click();
+  await expect(
+    page.getByRole("article", { name: "Unrelated planning note work item" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Open work item Ship editorial release" }).click();
+  await expect(
+    page.getByRole("article", { name: "Ship editorial release work item" }),
+  ).toBeVisible();
+  const returnedHandoffRow = detail.getByRole("group", { name: "Editorial sign-off handoff" });
+  await expect(returnedHandoffRow).toHaveAttribute("aria-busy", "true");
+  await expect(returnedHandoffRow.getByRole("button", { name: "Accept" })).toBeDisabled();
+  expect(acceptRequestCount).toBe(1);
   if (process.env.HECATE_CAPTURE_PROJECTS_FOLLOW_THROUGH === "1") {
     await page.screenshot({
       path: "../docs/screenshots/projects-follow-through-narrow.jpg",
       type: "jpeg",
       quality: 90,
     });
+    await detail.getByRole("region", { name: "Handoffs" }).screenshot({
+      path: "../docs/screenshots/projects-handoff-pending-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
   }
 
-  const acceptRequestPromise = page.waitForRequest((request) => {
-    return (
-      request.method() === "POST" &&
-      new URL(request.url()).pathname ===
-        "/hecate/v1/projects/proj_follow_through/work-items/work_follow_through/handoffs/handoff_editorial_review/status"
-    );
-  });
-  await handoffRow.getByRole("button", { name: "Accept" }).click();
-  const acceptRequest = await acceptRequestPromise;
-  expect(acceptRequest.postDataJSON()).toEqual({ status: "accepted" });
-  await expect(handoffRow.getByText("Accepted", { exact: true })).toBeVisible();
-  await expect(handoffRow).toBeFocused();
+  releaseAccept();
+  await expect(returnedHandoffRow.getByText("Accepted", { exact: true })).toBeVisible();
+  await expect(returnedHandoffRow).not.toHaveAttribute("aria-busy");
+  await expect(returnedHandoffRow).toBeFocused();
+  expect(acceptRequestCount).toBe(1);
   expect(state.handoffs.find((handoff) => handoff.id === "handoff_editorial_review")?.status).toBe(
     "accepted",
   );

@@ -838,6 +838,25 @@ export type CreateProjectHandoffPayload = {
 
 export type UpdateProjectHandoffPayload = Partial<CreateProjectHandoffPayload>;
 
+export type AcceptProjectHandoffWithFollowUpPayload = {
+  expected_updated_at: string;
+  idempotency_key: string;
+  intent: "accept_and_ensure_follow_up";
+};
+
+export type ProjectHandoffFollowUpOutcome =
+  | "created"
+  | "linked_existing"
+  | "already_satisfied"
+  | (string & {});
+
+export type ProjectHandoffFollowUpResult = {
+  handoff: ProjectHandoffRecord;
+  assignment: ProjectAssignmentRecord;
+  outcome: ProjectHandoffFollowUpOutcome;
+  replayed: boolean;
+};
+
 export type ProjectActivitySignal =
   | "awaiting_approval"
   | "failed"
@@ -1200,4 +1219,9 @@ export type ProjectHandoffsResponse = {
 export type ProjectHandoffResponse = {
   object: string;
   data: ProjectHandoffRecord;
+};
+
+export type ProjectHandoffFollowUpResponse = {
+  object: string;
+  data: ProjectHandoffFollowUpResult;
 };

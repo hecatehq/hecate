@@ -358,6 +358,7 @@ func (authority projectAssistantWorkAuthority) UpdateHandoff(ctx context.Context
 		return projectwork.Handoff{}, projectassistant.ErrStoreNotConfigured
 	}
 	appCmd := projectworkapp.UpdateHandoffCommand{
+		ExpectedUpdatedAt:  cmd.ExpectedUpdatedAt,
 		TargetAssignmentID: cmd.TargetAssignmentID,
 		TargetRoleID:       cmd.TargetRoleID,
 		Status:             cmd.Status,

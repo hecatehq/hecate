@@ -138,6 +138,9 @@ func (h *Handler) mirrorProjectMemoryCandidateToCairnline(ctx context.Context, o
 }
 
 func (h *Handler) mirrorProjectAssistantProposalByIDToCairnline(ctx context.Context, operation, proposalID string) {
+	if h.projectAssistantProposalWritesUseCairnlineAuthority() {
+		return
+	}
 	record, ok, err := h.loadProjectAssistantProposalForCairnlineMirror(ctx, proposalID)
 	if err != nil {
 		h.recordCairnlineMirrorFailure(ctx, cairnlineMirrorFamilyAssistantProposals, operation, "", err)
@@ -150,6 +153,9 @@ func (h *Handler) mirrorProjectAssistantProposalByIDToCairnline(ctx context.Cont
 }
 
 func (h *Handler) mirrorProjectAssistantProposalRecordToCairnline(ctx context.Context, operation string, record projectassistant.ProposalRecord) {
+	if h.projectAssistantProposalWritesUseCairnlineAuthority() {
+		return
+	}
 	h.recordCairnlineMirrorResult(ctx, cairnlineMirrorFamilyAssistantProposals, operation, record.ProjectID, h.writeProjectAssistantProposalRecordToCairnline(ctx, record))
 }
 
@@ -356,6 +362,9 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 		}
 		return h.writeProjectDefaultsToCairnline(ctx, project)
 	case projectassistant.ActionCreateRole:
+		if h.projectRoleWritesUseCairnlineAuthority() {
+			return nil
+		}
 		project, ok := h.projectForCairnlineMirror(ctx, "project_assistant_apply_result", projectID)
 		if !ok {
 			return nil
@@ -366,6 +375,9 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 		}
 		return h.writeProjectRoleToCairnline(ctx, project, role)
 	case projectassistant.ActionCreateWorkItem, projectassistant.ActionUpdateWorkItem:
+		if h.projectWorkItemWritesUseCairnlineAuthority() {
+			return nil
+		}
 		item, ok, err := h.loadProjectWorkItemForCairnlineMirror(ctx, projectID, projectAssistantActionResultValue(result, "work_item_id"))
 		if err != nil || !ok {
 			return err
@@ -376,18 +388,27 @@ func (h *Handler) writeProjectAssistantActionResultToCairnline(ctx context.Conte
 		}
 		return h.writeProjectWorkItemToCairnline(ctx, project, item)
 	case projectassistant.ActionCreateAssignment:
+		if h.projectAssignmentWritesUseCairnlineAuthority() {
+			return nil
+		}
 		assignment, ok, err := h.loadProjectWorkAssignmentForCairnlineMirror(ctx, projectID, projectAssistantActionResultValue(result, "assignment_id"))
 		if err != nil || !ok {
 			return err
 		}
 		return h.writeProjectAssignmentToCairnline(ctx, assignment)
 	case projectassistant.ActionCreateHandoff, projectassistant.ActionUpdateHandoff:
+		if h.projectCollaborationWritesUseCairnlineAuthority() {
+			return nil
+		}
 		handoff, ok, err := h.loadProjectWorkHandoffForCairnlineMirror(ctx, projectID, projectAssistantActionResultValue(result, "handoff_id"))
 		if err != nil || !ok {
 			return err
 		}
 		return h.writeProjectHandoffToCairnline(ctx, handoff)
 	case projectassistant.ActionCreateMemoryCandidate:
+		if h.projectMemoryCandidatesWriteUseCairnlineAuthority() {
+			return nil
+		}
 		candidate, ok, err := h.loadProjectMemoryCandidateForCairnlineMirror(ctx, projectID, projectAssistantActionResultValue(result, "candidate_id"))
 		if err != nil || !ok {
 			return err

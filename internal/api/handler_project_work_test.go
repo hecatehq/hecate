@@ -725,7 +725,7 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend/status", bytes.NewReader([]byte(`{"status":"accepted"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend/status", bytes.NewReader([]byte(fmt.Sprintf(`{"status":"accepted","expected_updated_at":%q}`, handoff.Data.UpdatedAt)))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("accept handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
@@ -749,7 +749,7 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend", bytes.NewReader([]byte(`{"target_assignment_id":"asgn_backend","recommended_next_action":"Start the linked follow-up assignment."}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend", bytes.NewReader([]byte(fmt.Sprintf(`{"target_assignment_id":"asgn_backend","recommended_next_action":"Start the linked follow-up assignment.","expected_updated_at":%q}`, handoff.Data.UpdatedAt)))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
@@ -802,7 +802,7 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend", bytes.NewReader([]byte(fmt.Sprintf(`{"expected_updated_at":%q}`, handoff.Data.UpdatedAt)))))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete handoff status = %d body=%s, want 204", rec.Code, rec.Body.String())
 	}
@@ -1021,6 +1021,7 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 	assertHecateShadowHandoffStatusForTest(t, handler, projectID, "work_authority", "handoff_authority", projectwork.HandoffStatusPending)
 
 	updated := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", projectJourneyJSON(t, map[string]any{
+		"expected_updated_at":     handoff.Data.UpdatedAt,
 		"summary":                 "Cairnline updated this handoff.",
 		"recommended_next_action": "Finish it.",
 	}))
@@ -1029,7 +1030,8 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 	}
 
 	accepted := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority/status", projectJourneyJSON(t, map[string]any{
-		"status": "accepted",
+		"expected_updated_at": updated.Data.UpdatedAt,
+		"status":              "accepted",
 	}))
 	if accepted.Data.Status != projectwork.HandoffStatusAccepted {
 		t.Fatalf("accepted handoff response = %+v, want accepted", accepted.Data)
@@ -1040,7 +1042,8 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 	}
 	assertHecateShadowHandoffStatusForTest(t, handler, projectID, "work_authority", "handoff_authority", projectwork.HandoffStatusAccepted)
 
-	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", "")
+	deleteRequest := projectJourneyJSON(t, map[string]any{"expected_updated_at": accepted.Data.UpdatedAt})
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", deleteRequest)
 	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
 	if err != nil {
 		t.Fatalf("open Cairnline mirror: %v", err)
@@ -1053,7 +1056,7 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineAndShadows
 	if _, err := handler.projectWork.UpdateHandoff(t.Context(), projectID, "work_authority", "handoff_authority", nil); !errors.Is(err, projectwork.ErrNotFound) {
 		t.Fatalf("deleted Hecate shadow handoff error = %v, want ErrNotFound", err)
 	}
-	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", "")
+	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_authority/handoffs/handoff_authority", deleteRequest)
 }
 
 func TestProjectWorkAPI_CairnlineCollaborationAuthorityUsesEmbeddedWorkItemWithoutHecateRow(t *testing.T) {
@@ -2273,12 +2276,15 @@ func TestProjectWorkAPI_CairnlineCollaborationAuthorityWritesCairnlineOnlyProjec
 		t.Fatalf("handoff response = %+v, want Cairnline-only pending handoff", handoff.Data)
 	}
 	updated := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/handoffs/handoff_cairnline_only/status", projectJourneyJSON(t, map[string]any{
-		"status": projectwork.HandoffStatusAccepted,
+		"expected_updated_at": handoff.Data.UpdatedAt,
+		"status":              projectwork.HandoffStatusAccepted,
 	}))
 	if updated.Data.Status != projectwork.HandoffStatusAccepted {
 		t.Fatalf("updated handoff response = %+v, want Cairnline-only accepted handoff", updated.Data)
 	}
-	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/handoffs/handoff_cairnline_only", "")
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/projects/"+projectID+"/work-items/work_cairnline_only/handoffs/handoff_cairnline_only", projectJourneyJSON(t, map[string]any{
+		"expected_updated_at": updated.Data.UpdatedAt,
+	}))
 	if handler.projects != nil || handler.projectWork != nil {
 		t.Fatal("native project/work stores were unexpectedly configured")
 	}
@@ -2447,15 +2453,22 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create handoff status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
+	var handoff ProjectHandoffEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoff); err != nil {
+		t.Fatalf("decode release handoff: %v", err)
+	}
 	mirroredHandoff := getMirroredCairnlineHandoffForTest(t, handler, project.Data.ID, "work_release", "handoff_release")
 	if mirroredHandoff.Status != cairnline.HandoffStatusOpen || mirroredHandoff.SourceAssignmentID != "asgn_release" || mirroredHandoff.TargetAssignmentID != "asgn_release" || mirroredHandoff.ToRoleID != "role_release" {
 		t.Fatalf("mirrored handoff = %+v, want open release handoff metadata", mirroredHandoff)
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs/handoff_release/status", bytes.NewReader([]byte(`{"status":"accepted"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs/handoff_release/status", bytes.NewReader([]byte(fmt.Sprintf(`{"status":"accepted","expected_updated_at":%q}`, handoff.Data.UpdatedAt)))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("accept handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoff); err != nil {
+		t.Fatalf("decode accepted release handoff: %v", err)
 	}
 	mirroredHandoff = getMirroredCairnlineHandoffForTest(t, handler, project.Data.ID, "work_release", "handoff_release")
 	if mirroredHandoff.Status != cairnline.HandoffStatusAccepted {
@@ -2463,7 +2476,7 @@ func TestProjectWorkAPI_MirrorsRoleAndWorkItemMutationsToCairnlineWhenConfigured
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs/handoff_release", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_release/handoffs/handoff_release", bytes.NewReader([]byte(fmt.Sprintf(`{"expected_updated_at":%q}`, handoff.Data.UpdatedAt)))))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete handoff status = %d body=%s, want 204", rec.Code, rec.Body.String())
 	}

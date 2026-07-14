@@ -22,6 +22,7 @@ export type ProjectAssignmentExecutionStoryProps = {
   contextControl: ReactNode;
   elementID?: string;
   error: string;
+  handoffPending?: boolean;
   onCreateHandoff: () => void;
   onCreateReviewArtifact?: () => void;
   onCreateReviewHandoff?: () => void;
@@ -74,6 +75,7 @@ export function ProjectAssignmentExecutionStory({
   contextControl,
   elementID,
   error,
+  handoffPending = false,
   onCreateHandoff,
   onCreateReviewArtifact,
   onCreateReviewHandoff,
@@ -125,6 +127,7 @@ export function ProjectAssignmentExecutionStory({
     execution,
     external,
     externalAgentPhase: execution.externalAgentPhase,
+    handoffPending,
     manual,
     manualStartClaimBlocked,
     manualStartInterrupted,
@@ -161,6 +164,7 @@ export function ProjectAssignmentExecutionStory({
   if (canFollowThrough) {
     followThroughActions.push({
       ariaLabel: `Create handoff from assignment ${assignment.id}`,
+      disabled: handoffPending,
       key: "handoff",
       label: "Handoff",
       icon: Icons.plus,
@@ -170,6 +174,7 @@ export function ProjectAssignmentExecutionStory({
   if (canFollowThrough && onCreateReviewHandoff && primaryKey !== "request-review") {
     followThroughActions.push({
       ariaLabel: `Request review for assignment ${assignment.id}`,
+      disabled: handoffPending,
       key: "request-review",
       label: "Request review",
       icon: Icons.check,
@@ -506,6 +511,7 @@ function projectAssignmentPrimaryAction({
   execution,
   external,
   externalAgentPhase,
+  handoffPending,
   manual,
   manualStartClaimBlocked,
   manualStartInterrupted,
@@ -528,6 +534,7 @@ function projectAssignmentPrimaryAction({
   execution: ReturnType<typeof toProjectAssignmentExecutionViewModel>;
   external: boolean;
   externalAgentPhase: ProjectExternalAgentPhase | null;
+  handoffPending: boolean;
   manual: boolean;
   manualStartClaimBlocked: boolean;
   manualStartInterrupted: boolean;
@@ -620,6 +627,7 @@ function projectAssignmentPrimaryAction({
     if ((manual || execution.hasAnyLink) && onCreateReviewHandoff) {
       return {
         ariaLabel: `Request review for assignment ${assignmentID}`,
+        disabled: handoffPending,
         icon: Icons.check,
         key: "request-review",
         label: "Request review",

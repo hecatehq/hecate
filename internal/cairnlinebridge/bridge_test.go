@@ -271,6 +271,139 @@ func TestProjectAssistantProposalRecordKeepsNeedsConfirmationReviewable(t *testi
 	}
 }
 
+func TestAssistantUpdateHandoffTranslationCarriesRevisionAndRejectsSparseLiveRecord(t *testing.T) {
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	portableAction := cairnline.AssistantAction{
+		Kind: cairnline.AssistantActionUpdateHandoff,
+		Handoff: &cairnline.Handoff{
+			ID:                 "handoff_revision",
+			ProjectID:          "proj_revision",
+			WorkItemID:         "work_revision",
+			TargetAssignmentID: "asgn_revision",
+			ToRoleID:           "reviewer",
+			Title:              "Preserve this title",
+			Body:               "Preserve this body.",
+			Status:             cairnline.HandoffStatusAccepted,
+			UpdatedAt:          now,
+		},
+	}
+	if projected, ok := ProjectAssistantAction(portableAction); ok {
+		t.Fatalf("ProjectAssistantAction(full update_handoff) = %+v, want unsafe narrowing rejected", projected)
+	}
+	if projected, ok := ProjectAssistantProposalRecord(cairnline.AssistantProposalRecord{
+		ID:        "portable_update_handoff",
+		ProjectID: "proj_revision",
+		Proposal: cairnline.AssistantProposal{
+			ID:        "portable_update_handoff",
+			ProjectID: "proj_revision",
+			Title:     "Update a handoff",
+			Actions:   []cairnline.AssistantAction{portableAction},
+		},
+	}); ok {
+		t.Fatalf("ProjectAssistantProposalRecord(full update_handoff) = %+v, want whole record rejected", projected)
+	}
+
+	sparseAction := projectassistant.Action{
+		Kind: projectassistant.ActionUpdateHandoff,
+		Target: map[string]string{
+			"project_id":   "proj_revision",
+			"work_item_id": "work_revision",
+			"handoff_id":   "handoff_revision",
+		},
+		Patch: bridgeRawPatch(map[string]any{
+			"expected_updated_at":  now,
+			"status":               projectwork.HandoffStatusAccepted,
+			"target_assignment_id": "asgn_revision",
+			"target_role_id":       "reviewer",
+		}),
+	}
+	translated, ok := AssistantAction(sparseAction)
+	if !ok || translated.Handoff == nil || !translated.Handoff.UpdatedAt.Equal(now) {
+		t.Fatalf("AssistantAction(update_handoff) = %+v ok=%v, want expected revision mapped to updated_at", translated, ok)
+	}
+	record := projectassistant.ProposalRecord{
+		ID:        "proposal_sparse_revision",
+		ProjectID: "proj_revision",
+		Proposal: projectassistant.Proposal{
+			ID:      "proposal_sparse_revision",
+			Title:   "Update a handoff",
+			Actions: []projectassistant.Action{sparseAction},
+		},
+		Status:    projectassistant.ProposalStatusProposed,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if portable, ok := AssistantProposalRecord(record); ok {
+		t.Fatalf("AssistantProposalRecord(sparse revision-bearing update) = %+v, want whole record rejected", portable)
+	}
+}
+
+func TestAssistantUpdateHandoffHistoricalTokenlessRecordCannotApply(t *testing.T) {
+	ctx := context.Background()
+	service := cairnline.NewMemoryService()
+	project, err := service.CreateProject(ctx, cairnline.Project{ID: "proj_historical_update", Name: "Historical update"})
+	if err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	workItem, err := service.CreateWorkItem(ctx, cairnline.WorkItem{ID: "work_historical_update", ProjectID: project.ID, Title: "Keep history safe"})
+	if err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	handoff, err := service.CreateHandoff(ctx, cairnline.Handoff{
+		ID:         "handoff_historical_update",
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		Title:      "Historical handoff",
+		Body:       "This authoritative content must not be cleared.",
+	})
+	if err != nil {
+		t.Fatalf("CreateHandoff() error = %v", err)
+	}
+	now := time.Date(2026, 7, 14, 12, 15, 0, 0, time.UTC)
+	tokenlessAction := projectassistant.Action{
+		Kind: projectassistant.ActionUpdateHandoff,
+		Target: map[string]string{
+			"project_id":   project.ID,
+			"work_item_id": workItem.ID,
+			"handoff_id":   handoff.ID,
+		},
+		Patch: bridgeRawPatch(map[string]any{"status": projectwork.HandoffStatusAccepted}),
+	}
+	translated, ok := AssistantAction(tokenlessAction)
+	if !ok || translated.Handoff == nil || !translated.Handoff.UpdatedAt.IsZero() {
+		t.Fatalf("AssistantAction(tokenless historical update) = %+v ok=%v, want zero revision retained for ledger import", translated, ok)
+	}
+	record, ok := AssistantProposalRecord(projectassistant.ProposalRecord{
+		ID:        "proposal_historical_update",
+		ProjectID: project.ID,
+		Proposal: projectassistant.Proposal{
+			ID:      "proposal_historical_update",
+			Title:   "Historical handoff update",
+			Actions: []projectassistant.Action{tokenlessAction},
+		},
+		Status:    projectassistant.ProposalStatusProposed,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if !ok {
+		t.Fatal("AssistantProposalRecord(tokenless historical update) ok = false, want ledger record preserved")
+	}
+	if _, err := service.ImportAssistantProposalRecord(ctx, record); err != nil {
+		t.Fatalf("ImportAssistantProposalRecord() error = %v", err)
+	}
+	result, err := service.ApplyAssistantProposalRecord(ctx, record.ID, true)
+	if !errors.Is(err, cairnline.ErrInvalid) || result.AppliedActionCount != 0 {
+		t.Fatalf("ApplyAssistantProposalRecord(tokenless update) result=%+v error=%v, want invalid before any action", result, err)
+	}
+	after, err := service.GetHandoff(ctx, project.ID, workItem.ID, handoff.ID)
+	if err != nil {
+		t.Fatalf("GetHandoff() after rejected proposal error = %v", err)
+	}
+	if after.Title != handoff.Title || after.Body != handoff.Body || after.Status != handoff.Status || !after.UpdatedAt.Equal(handoff.UpdatedAt) {
+		t.Fatalf("handoff after rejected proposal = %+v, want authoritative row unchanged %+v", after, handoff)
+	}
+}
+
 func TestLoadSnapshotReadsHecateStores(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
@@ -1453,6 +1586,17 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 	if createdHandoff.ID != handoff.ID || createdHandoff.SourceAssignmentID != assignment.ID || createdHandoff.FromRoleID != role.ID || createdHandoff.ToRoleID != role.ID || len(createdHandoff.LinkedArtifactIDs) != 1 || createdHandoff.Status != cairnline.HandoffStatusOpen || !createdHandoff.StatusChangedAt.Equal(handoff.StatusChangedAt) {
 		t.Fatalf("created handoff = %+v, want mapped handoff metadata", createdHandoff)
 	}
+	advancedTitle := "Authoritative edit before mirror replay"
+	advancedHandoff, err := service.PatchHandoff(ctx, handoff.ProjectID, handoff.WorkItemID, handoff.ID, cairnline.HandoffUpdate{
+		ExpectedUpdatedAt: createdHandoff.UpdatedAt,
+		Patch:             cairnline.HandoffPatch{Title: &advancedTitle},
+	})
+	if err != nil {
+		t.Fatalf("PatchHandoff(advance authoritative revision) error = %v", err)
+	}
+	if !advancedHandoff.UpdatedAt.After(createdHandoff.UpdatedAt) {
+		t.Fatalf("advanced handoff updated_at = %s, want after %s", advancedHandoff.UpdatedAt, createdHandoff.UpdatedAt)
+	}
 
 	handoff.Status = projectwork.HandoffStatusAccepted
 	handoff.TargetAssignmentID = assignment.ID
@@ -1463,8 +1607,15 @@ func TestRecordCollaborationArtifactsAndUpsertHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertHandoff(update) error = %v", err)
 	}
-	if updatedHandoff.Status != cairnline.HandoffStatusAccepted || updatedHandoff.TargetAssignmentID != assignment.ID || updatedHandoff.TargetWorkItemID != workItem.ID || updatedHandoff.Body != "Accepted follow-up." || !updatedHandoff.StatusChangedAt.Equal(handoff.StatusChangedAt) {
-		t.Fatalf("updated handoff = %+v, want accepted handoff update", updatedHandoff)
+	if updatedHandoff.Status != cairnline.HandoffStatusAccepted || updatedHandoff.TargetAssignmentID != assignment.ID || updatedHandoff.TargetWorkItemID != workItem.ID || updatedHandoff.Title != handoff.Title || updatedHandoff.Body != "Accepted follow-up." || !updatedHandoff.StatusChangedAt.Equal(updatedHandoff.UpdatedAt) || !updatedHandoff.StatusChangedAt.After(advancedHandoff.StatusChangedAt) {
+		t.Fatalf("updated handoff = %+v, want accepted full replacement with Cairnline-authored status revision", updatedHandoff)
+	}
+	advancedBody := "Advance the revision again before deleting."
+	if _, err := service.PatchHandoff(ctx, handoff.ProjectID, handoff.WorkItemID, handoff.ID, cairnline.HandoffUpdate{
+		ExpectedUpdatedAt: updatedHandoff.UpdatedAt,
+		Patch:             cairnline.HandoffPatch{Body: &advancedBody},
+	}); err != nil {
+		t.Fatalf("PatchHandoff(advance before delete) error = %v", err)
 	}
 
 	if err := DeleteHandoff(ctx, service, handoff.ProjectID, handoff.WorkItemID, handoff.ID); err != nil {

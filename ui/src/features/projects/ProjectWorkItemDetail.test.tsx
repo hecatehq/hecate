@@ -412,7 +412,7 @@ describe("ProjectWorkItemDetail", () => {
       ],
     });
 
-    expect(screen.queryByRole("button", { name: "Create follow-up assignment" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept and create follow-up" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start from handoff" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Open target work" }));
 
@@ -1435,12 +1435,54 @@ describe("ProjectWorkItemDetail", () => {
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     await userEvent.click(screen.getByRole("button", { name: "Supersede" }));
-    await userEvent.click(screen.getByRole("button", { name: "Create follow-up assignment" }));
+    await userEvent.click(screen.getByRole("button", { name: "Accept and create follow-up" }));
 
     expect(handlers.onSetHandoffStatus).toHaveBeenNthCalledWith(1, pendingHandoff, "accepted");
     expect(handlers.onSetHandoffStatus).toHaveBeenNthCalledWith(2, pendingHandoff, "dismissed");
     expect(handlers.onSetHandoffStatus).toHaveBeenNthCalledWith(3, pendingHandoff, "superseded");
     expect(handlers.onCreateAssignmentFromHandoff).toHaveBeenCalledWith(pendingHandoff);
+  });
+
+  it("announces the active handoff mutation and disables competing decisions", () => {
+    const activeHandoff = handoff();
+    const waitingHandoff = handoff({ id: "handoff_2", title: "Release handoff" });
+    renderDetail({
+      assignments: [],
+      handoffActionID: activeHandoff.id,
+      handoffs: [activeHandoff, waitingHandoff],
+    });
+
+    const active = screen.getByRole("group", { name: "Follow-up review handoff" });
+    expect(active).toHaveAttribute("aria-busy", "true");
+    expect(within(active).queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status", { name: "Handoff update status" })).toHaveTextContent(
+      "Updating handoff…",
+    );
+    const waiting = screen.getByRole("group", { name: "Release handoff handoff" });
+    expect(waiting).not.toHaveAttribute("aria-busy");
+    for (const button of [
+      ...within(active).getAllByRole("button"),
+      ...within(waiting).getAllByRole("button"),
+    ]) {
+      expect(button).toBeDisabled();
+    }
+    expect(screen.getByRole("button", { name: "Add handoff" })).toBeDisabled();
+  });
+
+  it("announces a handoff save that has no existing row", () => {
+    renderDetail({
+      assignments: [],
+      handoffActionID: "new",
+      handoffs: [handoff()],
+    });
+
+    expect(screen.getByRole("status", { name: "Handoff update status" })).toHaveTextContent(
+      "Saving handoff…",
+    );
+    expect(screen.getByRole("group", { name: "Follow-up review handoff" })).not.toHaveAttribute(
+      "aria-busy",
+    );
+    expect(screen.getByRole("button", { name: "Add handoff" })).toBeDisabled();
   });
 
   it("delegates follow-up assignment drafting from review artifacts", async () => {

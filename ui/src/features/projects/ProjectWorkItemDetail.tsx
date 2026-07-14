@@ -524,6 +524,7 @@ export function ProjectWorkItemDetail({
         {emptyWorkItem ? (
           <WorkItemStartPanel
             drafting={draftingDefaultAssignment}
+            handoffPending={Boolean(handoffActionID)}
             primaryEmphasis={!assistantProposalOpen && !operation && !focusNotice}
             onAddAssignment={onAddAssignment}
             onAddResponsibility={onAddResponsibility}
@@ -542,6 +543,7 @@ export function ProjectWorkItemDetail({
         ) : null}
         {canAddWorkRecords && (
           <WorkItemAddActions
+            handoffPending={Boolean(handoffActionID)}
             onAddAssignment={onAddAssignment}
             onAddEvidenceLink={onAddEvidenceLink}
             onAddHandoff={onAddHandoff}
@@ -587,6 +589,7 @@ export function ProjectWorkItemDetail({
                         ""
                       }
                       error={assignmentErrors[assignment.id] ?? ""}
+                      handoffPending={Boolean(handoffActionID)}
                       onDelete={() => onDeleteAssignment(assignment)}
                       onEdit={() => onEditAssignment(assignment)}
                       onOpenChat={
@@ -756,7 +759,7 @@ export function ProjectWorkItemDetail({
                               className="btn btn-ghost btn-sm"
                               type="button"
                               onClick={() => onAddHandoffFromReviewArtifact(artifact)}
-                              disabled={artifactActionPending}
+                              disabled={artifactActionPending || Boolean(handoffActionID)}
                             >
                               <Icon d={Icons.plus} size={12} />
                               Follow-up
@@ -795,12 +798,22 @@ export function ProjectWorkItemDetail({
             )}
           </section>
         )}
-        {(!emptyWorkItem || safeHandoffs.length > 0) && (
-          <section style={workItemCardSectionStyle}>
+        {(!emptyWorkItem || safeHandoffs.length > 0 || handoffError || handoffActionID) && (
+          <section aria-label="Handoffs" style={workItemCardSectionStyle}>
             <div style={workItemSectionHeaderStyle}>
               <div style={sectionLabelStyle}>Handoffs</div>
               <span className="badge badge-muted">{safeHandoffs.length}</span>
             </div>
+            {handoffActionID && (
+              <span
+                aria-label="Handoff update status"
+                aria-live="polite"
+                role="status"
+                style={handoffPendingStyle}
+              >
+                {handoffActionID === "new" ? "Saving handoff…" : "Updating handoff…"}
+              </span>
+            )}
             {handoffError && <InlineError message={handoffError} />}
             {safeHandoffs.length === 0 ? (
               <div style={subtleTextStyle}>No structured handoffs recorded yet.</div>
@@ -817,6 +830,7 @@ export function ProjectWorkItemDetail({
                     <ProjectHandoffRow
                       key={handoff.id}
                       actionPending={handoffActionID === handoff.id}
+                      actionsDisabled={Boolean(handoffActionID)}
                       assignment={targetAssignment}
                       elementID={workItemHandoffElementID(handoff.id)}
                       handoff={handoff}
@@ -860,6 +874,7 @@ export function ProjectWorkItemDetail({
 
 function WorkItemStartPanel({
   drafting,
+  handoffPending,
   primaryEmphasis,
   onAddAssignment,
   onAddResponsibility,
@@ -870,6 +885,7 @@ function WorkItemStartPanel({
   workItemID,
 }: {
   drafting: boolean;
+  handoffPending: boolean;
   primaryEmphasis: boolean;
   onAddAssignment: () => void;
   onAddResponsibility: () => void;
@@ -930,7 +946,12 @@ function WorkItemStartPanel({
               <Icon d={Icons.plus} size={12} />
               Record evidence
             </button>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onAddHandoff}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={handoffPending}
+              onClick={onAddHandoff}
+            >
               <Icon d={Icons.plus} size={12} />
               Create handoff
             </button>
@@ -942,10 +963,12 @@ function WorkItemStartPanel({
 }
 
 function WorkItemAddActions({
+  handoffPending,
   onAddAssignment,
   onAddEvidenceLink,
   onAddHandoff,
 }: {
+  handoffPending: boolean;
   onAddAssignment: () => void;
   onAddEvidenceLink: () => void;
   onAddHandoff: () => void;
@@ -981,6 +1004,7 @@ function WorkItemAddActions({
           aria-label="Add handoff"
           className="btn btn-ghost btn-sm"
           type="button"
+          disabled={handoffPending}
           onClick={onAddHandoff}
         >
           <Icon d={Icons.plus} size={12} />
@@ -1392,6 +1416,7 @@ function AssignmentRow({
   chatModel,
   elementID,
   error,
+  handoffPending,
   loadContext,
   loadPreflight,
   loadReadiness,
@@ -1419,6 +1444,7 @@ function AssignmentRow({
   chatModel: string;
   elementID?: string;
   error: string;
+  handoffPending: boolean;
   loadContext?: (() => Promise<ContextPacketRecord>) | null;
   loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
   loadReadiness?: (() => Promise<ProjectAssignmentLaunchReadinessRecord>) | null;
@@ -1522,6 +1548,7 @@ function AssignmentRow({
           />
         }
         error={error}
+        handoffPending={handoffPending}
         onCreateHandoff={onCreateHandoff}
         onCreateReviewArtifact={onCreateReviewArtifact}
         onCreateReviewHandoff={onCreateReviewHandoff}
@@ -1864,6 +1891,7 @@ function AssignmentLaunchReadinessNotice({
 
 function ProjectHandoffRow({
   actionPending,
+  actionsDisabled,
   assignment,
   elementID,
   handoff,
@@ -1877,6 +1905,7 @@ function ProjectHandoffRow({
   role,
 }: {
   actionPending: boolean;
+  actionsDisabled: boolean;
   assignment?: ProjectAssignmentRecord;
   elementID?: string;
   handoff: ProjectHandoffRecord;
@@ -1891,13 +1920,15 @@ function ProjectHandoffRow({
 }) {
   const handoffClosed = handoff.status === "dismissed" || handoff.status === "superseded";
   const targetEvidence = assignment ? toProjectAssignmentEvidenceViewModel(assignment) : null;
-  const interactionPending = actionPending;
   const hasLinkedAssignment = Boolean(handoff.target_assignment_id);
   const canCreateAssignment = !handoffClosed && !hasLinkedAssignment && !assignment;
+  const createAssignmentLabel =
+    handoff.status === "pending" ? "Accept and create follow-up" : "Create follow-up assignment";
   const sourceRefs = handoffSourceRefs(handoff);
 
   return (
     <div
+      aria-busy={actionPending || undefined}
       aria-label={`${handoff.title} handoff`}
       className="project-work-focus-target"
       id={elementID}
@@ -1921,7 +1952,7 @@ function ProjectHandoffRow({
             <button
               className="btn btn-ghost btn-sm"
               type="button"
-              disabled={interactionPending}
+              disabled={actionsDisabled}
               onClick={onEdit}
             >
               <Icon d={Icons.edit} size={12} />
@@ -1931,7 +1962,7 @@ function ProjectHandoffRow({
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={onDelete}
-              disabled={interactionPending}
+              disabled={actionsDisabled}
               style={{ color: "var(--red)" }}
             >
               <Icon d={Icons.trash} size={12} />
@@ -1980,7 +2011,7 @@ function ProjectHandoffRow({
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => onSetStatus("accepted")}
-              disabled={interactionPending}
+              disabled={actionsDisabled}
             >
               <Icon d={Icons.check} size={12} />
               Accept
@@ -1989,7 +2020,7 @@ function ProjectHandoffRow({
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => onSetStatus("dismissed")}
-              disabled={interactionPending}
+              disabled={actionsDisabled}
             >
               Dismiss
             </button>
@@ -2000,7 +2031,7 @@ function ProjectHandoffRow({
             className="btn btn-ghost btn-sm"
             type="button"
             onClick={() => onSetStatus("superseded")}
-            disabled={interactionPending}
+            disabled={actionsDisabled}
           >
             Supersede
           </button>
@@ -2010,17 +2041,17 @@ function ProjectHandoffRow({
             className="btn btn-ghost btn-sm"
             type="button"
             onClick={onCreateAssignment}
-            disabled={interactionPending}
+            disabled={actionsDisabled}
           >
             <Icon d={Icons.plus} size={12} />
-            Create follow-up assignment
+            {createAssignmentLabel}
           </button>
         )}
         {!assignment && hasLinkedAssignment && onOpenTargetWorkItem && (
           <button
             className="btn btn-ghost btn-sm"
             type="button"
-            disabled={interactionPending}
+            disabled={actionsDisabled}
             onClick={onOpenTargetWorkItem}
             title="Open the work item that owns the linked assignment."
           >
@@ -2032,7 +2063,7 @@ function ProjectHandoffRow({
             className="btn btn-ghost btn-sm"
             type="button"
             onClick={onOpenAssignment}
-            disabled={interactionPending}
+            disabled={actionsDisabled}
           >
             <Icon d={Icons.chevR} size={12} />
             Open linked assignment
@@ -2885,4 +2916,12 @@ const artifactActionsStyle: CSSProperties = {
   flexWrap: "wrap",
   gap: 6,
   maxWidth: "100%",
+};
+
+const handoffPendingStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t2)",
+  display: "inline-flex",
+  fontSize: 11,
+  minHeight: 28,
 };

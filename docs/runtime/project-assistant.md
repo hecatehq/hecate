@@ -136,8 +136,8 @@ permission model.
   `chat_session_id`, `message_id`, or `context_snapshot_id`; linking existing
   execution later needs a separate explicit same-project action.
 - Review follow-up drafts create typed proposals only. The generated action set
-  can create a handoff, create a queued assignment, and update that handoff with
-  the target assignment id; it does not start the assignment or auto-resolve
+  creates a queued assignment first, then creates an already-accepted handoff
+  linked to that assignment. It does not start the assignment or auto-resolve
   closeout.
 - Assistant code does not perform raw filesystem, shell, or Git access.
   Workspace-bound behavior must use WorkspaceFS, ProcessRunner, GitRunner, or
@@ -324,9 +324,9 @@ selected-work review artifact. The request must include `project_id`,
 `work_item_id`, and `review_artifact_id`. The artifact must be a review that
 requires follow-up and must not already have a linked follow-up path. The server
 chooses the reviewed assignment's role when available, then the selected work
-owner, then the normal role fallback. The proposal creates a handoff, creates a
-queued assignment, and updates the handoff with the queued assignment id. It
-does not start the assignment.
+owner, then the normal role fallback. The proposal creates a queued assignment,
+then creates an accepted handoff with that assignment id already linked. It does
+not start the assignment.
 
 `draft_mode: "model"` asks the configured gateway model to author the proposal
 from the same context packet. The request may provide `model` and `provider`;
@@ -604,21 +604,21 @@ Every action has the same envelope:
 
 ## Supported action kinds
 
-| Kind                      | Store path used        | Notes                                                                                                                                   |
-| ------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `create_project`          | `internal/projects`    | Creates a project with optional explicit id, `workspace_path`, roots, and defaults. Omit workspace fields for a workspace-less project. |
-| `update_project`          | `internal/projects`    | Updates metadata and whole-list roots/context-source fields.                                                                            |
-| `attach_project_root`     | `internal/projects`    | Adds a root to an existing project.                                                                                                     |
-| `remove_project_root`     | `internal/projects`    | Removes a root from an existing project.                                                                                                |
-| `set_project_defaults`    | `internal/projects`    | Updates provider/model/profile/tools/workspace/system-prompt defaults.                                                                  |
-| `move_chat_session`       | `internal/chat`        | Moves exactly one chat session into a project or back to no project.                                                                    |
-| `create_role`             | `internal/projectwork` | Creates a custom project role; built-in role ids remain immutable.                                                                      |
-| `create_work_item`        | `internal/projectwork` | Creates a project-scoped work item; does not start a task.                                                                              |
-| `update_work_item`        | `internal/projectwork` | Updates one existing work item.                                                                                                         |
-| `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work; supplied `root_id` must match one of the project's roots.                              |
-| `create_handoff`          | `internal/projectwork` | Creates a handoff record; does not launch follow-up work.                                                                               |
-| `update_handoff`          | `internal/projectwork` | Updates a handoff target assignment, target role, or status; used by review follow-up proposals to link the queued assignment.          |
-| `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                      |
+| Kind                      | Store path used        | Notes                                                                                                                                                                                                                                                                              |
+| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_project`          | `internal/projects`    | Creates a project with optional explicit id, `workspace_path`, roots, and defaults. Omit workspace fields for a workspace-less project.                                                                                                                                            |
+| `update_project`          | `internal/projects`    | Updates metadata and whole-list roots/context-source fields.                                                                                                                                                                                                                       |
+| `attach_project_root`     | `internal/projects`    | Adds a root to an existing project.                                                                                                                                                                                                                                                |
+| `remove_project_root`     | `internal/projects`    | Removes a root from an existing project.                                                                                                                                                                                                                                           |
+| `set_project_defaults`    | `internal/projects`    | Updates provider/model/profile/tools/workspace/system-prompt defaults.                                                                                                                                                                                                             |
+| `move_chat_session`       | `internal/chat`        | Moves exactly one chat session into a project or back to no project.                                                                                                                                                                                                               |
+| `create_role`             | `internal/projectwork` | Creates a custom project role; built-in role ids remain immutable.                                                                                                                                                                                                                 |
+| `create_work_item`        | `internal/projectwork` | Creates a project-scoped work item; does not start a task.                                                                                                                                                                                                                         |
+| `update_work_item`        | `internal/projectwork` | Updates one existing work item.                                                                                                                                                                                                                                                    |
+| `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work; supplied `root_id` must match one of the project's roots.                                                                                                                                                                         |
+| `create_handoff`          | `internal/projectwork` | Creates a handoff record; does not launch follow-up work.                                                                                                                                                                                                                          |
+| `update_handoff`          | `internal/projectwork` | Sparse compatibility update for a handoff target assignment, target role, or status. Requires the exact `expected_updated_at` revision. Review follow-up drafts do not emit it. Cairnline-origin full-replacement updates are rejected instead of being narrowed into this action. |
+| `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                                                                                                                                                                 |
 
 ## UI contract
 

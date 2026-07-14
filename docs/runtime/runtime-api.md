@@ -3703,17 +3703,18 @@ update time, newest first.
 
 Creates a handoff. `title`, `summary`, and `recommended_next_action` are
 required. `status` defaults to `pending`, `provenance_kind` defaults to
-`operator`, and `trust_label` defaults to `operator_reviewed`. Source/target
-assignment IDs, if supplied, must belong to the same work item. Linked artifact
-IDs, memory IDs, and context refs are stored as references only; creating a
-handoff does not write memory, inject context, start a task, or open a chat.
-The Projects UI can use a handoff's target role/work-item hints to create a
-queued follow-up assignment. That operation remains operator-controlled: the UI
-creates the assignment, records `target_assignment_id` on the handoff, and marks
-the handoff accepted, but it does not start the assignment automatically. Source
-assignment/run/chat/message/context refs remain on the handoff as provenance
-rather than being copied into the new assignment as if they were the new
-assignment's own execution links.
+`operator`, and `trust_label` defaults to `operator_reviewed`. A source
+assignment, if supplied, must belong to the handoff's work item. A target
+assignment can belong to another work item when `target_work_item_id` names
+that work item. Linked artifact IDs, memory IDs, and context refs are stored as
+references only; creating a handoff does not write memory, inject context,
+start a task, or open a chat.
+The Projects UI can use a handoff's target role/work-item hints with the
+dedicated atomic accept-with-follow-up endpoint below. That operation remains
+operator-controlled and never starts the assignment. Source assignment,
+run, chat, message, and context refs remain on the handoff as provenance rather
+than being copied into the follow-up assignment as if they were its own
+execution links.
 
 ```json
 {
@@ -3736,19 +3737,72 @@ Returns `{ "object": "project_handoff", "data": { ... } }`.
 #### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}`
 
 Updates handoff refs, target hints, text fields, linked IDs, provenance/trust
-metadata, or `status`. Status changes update `status_changed_at`.
+metadata, or `status`. The body must include `expected_updated_at` with the
+exact `updated_at` revision that was read; omitted fields are preserved. Status
+changes update `status_changed_at`. In the supported Cairnline-backed Projects
+configuration, a stale revision returns `409` without overwriting a newer
+handoff. The revision field remains required in legacy compatibility
+configurations, but those configurations are not a concurrency-authority
+contract and should not be used for operator coordination.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}/status`
 
-Transitions only the handoff status. The body is `{ "status": "accepted" }`
-where status is one of `pending`, `accepted`, `superseded`, or `dismissed`.
-Accepting a handoff records operator intent; it does not automatically start a
-linked assignment.
+Transitions only the handoff status. The body is
+`{ "status": "accepted", "expected_updated_at": "..." }`, where status is
+one of `pending`, `accepted`, `superseded`, or `dismissed` and the revision is
+the exact handoff `updated_at` that was read. Accepting a handoff records
+operator intent; it does not automatically start a linked assignment. A stale
+revision returns `409` for Cairnline-backed Projects.
+
+#### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}/accept-with-follow-up`
+
+Explicitly accepts a handoff and ensures one linked follow-up assignment in one
+Cairnline transaction:
+
+```json
+{
+  "expected_updated_at": "2026-06-03T12:00:00Z",
+  "idempotency_key": "9bcf9f16-9b28-4da5-987f-9c602ac46a38",
+  "intent": "accept_and_ensure_follow_up"
+}
+```
+
+The handoff must name a target role. When no assignment is linked, Cairnline
+derives the target work item, root, execution mode, and role skills from the
+portable project graph and creates a pristine queued assignment. An existing
+linked assignment is returned in its current authoritative state, including a
+state that has already progressed or finished. The command never claims,
+prepares, or launches work.
+
+Use one stable `idempotency_key` for retries of the same operator action. The
+response preserves the original outcome and assignment identity while returning
+the current authoritative handoff and assignment:
+
+```json
+{
+  "object": "project_handoff_follow_up",
+  "data": {
+    "handoff": { "id": "handoff_...", "status": "accepted" },
+    "assignment": { "id": "asgn_...", "status": "queued" },
+    "outcome": "created",
+    "replayed": false
+  }
+}
+```
+
+`outcome` is `created`, `linked_existing`, or `already_satisfied`. A stale
+revision, a closed or later-relinked handoff, or reuse of the key for another
+request returns `409`. Hecate updates its runtime-facing projections only after
+the portable transaction succeeds, so this endpoint does not expose a partially
+linked result.
 
 #### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}`
 
-Deletes the handoff record. It does not delete linked artifacts, memory
-entries, tasks, runs, chats, work items, or assignments.
+Deletes the handoff record. The JSON body must contain
+`{ "expected_updated_at": "..." }` with the exact revision that was read; a
+stale revision returns `409` for Cairnline-backed Projects. Deletion does not
+delete linked artifacts, memory entries, tasks, runs, chats, work items, or
+assignments.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 
@@ -3772,9 +3826,9 @@ by the Projects UI picker.
 Hecate records these fields for filtering and operator triage, but does not
 mutate work-item status or auto-dispatch follow-up work from the verdict.
 Operators can create a separate handoff from the review artifact when follow-up
-is needed. The UI may also offer a shortcut that creates the handoff and queued
-follow-up assignment together, but it still records the handoff first and does
-not start the assignment automatically.
+is needed. The UI can prefill that handoff from the review and then offer the
+explicit atomic accept-with-follow-up action; neither step starts the assignment
+automatically.
 
 The Projects cockpit uses `kind="evidence_link"` artifacts to attach generic
 external or local evidence to a work item. Evidence links are intentionally not

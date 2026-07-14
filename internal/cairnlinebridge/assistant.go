@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/memory"
@@ -29,7 +30,19 @@ func AssistantProposalRecord(record projectassistant.ProposalRecord) (cairnline.
 	for _, action := range record.Proposal.Actions {
 		item, ok := AssistantAction(action)
 		if !ok {
+			if strings.TrimSpace(action.Kind) == projectassistant.ActionUpdateHandoff {
+				return cairnline.AssistantProposalRecord{}, false
+			}
 			continue
+		}
+		// Hecate update_handoff actions are sparse patches, while Cairnline's
+		// assistant contract currently applies a full Handoff replacement. A
+		// revision-bearing sparse row could fail after earlier proposal actions
+		// have committed, so reject the record instead of importing a partially
+		// applicable proposal. Zero-token actions remain importable as historical
+		// ledger entries; Cairnline rejects them before applying any action.
+		if item.Kind == cairnline.AssistantActionUpdateHandoff && item.Handoff != nil && !item.Handoff.UpdatedAt.IsZero() {
+			return cairnline.AssistantProposalRecord{}, false
 		}
 		actions = append(actions, item)
 	}
@@ -69,6 +82,13 @@ func AssistantProposalRecord(record projectassistant.ProposalRecord) (cairnline.
 func ProjectAssistantProposalRecord(record cairnline.AssistantProposalRecord) (projectassistant.ProposalRecord, bool) {
 	actions := make([]projectassistant.Action, 0, len(record.Proposal.Actions))
 	for _, action := range record.Proposal.Actions {
+		// Cairnline update_handoff actions are full replacements. Hecate's
+		// Project Assistant contract only has a sparse CAS patch, so narrowing
+		// one would make the proposal impossible to write back to the portable
+		// ledger after apply. Reject the whole record before any action can run.
+		if action.Kind == cairnline.AssistantActionUpdateHandoff {
+			return projectassistant.ProposalRecord{}, false
+		}
 		item, ok := ProjectAssistantAction(action)
 		if !ok {
 			continue
@@ -271,6 +291,10 @@ func AssistantAction(action projectassistant.Action) (cairnline.AssistantAction,
 		if !ok {
 			return cairnline.AssistantAction{}, false
 		}
+		expectedUpdatedAt := time.Time{}
+		if patch.ExpectedUpdatedAt != nil {
+			expectedUpdatedAt = *patch.ExpectedUpdatedAt
+		}
 		item.Handoff = &cairnline.Handoff{
 			ID:                 handoffID,
 			ProjectID:          projectID,
@@ -278,6 +302,7 @@ func AssistantAction(action projectassistant.Action) (cairnline.AssistantAction,
 			TargetAssignmentID: pointerValue(patch.TargetAssignmentID),
 			ToRoleID:           pointerValue(patch.TargetRoleID),
 			Status:             HandoffStatus(pointerValue(patch.Status)),
+			UpdatedAt:          expectedUpdatedAt,
 		}
 	case projectassistant.ActionCreateMemoryCandidate:
 		patch, ok := decodeAssistantPatch[assistantMemoryCandidatePatch](action.Patch)
@@ -404,15 +429,6 @@ func ProjectAssistantAction(action cairnline.AssistantAction) (projectassistant.
 			return projectassistant.Action{}, false
 		}
 		patch, ok = projectAssistantRawPatch(projectAssistantHandoffPatch(*action.Handoff))
-	case cairnline.AssistantActionUpdateHandoff:
-		if action.Handoff == nil {
-			return projectassistant.Action{}, false
-		}
-		patch, ok = projectAssistantRawPatch(assistantUpdateHandoffPatch{
-			TargetAssignmentID: stringPtrIfNotEmpty(action.Handoff.TargetAssignmentID),
-			TargetRoleID:       stringPtrIfNotEmpty(action.Handoff.ToRoleID),
-			Status:             stringPtrIfNotEmpty(projectHandoffStatus(action.Handoff.Status)),
-		})
 	case cairnline.AssistantActionCreateMemoryCandidate:
 		if action.MemoryCandidate == nil {
 			return projectassistant.Action{}, false
@@ -1013,9 +1029,10 @@ type assistantHandoffPatch struct {
 }
 
 type assistantUpdateHandoffPatch struct {
-	TargetAssignmentID *string `json:"target_assignment_id,omitempty"`
-	TargetRoleID       *string `json:"target_role_id,omitempty"`
-	Status             *string `json:"status,omitempty"`
+	TargetAssignmentID *string    `json:"target_assignment_id,omitempty"`
+	TargetRoleID       *string    `json:"target_role_id,omitempty"`
+	Status             *string    `json:"status,omitempty"`
+	ExpectedUpdatedAt  *time.Time `json:"expected_updated_at,omitempty"`
 }
 
 type assistantMemoryCandidatePatch struct {

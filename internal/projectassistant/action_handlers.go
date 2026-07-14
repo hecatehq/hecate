@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
@@ -410,7 +411,11 @@ func (s *Service) applyUpdateHandoff(ctx context.Context, action Action, previou
 	if patch.TargetAssignmentID == nil && patch.TargetRoleID == nil && patch.Status == nil {
 		return ActionResult{}, fmt.Errorf("%w: update_handoff patch must set at least one mutable field", ErrInvalid)
 	}
+	if patch.ExpectedUpdatedAt.IsZero() {
+		return ActionResult{}, fmt.Errorf("%w: update_handoff expected_updated_at is required", ErrInvalid)
+	}
 	handoff, err := s.workAuthority.UpdateHandoff(ctx, projectID, workItemID, handoffID, WorkHandoffUpdateCommand{
+		ExpectedUpdatedAt:  patch.ExpectedUpdatedAt,
 		TargetAssignmentID: patch.TargetAssignmentID,
 		TargetRoleID:       patch.TargetRoleID,
 		Status:             patch.Status,
@@ -426,6 +431,7 @@ func (s *Service) applyUpdateHandoff(ctx context.Context, action Action, previou
 			"work_item_id":         handoff.WorkItemID,
 			"handoff_id":           handoff.ID,
 			"target_assignment_id": handoff.TargetAssignmentID,
+			"updated_at":           handoff.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		},
 	}, nil
 }
@@ -664,9 +670,10 @@ type handoffPatch struct {
 }
 
 type updateHandoffPatch struct {
-	TargetAssignmentID *string `json:"target_assignment_id,omitempty"`
-	TargetRoleID       *string `json:"target_role_id,omitempty"`
-	Status             *string `json:"status,omitempty"`
+	ExpectedUpdatedAt  time.Time `json:"expected_updated_at"`
+	TargetAssignmentID *string   `json:"target_assignment_id,omitempty"`
+	TargetRoleID       *string   `json:"target_role_id,omitempty"`
+	Status             *string   `json:"status,omitempty"`
 }
 
 type memoryCandidatePatch struct {

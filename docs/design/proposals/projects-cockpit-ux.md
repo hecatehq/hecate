@@ -360,7 +360,10 @@ flowchart TD
   D --> K["Refresh authoritative operations"]
   E --> K
   F --> K
-  G --> K
+  G --> L{"Operator decision"}
+  L -->|"Accept and create follow-up"| M["Atomic link · queued when absent · no launch"]
+  L -->|"Accept · dismiss · supersede"| K
+  M --> K
   K --> B
   H --> I["Operator marks work done"]
   I --> J["Read-only completed record"]
@@ -501,6 +504,10 @@ containment before test-driven scrolling; explicit closeout; and the durable
 read-only completed state. Focus requests for records that disappeared fail
 closed to the selected work item with an announced refresh action. Unexpected
 fixture routes fail the journey instead of receiving generic success data.
+The handoff decision is deliberately held in flight while the journey moves to
+another work item and back. The returned row remains busy, competing controls
+stay disabled, one request is recorded, and the released response reconciles
+the authoritative status before focus returns.
 
 The supporting-surface journey starts rootless at 390px and verifies that folder
 discovery stays unavailable while manual memory and work remain usable. It
@@ -550,7 +557,9 @@ from `ui/`.
 
 ![Work-item closeout confirmation at desktop width](../../screenshots/projects-follow-through.jpg)
 
-![Focused handoff at narrow width](../../screenshots/projects-follow-through-narrow.jpg)
+![Follow-through cockpit at narrow width](../../screenshots/projects-follow-through-narrow.jpg)
+
+![In-flight handoff decision detail at narrow width](../../screenshots/projects-handoff-pending-narrow.jpg)
 
 Regenerate these images with
 `HECATE_CAPTURE_PROJECTS_FOLLOW_THROUGH=1 bunx playwright test e2e/projects.spec.ts -g "Projects follow-through journey"`
