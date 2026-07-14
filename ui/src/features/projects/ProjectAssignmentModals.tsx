@@ -153,6 +153,7 @@ export function NewAssignmentModal({
           <select
             ref={responsibilitySelectRef}
             className="input"
+            disabled={busy}
             name="assignment-responsibility"
             value={form.roleID}
             onChange={(event) => {
@@ -179,6 +180,7 @@ export function NewAssignmentModal({
               humanDestination ? "new-assignment-human-destination-help" : undefined
             }
             className="input"
+            disabled={busy}
             name="assignment-destination"
             value={form.driverKind}
             onChange={(event) => {
@@ -202,6 +204,7 @@ export function NewAssignmentModal({
           </div>
         )}
         <ProjectRootSelect
+          disabled={busy}
           inheritLabel={
             workItem?.root_id ? "work item workspace" : "work item or project workspace"
           }
