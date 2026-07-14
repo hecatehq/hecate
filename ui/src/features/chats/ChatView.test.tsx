@@ -157,7 +157,9 @@ function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
   );
   const activeChatSessionID = hasActiveSessionIDOverride
     ? stateOverrides.activeChatSessionID
-    : "chat_1";
+    : hasActiveSessionOverride
+      ? (stateOverrides.activeChatSession?.id ?? "")
+      : "chat_1";
   const provider =
     typeof stateOverrides.providerFilter === "string" && stateOverrides.providerFilter !== "auto"
       ? stateOverrides.providerFilter
@@ -6329,6 +6331,27 @@ describe("ChatView session title", () => {
     expect(screen.queryByText("New chat")).toBeNull();
     expect(screen.queryByRole("button", { name: "Chat settings" })).toBeNull();
     expect(screen.queryByTitle("Choose workspace folder")).toBeNull();
+  });
+
+  it("withholds the composer while the selected chat record is still loading", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      activeChatSessionID: "chat_target",
+      activeChatSession: {
+        id: "chat_previous",
+        title: "Previous chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      message: "Target launch context",
+    });
+
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByText("Previous chat")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
   it("shows the active session's title", () => {

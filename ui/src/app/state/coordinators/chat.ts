@@ -392,8 +392,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     providerFilter,
   } = chat.state;
   const {
-    beginChatSessionSelection,
-    isCurrentChatSessionSelection,
+    beginActiveChatTransition,
+    completeActiveChatTransition,
+    isCurrentActiveChatTransition,
     setDefaultChatTarget,
     setChatTargetBySessionID,
     setDefaultChatToolsEnabled,
@@ -508,7 +509,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function workspaceForActiveTurn(): string {
-    return activeChatSession?.workspace?.trim() || workspaceForNewChat(activeProjectID);
+    const selectedWorkspace =
+      activeChatSession?.id === activeChatSessionID
+        ? activeChatSession.workspace?.trim() || ""
+        : "";
+    return selectedWorkspace || workspaceForNewChat(activeProjectID);
   }
 
   function setChatTarget(nextTarget: ChatTarget) {
@@ -701,7 +706,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
 
       let sessionID = queued?.session_id ?? activeChatSessionID;
-      let sessionForSubmit = activeChatSession;
+      let sessionForSubmit = activeChatSession?.id === sessionID ? activeChatSession : null;
       if (sessionID && !sessionForSubmit) {
         try {
           const payload = await getChatSession(sessionID);
@@ -963,6 +968,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   async function createChatSession(options?: CreateChatSessionOptions) {
+    const transitionGeneration = beginActiveChatTransition();
+    rememberChatComposerDraft(activeChatSessionID, message);
     const requestedAgentID = options?.agentID?.trim();
     const requestedTitle = options?.title?.trim() || "";
     const requestedDraft = options?.draft ?? "";
@@ -985,6 +992,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         setChatErrorState(chatWorkspaceRequiredError());
         setActiveChatSessionID("");
         setActiveChatSession(null);
+        completeActiveChatTransition(transitionGeneration);
         return;
       }
       setChatLoading(true);
@@ -1001,18 +1009,26 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           ...(configOptions.length > 0 ? { config_options: configOptions } : {}),
           ...(mcpServers.length > 0 ? { mcp_servers: mcpServers } : {}),
         });
+        rememberChatComposerDraft(created.data.id, requestedDraft);
+        if (!isCurrentActiveChatTransition(transitionGeneration)) {
+          setChatSessions((current) => [
+            renderChatSessionSummary(created.data),
+            ...current.filter((entry) => entry.id !== created.data.id),
+          ]);
+          return;
+        }
         setActiveChatSessionID(created.data.id);
         applyChatSession(created.data);
-        if (requestedDraft) {
-          setMessage(requestedDraft);
-        }
+        setMessage(requestedDraft);
       } catch (error) {
+        if (!isCurrentActiveChatTransition(transitionGeneration)) return;
         setChatErrorState(error, "failed to create external agent chat");
         params.setNoticeMessage(
           "error",
           error instanceof Error ? error.message : "Failed to create external agent chat.",
         );
       } finally {
+        completeActiveChatTransition(transitionGeneration);
         setChatLoading(false);
       }
       return;
@@ -1085,6 +1101,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(toolsEnabled && workspace ? { workspace } : {}),
         ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
+      rememberChatComposerDraft(created.data.id, requestedDraft);
+      if (!isCurrentActiveChatTransition(transitionGeneration)) {
+        setChatSessions((current) => [
+          renderChatSessionSummary(created.data),
+          ...current.filter((entry) => entry.id !== created.data.id),
+        ]);
+        return;
+      }
       setActiveChatSessionID(created.data.id);
       // Same per-session pinning as the submit path: chatTarget stays
       // "agent" and the tools-on/off intent for this session is recorded
@@ -1101,10 +1125,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         return next;
       });
       applyChatSession(created.data);
-      if (requestedDraft) {
-        setMessage(requestedDraft);
-      }
+      setMessage(requestedDraft);
     } catch (error) {
+      if (!isCurrentActiveChatTransition(transitionGeneration)) return;
       setChatErrorState(error, "failed to create Hecate chat");
       if (!isExpectedHecateChatSetupError(error)) {
         params.setNoticeMessage(
@@ -1113,6 +1136,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         );
       }
     } finally {
+      completeActiveChatTransition(transitionGeneration);
       setChatLoading(false);
     }
   }
@@ -1121,7 +1145,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     id: string,
     options: SelectChatSessionOptions = {},
   ): Promise<boolean> {
-    const selectionGeneration = beginChatSessionSelection();
+    const selectionGeneration = beginActiveChatTransition();
     rememberChatComposerDraft(activeChatSessionID, message);
     const activeDraftIsOwned = composerDraftsBySessionID.has(id) || Boolean(message);
     const targetDraft =
@@ -1135,7 +1159,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     if (!id) {
       setActiveChatSession(null);
       setMessage("");
+      completeActiveChatTransition(selectionGeneration);
       return true;
+    }
+    if (activeChatSession?.id !== id) {
+      setActiveChatSession(null);
+      setAgentWorkspaceBranch("");
     }
     // Transfer composer ownership with the selected id. A later response may
     // refresh the session snapshot, but it must not overwrite edits made while
@@ -1143,7 +1172,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setMessage(targetDraft);
     try {
       const payload = await getChatSession(id);
-      if (!isCurrentChatSessionSelection(selectionGeneration)) return false;
+      if (!isCurrentActiveChatTransition(selectionGeneration)) return false;
       setActiveChatSession(payload.data);
       if (payload.data.agent_id && payload.data.agent_id !== "hecate") {
         setAgentAdapterID(payload.data.agent_id);
@@ -1157,9 +1186,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       setAgentWorkspace(payload.data.workspace ?? "");
       setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
+      completeActiveChatTransition(selectionGeneration);
       return true;
     } catch (error) {
-      if (!isCurrentChatSessionSelection(selectionGeneration)) return false;
+      if (!isCurrentActiveChatTransition(selectionGeneration)) return false;
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
       setActiveChatSessionID("");
       setActiveChatSession(null);
@@ -1167,12 +1197,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setMessage("");
       setChatErrorState(error, "failed to load agent chat");
       params.setNoticeMessage("error", msg);
+      completeActiveChatTransition(selectionGeneration);
       return false;
     }
   }
 
   function startNewChat() {
-    beginChatSessionSelection();
+    const transitionGeneration = beginActiveChatTransition();
     rememberChatComposerDraft(activeChatSessionID, message);
     if (activeChatSessionID) {
       setQueuedChatMessages((current) =>
@@ -1183,6 +1214,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setActiveChatSession(null);
     setAgentWorkspaceBranch("");
     resetChatWorkspaceState();
+    completeActiveChatTransition(transitionGeneration);
   }
 
   async function deleteChatSession(id: string) {

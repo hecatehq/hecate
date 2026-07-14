@@ -50,6 +50,8 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     providersAndModels.actions;
   const { activeChatSessionID, activeChatSession, chatSessions } = chat.state;
   const {
+    captureActiveChatTransition,
+    isCurrentActiveChatTransition,
     setChatSessions,
     setActiveChatSessionID,
     setActiveChatSession,
@@ -57,6 +59,10 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
   } = chat.actions;
 
   async function loadDashboard() {
+    // Dashboard hydration is passive: it may publish the active chat only if
+    // no newer operator selection, creation, or new-chat transition began
+    // while its two request waves were resolving.
+    const activeChatTransition = captureActiveChatTransition();
     setLoading(true);
     setError("");
     params.setSettingsError("");
@@ -93,9 +99,11 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       pruneQueuedChatMessagesForSessions(
         snapshot.chatSessions.map((session: ChatSessionRecord) => session.id),
       );
-      setActiveChatSessionID(snapshot.activeChatSessionID);
-      setActiveChatSession(snapshot.activeChatSession);
-      params.syncHecateSelectionFromSession(snapshot.activeChatSession);
+      if (activeChatTransition !== null && isCurrentActiveChatTransition(activeChatTransition)) {
+        setActiveChatSessionID(snapshot.activeChatSessionID);
+        setActiveChatSession(snapshot.activeChatSession);
+        params.syncHecateSelectionFromSession(snapshot.activeChatSession);
+      }
       params.setSettingsConfig(snapshot.settingsConfig);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
       setHecateRTKAvailable(snapshot.rtkAvailable);

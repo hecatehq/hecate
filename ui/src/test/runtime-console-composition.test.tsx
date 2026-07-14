@@ -2388,6 +2388,302 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.message).toBe("Latest chat draft");
     });
 
+    it("keeps a late dashboard snapshot from replacing a newer linked-chat selection", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "chat_previous");
+      let resolveDashboardSessions: ((response: Response) => void) | undefined;
+      let dashboardSessionsStarted = false;
+      const session = (id: string, title: string) => ({
+        object: "chat_session",
+        data: {
+          id,
+          title,
+          agent_id: "hecate",
+          status: "idle",
+          messages: [],
+          provider: "openai",
+          model: "gpt-4o-mini",
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () => {
+            dashboardSessionsStarted = true;
+            return new Promise<Response>((resolve) => {
+              resolveDashboardSessions = resolve;
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_previous": () =>
+            jsonResponse(session("chat_previous", "Previous chat")),
+          "/hecate/v1/chat/sessions/chat_assignment": () =>
+            jsonResponse(session("chat_assignment", "Assignment chat")),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(dashboardSessionsStarted).toBe(true));
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_assignment", {
+          draft: "Assignment launch context",
+        });
+      });
+      expect(result.current.state.activeChatSessionID).toBe("chat_assignment");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_assignment");
+      expect(result.current.state.message).toBe("Assignment launch context");
+
+      act(() => {
+        resolveDashboardSessions?.(
+          jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "chat_previous",
+                title: "Previous chat",
+                agent_id: "hecate",
+                status: "idle",
+                message_count: 0,
+              },
+            ],
+          }),
+        );
+      });
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      expect(result.current.state.activeChatSessionID).toBe("chat_assignment");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_assignment");
+      expect(result.current.state.message).toBe("Assignment launch context");
+    });
+
+    it("keeps a newer selection authoritative over a slower chat creation", async () => {
+      let resolveCreate: ((response: Response) => void) | undefined;
+      let createStarted = false;
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": (init) => {
+            if (init?.method === "POST") {
+              createStarted = true;
+              return new Promise<Response>((resolve) => {
+                resolveCreate = resolve;
+              });
+            }
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ id: "chat_latest", title: "Latest chat", agent_id: "hecate" }],
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_latest": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_latest",
+                title: "Latest chat",
+                agent_id: "hecate",
+                status: "idle",
+                messages: [],
+                provider: "openai",
+                model: "gpt-4o-mini",
+              },
+            }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook({
+        chatInitialState: { agentWorkspace: "/workspace" },
+      });
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      let createPromise!: Promise<void>;
+      act(() => {
+        createPromise = result.current.actions.createChatSession({
+          agentID: "claude_code",
+          title: "Slow project chat",
+          draft: "Slow launch context",
+        });
+      });
+      await waitFor(() => expect(createStarted).toBe(true));
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_latest", {
+          draft: "Latest draft",
+        });
+      });
+      expect(result.current.state.activeChatSession?.id).toBe("chat_latest");
+
+      await act(async () => {
+        resolveCreate?.(
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "chat_slow_create",
+              title: "Slow project chat",
+              agent_id: "claude_code",
+              status: "idle",
+              workspace: "/workspace",
+              messages: [],
+            },
+          }),
+        );
+        await createPromise;
+      });
+
+      expect(result.current.state.activeChatSessionID).toBe("chat_latest");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_latest");
+      expect(result.current.state.message).toBe("Latest draft");
+    });
+
+    it("keeps a project chat creation authoritative over a slower selection", async () => {
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      let resolveSelection: ((response: Response) => void) | undefined;
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": (init) => {
+            if (init?.method === "POST") {
+              return jsonResponse({
+                object: "chat_session",
+                data: {
+                  id: "chat_created",
+                  title: "Created project chat",
+                  agent_id: "hecate",
+                  status: "idle",
+                  messages: [],
+                  provider: "openai",
+                  model: "gpt-4o-mini",
+                },
+              });
+            }
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ id: "chat_slow_select", title: "Slow selection", agent_id: "hecate" }],
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_slow_select": () =>
+            new Promise<Response>((resolve) => {
+              resolveSelection = resolve;
+            }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      let selectionPromise!: Promise<boolean>;
+      act(() => {
+        selectionPromise = result.current.actions.selectChatSession("chat_slow_select", {
+          draft: "Slow selection draft",
+        });
+      });
+      await waitFor(() =>
+        expect(result.current.state.activeChatSessionID).toBe("chat_slow_select"),
+      );
+
+      await act(async () => {
+        await result.current.actions.createChatSession({
+          agentID: "hecate",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          title: "Created project chat",
+          draft: "Created launch context",
+        });
+      });
+      expect(result.current.state.activeChatSession?.id).toBe("chat_created");
+
+      let selected = true;
+      await act(async () => {
+        resolveSelection?.(
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "chat_slow_select",
+              title: "Slow selection",
+              agent_id: "hecate",
+              status: "idle",
+              messages: [],
+              provider: "openai",
+              model: "gpt-4o-mini",
+            },
+          }),
+        );
+        selected = await selectionPromise;
+      });
+
+      expect(selected).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("chat_created");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_created");
+      expect(result.current.state.message).toBe("Created launch context");
+    });
+
+    it("does not regenerate a created project draft after the operator clears it", async () => {
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      let createCount = 0;
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": (init) => {
+            if (init?.method === "POST") {
+              createCount += 1;
+              return jsonResponse({
+                object: "chat_session",
+                data: {
+                  id: "chat_reusable",
+                  title: "Reusable project chat",
+                  project_id: "proj_1",
+                  agent_id: "hecate",
+                  status: "idle",
+                  messages: [],
+                  provider: "openai",
+                  model: "gpt-4o-mini",
+                },
+              });
+            }
+            return jsonResponse({ object: "chat_sessions", data: [] });
+          },
+          "/hecate/v1/chat/sessions/chat_reusable": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_reusable",
+                title: "Reusable project chat",
+                project_id: "proj_1",
+                agent_id: "hecate",
+                status: "idle",
+                messages: [],
+                provider: "openai",
+                model: "gpt-4o-mini",
+              },
+            }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      const request = {
+        agentID: "hecate",
+        projectID: "proj_1",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        title: "Reusable project chat",
+        draft: "Generated launch context",
+        reuseEmptyDraft: true,
+      } as const;
+
+      await act(async () => {
+        await result.current.actions.createChatSession(request);
+      });
+      expect(result.current.state.message).toBe("Generated launch context");
+
+      act(() => {
+        result.current.actions.setMessage("");
+      });
+      await act(async () => {
+        await result.current.actions.createChatSession(request);
+      });
+
+      expect(createCount).toBe(1);
+      expect(result.current.state.activeChatSessionID).toBe("chat_reusable");
+      expect(result.current.state.message).toBe("");
+    });
+
     it("retains an initial linked-chat draft when selection fails and is retried", async () => {
       let attempts = 0;
       fetchMock.mockImplementation(
@@ -3158,7 +3454,7 @@ describe("useRuntimeConsole", () => {
       });
 
       await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("a2"));
-      expect(result.current.state.activeChatSession?.id).toBe("a1");
+      expect(result.current.state.activeChatSession).toBeNull();
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
       expect(messagePostCount).toBe(0);
@@ -3270,7 +3566,7 @@ describe("useRuntimeConsole", () => {
       });
 
       await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("a2"));
-      expect(result.current.state.activeChatSession?.id).toBe("a1");
+      expect(result.current.state.activeChatSession).toBeNull();
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(messagePostCount).toBe(0);
 
