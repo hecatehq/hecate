@@ -179,9 +179,15 @@ function ProjectTimelineRow({
           role: role ?? null,
         })
       : null;
-  const timelineChatRequest: ProjectAssignmentChatLaunchRequest | null = item.chatID
-    ? { projectID: project.id, chatSessionID: item.chatID }
-    : chatRequest;
+  const linkedChatMissing = Boolean(
+    (item.chatID || item.assignment?.execution_ref?.chat_session_id) &&
+    (item.assignment?.execution_ref?.missing || item.assignment?.execution?.missing),
+  );
+  const timelineChatRequest: ProjectAssignmentChatLaunchRequest | null = linkedChatMissing
+    ? null
+    : item.chatID
+      ? { projectID: project.id, chatSessionID: item.chatID }
+      : chatRequest;
   const memoryEntry = item.memoryEntry;
   return (
     <div style={timelineItemStyle}>

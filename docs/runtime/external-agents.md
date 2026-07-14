@@ -558,17 +558,20 @@ prepare from the Projects cockpit, the UI opens the linked chat with an editable
 launch-context draft so the operator can review or change the first turn before
 sending it. That successful prepare seeds the draft once. Later **Continue in
 chat**, **Open chat**, **Review in chat**, or **Inspect chat** navigation selects
-the existing session without replacing the composer, so an unsent operator edit
-survives a return from Projects.
+the existing session without replacing that session's composer draft. Drafts
+remain scoped by chat, and the initial launch draft survives a transient
+selection failure so a later retry can restore it.
 
-Projects presents `chat_session_id` without `message_id` as a prepared **Chat
-ready** state. Once an assistant `message_id` is recorded, the linked turn has
-active continuity; the authoritative projected status still chooses between
-open, review, inspect, and completed follow-through. Project assignment and
-activity rows project the linked chat's latest assistant-message status,
-session status, adapter identity, and missing-session diagnostics so the
-Projects cockpit can show follow-through state without embedding the full chat
-transcript. When the External Agent turn settles, Hecate also best-effort
+Projects presents an available `chat_session_id` without `message_id` as a
+prepared **Chat ready** state. A reference marked missing or unavailable stays
+unavailable and offers no chat action even if it retains an ID. Once an
+assistant `message_id` is recorded, the linked turn has active continuity; the
+authoritative projected status still chooses between open, review, inspect,
+and completed follow-through. Project assignment and activity rows project the
+linked chat's latest assistant-message status, session status, adapter
+identity, and missing-session diagnostics so the Projects cockpit can show
+follow-through state without embedding the full chat transcript. When the
+External Agent turn settles, Hecate also best-effort
 reconciles the linked assignment row to the chat outcome, including the
 assistant `message_id` and terminal status. Handoffs created from these
 assignments can carry the source assignment, chat session, message, run, and

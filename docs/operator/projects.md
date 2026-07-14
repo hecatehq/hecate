@@ -265,21 +265,23 @@ as execution history.
 External Agent preparation is a supervised handoff, not a prompt send. Projects
 derives its presentation from the assignment's canonical execution reference:
 
-| Recorded assignment/runtime facts                | Projects presentation                                                | Leading chat action       |
-| ------------------------------------------------ | -------------------------------------------------------------------- | ------------------------- |
-| Queued assignment, no prepared chat              | Queued                                                               | **Review & prepare chat** |
-| `chat_session_id`, no `message_id`               | Chat ready; the chat was prepared, but no agent response is recorded | **Continue in chat**      |
-| `chat_session_id` and `message_id` while running | Agent working                                                        | **Open chat**             |
-| Linked chat waiting for operator attention       | Review or approval, according to the authoritative projection        | **Review in chat**        |
-| Linked chat failed or was cancelled              | Failed or cancelled                                                  | **Inspect chat**          |
+| Recorded assignment/runtime facts             | Projects presentation                                                | Leading chat action       |
+| --------------------------------------------- | -------------------------------------------------------------------- | ------------------------- |
+| Queued assignment, no prepared chat           | Queued                                                               | **Review & prepare chat** |
+| Available `chat_session_id`, no `message_id`  | Chat ready; the chat was prepared, but no agent response is recorded | **Continue in chat**      |
+| Available chat and `message_id` while running | Agent working                                                        | **Open chat**             |
+| Linked chat waiting for operator attention    | Review or approval, according to the authoritative projection        | **Review in chat**        |
+| Linked chat failed or was cancelled           | Failed or cancelled                                                  | **Inspect chat**          |
+| Linked runtime marked missing or unavailable  | Linked chat unavailable                                              | No chat action            |
 
 After preparation succeeds, Hecate opens the linked chat and seeds its editable
 launch draft once. The operator can review or change that draft before sending
-the first turn. Returning to the prepared chat selects the existing session
-without reseeding the composer, so unsent edits are preserved. Projects does
-not persist another prepared/active lifecycle; Cairnline remains the portable
-assignment authority, and Hecate projects the linked chat and message IDs into
-the existing execution reference.
+the first turn. Unsent drafts stay scoped to their chat session, and returning
+to the prepared chat restores its draft without copying text from another
+chat. A transient initial selection failure also retains the launch draft for
+the next attempt. Projects does not persist another prepared/active lifecycle;
+Cairnline remains the portable assignment authority, and Hecate projects the
+linked chat and message IDs into the existing execution reference.
 
 If a Human start was interrupted after Cairnline saved the operator claim but
 before work began, the story says **Starting** and offers **Finish starting**.

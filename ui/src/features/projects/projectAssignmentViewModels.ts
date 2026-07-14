@@ -79,6 +79,7 @@ export function toProjectAssignmentExecutionViewModel(
   const kind = ref?.kind || "none";
   const pendingApprovalCount = ref?.pending_approval_count ?? 0;
   const missing = ref?.missing ?? false;
+  const runtimeMissing = Boolean(missing || assignment.execution?.missing);
   const status = firstNonEmpty(ref?.status, assignment.status);
   return {
     kind,
@@ -97,7 +98,7 @@ export function toProjectAssignmentExecutionViewModel(
     hasAnyLink: Boolean(taskID || runID || chatSessionID || messageID || contextSnapshotID),
     externalAgentPhase:
       assignment.driver_kind === "external_agent"
-        ? projectExternalAgentPhase(status, chatSessionID, messageID)
+        ? projectExternalAgentPhase(status, chatSessionID, messageID, runtimeMissing)
         : null,
   };
 }
@@ -106,7 +107,9 @@ function projectExternalAgentPhase(
   status: string,
   chatSessionID: string,
   messageID: string,
+  runtimeMissing: boolean,
 ): ProjectExternalAgentPhase {
+  if (runtimeMissing) return "unlinked";
   if (status !== "queued" && !chatSessionID) return "unlinked";
   switch (status) {
     case "queued":

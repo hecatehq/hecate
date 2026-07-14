@@ -349,11 +349,9 @@ function AuthenticatedShell({
       void projects.actions.selectProject(request.projectID);
     }
     if (request.chatSessionID) {
-      void chatActions.selectChatSession(request.chatSessionID).then((selected) => {
-        if (selected && request.draft) {
-          runtime.actions.setMessage(request.draft);
-        }
-      });
+      void (request.draft === undefined
+        ? chatActions.selectChatSession(request.chatSessionID)
+        : chatActions.selectChatSession(request.chatSessionID, { draft: request.draft }));
       onSelectWorkspace("chats");
       return;
     }

@@ -157,6 +157,36 @@ describe("projectAssignmentViewModels", () => {
         externalAssignment({ kind: "none", status: "awaiting_approval" }),
       ).externalAgentPhase,
     ).toBe("unlinked");
+    expect(
+      toProjectAssignmentExecutionViewModel(
+        externalAssignment({
+          kind: "chat_session",
+          chat_session_id: "chat_missing",
+          status: "running",
+          missing: true,
+        }),
+      ).externalAgentPhase,
+    ).toBe("unlinked");
+    expect(
+      toProjectAssignmentExecutionViewModel({
+        ...externalAssignment({
+          kind: "chat_session",
+          chat_session_id: "chat_missing_projection",
+          status: "running",
+        }),
+        execution: { status: "running", missing: true },
+      }).externalAgentPhase,
+    ).toBe("unlinked");
+    expect(
+      toProjectAssignmentExecutionViewModel(
+        externalAssignment({
+          kind: "chat_session",
+          chat_session_id: "chat_missing_queued",
+          status: "queued",
+          missing: true,
+        }),
+      ).externalAgentPhase,
+    ).toBe("unlinked");
   });
 
   it("uses explicit context-only execution refs", () => {

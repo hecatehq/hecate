@@ -2177,6 +2177,116 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.chatError).toBe("");
     });
 
+    it("keeps unsent composer drafts scoped to their chat session", async () => {
+      const chatSession = (id: string) => ({
+        object: "chat_session",
+        data: {
+          id,
+          title: id,
+          agent_id: "hecate",
+          status: "completed",
+          messages: [],
+          provider: "openai",
+          model: "gpt-4o-mini",
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "Assignment chat" },
+            { id: "chat_b", title: "Other chat" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => jsonResponse(chatSession("chat_a")),
+            "/hecate/v1/chat/sessions/chat_b": () => jsonResponse(chatSession("chat_b")),
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a", { draft: "Launch context A" });
+      });
+      expect(result.current.state.message).toBe("Launch context A");
+
+      act(() => {
+        result.current.actions.setMessage("Edited assignment draft A");
+      });
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_b");
+      });
+      expect(result.current.state.message).toBe("");
+
+      act(() => {
+        result.current.actions.setMessage("Unrelated draft B");
+      });
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+      expect(result.current.state.message).toBe("Edited assignment draft A");
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_b");
+      });
+      expect(result.current.state.message).toBe("Unrelated draft B");
+    });
+
+    it("retains an initial linked-chat draft when selection fails and is retried", async () => {
+      let attempts = 0;
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_retry", title: "Retry chat" }], {
+          "/hecate/v1/chat/sessions/chat_retry": () => {
+            attempts += 1;
+            if (attempts === 1) {
+              return new Response(
+                JSON.stringify({ error: { message: "temporarily unavailable" } }),
+                {
+                  status: 503,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_retry",
+                title: "Retry chat",
+                agent_id: "hecate",
+                status: "completed",
+                messages: [],
+                provider: "openai",
+                model: "gpt-4o-mini",
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      let selected = true;
+      await act(async () => {
+        selected = await result.current.actions.selectChatSession("chat_retry", {
+          draft: "One-time launch context",
+        });
+      });
+      expect(selected).toBe(false);
+      expect(result.current.state.message).toBe("");
+
+      await act(async () => {
+        selected = await result.current.actions.selectChatSession("chat_retry");
+      });
+      expect(selected).toBe(true);
+      expect(result.current.state.message).toBe("One-time launch context");
+    });
+
     it("sends Hecate Chat instructions to task-backed turns", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
