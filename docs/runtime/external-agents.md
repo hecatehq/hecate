@@ -560,7 +560,11 @@ sending it. That successful prepare seeds the draft once. Later **Continue in
 chat**, **Open chat**, **Review in chat**, or **Inspect chat** navigation selects
 the existing session without replacing that session's composer draft. Drafts
 remain scoped by chat, and the initial launch draft survives a transient
-selection failure so a later retry can restore it.
+selection failure so a later retry can restore it. Because composer drafts are
+not persisted, reopening a prepared assignment after an app reload rebuilds a
+launch-context fallback from its current project, work, assignment, and role
+records. Within the running app, a live edit or intentional clear wins over
+that fallback.
 
 Projects presents an available `chat_session_id` without `message_id` as a
 prepared **Chat ready** state. A reference marked missing or unavailable stays

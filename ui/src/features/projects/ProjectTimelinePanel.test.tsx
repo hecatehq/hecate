@@ -259,10 +259,13 @@ describe("ProjectTimelinePanel", () => {
     expect(button).toHaveAttribute("title", "Open linked chat");
     await userEvent.click(button);
 
-    expect(onOpenChat).toHaveBeenCalledWith({
-      projectID: "proj_1",
-      chatSessionID: "chat_external",
-    });
+    expect(onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: "proj_1",
+        chatSessionID: "chat_external",
+        draft: expect.stringContaining("Launch context"),
+      }),
+    );
   });
 
   it("keeps a missing linked chat as evidence without offering navigation", () => {

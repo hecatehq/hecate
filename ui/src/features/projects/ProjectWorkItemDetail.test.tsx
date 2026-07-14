@@ -542,7 +542,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onAddHandoffFromAssignment).toHaveBeenCalledWith(assign, undefined);
   });
 
-  it("reopens a prepared External Agent chat without replacing the operator draft", async () => {
+  it("reopens a prepared External Agent chat with reload-safe launch context", async () => {
     const externalAssignment = assignment({
       driver_kind: "external_agent",
       status: "running",
@@ -559,11 +559,14 @@ describe("ProjectWorkItemDetail", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Continue in chat" }));
 
-    expect(handlers.onOpenChat).toHaveBeenCalledWith({
-      projectID: "proj_1",
-      chatSessionID: "chat_external",
-    });
-    expect(handlers.onOpenChat.mock.calls[0]?.[0].draft).toBeUndefined();
+    expect(handlers.onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: "proj_1",
+        chatSessionID: "chat_external",
+      }),
+    );
+    expect(handlers.onOpenChat.mock.calls[0]?.[0].draft).toContain("Launch context");
+    expect(handlers.onOpenChat.mock.calls[0]?.[0].draft).toContain("Assignment:");
   });
 
   it("delegates reviewer handoff requests to the configured reviewer role", async () => {

@@ -93,7 +93,9 @@ export type ChatState = {
   activeChatSession: ChatSessionRecord | null;
   // Transient unsent composer text keyed by chat. This is deliberately
   // session-memory only: it prevents drafts crossing between chats without
-  // turning browser storage into another chat or project authority.
+  // turning browser storage into another chat or project authority. Map
+  // presence owns the composer even when the stored value is intentionally
+  // empty, so a cleared or already-sent prompt is not resurrected.
   composerDraftsBySessionID: Map<string, string>;
   queuedChatMessages: QueuedChatMessage[];
   model: string;
@@ -118,6 +120,8 @@ type SetStateAction<T> = T | ((prev: T) => T);
 type Setter<T> = (next: SetStateAction<T>) => void;
 
 export type ChatActions = {
+  beginChatSessionSelection: () => number;
+  isCurrentChatSessionSelection: (generation: number) => boolean;
   setDefaultChatTarget: Setter<ChatTarget>;
   setChatTargetBySessionID: Setter<Map<string, HecateChatTarget>>;
   setDefaultChatToolsEnabled: Setter<boolean>;
@@ -303,6 +307,19 @@ export function ChatProvider({
     window.localStorage.setItem("hecate.providerFilter", providerFilter);
   }, [providerFilter]);
 
+  // useChatActions is consumed by both the shell and Chats. Keeping the
+  // generation in their shared provider lets a newer selection invalidate an
+  // older request even when the two calls came from different consumers.
+  const chatSessionSelectionGenerationRef = useRef(0);
+  const beginChatSessionSelection = useCallback(() => {
+    chatSessionSelectionGenerationRef.current += 1;
+    return chatSessionSelectionGenerationRef.current;
+  }, []);
+  const isCurrentChatSessionSelection = useCallback(
+    (generation: number) => chatSessionSelectionGenerationRef.current === generation,
+    [],
+  );
+
   // Mirror setters to refs so the helpers below don't re-bind every
   // render. Helpers are exposed in the actions bag and consumers
   // (the shim) destructure them once; keeping them referentially
@@ -413,6 +430,8 @@ export function ChatProvider({
 
   const actions = useMemo<ChatActions>(
     () => ({
+      beginChatSessionSelection,
+      isCurrentChatSessionSelection,
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setDefaultChatToolsEnabled,
@@ -445,6 +464,8 @@ export function ChatProvider({
       setChatErrorState,
     }),
     [
+      beginChatSessionSelection,
+      isCurrentChatSessionSelection,
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setDefaultChatToolsEnabled,

@@ -235,7 +235,8 @@ status and `execution_ref`: an available prepared `chat_session_id` without
 `message_id` is **Chat ready**, while `message_id` records agent-turn
 continuity. It keeps each unsent draft scoped to its chat, restores the prepared
 chat's one launch draft on return, and retains the seed through a transient
-initial selection failure.
+initial selection failure. After an app reload clears transient composer state,
+it derives a fallback again from the canonical assignment.
 None of the slices add local project lifecycle state or inferred execution
 events.
 
@@ -424,12 +425,15 @@ The first successful prepare seeds one editable launch draft in the linked
 chat; it does not append a prompt or start an agent turn. Unsent drafts remain
 scoped by chat, so returning through **Continue in chat** restores the linked
 session's edit instead of another chat's text. A transient first selection
-failure retains the seed for retry. A projected `message_id` records agent
-response continuity; assignment/runtime status still decides whether Projects
-offers **Open chat**, **Review in chat**, or **Inspect chat**. A missing runtime
-offers none of those chat actions. This presentation uses the existing
-Cairnline-backed assignment and Hecate execution reference; the browser does
-not persist a second prepared/active state.
+failure retains the seed for retry. After an app reload, the transient draft
+map is empty and Projects derives a fallback from the current canonical
+assignment; a live edit or intentional clear remains authoritative within the
+running app. A projected `message_id` records agent response continuity;
+assignment/runtime status still decides whether Projects offers **Open chat**,
+**Review in chat**, or **Inspect chat**. A missing runtime offers none of those
+chat actions. This presentation uses the existing Cairnline-backed assignment
+and Hecate execution reference; the browser does not persist a second
+prepared/active state.
 
 Pending approvals, failures, missing runtime links, and an unprepared External
 Agent chat remain visible outside the disclosure. Blocked closeout guidance
@@ -570,7 +574,8 @@ all four from `ui/` with
   change the presentation to **Chat ready**, but it does not create a
   browser-owned lifecycle phase or prove that a prompt was sent. A missing
   runtime stays unavailable. Reopening the linked chat is navigation only and
-  must restore only that chat's unsent operator input.
+  must restore only that chat's unsent operator input, or derive canonical
+  launch context when transient composer state was cleared by an app reload.
 - The URL records presentation intent only. It may name a workspace, project
   view, and work item, but it never creates portable state, proves that a record
   exists, grants runtime permission, or substitutes for Cairnline validation.

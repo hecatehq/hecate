@@ -279,9 +279,12 @@ launch draft once. The operator can review or change that draft before sending
 the first turn. Unsent drafts stay scoped to their chat session, and returning
 to the prepared chat restores its draft without copying text from another
 chat. A transient initial selection failure also retains the launch draft for
-the next attempt. Projects does not persist another prepared/active lifecycle;
-Cairnline remains the portable assignment authority, and Hecate projects the
-linked chat and message IDs into the existing execution reference.
+the next attempt. After an app reload clears transient composer state,
+**Continue in chat** rebuilds the launch-context fallback from the current
+canonical assignment; a live edit or intentional clear still takes precedence.
+Projects does not persist another prepared/active lifecycle; Cairnline remains
+the portable assignment authority, and Hecate projects the linked chat and
+message IDs into the existing execution reference.
 
 If a Human start was interrupted after Cairnline saved the operator claim but
 before work began, the story says **Starting** and offers **Finish starting**.

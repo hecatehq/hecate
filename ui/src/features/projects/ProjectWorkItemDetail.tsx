@@ -603,6 +603,9 @@ export function ProjectWorkItemDetail({
                               const linkedChatRequest = {
                                 projectID: project.id,
                                 chatSessionID: executionRef.chatSessionID,
+                                ...(executionRef.externalAgentPhase === "prepared"
+                                  ? { draft: chatRequest.draft }
+                                  : {}),
                               };
                               onOpenChat?.(
                                 executionRef.chatSessionID ? linkedChatRequest : chatRequest,
