@@ -700,11 +700,26 @@ test("Projects selected-work kickoff: add responsibility and assign rootless Hum
   ).toBe(true);
   expect(state.assignments).toHaveLength(0);
 
+  const assignmentCreatePath = "/hecate/v1/projects/proj_human/work-items/work_human/assignments";
+  let releaseAssignmentCreate!: () => void;
+  const assignmentCreateGate = new Promise<void>((resolve) => {
+    releaseAssignmentCreate = resolve;
+  });
+  const gateAssignmentCreate = async (route: Route) => {
+    const request = route.request();
+    if (request.method() === "POST" && new URL(request.url()).pathname === assignmentCreatePath) {
+      await assignmentCreateGate;
+    }
+    await route.fallback();
+  };
+  await page.route(`**${assignmentCreatePath}`, gateAssignmentCreate);
   const createRequestPromise = page.waitForRequest((request) => {
+    return request.method() === "POST" && new URL(request.url()).pathname === assignmentCreatePath;
+  });
+  const createResponsePromise = page.waitForResponse((response) => {
     return (
-      request.method() === "POST" &&
-      new URL(request.url()).pathname ===
-        "/hecate/v1/projects/proj_human/work-items/work_human/assignments"
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname === assignmentCreatePath
     );
   });
   await assignmentDialog.getByRole("button", { name: "Add assignment" }).click();
@@ -713,6 +728,22 @@ test("Projects selected-work kickoff: add responsibility and assign rootless Hum
     role_id: "role_1",
     driver_kind: "manual",
   });
+  const pendingAssignment = assignmentDialog.getByRole("button", { name: "Adding…" });
+  await expect(pendingAssignment).toHaveAttribute("aria-disabled", "true");
+  await expect(pendingAssignment).toBeFocused();
+  await expect(assignmentDialog.getByLabel("Responsibility")).toBeDisabled();
+  await expect(assignmentDialog.getByLabel("Work done by")).toBeDisabled();
+  await expect(assignmentDialog.getByRole("button", { name: "Close" })).toBeDisabled();
+  await expect
+    .poll(() => assignmentDialog.evaluate((element) => element.contains(document.activeElement)))
+    .toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(pendingAssignment).toBeFocused();
+
+  releaseAssignmentCreate();
+  await createResponsePromise;
+  await expect(assignmentDialog).toBeHidden();
+  await page.unroute(`**${assignmentCreatePath}`, gateAssignmentCreate);
 
   const executionStory = page.getByRole("article", {
     name: "Researcher assignment execution assign_human",

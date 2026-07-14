@@ -240,11 +240,16 @@ describe("ProjectAssignmentModals", () => {
 
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(form).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("button", { name: "Adding…" })).toBeDisabled();
+    const pendingButton = screen.getByRole("button", { name: "Adding…" });
+    expect(pendingButton).toHaveAttribute("aria-disabled", "true");
+    expect(pendingButton).toBeEnabled();
+    expect(pendingButton).toHaveFocus();
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
     expect(screen.getByLabelText("Responsibility")).toBeDisabled();
     expect(screen.getByLabelText("Work done by")).toBeDisabled();
     expect(screen.getByLabelText("Workspace (optional)")).toBeDisabled();
+    await userEvent.tab();
+    expect(pendingButton).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
     resolveCreate();

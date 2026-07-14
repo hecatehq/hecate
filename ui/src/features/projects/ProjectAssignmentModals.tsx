@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import type {
   ProjectAssignmentRecord,
@@ -48,6 +48,7 @@ export function NewAssignmentModal({
   onCreate,
 }: NewAssignmentModalProps) {
   const responsibilitySelectRef = useRef<HTMLSelectElement>(null);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
   const submitInFlightRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const defaultRole =
@@ -77,6 +78,9 @@ export function NewAssignmentModal({
   const driverSummary = selectedRole
     ? projectAssignmentDestinationLabel(form.driverKind || defaultDriverForRole(selectedRole))
     : "Select a responsibility";
+  useEffect(() => {
+    if (busy) submitButtonRef.current?.focus();
+  }, [busy]);
   const submit = async () => {
     if (busy || submitInFlightRef.current || !valid) return;
     submitInFlightRef.current = true;
@@ -97,10 +101,12 @@ export function NewAssignmentModal({
       width={520}
       footer={
         <button
+          aria-disabled={busy || !valid || undefined}
           className="btn btn-primary"
           type="button"
-          disabled={busy || !valid}
+          disabled={!busy && !valid}
           onClick={() => void submit()}
+          ref={submitButtonRef}
           style={{ width: "100%", justifyContent: "center" }}
         >
           {busy ? "Adding…" : "Add assignment"}
