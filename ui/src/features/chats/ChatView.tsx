@@ -222,6 +222,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const selectedChatReady = Boolean(
     activeSessionID && state.activeChatSession?.id === activeSessionID,
   );
+  const selectedChatLoading = Boolean(activeSessionID && !selectedChatReady);
   const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
@@ -1012,47 +1013,76 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               }}
               openExternalAgentSetup={openAgentSetup}
               emptyState={
-                <ChatEmptyState
-                  isAgentChat={isAgentChat}
-                  isHecateChat={isHecateChat}
-                  isExternalAgentChat={isExternalAgentChat}
-                  isRemoteRuntime={isRemoteRuntime}
-                  setupRepair={chatSetupRepair}
-                  modelRouteUnavailable={modelRouteUnavailable}
-                  selectedModelIssue={selectedModelIssue}
-                  agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
-                  nothingRunnable={nothingRunnable}
-                  agentAdapters={state.agentAdapters}
-                  selectedAgent={selectedAgent}
-                  selectedAgentUnavailable={selectedAgentUnavailable}
-                  hasConfiguredProviders={hasConfiguredProviders}
-                  providerPresets={state.providerPresets}
-                  quickLocalProviders={quickLocalProviders}
-                  quickLocalLoading={quickLocalLoading}
-                  quickLocalError={quickLocalError}
-                  quickAddingProviders={quickAddingProviders}
-                  onOpenProviders={() => {
-                    if (onNavigate) {
-                      onNavigate("connections");
-                    } else {
-                      setAddProviderOpen(true);
-                    }
-                  }}
-                  onUseSuggestedModel={(model) => {
-                    actions.setProviderFilter("auto");
-                    actions.setModel(model);
-                  }}
-                  onChooseWorkspace={() => void chooseWorkspace()}
-                  onOpenAgentSetup={() => openAgentSetup()}
-                  onQuickAddLocalProviders={quickAddLocalProviders}
-                  onRefreshQuickLocalProviders={refreshQuickLocalProviders}
-                  onSwitchTarget={actions.setChatTarget}
-                  rtkAvailable={state.hecateRTKAvailable}
-                  rtkPath={state.hecateRTKPath}
-                  rtkEnabled={state.hecateRTKEnabled}
-                  showRTKOnboardingHint={showRTKOnboardingHint}
-                  onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
-                />
+                selectedChatLoading ? (
+                  <div
+                    aria-busy="true"
+                    aria-label="Loading selected chat"
+                    aria-live="polite"
+                    role="status"
+                    style={{
+                      padding: "28px 16px 18px",
+                      maxWidth: 820,
+                      margin: "0 auto",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "var(--t1)",
+                        marginBottom: 5,
+                      }}
+                    >
+                      Loading chat…
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
+                      Getting the latest messages and controls.
+                    </div>
+                  </div>
+                ) : (
+                  <ChatEmptyState
+                    isAgentChat={isAgentChat}
+                    isHecateChat={isHecateChat}
+                    isExternalAgentChat={isExternalAgentChat}
+                    isRemoteRuntime={isRemoteRuntime}
+                    setupRepair={chatSetupRepair}
+                    modelRouteUnavailable={modelRouteUnavailable}
+                    selectedModelIssue={selectedModelIssue}
+                    agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
+                    nothingRunnable={nothingRunnable}
+                    agentAdapters={state.agentAdapters}
+                    selectedAgent={selectedAgent}
+                    selectedAgentUnavailable={selectedAgentUnavailable}
+                    hasConfiguredProviders={hasConfiguredProviders}
+                    providerPresets={state.providerPresets}
+                    quickLocalProviders={quickLocalProviders}
+                    quickLocalLoading={quickLocalLoading}
+                    quickLocalError={quickLocalError}
+                    quickAddingProviders={quickAddingProviders}
+                    onOpenProviders={() => {
+                      if (onNavigate) {
+                        onNavigate("connections");
+                      } else {
+                        setAddProviderOpen(true);
+                      }
+                    }}
+                    onUseSuggestedModel={(model) => {
+                      actions.setProviderFilter("auto");
+                      actions.setModel(model);
+                    }}
+                    onChooseWorkspace={() => void chooseWorkspace()}
+                    onOpenAgentSetup={() => openAgentSetup()}
+                    onQuickAddLocalProviders={quickAddLocalProviders}
+                    onRefreshQuickLocalProviders={refreshQuickLocalProviders}
+                    onSwitchTarget={actions.setChatTarget}
+                    rtkAvailable={state.hecateRTKAvailable}
+                    rtkPath={state.hecateRTKPath}
+                    rtkEnabled={state.hecateRTKEnabled}
+                    showRTKOnboardingHint={showRTKOnboardingHint}
+                    onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
+                  />
+                )
               }
             />
 

@@ -95,11 +95,11 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       setModels(snapshot.models);
       setProviders(snapshot.providers);
       setAgentAdapters(snapshot.agentAdapters);
-      setChatSessions(snapshot.chatSessions);
-      pruneQueuedChatMessagesForSessions(
-        snapshot.chatSessions.map((session: ChatSessionRecord) => session.id),
-      );
       if (activeChatTransition !== null && isCurrentActiveChatTransition(activeChatTransition)) {
+        setChatSessions(snapshot.chatSessions);
+        pruneQueuedChatMessagesForSessions(
+          snapshot.chatSessions.map((session: ChatSessionRecord) => session.id),
+        );
         setActiveChatSessionID(snapshot.activeChatSessionID);
         setActiveChatSession(snapshot.activeChatSession);
         params.syncHecateSelectionFromSession(snapshot.activeChatSession);

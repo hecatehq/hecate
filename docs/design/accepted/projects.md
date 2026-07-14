@@ -378,10 +378,11 @@ The Projects UI should stay lightweight but operational:
   editable launch draft once after a successful prepare, keep unsent drafts
   scoped to their chat sessions, and retain that seed through a transient first
   selection failure. After an app reload, rebuild the prepared launch-context
-  fallback from canonical assignment data. Withhold the composer until the
-  selected chat ID and loaded chat record agree, and make the latest operator
-  chat transition authoritative over older selection, creation, or dashboard
-  responses. An intentional live edit or clear remains authoritative over a
+  fallback from canonical assignment data. Announce loading and withhold the
+  composer until the selected chat ID and loaded chat record agree. Make the
+  latest operator chat transition authoritative over older selection,
+  creation, or dashboard responses, including chat-list and queued-prompt
+  projection. An intentional live edit or clear remains authoritative over a
   regenerated fallback.
   These are presentation rules over Cairnline assignment state and Hecate
   execution references, not a second project lifecycle.

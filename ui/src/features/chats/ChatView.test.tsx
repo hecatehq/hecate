@@ -6349,7 +6349,12 @@ describe("ChatView session title", () => {
 
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
+    const loading = screen.getByRole("status", { name: "Loading selected chat" });
+    expect(loading).toHaveAttribute("aria-busy", "true");
+    expect(loading).toHaveAttribute("aria-live", "polite");
+    expect(within(loading).getByText("Loading chat…")).toBeTruthy();
     expect(screen.queryByText("Previous chat")).toBeNull();
+    expect(screen.queryByText("Ready when you are")).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });

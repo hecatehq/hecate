@@ -1102,18 +1102,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
       rememberChatComposerDraft(created.data.id, requestedDraft);
-      if (!isCurrentActiveChatTransition(transitionGeneration)) {
-        setChatSessions((current) => [
-          renderChatSessionSummary(created.data),
-          ...current.filter((entry) => entry.id !== created.data.id),
-        ]);
-        return;
-      }
-      setActiveChatSessionID(created.data.id);
-      // Same per-session pinning as the submit path: chatTarget stays
-      // "agent" and the tools-on/off intent for this session is recorded
-      // in chatToolsEnabledBySessionID. Keeps the two coordinator entry
-      // points consistent and avoids the resume-shows-stale-toggle bug.
+      // Record session-local execution intent even when a newer active-chat
+      // transition wins before this create response returns. The server still
+      // created this chat, and reopening it must not inherit a later global
+      // tools default.
       setChatTargetBySessionID((current) => {
         const next = new Map(current);
         next.set(created.data.id, "agent");
@@ -1124,6 +1116,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         next.set(created.data.id, toolsEnabled);
         return next;
       });
+      if (!isCurrentActiveChatTransition(transitionGeneration)) {
+        setChatSessions((current) => [
+          renderChatSessionSummary(created.data),
+          ...current.filter((entry) => entry.id !== created.data.id),
+        ]);
+        return;
+      }
+      setActiveChatSessionID(created.data.id);
       applyChatSession(created.data);
       setMessage(requestedDraft);
     } catch (error) {
@@ -1173,19 +1173,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     try {
       const payload = await getChatSession(id);
       if (!isCurrentActiveChatTransition(selectionGeneration)) return false;
-      setActiveChatSession(payload.data);
+      applyChatSession(payload.data);
       if (payload.data.agent_id && payload.data.agent_id !== "hecate") {
         setAgentAdapterID(payload.data.agent_id);
       }
-      const selection = deriveHecateChatSelectionFromSession(payload.data);
-      if (selection.provider) {
-        setProviderFilter(selection.provider as ProviderFilter);
-      }
-      if (selection.model) {
-        setModel(selection.model);
-      }
       setAgentWorkspace(payload.data.workspace ?? "");
-      setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
       completeActiveChatTransition(selectionGeneration);
       return true;
     } catch (error) {
