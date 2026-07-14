@@ -170,8 +170,9 @@ describe("ProjectAssignmentModals", () => {
     expect(screen.getByRole("button", { name: "Add assignment" })).toBeDisabled();
   });
 
-  it("does not resubmit assignment forms while a mutation is pending", () => {
+  it("does not dismiss or resubmit assignment forms while a mutation is pending", async () => {
     const onCreate = vi.fn();
+    const onClose = vi.fn();
     const firstRender = render(
       <NewAssignmentModal
         error=""
@@ -179,13 +180,18 @@ describe("ProjectAssignmentModals", () => {
         project={project()}
         workItem={workItem()}
         roles={[role()]}
-        onClose={vi.fn()}
+        onClose={onClose}
         onCreate={onCreate}
       />,
     );
 
-    fireEvent.submit(screen.getByRole("dialog", { name: "Add assignment" }).querySelector("form")!);
+    const addDialog = screen.getByRole("dialog", { name: "Add assignment" });
+    expect(addDialog.querySelector("form")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    fireEvent.submit(addDialog.querySelector("form")!);
+    await userEvent.keyboard("{Escape}");
     expect(onCreate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
     firstRender.unmount();
 
     const onSave = vi.fn();
@@ -206,6 +212,34 @@ describe("ProjectAssignmentModals", () => {
       screen.getByRole("dialog", { name: "Edit assignment" }).querySelector("form")!,
     );
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("submits an assignment only once while creation is in flight", async () => {
+    let resolveCreate = () => {};
+    const creation = new Promise<void>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const onCreate = vi.fn(() => creation);
+
+    render(
+      <NewAssignmentModal
+        error=""
+        pending={false}
+        project={project()}
+        workItem={workItem()}
+        roles={[role()]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+
+    const form = screen.getByRole("dialog", { name: "Add assignment" }).querySelector("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    resolveCreate();
+    await creation;
   });
 
   it("adds rootless Human assignments without workspace controls", async () => {
