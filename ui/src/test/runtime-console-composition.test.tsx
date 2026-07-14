@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalsProvider } from "../app/state/approvals";
-import { ChatProvider, type ChatState } from "../app/state/chat";
+import { ChatProvider, composerDraftScope, type ChatState } from "../app/state/chat";
 import { ProvidersAndModelsProvider } from "../app/state/providersAndModels";
 import { ProjectsProvider } from "../app/state/projects";
 import { RetentionProvider } from "../app/state/retention";
@@ -930,6 +930,1565 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.message).toBe(
       "Launch context\n\nProject: Hecate (proj_1)\n\nRequest:\n- ",
     );
+  });
+
+  it("carries an unsent draft into an ordinary new chat but honors an explicit empty draft", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    let sequence = 0;
+    let resolveSecondCreate: ((response: Response) => void) | undefined;
+    let secondCreateStarted = false;
+    const session = (id: string) => ({
+      object: "chat_session",
+      data: {
+        id,
+        title: "Hecate chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+      },
+    });
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            sequence += 1;
+            if (sequence === 2) {
+              secondCreateStarted = true;
+              return new Promise<Response>((resolve) => {
+                resolveSecondCreate = resolve;
+              });
+            }
+            return jsonResponse(session(`chat_draft_${sequence}`));
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+        "/hecate/v1/chat/sessions/chat_draft_1": () => jsonResponse(session("chat_draft_1")),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate", draft: "" });
+    });
+    act(() => {
+      result.current.actions.setMessage("unfinished operator note");
+    });
+    let secondCreate!: Promise<void>;
+    act(() => {
+      // Match the sidebar's select-empty → create sequence in one event.
+      void result.current.actions.selectChatSession("");
+      secondCreate = result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    await waitFor(() => expect(secondCreateStarted).toBe(true));
+    expect(result.current.state.message).toBe("unfinished operator note");
+
+    act(() => {
+      result.current.actions.setMessage("newer note typed while creating");
+    });
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    expect(sequence).toBe(2);
+    expect(result.current.state.message).toBe("newer note typed while creating");
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    expect(sequence).toBe(2);
+
+    await act(async () => {
+      resolveSecondCreate?.(jsonResponse(session("chat_draft_2")));
+      await secondCreate;
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe("chat_draft_2");
+    expect(result.current.state.message).toBe("newer note typed while creating");
+
+    act(() => {
+      result.current.actions.setMessage("");
+    });
+    await act(async () => {
+      await result.current.actions.selectChatSession("chat_draft_1");
+    });
+    expect(result.current.state.message).toBe("");
+
+    act(() => {
+      result.current.actions.setMessage("do not leak this draft");
+    });
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate", draft: "" });
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe("chat_draft_3");
+    expect(result.current.state.message).toBe("");
+  });
+
+  it("isolates a scoped launch draft from the selected chat and preserves both sides on failure", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    let resolveCreate: ((response: Response) => void) | undefined;
+    let createStarted = false;
+    const sourceSession = {
+      id: "chat_source",
+      title: "Existing conversation",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "/workspace",
+      message_count: 0,
+      messages: [],
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createStarted = true;
+            return new Promise<Response>((resolve) => {
+              resolveCreate = resolve;
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [sourceSession] });
+        },
+        "/hecate/v1/chat/sessions/chat_source": () =>
+          jsonResponse({ object: "chat_session", data: sourceSession }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: sourceSession.id,
+        activeChatSession: sourceSession,
+        chatSessions: [sourceSession],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    act(() => {
+      result.current.actions.setMessage("unfinished source draft");
+    });
+
+    let createPromise!: Promise<void>;
+    act(() => {
+      createPromise = result.current.actions.createChatSession({
+        agentID: "hecate",
+        projectID: "proj_launch",
+        draft: "Scoped project launch",
+      });
+    });
+    await waitFor(() => expect(createStarted).toBe(true));
+
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.activeChatSession).toBeNull();
+    expect(result.current.state.message).toBe("Scoped project launch");
+
+    act(() => {
+      result.current.actions.setMessage("Edited scoped launch while creating");
+    });
+    await act(async () => {
+      resolveCreate?.(
+        new Response(JSON.stringify({ error: { message: "creation unavailable" } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await createPromise;
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.activeChatSession).toBeNull();
+    expect(result.current.state.message).toBe("Edited scoped launch while creating");
+
+    await act(async () => {
+      await result.current.actions.selectChatSession(sourceSession.id);
+    });
+    expect(result.current.state.activeChatSessionID).toBe(sourceSession.id);
+    expect(result.current.state.message).toBe("unfinished source draft");
+  });
+
+  it("keeps the latest pending-create edit when another chat preempts the response", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    let resolveCreate: ((response: Response) => void) | undefined;
+    let createStarted = false;
+    const chatSession = (id: string, title: string) => ({
+      id,
+      title,
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "/workspace",
+      message_count: 0,
+      messages: [],
+    });
+    const source = chatSession("chat_source", "Source chat");
+    const other = chatSession("chat_other", "Other chat");
+    const created = chatSession("chat_created", "Created chat");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createStarted = true;
+            return new Promise<Response>((resolve) => {
+              resolveCreate = resolve;
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [source, other] });
+        },
+        "/hecate/v1/chat/sessions/chat_other": () =>
+          jsonResponse({ object: "chat_session", data: other }),
+        "/hecate/v1/chat/sessions/chat_created": () =>
+          jsonResponse({ object: "chat_session", data: created }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: source.id,
+        activeChatSession: source,
+        chatSessions: [source, other],
+        agentWorkspace: "/workspace",
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    act(() => {
+      result.current.actions.setMessage("carried source draft");
+    });
+
+    let createPromise!: Promise<void>;
+    act(() => {
+      createPromise = result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    await waitFor(() => expect(createStarted).toBe(true));
+    act(() => {
+      result.current.actions.setMessage("latest pending edit");
+    });
+    await act(async () => {
+      await result.current.actions.selectChatSession(other.id);
+    });
+
+    await act(async () => {
+      resolveCreate?.(jsonResponse({ object: "chat_session", data: created }));
+      await createPromise;
+    });
+    expect(result.current.state.activeChatSessionID).toBe(other.id);
+
+    await act(async () => {
+      await result.current.actions.selectChatSession(created.id);
+    });
+    expect(result.current.state.message).toBe("latest pending edit");
+  });
+
+  it("restores an edited pending draft after selection preempts a failed create", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    let resolveFirstCreate: ((response: Response) => void) | undefined;
+    let createCount = 0;
+    const chatSession = (id: string, title: string) => ({
+      id,
+      title,
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "/workspace",
+      message_count: 0,
+      messages: [],
+    });
+    const source = chatSession("chat_source", "Source chat");
+    const other = chatSession("chat_other", "Other chat");
+    const recovered = chatSession("chat_recovered", "Recovered chat");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createCount += 1;
+            if (createCount === 1) {
+              return new Promise<Response>((resolve) => {
+                resolveFirstCreate = resolve;
+              });
+            }
+            return jsonResponse({ object: "chat_session", data: recovered });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [source, other] });
+        },
+        "/hecate/v1/chat/sessions/chat_other": () =>
+          jsonResponse({ object: "chat_session", data: other }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: source.id,
+        activeChatSession: source,
+        chatSessions: [source, other],
+        agentWorkspace: "/workspace",
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    act(() => {
+      result.current.actions.setMessage("draft before create");
+    });
+
+    let firstCreate!: Promise<void>;
+    act(() => {
+      firstCreate = result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    await waitFor(() => expect(createCount).toBe(1));
+    act(() => {
+      result.current.actions.setMessage("edited draft worth recovering");
+    });
+    await act(async () => {
+      await result.current.actions.selectChatSession(other.id);
+    });
+    expect(result.current.state.message).toBe("");
+
+    await act(async () => {
+      resolveFirstCreate?.(
+        new Response(JSON.stringify({ error: { message: "creation unavailable" } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await firstCreate;
+    });
+    expect(result.current.state.activeChatSessionID).toBe(other.id);
+
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    expect(createCount).toBe(2);
+    expect(result.current.state.activeChatSessionID).toBe(recovered.id);
+    expect(result.current.state.message).toBe("edited draft worth recovering");
+  });
+
+  it("does not restore a failed project launch into a different project", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) =>
+          init?.method === "POST"
+            ? jsonResponse({
+                object: "chat_session",
+                data: {
+                  id: "chat_project_b",
+                  title: "Project B chat",
+                  project_id: "proj_b",
+                  agent_id: "hecate",
+                  status: "idle",
+                  messages: [],
+                  provider: "",
+                  model: "gpt-4o-mini",
+                },
+              })
+            : jsonResponse({ object: "chat_sessions", data: [] }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        recoverableComposerDraft: {
+          id: 7,
+          content: "Project A assignment launch context",
+          scope: composerDraftScope({
+            projectID: "proj_a",
+            agentID: "hecate",
+            provider: "auto",
+            model: "gpt-4o-mini",
+          }),
+        },
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({
+        agentID: "hecate",
+        projectID: "proj_b",
+      });
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe("chat_project_b");
+    expect(result.current.state.message).toBe("");
+  });
+
+  it("blocks Send when a bound recovery belongs to another project", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    window.localStorage.setItem("hecate.project", "proj_b");
+    const projectB: ProjectRecord = {
+      id: "proj_b",
+      name: "Project B",
+      roots: [],
+      created_at: "2026-07-13T10:00:00Z",
+      updated_at: "2026-07-13T10:00:00Z",
+    };
+    let sessionCreateCount = 0;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/projects": () => jsonResponse({ object: "projects", data: [projectB] }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") sessionCreateCount += 1;
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      projects: [projectB],
+      chatInitialState: {
+        recoverableComposerDraft: {
+          id: 17,
+          content: "Project A launch context",
+          scope: composerDraftScope({
+            projectID: "proj_a",
+            agentID: "hecate",
+            provider: "auto",
+            model: "gpt-4o-mini",
+          }),
+        },
+        activeRecoverableComposerDraftID: 17,
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("Project A launch context");
+    });
+
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+
+    expect(sessionCreateCount).toBe(0);
+    expect(result.current.state.message).toBe("");
+    expect(result.current.state.recoverableComposerDraft).toMatchObject({
+      id: 17,
+      content: "Project A launch context",
+      scope: { projectID: "proj_a" },
+    });
+    expect(result.current.state.activeRecoverableComposerDraftID).toBeNull();
+  });
+
+  it("blocks Send when a bound recovery belongs to another provider route", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    let sessionCreateCount = 0;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") sessionCreateCount += 1;
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        providerFilter: "anthropic",
+        model: "claude-sonnet-4-6",
+        recoverableComposerDraft: {
+          id: 19,
+          content: "OpenAI-specific launch context",
+          scope: composerDraftScope({
+            agentID: "hecate",
+            provider: "openai",
+            model: "gpt-4o-mini",
+          }),
+        },
+        activeRecoverableComposerDraftID: 19,
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    act(() => {
+      result.current.actions.setMessage("OpenAI-specific launch context");
+    });
+
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+
+    expect(sessionCreateCount).toBe(0);
+    expect(result.current.state.message).toBe("");
+    expect(result.current.state.recoverableComposerDraft).toMatchObject({
+      id: 19,
+      content: "OpenAI-specific launch context",
+      scope: { provider: "openai", model: "gpt-4o-mini" },
+    });
+  });
+
+  it.each([
+    ["edits", "Rewritten recovery"],
+    ["clears", ""],
+  ])("consumes owned recovery when the operator %s it before success", async (_label, edit) => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let createCount = 0;
+    let resolveRecoveredCreate: ((response: Response) => void) | undefined;
+    const session = (id: string) => ({
+      object: "chat_session",
+      data: {
+        id,
+        title: "Recovered chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider: "",
+        model: "gpt-4o-mini",
+      },
+    });
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method !== "POST") {
+            return jsonResponse({ object: "chat_sessions", data: [] });
+          }
+          createCount += 1;
+          if (createCount === 1) {
+            return new Promise<Response>((resolve) => {
+              resolveRecoveredCreate = resolve;
+            });
+          }
+          return jsonResponse(session("chat_after_recovery"));
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        recoverableComposerDraft: {
+          id: 11,
+          content: "Recovered launch context",
+          scope: composerDraftScope({
+            agentID: "hecate",
+            provider: "auto",
+            model: "gpt-4o-mini",
+          }),
+        },
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+
+    let recoveredCreate!: Promise<void>;
+    act(() => {
+      recoveredCreate = result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    await waitFor(() => expect(createCount).toBe(1));
+    expect(result.current.state.message).toBe("Recovered launch context");
+
+    act(() => {
+      result.current.actions.setMessage(edit);
+    });
+    await waitFor(() => expect(result.current.state.message).toBe(edit));
+    await act(async () => {
+      resolveRecoveredCreate?.(jsonResponse(session("chat_recovered")));
+      await recoveredCreate;
+    });
+
+    act(() => {
+      result.current.actions.setMessage("");
+    });
+    await waitFor(() => expect(result.current.state.message).toBe(""));
+    act(() => {
+      result.current.actions.startNewChat();
+    });
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+
+    expect(createCount).toBe(2);
+    expect(result.current.state.activeChatSessionID).toBe("chat_after_recovery");
+    expect(result.current.state.message).toBe("");
+  });
+
+  it("serializes implicit session creation when a detached draft is submitted twice", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let createCount = 0;
+    let messageCount = 0;
+    let resolveCreate: ((response: Response) => void) | undefined;
+    const createdSession = {
+      id: "chat_implicit",
+      title: "Recovered prompt",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createCount += 1;
+            return new Promise<Response>((resolve) => {
+              resolveCreate = resolve;
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+        "/hecate/v1/chat/sessions/chat_implicit/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_implicit/messages": () => {
+          messageCount += 1;
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              ...createdSession,
+              status: "completed",
+              messages: [
+                {
+                  id: "message_implicit",
+                  role: "user",
+                  content: "Recovered prompt",
+                },
+              ],
+            },
+          });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("Recovered prompt");
+    });
+
+    let firstSubmit!: Promise<void>;
+    let secondSubmit!: Promise<void>;
+    act(() => {
+      firstSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      secondSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(createCount).toBe(1));
+    expect(result.current.state.chatCreating).toBe(true);
+
+    await act(async () => {
+      resolveCreate?.(jsonResponse({ object: "chat_session", data: createdSession }));
+      await Promise.all([firstSubmit, secondSubmit]);
+    });
+
+    expect(createCount).toBe(1);
+    expect(messageCount).toBe(1);
+    expect(result.current.state.activeChatSessionID).toBe("chat_implicit");
+  });
+
+  it.each([
+    ["without a later edit", "", null],
+    ["with a later edit", "Follow-up preserved", "Follow-up preserved"],
+  ])(
+    "keeps a newer selection authoritative %s while implicit creation finishes",
+    async (_label, laterEdit, expectedRecovery) => {
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      let resolveCreate: ((response: Response) => void) | undefined;
+      let createStarted = false;
+      let sentContent = "";
+      const selectedSession = {
+        id: "chat_selected",
+        title: "Selected chat",
+        agent_id: "hecate",
+        status: "idle" as const,
+        messages: [],
+        provider: "",
+        model: "gpt-4o-mini",
+      };
+      const createdSession = {
+        id: "chat_background",
+        title: "Background chat",
+        agent_id: "hecate",
+        status: "idle" as const,
+        messages: [],
+        provider: "",
+        model: "gpt-4o-mini",
+      };
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": (init) => {
+            if (init?.method === "POST") {
+              createStarted = true;
+              return new Promise<Response>((resolve) => {
+                resolveCreate = resolve;
+              });
+            }
+            return jsonResponse({ object: "chat_sessions", data: [selectedSession] });
+          },
+          "/hecate/v1/chat/sessions/chat_selected": () =>
+            jsonResponse({ object: "chat_session", data: selectedSession }),
+          "/hecate/v1/chat/sessions/chat_background/stream": () => emptyStreamResponse(),
+          "/hecate/v1/chat/sessions/chat_background/messages": (init) => {
+            sentContent = JSON.parse(String(init?.body ?? "{}")).content;
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                ...createdSession,
+                status: "completed",
+                messages: [{ id: "sent_background", role: "user", content: sentContent }],
+              },
+            });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+      act(() => {
+        result.current.actions.setMessage("Original submitted prompt");
+      });
+
+      let submitPromise!: Promise<void>;
+      act(() => {
+        submitPromise = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      await waitFor(() => expect(createStarted).toBe(true));
+      await waitFor(() => expect(result.current.state.message).toBe(""));
+      if (laterEdit) {
+        act(() => {
+          result.current.actions.setMessage(laterEdit);
+        });
+      }
+      await act(async () => {
+        await result.current.actions.selectChatSession(selectedSession.id);
+      });
+      expect(result.current.state.activeChatSessionID).toBe(selectedSession.id);
+
+      await act(async () => {
+        resolveCreate?.(jsonResponse({ object: "chat_session", data: createdSession }));
+        await submitPromise;
+      });
+
+      expect(sentContent).toBe("Original submitted prompt");
+      expect(result.current.state.activeChatSessionID).toBe(selectedSession.id);
+      expect(result.current.state.activeChatSession?.id).toBe(selectedSession.id);
+      expect(
+        result.current.state.chatSessions.some((entry) => entry.id === createdSession.id),
+      ).toBe(true);
+      expect(result.current.state.chatTurnSessionID).toBe("");
+      expect(result.current.state.recoverableComposerDraft?.content ?? null).toBe(expectedRecovery);
+    },
+  );
+
+  it("queues a follow-up after implicit allocation while the first message is pending", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let resolveCreate: ((response: Response) => void) | undefined;
+    let resolveFirstMessage: ((response: Response) => void) | undefined;
+    const messageBodies: string[] = [];
+    const createdSession = {
+      id: "chat_serial_turn",
+      title: "First prompt",
+      agent_id: "hecate",
+      status: "idle" as const,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    const completedSession = (content: string) => ({
+      object: "chat_session",
+      data: {
+        ...createdSession,
+        status: "completed",
+        messages: [{ id: `sent_${messageBodies.length}`, role: "user", content }],
+      },
+    });
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) =>
+          init?.method === "POST"
+            ? new Promise<Response>((resolve) => {
+                resolveCreate = resolve;
+              })
+            : jsonResponse({ object: "chat_sessions", data: [] }),
+        "/hecate/v1/chat/sessions/chat_serial_turn/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_serial_turn/messages": (init) => {
+          const content = JSON.parse(String(init?.body ?? "{}")).content as string;
+          messageBodies.push(content);
+          if (messageBodies.length === 1) {
+            return new Promise<Response>((resolve) => {
+              resolveFirstMessage = resolve;
+            });
+          }
+          return jsonResponse(completedSession(content));
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("First prompt");
+    });
+
+    let firstSubmit!: Promise<void>;
+    act(() => {
+      firstSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(result.current.state.chatCreating).toBe(true));
+    act(() => {
+      resolveCreate?.(jsonResponse({ object: "chat_session", data: createdSession }));
+    });
+    await waitFor(() => expect(messageBodies).toEqual(["First prompt"]));
+    expect(result.current.state.activeChatSessionID).toBe(createdSession.id);
+    expect(result.current.state.chatCreating).toBe(false);
+    expect(result.current.state.chatLoading).toBe(true);
+    expect(result.current.state.chatTurnSessionID).toBe(createdSession.id);
+    expect(result.current.state.chatTurnActive).toBe(true);
+
+    act(() => {
+      result.current.actions.setMessage("Follow-up prompt");
+    });
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    expect(messageBodies).toEqual(["First prompt"]);
+    expect(result.current.state.queuedChatMessages).toHaveLength(1);
+    expect(result.current.state.queuedChatMessages[0].content).toBe("Follow-up prompt");
+
+    await act(async () => {
+      resolveFirstMessage?.(jsonResponse(completedSession("First prompt")));
+      await firstSubmit;
+    });
+    await waitFor(() => expect(messageBodies).toEqual(["First prompt", "Follow-up prompt"]));
+    await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
+    await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+  });
+
+  it("restores the first prompt when its created session rejects the message", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let sessionCreateCount = 0;
+    let messageCount = 0;
+    const createdSession = {
+      id: "chat_retry_message",
+      title: "Retry prompt",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            sessionCreateCount += 1;
+            return jsonResponse({ object: "chat_session", data: createdSession });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+        "/hecate/v1/chat/sessions/chat_retry_message/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_retry_message/messages": () => {
+          messageCount += 1;
+          if (messageCount === 1) {
+            return new Response(JSON.stringify({ error: { message: "message unavailable" } }), {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              ...createdSession,
+              status: "completed",
+              messages: [{ id: "message_retry", role: "user", content: "Retry prompt" }],
+            },
+          });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("Retry prompt");
+    });
+
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+
+    expect(sessionCreateCount).toBe(1);
+    expect(messageCount).toBe(1);
+    expect(result.current.state.activeChatSessionID).toBe(createdSession.id);
+    expect(result.current.state.message).toBe("Retry prompt");
+    expect(result.current.state.activeChatSession?.messages).toEqual([]);
+    expect(result.current.state.recoverableComposerDraft).toBeNull();
+    expect(result.current.state.chatCreating).toBe(false);
+    expect(result.current.state.chatTurnActive).toBe(false);
+    expect(result.current.state.chatLoading).toBe(false);
+
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+
+    expect(sessionCreateCount).toBe(1);
+    expect(messageCount).toBe(2);
+    expect(result.current.state.message).toBe("");
+    expect(result.current.state.activeChatSession?.messages?.[0]?.content).toBe("Retry prompt");
+  });
+
+  it("restores a failed existing-session prompt after selecting another chat", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let rejectMessage: ((response: Response) => void) | undefined;
+    let messageStarted = false;
+    const sourceSession = {
+      id: "chat_failed_source",
+      title: "Failed source",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    const selectedSession = {
+      ...sourceSession,
+      id: "chat_selected_during_failure",
+      title: "Selected while waiting",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({ object: "chat_sessions", data: [sourceSession, selectedSession] }),
+        "/hecate/v1/chat/sessions/chat_failed_source": () =>
+          jsonResponse({ object: "chat_session", data: sourceSession }),
+        "/hecate/v1/chat/sessions/chat_selected_during_failure": () =>
+          jsonResponse({ object: "chat_session", data: selectedSession }),
+        "/hecate/v1/chat/sessions/chat_failed_source/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_failed_source/messages": () => {
+          messageStarted = true;
+          return new Promise<Response>((resolve) => {
+            rejectMessage = resolve;
+          });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: sourceSession.id,
+        activeChatSession: sourceSession,
+        chatSessions: [sourceSession, selectedSession],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => result.current.actions.setMessage("Submitted prompt A"));
+
+    let submitPromise!: Promise<void>;
+    act(() => {
+      submitPromise = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(messageStarted).toBe(true));
+    await act(async () => {
+      await result.current.actions.selectChatSession(selectedSession.id);
+    });
+    act(() => result.current.actions.setMessage("Draft in selected chat B"));
+
+    await act(async () => {
+      rejectMessage?.(
+        new Response(JSON.stringify({ error: { message: "message unavailable" } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await submitPromise;
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe(selectedSession.id);
+    expect(result.current.state.message).toBe("Draft in selected chat B");
+    expect(result.current.state.savedComposerDraftsBySessionID.get(sourceSession.id)).toEqual([
+      "Submitted prompt A",
+    ]);
+    expect(result.current.state.notice).toEqual({
+      kind: "error",
+      message: "A message was not sent in “Failed source”. It is saved there.",
+    });
+
+    await act(async () => {
+      await result.current.actions.selectChatSession(sourceSession.id);
+    });
+    expect(result.current.state.message).toBe("Submitted prompt A");
+    expect(result.current.state.savedComposerDraftsBySessionID.has(sourceSession.id)).toBe(false);
+
+    await act(async () => {
+      await result.current.actions.selectChatSession(selectedSession.id);
+    });
+    expect(result.current.state.message).toBe("Draft in selected chat B");
+  });
+
+  it.each(["Later draft B", "Submitted prompt A"])(
+    "keeps a failed submitted prompt separate from a newer draft (%s)",
+    async (laterDraft) => {
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      let rejectMessage: ((response: Response) => void) | undefined;
+      const activeSession = {
+        id: "chat_failed_with_newer_draft",
+        title: "Failed with newer draft",
+        agent_id: "hecate",
+        status: "idle" as const,
+        workspace: "",
+        message_count: 0,
+        messages: [],
+        provider: "",
+        model: "gpt-4o-mini",
+      };
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({ object: "chat_sessions", data: [activeSession] }),
+          "/hecate/v1/chat/sessions/chat_failed_with_newer_draft/stream": () =>
+            emptyStreamResponse(),
+          "/hecate/v1/chat/sessions/chat_failed_with_newer_draft/messages": () =>
+            new Promise<Response>((resolve) => {
+              rejectMessage = resolve;
+            }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook({
+        chatInitialState: {
+          activeChatSessionID: activeSession.id,
+          activeChatSession: activeSession,
+          chatSessions: [activeSession],
+        },
+      });
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+      act(() => result.current.actions.setMessage("Submitted prompt A"));
+
+      let submitPromise!: Promise<void>;
+      act(() => {
+        submitPromise = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      await waitFor(() => expect(rejectMessage).toBeDefined());
+      act(() => result.current.actions.setMessage(laterDraft));
+      await act(async () => {
+        rejectMessage?.(
+          new Response(JSON.stringify({ error: { message: "message unavailable" } }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+        await submitPromise;
+      });
+
+      expect(result.current.state.message).toBe(laterDraft);
+      expect(result.current.state.savedComposerDraftsBySessionID.get(activeSession.id)).toEqual([
+        "Submitted prompt A",
+      ]);
+      act(() => {
+        expect(result.current.actions.restoreSavedComposerDraft(activeSession.id)).toBe(true);
+      });
+      expect(result.current.state.message).toBe("Submitted prompt A");
+      expect(result.current.state.savedComposerDraftsBySessionID.get(activeSession.id)).toEqual([
+        laterDraft,
+      ]);
+    },
+  );
+
+  it("consumes one matching saved draft after a successful manual retry", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    const activeSession = {
+      id: "chat_manual_saved_retry",
+      title: "Manual saved retry",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({ object: "chat_sessions", data: [activeSession] }),
+        "/hecate/v1/chat/sessions/chat_manual_saved_retry/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_manual_saved_retry/messages": () =>
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              ...activeSession,
+              status: "completed",
+              message_count: 1,
+              messages: [{ id: "saved_retry_sent", role: "user", content: "Retry saved A" }],
+            },
+          }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: activeSession.id,
+        activeChatSession: activeSession,
+        chatSessions: [activeSession],
+        savedComposerDraftsBySessionID: new Map([
+          [activeSession.id, ["Retry saved A", "Keep saved B"]],
+        ]),
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => result.current.actions.setMessage("Retry saved A"));
+
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+
+    expect(result.current.state.message).toBe("");
+    expect(result.current.state.savedComposerDraftsBySessionID.get(activeSession.id)).toEqual([
+      "Keep saved B",
+    ]);
+  });
+
+  it("consumes a matching saved draft after its queued retry succeeds", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let messagePostCount = 0;
+    const activeSession = {
+      id: "chat_queued_saved_retry",
+      title: "Queued saved retry",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({ object: "chat_sessions", data: [activeSession] }),
+        "/hecate/v1/chat/sessions/chat_queued_saved_retry/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_queued_saved_retry/messages": () => {
+          messagePostCount += 1;
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              ...activeSession,
+              status: "completed",
+              message_count: 1,
+              messages: [{ id: "queued_retry_sent", role: "user", content: "Retry saved A" }],
+            },
+          });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: activeSession.id,
+        activeChatSession: activeSession,
+        chatSessions: [activeSession],
+        queuedChatMessages: [
+          {
+            id: "queued_saved_retry",
+            session_id: activeSession.id,
+            content: "Retry saved A",
+            execution_mode: "hecate_task",
+            tools_enabled: false,
+            provider_filter: "auto",
+            model: "gpt-4o-mini",
+            workspace: "",
+            system_prompt: "",
+            agent_id: "hecate",
+            created_at: "2026-07-14T10:00:00Z",
+          },
+        ],
+        savedComposerDraftsBySessionID: new Map([
+          [activeSession.id, ["Retry saved A", "Keep saved B"]],
+        ]),
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(messagePostCount).toBe(1));
+    await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
+    expect(result.current.state.savedComposerDraftsBySessionID.get(activeSession.id)).toEqual([
+      "Keep saved B",
+    ]);
+  });
+
+  it("keeps an existing-session prompt when workspace validation blocks submission", async () => {
+    let messagePostCount = 0;
+    const activeSession = {
+      id: "chat_missing_workspace",
+      title: "Missing workspace",
+      agent_id: "codex",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({ object: "chat_sessions", data: [activeSession] }),
+        "/hecate/v1/chat/sessions/chat_missing_workspace": () =>
+          jsonResponse({ object: "chat_session", data: activeSession }),
+        "/hecate/v1/chat/sessions/chat_missing_workspace/messages": () => {
+          messagePostCount += 1;
+          return jsonResponse({ object: "chat_session", data: activeSession });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        defaultChatTarget: "external_agent",
+        agentAdapterID: "codex",
+        agentWorkspace: "",
+        activeChatSessionID: activeSession.id,
+        activeChatSession: activeSession,
+        chatSessions: [activeSession],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.activeChatSession?.agent_id).toBe("codex"));
+    expect(result.current.state.chatTarget).toBe("external_agent");
+    act(() => result.current.actions.setMessage("Keep this prompt"));
+
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+
+    expect(messagePostCount).toBe(0);
+    expect(result.current.state.message).toBe("Keep this prompt");
+    expect(result.current.state.chatErrorCode).toBe("chat.workspace_required");
+    expect(result.current.state.chatLoading).toBe(false);
+    expect(result.current.state.chatTurnActive).toBe(false);
+    expect(result.current.state.chatTurnSessionID).toBe("");
+  });
+
+  it("keeps the submitted recovery beside a later draft when allocation fails", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let resolveCreate: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) =>
+          init?.method === "POST"
+            ? new Promise<Response>((resolve) => {
+                resolveCreate = resolve;
+              })
+            : jsonResponse({ object: "chat_sessions", data: [] }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("Submitted prompt A");
+    });
+
+    let submitPromise!: Promise<void>;
+    act(() => {
+      submitPromise = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(result.current.state.chatCreating).toBe(true));
+    expect(result.current.state.chatTurnActive).toBe(true);
+    act(() => {
+      // The production composer is disabled during this interval. This direct
+      // state write keeps the coordinator defensive against stale integrations.
+      result.current.actions.setMessage("Later draft B");
+    });
+
+    await act(async () => {
+      resolveCreate?.(
+        new Response(JSON.stringify({ error: { message: "creation unavailable" } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await submitPromise;
+    });
+
+    expect(result.current.state.message).toBe("Later draft B");
+    expect(result.current.state.recoverableComposerDraft).toMatchObject({
+      content: "Submitted prompt A",
+    });
+    expect(result.current.state.activeRecoverableComposerDraftID).toBeNull();
+    expect(result.current.state.chatCreating).toBe(false);
+    expect(result.current.state.chatTurnActive).toBe(false);
+    expect(result.current.state.chatLoading).toBe(false);
+  });
+
+  it("keeps an explicit new chat selected while the prior chat turn finishes", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let resolvePriorMessage: ((response: Response) => void) | undefined;
+    let priorMessageStarted = false;
+    const priorSession = {
+      id: "chat_prior_turn",
+      title: "Prior chat",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    const nextSession = {
+      id: "chat_explicit_next",
+      title: "Next chat",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) =>
+          init?.method === "POST"
+            ? jsonResponse({ object: "chat_session", data: nextSession })
+            : jsonResponse({ object: "chat_sessions", data: [priorSession] }),
+        "/hecate/v1/chat/sessions/chat_prior_turn/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_prior_turn/messages": () => {
+          priorMessageStarted = true;
+          return new Promise<Response>((resolve) => {
+            resolvePriorMessage = resolve;
+          });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: priorSession.id,
+        activeChatSession: priorSession,
+        chatSessions: [priorSession],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("Finish the prior turn");
+    });
+
+    let priorSubmit!: Promise<void>;
+    act(() => {
+      priorSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(priorMessageStarted).toBe(true));
+    expect(result.current.state.chatTurnSessionID).toBe(priorSession.id);
+
+    await act(async () => {
+      await result.current.actions.createChatSession({
+        agentID: "hecate",
+        draft: "Draft for the next chat",
+      });
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe(nextSession.id);
+    expect(result.current.state.activeChatSession?.id).toBe(nextSession.id);
+    expect(result.current.state.message).toBe("Draft for the next chat");
+    expect(result.current.state.chatCreating).toBe(false);
+    expect(result.current.state.chatLoading).toBe(true);
+    expect(result.current.state.chatTurnSessionID).toBe(priorSession.id);
+
+    await act(async () => {
+      resolvePriorMessage?.(
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            ...priorSession,
+            status: "completed",
+            message_count: 1,
+            messages: [{ id: "prior_sent", role: "user", content: "Finish the prior turn" }],
+          },
+        }),
+      );
+      await priorSubmit;
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe(nextSession.id);
+    expect(result.current.state.activeChatSession?.id).toBe(nextSession.id);
+    expect(result.current.state.message).toBe("Draft for the next chat");
+    expect(result.current.state.chatLoading).toBe(false);
+    expect(result.current.state.chatTurnSessionID).toBe("");
+    expect(
+      result.current.state.chatSessions.find((entry) => entry.id === priorSession.id)?.status,
+    ).toBe("completed");
+  });
+
+  it("keeps an explicit chat creation pending when the prior turn finishes first", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let resolvePriorMessage: ((response: Response) => void) | undefined;
+    let resolveNextCreate: ((response: Response) => void) | undefined;
+    const priorSession = {
+      id: "chat_prior_finishes_first",
+      title: "Prior chat",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    const nextSession = {
+      ...priorSession,
+      id: "chat_create_finishes_last",
+      title: "Next chat",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) =>
+          init?.method === "POST"
+            ? new Promise<Response>((resolve) => {
+                resolveNextCreate = resolve;
+              })
+            : jsonResponse({ object: "chat_sessions", data: [priorSession] }),
+        "/hecate/v1/chat/sessions/chat_prior_finishes_first/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_prior_finishes_first/messages": () =>
+          new Promise<Response>((resolve) => {
+            resolvePriorMessage = resolve;
+          }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: priorSession.id,
+        activeChatSession: priorSession,
+        chatSessions: [priorSession],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => result.current.actions.setMessage("Finish prior turn"));
+
+    let priorSubmit!: Promise<void>;
+    act(() => {
+      priorSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(resolvePriorMessage).toBeDefined());
+
+    let createPromise!: Promise<void>;
+    act(() => {
+      createPromise = result.current.actions.createChatSession({
+        agentID: "hecate",
+        draft: "Draft for pending creation",
+      });
+    });
+    await waitFor(() => expect(resolveNextCreate).toBeDefined());
+    expect(result.current.state.chatCreating).toBe(true);
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.message).toBe("Draft for pending creation");
+
+    await act(async () => {
+      resolvePriorMessage?.(
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            ...priorSession,
+            status: "completed",
+            message_count: 1,
+            messages: [{ id: "prior_sent_first", role: "user", content: "Finish prior turn" }],
+          },
+        }),
+      );
+      await priorSubmit;
+    });
+
+    expect(result.current.state.chatCreating).toBe(true);
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.message).toBe("Draft for pending creation");
+    expect(result.current.state.chatLoading).toBe(false);
+    expect(result.current.state.chatTurnSessionID).toBe("");
+
+    await act(async () => {
+      resolveNextCreate?.(jsonResponse({ object: "chat_session", data: nextSession }));
+      await createPromise;
+    });
+
+    expect(result.current.state.chatCreating).toBe(false);
+    expect(result.current.state.activeChatSessionID).toBe(nextSession.id);
+    expect(result.current.state.activeChatSession?.id).toBe(nextSession.id);
+    expect(result.current.state.message).toBe("Draft for pending creation");
+  });
+
+  it("deduplicates same-render submits for an existing idle session", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let messageCount = 0;
+    let resolveMessage: ((response: Response) => void) | undefined;
+    const activeSession = {
+      id: "chat_existing_idle",
+      title: "Existing idle chat",
+      agent_id: "hecate",
+      status: "idle" as const,
+      workspace: "",
+      message_count: 0,
+      messages: [],
+      provider: "",
+      model: "gpt-4o-mini",
+    };
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({ object: "chat_sessions", data: [activeSession] }),
+        "/hecate/v1/chat/sessions/chat_existing_idle/stream": () => emptyStreamResponse(),
+        "/hecate/v1/chat/sessions/chat_existing_idle/messages": () => {
+          messageCount += 1;
+          return new Promise<Response>((resolve) => {
+            resolveMessage = resolve;
+          });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook({
+      chatInitialState: {
+        activeChatSessionID: activeSession.id,
+        activeChatSession: activeSession,
+        chatSessions: [activeSession],
+      },
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+    act(() => {
+      result.current.actions.setMessage("Submit once");
+    });
+
+    let firstSubmit!: Promise<void>;
+    let secondSubmit!: Promise<void>;
+    act(() => {
+      firstSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      secondSubmit = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    await waitFor(() => expect(messageCount).toBe(1));
+    expect(result.current.state.queuedChatMessages).toHaveLength(0);
+
+    await act(async () => {
+      resolveMessage?.(
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            ...activeSession,
+            status: "completed",
+            messages: [{ id: "sent_once", role: "user", content: "Submit once" }],
+          },
+        }),
+      );
+      await Promise.all([firstSubmit, secondSubmit]);
+    });
+
+    expect(messageCount).toBe(1);
+    expect(result.current.state.queuedChatMessages).toHaveLength(0);
   });
 
   it("does not fall back to ambient provider or model when scoped launch passes explicit empty values", async () => {

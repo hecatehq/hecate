@@ -221,15 +221,64 @@ test("provider picker shows healthy providers", async ({ page }) => {
 
 test("New chat keeps an unsent draft on the active empty chat", async ({ page }) => {
   await switchToModel(page);
-  // Fill the message box so we can verify the state resets
+  let createStarted = false;
+  let createCount = 0;
+  let releaseCreate: (() => void) | undefined;
+  const createRelease = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    createStarted = true;
+    createCount += 1;
+    await createRelease;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "chat_session",
+        data: {
+          id: "chat-draft-pending-e2e",
+          title: "Hecate chat",
+          agent_id: "hecate",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          project_id: "proj_e2e",
+          capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+          workspace: "/tmp/hecate-e2e",
+          workspace_branch: "",
+          status: "idle",
+          message_count: 0,
+          messages: [],
+          segments: [],
+          created_at: "2026-05-14T12:00:00Z",
+          updated_at: "2026-05-14T12:00:00Z",
+        },
+      }),
+    });
+  });
+
   await page.locator("textarea").fill("some prior message");
-  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
-  // The current empty chat is still the target, so an unsent draft is
-  // preserved rather than discarded.
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect.poll(() => createStarted).toBe(true);
+  await expect.poll(() => createCount).toBe(1);
+  await expect(page.locator("textarea")).toHaveValue("some prior message");
+  await expect(page.locator("button[type='submit']")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "New Hecate chat", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Stop active task" })).toHaveCount(0);
+  await expect(page.getByText(/Hecate Chat is working/)).toHaveCount(0);
+
+  await page.locator("textarea").fill("newer note typed while creating");
+  releaseCreate?.();
   await expect(
     page.getByRole("button", { name: /Chat Hecate chat, Hecate/ }).first(),
   ).toBeVisible();
-  await expect(page.locator("textarea")).toHaveValue("some prior message");
+  await expect(page.locator("textarea")).toHaveValue("newer note typed while creating");
+  await expect(page.locator("button[type='submit']")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "New Hecate chat", exact: true })).toBeEnabled();
 });
 
 test("New chat creates an external-agent session with controls before the first prompt", async ({

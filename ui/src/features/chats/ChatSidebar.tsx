@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useChat } from "../../app/state/chat";
+import { composerDraftScope, composerDraftScopesMatch, useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useProjects } from "../../app/state/projects";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
@@ -70,6 +70,9 @@ export function ChatSidebar({
   });
   const newChatAgentID = useNewChatAgentID();
   const chatSessions = chat.state.chatSessions;
+  const chatCreating = chat.state.chatCreating;
+  const recoverableComposerDraft = chat.state.recoverableComposerDraft;
+  const activeRecoverableComposerDraftID = chat.state.activeRecoverableComposerDraftID;
   const activeChatSessionID = chat.state.activeChatSessionID;
   const agentAdapters = providersAndModels.state.agentAdapters;
   const agentAdapterHealthByID = providersAndModels.state.agentAdapterHealthByID;
@@ -112,6 +115,24 @@ export function ChatSidebar({
   const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate";
   const workspaceRequiredForNewChat =
     isAgentChat && selectedNewChatUsesWorkspace && !workspaceForNewChat;
+  const recoverableDraftForCurrentScope =
+    recoverableComposerDraft &&
+    composerDraftScopesMatch(
+      recoverableComposerDraft.scope,
+      composerDraftScope({
+        projectID: projects.activeProjectID,
+        agentID: newChatAgentID,
+        provider: chat.state.providerFilter,
+        model: chat.state.model,
+        workspace: workspaceForNewChat,
+      }),
+    )
+      ? recoverableComposerDraft
+      : null;
+  const savedRecoveryNotice =
+    recoverableDraftForCurrentScope?.id === activeRecoverableComposerDraftID
+      ? null
+      : recoverableDraftForCurrentScope;
 
   function statusForAgent(agentID: ChatAgentOptionID) {
     const adapter =
@@ -217,15 +238,19 @@ export function ChatSidebar({
             adapters={agentAdapters}
             healthByID={agentAdapterHealthByID}
             disableUnavailable
-            createDisabled={workspaceRequiredForNewChat}
+            createDisabled={workspaceRequiredForNewChat || chatCreating}
+            selectionDisabled={chatCreating}
             createTitle={
-              workspaceRequiredForNewChat
-                ? "Choose a workspace before starting this chat"
-                : undefined
+              chatCreating
+                ? "Starting the current chat"
+                : workspaceRequiredForNewChat
+                  ? "Choose a workspace before starting this chat"
+                  : undefined
             }
             onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
             onSetupAgent={onOpenAgentSetup}
             onCreate={(agentID) => {
+              if (chatCreating || chat.actions.isChatCreationActive()) return;
               if (workspaceRequiredForNewChat) return;
               if (!statusForAgent(agentID).ready) return;
               if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
@@ -244,6 +269,20 @@ export function ChatSidebar({
               }}
             >
               Choose a workspace in the chat view before starting agent chats.
+            </div>
+          )}
+          {!chatCreating && savedRecoveryNotice && (
+            <div
+              role="status"
+              style={{
+                color: "var(--amber)",
+                fontSize: 11,
+                lineHeight: 1.35,
+                padding: "6px 2px 0",
+              }}
+            >
+              A previous unsent draft is saved. Start a matching new chat with an empty composer to
+              restore it.
             </div>
           )}
         </div>

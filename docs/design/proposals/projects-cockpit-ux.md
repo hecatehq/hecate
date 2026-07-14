@@ -428,7 +428,16 @@ session's edit instead of another chat's text. A transient first selection
 failure retains the seed for retry. After an app reload, the transient draft
 map is empty and Projects derives a fallback from the current canonical
 assignment; a live edit or intentional clear remains authoritative within the
-running app. A projected `message_id` records agent response continuity;
+running app. Before a session ID exists, recovery is owned by the originating
+project, agent, workspace, and provider/model route; another chat setup cannot
+consume it, and a successful create consumes that ownership even after an edit
+or clear. Session preparation disables competing create/send actions without
+presenting itself as active agent work. A submitted turn transfers atomically
+from its unknown-session guard to the created session, and only that session
+may project its loading, stream, transcript, or Stop controls. A failed message
+remains a source-session-owned unsent draft, even after another chat is selected
+or another draft is typed, and the operator can restore it without discarding
+the current draft. A projected `message_id` records agent response continuity;
 assignment/runtime status still decides whether Projects offers **Open chat**,
 **Review in chat**, or **Inspect chat**. A missing runtime offers none of those
 chat actions. This presentation uses the existing Cairnline-backed assignment

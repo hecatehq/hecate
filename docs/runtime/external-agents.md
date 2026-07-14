@@ -564,7 +564,24 @@ selection failure so a later retry can restore it. Because composer drafts are
 not persisted, reopening a prepared assignment after an app reload rebuilds a
 launch-context fallback from its current project, work, assignment, and role
 records. Within the running app, a live edit or intentional clear wins over
-that fallback.
+that fallback. A draft detached before session creation completes carries a
+transient ownership token plus its project, agent, workspace, and Hecate
+provider/model route. Recovery is consumed only by the matching chat creation,
+so an identical string or a different project cannot claim it. Session
+creation is also serialized across Projects and Chats; its loading signal does
+not project an active agent turn or expose cancellation controls. After the
+session ID is allocated, a separate turn token remains bound to that session
+through message and stream completion. A newer chat selection therefore cannot
+inherit the background turn's transcript, working state, or Stop control. The
+submitted composer stays locked during the short unknown-session interval so a
+second draft cannot replace the prompt being recovered or sent; its route,
+configuration, and MCP controls are frozen with the same request while the
+focused composer remains keyboard reachable. Explicitly prepared launch text
+can still be edited during creation, while its captured route and configuration
+remain fixed. Once a canonical session exists, a failed message is saved
+against that source session independently of the
+currently selected chat or any newer composer draft. The operator can restore
+saved messages explicitly without silently retrying them.
 
 Projects presents an available `chat_session_id` without `message_id` as a
 prepared **Chat ready** state. A reference marked missing or unavailable stays

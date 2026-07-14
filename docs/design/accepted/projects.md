@@ -383,7 +383,18 @@ The Projects UI should stay lightweight but operational:
   latest operator chat transition authoritative over older selection,
   creation, or dashboard responses, including chat-list and queued-prompt
   projection. An intentional live edit or clear remains authoritative over a
-  regenerated fallback.
+  regenerated fallback. Serialize every path that can create a chat session,
+  scope detached-draft recovery to the originating project and chat route, and
+  consume recovery by ownership rather than text equality. Session preparation
+  may lock Send and New chat, but it is not an active turn and must not expose
+  Stop or suppress an unrelated selected chat's state. Bind each locally
+  submitted turn to its canonical session so late create, stream, and message
+  responses cannot replace a newer chat selection; only that session projects
+  live controls, while a selected idle session can queue its own follow-up. A
+  submitted detached composer and its route/config controls lock only until its
+  session ID is allocated, without removing keyboard focus. If the message
+  request then fails, retain the submitted prompt against its source session
+  independently of a newer selection or draft and offer an explicit restore.
   These are presentation rules over Cairnline assignment state and Hecate
   execution references, not a second project lifecycle.
 - Present assignment destinations in product language: **Human**, **Hecate

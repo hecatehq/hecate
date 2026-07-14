@@ -122,6 +122,7 @@ export function RootEffects() {
   const {
     activeChatSession,
     activeChatSessionID,
+    chatCreating,
     chatLoading,
     chatCancelling,
     queuedChatMessages,
@@ -288,7 +289,7 @@ export function RootEffects() {
   // Queued-message drain — sends the next queued message once the
   // active chat is idle.
   useEffect(() => {
-    if (queuedChatMessages.length === 0 || chatLoading || chatCancelling) {
+    if (queuedChatMessages.length === 0 || chatCreating || chatLoading || chatCancelling) {
       return;
     }
     if (chatSessionIsBusy(activeChatSession)) {
@@ -320,6 +321,7 @@ export function RootEffects() {
     activeChatSession?.updated_at,
     activeChatSessionID,
     chatCancelling,
+    chatCreating,
     chatLoading,
     queuedChatMessages,
   ]);
