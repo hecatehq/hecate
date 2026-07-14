@@ -924,7 +924,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               position: "relative",
             }}
           >
-            {isAgentChat && workspaceEntryOpen && (
+            {selectedChatReady && isAgentChat && workspaceEntryOpen && (
               <div
                 style={{
                   borderBottom: "1px solid var(--border)",
@@ -973,7 +973,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             the auto-mode warning is persistent for as long as the gateway
             runs in auto, the pending banner appears only when there's at
             least one pending approval for the active session. */}
-            {isExternalAgentChat && (
+            {selectedChatReady && isExternalAgentChat && (
               <>
                 <AgentApprovalAutoModeBanner mode={state.agentAdapterApprovalMode} />
                 {state.activeChatSessionID && (
@@ -985,7 +985,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               </>
             )}
 
-            {isHecateAgentChat &&
+            {selectedChatReady &&
+              isHecateAgentChat &&
               state.activeChatSession?.task_id &&
               pendingTaskApprovals.length > 0 && (
                 <HecateTaskApprovalsBanner
@@ -998,49 +999,49 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 />
               )}
 
-            <ChatTranscript
-              isHecateAgentChat={isHecateAgentChat}
-              activeSessionID={activeSessionID}
-              transcriptItems={transcriptItems}
-              visibleMessageCount={visibleMessages.length}
-              streaming={streaming}
-              onNavigate={onNavigate}
-              onOpenTask={onOpenTask}
-              onOpenTrace={onOpenTrace}
-              onOpenWorkspaceChanges={() => {
-                setChatSettingsOpen(false);
-                setWorkspaceChangesOpen(true);
-              }}
-              openExternalAgentSetup={openAgentSetup}
-              emptyState={
-                selectedChatLoading ? (
-                  <div
-                    aria-busy="true"
-                    aria-label="Loading selected chat"
-                    aria-live="polite"
-                    role="status"
-                    style={{
-                      padding: "28px 16px 18px",
-                      maxWidth: 820,
-                      margin: "0 auto",
-                      textAlign: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: "var(--t1)",
-                        marginBottom: 5,
-                      }}
-                    >
-                      Loading chat…
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-                      Getting the latest messages and controls.
-                    </div>
-                  </div>
-                ) : (
+            {selectedChatLoading ? (
+              <div
+                aria-busy="true"
+                aria-label="Loading selected chat"
+                aria-live="polite"
+                role="status"
+                style={{
+                  flex: 1,
+                  overflow: "auto",
+                  padding: "44px 16px 18px",
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--t1)",
+                    marginBottom: 5,
+                  }}
+                >
+                  Loading chat…
+                </div>
+                <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
+                  Getting the latest messages and controls.
+                </div>
+              </div>
+            ) : (
+              <ChatTranscript
+                isHecateAgentChat={isHecateAgentChat}
+                activeSessionID={activeSessionID}
+                transcriptItems={transcriptItems}
+                visibleMessageCount={visibleMessages.length}
+                streaming={streaming}
+                onNavigate={onNavigate}
+                onOpenTask={onOpenTask}
+                onOpenTrace={onOpenTrace}
+                onOpenWorkspaceChanges={() => {
+                  setChatSettingsOpen(false);
+                  setWorkspaceChangesOpen(true);
+                }}
+                openExternalAgentSetup={openAgentSetup}
+                emptyState={
                   <ChatEmptyState
                     isAgentChat={isAgentChat}
                     isHecateChat={isHecateChat}
@@ -1082,9 +1083,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                     showRTKOnboardingHint={showRTKOnboardingHint}
                     onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
                   />
-                )
-              }
-            />
+                }
+              />
+            )}
 
             {composerShellVisible && (
               <ChatComposer

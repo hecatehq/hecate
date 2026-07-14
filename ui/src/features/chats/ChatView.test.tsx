@@ -6342,9 +6342,24 @@ describe("ChatView session title", () => {
         title: "Previous chat",
         agent_id: "hecate",
         status: "idle",
-        messages: [],
+        messages: [
+          {
+            id: "previous-message",
+            role: "user",
+            content: "Previous chat transcript must stay hidden",
+            created_at: "2026-04-20T00:00:00Z",
+          },
+        ],
       } as any,
       message: "Target launch context",
+      pendingToolCalls: [
+        {
+          id: "previous-tool",
+          name: "previous_session_tool",
+          arguments: "{}",
+          result: "",
+        },
+      ],
     });
 
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -6354,6 +6369,8 @@ describe("ChatView session title", () => {
     expect(loading).toHaveAttribute("aria-live", "polite");
     expect(within(loading).getByText("Loading chat…")).toBeTruthy();
     expect(screen.queryByText("Previous chat")).toBeNull();
+    expect(screen.queryByText("Previous chat transcript must stay hidden")).toBeNull();
+    expect(screen.queryByText("previous_session_tool")).toBeNull();
     expect(screen.queryByText("Ready when you are")).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();

@@ -103,6 +103,16 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
         setActiveChatSessionID(snapshot.activeChatSessionID);
         setActiveChatSession(snapshot.activeChatSession);
         params.syncHecateSelectionFromSession(snapshot.activeChatSession);
+      } else {
+        // The snapshot predates a newer operator transition. Keep every newer
+        // local summary authoritative, but still add non-conflicting sessions
+        // discovered by the dashboard so the rest of the sidebar does not
+        // remain empty until another refresh.
+        setChatSessions((current) => {
+          const currentIDs = new Set(current.map((session) => session.id));
+          const additions = snapshot.chatSessions.filter((session) => !currentIDs.has(session.id));
+          return additions.length > 0 ? [...current, ...additions] : current;
+        });
       }
       params.setSettingsConfig(snapshot.settingsConfig);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);

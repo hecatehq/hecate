@@ -2480,6 +2480,9 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.chatSessions.some((chat) => chat.id === "chat_assignment")).toBe(
         true,
       );
+      expect(result.current.state.chatSessions.some((chat) => chat.id === "chat_previous")).toBe(
+        true,
+      );
       expect(result.current.state.queuedChatMessages).toEqual([
         expect.objectContaining({
           id: "queued_assignment",
