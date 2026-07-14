@@ -542,6 +542,30 @@ describe("ProjectWorkItemDetail", () => {
     expect(handlers.onAddHandoffFromAssignment).toHaveBeenCalledWith(assign, undefined);
   });
 
+  it("reopens a prepared External Agent chat without replacing the operator draft", async () => {
+    const externalAssignment = assignment({
+      driver_kind: "external_agent",
+      status: "running",
+      started_at: "2026-06-13T09:00:00Z",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_external",
+        context_snapshot_id: "ctx_external",
+        status: "running",
+      },
+      execution: undefined,
+    });
+    const { handlers } = renderDetail({ assignments: [externalAssignment] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Continue in chat" }));
+
+    expect(handlers.onOpenChat).toHaveBeenCalledWith({
+      projectID: "proj_1",
+      chatSessionID: "chat_external",
+    });
+    expect(handlers.onOpenChat.mock.calls[0]?.[0].draft).toBeUndefined();
+  });
+
   it("delegates reviewer handoff requests to the configured reviewer role", async () => {
     const developer = role();
     const reviewer = role({ id: "architect", name: "Architect reviewer" });

@@ -319,6 +319,103 @@ describe("ProjectAssignmentExecutionStory", () => {
     expect(handlers.onReviewLaunch).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a prepared External Agent chat before any response is recorded", async () => {
+    const { container, handlers } = renderStory(
+      assignment({
+        driver_kind: "external_agent",
+        status: "running",
+        started_at: "2026-07-10T10:05:00Z",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_external",
+          context_snapshot_id: "ctx_external",
+          status: "running",
+        },
+      }),
+    );
+
+    expect(screen.getByText("Chat ready")).toBeTruthy();
+    expect(screen.getByText("Chat is prepared; no agent response is recorded yet.")).toBeTruthy();
+    expect(screen.queryByText("External Agent is running.")).toBeNull();
+    expect(container.querySelectorAll(".btn-primary")).toHaveLength(1);
+
+    const milestones = screen.getByRole("list", { name: "Execution milestones" });
+    expect(within(milestones).getByText("Chat prepared")).toBeTruthy();
+    expect(within(milestones).queryByText("Started")).toBeNull();
+    expect(within(milestones).queryByText("Agent working")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Continue in chat" }));
+    expect(handlers.onOpenChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows message-backed External Agent work as active in its linked chat", async () => {
+    const { handlers } = renderStory(
+      assignment({
+        driver_kind: "external_agent",
+        status: "running",
+        started_at: "2026-07-10T10:05:00Z",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_external",
+          message_id: "msg_external",
+          context_snapshot_id: "ctx_external",
+          status: "running",
+        },
+      }),
+    );
+
+    expect(screen.getByText("External Agent work is continuing in the linked chat.")).toBeTruthy();
+    const milestones = screen.getByRole("list", { name: "Execution milestones" });
+    expect(within(milestones).getByText("Chat prepared")).toBeTruthy();
+    expect(within(milestones).getByText("Agent working")).toBeTruthy();
+    expect(
+      within(milestones).getByText("The External Agent is working in the linked chat."),
+    ).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open chat" }));
+    expect(handlers.onOpenChat).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      status: "awaiting_approval",
+      pendingApprovalCount: 1,
+      action: "Review in chat",
+      summary: "1 approval needs operator review in the linked chat.",
+    },
+    {
+      status: "failed",
+      pendingApprovalCount: 0,
+      action: "Inspect chat",
+      summary: "External Agent work failed. Inspect the linked chat.",
+    },
+    {
+      status: "cancelled",
+      pendingApprovalCount: 0,
+      action: "Inspect chat",
+      summary: "External Agent work was cancelled. Inspect the linked chat.",
+    },
+  ])("routes External Agent $status attention to the linked chat", async (state) => {
+    const { handlers } = renderStory(
+      assignment({
+        driver_kind: "external_agent",
+        status: state.status,
+        started_at: "2026-07-10T10:05:00Z",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_external",
+          message_id: "msg_external",
+          status: state.status,
+          pending_approval_count: state.pendingApprovalCount,
+        },
+      }),
+    );
+
+    expect(screen.getByText(state.summary)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: state.action }));
+    expect(handlers.onOpenChat).toHaveBeenCalledTimes(1);
+  });
+
   it("guides queued Human work without launch preflight or runtime requirements", async () => {
     const { container, handlers } = renderStory(
       assignment({ driver_kind: "manual", execution_ref: { kind: "none", status: "queued" } }),

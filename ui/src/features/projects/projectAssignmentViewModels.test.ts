@@ -114,6 +114,51 @@ describe("projectAssignmentViewModels", () => {
     expect(execution.hasChatSession).toBe(true);
   });
 
+  it("distinguishes prepared and message-backed External Agent work from canonical refs", () => {
+    const externalAssignment = (
+      executionRef: ProjectAssignmentRecord["execution_ref"],
+    ): ProjectAssignmentRecord => ({
+      id: "assign_external",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      role_id: "developer",
+      driver_kind: "external_agent",
+      status: "running",
+      execution_ref: executionRef,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:01:00Z",
+    });
+
+    expect(
+      toProjectAssignmentExecutionViewModel(
+        externalAssignment({
+          kind: "chat_session",
+          chat_session_id: "chat_1",
+          status: "running",
+        }),
+      ).externalAgentPhase,
+    ).toBe("prepared");
+    expect(
+      toProjectAssignmentExecutionViewModel(
+        externalAssignment({
+          kind: "chat_session",
+          chat_session_id: "chat_1",
+          message_id: "msg_1",
+          status: "running",
+        }),
+      ).externalAgentPhase,
+    ).toBe("working");
+    expect(
+      toProjectAssignmentExecutionViewModel(externalAssignment({ kind: "none", status: "running" }))
+        .externalAgentPhase,
+    ).toBe("unlinked");
+    expect(
+      toProjectAssignmentExecutionViewModel(
+        externalAssignment({ kind: "none", status: "awaiting_approval" }),
+      ).externalAgentPhase,
+    ).toBe("unlinked");
+  });
+
   it("uses explicit context-only execution refs", () => {
     const execution = toProjectAssignmentExecutionViewModel({
       id: "assign_1",
