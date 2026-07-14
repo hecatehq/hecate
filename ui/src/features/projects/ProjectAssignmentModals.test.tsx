@@ -242,6 +242,9 @@ describe("ProjectAssignmentModals", () => {
     expect(form).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("button", { name: "Adding…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(screen.getByLabelText("Responsibility")).toBeDisabled();
+    expect(screen.getByLabelText("Work done by")).toBeDisabled();
+    expect(screen.getByLabelText("Workspace (optional)")).toBeDisabled();
     await userEvent.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
     resolveCreate();
@@ -249,6 +252,9 @@ describe("ProjectAssignmentModals", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Add assignment" })).toBeEnabled(),
     );
+    expect(screen.getByLabelText("Responsibility")).toBeEnabled();
+    expect(screen.getByLabelText("Work done by")).toBeEnabled();
+    expect(screen.getByLabelText("Workspace (optional)")).toBeEnabled();
   });
 
   it("adds rootless Human assignments without workspace controls", async () => {
