@@ -278,6 +278,10 @@ export type CreateChatSessionOptions = {
   reuseEmptyDraft?: boolean;
 };
 
+export type SelectChatSessionOptions = {
+  draft?: string;
+};
+
 type ChatActionsReturn = {
   applyChatSession: (session: ChatSessionRecord) => void;
   syncHecateSelectionFromSession: (session: ChatSessionRecord | null) => void;
@@ -292,7 +296,7 @@ type ChatActionsReturn = {
   updateToolResult: (index: number, result: string) => void;
   submitToolResults: () => Promise<void>;
   createChatSession: (options?: CreateChatSessionOptions) => Promise<void>;
-  selectChatSession: (id: string) => Promise<boolean>;
+  selectChatSession: (id: string, options?: SelectChatSessionOptions) => Promise<boolean>;
   startNewChat: () => void;
   deleteChatSession: (id: string) => Promise<void>;
   renameChatSession: (id: string, title: string) => Promise<void>;
@@ -380,6 +384,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     agentWorkspace,
     activeChatSessionID,
     activeChatSession,
+    composerDraftsBySessionID,
     model,
     systemPrompt,
     pendingToolCalls,
@@ -399,6 +404,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setChatSessions,
     setActiveChatSessionID,
     setActiveChatSession,
+    setComposerDraftsBySessionID,
     setQueuedChatMessages,
     setModel,
     setSystemPrompt,
@@ -429,6 +435,18 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     clearPendingToolState();
     clearChatErrorState();
     setSystemPrompt("");
+  }
+
+  function rememberChatComposerDraft(sessionID: string, draft: string) {
+    if (!sessionID) return;
+    setComposerDraftsBySessionID((current) => {
+      if (draft && current.get(sessionID) === draft) return current;
+      if (!draft && !current.has(sessionID)) return current;
+      const next = new Map(current);
+      if (draft) next.set(sessionID, draft);
+      else next.delete(sessionID);
+      return next;
+    });
   }
 
   async function refreshRuntimeState() {
@@ -1051,8 +1069,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           next.set(reusable.id, toolsEnabled);
           return next;
         });
-        await selectChatSession(reusable.id);
-        setMessage(requestedDraft);
+        await selectChatSession(reusable.id, { draft: requestedDraft });
         return;
       }
     }
@@ -1100,10 +1117,19 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
   }
 
-  async function selectChatSession(id: string): Promise<boolean> {
+  async function selectChatSession(
+    id: string,
+    options: SelectChatSessionOptions = {},
+  ): Promise<boolean> {
+    rememberChatComposerDraft(activeChatSessionID, message);
+    const targetDraft = composerDraftsBySessionID.get(id) ?? options.draft ?? "";
+    if (id && options.draft !== undefined && !composerDraftsBySessionID.has(id)) {
+      rememberChatComposerDraft(id, options.draft);
+    }
     setActiveChatSessionID(id);
     if (!id) {
       setActiveChatSession(null);
+      setMessage("");
       return true;
     }
     try {
@@ -1121,12 +1147,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       setAgentWorkspace(payload.data.workspace ?? "");
       setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
+      setMessage(targetDraft);
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
       setActiveChatSessionID("");
       setActiveChatSession(null);
       setAgentWorkspaceBranch("");
+      setMessage("");
       setChatErrorState(error, "failed to load agent chat");
       params.setNoticeMessage("error", msg);
       return false;
@@ -1134,6 +1162,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function startNewChat() {
+    rememberChatComposerDraft(activeChatSessionID, message);
     if (activeChatSessionID) {
       setQueuedChatMessages((current) =>
         current.filter((item) => item.session_id !== activeChatSessionID),
@@ -1159,6 +1188,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       if (activeChatSessionID === id) {
         startNewChat();
       }
+      setComposerDraftsBySessionID((current) => {
+        if (!current.has(id)) return current;
+        const next = new Map(current);
+        next.delete(id);
+        return next;
+      });
       params.setNoticeMessage("success", "Agent chat deleted.");
     } catch (error) {
       params.setNoticeMessage(

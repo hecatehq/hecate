@@ -871,7 +871,7 @@ test("Projects selected-work kickoff: add responsibility and assign rootless Hum
   expect(state.assignments[0]?.execution_ref).toBeUndefined();
 });
 
-test("Projects External Agent continuity: prepare chat, preserve the draft, and return to exact work", async ({
+test("Projects External Agent continuity: preserve the right draft, complete a turn, and return to exact work", async ({
   page,
 }) => {
   await page.clock.setFixedTime(new Date(NOW));
@@ -880,6 +880,7 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
   const workItemID = "work_external";
   const assignmentID = "assign_external";
   const chatSessionID = "chat_external_assignment";
+  const otherChatSessionID = "chat_other_project_work";
   const contextSnapshotID = "ctx_external_assignment";
   const assistantMessageID = "msg_external_assistant";
   const messageAt = "2026-06-14T10:12:00Z";
@@ -1014,9 +1015,10 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
               id: "segment_external_assignment",
               execution_mode: "external_agent",
               workspace: "/tmp/hecate-e2e-project",
-              status: "running",
+              status: chatStatus,
               message_count: 2,
               started_at: messageAt,
+              ...(chatStatus === "completed" ? { completed_at: messageAt } : {}),
               updated_at: messageAt,
             },
           ]
@@ -1030,6 +1032,24 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
       segments: _segments,
       ...summary
     } = chatSession();
+    return summary;
+  };
+  const otherChatSession = () => ({
+    id: otherChatSessionID,
+    title: "Other project chat",
+    project_id: projectID,
+    agent_id: "hecate",
+    status: "idle",
+    message_count: 0,
+    messages: [],
+    segments: [],
+    provider: "ollama",
+    model: "qwen2.5-coder",
+    created_at: NOW,
+    updated_at: NOW,
+  });
+  const otherChatSummary = () => {
+    const { messages: _messages, segments: _segments, ...summary } = otherChatSession();
     return summary;
   };
 
@@ -1047,8 +1067,27 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ object: "chat_sessions", data: prepared ? [chatSummary()] : [] }),
+        body: JSON.stringify({
+          object: "chat_sessions",
+          data: prepared ? [chatSummary(), otherChatSummary()] : [otherChatSummary()],
+        }),
       });
+      return;
+    }
+    if (sessionID === otherChatSessionID) {
+      if (parts[1] === "stream") {
+        await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+        return;
+      }
+      if (parts.length === 1 && request.method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ object: "chat_session", data: otherChatSession() }),
+        });
+        return;
+      }
+      await route.fallback();
       return;
     }
     if (sessionID !== chatSessionID) {
@@ -1095,8 +1134,8 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
           execution_mode: "external_agent",
           segment_id: "segment_external_assignment",
           role: "assistant",
-          content: "I’m drafting the release notes now.",
-          status: "running",
+          content: "The release notes draft is ready for review.",
+          status: "completed",
           agent_id: "codex",
           agent_name: "Codex",
           driver_kind: "acp",
@@ -1106,20 +1145,22 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
           trace_id: "trace_external_assignment",
           cost_mode: "external",
           raw_output:
-            '{"type":"agent_message_chunk","text":"I’m drafting the release notes now."}\n{"type":"session_update","status":"running"}',
+            '{"type":"agent_message_chunk","text":"The release notes draft is ready for review."}\n{"type":"session_update","status":"completed"}',
           activities: [
             {
               id: "thinking_external_assignment",
               type: "thinking",
-              title: "Drafting release notes",
-              status: "running",
+              title: "Release notes drafted",
+              status: "completed",
               created_at: messageAt,
+              completed_at: messageAt,
             },
           ],
           created_at: messageAt,
+          completed_at: messageAt,
         },
       ];
-      chatStatus = "running";
+      chatStatus = "completed";
       const canonicalAssignment = state.assignments.find(
         (assignment) => assignment.id === assignmentID,
       );
@@ -1130,8 +1171,10 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
         ...canonicalAssignment.execution_ref,
         message_id: assistantMessageID,
         trace_id: "trace_external_assignment",
-        status: "running",
+        status: "completed",
       };
+      canonicalAssignment.status = "completed";
+      canonicalAssignment.completed_at = messageAt;
       canonicalAssignment.updated_at = messageAt;
       await route.fulfill({
         status: 200,
@@ -1184,6 +1227,10 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
   const seededDraft = await composer.inputValue();
   const editedDraft = `${seededDraft}\n\nOperator note: preserve this edited draft across the handoff.`;
   await composer.fill(editedDraft);
+
+  await page.getByRole("button", { name: /Chat Other project chat/ }).click();
+  await expect(composer).toHaveValue("");
+  await composer.fill("Unrelated operator draft that must stay with the other chat.");
 
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
@@ -1242,19 +1289,23 @@ test("Projects External Agent continuity: prepare chat, preserve the draft, and 
     expect.objectContaining({ content: editedDraft, execution_mode: "external_agent" }),
   );
   await expect(
-    page.getByText("I’m drafting the release notes now.", { exact: true }),
+    page.getByText("The release notes draft is ready for review.", { exact: true }),
   ).toBeVisible();
 
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
-  const activeStory = page.getByRole("article", {
+  const completedStory = page.getByRole("article", {
     name: "Implementation agent assignment execution assign_external",
   });
   await expect(
-    activeStory.getByText("External Agent work is continuing in the linked chat."),
+    completedStory.getByText(
+      "External Agent work completed. Review the outcome and choose the follow-through.",
+    ),
   ).toBeVisible();
-  await expect(activeStory.getByRole("button", { name: "Open chat" })).toBeVisible();
-  await expect(activeStory.getByRole("button", { name: "Continue in chat" })).toHaveCount(0);
+  await expect(completedStory.getByRole("button", { name: "Open chat" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Record evidence" })).toBeVisible();
+  await expect(completedStory.getByRole("button", { name: "Continue in chat" })).toHaveCount(0);
+  expect(state.assignments[0]?.status).toBe("completed");
   expect(state.assignments[0]?.execution_ref).toEqual(
     expect.objectContaining({
       chat_session_id: chatSessionID,

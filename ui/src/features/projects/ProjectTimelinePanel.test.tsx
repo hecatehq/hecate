@@ -265,6 +265,49 @@ describe("ProjectTimelinePanel", () => {
     });
   });
 
+  it("keeps a missing linked chat as evidence without offering navigation", () => {
+    const linkedAssignment = assignment({
+      driver_kind: "external_agent",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_missing",
+        status: "running",
+        missing: true,
+      },
+      execution: undefined,
+    });
+    const linkedActivity = activityItem();
+    linkedActivity.assignment = linkedAssignment;
+    linkedActivity.linked_task_id = undefined;
+    linkedActivity.linked_run_id = undefined;
+    linkedActivity.linked_chat_id = "chat_missing";
+
+    render(
+      <ProjectTimelinePanel
+        activity={{
+          ...activity(),
+          buckets: { active: [linkedActivity], blocked: [], completed: [], recent: [] },
+          recent: [],
+        }}
+        artifacts={[]}
+        handoffs={[]}
+        memoryCandidates={[]}
+        memoryEntries={[]}
+        onEditMemory={vi.fn()}
+        onOpenChat={vi.fn()}
+        onSelectWorkItem={vi.fn()}
+        project={project()}
+        roles={[role()]}
+        workItems={[workItem()]}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Open timeline chat for Extract timeline" }),
+    ).toBeNull();
+    expect(screen.getByText("chat chat_missing")).toBeTruthy();
+  });
+
   it("renders empty guidance when no project story exists", () => {
     render(
       <ProjectTimelinePanel

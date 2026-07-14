@@ -348,6 +348,76 @@ describe("ProjectAssignmentExecutionStory", () => {
     expect(handlers.onOpenChat).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an untimed prepared External Agent chat visible as the current milestone", () => {
+    renderStory(
+      assignment({
+        driver_kind: "external_agent",
+        status: "running",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_external",
+          status: "running",
+        },
+      }),
+    );
+
+    const milestones = screen.getByRole("list", { name: "Execution milestones" });
+    const preparedMilestone = within(milestones).getByText("Chat prepared").closest("li");
+    expect(preparedMilestone).not.toBeNull();
+    expect(within(preparedMilestone as HTMLElement).getByText("Current")).toBeTruthy();
+    expect(
+      within(preparedMilestone as HTMLElement).getByText(
+        "The supervised chat is ready for the first prompt.",
+      ),
+    ).toBeTruthy();
+    expect(within(preparedMilestone as HTMLElement).queryByRole("time")).toBeNull();
+  });
+
+  it("does not offer a missing linked External Agent chat as ready or openable", () => {
+    const { handlers } = renderStory(
+      assignment({
+        driver_kind: "external_agent",
+        status: "running",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_missing",
+          status: "running",
+          missing: true,
+        },
+      }),
+    );
+
+    expect(
+      screen.getByText("No linked External Agent chat is available for this assignment."),
+    ).toBeTruthy();
+    expect(screen.getByText("The linked runtime record is missing or unavailable.")).toBeTruthy();
+    expect(screen.queryByText("Chat ready")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue in chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    expect(handlers.onOpenChat).not.toHaveBeenCalled();
+  });
+
+  it("does not offer preparation again for a queued assignment with a missing chat", () => {
+    renderStory(
+      assignment({
+        driver_kind: "external_agent",
+        status: "queued",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_missing",
+          status: "queued",
+          missing: true,
+        },
+      }),
+    );
+
+    expect(
+      screen.getByText("No linked External Agent chat is available for this assignment."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review & prepare chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue in chat" })).toBeNull();
+  });
+
   it("shows message-backed External Agent work as active in its linked chat", async () => {
     const { handlers } = renderStory(
       assignment({

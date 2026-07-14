@@ -107,9 +107,13 @@ export function ProjectAssignmentExecutionStory({
   const manualStartInterrupted = manualMissingStart && !execution.hasAnyLink;
   const manualTerminal =
     manual && (status === "completed" || status === "failed" || status === "cancelled");
-  const startable = (assignment.driver_kind === "hecate_task" || external) && status === "queued";
+  const runtimeMissing = Boolean(execution.missing || assignment.execution?.missing);
+  const startable =
+    (assignment.driver_kind === "hecate_task" || external) &&
+    status === "queued" &&
+    !(external && runtimeMissing);
   const canOpenTask = Boolean(execution.taskID && onOpenTask);
-  const canOpenChat = Boolean(onOpenChat && execution.chatSessionID);
+  const canOpenChat = Boolean(onOpenChat && execution.chatSessionID && !runtimeMissing);
   const canStartRelatedChat = Boolean(
     onOpenChat && !external && !manual && !execution.chatSessionID && chatModel,
   );
@@ -191,8 +195,6 @@ export function ProjectAssignmentExecutionStory({
       onClick: onResumeWork,
     });
   }
-  const runtimeMissing = Boolean(execution.missing || assignment.execution?.missing);
-
   return (
     <article
       aria-label={`${role?.name ?? assignment.role_id} assignment execution ${assignment.id}`}
@@ -452,7 +454,7 @@ export function projectAssignmentExecutionMilestones(
       label: external ? "Chat prepared" : "Started",
     });
   }
-  if (externalPrepared) return milestones;
+  if (externalPrepared && startedAt) return milestones;
   if (terminal && finishedAt) {
     milestones.push({
       at: finishedAt,

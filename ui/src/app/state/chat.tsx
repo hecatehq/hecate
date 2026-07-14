@@ -91,6 +91,10 @@ export type ChatState = {
   chatSessions: ChatSessionsResponse["data"];
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
+  // Transient unsent composer text keyed by chat. This is deliberately
+  // session-memory only: it prevents drafts crossing between chats without
+  // turning browser storage into another chat or project authority.
+  composerDraftsBySessionID: Map<string, string>;
   queuedChatMessages: QueuedChatMessage[];
   model: string;
   systemPrompt: string;
@@ -126,6 +130,7 @@ export type ChatActions = {
   setChatSessions: Setter<ChatSessionsResponse["data"]>;
   setActiveChatSessionID: Setter<string>;
   setActiveChatSession: Setter<ChatSessionRecord | null>;
+  setComposerDraftsBySessionID: Setter<Map<string, string>>;
   setQueuedChatMessages: Setter<QueuedChatMessage[]>;
   setModel: Setter<string>;
   setSystemPrompt: Setter<string>;
@@ -221,6 +226,9 @@ export function ChatProvider({
   );
   const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(
     initialState?.activeChatSession ?? null,
+  );
+  const [composerDraftsBySessionID, setComposerDraftsBySessionID] = useState(
+    initialState?.composerDraftsBySessionID ?? new Map<string, string>(),
   );
   const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
     queuedChatMessagesStorageKey,
@@ -350,6 +358,7 @@ export function ChatProvider({
       chatSessions,
       activeChatSessionID,
       activeChatSession,
+      composerDraftsBySessionID,
       queuedChatMessages,
       model,
       systemPrompt,
@@ -381,6 +390,7 @@ export function ChatProvider({
       chatSessions,
       activeChatSessionID,
       activeChatSession,
+      composerDraftsBySessionID,
       queuedChatMessages,
       model,
       systemPrompt,
@@ -415,6 +425,7 @@ export function ChatProvider({
       setChatSessions,
       setActiveChatSessionID,
       setActiveChatSession,
+      setComposerDraftsBySessionID,
       setQueuedChatMessages,
       setModel,
       setSystemPrompt,

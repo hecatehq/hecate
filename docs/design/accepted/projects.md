@@ -369,15 +369,16 @@ The Projects UI should stay lightweight but operational:
   inbox projection and must not override the selected assignment's current
   execution state, evidence, links, or actions.
 - Present External Agent preparation truthfully inside that existing execution
-  story. A queued assignment remains queued; `chat_session_id` without
-  `message_id` is **Chat ready** with **Continue in chat**; a recorded
+  story. A queued assignment remains queued; an available `chat_session_id`
+  without `message_id` is **Chat ready** with **Continue in chat**; a recorded
   `message_id` establishes agent-turn continuity and running work uses **Open
-  chat**. Authoritative review, failure, and cancellation states use **Review in
-  chat** or **Inspect chat**. Preparing the session must not send the prompt.
-  Seed the editable launch draft once after a successful prepare, then reopen
-  the linked session without replacing unsent composer edits. These are
-  presentation rules over Cairnline assignment state and Hecate execution
-  references, not a second project lifecycle.
+  chat**. A runtime marked missing stays unavailable and offers no chat action.
+  Authoritative review, failure, and cancellation states use **Review in chat**
+  or **Inspect chat**. Preparing the session must not send the prompt. Seed the
+  editable launch draft once after a successful prepare, keep unsent drafts
+  scoped to their chat sessions, and retain that seed through a transient first
+  selection failure. These are presentation rules over Cairnline assignment
+  state and Hecate execution references, not a second project lifecycle.
 - Present assignment destinations in product language: **Human**, **Hecate
   Task**, and **External Agent**. Human maps to Cairnline `manual`; it starts
   and completes through Cairnline assignment transitions without creating a

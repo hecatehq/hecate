@@ -231,10 +231,11 @@ gives otherwise pristine selected work one direct kickoff, progressively
 discloses responsibility defaults, keeps Assistant drafting optional, and
 returns focus to the exact next control or created assignment story.
 Slice 8 derives a calm External Agent presentation from the existing assignment
-status and `execution_ref`: a prepared `chat_session_id` without `message_id` is
-**Chat ready**, while `message_id` records agent-turn continuity. It opens the
-prepared chat with one editable launch draft and never reseeds that draft when
-the operator returns to the linked session.
+status and `execution_ref`: an available prepared `chat_session_id` without
+`message_id` is **Chat ready**, while `message_id` records agent-turn
+continuity. It keeps each unsent draft scoped to its chat, restores the prepared
+chat's one launch draft on return, and retains the seed through a transient
+initial selection failure.
 None of the slices add local project lifecycle state or inferred execution
 events.
 
@@ -408,9 +409,10 @@ is labeled **Chat prepared**, not execution started.
 
 ```mermaid
 flowchart LR
-  Q["Queued assignment"] -->|"Review & prepare chat"| P["Chat ready · chat_session_id · no message_id"]
+  Q["Queued assignment"] -->|"Review & prepare chat"| P["Chat ready · available chat_session_id · no message_id"]
   P -->|"Review and send the seeded draft"| A["Agent response recorded · message_id"]
-  P -.-> N["Prepare does not send · reopen preserves unsent edits"]
+  P -.-> N["Prepare does not send · drafts remain scoped by chat"]
+  P -.-> U["Missing runtime · unavailable · no chat action"]
   A --> S{"Authoritative projected status"}
   S -->|"Running"| O["Open chat"]
   S -->|"Operator attention"| R["Review in chat"]
@@ -419,13 +421,15 @@ flowchart LR
 ```
 
 The first successful prepare seeds one editable launch draft in the linked
-chat; it does not append a prompt or start an agent turn. Returning through
-**Continue in chat** selects that same session without reseeding the composer,
-so unsent operator edits remain intact. A projected `message_id` records agent
+chat; it does not append a prompt or start an agent turn. Unsent drafts remain
+scoped by chat, so returning through **Continue in chat** restores the linked
+session's edit instead of another chat's text. A transient first selection
+failure retains the seed for retry. A projected `message_id` records agent
 response continuity; assignment/runtime status still decides whether Projects
-offers **Open chat**, **Review in chat**, or **Inspect chat**. This presentation
-uses the existing Cairnline-backed assignment and Hecate execution reference;
-the browser does not persist a second prepared/active state.
+offers **Open chat**, **Review in chat**, or **Inspect chat**. A missing runtime
+offers none of those chat actions. This presentation uses the existing
+Cairnline-backed assignment and Hecate execution reference; the browser does
+not persist a second prepared/active state.
 
 Pending approvals, failures, missing runtime links, and an unprepared External
 Agent chat remain visible outside the disclosure. Blocked closeout guidance
@@ -562,10 +566,11 @@ all four from `ui/` with
   neither action chains another write, starts execution, or persists a local
   workflow phase.
 - External Agent continuity is derived from the existing assignment status and
-  execution reference. `chat_session_id` without `message_id` may change the
-  presentation to **Chat ready**, but it does not create a browser-owned
-  lifecycle phase or prove that a prompt was sent. Reopening the linked chat is
-  navigation only and must not replace unsent operator input.
+  execution reference. An available `chat_session_id` without `message_id` may
+  change the presentation to **Chat ready**, but it does not create a
+  browser-owned lifecycle phase or prove that a prompt was sent. A missing
+  runtime stays unavailable. Reopening the linked chat is navigation only and
+  must restore only that chat's unsent operator input.
 - The URL records presentation intent only. It may name a workspace, project
   view, and work item, but it never creates portable state, proves that a record
   exists, grants runtime permission, or substitutes for Cairnline validation.
