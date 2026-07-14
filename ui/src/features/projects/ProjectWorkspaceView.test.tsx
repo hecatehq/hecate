@@ -1671,6 +1671,180 @@ describe("ProjectWorkspaceView", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("returns focus to the work queue when a refreshed filter removes the focused row", () => {
+    const item = workItem({ title: "Move between buckets" });
+    const activeItem = activityItem({
+      id: "assign_active",
+      assignment: assignment({
+        id: "assign_active",
+        work_item_id: item.id,
+        status: "running",
+        execution_ref: { kind: "task_run", status: "running" },
+      }),
+      blocking_signal: undefined,
+      status: "running",
+      status_summary: "running",
+      work_item: {
+        id: item.id,
+        title: item.title,
+        status: item.status,
+        priority: item.priority,
+      },
+    });
+    const activeProjection = activity({
+      summary: {
+        work_item_count: 1,
+        assignment_count: 1,
+        active_count: 1,
+        blocked_count: 0,
+        completed_count: 0,
+        recent_count: 1,
+      },
+      buckets: { active: [activeItem], blocked: [], completed: [], recent: [activeItem] },
+      recent: [activeItem],
+    });
+    const { handlers, props, rerender } = renderWorkspace({
+      activity: activeProjection,
+      activityBucket: "active",
+      activityLoadState: "loaded",
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+    const focusedRow = screen.getByRole("link", { name: "Open work item Move between buckets" });
+    focusedRow.focus();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={{
+          ...activeProjection,
+          summary: {
+            ...activeProjection.summary,
+            active_count: 0,
+            completed_count: 1,
+          },
+          buckets: { active: [], blocked: [], completed: [activeItem], recent: [activeItem] },
+        }}
+        activityBucket="active"
+        workItems={[item]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+
+    const queue = screen.getByRole("region", { name: "Work queue" });
+    expect(queue).toHaveFocus();
+    const message =
+      "Move between buckets is no longer in this work view. Focus returned to the work queue.";
+    const firstAnnouncement = within(queue).getByText(message);
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={activeProjection}
+        activityBucket="active"
+        workItems={[item]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+    screen.getByRole("link", { name: "Open work item Move between buckets" }).focus();
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        activity={{
+          ...activeProjection,
+          summary: {
+            ...activeProjection.summary,
+            active_count: 0,
+            completed_count: 1,
+          },
+          buckets: { active: [], blocked: [], completed: [activeItem], recent: [activeItem] },
+        }}
+        activityBucket="active"
+        workItems={[item]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+
+    expect(queue).toHaveFocus();
+    expect(within(queue).getByText(message)).not.toBe(firstAnnouncement);
+  });
+
+  it("returns focus to the work queue when refreshed authority removes selected work", () => {
+    const item = workItem({ title: "Remove selected work" });
+    const { handlers, props, rerender } = renderWorkspace({
+      hasWorkItemDetail: true,
+      selectedWorkItem: item,
+      selectedWorkItemID: item.id,
+      workItems: [item],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+    within(screen.getByRole("region", { name: "Selected work item" }))
+      .getByRole("button", { name: "Add responsibility" })
+      .focus();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        hasWorkItemDetail={false}
+        selectedWorkItem={null}
+        selectedWorkItemID=""
+        workItems={[]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Work queue" })).toHaveFocus();
+    expect(
+      screen.getByText(
+        "Remove selected work is no longer available. Focus returned to the work queue.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("keeps detail focus during deliberate cross-work selection while the previous work remains", () => {
+    const source = workItem({ id: "work_source", title: "Prepare handoff" });
+    const target = workItem({ id: "work_target", title: "Receive handoff" });
+    const { handlers, props, rerender } = renderWorkspace({
+      hasWorkItemDetail: true,
+      selectedWorkItem: source,
+      selectedWorkItemID: source.id,
+      workItems: [source, target],
+      workLoadState: "loaded",
+      workspaceTab: "work",
+    });
+    const responsibilityButton = within(
+      screen.getByRole("region", { name: "Selected work item" }),
+    ).getByRole("button", { name: "Add responsibility" });
+    responsibilityButton.focus();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        hasWorkItemDetail
+        selectedWorkItem={target}
+        selectedWorkItemID={target.id}
+        workItems={[source, target]}
+        workLoadState="loaded"
+        workspaceTab="work"
+      />,
+    );
+
+    expect(responsibilityButton).toHaveFocus();
+    expect(screen.getByRole("heading", { level: 2, name: "Receive handoff" })).toBeTruthy();
+    expect(screen.queryByText(/is no longer available\. Focus returned/)).toBeNull();
+  });
+
   it("explains compact project operations limits", () => {
     const operationItems = Array.from({ length: 8 }, (_, index) => ({
       id: `prepare_first_assignment:proj_1:work_${index}`,
@@ -1717,6 +1891,134 @@ describe("ProjectWorkspaceView", () => {
       within(operations).getByText(
         "Showing 4 of 9 operations; 5 lower-priority operations are hidden (1 capped by the server).",
       ),
+    ).toBeTruthy();
+  });
+
+  it("returns focus to Overview when a refreshed operation action disappears", () => {
+    const operation: ProjectOperationsBriefItem = {
+      id: "prepare_first_assignment:proj_1:work_1",
+      kind: "prepare_first_assignment",
+      priority: "medium",
+      title: "Prepare first assignment",
+      detail: "This work item needs an assignment.",
+      action_label: "Draft assignment",
+      target: { surface: "work", project_id: "proj_1", work_item_id: "work_1" },
+      action: {
+        type: "draft_project_proposal",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        request: "Queue an assignment",
+      },
+    };
+    const brief = {
+      project_id: "proj_1",
+      generated_at: "2026-06-13T00:00:00Z",
+      summary: {
+        item_count: 1,
+        high_count: 0,
+        medium_count: 1,
+        low_count: 0,
+        pending_memory_candidate_count: 0,
+        pending_handoff_count: 0,
+      },
+      items: [operation],
+    };
+    const { handlers, props, rerender } = renderWorkspace({ operationsBrief: brief });
+    const action = screen.getByRole("button", {
+      name: "Draft assignment: Prepare first assignment",
+    });
+    action.focus();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        operationsBrief={{
+          ...brief,
+          summary: { ...brief.summary, item_count: 0, medium_count: 0 },
+          items: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /Overview/ })).toHaveFocus();
+    const message = "Project operations changed. Focus returned to the Overview tab.";
+    const firstAnnouncement = screen.getByText(message);
+
+    rerender(<ProjectWorkspaceView {...props} {...handlers} operationsBrief={brief} />);
+    screen.getByRole("button", { name: "Draft assignment: Prepare first assignment" }).focus();
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        operationsBrief={{
+          ...brief,
+          summary: { ...brief.summary, item_count: 0, medium_count: 0 },
+          items: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /Overview/ })).toHaveFocus();
+    expect(screen.getByText(message)).not.toBe(firstAnnouncement);
+  });
+
+  it("returns focus to Overview when a refreshed operation keeps its label but changes target", () => {
+    const operation: ProjectOperationsBriefItem = {
+      id: "prepare_first_assignment:proj_1:work_1",
+      kind: "prepare_first_assignment",
+      priority: "medium",
+      title: "Prepare first assignment",
+      detail: "This work item needs an assignment.",
+      action_label: "Draft assignment",
+      target: { surface: "work", project_id: "proj_1", work_item_id: "work_1" },
+      action: {
+        type: "draft_project_proposal",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        request: "Queue an assignment",
+      },
+    };
+    const brief = {
+      project_id: "proj_1",
+      generated_at: "2026-06-13T00:00:00Z",
+      summary: {
+        item_count: 1,
+        high_count: 0,
+        medium_count: 1,
+        low_count: 0,
+        pending_memory_candidate_count: 0,
+        pending_handoff_count: 0,
+      },
+      items: [operation],
+    };
+    const { handlers, props, rerender } = renderWorkspace({ operationsBrief: brief });
+    screen.getByRole("button", { name: "Draft assignment: Prepare first assignment" }).focus();
+
+    rerender(
+      <ProjectWorkspaceView
+        {...props}
+        {...handlers}
+        operationsBrief={{
+          ...brief,
+          items: [
+            {
+              ...operation,
+              target: { ...operation.target, work_item_id: "work_2" },
+              action: {
+                ...operation.action,
+                work_item_id: "work_2",
+                request: "Queue a different assignment",
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /Overview/ })).toHaveFocus();
+    expect(
+      screen.getByText("Project operations changed. Focus returned to the Overview tab."),
     ).toBeTruthy();
   });
 

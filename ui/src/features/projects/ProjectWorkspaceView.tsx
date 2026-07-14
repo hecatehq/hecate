@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -60,6 +61,11 @@ export type WorkItemSummary = {
 };
 
 export type LoadState = "idle" | "loading" | "loaded" | "error";
+
+type FocusAnnouncement = {
+  key: number;
+  message: string;
+};
 
 export type ProjectWorkspaceTab = "overview" | "work" | "timeline" | "memory" | "skills";
 
@@ -289,6 +295,40 @@ export function ProjectWorkspaceView({
       (Boolean(assistant.proposal) || Boolean(assistant.applyResult)));
   const projectGuidedStart = projectSetupAssistantMode && workItems.length === 0;
   const guidedPrimaryActionRef = useRef<HTMLButtonElement>(null);
+  const selectedWorkDetailRef = useRef<HTMLElement>(null);
+  const selectedWorkPresentationWorkItemID = hasWorkItemDetail
+    ? (selectedWorkItem?.id ?? selectedWorkItemID)
+    : "";
+  const selectedWorkPresentationIdentity = hasWorkItemDetail
+    ? JSON.stringify([project?.id ?? "", selectedWorkPresentationWorkItemID])
+    : "";
+  const selectedWorkPresentationRef = useRef({
+    identity: selectedWorkPresentationIdentity,
+    title: selectedWorkItem?.title ?? "",
+    workItemID: selectedWorkPresentationWorkItemID,
+  });
+  const previousSelectedWorkPresentation = selectedWorkPresentationRef.current;
+  const selectedWorkPresentationTitle =
+    selectedWorkItem?.title ??
+    (previousSelectedWorkPresentation.identity === selectedWorkPresentationIdentity
+      ? previousSelectedWorkPresentation.title
+      : "");
+  const [selectedWorkFocusNotice, setSelectedWorkFocusNotice] = useState<FocusAnnouncement>({
+    key: 0,
+    message: "",
+  });
+  const focusIsInSelectedWorkDetail = Boolean(
+    typeof document !== "undefined" &&
+    document.activeElement instanceof HTMLElement &&
+    selectedWorkDetailRef.current?.contains(document.activeElement),
+  );
+  const focusedSelectedWorkWillChange = Boolean(
+    focusIsInSelectedWorkDetail &&
+    previousSelectedWorkPresentation.identity &&
+    previousSelectedWorkPresentation.identity !== selectedWorkPresentationIdentity &&
+    previousSelectedWorkPresentation.workItemID &&
+    !workItems.some((item) => item.id === previousSelectedWorkPresentation.workItemID),
+  );
   const guidedPresentationRef = useRef({
     applyResult: projectSetupAssistantMode && Boolean(assistant.applyResult),
     projectID: project?.id ?? "",
@@ -313,6 +353,29 @@ export function ProjectWorkspaceView({
       proposal: guidedProposalVisible,
     };
   }, [guidedProposalVisible, guidedResultVisible, project?.id]);
+  useLayoutEffect(() => {
+    selectedWorkPresentationRef.current = {
+      identity: selectedWorkPresentationIdentity,
+      title: selectedWorkPresentationTitle,
+      workItemID: selectedWorkPresentationWorkItemID,
+    };
+    if (!focusedSelectedWorkWillChange) return;
+    const workQueue = document.getElementById("project-work-queue");
+    const focusTarget = workQueue ?? document.getElementById("project-workspace-tab-work");
+    focusTarget?.focus();
+    const previousTitle = previousSelectedWorkPresentation.title || "The selected work item";
+    const focusDestination = workQueue ? "work queue" : "Work tab";
+    setSelectedWorkFocusNotice((current) => ({
+      key: current.key + 1,
+      message: `${previousTitle} is no longer available. Focus returned to the ${focusDestination}.`,
+    }));
+  }, [
+    focusedSelectedWorkWillChange,
+    previousSelectedWorkPresentation.title,
+    selectedWorkPresentationIdentity,
+    selectedWorkPresentationTitle,
+    selectedWorkPresentationWorkItemID,
+  ]);
   const projectWorkItemCount = workItems.length || activity?.summary.work_item_count || 0;
   const operationItems = Array.isArray(operationsBrief?.items) ? operationsBrief.items : [];
   const firstSelectedWorkItemOperation =
@@ -448,6 +511,7 @@ export function ProjectWorkspaceView({
       aria-label="Project workspace content"
       tabIndex={-1}
     >
+      <FocusAnnouncementStatus announcement={selectedWorkFocusNotice} />
       <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
         {project ? (
           <section style={domainSectionStyle} aria-label="Project workspace">
@@ -654,7 +718,11 @@ export function ProjectWorkspaceView({
                         workItems={workItems}
                         workLoadState={workLoadState}
                       />
-                      <section aria-label="Selected work item" style={workDetailColumnStyle}>
+                      <section
+                        aria-label="Selected work item"
+                        ref={selectedWorkDetailRef}
+                        style={workDetailColumnStyle}
+                      >
                         {hasWorkItemDetail ? (
                           <ProjectWorkItemDetail
                             assistantProposalOpen={Boolean(assistant.proposal)}
@@ -928,6 +996,8 @@ function WorkItemRow({
   return (
     <a
       className="project-work-item-row"
+      data-project-work-item-id={item.id}
+      data-project-work-item-title={item.title}
       aria-current={active ? "page" : undefined}
       aria-label={`Open work item ${item.title}`}
       href={projectNavigationURL(window.location, {
@@ -1189,13 +1259,46 @@ function ProjectOperationsBriefPanel({
   loading: boolean;
   onAction: (item: ProjectOperationsBriefItem) => void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const [focusNotice, setFocusNotice] = useState<FocusAnnouncement>({ key: 0, message: "" });
   const items = Array.isArray(brief?.items) ? brief.items : [];
-  if ((!brief || items.length === 0) && !loading) {
-    return error ? <InlineError message={error} /> : null;
-  }
-
   const primary = items[0] ?? null;
   const secondary = items.slice(1, 4);
+  const focusedOperation =
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest<HTMLElement>("[data-project-operation-identity]")
+      : null;
+  const focusedOperationIdentity =
+    focusedOperation && panelRef.current?.contains(focusedOperation)
+      ? (focusedOperation.dataset.projectOperationIdentity ?? "")
+      : "";
+  const focusedOperationSlot = focusedOperation?.dataset.projectOperationSlot ?? "";
+  const focusedOperationWillChange = Boolean(
+    focusedOperationIdentity &&
+    (focusedOperationSlot === "primary"
+      ? !primary || projectOperationIdentity(primary) !== focusedOperationIdentity
+      : !secondary.some((item) => projectOperationIdentity(item) === focusedOperationIdentity)),
+  );
+
+  useLayoutEffect(() => {
+    if (!focusedOperationWillChange) return;
+    document.getElementById("project-workspace-tab-overview")?.focus();
+    setFocusNotice((current) => ({
+      key: current.key + 1,
+      message: "Project operations changed. Focus returned to the Overview tab.",
+    }));
+  }, [focusedOperationWillChange]);
+
+  const focusStatus = <FocusAnnouncementStatus announcement={focusNotice} />;
+  if ((!brief || items.length === 0) && !loading) {
+    return (
+      <>
+        {focusStatus}
+        {error && <InlineError message={error} />}
+      </>
+    );
+  }
+
   const shownItemCount = (primary ? 1 : 0) + secondary.length;
   const limitDetail = projectOperationsLimitDetail(brief, shownItemCount);
   const title = loading && !brief ? "Loading operations…" : primary?.title || "Operations clear";
@@ -1205,63 +1308,76 @@ function ProjectOperationsBriefPanel({
       : primary?.detail || "No queued, blocked, handoff, or memory-review items need attention.";
 
   return (
-    <section
-      aria-label="Project operations"
-      className="project-operations-brief"
-      style={projectOperationsBriefStyle}
-    >
-      <div className="project-operations-brief-main" style={projectOperationsBriefMainStyle}>
-        <div style={sectionLabelStyle}>Project Operations</div>
-        <div aria-atomic="true" aria-busy={loading} aria-live="polite" role="status">
-          <div style={projectOperationsTitleStyle}>{title}</div>
-          <div style={subtleTextStyle}>{detail}</div>
-        </div>
-      </div>
-      <div
-        className="project-operations-brief-controls"
-        style={projectOperationsBriefControlsStyle}
+    <>
+      {focusStatus}
+      <section
+        ref={panelRef}
+        aria-label="Project operations"
+        className="project-operations-brief"
+        style={projectOperationsBriefStyle}
       >
-        {primary ? (
-          <>
-            <Badge
-              status={primary.status || primary.priority}
-              label={projectOperationBadge(primary)}
-            />
-            <button
-              aria-label={`${primary.action_label}: ${primary.title}`}
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={() => onAction(primary)}
-            >
-              {primary.action_label}
-            </button>
-          </>
-        ) : (
-          <span className="badge badge-green">clear</span>
-        )}
-      </div>
-      {secondary.length > 0 && (
-        <div style={projectOperationsListStyle}>
-          {secondary.map((item) => (
-            <button
-              aria-label={`${item.action_label}: ${item.title}`}
-              className="btn btn-ghost btn-sm"
-              key={item.id}
-              onClick={() => onAction(item)}
-              style={projectOperationsItemButtonStyle}
-              type="button"
-            >
-              <span className="badge badge-muted">{projectOperationBadge(item)}</span>
-              <span style={projectOperationsItemTitleStyle}>{item.title}</span>
-              <span style={projectOperationsItemActionStyle}>{item.action_label}</span>
-            </button>
-          ))}
+        <div className="project-operations-brief-main" style={projectOperationsBriefMainStyle}>
+          <div style={sectionLabelStyle}>Project Operations</div>
+          <div aria-atomic="true" aria-busy={loading} aria-live="polite" role="status">
+            <div style={projectOperationsTitleStyle}>{title}</div>
+            <div style={subtleTextStyle}>{detail}</div>
+          </div>
         </div>
-      )}
-      {limitDetail && <div style={subtleTextStyle}>{limitDetail}</div>}
-      {error && <InlineError message={error} />}
-    </section>
+        <div
+          className="project-operations-brief-controls"
+          style={projectOperationsBriefControlsStyle}
+        >
+          {primary ? (
+            <>
+              <Badge
+                status={primary.status || primary.priority}
+                label={projectOperationBadge(primary)}
+              />
+              <button
+                aria-label={`${primary.action_label}: ${primary.title}`}
+                className="btn btn-primary btn-sm"
+                data-project-operation-identity={projectOperationIdentity(primary)}
+                data-project-operation-slot="primary"
+                key={projectOperationIdentity(primary)}
+                type="button"
+                onClick={() => onAction(primary)}
+              >
+                {primary.action_label}
+              </button>
+            </>
+          ) : (
+            <span className="badge badge-green">clear</span>
+          )}
+        </div>
+        {secondary.length > 0 && (
+          <div style={projectOperationsListStyle}>
+            {secondary.map((item) => (
+              <button
+                aria-label={`${item.action_label}: ${item.title}`}
+                className="btn btn-ghost btn-sm"
+                data-project-operation-identity={projectOperationIdentity(item)}
+                data-project-operation-slot="secondary"
+                key={projectOperationIdentity(item)}
+                onClick={() => onAction(item)}
+                style={projectOperationsItemButtonStyle}
+                type="button"
+              >
+                <span className="badge badge-muted">{projectOperationBadge(item)}</span>
+                <span style={projectOperationsItemTitleStyle}>{item.title}</span>
+                <span style={projectOperationsItemActionStyle}>{item.action_label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {limitDetail && <div style={subtleTextStyle}>{limitDetail}</div>}
+        {error && <InlineError message={error} />}
+      </section>
+    </>
   );
+}
+
+function projectOperationIdentity(item: ProjectOperationsBriefItem) {
+  return JSON.stringify([item.id, item.title, item.action_label, item.target, item.action]);
 }
 
 function projectOperationsLimitDetail(
@@ -1538,17 +1654,43 @@ function ProjectActivityInbox({
   const selectedItems = showingAll ? [] : (buckets?.[bucket] ?? []);
   const workLoading = workLoadState === "loading";
   const workUnavailable = workLoadState === "error";
+  const queueRef = useRef<HTMLElement>(null);
+  const [focusNotice, setFocusNotice] = useState<FocusAnnouncement>({ key: 0, message: "" });
+  const selectedWorkItems = !project
+    ? []
+    : showingAll
+      ? workItems
+      : uniqueActivityWorkItems(project.id, selectedItems, workItems);
+  const focusedWorkItem =
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest<HTMLElement>("[data-project-work-item-id]")
+      : null;
+  const focusedWorkItemID =
+    focusedWorkItem && queueRef.current?.contains(focusedWorkItem)
+      ? (focusedWorkItem.dataset.projectWorkItemId ?? "")
+      : "";
+  const focusedWorkItemTitle =
+    focusedWorkItem?.dataset.projectWorkItemTitle ?? "The focused work item";
+  const focusedItemWillDisappear = Boolean(
+    focusedWorkItemID && !selectedWorkItems.some((item) => item.id === focusedWorkItemID),
+  );
+
+  useLayoutEffect(() => {
+    if (!focusedItemWillDisappear) return;
+    queueRef.current?.focus();
+    setFocusNotice((current) => ({
+      key: current.key + 1,
+      message: `${focusedWorkItemTitle} is no longer in this work view. Focus returned to the work queue.`,
+    }));
+  }, [focusedItemWillDisappear, focusedWorkItemTitle]);
 
   if (!project) {
     return null;
   }
 
-  const selectedWorkItems = showingAll
-    ? workItems
-    : uniqueActivityWorkItems(project.id, selectedItems, workItems);
-
   return (
-    <section aria-label="Work queue">
+    <section aria-label="Work queue" id="project-work-queue" ref={queueRef} tabIndex={-1}>
+      <FocusAnnouncementStatus announcement={focusNotice} />
       <div style={panelStyle}>
         <div style={workItemListHeaderStyle}>
           <SectionHeader
@@ -1796,6 +1938,26 @@ const subtleTextStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: 1.4,
 };
+
+const visuallyHiddenStyle: CSSProperties = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: 1,
+};
+
+function FocusAnnouncementStatus({ announcement }: { announcement: FocusAnnouncement }) {
+  return (
+    <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStyle}>
+      <span key={announcement.key}>{announcement.message}</span>
+    </div>
+  );
+}
 
 const metaLineStyle: CSSProperties = {
   display: "flex",

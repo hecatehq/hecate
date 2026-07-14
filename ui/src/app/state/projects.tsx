@@ -33,6 +33,12 @@ export type ProjectsState = {
   error: string;
 };
 
+export type ProjectCatalogLoadOptions = {
+  background?: boolean;
+  onError?: (message: string) => void;
+  shouldApply?: () => boolean;
+};
+
 type SetStateAction<T> = T | ((prev: T) => T);
 
 export type ProjectsActions = {
@@ -40,7 +46,7 @@ export type ProjectsActions = {
   setLoading: (value: boolean) => void;
   setError: (value: string) => void;
   setActiveProjectID: (id: string) => void;
-  loadProjects: () => Promise<void>;
+  loadProjects: (options?: ProjectCatalogLoadOptions) => Promise<void>;
   selectProject: (id: string) => Promise<void>;
   createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
@@ -119,7 +125,10 @@ export function ProjectsProvider({
   // A catalog GET may finish after a Cairnline-backed mutation. Only
   // let a snapshot captured after the latest mutation replace the list.
   const projectsMutationSequenceRef = useRef(0);
-  const loadProjectsInFlightRef = useRef<Promise<void> | null>(null);
+  const loadProjectsInFlightRef = useRef<{
+    background: boolean;
+    request: Promise<void>;
+  } | null>(null);
 
   const setProjects = useCallback((next: SetStateAction<ProjectRecord[]>) => {
     projectsMutationSequenceRef.current += 1;
@@ -140,40 +149,56 @@ export function ProjectsProvider({
     [setActiveProjectIDState],
   );
 
-  const loadProjects = useCallback(() => {
-    if (loadProjectsInFlightRef.current) return loadProjectsInFlightRef.current;
-    const request = (async () => {
-      setCatalogError("");
-      dispatch({ type: "loading/set", value: true });
-      try {
-        let mutationSequence = projectsMutationSequenceRef.current;
-        let payload = await getProjectsRequest();
-        while (mutationSequence !== projectsMutationSequenceRef.current) {
-          mutationSequence = projectsMutationSequenceRef.current;
-          payload = await getProjectsRequest();
+  const loadProjects = useCallback(
+    function loadProjects(options: ProjectCatalogLoadOptions = {}): Promise<void> {
+      const background = Boolean(options.background);
+      const inFlight = loadProjectsInFlightRef.current;
+      if (inFlight) {
+        if (!background && inFlight.background) {
+          return inFlight.request.then(() => loadProjects(options));
         }
-        const items = payload.data ?? [];
-        dispatch({ type: "projects/set", next: items });
-        dispatch({ type: "loaded/set", value: true });
-        setCatalogError("");
-        const currentActiveProjectID = activeProjectIDRef.current;
-        if (currentActiveProjectID && !items.some((item) => item.id === currentActiveProjectID)) {
-          setActiveProjectID("");
+        return inFlight.request;
+      }
+      const request = (async () => {
+        if (!background) {
+          setCatalogError("");
+          dispatch({ type: "loading/set", value: true });
         }
-      } catch (error) {
-        setCatalogError(error instanceof Error ? error.message : "Failed to load projects.");
-      } finally {
-        dispatch({ type: "loading/set", value: false });
-      }
-    })();
-    loadProjectsInFlightRef.current = request;
-    void request.finally(() => {
-      if (loadProjectsInFlightRef.current === request) {
-        loadProjectsInFlightRef.current = null;
-      }
-    });
-    return request;
-  }, [setActiveProjectID, setCatalogError]);
+        try {
+          let mutationSequence = projectsMutationSequenceRef.current;
+          let payload = await getProjectsRequest();
+          while (mutationSequence !== projectsMutationSequenceRef.current) {
+            mutationSequence = projectsMutationSequenceRef.current;
+            payload = await getProjectsRequest();
+          }
+          if (options.shouldApply && !options.shouldApply()) return;
+          const items = payload.data ?? [];
+          dispatch({ type: "projects/set", next: items });
+          dispatch({ type: "loaded/set", value: true });
+          setCatalogError("");
+          const currentActiveProjectID = activeProjectIDRef.current;
+          if (currentActiveProjectID && !items.some((item) => item.id === currentActiveProjectID)) {
+            setActiveProjectID("");
+          }
+        } catch (error) {
+          if (options.shouldApply && !options.shouldApply()) return;
+          const message = error instanceof Error ? error.message : "Failed to load projects.";
+          options.onError?.(message);
+          if (!background) setCatalogError(message);
+        } finally {
+          if (!background) dispatch({ type: "loading/set", value: false });
+        }
+      })();
+      loadProjectsInFlightRef.current = { background, request };
+      void request.finally(() => {
+        if (loadProjectsInFlightRef.current?.request === request) {
+          loadProjectsInFlightRef.current = null;
+        }
+      });
+      return request;
+    },
+    [setActiveProjectID, setCatalogError],
+  );
 
   const selectProject = useCallback(
     async (id: string) => {

@@ -17,10 +17,11 @@ import {
 import {
   normalizeWorkspaceMode,
   projectDefaultsFormFromProject,
+  projectDefaultsFormsEqual,
   projectRootFormKey,
   projectRootOptionLabel,
-  projectRootPayloadsEqual,
   projectRootSummary,
+  rebaseProjectDefaultsForm,
   type ProjectDefaultsForm,
 } from "./projectSettings";
 
@@ -56,13 +57,24 @@ export function ProjectSettingsPanel({
   const [form, setForm] = useState<ProjectDefaultsForm>(() =>
     projectDefaultsFormFromProject(project),
   );
+  const savedProjectIDRef = useRef(project.id);
+  const savedFormRef = useRef(projectDefaultsFormFromProject(project));
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [rootChooseError, setRootChooseError] = useState("");
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
   useEffect(() => {
-    setForm(projectDefaultsFormFromProject(project));
+    const nextSavedForm = projectDefaultsFormFromProject(project);
+    const previousSavedForm = savedFormRef.current;
+    const projectChanged = savedProjectIDRef.current !== project.id;
+    setForm((current) =>
+      projectChanged
+        ? nextSavedForm
+        : rebaseProjectDefaultsForm(current, previousSavedForm, nextSavedForm),
+    );
+    savedProjectIDRef.current = project.id;
+    savedFormRef.current = nextSavedForm;
   }, [project]);
   const scopedModels = useMemo(() => {
     if (!form.provider) return models;
@@ -73,20 +85,7 @@ export function ProjectSettingsPanel({
     [agentPresets, form.defaultAgentPreset],
   );
   const savedForm = useMemo(() => projectDefaultsFormFromProject(project), [project]);
-  const dirty = useMemo(
-    () =>
-      form.provider.trim() !== savedForm.provider.trim() ||
-      form.model.trim() !== savedForm.model.trim() ||
-      form.defaultAgentPreset.trim() !== savedForm.defaultAgentPreset.trim() ||
-      form.workspaceMode.trim() !== savedForm.workspaceMode.trim() ||
-      form.defaultRootID.trim() !== savedForm.defaultRootID.trim() ||
-      form.roots.length !== savedForm.roots.length ||
-      form.roots.some((root, index) => {
-        const savedRoot = savedForm.roots[index];
-        return !savedRoot || !projectRootPayloadsEqual(root, savedRoot);
-      }),
-    [form, savedForm],
-  );
+  const dirty = useMemo(() => !projectDefaultsFormsEqual(form, savedForm), [form, savedForm]);
   const workspaceMode = normalizeWorkspaceMode(form.workspaceMode);
   const knownWorkspaceMode = ["", "ephemeral", "persistent", "in_place"].includes(workspaceMode);
 

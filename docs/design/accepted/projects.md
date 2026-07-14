@@ -343,6 +343,12 @@ The Projects UI should stay lightweight but operational:
   While setup readiness is unknown, show a loading or retry state instead of
   assuming a new project is ready. Clear stale operations during refresh and do
   not let an older response replace a newer projection.
+- Revalidate visible project operations and selected-work detail periodically,
+  refresh the project catalog on a slower cadence, and perform one full catch-up
+  when the operator returns to the app. Passive reads must retain last-good
+  records, preserve focus, pause while an editable Project surface is open, and
+  identify refresh failures as last-known state. They remain reads through the
+  Hecate facade; the browser does not persist or infer another project state.
 - Treat the selected work item as one card. The work title, brief,
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.

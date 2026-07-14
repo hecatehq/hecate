@@ -96,6 +96,239 @@ describe("ProjectSettingsPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps dirty defaults while merging newly authoritative roots", async () => {
+    const mainRoot = root({ id: "root_main", path: "/workspace/main", active: true });
+    const discoveredRoot = root({
+      id: "root_discovered",
+      path: "/workspace/discovered",
+      kind: "git_worktree",
+      git_branch: "feature/discovered",
+      active: true,
+    });
+    const original = project({
+      default_workspace_mode: "in_place",
+      roots: [mainRoot],
+    });
+    const props = {
+      agentPresets: [],
+      agentPresetsError: "",
+      error: "",
+      models: [],
+      pending: false,
+      providerOptions: [],
+      providerPresets: [],
+      project: original,
+      rootsPending: false,
+      onClose: vi.fn(),
+      onDiscoverRoots: vi.fn(),
+      onOpenCreateWorktree: vi.fn(),
+      onSave: vi.fn(),
+    };
+    const { rerender } = render(<ProjectSettingsPanel {...props} />);
+
+    await userEvent.selectOptions(screen.getByLabelText("Workspace behavior"), "persistent");
+    expect(screen.getByLabelText("Workspace behavior")).toHaveValue("persistent");
+
+    rerender(
+      <ProjectSettingsPanel
+        {...props}
+        project={{
+          ...original,
+          name: "Hecate refreshed",
+          default_workspace_mode: "ephemeral",
+          roots: [mainRoot, discoveredRoot],
+          updated_at: "2026-06-12T00:01:00Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Workspace behavior")).toHaveValue("persistent");
+    expect(screen.getByText("/workspace/discovered")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceMode: "persistent",
+        roots: expect.arrayContaining([
+          expect.objectContaining({ id: "root_discovered", path: "/workspace/discovered" }),
+        ]),
+      }),
+    );
+  });
+
+  it("keeps a local activation change while accepting refreshed root metadata", async () => {
+    const mainRoot = root({
+      id: "root_main",
+      path: "/workspace/main",
+      kind: "local",
+      git_remote: "git@example.com:old/hecate.git",
+      git_branch: "main",
+      active: true,
+    });
+    const original = project({ roots: [mainRoot] });
+    const onSave = vi.fn();
+    const props = {
+      agentPresets: [],
+      agentPresetsError: "",
+      error: "",
+      models: [],
+      pending: false,
+      providerOptions: [],
+      providerPresets: [],
+      project: original,
+      rootsPending: false,
+      onClose: vi.fn(),
+      onDiscoverRoots: vi.fn(),
+      onOpenCreateWorktree: vi.fn(),
+      onSave,
+    };
+    const { rerender } = render(<ProjectSettingsPanel {...props} />);
+
+    await userEvent.click(screen.getByLabelText("Active project root /workspace/main"));
+
+    rerender(
+      <ProjectSettingsPanel
+        {...props}
+        project={{
+          ...original,
+          roots: [
+            {
+              ...mainRoot,
+              kind: "git",
+              git_remote: "git@example.com:current/hecate.git",
+              git_branch: "feature/current",
+              updated_at: "2026-06-12T00:01:00Z",
+            },
+          ],
+          updated_at: "2026-06-12T00:01:00Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Active project root /workspace/main")).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roots: [
+          expect.objectContaining({
+            id: "root_main",
+            kind: "git",
+            git_remote: "git@example.com:current/hecate.git",
+            git_branch: "feature/current",
+            active: false,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("drops an authoritatively removed root despite a local activation change", async () => {
+    const mainRoot = root({ id: "root_main", path: "/workspace/main", active: true });
+    const removedRoot = root({
+      id: "root_removed",
+      path: "/workspace/removed",
+      kind: "git_worktree",
+      git_branch: "feature/removed",
+      active: false,
+    });
+    const original = project({ roots: [mainRoot, removedRoot] });
+    const onSave = vi.fn();
+    const props = {
+      agentPresets: [],
+      agentPresetsError: "",
+      error: "",
+      models: [],
+      pending: false,
+      providerOptions: [],
+      providerPresets: [],
+      project: original,
+      rootsPending: false,
+      onClose: vi.fn(),
+      onDiscoverRoots: vi.fn(),
+      onOpenCreateWorktree: vi.fn(),
+      onSave,
+    };
+    const { rerender } = render(<ProjectSettingsPanel {...props} />);
+
+    await userEvent.click(screen.getByLabelText("Active project root /workspace/removed"));
+
+    rerender(
+      <ProjectSettingsPanel
+        {...props}
+        project={{
+          ...original,
+          roots: [mainRoot],
+          updated_at: "2026-06-12T00:01:00Z",
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("/workspace/removed")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Workspace behavior"), "persistent");
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roots: [expect.objectContaining({ id: "root_main" })],
+      }),
+    );
+  });
+
+  it("rebases a removed dirty default root to the authoritative default", async () => {
+    const mainRoot = root({ id: "root_main", path: "/workspace/main", active: true });
+    const removedRoot = root({
+      id: "root_removed",
+      path: "/workspace/removed",
+      kind: "git_worktree",
+      git_branch: "feature/removed",
+      active: false,
+    });
+    const original = project({ roots: [mainRoot, removedRoot] });
+    const onSave = vi.fn();
+    const props = {
+      agentPresets: [],
+      agentPresetsError: "",
+      error: "",
+      models: [],
+      pending: false,
+      providerOptions: [],
+      providerPresets: [],
+      project: original,
+      rootsPending: false,
+      onClose: vi.fn(),
+      onDiscoverRoots: vi.fn(),
+      onOpenCreateWorktree: vi.fn(),
+      onSave,
+    };
+    const { rerender } = render(<ProjectSettingsPanel {...props} />);
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Default folder"),
+      "persisted-root:root_removed",
+    );
+
+    rerender(
+      <ProjectSettingsPanel
+        {...props}
+        project={{
+          ...original,
+          roots: [mainRoot],
+          default_root_id: "root_main",
+          updated_at: "2026-06-12T00:01:00Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Default folder")).toHaveValue("persisted-root:root_main");
+    await userEvent.selectOptions(screen.getByLabelText("Workspace behavior"), "persistent");
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultRootID: "persisted-root:root_main",
+        roots: [expect.objectContaining({ id: "root_main" })],
+      }),
+    );
+  });
+
   it("adds an optional folder root to rootless projects", async () => {
     const onSave = vi.fn();
     vi.mocked(chooseWorkspaceDirectory).mockResolvedValue({
