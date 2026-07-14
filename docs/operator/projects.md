@@ -396,6 +396,9 @@ Assignment choices use project role names and plain status labels. While an
 evidence, review, or handoff record is being saved, its dialog cannot be
 dismissed or submitted again. After reconciliation, keyboard focus moves to
 the saved artifact or surviving handoff instead of falling out of the cockpit.
+Handoff edits send only fields the operator changed; a form opened before an
+agent decision cannot replay its hidden status or links over newer project
+state.
 
 Recording a review now requires the operator to choose a verdict and write the
 outcome for the named source assignment before saving. The form separately
@@ -415,6 +418,18 @@ the authoritative handoff state immediately. Routine artifact and handoff rows
 use product labels such as **Evidence**, **Document**, and **Operator reviewed**;
 assignment choices use role display names, while storage vocabulary remains in
 advanced forms and API documentation.
+
+Only one handoff change per work item is submitted at a time. Its visible
+**Updating handoff…** state and disabled decision controls survive work-item
+navigation within Projects, so returning to the work item cannot repeat an
+in-flight decision. The combined **Accept and create follow-up** action makes
+its handoff decision explicit. A stale or conflicting response reloads the
+authoritative handoff before controls return and restores focus to the surviving
+handoff or selected work item. Creating a follow-up assignment also accepts the
+linked handoff but never starts the assignment. Acceptance, assignment creation
+or reuse, and linking commit as one Cairnline operation; a failed request leaves
+no half-linked assignment, and retrying the same in-flight action cannot create
+a duplicate.
 
 When readiness reports that closeout is ready, **Review closeout** opens a
 confirmation summarizing completed assignments, unresolved review follow-ups,

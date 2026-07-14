@@ -668,6 +668,12 @@ Out of scope for this document and Projects V1:
   identifiers do not load an unrelated record. Needs Attention coverage opens
   the compound panel with keyboard focus, restores the trigger on Escape, and
   verifies horizontal and status-bar containment at 320px.
+  Handoff coverage holds a decision request open at 390px, navigates to another
+  work item and back, verifies the same busy state and disabled controls, proves
+  that only one authoritative mutation was sent, and then checks exact focus
+  and closeout reconciliation after release. Focused tests cover stale conflict
+  reloads, dirty-field-only edits, idempotent atomic follow-up creation, and
+  follow-up links that accept without launching the assignment.
 
 ## Open Questions
 

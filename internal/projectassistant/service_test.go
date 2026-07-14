@@ -302,26 +302,22 @@ func TestService_DraftReviewFollowUpCreatesLinkedProposalAcrossStores(t *testing
 			if err != nil {
 				t.Fatalf("Draft review follow-up: %v", err)
 			}
-			if proposal.TraceID != "trace_review_followup" || len(proposal.Actions) != 3 {
-				t.Fatalf("proposal = %+v, want traced three-action proposal", proposal)
+			if proposal.TraceID != "trace_review_followup" || len(proposal.Actions) != 2 {
+				t.Fatalf("proposal = %+v, want traced two-action proposal", proposal)
 			}
-			if proposal.Actions[0].Kind != ActionCreateHandoff || proposal.Actions[1].Kind != ActionCreateAssignment || proposal.Actions[2].Kind != ActionUpdateHandoff {
-				t.Fatalf("actions = %+v, want create_handoff/create_assignment/update_handoff", proposal.Actions)
-			}
-			var handoff handoffPatch
-			if err := json.Unmarshal(proposal.Actions[0].Patch, &handoff); err != nil {
-				t.Fatalf("decode handoff patch: %v", err)
+			if proposal.Actions[0].Kind != ActionCreateAssignment || proposal.Actions[1].Kind != ActionCreateHandoff {
+				t.Fatalf("actions = %+v, want create_assignment/create_handoff", proposal.Actions)
 			}
 			var assignment assignmentPatch
-			if err := json.Unmarshal(proposal.Actions[1].Patch, &assignment); err != nil {
+			if err := json.Unmarshal(proposal.Actions[0].Patch, &assignment); err != nil {
 				t.Fatalf("decode assignment patch: %v", err)
 			}
-			var handoffUpdate updateHandoffPatch
-			if err := json.Unmarshal(proposal.Actions[2].Patch, &handoffUpdate); err != nil {
-				t.Fatalf("decode handoff update patch: %v", err)
+			var handoff handoffPatch
+			if err := json.Unmarshal(proposal.Actions[1].Patch, &handoff); err != nil {
+				t.Fatalf("decode handoff patch: %v", err)
 			}
-			if handoff.ID == "" || assignment.ID == "" || handoffUpdate.TargetAssignmentID == nil || *handoffUpdate.TargetAssignmentID != assignment.ID {
-				t.Fatalf("generated ids handoff=%+v assignment=%+v update=%+v, want linked ids", handoff, assignment, handoffUpdate)
+			if handoff.ID == "" || assignment.ID == "" || handoff.TargetAssignmentID != assignment.ID || handoff.Status != projectwork.HandoffStatusAccepted {
+				t.Fatalf("generated ids handoff=%+v assignment=%+v, want accepted linked ids", handoff, assignment)
 			}
 			if handoff.SourceAssignmentID != "asgn_review" || handoff.TargetRoleID != "software_developer" || len(handoff.LinkedArtifactIDs) != 1 || handoff.LinkedArtifactIDs[0] != "artifact_review" {
 				t.Fatalf("handoff patch = %+v, want review source and reviewed-assignment role", handoff)
@@ -334,8 +330,8 @@ func TestService_DraftReviewFollowUpCreatesLinkedProposalAcrossStores(t *testing
 			if err != nil {
 				t.Fatalf("Apply review follow-up proposal: %v", err)
 			}
-			if !result.Applied || len(result.Actions) != 3 {
-				t.Fatalf("apply result = %+v, want three applied actions", result)
+			if !result.Applied || len(result.Actions) != 2 {
+				t.Fatalf("apply result = %+v, want two applied actions", result)
 			}
 			assignments, err := fixture.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
 			if err != nil {
@@ -2381,26 +2377,29 @@ func TestService_ApplyPreflightBlocksMissingHandoffTargetBeforeMutatingAcrossSto
 			if err != nil {
 				t.Fatalf("CreateWorkItem: %v", err)
 			}
+			handoff, err := fixture.work.CreateHandoff(ctx, projectwork.Handoff{
+				ID:                    "handoff_preflight",
+				ProjectID:             project.ID,
+				WorkItemID:            workItem.ID,
+				Title:                 "Needs follow-up",
+				Summary:               "A follow-up is required.",
+				RecommendedNextAction: "Create the missing assignment.",
+			})
+			if err != nil {
+				t.Fatalf("CreateHandoff: %v", err)
+			}
 
 			proposal := Proposal{
 				ID:                   "pa_handoff_preflight",
 				RequiresConfirmation: true,
 				Actions: []Action{
 					{
-						Kind: ActionCreateHandoff,
-						Patch: rawPatch(t, map[string]any{
-							"id":                      "handoff_preflight",
-							"project_id":              project.ID,
-							"work_item_id":            workItem.ID,
-							"title":                   "Needs follow-up",
-							"summary":                 "A follow-up is required.",
-							"recommended_next_action": "Create the missing assignment.",
-						}),
-					},
-					{
 						Kind:   ActionUpdateHandoff,
 						Target: map[string]string{"project_id": project.ID, "work_item_id": workItem.ID, "handoff_id": "handoff_preflight"},
-						Patch:  rawPatch(t, map[string]string{"target_assignment_id": "asgn_missing"}),
+						Patch: rawPatch(t, map[string]any{
+							"expected_updated_at":  handoff.UpdatedAt,
+							"target_assignment_id": "asgn_missing",
+						}),
 					},
 				},
 			}
@@ -2413,11 +2412,11 @@ func TestService_ApplyPreflightBlocksMissingHandoffTargetBeforeMutatingAcrossSto
 			if !errors.As(err, &applyErr) {
 				t.Fatalf("Apply err = %T %v, want ApplyError", err, err)
 			}
-			if applyErr.FailedActionIndex != 1 {
-				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
+			if applyErr.FailedActionIndex != 0 {
+				t.Fatalf("failed_action_index = %d, want 0", applyErr.FailedActionIndex)
 			}
-			if result.Status != ApplyStatusBlockedBeforeApply || result.TotalActionCount != 2 || result.CommittedActionCount != 0 || result.ResumeActionIndex != 0 || result.FailedActionIndex == nil || *result.FailedActionIndex != 1 {
-				t.Fatalf("result progress = %+v, want failed action 1 and resume action 0", result)
+			if result.Status != ApplyStatusBlockedBeforeApply || result.TotalActionCount != 1 || result.CommittedActionCount != 0 || result.ResumeActionIndex != 0 || result.FailedActionIndex == nil || *result.FailedActionIndex != 0 {
+				t.Fatalf("result progress = %+v, want failed action 0 and resume action 0", result)
 			}
 			if result.Applied || len(result.Actions) != 0 {
 				t.Fatalf("result = %+v, want no partial action results", result)
@@ -2426,10 +2425,73 @@ func TestService_ApplyPreflightBlocksMissingHandoffTargetBeforeMutatingAcrossSto
 			if err != nil {
 				t.Fatalf("ListHandoffs: %v", err)
 			}
-			if len(handoffs) != 0 {
-				t.Fatalf("handoffs = %+v, want no durable handoff after preflight failure", handoffs)
+			if len(handoffs) != 1 || handoffs[0].ID != handoff.ID || handoffs[0].TargetAssignmentID != "" || !handoffs[0].UpdatedAt.Equal(handoff.UpdatedAt) {
+				t.Fatalf("handoffs = %+v, want unchanged existing handoff after preflight failure", handoffs)
 			}
 		})
+	}
+}
+
+func TestService_ApplyUpdateHandoffRequiresCurrentRevision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+	workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_handoff_revision",
+		ProjectID: project.ID,
+		Title:     "Handoff revision",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	handoff, err := fixture.work.CreateHandoff(ctx, projectwork.Handoff{
+		ID:                    "handoff_revision",
+		ProjectID:             project.ID,
+		WorkItemID:            workItem.ID,
+		Title:                 "Review decision",
+		Summary:               "Wait for an explicit decision.",
+		RecommendedNextAction: "Review the current handoff.",
+	})
+	if err != nil {
+		t.Fatalf("CreateHandoff: %v", err)
+	}
+	newer, err := fixture.work.UpdateHandoff(ctx, project.ID, workItem.ID, handoff.ID, func(item *projectwork.Handoff) {
+		item.Summary = "A newer operator edit must survive."
+	})
+	if err != nil {
+		t.Fatalf("UpdateHandoff(newer edit): %v", err)
+	}
+
+	proposal := Proposal{
+		ID:                   "pa_stale_handoff_revision",
+		RequiresConfirmation: true,
+		Actions: []Action{{
+			Kind: ActionUpdateHandoff,
+			Target: map[string]string{
+				"project_id":   project.ID,
+				"work_item_id": workItem.ID,
+				"handoff_id":   handoff.ID,
+			},
+			Patch: rawPatch(t, map[string]any{
+				"expected_updated_at": handoff.UpdatedAt,
+				"status":              projectwork.HandoffStatusAccepted,
+			}),
+		}},
+	}
+	result, err := fixture.service.Apply(ctx, proposal, true)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Apply(stale handoff revision) error = %v result=%+v, want ErrConflict", err, result)
+	}
+	if result.CommittedActionCount != 0 || len(result.Actions) != 0 {
+		t.Fatalf("Apply(stale handoff revision) result = %+v, want no mutation", result)
+	}
+	stored, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
+	if err != nil {
+		t.Fatalf("ListHandoffs: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Status != projectwork.HandoffStatusPending || stored[0].Summary != newer.Summary || !stored[0].UpdatedAt.Equal(newer.UpdatedAt) {
+		t.Fatalf("handoff after stale proposal = %+v, want newer pending record %+v", stored, newer)
 	}
 }
 

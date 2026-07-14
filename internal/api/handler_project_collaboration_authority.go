@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/cairnline"
 	"github.com/hecatehq/hecate/internal/cairnlinebridge"
@@ -142,19 +143,10 @@ func (h *Handler) createProjectHandoffWithCairnlineAuthority(ctx context.Context
 func (h *Handler) updateProjectHandoffWithCairnlineAuthority(ctx context.Context, projectID, workItemID, handoffID string, cmd projectworkapp.UpdateHandoffCommand) (projectwork.Handoff, error) {
 	var updated projectwork.Handoff
 	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
-		existing, err := service.GetHandoff(ctx, projectID, workItemID, handoffID)
-		if err != nil {
-			return err
-		}
-		handoff := projectHealthHandoffFromCairnline(existing)
-		applyProjectHandoffUpdate(&handoff, cmd)
-		if err := validateProjectHandoffForCairnlineAuthority(handoff); err != nil {
-			return err
-		}
-		if err := h.seedProjectHandoffDependenciesForCairnlineAuthority(ctx, service, handoff); err != nil {
-			return err
-		}
-		recorded, err := service.UpdateHandoff(ctx, cairnlinebridge.Handoff(handoff))
+		recorded, err := service.PatchHandoff(ctx, projectID, workItemID, handoffID, cairnline.HandoffUpdate{
+			ExpectedUpdatedAt: cmd.ExpectedUpdatedAt,
+			Patch:             projectHandoffPatchForCairnlineAuthority(cmd),
+		})
 		if err != nil {
 			return err
 		}
@@ -168,14 +160,70 @@ func (h *Handler) updateProjectHandoffWithCairnlineAuthority(ctx context.Context
 	return updated, nil
 }
 
-func (h *Handler) deleteProjectHandoffWithCairnlineAuthority(ctx context.Context, projectID, workItemID, handoffID string) error {
+func (h *Handler) updateProjectHandoffStatusWithCairnlineAuthority(ctx context.Context, projectID, workItemID, handoffID string, expectedUpdatedAt time.Time, status string) (projectwork.Handoff, error) {
+	var updated projectwork.Handoff
+	err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
+		recorded, err := service.UpdateHandoffStatus(ctx, projectID, workItemID, handoffID, cairnline.HandoffStatusUpdate{
+			ExpectedUpdatedAt: expectedUpdatedAt,
+			Status:            projectHandoffStatusForCairnlineAuthority(status),
+		})
+		if err != nil {
+			return err
+		}
+		updated = projectHealthHandoffFromCairnline(recorded)
+		return nil
+	})
+	if err != nil {
+		return projectwork.Handoff{}, err
+	}
+	h.shadowProjectHandoffToHecate(ctx, "project_handoff_cairnline_authority_status", updated)
+	return updated, nil
+}
+
+func (h *Handler) deleteProjectHandoffWithCairnlineAuthority(ctx context.Context, projectID, workItemID, handoffID string, expectedUpdatedAt time.Time) error {
 	if err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
-		return service.DeleteHandoff(ctx, projectID, workItemID, handoffID)
+		return service.DeleteHandoff(ctx, projectID, workItemID, handoffID, cairnline.HandoffDelete{
+			ExpectedUpdatedAt: expectedUpdatedAt,
+		})
 	}); err != nil {
 		return err
 	}
 	h.shadowProjectHandoffDeleteToHecate(ctx, "project_handoff_cairnline_authority_delete", projectID, workItemID, handoffID)
 	return nil
+}
+
+type projectHandoffFollowUpResult struct {
+	Handoff    projectwork.Handoff
+	Assignment projectwork.Assignment
+	Outcome    string
+	Replayed   bool
+}
+
+func (h *Handler) acceptProjectHandoffWithFollowUpCairnlineAuthority(ctx context.Context, command cairnline.AcceptHandoffWithFollowUpCommand) (projectHandoffFollowUpResult, error) {
+	var result cairnline.HandoffFollowUpResult
+	if err := h.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
+		var err error
+		result, err = service.AcceptHandoffWithFollowUp(ctx, command)
+		return err
+	}); err != nil {
+		return projectHandoffFollowUpResult{}, err
+	}
+
+	assignment := projectWorkAssignmentFromCairnline(result.Assignment)
+	if overlaid, err := h.projectWorkApplication().ApplyAssignmentRuntime(ctx, assignment); err == nil {
+		assignment = overlaid
+	} else {
+		h.logCairnlineMirrorError(ctx, "project_handoff_cairnline_authority_accept_follow_up_runtime", assignment.ProjectID, err)
+	}
+	projected := projectHandoffFollowUpResult{
+		Handoff:    projectHealthHandoffFromCairnline(result.Handoff),
+		Assignment: assignment,
+		Outcome:    result.Outcome,
+		Replayed:   result.Replayed,
+	}
+	h.shadowProjectAssignmentToHecate(ctx, "project_handoff_cairnline_authority_accept_follow_up", projected.Assignment)
+	h.shadowProjectHandoffToHecate(ctx, "project_handoff_cairnline_authority_accept_follow_up", projected.Handoff)
+	return projected, nil
 }
 
 func (h *Handler) seedProjectArtifactDependenciesForCairnlineAuthority(ctx context.Context, service *cairnline.Service, artifact projectwork.CollaborationArtifact) error {
@@ -347,60 +395,45 @@ func validProjectCollaborationReviewRiskForCairnlineAuthority(risk string) bool 
 	}
 }
 
-func applyProjectHandoffUpdate(item *projectwork.Handoff, cmd projectworkapp.UpdateHandoffCommand) {
-	if item == nil {
-		return
-	}
-	if cmd.SourceAssignmentID != nil {
-		item.SourceAssignmentID = *cmd.SourceAssignmentID
-	}
-	if cmd.SourceRunID != nil {
-		item.SourceRunID = *cmd.SourceRunID
-	}
-	if cmd.SourceChatSessionID != nil {
-		item.SourceChatSessionID = *cmd.SourceChatSessionID
-	}
-	if cmd.SourceMessageID != nil {
-		item.SourceMessageID = *cmd.SourceMessageID
-	}
-	if cmd.TargetRoleID != nil {
-		item.TargetRoleID = *cmd.TargetRoleID
-	}
-	if cmd.TargetAssignmentID != nil {
-		item.TargetAssignmentID = *cmd.TargetAssignmentID
-	}
-	if cmd.TargetWorkItemID != nil {
-		item.TargetWorkItemID = *cmd.TargetWorkItemID
-	}
-	if cmd.Title != nil {
-		item.Title = *cmd.Title
-	}
-	if cmd.Summary != nil {
-		item.Summary = *cmd.Summary
-	}
-	if cmd.RecommendedNextAction != nil {
-		item.RecommendedNextAction = *cmd.RecommendedNextAction
-	}
-	if cmd.LinkedArtifactIDs != nil {
-		item.LinkedArtifactIDs = append([]string(nil), *cmd.LinkedArtifactIDs...)
-	}
-	if cmd.LinkedMemoryIDs != nil {
-		item.LinkedMemoryIDs = append([]string(nil), *cmd.LinkedMemoryIDs...)
-	}
-	if cmd.ContextRefs != nil {
-		item.ContextRefs = append([]string(nil), *cmd.ContextRefs...)
-	}
+func projectHandoffPatchForCairnlineAuthority(cmd projectworkapp.UpdateHandoffCommand) cairnline.HandoffPatch {
+	var status *string
 	if cmd.Status != nil {
-		item.Status = *cmd.Status
+		value := projectHandoffStatusForCairnlineAuthority(*cmd.Status)
+		status = &value
 	}
-	if cmd.ProvenanceKind != nil {
-		item.ProvenanceKind = *cmd.ProvenanceKind
+	return cairnline.HandoffPatch{
+		SourceAssignmentID:    cmd.SourceAssignmentID,
+		SourceRunID:           cmd.SourceRunID,
+		SourceChatSessionID:   cmd.SourceChatSessionID,
+		SourceMessageID:       cmd.SourceMessageID,
+		FromRoleID:            cmd.CreatedByRoleID,
+		ToRoleID:              cmd.TargetRoleID,
+		TargetAssignmentID:    cmd.TargetAssignmentID,
+		TargetWorkItemID:      cmd.TargetWorkItemID,
+		Title:                 cmd.Title,
+		Body:                  cmd.Summary,
+		RecommendedNextAction: cmd.RecommendedNextAction,
+		LinkedArtifactIDs:     cmd.LinkedArtifactIDs,
+		LinkedMemoryIDs:       cmd.LinkedMemoryIDs,
+		ContextRefs:           cmd.ContextRefs,
+		Status:                status,
+		ProvenanceKind:        cmd.ProvenanceKind,
+		TrustLabel:            cmd.TrustLabel,
 	}
-	if cmd.TrustLabel != nil {
-		item.TrustLabel = *cmd.TrustLabel
-	}
-	if cmd.CreatedByRoleID != nil {
-		item.CreatedByRoleID = *cmd.CreatedByRoleID
+}
+
+func projectHandoffStatusForCairnlineAuthority(status string) string {
+	switch strings.TrimSpace(status) {
+	case projectwork.HandoffStatusPending:
+		return cairnline.HandoffStatusOpen
+	case projectwork.HandoffStatusAccepted:
+		return cairnline.HandoffStatusAccepted
+	case projectwork.HandoffStatusSuperseded:
+		return cairnline.HandoffStatusSuperseded
+	case projectwork.HandoffStatusDismissed:
+		return cairnline.HandoffStatusDismissed
+	default:
+		return strings.TrimSpace(status)
 	}
 }
 

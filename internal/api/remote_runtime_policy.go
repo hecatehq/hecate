@@ -99,6 +99,7 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodPost, path: "/hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs"},
 	{method: http.MethodPatch, path: "/hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}"},
 	{method: http.MethodPost, path: "/hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}/status"},
+	{method: http.MethodPost, path: "/hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}/accept-with-follow-up"},
 	{method: http.MethodDelete, path: "/hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}"},
 
 	{method: http.MethodGet, path: "/hecate/v1/agent-presets"},

@@ -464,6 +464,12 @@ func (p *applyPreflight) updateHandoff(ctx context.Context, action Action) error
 	if patch.TargetAssignmentID == nil && patch.TargetRoleID == nil && patch.Status == nil {
 		return fmt.Errorf("%w: update_handoff patch must set at least one mutable field", ErrInvalid)
 	}
+	if patch.ExpectedUpdatedAt.IsZero() {
+		return fmt.Errorf("%w: update_handoff expected_updated_at is required", ErrInvalid)
+	}
+	if handoff.UpdatedAt.IsZero() || !handoff.UpdatedAt.Equal(patch.ExpectedUpdatedAt) {
+		return fmt.Errorf("%w: handoff %q changed after the proposal was drafted", ErrConflict, handoffID)
+	}
 	if patch.TargetAssignmentID != nil && strings.TrimSpace(*patch.TargetAssignmentID) != "" {
 		assignment, err := p.requireAssignment(ctx, projectID, *patch.TargetAssignmentID)
 		if err != nil {

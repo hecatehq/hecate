@@ -1281,6 +1281,187 @@ func TestProjectAssistantAPI_CairnlineReplacementModeSkipsNativeProposalShadows(
 	}
 }
 
+func TestProjectAssistantAPI_CairnlineFullHandoffUpdateRejectsBeforeMutation(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+	const (
+		projectID  = "proj_pa_portable_handoff"
+		workItemID = "work_pa_portable_handoff"
+		handoffID  = "handoff_pa_portable_update"
+		proposalID = "pa_portable_handoff_update"
+	)
+	var created cairnline.Handoff
+	now := time.Date(2026, 7, 14, 14, 0, 0, 0, time.UTC)
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{ID: projectID, Name: "Portable handoff proposal"}); err != nil {
+			return err
+		}
+		if _, err := service.CreateRole(t.Context(), cairnline.Role{ID: "role_reviewer", ProjectID: projectID, Name: "Reviewer"}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{ID: workItemID, ProjectID: projectID, Title: "Protect handoff authority", Status: cairnline.WorkStatusReady}); err != nil {
+			return err
+		}
+		var err error
+		created, err = service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                    handoffID,
+			ProjectID:             projectID,
+			WorkItemID:            workItemID,
+			ToRoleID:              "role_reviewer",
+			Title:                 "Preserve the portable record",
+			Body:                  "A full Cairnline update cannot be narrowed into a sparse Hecate action.",
+			RecommendedNextAction: "Reject before applying the update.",
+			Status:                cairnline.HandoffStatusOpen,
+		})
+		if err != nil {
+			return err
+		}
+		updated := created
+		updated.Status = cairnline.HandoffStatusAccepted
+		_, err = service.ImportAssistantProposalRecord(t.Context(), cairnline.AssistantProposalRecord{
+			ID:        proposalID,
+			ProjectID: projectID,
+			Source:    cairnline.AssistantProposalSourceAPI,
+			Proposal: cairnline.AssistantProposal{
+				ID:                   proposalID,
+				ProjectID:            projectID,
+				Title:                "Accept the portable handoff",
+				RequiresConfirmation: true,
+				Actions: []cairnline.AssistantAction{{
+					Kind:    cairnline.AssistantActionUpdateHandoff,
+					Target:  cairnline.AssistantTarget{ProjectID: projectID, WorkItemID: workItemID, HandoffID: handoffID},
+					Handoff: &updated,
+				}},
+				CreatedAt: now,
+			},
+			Status:    cairnline.AssistantProposalStatusProposed,
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed portable handoff proposal: %v", err)
+	}
+
+	proposal := projectassistant.Proposal{
+		ID:                   proposalID,
+		Title:                "Accept the portable handoff",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind: projectassistant.ActionUpdateHandoff,
+			Target: map[string]string{
+				"project_id":   projectID,
+				"work_item_id": workItemID,
+				"handoff_id":   handoffID,
+			},
+			Patch: json.RawMessage(projectJourneyJSON(t, map[string]any{
+				"expected_updated_at": created.UpdatedAt,
+				"status":              projectwork.HandoffStatusAccepted,
+			})),
+		}},
+	}
+	payload := mustRequestJSONStatus[projectAssistantErrorResponse](client, http.StatusBadRequest, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if payload.Error.Type != errCodeInvalidRequest {
+		t.Fatalf("apply error = %+v, want invalid request before mutation", payload.Error)
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		after, err := service.GetHandoff(t.Context(), projectID, workItemID, handoffID)
+		if err != nil {
+			return err
+		}
+		if after.Status != cairnline.HandoffStatusOpen || !after.UpdatedAt.Equal(created.UpdatedAt) || after.Title != created.Title || after.Body != created.Body {
+			t.Fatalf("handoff after rejected portable update = %+v, want unchanged %+v", after, created)
+		}
+		ledger, err := service.GetAssistantProposal(t.Context(), proposalID)
+		if err != nil {
+			return err
+		}
+		if ledger.Status != cairnline.AssistantProposalStatusProposed || ledger.LatestResult != nil || len(ledger.ApplyAttempts) != 0 {
+			t.Fatalf("portable proposal ledger = %+v, want untouched proposed record", ledger)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify rejected portable handoff proposal: %v", err)
+	}
+}
+
+func TestProjectAssistantApplyMirrorDoesNotOverwriteCairnlineHandoffAuthority(t *testing.T) {
+	t.Parallel()
+	handler, _ := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = projectCairnlineWriteAuthorityProjectCollaboration
+	const (
+		projectID  = "proj_pa_handoff_mirror_guard"
+		workItemID = "work_pa_handoff_mirror_guard"
+		handoffID  = "handoff_pa_mirror_guard"
+	)
+	if _, err := handler.projects.Create(t.Context(), projects.Project{ID: projectID, Name: "Mirror guard"}); err != nil {
+		t.Fatalf("Create native project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{ID: workItemID, ProjectID: projectID, Title: "Keep portable authority"}); err != nil {
+		t.Fatalf("Create native work item: %v", err)
+	}
+	if _, err := handler.projectWork.CreateHandoff(t.Context(), projectwork.Handoff{
+		ID:                    handoffID,
+		ProjectID:             projectID,
+		WorkItemID:            workItemID,
+		Title:                 "Stale compatibility shadow",
+		Summary:               "This stale Hecate body must not be mirrored back.",
+		RecommendedNextAction: "Leave Cairnline unchanged.",
+	}); err != nil {
+		t.Fatalf("Create native handoff shadow: %v", err)
+	}
+	var authoritative cairnline.Handoff
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{ID: projectID, Name: "Mirror guard"}); err != nil {
+			return err
+		}
+		if _, err := service.CreateWorkItem(t.Context(), cairnline.WorkItem{ID: workItemID, ProjectID: projectID, Title: "Keep portable authority"}); err != nil {
+			return err
+		}
+		var err error
+		authoritative, err = service.CreateHandoff(t.Context(), cairnline.Handoff{
+			ID:                    handoffID,
+			ProjectID:             projectID,
+			WorkItemID:            workItemID,
+			Title:                 "Authoritative handoff",
+			Body:                  "A newer Cairnline decision must survive post-apply handling.",
+			RecommendedNextAction: "Keep the portable record.",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed authoritative handoff: %v", err)
+	}
+
+	err := handler.writeProjectAssistantActionResultToCairnline(t.Context(), projectassistant.ActionResult{
+		Kind: projectassistant.ActionUpdateHandoff,
+		ID:   handoffID,
+		Data: map[string]string{
+			"project_id":   projectID,
+			"work_item_id": workItemID,
+			"handoff_id":   handoffID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("post-apply handoff handling: %v", err)
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		after, err := service.GetHandoff(t.Context(), projectID, workItemID, handoffID)
+		if err != nil {
+			return err
+		}
+		if after.Title != authoritative.Title || after.Body != authoritative.Body || !after.UpdatedAt.Equal(authoritative.UpdatedAt) {
+			t.Fatalf("handoff after authority-owned post-apply handling = %+v, want unchanged %+v", after, authoritative)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify authoritative handoff: %v", err)
+	}
+}
+
 func TestProjectAssistantAPI_CairnlineProposalAuthorityDoesNotBlockOnShadowUpsertFailure(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
@@ -1538,6 +1719,57 @@ func TestProjectAssistantAPI_CairnlineApplyMemoryCandidateAuthorityDoesNotBlockO
 	}
 	if _, ok, err := handler.memoryCandidates.GetCandidate(t.Context(), "proj_pa_apply_memory_authority", "memcand_apply_authority"); err != nil || ok {
 		t.Fatalf("shadow memory candidate ok=%v err=%v, want missing after injected shadow failure", ok, err)
+	}
+}
+
+func TestProjectAssistantAPI_ProjectMemoryOnlyStillMirrorsNativeMemoryCandidate(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantCairnlineMirrorTestHandler(t)
+	handler.config.Projects.CairnlineWriteAuthority = "project-memory"
+	client := newAPITestClient(t, server)
+	const projectID = "proj_pa_memory_candidate_partial_authority"
+	if _, err := handler.projects.Create(t.Context(), projects.Project{ID: projectID, Name: "Partial memory authority"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_memory_candidate_partial_authority",
+		Title:                "Capture a candidate with partial authority",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind: projectassistant.ActionCreateMemoryCandidate,
+			Patch: json.RawMessage(`{
+				"id":"memcand_partial_authority",
+				"project_id":"proj_pa_memory_candidate_partial_authority",
+				"title":"Candidate mirror boundary",
+				"body":"Project-memory authority alone does not own candidate writes.",
+				"suggested_kind":"process",
+				"suggested_trust_label":"operator_reviewed",
+				"suggested_source_kind":"project_assistant",
+				"suggested_source_id":"pa_memory_candidate_partial_authority"
+			}`),
+		}},
+	}
+	applied := mustRequestJSONStatus[projectAssistantApplyResponse](client, http.StatusOK, http.MethodPost, "/hecate/v1/project-assistant/apply", projectJourneyJSON(t, map[string]any{
+		"proposal": proposal,
+		"confirm":  true,
+	}))
+	if !applied.Data.Applied || applied.Data.CommittedActionCount != 1 {
+		t.Fatalf("apply response = %+v, want one native candidate action", applied.Data)
+	}
+	if candidate, ok, err := handler.memoryCandidates.GetCandidate(t.Context(), projectID, "memcand_partial_authority"); err != nil || !ok || candidate.Title != "Candidate mirror boundary" {
+		t.Fatalf("native memory candidate = %+v ok=%v err=%v, want committed compatibility candidate", candidate, ok, err)
+	}
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline mirror: %v", err)
+	}
+	defer store.Close()
+	candidate, err := service.GetMemoryCandidate(t.Context(), projectID, "memcand_partial_authority")
+	if err != nil {
+		t.Fatalf("GetMemoryCandidate from Cairnline: %v", err)
+	}
+	if candidate.Title != "Candidate mirror boundary" || candidate.SuggestedSourceID != proposal.ID {
+		t.Fatalf("mirrored memory candidate = %+v, want native candidate preserved in Cairnline reads", candidate)
 	}
 }
 
@@ -2313,18 +2545,28 @@ func TestProjectAssistantAPI_DraftReviewFollowUpProposal(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
 		t.Fatalf("decode draft response: %v", err)
 	}
-	if proposed.Object != "project_assistant.proposal" || len(proposed.Data.Actions) != 3 {
-		t.Fatalf("draft response = %+v, want three-action review follow-up proposal", proposed)
+	if proposed.Object != "project_assistant.proposal" || len(proposed.Data.Actions) != 2 {
+		t.Fatalf("draft response = %+v, want two-action review follow-up proposal", proposed)
 	}
-	if proposed.Data.Actions[0].Kind != projectassistant.ActionCreateHandoff || proposed.Data.Actions[1].Kind != projectassistant.ActionCreateAssignment || proposed.Data.Actions[2].Kind != projectassistant.ActionUpdateHandoff {
-		t.Fatalf("actions = %+v, want create_handoff/create_assignment/update_handoff", proposed.Data.Actions)
+	if proposed.Data.Actions[0].Kind != projectassistant.ActionCreateAssignment || proposed.Data.Actions[1].Kind != projectassistant.ActionCreateHandoff {
+		t.Fatalf("actions = %+v, want create_assignment/create_handoff", proposed.Data.Actions)
 	}
 	var assignmentPatch map[string]string
-	if err := json.Unmarshal(proposed.Data.Actions[1].Patch, &assignmentPatch); err != nil {
+	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &assignmentPatch); err != nil {
 		t.Fatalf("decode assignment patch: %v", err)
 	}
 	if assignmentPatch["work_item_id"] != workItem.ID || assignmentPatch["role_id"] != "software_developer" || assignmentPatch["status"] != projectwork.AssignmentStatusQueued {
 		t.Fatalf("assignment patch = %+v, want queued reviewed-role assignment", assignmentPatch)
+	}
+	var handoffPatch struct {
+		TargetAssignmentID string `json:"target_assignment_id"`
+		Status             string `json:"status"`
+	}
+	if err := json.Unmarshal(proposed.Data.Actions[1].Patch, &handoffPatch); err != nil {
+		t.Fatalf("decode handoff patch: %v", err)
+	}
+	if handoffPatch.TargetAssignmentID != assignmentPatch["id"] || handoffPatch.Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("handoff patch = %+v, want accepted link to queued assignment %q", handoffPatch, assignmentPatch["id"])
 	}
 	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: project.ID, WorkItemID: workItem.ID})
 	if err != nil {
@@ -2421,15 +2663,25 @@ func TestProjectAssistantAPI_DraftReviewFollowUpUsesCairnlineReadModelWhenConfig
 	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
 		t.Fatalf("decode draft response: %v", err)
 	}
-	if len(proposed.Data.Actions) != 3 || proposed.Data.Actions[0].Kind != projectassistant.ActionCreateHandoff || proposed.Data.Actions[1].Kind != projectassistant.ActionCreateAssignment || proposed.Data.Actions[2].Kind != projectassistant.ActionUpdateHandoff {
-		t.Fatalf("actions = %+v, want Cairnline-backed review follow-up handoff/assignment/link", proposed.Data.Actions)
+	if len(proposed.Data.Actions) != 2 || proposed.Data.Actions[0].Kind != projectassistant.ActionCreateAssignment || proposed.Data.Actions[1].Kind != projectassistant.ActionCreateHandoff {
+		t.Fatalf("actions = %+v, want Cairnline-backed review follow-up assignment/linked handoff", proposed.Data.Actions)
 	}
 	var assignmentPatch map[string]string
-	if err := json.Unmarshal(proposed.Data.Actions[1].Patch, &assignmentPatch); err != nil {
+	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &assignmentPatch); err != nil {
 		t.Fatalf("decode assignment patch: %v", err)
 	}
 	if assignmentPatch["role_id"] != "implementation" || assignmentPatch["driver_kind"] != projectwork.AssignmentDriverHecateTask || assignmentPatch["root_id"] != workItem.RootID {
 		t.Fatalf("assignment patch = %+v, want reviewed assignment role/driver and work item root", assignmentPatch)
+	}
+	var handoffPatch struct {
+		TargetAssignmentID string `json:"target_assignment_id"`
+		Status             string `json:"status"`
+	}
+	if err := json.Unmarshal(proposed.Data.Actions[1].Patch, &handoffPatch); err != nil {
+		t.Fatalf("decode handoff patch: %v", err)
+	}
+	if handoffPatch.TargetAssignmentID != assignmentPatch["id"] || handoffPatch.Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("handoff patch = %+v, want accepted Cairnline-backed link to %q", handoffPatch, assignmentPatch["id"])
 	}
 }
 

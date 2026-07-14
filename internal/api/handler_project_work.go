@@ -122,6 +122,7 @@ type createProjectHandoffRequest struct {
 }
 
 type updateProjectHandoffRequest struct {
+	ExpectedUpdatedAt     string    `json:"expected_updated_at,omitempty"`
 	SourceAssignmentID    *string   `json:"source_assignment_id,omitempty"`
 	SourceRunID           *string   `json:"source_run_id,omitempty"`
 	SourceChatSessionID   *string   `json:"source_chat_session_id,omitempty"`
@@ -142,7 +143,18 @@ type updateProjectHandoffRequest struct {
 }
 
 type updateProjectHandoffStatusRequest struct {
-	Status string `json:"status"`
+	ExpectedUpdatedAt string `json:"expected_updated_at,omitempty"`
+	Status            string `json:"status"`
+}
+
+type deleteProjectHandoffRequest struct {
+	ExpectedUpdatedAt string `json:"expected_updated_at"`
+}
+
+type acceptProjectHandoffWithFollowUpRequest struct {
+	ExpectedUpdatedAt string `json:"expected_updated_at"`
+	IdempotencyKey    string `json:"idempotency_key"`
+	Intent            string `json:"intent"`
 }
 
 type ProjectWorkRolesResponse struct {
@@ -298,6 +310,18 @@ type ProjectHandoffsResponse struct {
 type ProjectHandoffEnvelope struct {
 	Object string                 `json:"object"`
 	Data   ProjectHandoffResponse `json:"data"`
+}
+
+type ProjectHandoffFollowUpEnvelope struct {
+	Object string                         `json:"object"`
+	Data   ProjectHandoffFollowUpResponse `json:"data"`
+}
+
+type ProjectHandoffFollowUpResponse struct {
+	Handoff    ProjectHandoffResponse        `json:"handoff"`
+	Assignment ProjectWorkAssignmentResponse `json:"assignment"`
+	Outcome    string                        `json:"outcome"`
+	Replayed   bool                          `json:"replayed"`
 }
 
 type ProjectHandoffResponse struct {
@@ -1109,7 +1133,12 @@ func (h *Handler) HandleUpdateProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	expectedUpdatedAt, ok := parseRequiredProjectWorkTime(w, req.ExpectedUpdatedAt, "expected_updated_at")
+	if !ok {
+		return
+	}
 	cmd := projectworkapp.UpdateHandoffCommand{
+		ExpectedUpdatedAt:     expectedUpdatedAt,
 		SourceAssignmentID:    req.SourceAssignmentID,
 		SourceRunID:           req.SourceRunID,
 		SourceChatSessionID:   req.SourceChatSessionID,
@@ -1156,12 +1185,16 @@ func (h *Handler) HandleUpdateProjectHandoffStatus(w http.ResponseWriter, r *htt
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	cmd := projectworkapp.UpdateHandoffCommand{Status: &req.Status}
+	expectedUpdatedAt, ok := parseRequiredProjectWorkTime(w, req.ExpectedUpdatedAt, "expected_updated_at")
+	if !ok {
+		return
+	}
 	var item projectwork.Handoff
 	var err error
 	if usesCairnlineAuthority {
-		item, err = h.updateProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID, cmd)
+		item, err = h.updateProjectHandoffStatusWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID, expectedUpdatedAt, req.Status)
 	} else {
+		cmd := projectworkapp.UpdateHandoffCommand{ExpectedUpdatedAt: expectedUpdatedAt, Status: &req.Status}
 		item, err = h.projectWorkApplication().UpdateHandoff(r.Context(), projectID, workItemID, handoffID, cmd)
 	}
 	if !writeProjectWorkError(w, err) {
@@ -1181,8 +1214,16 @@ func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Requ
 	if !usesCairnlineAuthority && !h.requireProjectWorkItem(w, r, projectID, workItemID) {
 		return
 	}
+	var req deleteProjectHandoffRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	expectedUpdatedAt, ok := parseRequiredProjectWorkTime(w, req.ExpectedUpdatedAt, "expected_updated_at")
+	if !ok {
+		return
+	}
 	if usesCairnlineAuthority {
-		if err := h.deleteProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
+		if err := h.deleteProjectHandoffWithCairnlineAuthority(r.Context(), projectID, workItemID, handoffID, expectedUpdatedAt); !writeProjectWorkError(w, err) {
 			return
 		}
 	} else {
@@ -1192,6 +1233,45 @@ func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Requ
 		h.mirrorProjectHandoffDeleteToCairnline(r.Context(), "project_handoff_delete", projectID, workItemID, handoffID)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) HandleAcceptProjectHandoffWithFollowUp(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	handoffID := r.PathValue("handoff_id")
+	if !h.projectCollaborationWritesUseCairnlineAuthority() {
+		_ = writeProjectWorkError(w, errors.Join(cairnline.ErrConflict, errors.New("accepting a handoff with follow-up is not enabled for this project")))
+		return
+	}
+
+	var req acceptProjectHandoffWithFollowUpRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	expectedUpdatedAt, ok := parseRequiredProjectWorkTime(w, req.ExpectedUpdatedAt, "expected_updated_at")
+	if !ok {
+		return
+	}
+	result, err := h.acceptProjectHandoffWithFollowUpCairnlineAuthority(r.Context(), cairnline.AcceptHandoffWithFollowUpCommand{
+		ProjectID:         projectID,
+		WorkItemID:        workItemID,
+		HandoffID:         handoffID,
+		ExpectedUpdatedAt: expectedUpdatedAt,
+		IdempotencyKey:    req.IdempotencyKey,
+		Intent:            req.Intent,
+	})
+	if !writeProjectWorkError(w, err) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectHandoffFollowUpEnvelope{
+		Object: "project_handoff_follow_up",
+		Data: ProjectHandoffFollowUpResponse{
+			Handoff:    renderProjectHandoff(result.Handoff),
+			Assignment: renderProjectWorkAssignment(result.Assignment),
+			Outcome:    result.Outcome,
+			Replayed:   result.Replayed,
+		},
+	})
 }
 
 func (h *Handler) requireProject(w http.ResponseWriter, r *http.Request, projectID string) bool {
@@ -1348,6 +1428,19 @@ func parseOptionalProjectWorkTime(value, field string) (time.Time, error) {
 		return time.Time{}, errors.New(field + " must be RFC3339 timestamp")
 	}
 	return parsed.UTC(), nil
+}
+
+func parseRequiredProjectWorkTime(w http.ResponseWriter, value, field string) (time.Time, bool) {
+	if strings.TrimSpace(value) == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, field+" is required")
+		return time.Time{}, false
+	}
+	parsed, err := parseOptionalProjectWorkTime(value, field)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 func pluralSuffix(count int) string {

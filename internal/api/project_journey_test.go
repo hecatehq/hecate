@@ -239,12 +239,16 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 		t.Fatalf("review assignment = %+v, want queued unstarted follow-up", reviewAssignment.Data)
 	}
 	patchedHandoff := mustRequestJSON[ProjectHandoffEnvelope](client, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_backend/handoffs/handoff_review", projectJourneyJSON(t, map[string]any{
+		"expected_updated_at":  handoff.Data.UpdatedAt,
 		"target_assignment_id": "asgn_review",
 	}))
 	if patchedHandoff.Data.TargetAssignmentID != "asgn_review" {
 		t.Fatalf("patched handoff = %+v, want target assignment link", patchedHandoff.Data)
 	}
-	acceptedHandoff := mustRequestJSON[ProjectHandoffEnvelope](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_backend/handoffs/handoff_review/status", `{"status":"accepted"}`)
+	acceptedHandoff := mustRequestJSON[ProjectHandoffEnvelope](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_backend/handoffs/handoff_review/status", projectJourneyJSON(t, map[string]any{
+		"expected_updated_at": patchedHandoff.Data.UpdatedAt,
+		"status":              "accepted",
+	}))
 	if acceptedHandoff.Data.Status != projectwork.HandoffStatusAccepted {
 		t.Fatalf("accepted handoff = %+v, want accepted", acceptedHandoff.Data)
 	}
@@ -413,7 +417,10 @@ func TestProjectJourneyAPI_CairnlineReplacementModeStartsTaskWithRuntimeDefaults
 	if mirroredHandoff.ToRoleID != "role_reviewer" || mirroredHandoff.Status != "open" {
 		t.Fatalf("mirrored handoff = %+v, want pending Cairnline-backed review handoff", mirroredHandoff)
 	}
-	accepted := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/handoffs/handoff_replacement_review/status", `{"status":"accepted"}`)
+	accepted := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusOK, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_replacement/handoffs/handoff_replacement_review/status", projectJourneyJSON(t, map[string]any{
+		"expected_updated_at": handoff.Data.UpdatedAt,
+		"status":              "accepted",
+	}))
 	if accepted.Data.Status != projectwork.HandoffStatusAccepted {
 		t.Fatalf("accepted handoff = %+v, want accepted handoff response", accepted.Data)
 	}

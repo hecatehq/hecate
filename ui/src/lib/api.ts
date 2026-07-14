@@ -68,6 +68,7 @@ import type {
   UpdatePluginPayload,
 } from "../types/plugin";
 import type {
+  AcceptProjectHandoffWithFollowUpPayload,
   CreateProjectPayload,
   CreateProjectCollaborationArtifactPayload,
   CreateProjectWorktreeRootPayload,
@@ -95,6 +96,7 @@ import type {
   ProjectContextSourcePayload,
   ProjectDeleteResponse,
   ProjectHandoffResponse,
+  ProjectHandoffFollowUpResponse,
   ProjectHandoffsResponse,
   ProjectHealthResponse,
   ProjectMemoryCandidateListResponse,
@@ -967,10 +969,11 @@ export async function updateProjectHandoff(
   workItemID: string,
   handoffID: string,
   payload: UpdateProjectHandoffPayload,
+  expectedUpdatedAt: string,
 ): Promise<ProjectHandoffResponse> {
   return fetchJSON<ProjectHandoffResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}`,
-    { method: "PATCH", body: payload },
+    { method: "PATCH", body: { ...payload, expected_updated_at: expectedUpdatedAt } },
   );
 }
 
@@ -979,10 +982,23 @@ export async function updateProjectHandoffStatus(
   workItemID: string,
   handoffID: string,
   status: string,
+  expectedUpdatedAt: string,
 ): Promise<ProjectHandoffResponse> {
   return fetchJSON<ProjectHandoffResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}/status`,
-    { method: "POST", body: { status } },
+    { method: "POST", body: { status, expected_updated_at: expectedUpdatedAt } },
+  );
+}
+
+export async function acceptProjectHandoffWithFollowUp(
+  projectID: string,
+  workItemID: string,
+  handoffID: string,
+  payload: AcceptProjectHandoffWithFollowUpPayload,
+): Promise<ProjectHandoffFollowUpResponse> {
+  return fetchJSON<ProjectHandoffFollowUpResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}/accept-with-follow-up`,
+    { method: "POST", body: payload },
   );
 }
 
@@ -990,10 +1006,11 @@ export async function deleteProjectHandoff(
   projectID: string,
   workItemID: string,
   handoffID: string,
+  expectedUpdatedAt: string,
 ): Promise<void> {
   return fetchJSON<void>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}`,
-    { method: "DELETE" },
+    { method: "DELETE", body: { expected_updated_at: expectedUpdatedAt } },
   );
 }
 

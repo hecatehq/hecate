@@ -4,6 +4,7 @@ import type {
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
+  ProjectHandoffRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -11,9 +12,11 @@ import {
   assignmentStatusFromValue,
   assignmentUpdatePayloadFromForm,
   evidenceLinkPayloadFromForm,
+  handoffFormFromRecord,
   handoffFormFromAssignment,
   handoffFormFromReviewArtifact,
   handoffPayloadFromForm,
+  handoffUpdatePayloadFromForm,
   handoffStatusFromValue,
   reviewHandoffFormFromAssignment,
   reviewArtifactFormFromAssignment,
@@ -129,6 +132,40 @@ describe("projectWorkForms", () => {
       status: "pending",
       provenance_kind: "operator",
       trust_label: "operator_reviewed",
+    });
+  });
+
+  it("patches only edited handoff fields and never replays hidden status", () => {
+    const original: ProjectHandoffRecord = {
+      id: "handoff_1",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      source_assignment_id: "assign_1",
+      target_role_id: "reviewer",
+      target_assignment_id: "assign_2",
+      title: "Review it",
+      summary: "Original summary",
+      recommended_next_action: "Test it",
+      linked_artifact_ids: ["art_1"],
+      linked_memory_ids: [],
+      context_refs: ["ctx_1"],
+      status: "accepted",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-12T00:00:00Z",
+      updated_at: "2026-06-12T00:00:00Z",
+      status_changed_at: "2026-06-12T00:00:00Z",
+    };
+    const form = handoffFormFromRecord(original);
+
+    expect(
+      handoffUpdatePayloadFromForm(
+        { ...form, summary: "  Updated summary  ", status: "pending" },
+        original,
+      ),
+    ).toEqual({ summary: "Updated summary" });
+    expect(handoffUpdatePayloadFromForm({ ...form, targetAssignmentID: "" }, original)).toEqual({
+      target_assignment_id: "",
     });
   });
 

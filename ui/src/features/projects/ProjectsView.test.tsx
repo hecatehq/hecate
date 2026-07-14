@@ -8,6 +8,7 @@ import { ProjectsProvider, useProjects } from "../../app/state/projects";
 import { SettingsProvider } from "../../app/state/settings";
 import {
   ApiError,
+  acceptProjectHandoffWithFollowUp,
   applyProjectAssistant,
   chooseWorkspaceDirectory,
   createAgentPreset,
@@ -495,6 +496,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     })),
     updateProjectHandoffStatus: vi.fn(async () => ({
       object: "project_handoff",
+      data: null,
+    })),
+    acceptProjectHandoffWithFollowUp: vi.fn(async () => ({
+      object: "project_handoff_follow_up",
       data: null,
     })),
     deleteProjectHandoff: vi.fn(async () => undefined),
@@ -1291,6 +1296,34 @@ function resetProjectWorkMocks() {
       status_changed_at: "2026-06-02T12:05:00Z",
     },
   });
+  vi.mocked(acceptProjectHandoffWithFollowUp).mockResolvedValue({
+    object: "project_handoff_follow_up",
+    data: {
+      handoff: {
+        id: "handoff_new",
+        project_id: project.id,
+        work_item_id: workItem.id,
+        title: "QA handoff",
+        summary: "Ready for review.",
+        recommended_next_action: "Start QA.",
+        target_assignment_id: "asgn_new",
+        status: "accepted",
+        provenance_kind: "operator",
+        trust_label: "operator_reviewed",
+        created_at: "2026-06-02T12:00:00Z",
+        updated_at: "2026-06-02T12:05:00Z",
+        status_changed_at: "2026-06-02T12:05:00Z",
+      },
+      assignment: {
+        ...hecateAssignment,
+        id: "asgn_new",
+        status: "queued",
+        execution: undefined,
+      },
+      outcome: "created",
+      replayed: false,
+    },
+  });
   vi.mocked(deleteProjectHandoff).mockResolvedValue(undefined);
   vi.mocked(createProjectMemory).mockResolvedValue({
     object: "project_memory_entry",
@@ -1485,6 +1518,7 @@ afterEach(() => {
   vi.mocked(createProjectCollaborationArtifact).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoffStatus).mockReset();
+  vi.mocked(acceptProjectHandoffWithFollowUp).mockReset();
   vi.mocked(deleteProjectHandoff).mockReset();
   vi.mocked(createProjectMemory).mockReset();
   vi.mocked(createProjectRoot).mockReset();
@@ -8923,6 +8957,13 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(within(detail).getByRole("button", { name: "Accept" }));
 
+    expect(updateProjectHandoffStatus).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      pendingHandoff.id,
+      "accepted",
+      pendingHandoff.updated_at,
+    );
     expect(await within(detail).findByText("Ready to mark done")).toBeTruthy();
     await waitFor(() =>
       expect(document.activeElement).toHaveAttribute("id", "project-work-handoff-handoff_pending"),
@@ -8931,6 +8972,58 @@ describe("ProjectsView cockpit", () => {
     expect(vi.mocked(getProjectWorkItemReadiness).mock.calls.length).toBeGreaterThan(
       readinessCallsBeforeDecision,
     );
+  });
+
+  it("reloads authoritative handoff state after a stale status conflict", async () => {
+    resetProjectWorkMocks();
+    let authoritativeStatus = "pending";
+    const pendingHandoff: ProjectHandoffRecord = {
+      id: "handoff_conflict",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "Release decision",
+      summary: "Another operator may decide this handoff.",
+      recommended_next_action: "Review the latest decision.",
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T11:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+      status_changed_at: "2026-06-02T11:00:00Z",
+    };
+    vi.mocked(getProjectHandoffs).mockImplementation(async () => ({
+      object: "project_handoffs",
+      data: [{ ...pendingHandoff, status: authoritativeStatus }],
+    }));
+    vi.mocked(updateProjectHandoffStatus).mockImplementation(async () => {
+      authoritativeStatus = "dismissed";
+      throw new ApiError("This handoff changed before your decision was saved.", 409, "conflict");
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(await within(detail).findByRole("button", { name: "Accept" }));
+
+    expect(
+      await within(detail).findByText("This handoff changed before your decision was saved."),
+    ).toBeTruthy();
+    const reconciled = within(detail).getByRole("group", {
+      name: "Release decision handoff",
+    });
+    expect(reconciled).toHaveTextContent("Dismissed");
+    expect(within(reconciled).queryByRole("button", { name: "Accept" })).toBeNull();
+    await waitFor(() => expect(reconciled).toHaveFocus());
+    expect(getProjectHandoffs).toHaveBeenCalledTimes(2);
   });
 
   it("adds assignments from the selected work item", async () => {
@@ -10043,7 +10136,7 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("creates target assignments from handoffs without starting them", async () => {
+  it("accepts handoffs atomically without starting the returned assignment", async () => {
     resetProjectWorkMocks();
     const qaRole: ProjectWorkRoleRecord = {
       id: "reviewer_qa",
@@ -10060,6 +10153,27 @@ describe("ProjectsView cockpit", () => {
       id: "work_followup",
       title: "Review cockpit behavior",
       assignments: [],
+    };
+    let sourceHandoff: ProjectHandoffRecord = {
+      id: "handoff_1",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      source_assignment_id: "asgn_1",
+      source_run_id: "run_1",
+      source_chat_session_id: "chat_1",
+      source_message_id: "msg_1",
+      title: "QA handoff",
+      summary: "Ready for review.",
+      recommended_next_action: "Create a QA assignment.",
+      target_role_id: "reviewer_qa",
+      target_work_item_id: followUpWorkItem.id,
+      context_refs: ["ctx_1"],
+      status: "pending",
+      provenance_kind: "agent_draft",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+      status_changed_at: "2026-06-02T12:00:00Z",
     };
     vi.mocked(getProjectWorkRoles).mockResolvedValue({
       object: "project_roles",
@@ -10079,42 +10193,17 @@ describe("ProjectsView cockpit", () => {
     }));
     vi.mocked(getProjectHandoffs).mockImplementation(async (_projectID, workItemID) => ({
       object: "project_handoffs",
-      data:
-        workItemID === workItem.id
-          ? [
-              {
-                id: "handoff_1",
-                project_id: project.id,
-                work_item_id: workItem.id,
-                source_assignment_id: "asgn_1",
-                source_run_id: "run_1",
-                source_chat_session_id: "chat_1",
-                source_message_id: "msg_1",
-                title: "QA handoff",
-                summary: "Ready for review.",
-                recommended_next_action: "Create a QA assignment.",
-                target_role_id: "reviewer_qa",
-                target_work_item_id: followUpWorkItem.id,
-                context_refs: ["ctx_1"],
-                status: "pending",
-                provenance_kind: "agent_draft",
-                trust_label: "operator_reviewed",
-                created_at: "2026-06-02T12:00:00Z",
-                updated_at: "2026-06-02T12:00:00Z",
-                status_changed_at: "2026-06-02T12:00:00Z",
-              },
-            ]
-          : [],
+      data: workItemID === workItem.id ? [sourceHandoff] : [],
     }));
-    let resolveCreate: (
-      value: Awaited<ReturnType<typeof createProjectAssignment>>,
+    let resolveAccept: (
+      value: Awaited<ReturnType<typeof acceptProjectHandoffWithFollowUp>>,
     ) => void = () => {};
-    const createRequest = new Promise<Awaited<ReturnType<typeof createProjectAssignment>>>(
+    const acceptRequest = new Promise<Awaited<ReturnType<typeof acceptProjectHandoffWithFollowUp>>>(
       (resolve) => {
-        resolveCreate = resolve;
+        resolveAccept = resolve;
       },
     );
-    vi.mocked(createProjectAssignment).mockReturnValueOnce(createRequest);
+    vi.mocked(acceptProjectHandoffWithFollowUp).mockReturnValueOnce(acceptRequest);
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -10142,14 +10231,23 @@ describe("ProjectsView cockpit", () => {
     expect(within(sourceEvidence).getByText("context ctx_1")).toBeTruthy();
     await user.click(
       within(detail).getByRole("button", {
-        name: "Create follow-up assignment",
+        name: "Accept and create follow-up",
       }),
     );
 
     await waitFor(() => {
-      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, followUpWorkItem.id, {
-        role_id: "reviewer_qa",
-      });
+      expect(acceptProjectHandoffWithFollowUp).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        sourceHandoff.id,
+        {
+          expected_updated_at: "2026-06-02T12:00:00Z",
+          idempotency_key: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+          intent: "accept_and_ensure_follow_up",
+        },
+      );
     });
     await user.click(
       screen.getByRole("link", {
@@ -10159,29 +10257,197 @@ describe("ProjectsView cockpit", () => {
     await screen.findByRole("article", {
       name: "Review cockpit behavior work item",
     });
+    await user.click(screen.getByRole("link", { name: "Open work item Build cockpit UI" }));
+    await screen.findByRole("article", { name: "Build cockpit UI work item" });
+    const returnedHandoff = screen.getByRole("group", { name: "QA handoff handoff" });
+    expect(returnedHandoff).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("status", { name: "Handoff update status" })).toHaveTextContent(
+      "Updating handoff…",
+    );
+    expect(
+      within(returnedHandoff).getByRole("button", { name: "Accept and create follow-up" }),
+    ).toBeDisabled();
+    expect(acceptProjectHandoffWithFollowUp).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveCreate({
-        object: "project_assignment",
+      sourceHandoff = {
+        ...sourceHandoff,
+        target_assignment_id: "asgn_new",
+        status: "accepted",
+        updated_at: "2026-06-02T12:10:00Z",
+        status_changed_at: "2026-06-02T12:10:00Z",
+      };
+      resolveAccept({
+        object: "project_handoff_follow_up",
         data: {
-          ...hecateAssignment,
-          id: "asgn_new",
-          work_item_id: followUpWorkItem.id,
-          role_id: "reviewer_qa",
-          driver_kind: "external_agent",
-          status: "queued",
+          handoff: sourceHandoff,
+          assignment: {
+            ...hecateAssignment,
+            id: "asgn_new",
+            work_item_id: followUpWorkItem.id,
+            role_id: "reviewer_qa",
+            driver_kind: "external_agent",
+            status: "queued",
+          },
+          outcome: "created",
+          replayed: false,
         },
       });
-      await createRequest;
+      await acceptRequest;
     });
 
     await waitFor(() => {
-      expect(updateProjectHandoff).toHaveBeenCalledWith(project.id, workItem.id, "handoff_1", {
-        target_assignment_id: "asgn_new",
-        target_role_id: "reviewer_qa",
-      });
+      expect(returnedHandoff).toHaveTextContent("Accepted");
+      expect(returnedHandoff).not.toHaveAttribute("aria-busy");
+      expect(returnedHandoff).toHaveFocus();
     });
+    expect(acceptProjectHandoffWithFollowUp).toHaveBeenCalledTimes(1);
+    expect(createProjectAssignment).not.toHaveBeenCalled();
+    expect(updateProjectHandoff).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("reuses the atomic handoff idempotency key after a transport failure", async () => {
+    resetProjectWorkMocks();
+    const pendingHandoff: ProjectHandoffRecord = {
+      id: "handoff_retry",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "Retry-safe handoff",
+      summary: "Ready for a follow-up.",
+      recommended_next_action: "Create the implementation follow-up.",
+      target_role_id: role.id,
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+      status_changed_at: "2026-06-02T12:00:00Z",
+    };
+    vi.mocked(getProjectHandoffs).mockResolvedValue({
+      object: "project_handoffs",
+      data: [pendingHandoff],
+    });
+    vi.mocked(acceptProjectHandoffWithFollowUp)
+      .mockRejectedValueOnce(new Error("Connection interrupted."))
+      .mockResolvedValueOnce({
+        object: "project_handoff_follow_up",
+        data: {
+          handoff: {
+            ...pendingHandoff,
+            target_assignment_id: "asgn_retry",
+            status: "accepted",
+            updated_at: "2026-06-02T12:05:00Z",
+            status_changed_at: "2026-06-02T12:05:00Z",
+          },
+          assignment: {
+            ...hecateAssignment,
+            id: "asgn_retry",
+            execution: undefined,
+            status: "queued",
+          },
+          outcome: "created",
+          replayed: true,
+        },
+      });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    const accept = await within(detail).findByRole("button", {
+      name: "Accept and create follow-up",
+    });
+    await user.click(accept);
+    expect(await within(detail).findByText("Connection interrupted.")).toBeTruthy();
+    await waitFor(() => expect(accept).toBeEnabled());
+
+    const firstPayload = vi.mocked(acceptProjectHandoffWithFollowUp).mock.calls[0]?.[3];
+    await user.click(accept);
+    await waitFor(() => expect(acceptProjectHandoffWithFollowUp).toHaveBeenCalledTimes(2));
+    const secondPayload = vi.mocked(acceptProjectHandoffWithFollowUp).mock.calls[1]?.[3];
+
+    expect(firstPayload?.idempotency_key).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(secondPayload?.idempotency_key).toBe(firstPayload?.idempotency_key);
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("keeps atomic handoff errors visible and restores work-item focus after a 404", async () => {
+    resetProjectWorkMocks();
+    const pendingHandoff: ProjectHandoffRecord = {
+      id: "handoff_removed",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "Removed handoff",
+      summary: "Another operator may remove this handoff.",
+      recommended_next_action: "Create the implementation follow-up.",
+      target_role_id: role.id,
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+      status_changed_at: "2026-06-02T12:00:00Z",
+    };
+    let handoffExists = true;
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: { ...workItem, assignments: [] },
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [],
+    });
+    vi.mocked(getProjectHandoffs).mockImplementation(async () => ({
+      object: "project_handoffs",
+      data: handoffExists ? [pendingHandoff] : [],
+    }));
+    vi.mocked(acceptProjectHandoffWithFollowUp).mockImplementationOnce(async () => {
+      handoffExists = false;
+      throw new ApiError("This handoff no longer exists.", 404, "not_found");
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(
+      await within(detail).findByRole("button", { name: "Accept and create follow-up" }),
+    );
+
+    const handoffsRegion = await within(detail).findByRole("region", { name: "Handoffs" });
+    expect(within(handoffsRegion).getByRole("alert")).toHaveTextContent(
+      "This handoff no longer exists.",
+    );
+    expect(within(handoffsRegion).getByText("No structured handoffs recorded yet.")).toBeTruthy();
+    const selectedWorkItem = within(detail).getByRole("article", {
+      name: "Build cockpit UI work item",
+    });
+    await waitFor(() => expect(selectedWorkItem).toHaveFocus());
+    expect(getProjectHandoffs).toHaveBeenCalledTimes(2);
   });
 
   it("opens a handoff target on the canonical assignment launch surface", async () => {
@@ -10417,7 +10683,7 @@ describe("ProjectsView cockpit", () => {
     expect(updateProjectHandoffStatus).not.toHaveBeenCalled();
   });
 
-  it("defers follow-up assignment driver selection to the project authority", async () => {
+  it("uses atomic project authority for same-work follow-up defaults", async () => {
     resetProjectWorkMocks();
     const reviewRole: ProjectWorkRoleRecord = {
       id: "role_review",
@@ -10425,39 +10691,60 @@ describe("ProjectsView cockpit", () => {
       name: "Review",
       built_in: false,
     };
+    let sourceHandoff: ProjectHandoffRecord = {
+      id: "handoff_driver_fallback",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "Review handoff",
+      summary: "Ready for review.",
+      recommended_next_action: "Create a review assignment.",
+      target_role_id: reviewRole.id,
+      status: "pending",
+      provenance_kind: "agent_draft",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+      status_changed_at: "2026-06-02T12:00:00Z",
+    };
+    const followUpAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_review",
+      role_id: reviewRole.id,
+      driver_kind: "hecate_task",
+      status: "queued",
+      execution: undefined,
+    };
+    let assignmentRecords = [hecateAssignment];
     vi.mocked(getProjectWorkRoles).mockResolvedValue({
       object: "project_roles",
       data: [role, reviewRole],
     });
-    vi.mocked(getProjectHandoffs).mockResolvedValue({
+    vi.mocked(getProjectAssignments).mockImplementation(async () => ({
+      object: "project_assignments",
+      data: assignmentRecords,
+    }));
+    vi.mocked(getProjectHandoffs).mockImplementation(async () => ({
       object: "project_handoffs",
-      data: [
-        {
-          id: "handoff_driver_fallback",
-          project_id: project.id,
-          work_item_id: workItem.id,
-          title: "Review handoff",
-          summary: "Ready for review.",
-          recommended_next_action: "Create a review assignment.",
-          target_role_id: "role_review",
-          status: "pending",
-          provenance_kind: "agent_draft",
-          trust_label: "operator_reviewed",
-          created_at: "2026-06-02T12:00:00Z",
-          updated_at: "2026-06-02T12:00:00Z",
-          status_changed_at: "2026-06-02T12:00:00Z",
+      data: [sourceHandoff],
+    }));
+    vi.mocked(acceptProjectHandoffWithFollowUp).mockImplementationOnce(async () => {
+      sourceHandoff = {
+        ...sourceHandoff,
+        target_assignment_id: followUpAssignment.id,
+        status: "accepted",
+        updated_at: "2026-06-02T12:05:00Z",
+        status_changed_at: "2026-06-02T12:05:00Z",
+      };
+      assignmentRecords = [hecateAssignment, followUpAssignment];
+      return {
+        object: "project_handoff_follow_up",
+        data: {
+          handoff: sourceHandoff,
+          assignment: followUpAssignment,
+          outcome: "created",
+          replayed: false,
         },
-      ],
-    });
-    vi.mocked(createProjectAssignment).mockResolvedValueOnce({
-      object: "project_assignment",
-      data: {
-        ...hecateAssignment,
-        id: "asgn_review",
-        role_id: "role_review",
-        driver_kind: "hecate_task",
-        status: "queued",
-      },
+      };
     });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -10479,24 +10766,31 @@ describe("ProjectsView cockpit", () => {
     });
     await userEvent.click(
       within(detail).getByRole("button", {
-        name: "Create follow-up assignment",
+        name: "Accept and create follow-up",
       }),
     );
 
     await waitFor(() => {
-      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
-        role_id: "role_review",
-      });
+      expect(acceptProjectHandoffWithFollowUp).toHaveBeenCalledWith(
+        project.id,
+        workItem.id,
+        "handoff_driver_fallback",
+        {
+          expected_updated_at: "2026-06-02T12:00:00Z",
+          idempotency_key: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+          intent: "accept_and_ensure_follow_up",
+        },
+      );
     });
-    expect(updateProjectHandoff).toHaveBeenCalledWith(
-      project.id,
-      workItem.id,
-      "handoff_driver_fallback",
-      {
-        target_assignment_id: "asgn_review",
-        target_role_id: "role_review",
-      },
-    );
+    expect(
+      await within(detail).findByRole("article", {
+        name: "Review assignment execution asgn_review",
+      }),
+    ).toBeTruthy();
+    expect(createProjectAssignment).not.toHaveBeenCalled();
+    expect(updateProjectHandoff).not.toHaveBeenCalled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
@@ -10539,7 +10833,7 @@ describe("ProjectsView cockpit", () => {
     });
     await user.click(
       await within(detail).findByRole("button", {
-        name: "Create follow-up assignment",
+        name: "Accept and create follow-up",
       }),
     );
 

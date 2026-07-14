@@ -9,6 +9,7 @@ import type {
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectAssignmentPayload,
+  UpdateProjectHandoffPayload,
   UpdateProjectWorkItemPayload,
 } from "../../types/project";
 import {
@@ -245,6 +246,24 @@ export function handoffPayloadFromForm(form: HandoffForm): CreateProjectHandoffP
     provenance_kind: form.provenanceKind.trim() || "operator",
     trust_label: form.trustLabel.trim() || "operator_reviewed",
   };
+}
+
+export function handoffUpdatePayloadFromForm(
+  form: HandoffForm,
+  original: ProjectHandoffRecord,
+): UpdateProjectHandoffPayload {
+  const { status: _nextStatus, ...next } = handoffPayloadFromForm(form);
+  const { status: _originalStatus, ...baseline } = handoffPayloadFromForm(
+    handoffFormFromRecord(original),
+  );
+  return Object.fromEntries(
+    Object.entries(next).filter(([key, value]) => {
+      const previous = baseline[key as keyof typeof baseline];
+      return Array.isArray(value) || Array.isArray(previous)
+        ? JSON.stringify(value) !== JSON.stringify(previous)
+        : value !== previous;
+    }),
+  ) as UpdateProjectHandoffPayload;
 }
 
 export function handoffFormFromRecord(handoff: ProjectHandoffRecord | null): HandoffForm {

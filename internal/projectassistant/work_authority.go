@@ -3,6 +3,7 @@ package projectassistant
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
@@ -77,6 +78,7 @@ type WorkHandoffCommand struct {
 }
 
 type WorkHandoffUpdateCommand struct {
+	ExpectedUpdatedAt  time.Time
 	TargetAssignmentID *string
 	TargetRoleID       *string
 	Status             *string
