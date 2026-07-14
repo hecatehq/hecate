@@ -12,7 +12,7 @@
 // commit + the secondary refresh path). They live here because
 // chat is their primary home; the dashboard hook re-exposes them.
 
-import { useContext, type SyntheticEvent } from "react";
+import { useContext, useRef, type SyntheticEvent } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
@@ -65,7 +65,12 @@ import {
   chatTargetToExecutionMode,
 } from "../_shared";
 import { useApprovals } from "../approvals";
-import { useChat } from "../chat";
+import {
+  composerDraftScope,
+  composerDraftScopesMatch,
+  useChat,
+  type ComposerDraftScope,
+} from "../chat";
 import { reconcileChatSession } from "../reconcileChatSession";
 import { useProjects } from "../projects";
 import { useProvidersAndModels } from "../providersAndModels";
@@ -297,6 +302,7 @@ type ChatActionsReturn = {
   submitToolResults: () => Promise<void>;
   createChatSession: (options?: CreateChatSessionOptions) => Promise<void>;
   selectChatSession: (id: string, options?: SelectChatSessionOptions) => Promise<boolean>;
+  restoreSavedComposerDraft: (sessionID: string) => boolean;
   startNewChat: () => void;
   deleteChatSession: (id: string) => Promise<void>;
   renameChatSession: (id: string, title: string) => Promise<void>;
@@ -367,6 +373,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const { message, hecateRTKEnabled } = runtime.state;
   const {
     setMessage,
+    getMessageSnapshot,
     setRuntimeHeaders,
     setHecateRTKEnabled: setHecateRTKEnabledState,
   } = runtime.actions;
@@ -385,13 +392,26 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     activeChatSessionID,
     activeChatSession,
     composerDraftsBySessionID,
+    savedComposerDraftsBySessionID,
+    recoverableComposerDraft,
+    activeRecoverableComposerDraftID,
     model,
     systemPrompt,
+    chatLoading,
     pendingToolCalls,
     pendingThread,
     providerFilter,
   } = chat.state;
   const {
+    beginChatCreation,
+    completeChatCreation,
+    isChatCreationActive,
+    beginChatTurn,
+    bindChatTurnSession,
+    completeChatTurn,
+    isChatTurnActive,
+    isCurrentChatTurn,
+    getActiveChatTurnSessionID,
     beginActiveChatTransition,
     completeActiveChatTransition,
     isCurrentActiveChatTransition,
@@ -408,6 +428,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setActiveChatSessionID,
     setActiveChatSession,
     setComposerDraftsBySessionID,
+    setSavedComposerDraftsBySessionID,
+    saveRecoverableComposerDraft,
+    setRecoverableComposerDraft,
+    setActiveRecoverableComposerDraftID,
     setQueuedChatMessages,
     setModel,
     setSystemPrompt,
@@ -424,6 +448,97 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   } = chat.actions;
   const upsertPendingApproval = approvals.actions.upsertPending;
   const removePendingApproval = approvals.actions.removePending;
+
+  // A create has no canonical session id until POST returns, but its composer
+  // remains editable. Keep that transient ownership in the coordinator that
+  // started the request so selecting another chat cannot discard the latest
+  // pending edit. The ref is deliberately non-persistent UI state.
+  const pendingCreateDraftRef = useRef<{
+    generation: number;
+    draft: string;
+    scope: ComposerDraftScope;
+    recoveryID: number | null;
+  } | null>(null);
+  const coordinatorRenderGenerationRef = useRef(0);
+  coordinatorRenderGenerationRef.current += 1;
+  const lastSubmitClaimRef = useRef<{ renderGeneration: number; content: string } | null>(null);
+  if (
+    pendingCreateDraftRef.current &&
+    !activeChatSessionID &&
+    isCurrentActiveChatTransition(pendingCreateDraftRef.current.generation)
+  ) {
+    pendingCreateDraftRef.current.draft = message;
+  }
+
+  function pendingCreateDraft(generation: number, fallback: string): string {
+    return pendingCreateDraftRef.current?.generation === generation
+      ? pendingCreateDraftRef.current.draft
+      : fallback;
+  }
+
+  function pendingCreateRecoveryID(generation: number, fallback: number | null): number | null {
+    return pendingCreateDraftRef.current?.generation === generation
+      ? pendingCreateDraftRef.current.recoveryID
+      : fallback;
+  }
+
+  function clearPendingCreateDraft(generation: number) {
+    if (pendingCreateDraftRef.current?.generation === generation) {
+      pendingCreateDraftRef.current = null;
+    }
+  }
+
+  function clearRecoverableComposerDraft(recoveryID: number | null) {
+    if (recoveryID === null) return;
+    setRecoverableComposerDraft((current) => (current?.id === recoveryID ? null : current));
+    setActiveRecoverableComposerDraftID((current) => (current === recoveryID ? null : current));
+  }
+
+  function preservePendingCreateDraft(generation: number, bindToComposer: boolean) {
+    const pending = pendingCreateDraftRef.current;
+    if (!pending || pending.generation !== generation) return;
+    if (!pending.draft.trim()) {
+      clearRecoverableComposerDraft(pending.recoveryID);
+      pending.recoveryID = null;
+      return;
+    }
+    const recoveryID = saveRecoverableComposerDraft({
+      ...(pending.recoveryID === null ? {} : { id: pending.recoveryID }),
+      content: pending.draft,
+      scope: pending.scope,
+    });
+    pending.recoveryID = recoveryID;
+    setActiveRecoverableComposerDraftID(bindToComposer ? recoveryID : null);
+  }
+
+  function currentComposerDraftScope(): ComposerDraftScope {
+    const currentAgentID = defaultChatTarget === "external_agent" ? agentAdapterID : "hecate";
+    return composerDraftScope({
+      projectID: activeProjectID,
+      agentID: currentAgentID,
+      provider: providerFilter,
+      model,
+      workspace: workspaceForNewChat(activeProjectID),
+    });
+  }
+
+  function releaseDetachedComposerDraft() {
+    if (activeChatSessionID) return;
+    if (activeRecoverableComposerDraftID !== null) {
+      const recoveryID = activeRecoverableComposerDraftID;
+      setRecoverableComposerDraft((current) => {
+        if (current?.id !== recoveryID) return current;
+        return message.trim() ? { ...current, content: message } : null;
+      });
+      setActiveRecoverableComposerDraftID(null);
+      return;
+    }
+    if (!message.trim()) return;
+    saveRecoverableComposerDraft({
+      content: message,
+      scope: currentComposerDraftScope(),
+    });
+  }
 
   function clearPendingToolState() {
     setPendingToolCalls([]);
@@ -448,6 +563,49 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       next.set(sessionID, draft);
       return next;
     });
+  }
+
+  function saveSessionComposerDraft(sessionID: string, draft: string) {
+    if (!sessionID || !draft.trim()) return;
+    setSavedComposerDraftsBySessionID((current) => {
+      const next = new Map(current);
+      next.set(sessionID, [...(current.get(sessionID) ?? []), draft]);
+      return next;
+    });
+  }
+
+  function consumeSavedComposerDraft(sessionID: string, draft: string) {
+    setSavedComposerDraftsBySessionID((current) => {
+      const saved = current.get(sessionID);
+      if (!saved?.length) return current;
+      const index = saved.indexOf(draft);
+      if (index < 0) return current;
+      const nextSaved = [...saved.slice(0, index), ...saved.slice(index + 1)];
+      const next = new Map(current);
+      if (nextSaved.length > 0) next.set(sessionID, nextSaved);
+      else next.delete(sessionID);
+      return next;
+    });
+  }
+
+  function restoreSavedComposerDraft(sessionID: string): boolean {
+    const saved = savedComposerDraftsBySessionID.get(sessionID);
+    const restored = saved?.[0];
+    if (!restored) return false;
+    const currentDraft = activeChatSessionID === sessionID ? getMessageSnapshot().content : "";
+    setSavedComposerDraftsBySessionID((current) => {
+      const currentSaved = current.get(sessionID);
+      if (!currentSaved?.length) return current;
+      const nextSaved = currentSaved.slice(1);
+      if (currentDraft.trim()) nextSaved.push(currentDraft);
+      const next = new Map(current);
+      if (nextSaved.length > 0) next.set(sessionID, nextSaved);
+      else next.delete(sessionID);
+      return next;
+    });
+    rememberChatComposerDraft(sessionID, restored);
+    if (activeChatSessionID === sessionID) setMessage(restored);
+    return true;
   }
 
   async function refreshRuntimeState() {
@@ -659,8 +817,30 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   async function submitAgentChat(queued?: QueuedChatMessage) {
-    const content = (queued?.content ?? message).trim();
+    // A preparatory create owns the draft while its session id is unknown.
+    // UI disables Send in this state; keep the coordinator guard as the
+    // authoritative backstop for keyboard/programmatic submissions so they
+    // cannot create a second session that races the original response.
+    if (!queued && isChatCreationActive() && !activeChatSessionID) return;
+    const submittedMessageSnapshot = getMessageSnapshot();
+    const submittedRawMessage = queued?.content ?? submittedMessageSnapshot.content;
+    const content = submittedRawMessage.trim();
     if (!content) return;
+    const currentRenderGeneration = coordinatorRenderGenerationRef.current;
+    if (
+      !queued &&
+      lastSubmitClaimRef.current?.renderGeneration === currentRenderGeneration &&
+      lastSubmitClaimRef.current.content === submittedRawMessage
+    ) {
+      return;
+    }
+    const claimCurrentSubmit = () => {
+      if (queued) return;
+      lastSubmitClaimRef.current = {
+        renderGeneration: currentRenderGeneration,
+        content: submittedRawMessage,
+      };
+    };
 
     const turnProviderFilter = queued?.provider_filter ?? providerFilter;
     const turnModel = queued?.model ?? model;
@@ -679,16 +859,133 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         });
     const turnExecutionMode = requestedExecutionMode;
     const isDirectModelTurn = !isExternalAgent && !turnToolsEnabled;
-    if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
+    const turnAgentID = queued?.agent_id ?? agentAdapterID;
+    let turnWorkspace = queued?.workspace ?? workspaceForActiveTurn();
+    const detachedSubmitScope = composerDraftScope({
+      projectID: activeProjectID,
+      agentID: isExternalAgent ? turnAgentID : "hecate",
+      provider: turnProviderFilter,
+      model: turnModel,
+      workspace: workspaceForActiveTurn(),
+    });
+    const detachedRecovery =
+      !queued &&
+      !activeChatSessionID &&
+      activeRecoverableComposerDraftID !== null &&
+      recoverableComposerDraft?.id === activeRecoverableComposerDraftID
+        ? recoverableComposerDraft
+        : null;
+    if (
+      detachedRecovery &&
+      !composerDraftScopesMatch(detachedRecovery.scope, detachedSubmitScope)
+    ) {
+      // The visible text is still owned by the route where it was recovered.
+      // Fail closed instead of silently submitting project or provider context
+      // through the controls that happen to be selected now.
+      setRecoverableComposerDraft((current) =>
+        current?.id === detachedRecovery.id
+          ? { ...current, content: submittedRawMessage }
+          : current,
+      );
+      setActiveRecoverableComposerDraftID(null);
+      setMessage("");
+      params.setNoticeMessage(
+        "error",
+        "That draft belongs to another chat setup. Return to the matching setup and start a new chat to restore it.",
+      );
+      return;
+    }
+    const activeTurnSessionID = getActiveChatTurnSessionID();
+    if (
+      !queued &&
+      activeChatSessionID &&
+      (chatLoading || isChatTurnActive() || chatSessionIsBusy(activeChatSession))
+    ) {
+      claimCurrentSubmit();
       queueChatMessage(content, turnExecutionMode, activeChatSessionID, turnToolsEnabled);
       return;
     }
-    setChatLoading(true);
+    if (!queued && !activeChatSessionID && activeTurnSessionID) {
+      params.setNoticeMessage(
+        "error",
+        "Another chat is still working. Your draft is unchanged; wait for it to finish before sending.",
+      );
+      return;
+    }
+    if (!isExternalAgent && !turnModel) {
+      setChatErrorState(chatModelRequiredError());
+      return;
+    }
+    if (!isDirectModelTurn && !activeChatSessionID && !turnWorkspace) {
+      setChatErrorState(chatWorkspaceRequiredError());
+      return;
+    }
+    let sessionCreationGeneration: number | null = null;
+    let composerClaimRevision = submittedMessageSnapshot.revision;
+    let newerDraftBeforeClaim = false;
+    const claimSubmittedComposer = () => {
+      if (queued) return;
+      const beforeClaim = getMessageSnapshot();
+      if (
+        beforeClaim.revision > submittedMessageSnapshot.revision ||
+        beforeClaim.content !== submittedRawMessage
+      ) {
+        newerDraftBeforeClaim = true;
+      }
+      setMessage((current) => (current === submittedRawMessage ? "" : current));
+      composerClaimRevision = getMessageSnapshot().revision;
+    };
+    const selectedSessionNeedsOwnership =
+      !queued &&
+      (!activeChatSessionID ||
+        activeChatSession?.id !== activeChatSessionID ||
+        chatSessionIsExternal(activeChatSession) !== isExternalAgent);
+    if (selectedSessionNeedsOwnership) {
+      sessionCreationGeneration = beginChatCreation();
+      if (sessionCreationGeneration === null) return;
+    }
+    const turnGeneration = beginChatTurn(activeChatSessionID);
+    if (turnGeneration === null) {
+      if (sessionCreationGeneration !== null) {
+        completeChatCreation(sessionCreationGeneration);
+      }
+      return;
+    }
+    claimCurrentSubmit();
+    const submitTransitionGeneration = beginActiveChatTransition();
+    let submittedRecoveryID =
+      !queued && !activeChatSessionID ? (detachedRecovery?.id ?? null) : null;
+    if (!queued && !activeChatSessionID) {
+      if (submittedRecoveryID === null) {
+        submittedRecoveryID = saveRecoverableComposerDraft({
+          content: submittedRawMessage,
+          scope: detachedSubmitScope,
+        });
+      } else {
+        const recoveryID = submittedRecoveryID;
+        setRecoverableComposerDraft((current) =>
+          current?.id === recoveryID ? { ...current, content: submittedRawMessage } : current,
+        );
+      }
+      // The submitted snapshot is now owned by the in-flight turn. A later
+      // composer edit/navigation must receive a new recovery id so successful
+      // completion cannot delete that newer draft by consuming this one.
+      setActiveRecoverableComposerDraftID(null);
+    }
+    if (!queued && !activeChatSessionID) {
+      // Claim the submitted snapshot synchronously. Anything typed after this
+      // point is a distinct follow-up draft and must never be cleared by the
+      // pending session or message response.
+      claimSubmittedComposer();
+    }
+    const releaseSessionCreationOwnership = () => {
+      if (sessionCreationGeneration === null) return;
+      completeChatCreation(sessionCreationGeneration);
+      sessionCreationGeneration = null;
+    };
     clearChatErrorState();
     setRuntimeHeaders(null);
-    let turnWorkspace = queued?.workspace ?? workspaceForActiveTurn();
     const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
-    const turnAgentID = queued?.agent_id ?? agentAdapterID;
     setStreamingContent(
       isExternalAgent
         ? "Starting external agent..."
@@ -698,26 +995,47 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     );
     let streamAbort: AbortController | null = null;
     let streamPromise: Promise<void> | null = null;
+    let sessionID = queued?.session_id ?? activeChatSessionID;
+    let sourceSessionTitle =
+      (activeChatSession?.id === sessionID ? activeChatSession.title : "") ||
+      chat.state.chatSessions.find((entry) => entry.id === sessionID)?.title ||
+      "";
+    let optimisticMessageID = "";
+    let messageRequestSucceeded = false;
 
-    try {
-      if (!isExternalAgent && !turnModel) {
-        setChatErrorState(chatModelRequiredError());
+    const applySubmittedSession = (session: ChatSessionRecord) => {
+      if (
+        isCurrentChatTurn(turnGeneration) &&
+        isCurrentActiveChatTransition(submitTransitionGeneration)
+      ) {
+        applyChatSession(session);
         return;
       }
+      // The operator selected another chat while this request was in flight.
+      // Keep the server-created/background session discoverable without
+      // projecting its transcript, route, or workspace over the newer choice.
+      setChatSessions((current) => [
+        renderChatSessionSummary(session),
+        ...current.filter((entry) => entry.id !== session.id),
+      ]);
+    };
 
-      let sessionID = queued?.session_id ?? activeChatSessionID;
+    try {
       let sessionForSubmit = activeChatSession?.id === sessionID ? activeChatSession : null;
       if (sessionID && !sessionForSubmit) {
         try {
           const payload = await getChatSession(sessionID);
           sessionForSubmit = payload.data;
-          applyChatSession(payload.data);
+          sourceSessionTitle = payload.data.title || sourceSessionTitle;
+          applySubmittedSession(payload.data);
         } catch {
           // The server owns chat persistence. If localStorage points at a
           // deleted or unavailable session, start clean instead of making the
           // next prompt fail with a stale 404.
           sessionID = "";
-          setActiveChatSessionID("");
+          if (isCurrentActiveChatTransition(submitTransitionGeneration)) {
+            setActiveChatSessionID("");
+          }
         }
       }
       turnWorkspace = turnWorkspace || sessionForSubmit?.workspace?.trim() || "";
@@ -730,11 +1048,17 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         if (activeExternal !== isExternalAgent) {
           sessionID = "";
           sessionForSubmit = null;
-          setActiveChatSessionID("");
-          setActiveChatSession(null);
+          if (isCurrentActiveChatTransition(submitTransitionGeneration)) {
+            setActiveChatSessionID("");
+            setActiveChatSession(null);
+          }
         }
       }
       if (!sessionID) {
+        if (sessionCreationGeneration === null) {
+          sessionCreationGeneration = beginChatCreation();
+          if (sessionCreationGeneration === null) return;
+        }
         const configOptions = isExternalAgent ? configOptionsForExternalAgent(turnAgentID) : [];
         const mcpServers = isExternalAgent ? mcpServersForExternalAgent() : [];
         const created = await createChatSessionRequest({
@@ -753,9 +1077,26 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           ...(isExternalAgent && mcpServers.length > 0 ? { mcp_servers: mcpServers } : {}),
         });
         sessionID = created.data.id;
-        setActiveChatSessionID(sessionID);
-        applyChatSession(created.data);
+        sourceSessionTitle = created.data.title || sourceSessionTitle;
+        // Transfer the atomic unknown-session guard to the canonical turn id
+        // before releasing creation. There is no same-tick window in which a
+        // second Submit can race another /messages POST.
+        bindChatTurnSession(turnGeneration, sessionID);
+        if (
+          isCurrentChatTurn(turnGeneration) &&
+          isCurrentActiveChatTransition(submitTransitionGeneration)
+        ) {
+          setActiveChatSessionID(sessionID);
+          applyChatSession(created.data);
+          setActiveRecoverableComposerDraftID(null);
+        } else {
+          setChatSessions((current) => [
+            renderChatSessionSummary(created.data),
+            ...current.filter((entry) => entry.id !== created.data.id),
+          ]);
+        }
       }
+      releaseSessionCreationOwnership();
       if (!isExternalAgent && sessionID) {
         const sid = sessionID;
         setChatTargetBySessionID((current) => {
@@ -771,31 +1112,39 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
 
       const pendingContent = content;
-      setMessage("");
-      setActiveChatSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              messages: [
-                ...(prev.messages ?? []),
-                {
-                  id: `pending-agent-user-${Date.now()}`,
-                  execution_mode: turnExecutionMode,
-                  tools_enabled: !isExternalAgent ? turnToolsEnabled : undefined,
-                  provider: !isExternalAgent
-                    ? turnProviderFilter === "auto"
-                      ? ""
-                      : turnProviderFilter
-                    : undefined,
-                  model: !isExternalAgent ? turnModel : undefined,
-                  role: "user",
-                  content: pendingContent,
-                  created_at: new Date().toISOString(),
-                },
-              ],
-            }
-          : prev,
-      );
+      if (
+        isCurrentChatTurn(turnGeneration) &&
+        isCurrentActiveChatTransition(submitTransitionGeneration)
+      ) {
+        if (!queued && activeChatSessionID) {
+          claimSubmittedComposer();
+        }
+        optimisticMessageID = `pending-agent-user-${Date.now()}`;
+        setActiveChatSession((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...(prev.messages ?? []),
+                  {
+                    id: optimisticMessageID,
+                    execution_mode: turnExecutionMode,
+                    tools_enabled: !isExternalAgent ? turnToolsEnabled : undefined,
+                    provider: !isExternalAgent
+                      ? turnProviderFilter === "auto"
+                        ? ""
+                        : turnProviderFilter
+                      : undefined,
+                    model: !isExternalAgent ? turnModel : undefined,
+                    role: "user",
+                    content: pendingContent,
+                    created_at: new Date().toISOString(),
+                  },
+                ],
+              }
+            : prev,
+        );
+      }
 
       streamAbort = new AbortController();
       streamPromise = streamChatSession(
@@ -803,19 +1152,24 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         (event) => {
           switch (event.type) {
             case "session_update": {
-              applyChatSession(event.payload.data);
+              applySubmittedSession(event.payload.data);
               const last = [...(event.payload.data.messages ?? [])]
                 .reverse()
                 .find((m) => m.role === "assistant");
               if (last?.status === "running") {
-                setStreamingContent(
-                  last.content ||
-                    (isExternalAgent
-                      ? "External agent is running..."
-                      : isDirectModelTurn
-                        ? "Model is responding..."
-                        : "Hecate Chat tools are running..."),
-                );
+                if (
+                  isCurrentChatTurn(turnGeneration) &&
+                  isCurrentActiveChatTransition(submitTransitionGeneration)
+                ) {
+                  setStreamingContent(
+                    last.content ||
+                      (isExternalAgent
+                        ? "External agent is running..."
+                        : isDirectModelTurn
+                          ? "Model is responding..."
+                          : "Hecate Chat tools are running..."),
+                  );
+                }
               }
               return;
             }
@@ -835,7 +1189,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           return;
         }
         const msg = streamError instanceof Error ? streamError.message : "agent chat stream failed";
-        setChatError((current) => current || msg);
+        if (
+          isCurrentChatTurn(turnGeneration) &&
+          isCurrentActiveChatTransition(submitTransitionGeneration)
+        ) {
+          setChatError((current) => current || msg);
+        }
       });
       const updated = await createChatMessageRequest(sessionID, {
         content: pendingContent,
@@ -848,14 +1207,81 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
         ...(!isExternalAgent && turnToolsEnabled ? { workspace: turnWorkspace } : {}),
       });
-      applyChatSession(updated.data);
+      messageRequestSucceeded = true;
+      applySubmittedSession(updated.data);
+      clearRecoverableComposerDraft(submittedRecoveryID);
+      consumeSavedComposerDraft(sessionID, submittedRawMessage);
+      if (!queued) {
+        setComposerDraftsBySessionID((current) => {
+          if (current.get(sessionID) !== submittedRawMessage) return current;
+          const next = new Map(current);
+          next.delete(sessionID);
+          return next;
+        });
+      }
     } catch (submitError) {
-      setChatErrorState(submitError);
+      const turnStillCurrent = isCurrentChatTurn(turnGeneration);
+      const selectionStillCurrent = isCurrentActiveChatTransition(submitTransitionGeneration);
+      const messageRequestFailed = Boolean(
+        !queued && sessionID && optimisticMessageID && !messageRequestSucceeded,
+      );
+      if (turnStillCurrent && selectionStillCurrent) {
+        setChatErrorState(submitError);
+        if (messageRequestFailed) {
+          setActiveChatSession((current) =>
+            current
+              ? {
+                  ...current,
+                  messages: (current.messages ?? []).filter(
+                    (entry) => entry.id !== optimisticMessageID,
+                  ),
+                }
+              : current,
+          );
+        }
+      }
+      if (messageRequestFailed) {
+        const latestDraft = getMessageSnapshot();
+        const hasNewerDraft = newerDraftBeforeClaim || latestDraft.revision > composerClaimRevision;
+        if (turnStillCurrent && selectionStillCurrent && !hasNewerDraft) {
+          setMessage((current) => (current.trim() ? current : submittedRawMessage));
+          rememberChatComposerDraft(sessionID, submittedRawMessage);
+        } else {
+          saveSessionComposerDraft(sessionID, submittedRawMessage);
+          if (!selectionStillCurrent) {
+            params.setNoticeMessage(
+              "error",
+              sourceSessionTitle
+                ? `A message was not sent in “${sourceSessionTitle}”. It is saved there.`
+                : "A message was not sent. It is saved in its original chat.",
+            );
+          }
+        }
+        // Once the server has allocated a canonical session, failed-message
+        // recovery belongs to that session rather than the detached draft.
+        clearRecoverableComposerDraft(submittedRecoveryID);
+      }
     } finally {
+      releaseSessionCreationOwnership();
       streamAbort?.abort();
       await streamPromise?.catch(() => undefined);
-      setStreamingContent(null);
-      setChatLoading(false);
+      if (
+        !sessionID &&
+        submittedRecoveryID !== null &&
+        isCurrentChatTurn(turnGeneration) &&
+        isCurrentActiveChatTransition(submitTransitionGeneration)
+      ) {
+        const latestDraft = getMessageSnapshot();
+        if (!newerDraftBeforeClaim && latestDraft.revision <= composerClaimRevision) {
+          setMessage((current) => (current.trim() ? current : submittedRawMessage));
+          setActiveRecoverableComposerDraftID(submittedRecoveryID);
+        }
+      }
+      completeActiveChatTransition(submitTransitionGeneration);
+      if (isCurrentChatTurn(turnGeneration)) {
+        setStreamingContent(null);
+      }
+      completeChatTurn(turnGeneration);
     }
   }
 
@@ -968,12 +1394,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   async function createChatSession(options?: CreateChatSessionOptions) {
-    const transitionGeneration = beginActiveChatTransition();
-    rememberChatComposerDraft(activeChatSessionID, message);
+    const sourceSessionID = activeChatSessionID;
     const requestedAgentID = options?.agentID?.trim();
     const requestedTitle = options?.title?.trim() || "";
-    const requestedDraft = options?.draft ?? "";
-    const requestedReuseEmptyDraft = Boolean(options?.reuseEmptyDraft && requestedDraft.trim());
     const createProjectID =
       options && "projectID" in options ? options.projectID?.trim() || "" : activeProjectID;
     const requestedProviderFilter = (
@@ -985,17 +1408,90 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       requestedAgentID && requestedAgentID !== "hecate"
         ? true
         : !requestedAgentID && defaultChatTarget === "external_agent";
+    const createAgentID = createExternalAgent ? requestedAgentID || agentAdapterID : "hecate";
+    const createWorkspace = workspaceForNewChat(createProjectID);
+    const createDraftScope = composerDraftScope({
+      projectID: createProjectID,
+      agentID: createAgentID,
+      provider: requestedProviderFilter,
+      model: requestedSelectionModel,
+      workspace: createWorkspace,
+    });
+    // The sidebar's ordinary new-chat action has always carried an unsent
+    // composer draft forward so an accidental click cannot discard operator
+    // input. Scoped launches can still claim an intentionally empty composer
+    // by passing `draft: ""`; property presence distinguishes that explicit
+    // ownership from an omitted draft.
+    const draftWasProvided = Boolean(
+      options && Object.prototype.hasOwnProperty.call(options, "draft"),
+    );
+    const matchingRecovery =
+      recoverableComposerDraft &&
+      composerDraftScopesMatch(recoverableComposerDraft.scope, createDraftScope)
+        ? recoverableComposerDraft
+        : null;
+    const boundRecovery =
+      !sourceSessionID && matchingRecovery?.id === activeRecoverableComposerDraftID
+        ? matchingRecovery
+        : null;
+    const detachedDraftBelongsElsewhere =
+      !sourceSessionID &&
+      activeRecoverableComposerDraftID !== null &&
+      recoverableComposerDraft?.id === activeRecoverableComposerDraftID &&
+      !matchingRecovery;
+    const ambientDraft = detachedDraftBelongsElsewhere ? "" : message;
+    const requestedDraft = draftWasProvided
+      ? (options?.draft ?? "")
+      : boundRecovery
+        ? ambientDraft
+        : ambientDraft || matchingRecovery?.content || "";
+    const creationGeneration = beginChatCreation();
+    if (creationGeneration === null) return;
+    const transitionGeneration = beginActiveChatTransition();
+    rememberChatComposerDraft(sourceSessionID, message);
+    let recoveryID =
+      boundRecovery?.id ?? (!ambientDraft ? matchingRecovery?.id : undefined) ?? null;
+    if (requestedDraft.trim()) {
+      recoveryID = saveRecoverableComposerDraft({
+        ...(recoveryID === null ? {} : { id: recoveryID }),
+        content: requestedDraft,
+        scope: createDraftScope,
+      });
+      setActiveRecoverableComposerDraftID(recoveryID);
+    } else {
+      clearRecoverableComposerDraft(boundRecovery?.id ?? null);
+      recoveryID = null;
+      setActiveRecoverableComposerDraftID(null);
+    }
+    pendingCreateDraftRef.current = {
+      generation: transitionGeneration,
+      draft: requestedDraft,
+      scope: createDraftScope,
+      recoveryID,
+    };
+    // Claim the visible composer at transition start. ChatSidebar first clears
+    // the active selection, and waiting for POST completion would otherwise
+    // flash an empty composer, lose the draft on failure, or overwrite a newer
+    // edit when the response arrives.
+    setMessage(requestedDraft);
+    // A scoped launch can start while another chat is selected. Detach its
+    // canonical record before exposing the new draft so project context can
+    // never appear under, or be submitted into, the source conversation.
+    setActiveChatSessionID("");
+    setActiveChatSession(null);
+    setAgentWorkspaceBranch("");
+    const requestedReuseEmptyDraft = Boolean(options?.reuseEmptyDraft && requestedDraft.trim());
     if (createExternalAgent) {
-      const externalAgentID = requestedAgentID || agentAdapterID;
-      const workspace = workspaceForNewChat(createProjectID);
-      if (!workspace) {
+      const externalAgentID = createAgentID;
+      if (!createWorkspace) {
         setChatErrorState(chatWorkspaceRequiredError());
         setActiveChatSessionID("");
         setActiveChatSession(null);
         completeActiveChatTransition(transitionGeneration);
+        clearPendingCreateDraft(transitionGeneration);
+        completeChatCreation(creationGeneration);
         return;
       }
-      setChatLoading(true);
       clearChatErrorState();
       try {
         const adapter = agentAdapters.find((item) => item.id === externalAgentID);
@@ -1005,12 +1501,24 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           title: requestedTitle || (adapter ? `${adapter.name} chat` : "External agent chat"),
           ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: externalAgentID,
-          workspace,
+          workspace: createWorkspace,
           ...(configOptions.length > 0 ? { config_options: configOptions } : {}),
           ...(mcpServers.length > 0 ? { mcp_servers: mcpServers } : {}),
         });
-        rememberChatComposerDraft(created.data.id, requestedDraft);
-        if (!isCurrentActiveChatTransition(transitionGeneration)) {
+        const createWon = isCurrentActiveChatTransition(transitionGeneration);
+        const createdDraft = pendingCreateDraft(transitionGeneration, requestedDraft);
+        setComposerDraftsBySessionID((current) => {
+          const next = new Map(current);
+          next.set(created.data.id, createdDraft);
+          // Ordinary New chat transfers the ambient draft once its create wins.
+          // Failed or preempted creates keep the source copy recoverable.
+          if (!draftWasProvided && createWon && sourceSessionID !== created.data.id) {
+            next.delete(sourceSessionID);
+          }
+          return next;
+        });
+        clearRecoverableComposerDraft(pendingCreateRecoveryID(transitionGeneration, recoveryID));
+        if (!createWon) {
           setChatSessions((current) => [
             renderChatSessionSummary(created.data),
             ...current.filter((entry) => entry.id !== created.data.id),
@@ -1019,9 +1527,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         }
         setActiveChatSessionID(created.data.id);
         applyChatSession(created.data);
-        setMessage(requestedDraft);
       } catch (error) {
         if (!isCurrentActiveChatTransition(transitionGeneration)) return;
+        preservePendingCreateDraft(transitionGeneration, true);
         setChatErrorState(error, "failed to create external agent chat");
         params.setNoticeMessage(
           "error",
@@ -1029,7 +1537,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         );
       } finally {
         completeActiveChatTransition(transitionGeneration);
-        setChatLoading(false);
+        clearPendingCreateDraft(transitionGeneration);
+        completeChatCreation(creationGeneration);
       }
       return;
     }
@@ -1064,7 +1573,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       )
         ? ""
         : requestedSelectionModel;
-    const workspace = workspaceForNewChat(createProjectID);
+    const workspace = createWorkspace;
     const createProvider = requestedProviderFilter === "auto" ? "" : requestedProviderFilter;
     if (requestedReuseEmptyDraft) {
       const reusable = findReusableEmptyDraftSession(chat.state.chatSessions, {
@@ -1085,11 +1594,15 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           next.set(reusable.id, toolsEnabled);
           return next;
         });
-        await selectChatSession(reusable.id, { draft: requestedDraft });
+        completeChatCreation(creationGeneration);
+        const selected = await selectChatSession(reusable.id, { draft: requestedDraft });
+        if (selected) {
+          clearRecoverableComposerDraft(pendingCreateRecoveryID(transitionGeneration, recoveryID));
+        }
+        clearPendingCreateDraft(transitionGeneration);
         return;
       }
     }
-    setChatLoading(true);
     clearChatErrorState();
     try {
       const created = await createChatSessionRequest({
@@ -1101,7 +1614,17 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(toolsEnabled && workspace ? { workspace } : {}),
         ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
-      rememberChatComposerDraft(created.data.id, requestedDraft);
+      const createWon = isCurrentActiveChatTransition(transitionGeneration);
+      const createdDraft = pendingCreateDraft(transitionGeneration, requestedDraft);
+      setComposerDraftsBySessionID((current) => {
+        const next = new Map(current);
+        next.set(created.data.id, createdDraft);
+        if (!draftWasProvided && createWon && sourceSessionID !== created.data.id) {
+          next.delete(sourceSessionID);
+        }
+        return next;
+      });
+      clearRecoverableComposerDraft(pendingCreateRecoveryID(transitionGeneration, recoveryID));
       // Record session-local execution intent even when a newer active-chat
       // transition wins before this create response returns. The server still
       // created this chat, and reopening it must not inherit a later global
@@ -1116,7 +1639,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         next.set(created.data.id, toolsEnabled);
         return next;
       });
-      if (!isCurrentActiveChatTransition(transitionGeneration)) {
+      if (!createWon) {
         setChatSessions((current) => [
           renderChatSessionSummary(created.data),
           ...current.filter((entry) => entry.id !== created.data.id),
@@ -1125,9 +1648,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       setActiveChatSessionID(created.data.id);
       applyChatSession(created.data);
-      setMessage(requestedDraft);
     } catch (error) {
       if (!isCurrentActiveChatTransition(transitionGeneration)) return;
+      preservePendingCreateDraft(transitionGeneration, true);
       setChatErrorState(error, "failed to create Hecate chat");
       if (!isExpectedHecateChatSetupError(error)) {
         params.setNoticeMessage(
@@ -1137,7 +1660,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
     } finally {
       completeActiveChatTransition(transitionGeneration);
-      setChatLoading(false);
+      clearPendingCreateDraft(transitionGeneration);
+      completeChatCreation(creationGeneration);
     }
   }
 
@@ -1145,13 +1669,19 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     id: string,
     options: SelectChatSessionOptions = {},
   ): Promise<boolean> {
+    releaseDetachedComposerDraft();
     const selectionGeneration = beginActiveChatTransition();
     rememberChatComposerDraft(activeChatSessionID, message);
     const activeDraftIsOwned = composerDraftsBySessionID.has(id) || Boolean(message);
-    const targetDraft =
+    const storedTargetDraft =
       id === activeChatSessionID && activeDraftIsOwned
         ? message
         : (composerDraftsBySessionID.get(id) ?? options.draft ?? "");
+    const savedTargetDraft =
+      options.draft === undefined && !storedTargetDraft.trim()
+        ? savedComposerDraftsBySessionID.get(id)?.[0]
+        : undefined;
+    const targetDraft = savedTargetDraft ?? storedTargetDraft;
     if (id && options.draft !== undefined && !composerDraftsBySessionID.has(id)) {
       rememberChatComposerDraft(id, options.draft);
     }
@@ -1173,6 +1703,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     try {
       const payload = await getChatSession(id);
       if (!isCurrentActiveChatTransition(selectionGeneration)) return false;
+      if (savedTargetDraft) {
+        consumeSavedComposerDraft(id, savedTargetDraft);
+        rememberChatComposerDraft(id, savedTargetDraft);
+      }
       applyChatSession(payload.data);
       if (payload.data.agent_id && payload.data.agent_id !== "hecate") {
         setAgentAdapterID(payload.data.agent_id);
@@ -1195,6 +1729,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function startNewChat() {
+    releaseDetachedComposerDraft();
     const transitionGeneration = beginActiveChatTransition();
     rememberChatComposerDraft(activeChatSessionID, message);
     if (activeChatSessionID) {
@@ -1214,6 +1749,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       await deleteChatSessionRequest(id);
       setChatSessions((current) => current.filter((s) => s.id !== id));
       setQueuedChatMessages((current) => current.filter((item) => item.session_id !== id));
+      setSavedComposerDraftsBySessionID((current) => {
+        if (!current.has(id)) return current;
+        const next = new Map(current);
+        next.delete(id);
+        return next;
+      });
       setChatTargetBySessionID((current) => {
         if (!current.has(id)) return current;
         const next = new Map(current);
@@ -1648,6 +2189,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     submitToolResults,
     createChatSession,
     selectChatSession,
+    restoreSavedComposerDraft,
     startNewChat,
     deleteChatSession,
     renameChatSession,

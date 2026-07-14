@@ -282,6 +282,24 @@ chat. A transient initial selection failure also retains the launch draft for
 the next attempt. After an app reload clears transient composer state,
 **Continue in chat** rebuilds the launch-context fallback from the current
 canonical assignment; a live edit or intentional clear still takes precedence.
+If preparation is interrupted before a chat ID is available, Hecate keeps the
+latest draft only for the same project and chat setup; changing project, agent,
+workspace, provider, or model cannot pull that text into the new chat. While a
+chat is being prepared, **Send** and **New chat** stay unavailable, but Hecate
+does not label preparation as active agent work or offer **Stop** before a real
+turn begins. Once submitted, a turn stays attached to its chat even if you open
+another one: late responses do not replace the newer selection. You can queue a
+message for another selected chat, but a detached new-chat draft waits until
+the current local turn finishes rather than being attached to the wrong chat.
+After you send the first prompt, its empty composer stays locked only while
+Hecate allocates the chat ID. The read-only composer keeps keyboard focus, and
+its provider, model, agent configuration, and MCP controls stay fixed to the
+captured request. Selecting an existing chat releases those controls for that
+chat. An explicitly prepared launch draft remains editable while its chat is
+being prepared, but its captured route and configuration stay fixed. If a
+message fails after the chat exists, Hecate keeps it as an
+unsent message in that source chat. **Restore saved message** swaps it into the
+composer without discarding a newer draft.
 While a linked chat is loading, Hecate announces **Loading chat…** and withholds
 the composer until the selected chat ID and server record agree. A late
 dashboard refresh or older chat-create response cannot replace the operator's

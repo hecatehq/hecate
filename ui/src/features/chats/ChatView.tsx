@@ -120,8 +120,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     chatError: chat.state.chatError,
     chatErrorCode: chat.state.chatErrorCode,
     chatErrorStatus: chat.state.chatErrorStatus,
+    chatCreating: chat.state.chatCreating,
+    chatTurnSessionID: chat.state.chatTurnSessionID,
+    chatTurnActive: chat.state.chatTurnActive,
     chatLoading: chat.state.chatLoading,
     chatSessions: chat.state.chatSessions,
+    savedComposerDraftsBySessionID: chat.state.savedComposerDraftsBySessionID,
     chatTarget,
     hecateRTKAvailable: runtime.state.hecateRTKAvailable,
     hecateRTKEnabled: runtime.state.hecateRTKEnabled,
@@ -152,6 +156,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     probeAgentAdapter: agentAdapterActions.probeAgentAdapter,
     resolveChatApproval: chatActions.resolveChatApproval,
     resolveTaskApproval: chatActions.resolveTaskApproval,
+    restoreSavedComposerDraft: chatActions.restoreSavedComposerDraft,
     cancelChatApproval: chatActions.cancelChatApproval,
     selectChatSession: chatActions.selectChatSession,
     setAgentWorkspace: chatActions.updateAgentWorkspace,
@@ -183,6 +188,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     [],
   );
   const [projectProposalDrafting, setProjectProposalDrafting] = useState(false);
+  const [savedDraftRestoreAnnouncement, setSavedDraftRestoreAnnouncement] = useState<{
+    id: number;
+    text: string;
+  } | null>(null);
 
   function updateRightPanelWidth(width: number) {
     setRightPanelWidth(width);
@@ -263,7 +272,23 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     () => buildTranscriptItems(visibleMessages, state.activeChatSession?.segments, isHecateChat),
     [visibleMessages, state.activeChatSession?.segments, isHecateChat],
   );
-  const streaming = state.chatLoading;
+  // Session preparation and live turns have independent ownership and may
+  // overlap. Project transcript/Stop/queue state only for the selected turn;
+  // chatCreating independently guards Send and New chat.
+  const selectedTurnLoading = Boolean(
+    state.chatTurnSessionID && state.chatTurnSessionID === activeSessionID,
+  );
+  const unknownTurnOwnsDetachedComposer = Boolean(
+    state.chatTurnActive && !state.chatTurnSessionID && !activeSessionID,
+  );
+  const streaming =
+    state.chatLoading && (selectedTurnLoading || (!state.chatTurnActive && !state.chatCreating));
+  const anotherChatTurnActive = Boolean(
+    state.chatLoading &&
+    state.chatTurnActive &&
+    !selectedTurnLoading &&
+    !unknownTurnOwnsDetachedComposer,
+  );
   const chatDiagnostic = describeGatewayError(
     state.chatErrorCode,
     state.chatErrorStatus ?? undefined,
@@ -501,14 +526,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   );
   const draftHecateReadyForComposer =
     isHecateChat &&
-    draftChatStarted &&
+    (draftChatStarted || (!activeSessionID && (state.chatCreating || Boolean(state.message)))) &&
     !selectedChatReady &&
     hecateChatModelReady &&
     !selectedModelIssue &&
     (!hecateTaskToolsAvailable || Boolean(state.agentWorkspace.trim()));
   const draftExternalAgentReadyForComposer =
     isExternalAgentChat &&
-    draftChatStarted &&
+    (draftChatStarted || (!activeSessionID && (state.chatCreating || Boolean(state.message)))) &&
     !selectedChatReady &&
     Boolean(selectedAgent?.available) &&
     !externalAgentSetupRequired &&
@@ -548,7 +573,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.pendingToolCalls.length === 0 &&
     (emptyStateExplainsModelRoute || emptyStateExplainsSetupRepair || externalAgentModelRequired);
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy || externalAgentBusy);
-  const queueingMessage = agentBusy && Boolean(state.message.trim());
+  const chatCreationPending = state.chatCreating;
+  const implicitSessionAllocation = state.chatCreating && unknownTurnOwnsDetachedComposer;
+  const detachedCreationPending = state.chatCreating && !activeSessionID;
+  const savedComposerDraftCount = activeSessionID
+    ? (state.savedComposerDraftsBySessionID.get(activeSessionID)?.length ?? 0)
+    : 0;
+  const queueingMessage =
+    (agentBusy || anotherChatTurnActive) &&
+    Boolean(activeSessionID) &&
+    Boolean(state.message.trim());
   const messageSendBlocked =
     !agentBusy &&
     ((isHecateChat && !hecateChatModelReady) ||
@@ -560,6 +594,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
 
   const sendDisabled =
     !state.message.trim() ||
+    (chatCreationPending && !queueingMessage) ||
+    (anotherChatTurnActive && !activeSessionID) ||
     messageSendBlocked ||
     (!agentBusy && streaming) ||
     (!isAgentChat && modelRouteUnavailable) ||
@@ -591,6 +627,19 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       // works, just no auto-scroll to the auth setup card.
     }
     onNavigate?.("connections");
+  }
+
+  function restoreSavedDraft() {
+    if (!activeSessionID) return;
+    const preservesCurrentDraft = Boolean(state.message.trim());
+    if (!actions.restoreSavedComposerDraft(activeSessionID)) return;
+    setSavedDraftRestoreAnnouncement((current) => ({
+      id: (current?.id ?? 0) + 1,
+      text: preservesCurrentDraft
+        ? "Saved message restored. Your previous draft is still saved."
+        : "Saved message restored.",
+    }));
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function openLinkedProject() {
@@ -1087,6 +1136,121 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               />
             )}
 
+            {chatCreationPending && (
+              <div
+                aria-atomic="true"
+                aria-label="Starting chat"
+                aria-live="polite"
+                role="status"
+                style={{
+                  flexShrink: 0,
+                  padding: "6px 16px 0",
+                  color: "var(--t3)",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  textAlign: "center",
+                }}
+              >
+                Starting chat…
+              </div>
+            )}
+
+            {anotherChatTurnActive && !activeSessionID && (
+              <div
+                aria-atomic="true"
+                aria-live="polite"
+                role="status"
+                style={{
+                  flexShrink: 0,
+                  padding: "6px 16px 0",
+                  color: "var(--t3)",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  textAlign: "center",
+                }}
+              >
+                Another chat is working. This draft will stay here.
+              </div>
+            )}
+
+            {anotherChatTurnActive && activeSessionID && (
+              <div
+                aria-atomic="true"
+                aria-live="polite"
+                role="status"
+                style={{
+                  flexShrink: 0,
+                  padding: "6px 16px 0",
+                  color: "var(--t3)",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  textAlign: "center",
+                }}
+              >
+                Another chat is working. Messages here will queue.
+              </div>
+            )}
+
+            {savedComposerDraftCount > 0 && (
+              <div
+                style={{
+                  flexShrink: 0,
+                  padding: "6px 16px 0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  color: "var(--amber)",
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  textAlign: "center",
+                }}
+              >
+                <span aria-atomic="true" aria-live="polite" role="status">
+                  {savedComposerDraftCount === 1
+                    ? "An unsent message is saved for this chat."
+                    : `${savedComposerDraftCount} unsent messages are saved for this chat.`}
+                  {state.message.trim() ? " Restoring it keeps your current draft saved." : ""}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={restoreSavedDraft}
+                  title={
+                    state.message.trim()
+                      ? "Restore the saved message and keep the current draft saved"
+                      : "Restore the saved message"
+                  }
+                >
+                  Restore saved message
+                </button>
+              </div>
+            )}
+
+            {savedDraftRestoreAnnouncement && (
+              <span
+                key={savedDraftRestoreAnnouncement.id}
+                aria-atomic="true"
+                aria-live="polite"
+                role="status"
+                style={{
+                  border: 0,
+                  clip: "rect(0 0 0 0)",
+                  clipPath: "inset(50%)",
+                  height: 1,
+                  margin: -1,
+                  overflow: "hidden",
+                  padding: 0,
+                  position: "absolute",
+                  whiteSpace: "nowrap",
+                  width: 1,
+                }}
+              >
+                {savedDraftRestoreAnnouncement.text}
+              </span>
+            )}
+
             {composerShellVisible && (
               <ChatComposer
                 isAgentChat={isAgentChat}
@@ -1096,6 +1260,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 activeSessionID={activeSessionID}
                 textareaRef={textareaRef}
                 composerVisible={composerVisible}
+                composerInputDisabled={implicitSessionAllocation}
+                composerRouteControlsDisabled={detachedCreationPending}
                 composerRepair={composerRepair}
                 suppressChatError={suppressComposerChatError}
                 messageControlsVisible={messageControlsVisible}

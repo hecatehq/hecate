@@ -106,9 +106,15 @@ export function useRuntimeConsole() {
     chatSessions,
     activeChatSessionID,
     activeChatSession,
+    savedComposerDraftsBySessionID,
+    recoverableComposerDraft,
+    activeRecoverableComposerDraftID,
     queuedChatMessages,
     model,
     systemPrompt,
+    chatCreating,
+    chatTurnSessionID,
+    chatTurnActive,
     chatLoading,
     chatCancelling,
     streamingContent,
@@ -439,7 +445,7 @@ export function useRuntimeConsole() {
   }, [model, models, providerFilter]);
 
   useEffect(() => {
-    if (queuedChatMessages.length === 0 || chatLoading || chatCancelling) {
+    if (queuedChatMessages.length === 0 || chatCreating || chatLoading || chatCancelling) {
       return;
     }
     if (chatSessionIsBusy(activeChatSession)) {
@@ -471,6 +477,7 @@ export function useRuntimeConsole() {
     activeChatSession?.updated_at,
     activeChatSessionID,
     chatCancelling,
+    chatCreating,
     chatLoading,
     queuedChatMessages,
   ]);
@@ -479,6 +486,9 @@ export function useRuntimeConsole() {
     state: {
       activeChatSession,
       activeChatSessionID,
+      recoverableComposerDraft,
+      activeRecoverableComposerDraftID,
+      savedComposerDraftsBySessionID,
       usageSummary,
       agentAdapterID,
       agentAdapters,
@@ -498,6 +508,9 @@ export function useRuntimeConsole() {
       chatErrorStatus,
       chatErrorTraceID,
       chatLoading,
+      chatCreating,
+      chatTurnSessionID,
+      chatTurnActive,
       streamingContent,
       chatResult,
       chatTarget,
@@ -572,6 +585,7 @@ export function useRuntimeConsole() {
       refreshProviders: dashboardActions.refreshProviders,
       setRetentionSubsystems: retention.actions.setSubsystems,
       runRetention: retentionActions.runRetention,
+      restoreSavedComposerDraft: chatActions.restoreSavedComposerDraft,
       selectChatSession: chatActions.selectChatSession,
       startNewChat: chatActions.startNewChat,
       submitChat: chatActions.submitChat,

@@ -33,7 +33,7 @@ import type { CreateProjectPayload, ProjectDeleteRecord, ProjectRecord } from ".
 import type { RetentionRunData } from "../types/retention";
 import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
-import type { PendingToolCall } from "../app/state/chat";
+import type { PendingToolCall, RecoverableComposerDraft } from "../app/state/chat";
 import type { NoticeState } from "../app/state/settings";
 import type { ChatMessage } from "../lib/api";
 
@@ -61,6 +61,12 @@ export type RuntimeConsoleFixtureState = {
   chatErrorStatus: number | null;
   chatErrorTraceID: string;
   chatLoading: boolean;
+  chatCreating: boolean;
+  chatTurnSessionID: string;
+  chatTurnActive: boolean;
+  recoverableComposerDraft: RecoverableComposerDraft | null;
+  activeRecoverableComposerDraftID: number | null;
+  savedComposerDraftsBySessionID: Map<string, string[]>;
   streamingContent: string | null;
   chatResult: ChatResponse | null;
   chatTarget: ChatTarget;
@@ -141,6 +147,12 @@ export function createRuntimeConsoleFixture(
     chatErrorStatus: null,
     chatErrorTraceID: "",
     chatLoading: false,
+    chatCreating: false,
+    chatTurnSessionID: "",
+    chatTurnActive: false,
+    recoverableComposerDraft: null,
+    activeRecoverableComposerDraftID: null,
+    savedComposerDraftsBySessionID: new Map(),
     streamingContent: null,
     chatResult: null,
     chatTarget: "agent",
@@ -233,6 +245,7 @@ export type RuntimeConsoleFixtureActions = {
   submitChat: (event: unknown) => Promise<void>;
   submitToolResults: () => Promise<void>;
   runRetention: () => Promise<void>;
+  restoreSavedComposerDraft: (sessionID: string) => boolean;
   selectChatSession: (id: string, options?: { draft?: string }) => Promise<boolean>;
   startNewChat: () => void;
   upsertPolicyRule: (payload: unknown) => Promise<void>;
@@ -312,6 +325,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     submitChat: async () => undefined,
     submitToolResults: async () => undefined,
     runRetention: async () => undefined,
+    restoreSavedComposerDraft: () => false,
     selectChatSession: async () => true,
     startNewChat: () => undefined,
     upsertPolicyRule: async () => undefined,

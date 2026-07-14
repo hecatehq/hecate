@@ -159,6 +159,8 @@ export type ChatComposerProps = {
 
   // Composer gating.
   composerVisible: boolean;
+  composerInputDisabled: boolean;
+  composerRouteControlsDisabled: boolean;
   composerRepair: ChatSetupRepairState | null;
   suppressChatError?: boolean;
   messageControlsVisible: boolean;
@@ -247,6 +249,8 @@ export function ChatComposer(props: ChatComposerProps) {
     activeSessionID,
     textareaRef,
     composerVisible,
+    composerInputDisabled,
+    composerRouteControlsDisabled,
     composerRepair,
     suppressChatError = false,
     messageControlsVisible,
@@ -539,6 +543,10 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (composerInputDisabled) {
+      if (e.key === "Enter") e.preventDefault();
+      return;
+    }
     if (handleCommandPickerKey(e)) return;
     if (handleMessageHistoryKey(e)) return;
     if (e.key !== "Enter") return;
@@ -721,10 +729,11 @@ export function ChatComposer(props: ChatComposerProps) {
         </div>
       )}
       {messageControlsVisible && (
-        <div
+        <fieldset
           aria-label={
             isExternalAgentChat ? "External agent message controls" : "Hecate message controls"
           }
+          disabled={composerRouteControlsDisabled}
           style={{
             maxWidth: 820,
             margin: composerVisible ? "0 auto 8px" : "0 auto",
@@ -732,6 +741,9 @@ export function ChatComposer(props: ChatComposerProps) {
             justifyContent: "flex-start",
             flexWrap: "wrap",
             gap: 6,
+            border: 0,
+            minWidth: 0,
+            padding: 0,
           }}
         >
           {isExternalAgentChat ? (
@@ -803,7 +815,7 @@ export function ChatComposer(props: ChatComposerProps) {
               />
             </>
           )}
-        </div>
+        </fieldset>
       )}
       {composerVisible && (
         <>
@@ -1018,6 +1030,8 @@ export function ChatComposer(props: ChatComposerProps) {
               aria-activedescendant={activeCommandOptionID}
               aria-controls={commandPickerVisible ? commandListboxID : undefined}
               aria-haspopup="listbox"
+              aria-disabled={composerInputDisabled || undefined}
+              readOnly={composerInputDisabled}
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -1043,6 +1057,8 @@ export function ChatComposer(props: ChatComposerProps) {
                 transition: "border-color 0.1s",
                 minHeight: COMPOSER_TEXTAREA_MIN_HEIGHT,
                 overflowY: "hidden",
+                cursor: composerInputDisabled ? "wait" : undefined,
+                opacity: composerInputDisabled ? 0.72 : undefined,
               }}
               onInput={(e) => adjustComposerTextareaHeight(e.target as HTMLTextAreaElement)}
               onFocus={(e) => (e.target.style.borderColor = "var(--teal)")}

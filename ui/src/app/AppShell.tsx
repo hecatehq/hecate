@@ -345,15 +345,26 @@ function AuthenticatedShell({
   }
 
   function openChatFromProject(request: ProjectChatRequest) {
-    if (request.projectID) {
-      void projects.actions.selectProject(request.projectID);
-    }
     if (request.chatSessionID) {
+      if (request.projectID) {
+        void projects.actions.selectProject(request.projectID);
+      }
       void (request.draft === undefined
         ? chatActions.selectChatSession(request.chatSessionID)
         : chatActions.selectChatSession(request.chatSessionID, { draft: request.draft }));
       onSelectWorkspace("chats");
       return;
+    }
+    if (chat.state.chatCreating || chat.actions.isChatCreationActive()) {
+      settingsActions.setNoticeMessage(
+        "error",
+        "A chat is already starting. Wait for it to finish before opening another.",
+      );
+      onSelectWorkspace("chats");
+      return;
+    }
+    if (request.projectID) {
+      void projects.actions.selectProject(request.projectID);
     }
     if (request.provider) {
       chatActions.selectProviderRoute(request.provider as ProviderFilter);

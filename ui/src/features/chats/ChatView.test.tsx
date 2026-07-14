@@ -6333,6 +6333,298 @@ describe("ChatView session title", () => {
     expect(screen.queryByTitle("Choose workspace folder")).toBeNull();
   });
 
+  it("shows a detached launch draft while creation is pending and blocks sending", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatCreating: true,
+      chatLoading: false,
+      message: "Scoped project launch",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByText("Existing conversation")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Scoped project launch");
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(screen.getByRole("status", { name: "Starting chat" })).toHaveTextContent(
+      "Starting chat…",
+    );
+    expect(screen.getByRole("status", { name: "Starting chat" })).not.toHaveAttribute("aria-busy");
+    expect(screen.queryByRole("button", { name: "Queue message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop active task" })).toBeNull();
+    expect(screen.queryByText(/Hecate Chat is working/)).toBeNull();
+  });
+
+  it("does not project an unrelated pending creation as work in the selected chat", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "chat_idle",
+      activeChatSession: {
+        id: "chat_idle",
+        title: "Idle selected chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider: "openai",
+        model: "gpt-4o-mini",
+      } as any,
+      chatCreating: true,
+      chatLoading: false,
+      message: "",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("status", { name: "Starting chat" })).toHaveTextContent(
+      "Starting chat…",
+    );
+    expect(screen.queryByRole("button", { name: "Stop active task" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Queue message" })).toBeNull();
+    expect(screen.queryByText(/Hecate Chat is working/)).toBeNull();
+  });
+
+  it("keeps the selected live turn visible while another chat is being prepared", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "chat_running",
+      activeChatSession: {
+        id: "chat_running",
+        title: "Running selected chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider: "openai",
+        model: "gpt-4o-mini",
+      } as any,
+      chatCreating: true,
+      chatLoading: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "chat_running",
+      message: "Queue during preparation",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("status", { name: "Starting chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop active task" })).toBeInTheDocument();
+    expect(screen.getByText(/Hecate Chat is working/)).toBeInTheDocument();
+  });
+
+  it("queues for a selected idle chat while another session owns the live turn", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "chat_next",
+      activeChatSession: {
+        id: "chat_next",
+        title: "Next selected chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider: "openai",
+        model: "gpt-4o-mini",
+      } as any,
+      chatLoading: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "chat_background",
+      message: "Queue behind the other chat",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeEnabled();
+    expect(screen.getByText("Another chat is working. Messages here will queue.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Stop active task" })).toBeNull();
+    expect(screen.queryByText(/Hecate Chat is working/)).toBeNull();
+  });
+
+  it("keeps a detached draft blocked while another session owns the live turn", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatLoading: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "chat_background",
+      message: "Keep this detached draft",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(
+      screen.getByText("Another chat is working. This draft will stay here."),
+    ).toBeInTheDocument();
+  });
+
+  it("locks the composer only while an implicit submit is allocating its session", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatCreating: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "",
+      chatLoading: true,
+      message: "",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    composer.focus();
+    expect(composer).toHaveAttribute("readonly");
+    expect(composer).toHaveAttribute("aria-disabled", "true");
+    expect(composer).toHaveFocus();
+    expect(screen.getByLabelText("Hecate message controls")).toBeDisabled();
+    expect(screen.getByRole("status", { name: "Starting chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop active task" })).toBeNull();
+    expect(screen.queryByText(/Hecate Chat is working/)).toBeNull();
+  });
+
+  it("keeps an explicitly prepared draft editable while its route controls stay fixed", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatCreating: true,
+      chatTurnActive: false,
+      chatTurnSessionID: "",
+      chatLoading: false,
+      message: "Editable prepared draft",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Hecate message controls")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("allows an existing chat to queue while another turn is still allocating a session", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "chat_selected_during_allocation",
+      activeChatSession: {
+        id: "chat_selected_during_allocation",
+        title: "Selected during allocation",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider: "openai",
+        model: "gpt-4o-mini",
+      } as any,
+      chatCreating: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "",
+      chatLoading: true,
+      message: "Queue in selected chat",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Hecate message controls")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeEnabled();
+    expect(screen.getByText("Another chat is working. Messages here will queue.")).toBeVisible();
+  });
+
+  it("freezes detached external-agent route controls during implicit allocation", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "grok_build",
+      newChatAgentID: "grok_build",
+      agentWorkspace: "/tmp/hecate",
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatCreating: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "",
+      chatLoading: true,
+      agentAdapters: [
+        {
+          id: "grok_build",
+          name: "Grok Build",
+          kind: "acp",
+          command: "grok",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+          config_options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "grok-latest",
+              options: [{ value: "grok-latest", name: "Grok Latest" }],
+            },
+          ],
+        },
+      ],
+      message: "",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByLabelText("External agent message controls")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute("readonly");
+  });
+
+  it("offers a saved unsent message without replacing the current draft", async () => {
+    const user = userEvent.setup();
+    const restoreSavedComposerDraft = vi.fn(() => true);
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "chat_with_saved_message",
+      activeChatSession: {
+        id: "chat_with_saved_message",
+        title: "Chat with saved message",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider: "openai",
+        model: "gpt-4o-mini",
+      } as any,
+      savedComposerDraftsBySessionID: new Map([["chat_with_saved_message", ["Failed prompt A"]]]),
+      message: "Current draft B",
+    });
+    actions.restoreSavedComposerDraft = restoreSavedComposerDraft;
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(
+      screen.getByText(
+        "An unsent message is saved for this chat. Restoring it keeps your current draft saved.",
+      ),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Restore saved message" }));
+    expect(restoreSavedComposerDraft).toHaveBeenCalledWith("chat_with_saved_message");
+    expect(
+      screen.getByText("Saved message restored. Your previous draft is still saved."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus());
+  });
+
+  it("keeps a detached launch draft editable after creation fails", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatLoading: false,
+      chatError: "Creation unavailable",
+      message: "Edited scoped launch",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Edited scoped launch");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
   it("withholds the composer while the selected chat record is still loading", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",

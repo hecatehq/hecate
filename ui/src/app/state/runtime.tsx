@@ -18,7 +18,15 @@
 // 1.5 s timeout clears the indicator so the consumer doesn't
 // have to thread one in.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../../types/runtime";
@@ -41,7 +49,8 @@ export type RuntimeActions = {
   setSessionInfo: (value: SessionResponse["data"] | null) => void;
   setLoading: (value: boolean) => void;
   setError: (value: string) => void;
-  setMessage: (value: string) => void;
+  setMessage: (value: string | ((current: string) => string)) => void;
+  getMessageSnapshot: () => { content: string; revision: number };
   setRuntimeHeaders: (value: RuntimeHeaders | null) => void;
   setHecateRTKEnabled: (value: boolean) => void;
   setHecateRTKAvailable: (value: boolean) => void;
@@ -125,6 +134,8 @@ export function RuntimeProvider({
     reducer,
     seededState ? { ...initialState, ...seededState } : initialState,
   );
+  const messageRef = useRef(seededState?.message ?? initialState.message);
+  const messageRevisionRef = useRef(0);
 
   const setHealth = useCallback(
     (value: HealthResponse | null) => dispatch({ type: "health/set", value }),
@@ -136,7 +147,16 @@ export function RuntimeProvider({
   );
   const setLoading = useCallback((value: boolean) => dispatch({ type: "loading/set", value }), []);
   const setError = useCallback((value: string) => dispatch({ type: "error/set", value }), []);
-  const setMessage = useCallback((value: string) => dispatch({ type: "message/set", value }), []);
+  const setMessage = useCallback((value: string | ((current: string) => string)) => {
+    const next = typeof value === "function" ? value(messageRef.current) : value;
+    if (next !== messageRef.current) messageRevisionRef.current += 1;
+    messageRef.current = next;
+    dispatch({ type: "message/set", value: next });
+  }, []);
+  const getMessageSnapshot = useCallback(
+    () => ({ content: messageRef.current, revision: messageRevisionRef.current }),
+    [],
+  );
   const setRuntimeHeaders = useCallback(
     (value: RuntimeHeaders | null) => dispatch({ type: "runtimeHeaders/set", value }),
     [],
@@ -173,6 +193,7 @@ export function RuntimeProvider({
       setLoading,
       setError,
       setMessage,
+      getMessageSnapshot,
       setRuntimeHeaders,
       setHecateRTKEnabled,
       setHecateRTKAvailable,
@@ -185,6 +206,7 @@ export function RuntimeProvider({
       setLoading,
       setError,
       setMessage,
+      getMessageSnapshot,
       setRuntimeHeaders,
       setHecateRTKEnabled,
       setHecateRTKAvailable,

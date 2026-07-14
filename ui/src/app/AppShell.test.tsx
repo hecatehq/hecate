@@ -869,6 +869,109 @@ describe("ConsoleShell navigation", () => {
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
   });
 
+  it("blocks a second project chat before changing its project or route", async () => {
+    const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
+      async () => undefined,
+    );
+    const selectProject = vi.fn<RuntimeConsoleFixtureActions["selectProject"]>(
+      async () => undefined,
+    );
+    const setProviderFilter = vi.fn<RuntimeConsoleFixtureActions["setProviderFilter"]>();
+    const setModel = vi.fn<RuntimeConsoleFixtureActions["setModel"]>();
+    const onSelectWorkspace = vi.fn();
+    const project = {
+      id: "proj_guarded",
+      name: "Guarded project",
+      roots: [],
+      created_at: "2026-05-21T10:00:00Z",
+      updated_at: "2026-05-21T10:00:00Z",
+    };
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_guarded",
+      project_id: project.id,
+      title: "Guard the launch",
+      brief: "Keep the first chat creation authoritative.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "operator",
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+    };
+    const assignment: ProjectAssignmentRecord = {
+      id: "asgn_guarded",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      role_id: "operator",
+      driver_kind: "hecate_task",
+      status: "queued",
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+      execution: {
+        status: "queued",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+      },
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [
+        {
+          id: "operator",
+          project_id: project.id,
+          name: "Operator",
+          built_in: true,
+        },
+      ],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [assignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: workItem,
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [assignment],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+      chatCreating: true,
+    });
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: {
+            ...createRuntimeConsoleActions(),
+            createChatSession,
+            selectProject,
+            setProviderFilter,
+            setModel,
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
+    fireEvent.click(await screen.findByText("Execution details"));
+    fireEvent.click(await screen.findByRole("button", { name: "Start related chat" }));
+
+    expect(createChatSession).not.toHaveBeenCalled();
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(setProviderFilter).not.toHaveBeenCalled();
+    expect(setModel).not.toHaveBeenCalled();
+    expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
+    expect(
+      await screen.findByText(
+        "A chat is already starting. Wait for it to finish before opening another.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   async function openLinkedExternalAgentChat(selected: boolean) {
     const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
       async () => undefined,
@@ -938,6 +1041,7 @@ describe("ConsoleShell navigation", () => {
     const state = createRuntimeConsoleFixture({
       projects: [project],
       activeProjectID: project.id,
+      chatCreating: true,
     });
     render(
       withRuntimeConsole(

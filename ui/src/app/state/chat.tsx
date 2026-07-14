@@ -69,6 +69,51 @@ export type PendingToolCall = {
   result: string;
 };
 
+export type ComposerDraftScope = {
+  projectID: string;
+  agentID: string;
+  provider: string;
+  model: string;
+  workspace: string;
+};
+
+export type RecoverableComposerDraft = {
+  id: number;
+  content: string;
+  scope: ComposerDraftScope;
+};
+
+export function composerDraftScope({
+  projectID = "",
+  agentID = "hecate",
+  provider = "",
+  model = "",
+  workspace = "",
+}: Partial<ComposerDraftScope> = {}): ComposerDraftScope {
+  const normalizedAgentID = agentID.trim() || "hecate";
+  const hecateOwned = normalizedAgentID === "hecate";
+  return {
+    projectID: projectID.trim(),
+    agentID: normalizedAgentID,
+    provider: hecateOwned ? provider.trim() || "auto" : "",
+    model: hecateOwned ? model.trim() : "",
+    workspace: workspace.trim(),
+  };
+}
+
+export function composerDraftScopesMatch(
+  left: ComposerDraftScope,
+  right: ComposerDraftScope,
+): boolean {
+  return (
+    left.projectID === right.projectID &&
+    left.agentID === right.agentID &&
+    left.provider === right.provider &&
+    left.model === right.model &&
+    left.workspace === right.workspace
+  );
+}
+
 export type ChatState = {
   defaultChatTarget: ChatTarget;
   chatTargetBySessionID: Map<string, HecateChatTarget>;
@@ -97,9 +142,33 @@ export type ChatState = {
   // presence owns the composer even when the stored value is intentionally
   // empty, so a cleared or already-sent prompt is not resurrected.
   composerDraftsBySessionID: Map<string, string>;
+  // Messages that were submitted from a canonical session but did not reach
+  // the server. Keep them separate from the visible composer so a later draft
+  // or chat selection cannot overwrite the failed submission. Session-memory
+  // only; the server remains the transcript authority.
+  savedComposerDraftsBySessionID: Map<string, string[]>;
+  // Latest unsent draft that was detached before a session id existed (for
+  // example when the operator navigated away and creation then failed).
+  // Its route scope prevents project or agent launch context from crossing
+  // into another chat. Session-memory only; Cairnline/project state remains
+  // authoritative.
+  recoverableComposerDraft: RecoverableComposerDraft | null;
+  // When set, the detached composer is showing this recovery record. This
+  // lets an intentional edit or clear remain authoritative while the record
+  // itself stays available if the operator navigates away again.
+  activeRecoverableComposerDraftID: number | null;
   queuedChatMessages: QueuedChatMessage[];
   model: string;
   systemPrompt: string;
+  // A preparatory session POST is in flight and does not have a canonical
+  // session id yet. Separate from chatLoading so older streams/requests cannot
+  // release the composer guard for a newer create.
+  chatCreating: boolean;
+  // Canonical session owned by the current locally-submitted turn. Empty while
+  // an implicit session POST is still allocating the id, and empty for legacy
+  // loading paths that are not chat turns.
+  chatTurnSessionID: string;
+  chatTurnActive: boolean;
   chatLoading: boolean;
   chatCancelling: boolean;
   streamingContent: string | null;
@@ -120,6 +189,15 @@ type SetStateAction<T> = T | ((prev: T) => T);
 type Setter<T> = (next: SetStateAction<T>) => void;
 
 export type ChatActions = {
+  beginChatCreation: () => number | null;
+  completeChatCreation: (generation: number) => void;
+  isChatCreationActive: () => boolean;
+  beginChatTurn: (sessionID: string) => number | null;
+  bindChatTurnSession: (generation: number, sessionID: string) => void;
+  completeChatTurn: (generation: number) => void;
+  isChatTurnActive: () => boolean;
+  isCurrentChatTurn: (generation: number) => boolean;
+  getActiveChatTurnSessionID: () => string;
   beginActiveChatTransition: () => number;
   captureActiveChatTransition: () => number | null;
   completeActiveChatTransition: (generation: number) => void;
@@ -137,6 +215,14 @@ export type ChatActions = {
   setActiveChatSessionID: Setter<string>;
   setActiveChatSession: Setter<ChatSessionRecord | null>;
   setComposerDraftsBySessionID: Setter<Map<string, string>>;
+  setSavedComposerDraftsBySessionID: Setter<Map<string, string[]>>;
+  saveRecoverableComposerDraft: (draft: {
+    id?: number;
+    content: string;
+    scope: ComposerDraftScope;
+  }) => number;
+  setRecoverableComposerDraft: Setter<RecoverableComposerDraft | null>;
+  setActiveRecoverableComposerDraftID: Setter<number | null>;
   setQueuedChatMessages: Setter<QueuedChatMessage[]>;
   setModel: Setter<string>;
   setSystemPrompt: Setter<string>;
@@ -236,6 +322,15 @@ export function ChatProvider({
   const [composerDraftsBySessionID, setComposerDraftsBySessionID] = useState(
     initialState?.composerDraftsBySessionID ?? new Map<string, string>(),
   );
+  const [savedComposerDraftsBySessionID, setSavedComposerDraftsBySessionID] = useState(
+    initialState?.savedComposerDraftsBySessionID ?? new Map<string, string[]>(),
+  );
+  const [recoverableComposerDraft, setRecoverableComposerDraft] = useState(
+    initialState?.recoverableComposerDraft ?? null,
+  );
+  const [activeRecoverableComposerDraftID, setActiveRecoverableComposerDraftID] = useState<
+    number | null
+  >(initialState?.activeRecoverableComposerDraftID ?? null);
   const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
     queuedChatMessagesStorageKey,
     parseStoredJSON(parseQueuedChatMessageList),
@@ -253,6 +348,9 @@ export function ChatProvider({
     parseStoredString,
     initialState?.systemPrompt ?? "",
   );
+  const [chatCreating, setChatCreating] = useState(initialState?.chatCreating ?? false);
+  const [chatTurnSessionID, setChatTurnSessionID] = useState(initialState?.chatTurnSessionID ?? "");
+  const [chatTurnActive, setChatTurnActive] = useState(initialState?.chatTurnActive ?? false);
   const [chatLoading, setChatLoading] = useState(initialState?.chatLoading ?? false);
   const [chatCancelling, setChatCancelling] = useState(initialState?.chatCancelling ?? false);
   const [streamingContent, setStreamingContent] = useState<string | null>(
@@ -315,6 +413,67 @@ export function ChatProvider({
   // authoritative across selection, creation, new-chat, and passive hydration.
   const activeChatTransitionGenerationRef = useRef(0);
   const pendingActiveChatTransitionRef = useRef<number | null>(null);
+  const chatCreationGenerationRef = useRef(0);
+  const activeChatCreationRef = useRef<number | null>(null);
+  const chatTurnGenerationRef = useRef(0);
+  const activeChatTurnRef = useRef<{ generation: number; sessionID: string } | null>(null);
+  const recoverableComposerDraftGenerationRef = useRef(recoverableComposerDraft?.id ?? 0);
+  const beginChatCreation = useCallback(() => {
+    if (activeChatCreationRef.current !== null) return null;
+    chatCreationGenerationRef.current += 1;
+    activeChatCreationRef.current = chatCreationGenerationRef.current;
+    setChatCreating(true);
+    return activeChatCreationRef.current;
+  }, []);
+  const completeChatCreation = useCallback((generation: number) => {
+    if (activeChatCreationRef.current !== generation) return;
+    activeChatCreationRef.current = null;
+    setChatCreating(false);
+  }, []);
+  const isChatCreationActive = useCallback(() => activeChatCreationRef.current !== null, []);
+  const beginChatTurn = useCallback((sessionID: string) => {
+    if (activeChatTurnRef.current !== null) return null;
+    chatTurnGenerationRef.current += 1;
+    const generation = chatTurnGenerationRef.current;
+    activeChatTurnRef.current = { generation, sessionID };
+    setChatTurnSessionID(sessionID);
+    setChatTurnActive(true);
+    setChatLoading(true);
+    return generation;
+  }, []);
+  const bindChatTurnSession = useCallback((generation: number, sessionID: string) => {
+    if (activeChatTurnRef.current?.generation !== generation) return;
+    activeChatTurnRef.current = { generation, sessionID };
+    setChatTurnSessionID(sessionID);
+  }, []);
+  const completeChatTurn = useCallback((generation: number) => {
+    if (activeChatTurnRef.current?.generation !== generation) return;
+    activeChatTurnRef.current = null;
+    setChatTurnSessionID("");
+    setChatTurnActive(false);
+    setChatLoading(false);
+  }, []);
+  const isChatTurnActive = useCallback(() => activeChatTurnRef.current !== null, []);
+  const isCurrentChatTurn = useCallback(
+    (generation: number) => activeChatTurnRef.current?.generation === generation,
+    [],
+  );
+  const getActiveChatTurnSessionID = useCallback(
+    () => activeChatTurnRef.current?.sessionID ?? "",
+    [],
+  );
+  const saveRecoverableComposerDraft = useCallback(
+    ({ id, content, scope }: { id?: number; content: string; scope: ComposerDraftScope }) => {
+      const nextID = id ?? recoverableComposerDraftGenerationRef.current + 1;
+      recoverableComposerDraftGenerationRef.current = Math.max(
+        recoverableComposerDraftGenerationRef.current,
+        nextID,
+      );
+      setRecoverableComposerDraft({ id: nextID, content, scope });
+      return nextID;
+    },
+    [],
+  );
   const beginActiveChatTransition = useCallback(() => {
     activeChatTransitionGenerationRef.current += 1;
     pendingActiveChatTransitionRef.current = activeChatTransitionGenerationRef.current;
@@ -396,9 +555,15 @@ export function ChatProvider({
       activeChatSessionID,
       activeChatSession,
       composerDraftsBySessionID,
+      savedComposerDraftsBySessionID,
+      recoverableComposerDraft,
+      activeRecoverableComposerDraftID,
       queuedChatMessages,
       model,
       systemPrompt,
+      chatCreating,
+      chatTurnSessionID,
+      chatTurnActive,
       chatLoading,
       chatCancelling,
       streamingContent,
@@ -428,9 +593,15 @@ export function ChatProvider({
       activeChatSessionID,
       activeChatSession,
       composerDraftsBySessionID,
+      savedComposerDraftsBySessionID,
+      recoverableComposerDraft,
+      activeRecoverableComposerDraftID,
       queuedChatMessages,
       model,
       systemPrompt,
+      chatCreating,
+      chatTurnSessionID,
+      chatTurnActive,
       chatLoading,
       chatCancelling,
       streamingContent,
@@ -450,6 +621,15 @@ export function ChatProvider({
 
   const actions = useMemo<ChatActions>(
     () => ({
+      beginChatCreation,
+      completeChatCreation,
+      isChatCreationActive,
+      beginChatTurn,
+      bindChatTurnSession,
+      completeChatTurn,
+      isChatTurnActive,
+      isCurrentChatTurn,
+      getActiveChatTurnSessionID,
       beginActiveChatTransition,
       captureActiveChatTransition,
       completeActiveChatTransition,
@@ -467,6 +647,10 @@ export function ChatProvider({
       setActiveChatSessionID,
       setActiveChatSession,
       setComposerDraftsBySessionID,
+      setSavedComposerDraftsBySessionID,
+      saveRecoverableComposerDraft,
+      setRecoverableComposerDraft,
+      setActiveRecoverableComposerDraftID,
       setQueuedChatMessages,
       setModel,
       setSystemPrompt,
@@ -486,10 +670,20 @@ export function ChatProvider({
       setChatErrorState,
     }),
     [
+      beginChatCreation,
+      completeChatCreation,
+      isChatCreationActive,
+      beginChatTurn,
+      bindChatTurnSession,
+      completeChatTurn,
+      isChatTurnActive,
+      isCurrentChatTurn,
+      getActiveChatTurnSessionID,
       beginActiveChatTransition,
       captureActiveChatTransition,
       completeActiveChatTransition,
       isCurrentActiveChatTransition,
+      saveRecoverableComposerDraft,
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setDefaultChatToolsEnabled,

@@ -33,6 +33,7 @@ export function NewChatAgentButton({
   disableUnavailable = false,
   createTitle,
   createDisabled,
+  selectionDisabled = false,
   onChange,
   onCreate,
   onSetupAgent,
@@ -43,6 +44,7 @@ export function NewChatAgentButton({
   disableUnavailable?: boolean;
   createTitle?: string;
   createDisabled?: boolean;
+  selectionDisabled?: boolean;
   onChange: (value: ChatAgentOptionID) => void;
   onCreate: (value: ChatAgentOptionID) => void;
   onSetupAgent?: (adapterID: string) => void;
@@ -76,6 +78,10 @@ export function NewChatAgentButton({
     const frame = requestAnimationFrame(() => focusInitialDropdownItem(menuRef.current));
     return () => cancelAnimationFrame(frame);
   }, [open, menuRef]);
+
+  useEffect(() => {
+    if (selectionDisabled) setOpen(false);
+  }, [selectionDisabled, setOpen]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -144,8 +150,11 @@ export function NewChatAgentButton({
           aria-label="Choose agent for new chat"
           aria-expanded={open}
           aria-haspopup="listbox"
-          onClick={() => toggle()}
-          title="Choose agent"
+          disabled={selectionDisabled}
+          onClick={() => {
+            if (!selectionDisabled) toggle();
+          }}
+          title={selectionDisabled ? "Starting the current chat" : "Choose agent"}
           style={{
             border: 0,
             borderLeft: "1px solid oklch(0 0 100 / 0.22)",
@@ -154,8 +163,9 @@ export function NewChatAgentButton({
             minHeight: 30,
             padding: 0,
             justifyContent: "center",
-            background: "oklch(0 0 0 / 0.12)",
-            color: "var(--accent-fg)",
+            background: selectionDisabled ? "var(--bg3)" : "oklch(0 0 0 / 0.12)",
+            color: selectionDisabled ? "var(--t3)" : "var(--accent-fg)",
+            cursor: selectionDisabled ? "not-allowed" : undefined,
           }}
         >
           <Icon d={Icons.chevD} size={12} />
