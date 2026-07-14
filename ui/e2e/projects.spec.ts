@@ -1822,6 +1822,161 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   }
 });
 
+test("Projects attention is keyboard-operable and contained at 320px", async ({ page }) => {
+  await page.clock.setFixedTime(new Date(NOW));
+  const state = await mockProjectJourneyAPIs(page);
+  const { firstWorkItem, project } = seedNavigationProject(state);
+  state.projectHealthOverride = {
+    project_id: project.id,
+    generated_at: NOW,
+    summary: {
+      attention_count: 5,
+      available_attention_count: 5,
+      omitted_attention_count: 0,
+      attention_limit: 5,
+      missing_defaults: false,
+      missing_project_root: false,
+      enabled_memory_count: 1,
+      saved_memory_count: 2,
+      enabled_context_source_count: 2,
+      pending_memory_candidate_count: 0,
+      promoted_memory_candidate_count: 0,
+      rejected_memory_candidate_count: 0,
+      pending_handoff_count: 1,
+      accepted_handoff_count: 0,
+      superseded_handoff_count: 0,
+      dismissed_handoff_count: 0,
+      review_follow_up_count: 1,
+      blocked_review_count: 0,
+      changes_requested_review_count: 0,
+      stale_or_unknown_assignment_count: 0,
+    },
+    attention: [
+      {
+        id: "attention_blocked",
+        project_id: project.id,
+        title: "Blocked assignment needs review",
+        detail: "Open the blocked queue and decide how work should continue.",
+        status: "failed",
+        bucket: "blocked",
+        action: {
+          type: "open_activity_bucket",
+          project_id: project.id,
+          activity_bucket: "blocked",
+        },
+        action_label: "View blocked",
+      },
+      {
+        id: "attention_work",
+        project_id: project.id,
+        title: "Work item needs evidence",
+        detail: "Return to the work item before closeout.",
+        status: "awaiting_approval",
+        work_item_id: firstWorkItem.id,
+        action: {
+          type: "open_work_item",
+          project_id: project.id,
+          work_item_id: firstWorkItem.id,
+        },
+        action_label: "Open work",
+      },
+      {
+        id: "attention_memory",
+        project_id: project.id,
+        title: "Project memory needs review",
+        detail: "Confirm the durable guidance before the next assignment.",
+        status: "running",
+        action: { type: "open_memory_review", project_id: project.id },
+        action_label: "Review memory",
+      },
+      {
+        id: "attention_defaults",
+        project_id: project.id,
+        title: "Project defaults need review",
+        detail: "Confirm the provider and model before the next launch.",
+        status: "awaiting_approval",
+        action: { type: "open_project_settings", project_id: project.id },
+        action_label: "Open settings",
+      },
+      {
+        id: "attention_skills",
+        project_id: project.id,
+        title: "Skill reference needs repair",
+        detail: "Review the project skill registry before assigning agent work.",
+        status: "failed",
+        action: { type: "open_skills", project_id: project.id },
+        action_label: "Review skills",
+      },
+    ],
+  };
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+  });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Project attention: 5" });
+  await trigger.click();
+  const attention = page.getByRole("dialog", { name: "Needs Attention" });
+  await expect(attention).toBeVisible();
+  await expect(
+    attention.getByRole("button", {
+      name: "Open attention item Blocked assignment needs review",
+    }),
+  ).toBeFocused();
+  const desktopAttentionBox = await attention.boundingBox();
+  expect(desktopAttentionBox?.height ?? 0).toBeLessThanOrEqual(561);
+  if (process.env.HECATE_CAPTURE_PROJECTS_ATTENTION === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-attention.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.keyboard.press("Escape");
+  await expect(attention).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.reload();
+  const headerIdentityBox = await page.locator(".project-header-identity").boundingBox();
+  expect(headerIdentityBox?.width ?? 0).toBeGreaterThan(160);
+  const headerButtons = page.locator('.project-header-actions button[type="button"]');
+  await expect(headerButtons).toHaveCount(5);
+  for (let index = 0; index < 5; index += 1) {
+    const button = headerButtons.nth(index);
+    await expect(button).toBeInViewport();
+    const buttonBox = await button.boundingBox();
+    expect(buttonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(buttonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
+  const narrowTrigger = page.getByRole("button", { name: "Project attention: 5" });
+  await narrowTrigger.click();
+  const narrowAttention = page.getByRole("dialog", { name: "Needs Attention" });
+  await expect(narrowAttention).toBeVisible();
+  const contentBox = await page.locator(".hecate-content").boundingBox();
+  const statusBarBox = await page.locator(".hecate-statusbar").boundingBox();
+  const attentionBox = await narrowAttention.boundingBox();
+  expect(attentionBox?.x ?? 0).toBeGreaterThanOrEqual(contentBox?.x ?? 0);
+  expect((attentionBox?.x ?? 0) + (attentionBox?.width ?? 0)).toBeLessThanOrEqual(
+    (contentBox?.x ?? 0) + (contentBox?.width ?? 0) + 1,
+  );
+  expect((attentionBox?.y ?? 0) + (attentionBox?.height ?? 0)).toBeLessThanOrEqual(
+    (statusBarBox?.y ?? 0) + 1,
+  );
+  expect(
+    await narrowAttention.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  if (process.env.HECATE_CAPTURE_PROJECTS_ATTENTION === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-attention-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+});
+
 test("Projects links restore exact work across reload, history, and narrow widths", async ({
   page,
 }) => {
@@ -2362,6 +2517,7 @@ async function mockProjectJourneyAPIs(page: Page) {
     projectCatalogFailuresRemaining: 0,
     projectCatalogRequestCount: 0,
     projectCatalogRetryGate: null as Promise<void> | null,
+    projectHealthOverride: null as ProjectHealth | null,
     discoverableSetupInputs: true,
     rootMutationCalls: [] as Array<{
       method: string;
@@ -3640,6 +3796,7 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
 }
 
 function projectHealth(state: ProjectJourneyState, projectID: string): ProjectHealth {
+  if (state.projectHealthOverride) return state.projectHealthOverride;
   const enabledContextSourceCount = state.sources.filter((source) => source.enabled).length;
   const pendingMemoryCandidateCount = state.memoryCandidates.filter(
     (candidate) => candidate.status === "pending",

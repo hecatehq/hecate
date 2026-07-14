@@ -565,6 +565,16 @@ documentation capture script continues to own `projects.png`.
 
 ![Projects overview at narrow width](../../screenshots/projects-overview-narrow.jpg)
 
+The project attention panel has deterministic desktop and 320px captures that
+exercise the same compound attention rows and keyboard-first focus path:
+
+![Project attention at desktop width](../../screenshots/projects-attention.jpg)
+
+![Project attention at 320px](../../screenshots/projects-attention-narrow.jpg)
+
+Regenerate both attention images from `ui/` with
+`HECATE_CAPTURE_PROJECTS_ATTENTION=1 bunx playwright test e2e/projects.spec.ts -g "Projects attention"`.
+
 Regenerate the assignment execution images from the deterministic full Projects
 journey with
 `HECATE_CAPTURE_PROJECTS_EXECUTION=1 bunx playwright test e2e/projects.spec.ts -g "Projects journey"`

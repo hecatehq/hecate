@@ -163,17 +163,23 @@ Human-only projects do not report a missing workspace as a Health setup gap;
 workspace guidance remains relevant only when an agent-backed assignment needs
 launch prerequisites.
 
-The project header's **Needs Attention** menu is server-derived from
+The project header's **Needs Attention** panel is server-derived from
 `GET /hecate/v1/projects/{id}/health`. It surfaces compact setup and operations
 signals such as missing defaults, missing roots, Agent Preset or skill
 reference issues, pending handoffs, review follow-up, stale assignment links,
 empty memory/context posture, and pending memory candidates. The menu also
 shows the server summary counts for setup, memory, context, and work follow-up
 so the operator can see why the project needs attention before opening a
-specific item. The menu opens existing surfaces only; it does not create
+specific item. The panel opens existing surfaces only; it does not create
 records, launch agents, or write memory. Like Project Operations, Needs
 Attention rows use a typed server-provided `action` object for follow-through;
 compact row fields are display metadata, not a second routing authority.
+The trigger moves keyboard focus into the panel, **Escape** returns focus to
+the trigger, and each row's primary and supporting actions remain separate
+keyboard controls. At narrow widths the panel stays inside the project
+workspace, including a 320px viewport. The project identity and global actions
+use separate header rows there so the identity remains readable and every
+header action keeps a 44px touch target.
 
 The default **Overview** starts with Project Operations when the server finds
 actionable project state: missing launch defaults, pending approvals, blocked

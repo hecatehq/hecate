@@ -1,4 +1,12 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useId,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 
 import type {
   ProjectActivityBucketKey,
@@ -30,6 +38,7 @@ export type ProjectHealthPanelProps = {
   onAttentionMemory: () => void;
   onAttentionPresets: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onAttentionRoute?: (route: ProjectActionRoute) => void;
   onAttentionRoles: () => void;
   onAttentionSkills: () => void;
   onAttentionTask?: (taskID: string, runID?: string) => void;
@@ -50,6 +59,7 @@ export function ProjectHealthPanel({
   onAttentionMemory,
   onAttentionPresets,
   onAttentionReviewCandidate,
+  onAttentionRoute,
   onAttentionRoles,
   onAttentionSkills,
   onAttentionTask,
@@ -59,6 +69,12 @@ export function ProjectHealthPanel({
   const attentionMenu = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
     portalSelector: null,
   });
+  const attentionPopoverPosition = useProjectAttentionPopoverPosition(
+    attentionMenu.triggerRef,
+    attentionMenu.open,
+  );
+  const attentionDialogID = useId();
+  const attentionTitleID = useId();
   const focusNoticeSequenceRef = useRef(0);
   const [focusNotice, setFocusNotice] = useState({ key: 0, message: "" });
   const attentionCount = attentionItems.length;
@@ -96,25 +112,54 @@ export function ProjectHealthPanel({
 
   useLayoutEffect(() => {
     if (!focusedAttentionWillChange) return;
+    attentionMenu.close();
     attentionMenu.triggerRef.current?.focus();
     focusNoticeSequenceRef.current += 1;
     setFocusNotice({
       key: focusNoticeSequenceRef.current,
       message: "Project attention changed. Focus returned to the attention button.",
     });
-  }, [attentionMenu.triggerRef, focusedAttentionWillChange]);
+  }, [attentionMenu.close, attentionMenu.triggerRef, focusedAttentionWillChange]);
+  useLayoutEffect(() => {
+    if (!attentionMenu.open) return;
+    const firstAction = attentionMenu.menuRef.current?.querySelector<HTMLElement>(
+      "[data-project-attention-primary]",
+    );
+    (firstAction ?? attentionMenu.menuRef.current)?.focus();
+  }, [attentionMenu.menuRef, attentionMenu.open]);
+  useEffect(() => {
+    if (!attentionMenu.open) return;
+    const handleOutsideMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target || attentionMenu.wrapRef.current?.contains(target)) return;
+      window.setTimeout(() => {
+        if (
+          document.activeElement === document.body ||
+          document.activeElement === document.documentElement
+        ) {
+          attentionMenu.triggerRef.current?.focus();
+        }
+      }, 0);
+    };
+    document.addEventListener("mousedown", handleOutsideMouseDown);
+    return () => document.removeEventListener("mousedown", handleOutsideMouseDown);
+  }, [attentionMenu.open, attentionMenu.triggerRef, attentionMenu.wrapRef]);
   const closeMenu = () => attentionMenu.close();
+  const closeMenuAndRestoreFocus = () => {
+    attentionMenu.close();
+    attentionMenu.triggerRef.current?.focus();
+  };
   const handleAttentionAction = (item: ProjectHealthAttention) => {
     const candidateID = projectHealthAttentionCandidateID(item);
     const candidate = memoryCandidates.find((candidate) => candidate.id === candidateID);
-    handleAttentionRoute(
-      routeProjectHealthAttention(item, {
-        hasMemoryCandidate: Boolean(candidate),
-        selectedProjectID,
-      }),
-      candidate,
-    );
-    closeMenu();
+    const route = routeProjectHealthAttention(item, {
+      hasMemoryCandidate: Boolean(candidate),
+      selectedProjectID,
+    });
+    if (onAttentionRoute) onAttentionRoute(route);
+    else handleAttentionRoute(route, candidate);
+    if (route.kind === "error") closeMenuAndRestoreFocus();
+    else closeMenu();
   };
   const handleAttentionRoute = (
     route: ProjectActionRoute,
@@ -160,14 +205,22 @@ export function ProjectHealthPanel({
   const handleAttentionMetadataAction = (item: ProjectHealthAttention, run: () => void) => {
     if (!projectHealthAttentionTargetCurrent(item, selectedProjectID)) {
       onAttentionError?.(PROJECT_ATTENTION_STALE_MESSAGE);
-      closeMenu();
+      closeMenuAndRestoreFocus();
       return;
     }
     run();
     closeMenu();
   };
   return (
-    <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>
+    <div
+      ref={attentionMenu.wrapRef}
+      onBlur={(event) => {
+        const nextFocus = event.relatedTarget;
+        if (nextFocus instanceof Node && event.currentTarget.contains(nextFocus)) return;
+        closeMenu();
+      }}
+      style={projectAttentionMenuStyle}
+    >
       <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStyle}>
         <span key={focusNotice.key}>{focusNotice.message}</span>
       </div>
@@ -175,10 +228,17 @@ export function ProjectHealthPanel({
         ref={attentionMenu.triggerRef}
         className="btn btn-ghost btn-sm"
         type="button"
+        aria-controls={attentionDialogID}
         aria-expanded={attentionMenu.open}
+        aria-haspopup="dialog"
         aria-label={attentionLabel}
         title="Project attention"
         onClick={attentionMenu.toggle}
+        onKeyDown={(event) => {
+          if (!attentionMenu.open || event.key !== "Escape") return;
+          event.stopPropagation();
+          closeMenuAndRestoreFocus();
+        }}
         disabled={disabled}
         style={{
           ...triggerStyle,
@@ -191,16 +251,26 @@ export function ProjectHealthPanel({
       {attentionMenu.open && !disabled && (
         <div
           ref={attentionMenu.menuRef}
-          role="menu"
-          aria-label="Project attention"
-          style={projectAttentionPopoverStyle}
+          id={attentionDialogID}
+          className="project-attention-popover"
+          role="dialog"
+          aria-labelledby={attentionTitleID}
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.stopPropagation();
+            closeMenuAndRestoreFocus();
+          }}
+          style={{ ...projectAttentionPopoverStyle, ...attentionPopoverPosition }}
         >
           <div style={projectAttentionPopoverHeaderStyle}>
-            <div style={sectionLabelStyle}>Needs Attention</div>
+            <h2 id={attentionTitleID} style={sectionLabelStyle}>
+              Needs Attention
+            </h2>
             <span className="badge badge-muted">{attentionBadge}</span>
           </div>
           {postureRows.length > 0 && (
-            <div style={projectPostureGridStyle} aria-label="Project health summary">
+            <div role="group" style={projectPostureGridStyle} aria-label="Project health summary">
               {postureRows.map((row) => (
                 <div key={row.id} style={projectPostureRowStyle}>
                   <div style={projectPostureTitleStyle}>{row.title}</div>
@@ -214,7 +284,7 @@ export function ProjectHealthPanel({
           {attentionItems.length === 0 ? (
             <div style={subtleTextStyle}>No project attention items detected.</div>
           ) : (
-            <div style={{ display: "grid", gap: 8 }}>
+            <ul style={attentionListStyle}>
               {attentionItems.map((item) => (
                 <ProjectHealthAttentionRow
                   key={item.id}
@@ -223,23 +293,12 @@ export function ProjectHealthPanel({
                   onBucketChange={(bucket) => {
                     handleAttentionMetadataAction(item, () => onAttentionBucket(bucket));
                   }}
-                  onOpenTask={(taskID, runID) => {
-                    handleAttentionMetadataAction(item, () => onAttentionTask?.(taskID, runID));
-                  }}
-                  onReviewCandidate={(candidate) => {
-                    handleAttentionMetadataAction(item, () =>
-                      onAttentionReviewCandidate(candidate),
-                    );
-                  }}
-                  onSelectWorkItem={(workItemID) => {
-                    handleAttentionMetadataAction(item, () => onAttentionWorkItem(workItemID));
-                  }}
                   reviewCandidate={memoryCandidates.find(
                     (candidate) => candidate.id === projectHealthAttentionCandidateID(item),
                   )}
                 />
               ))}
-            </div>
+            </ul>
           )}
         </div>
       )}
@@ -251,103 +310,91 @@ function ProjectHealthAttentionRow({
   item,
   onActivate,
   onBucketChange,
-  onOpenTask,
-  onReviewCandidate,
-  onSelectWorkItem,
   reviewCandidate,
 }: {
   item: ProjectHealthAttention;
   onActivate: () => void;
   onBucketChange: (bucket: ProjectActivityBucketKey) => void;
-  onOpenTask?: (taskID: string, runID?: string) => void;
-  onReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
-  onSelectWorkItem: (workItemID: string) => void;
   reviewCandidate?: ProjectMemoryCandidateRecord;
 }) {
   const bucketTarget = projectHealthAttentionBucket(item);
   const workItemID = projectHealthAttentionWorkItemID(item);
   const taskTarget = projectHealthAttentionTaskTarget(item);
+  const candidateTarget = projectHealthAttentionCandidateID(item);
+  const hasCompactActions = Boolean(bucketTarget || workItemID || taskTarget || candidateTarget);
   return (
-    <div
+    <li
       className="project-attention-item"
       data-project-attention-identity={projectHealthAttentionIdentity(item)}
-      role="button"
-      tabIndex={0}
-      aria-label={`Open attention item ${item.title}`}
-      onClick={onActivate}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onActivate();
-      }}
       style={healthAttentionStyle}
     >
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
-        <Badge status={item.status} label={activitySignalLabel(item.status)} />
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
-        <span aria-hidden="true" className="project-attention-item-chevron">
-          <Icon d={Icons.chevR} size={12} />
+      <button
+        className="project-attention-item-primary"
+        data-project-attention-primary
+        type="button"
+        aria-label={`Open attention item ${item.title}`}
+        onClick={onActivate}
+        style={healthAttentionPrimaryStyle}
+      >
+        <span style={healthAttentionHeadingStyle}>
+          <Badge status={item.status} label={activitySignalLabel(item.status)} />
+          <span style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</span>
+          <span aria-hidden="true" className="project-attention-item-chevron">
+            <Icon d={Icons.chevR} size={12} />
+          </span>
         </span>
-        {bucketTarget && (
-          <button
-            className="btn btn-ghost btn-sm project-attention-item-action"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onBucketChange(bucketTarget);
-            }}
-          >
-            {item.action_label ?? "Inbox"}
-          </button>
-        )}
-        {workItemID && (
-          <button
-            className="btn btn-ghost btn-sm project-attention-item-action"
-            type="button"
-            aria-label={
-              item.bucket
-                ? "Open attention details"
-                : (item.action_label ?? "Open attention details")
-            }
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelectWorkItem(workItemID);
-            }}
-          >
-            {bucketTarget ? "Details" : (item.action_label ?? "Details")}
-          </button>
-        )}
-        {taskTarget && (
-          <button
-            className="btn btn-ghost btn-sm project-attention-item-action"
-            type="button"
-            aria-label="Open attention task"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenTask?.(taskTarget.taskID, taskTarget.runID);
-            }}
-            disabled={!onOpenTask}
-          >
-            <Icon d={Icons.tasks} size={12} />
-            Task
-          </button>
-        )}
-        {reviewCandidate && (
-          <button
-            className="btn btn-ghost btn-sm project-attention-item-action"
-            type="button"
-            aria-label="Review memory candidate"
-            onClick={(event) => {
-              event.stopPropagation();
-              onReviewCandidate(reviewCandidate);
-            }}
-          >
-            Review candidate
-          </button>
-        )}
-      </div>
-      <div style={subtleTextStyle}>{item.detail}</div>
-    </div>
+        <span style={subtleTextStyle}>{item.detail}</span>
+      </button>
+      {hasCompactActions && (
+        <div aria-label={`${item.title} actions`} role="group" style={healthAttentionActionsStyle}>
+          {bucketTarget && (
+            <button
+              className="btn btn-ghost btn-sm project-attention-item-action"
+              type="button"
+              aria-label={`${item.action_label ?? "Inbox"}: ${item.title}`}
+              onClick={() => onBucketChange(bucketTarget)}
+            >
+              {item.action_label ?? "Inbox"}
+            </button>
+          )}
+          {workItemID && (
+            <button
+              className="btn btn-ghost btn-sm project-attention-item-action"
+              type="button"
+              aria-label={`${
+                item.bucket
+                  ? "Open attention details"
+                  : (item.action_label ?? "Open attention details")
+              }: ${item.title}`}
+              onClick={onActivate}
+            >
+              {bucketTarget ? "Details" : (item.action_label ?? "Details")}
+            </button>
+          )}
+          {taskTarget && (
+            <button
+              className="btn btn-ghost btn-sm project-attention-item-action"
+              type="button"
+              aria-label={`Open attention task: ${item.title}`}
+              onClick={onActivate}
+            >
+              <Icon d={Icons.tasks} size={12} />
+              Task
+            </button>
+          )}
+          {candidateTarget && (
+            <button
+              className="btn btn-ghost btn-sm project-attention-item-action"
+              type="button"
+              aria-label={`${reviewCandidate ? "Review memory candidate" : "Open memory review"}: ${item.title}`}
+              onClick={onActivate}
+            >
+              {reviewCandidate ? "Review candidate" : "Open memory"}
+            </button>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -464,8 +511,59 @@ function plural(count: number): string {
   return count === 1 ? "" : "s";
 }
 
+function useProjectAttentionPopoverPosition(
+  triggerRef: RefObject<HTMLButtonElement | null>,
+  open: boolean,
+): CSSProperties {
+  const [position, setPosition] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const compute = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const actionBar = trigger.closest<HTMLElement>(".project-header-actions") ?? trigger;
+      const content = trigger.closest<HTMLElement>(".hecate-content");
+      const statusBar = document.querySelector<HTMLElement>(".hecate-statusbar");
+      const actionRect = actionBar.getBoundingClientRect();
+      const contentRect = content?.getBoundingClientRect();
+      const statusBarRect = statusBar?.getBoundingClientRect();
+      const viewportInset = 8;
+      const leftEdge = Math.max(viewportInset, (contentRect?.left ?? 0) + viewportInset);
+      const rightEdge = Math.min(
+        window.innerWidth - viewportInset,
+        (contentRect?.right ?? window.innerWidth) - viewportInset,
+      );
+      const width = Math.max(0, Math.min(420, rightEdge - leftEdge));
+      const left = Math.min(
+        Math.max(actionRect.right - width, leftEdge),
+        Math.max(leftEdge, rightEdge - width),
+      );
+      const top = actionRect.bottom + 4;
+      const viewportBottom = window.innerHeight - viewportInset;
+      const statusBarTop = statusBarRect?.top ?? viewportBottom;
+      const bottomEdge = Math.min(viewportBottom, statusBarTop - 4);
+      setPosition({
+        left,
+        maxHeight: Math.min(560, Math.max(0, bottomEdge - top)),
+        position: "fixed",
+        right: "auto",
+        top,
+        width,
+      });
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    window.addEventListener("scroll", compute, true);
+    return () => {
+      window.removeEventListener("resize", compute);
+      window.removeEventListener("scroll", compute, true);
+    };
+  }, [open, triggerRef]);
+  return position;
+}
+
 const projectAttentionMenuStyle: CSSProperties = {
-  position: "relative",
+  position: "static",
 };
 
 const visuallyHiddenStyle: CSSProperties = {
@@ -506,13 +604,14 @@ const projectAttentionPopoverStyle: CSSProperties = {
   display: "grid",
   gap: 10,
   maxHeight: "min(560px, calc(100vh - 84px))",
-  minWidth: 340,
+  minWidth: 0,
+  overflowX: "hidden",
   overflowY: "auto",
   padding: 10,
   position: "absolute",
   right: 0,
-  top: 36,
-  width: "min(420px, calc(100vw - 28px))",
+  top: "calc(100% + 4px)",
+  width: "min(420px, calc(100vw - 64px))",
   zIndex: 30,
 };
 
@@ -561,6 +660,7 @@ const sectionLabelStyle: CSSProperties = {
   fontSize: 10,
   color: "var(--teal)",
   letterSpacing: "0.06em",
+  margin: 0,
   textTransform: "uppercase",
 };
 
@@ -577,16 +677,50 @@ const subtleTextStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 12,
   lineHeight: 1.4,
+  overflowWrap: "anywhere",
+};
+
+const attentionListStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
 };
 
 const healthAttentionStyle: CSSProperties = {
   background: "transparent",
   border: "1px solid transparent",
   borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 6,
+  padding: 9,
+  transition: "background 120ms ease, border-color 120ms ease",
+};
+
+const healthAttentionPrimaryStyle: CSSProperties = {
+  background: "transparent",
+  border: 0,
+  color: "inherit",
   cursor: "pointer",
   display: "grid",
   gap: 6,
-  outline: "none",
-  padding: 9,
-  transition: "background 120ms ease, border-color 120ms ease",
+  minWidth: 0,
+  padding: 0,
+  textAlign: "left",
+  width: "100%",
+};
+
+const healthAttentionHeadingStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  minWidth: 0,
+};
+
+const healthAttentionActionsStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  justifyContent: "flex-end",
 };

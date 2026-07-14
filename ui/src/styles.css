@@ -280,13 +280,15 @@ textarea {
 }
 
 .project-attention-item:hover,
-.project-attention-item:focus-visible {
+.project-attention-item:focus-within {
   background: var(--bg2);
   border-color: var(--border);
 }
 
-.project-attention-item:focus-visible {
-  box-shadow: 0 0 0 1px var(--teal);
+.project-attention-item-primary:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid color-mix(in srgb, var(--teal) 72%, transparent);
+  outline-offset: 2px;
 }
 
 .project-attention-item-chevron {
@@ -300,7 +302,7 @@ textarea {
 }
 
 .project-attention-item:hover .project-attention-item-chevron,
-.project-attention-item:focus-visible .project-attention-item-chevron {
+.project-attention-item:focus-within .project-attention-item-chevron {
   color: var(--teal);
   opacity: 1;
   transform: translateX(2px);
@@ -311,7 +313,7 @@ textarea {
 }
 
 .project-attention-item:hover .project-attention-item-action,
-.project-attention-item:focus-visible .project-attention-item-action,
+.project-attention-item:focus-within .project-attention-item-action,
 .project-attention-item-action:focus-visible {
   opacity: 1;
 }
@@ -424,6 +426,38 @@ textarea {
 }
 
 @media (max-width: 520px) {
+  .project-inline-header {
+    align-items: center !important;
+    display: grid !important;
+    gap: 6px 8px !important;
+    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    height: auto !important;
+    min-height: var(--topbar-h);
+    padding: 6px 8px !important;
+  }
+
+  .project-header-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .project-header-actions > button,
+  .project-header-actions > div > button {
+    height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  .project-attention-popover .project-attention-item-primary {
+    min-height: 44px;
+  }
+
+  .project-attention-popover .project-attention-item-action {
+    min-height: 44px;
+    width: 100%;
+  }
+
   .project-work-item-detail-header {
     grid-template-columns: minmax(0, 1fr) !important;
   }

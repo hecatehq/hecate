@@ -665,7 +665,9 @@ Out of scope for this document and Projects V1:
   desktop and 390px widths.
   URL coverage opens a non-first work item directly, reloads it, traverses
   workspace/tab history, repeats at 390px, and proves that missing project/work
-  identifiers do not load an unrelated record.
+  identifiers do not load an unrelated record. Needs Attention coverage opens
+  the compound panel with keyboard focus, restores the trigger on Escape, and
+  verifies horizontal and status-bar containment at 320px.
 
 ## Open Questions
 
