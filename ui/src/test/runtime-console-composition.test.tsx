@@ -2390,15 +2390,34 @@ describe("useRuntimeConsole", () => {
 
     it("keeps a late dashboard snapshot from replacing a newer linked-chat selection", async () => {
       window.localStorage.setItem("hecate.chatSessionID", "chat_previous");
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([
+          {
+            id: "queued_assignment",
+            session_id: "chat_assignment",
+            content: "Keep this queued for the assignment",
+            execution_mode: "hecate_task",
+            tools_enabled: true,
+            provider_filter: "openai",
+            model: "gpt-4o-mini",
+            workspace: "/workspace",
+            system_prompt: "",
+            agent_id: "hecate",
+            created_at: "2026-04-20T00:00:01Z",
+          },
+        ]),
+      );
       let resolveDashboardSessions: ((response: Response) => void) | undefined;
       let dashboardSessionsStarted = false;
-      const session = (id: string, title: string) => ({
+      const session = (id: string, title: string, status = "idle") => ({
         object: "chat_session",
         data: {
           id,
           title,
           agent_id: "hecate",
-          status: "idle",
+          status,
+          workspace: "/workspace",
           messages: [],
           provider: "openai",
           model: "gpt-4o-mini",
@@ -2417,7 +2436,7 @@ describe("useRuntimeConsole", () => {
           "/hecate/v1/chat/sessions/chat_previous": () =>
             jsonResponse(session("chat_previous", "Previous chat")),
           "/hecate/v1/chat/sessions/chat_assignment": () =>
-            jsonResponse(session("chat_assignment", "Assignment chat")),
+            jsonResponse(session("chat_assignment", "Assignment chat", "running")),
         }),
       );
 
@@ -2432,6 +2451,10 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.activeChatSessionID).toBe("chat_assignment");
       expect(result.current.state.activeChatSession?.id).toBe("chat_assignment");
       expect(result.current.state.message).toBe("Assignment launch context");
+      expect(result.current.state.chatSessions.some((chat) => chat.id === "chat_assignment")).toBe(
+        true,
+      );
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
 
       act(() => {
         resolveDashboardSessions?.(
@@ -2454,6 +2477,15 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.activeChatSessionID).toBe("chat_assignment");
       expect(result.current.state.activeChatSession?.id).toBe("chat_assignment");
       expect(result.current.state.message).toBe("Assignment launch context");
+      expect(result.current.state.chatSessions.some((chat) => chat.id === "chat_assignment")).toBe(
+        true,
+      );
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_assignment",
+          content: "Keep this queued for the assignment",
+        }),
+      ]);
     });
 
     it("keeps a newer selection authoritative over a slower chat creation", async () => {
@@ -2612,6 +2644,84 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.activeChatSessionID).toBe("chat_created");
       expect(result.current.state.activeChatSession?.id).toBe("chat_created");
       expect(result.current.state.message).toBe("Created launch context");
+    });
+
+    it("keeps a preempted Hecate chat's session-local tools intent", async () => {
+      let resolveCreate: ((response: Response) => void) | undefined;
+      let createStarted = false;
+      const chatSession = (id: string) => ({
+        object: "chat_session",
+        data: {
+          id,
+          title: id === "chat_preempted" ? "Preempted project chat" : "Latest chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "/workspace",
+          messages: [],
+          provider: "openai",
+          model: "gpt-4o-mini",
+        },
+      });
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": (init) => {
+            if (init?.method === "POST") {
+              createStarted = true;
+              return new Promise<Response>((resolve) => {
+                resolveCreate = resolve;
+              });
+            }
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ id: "chat_latest", title: "Latest chat", agent_id: "hecate" }],
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_latest": () => jsonResponse(chatSession("chat_latest")),
+          "/hecate/v1/chat/sessions/chat_preempted": () =>
+            jsonResponse(chatSession("chat_preempted")),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook({
+        chatInitialState: { agentWorkspace: "/workspace" },
+      });
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      let createPromise!: Promise<void>;
+      act(() => {
+        createPromise = result.current.actions.createChatSession({
+          agentID: "hecate",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          title: "Preempted project chat",
+          draft: "Preempted launch context",
+        });
+      });
+      await waitFor(() => expect(createStarted).toBe(true));
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_latest");
+      });
+
+      await act(async () => {
+        resolveCreate?.(jsonResponse(chatSession("chat_preempted")));
+        await createPromise;
+      });
+      expect(result.current.state.activeChatSessionID).toBe("chat_latest");
+      expect(result.current.state.chatToolsEnabledBySessionID.get("chat_preempted")).toBe(true);
+
+      act(() => {
+        result.current.actions.startNewChat();
+      });
+      act(() => {
+        result.current.actions.setChatToolsEnabled(false);
+      });
+      expect(result.current.state.defaultChatToolsEnabled).toBe(false);
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_preempted");
+      });
+      expect(result.current.state.activeChatSession?.id).toBe("chat_preempted");
+      expect(result.current.state.chatToolsEnabledBySessionID.get("chat_preempted")).toBe(true);
     });
 
     it("does not regenerate a created project draft after the operator clears it", async () => {

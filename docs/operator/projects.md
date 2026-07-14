@@ -282,10 +282,11 @@ chat. A transient initial selection failure also retains the launch draft for
 the next attempt. After an app reload clears transient composer state,
 **Continue in chat** rebuilds the launch-context fallback from the current
 canonical assignment; a live edit or intentional clear still takes precedence.
-While a linked chat is loading, Hecate withholds the composer until the selected
-chat ID and server record agree. A late dashboard refresh or older chat-create
-response cannot replace the operator's newer chat choice or pair its draft with
-another chat.
+While a linked chat is loading, Hecate announces **Loading chat…** and withholds
+the composer until the selected chat ID and server record agree. A late
+dashboard refresh or older chat-create response cannot replace the operator's
+newer chat choice, remove its queued prompt, or pair its draft with another
+chat.
 
 Projects does not persist another prepared/active lifecycle; Cairnline remains
 the portable assignment authority, and Hecate projects the linked chat and
