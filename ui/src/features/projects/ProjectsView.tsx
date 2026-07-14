@@ -439,6 +439,9 @@ export function ProjectsView({
   const [handoffActionTargets, setHandoffActionTargets] = useState<ReadonlyMap<string, string>>(
     () => new Map(),
   );
+  const [handoffActionErrors, setHandoffActionErrors] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
   const handoffActionPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
   const handoffFollowUpKeysRef = useRef<Map<string, string>>(new Map());
   const [artifactActionID, setArtifactActionID] = useState("");
@@ -2708,6 +2711,7 @@ export function ProjectsView({
     const actionKey = projectHandoffMutationKey(projectID, workItemID);
     const existing = handoffActionPromisesRef.current.get(actionKey);
     if (existing) return existing;
+    clearHandoffActionError(projectID, workItemID);
     if (
       handoffID !== "new" &&
       selectedProjectIDRef.current === projectID &&
@@ -2737,11 +2741,31 @@ export function ProjectsView({
     return pending;
   }
 
+  function clearHandoffActionError(projectID: string, workItemID: string) {
+    const actionKey = projectHandoffMutationKey(projectID, workItemID);
+    setHandoffActionErrors((current) => {
+      if (!current.has(actionKey)) return current;
+      const next = new Map(current);
+      next.delete(actionKey);
+      return next;
+    });
+  }
+
+  function recordHandoffActionError(projectID: string, workItemID: string, message: string) {
+    const actionKey = projectHandoffMutationKey(projectID, workItemID);
+    setHandoffActionErrors((current) => {
+      const next = new Map(current);
+      next.set(actionKey, message);
+      return next;
+    });
+  }
+
   async function handleSaveHandoff(form: HandoffForm) {
     if (!selectedProjectID || !selectedWorkItemID || !editingHandoff) return;
     const projectID = selectedProjectID;
     const workItemID = selectedWorkItemID;
     const handoff = editingHandoff;
+    const existingHandoffID = handoff === "new" ? "" : handoff.id;
     const isCurrent = () =>
       selectedProjectIDRef.current === projectID && selectedWorkItemIDRef.current === workItemID;
     const title = form.title.trim();
@@ -2784,9 +2808,18 @@ export function ProjectsView({
         } catch (error) {
           if (!isCurrent()) return;
           setHandoffError(errorMessage(error, "Failed to save handoff."));
-          if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+          if (
+            existingHandoffID &&
+            error instanceof ApiError &&
+            (error.status === 404 || error.status === 409)
+          ) {
             await loadWorkItemDetail(projectID, workItemID);
-            if (isCurrent()) await loadWorkForProject(projectID, workItemID);
+            if (!isCurrent()) return;
+            await loadWorkForProject(projectID, workItemID);
+            if (!isCurrent()) return;
+            setEditingHandoff(null);
+            setNewHandoffDraft(null);
+            setWorkItemFocusTarget({ handoffID: existingHandoffID, workItemID });
           }
         } finally {
           if (isCurrent()) setHandoffPending(false);
@@ -2938,6 +2971,7 @@ export function ProjectsView({
     options: { failureMessage?: string; prefixFailureMessage?: boolean } = {},
   ) {
     if (!selectedProjectID || !selectedWorkItemID) return;
+    clearHandoffActionError(selectedProjectID, selectedWorkItemID);
     if (handoff.status === "dismissed" || handoff.status === "superseded") {
       setHandoffError("This handoff is closed and cannot create a follow-up assignment.");
       return;
@@ -2983,15 +3017,15 @@ export function ProjectsView({
         if (!isCurrent()) return;
         await loadWorkForProject(projectID, workItemID);
       } catch (error) {
-        if (!isCurrent()) return;
         const failureMessage =
           options.failureMessage || "Failed to accept handoff and create follow-up.";
         const detail = errorMessage(error, failureMessage);
-        setHandoffError(
+        const message =
           options.prefixFailureMessage && detail !== failureMessage
             ? `${failureMessage} ${detail}`
-            : detail,
-        );
+            : detail;
+        recordHandoffActionError(projectID, workItemID, message);
+        if (!isCurrent()) return;
         if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
           handoffFollowUpKeysRef.current.delete(followUpKey);
           await loadWorkItemDetail(projectID, workItemID);
@@ -3492,6 +3526,9 @@ export function ProjectsView({
   const handoffActionID =
     handoffActionTargets.get(projectHandoffMutationKey(selectedProjectID, selectedWorkItemID)) ??
     "";
+  const selectedHandoffActionError =
+    handoffActionErrors.get(projectHandoffMutationKey(selectedProjectID, selectedWorkItemID)) ?? "";
+  const selectedHandoffError = handoffError || selectedHandoffActionError;
 
   return (
     <div className="projects-cockpit-shell" ref={projectsShellRef} style={shellStyle}>
@@ -3668,7 +3705,7 @@ export function ProjectsView({
             discoveringContext={discoveringContext}
             discoveringSkills={discoveringSkills}
             handoffActionID={handoffActionID}
-            handoffError={handoffError}
+            handoffError={selectedHandoffError}
             handoffs={currentHandoffs}
             hasWorkItemDetail={hasWorkItemDetail}
             closingWorkItemID={closingWorkItemID}

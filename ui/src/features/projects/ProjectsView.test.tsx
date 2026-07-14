@@ -9026,6 +9026,119 @@ describe("ProjectsView cockpit", () => {
     expect(getProjectHandoffs).toHaveBeenCalledTimes(2);
   });
 
+  async function beginStaleHandoffEdit(status: 404 | 409, keepsHandoff: boolean) {
+    resetProjectWorkMocks();
+    const originalHandoff: ProjectHandoffRecord = {
+      id: "handoff_edit_conflict",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "Editorial handoff",
+      summary: "Original summary.",
+      recommended_next_action: "Review the latest handoff.",
+      target_role_id: role.id,
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T11:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+      status_changed_at: "2026-06-02T11:00:00Z",
+    };
+    let authoritativeHandoff: ProjectHandoffRecord | null = originalHandoff;
+    vi.mocked(getProjectHandoffs).mockImplementation(async () => ({
+      object: "project_handoffs",
+      data: authoritativeHandoff ? [authoritativeHandoff] : [],
+    }));
+    vi.mocked(updateProjectHandoff).mockImplementationOnce(async () => {
+      authoritativeHandoff = keepsHandoff
+        ? {
+            ...originalHandoff,
+            summary: "Another operator updated this summary.",
+            updated_at: "2026-06-02T11:05:00Z",
+          }
+        : null;
+      throw new ApiError(
+        keepsHandoff
+          ? "This handoff changed before your edit was saved."
+          : "This handoff no longer exists.",
+        status,
+        keepsHandoff ? "conflict" : "not_found",
+      );
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    const originalRow = await within(detail).findByRole("group", {
+      name: "Editorial handoff handoff",
+    });
+    await user.click(within(originalRow).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit handoff" });
+    await user.clear(within(dialog).getByLabelText("Summary"));
+    await user.type(within(dialog).getByLabelText("Summary"), "Operator summary.");
+    await user.click(within(dialog).getByRole("button", { name: "Save handoff" }));
+    return { detail, originalHandoff, user };
+  }
+
+  it("closes a conflicting handoff edit and reopens from the authoritative revision", async () => {
+    const { detail, originalHandoff, user } = await beginStaleHandoffEdit(409, true);
+
+    expect(updateProjectHandoff).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      originalHandoff.id,
+      { summary: "Operator summary." },
+      originalHandoff.updated_at,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit handoff" })).toBeNull());
+    const handoffsRegion = within(detail).getByRole("region", { name: "Handoffs" });
+    expect(within(handoffsRegion).getByRole("alert")).toHaveTextContent(
+      "This handoff changed before your edit was saved.",
+    );
+    const reconciledRow = within(detail).getByRole("group", {
+      name: "Editorial handoff handoff",
+    });
+    expect(reconciledRow).toHaveTextContent("Another operator updated this summary.");
+    await waitFor(() => expect(reconciledRow).toHaveFocus());
+    await user.click(within(reconciledRow).getByRole("button", { name: "Edit" }));
+    expect(
+      within(await screen.findByRole("dialog", { name: "Edit handoff" })).getByLabelText("Summary"),
+    ).toHaveValue("Another operator updated this summary.");
+    expect(getProjectHandoffs).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes a removed handoff edit and restores work-item focus", async () => {
+    const { detail, originalHandoff } = await beginStaleHandoffEdit(404, false);
+
+    expect(updateProjectHandoff).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      originalHandoff.id,
+      { summary: "Operator summary." },
+      originalHandoff.updated_at,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit handoff" })).toBeNull());
+    const handoffsRegion = within(detail).getByRole("region", { name: "Handoffs" });
+    expect(within(handoffsRegion).getByRole("alert")).toHaveTextContent(
+      "This handoff no longer exists.",
+    );
+    expect(within(handoffsRegion).getByText("No structured handoffs recorded yet.")).toBeTruthy();
+    const selectedWorkItem = within(detail).getByRole("article", {
+      name: "Build cockpit UI work item",
+    });
+    await waitFor(() => expect(selectedWorkItem).toHaveFocus());
+    expect(getProjectHandoffs).toHaveBeenCalledTimes(2);
+  });
+
   it("adds assignments from the selected work item", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
@@ -10380,6 +10493,123 @@ describe("ProjectsView cockpit", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
     expect(secondPayload?.idempotency_key).toBe(firstPayload?.idempotency_key);
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("keeps an atomic handoff failure with its work item across navigation", async () => {
+    resetProjectWorkMocks();
+    const otherWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_other",
+      title: "Review cockpit behavior",
+    };
+    let sourceHandoff: ProjectHandoffRecord = {
+      id: "handoff_navigation_failure",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "Retry-safe navigation handoff",
+      summary: "Ready for a follow-up.",
+      recommended_next_action: "Create the implementation follow-up.",
+      target_role_id: role.id,
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+      status_changed_at: "2026-06-02T12:00:00Z",
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [workItem, otherWorkItem],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === otherWorkItem.id ? otherWorkItem : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [],
+    });
+    vi.mocked(getProjectHandoffs).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_handoffs",
+      data: workItemID === workItem.id ? [sourceHandoff] : [],
+    }));
+    let rejectAccept: (reason: Error) => void = () => {};
+    const acceptRequest = new Promise<Awaited<ReturnType<typeof acceptProjectHandoffWithFollowUp>>>(
+      (_resolve, reject) => {
+        rejectAccept = reject;
+      },
+    );
+    vi.mocked(acceptProjectHandoffWithFollowUp)
+      .mockReturnValueOnce(acceptRequest)
+      .mockImplementationOnce(async () => {
+        sourceHandoff = {
+          ...sourceHandoff,
+          target_assignment_id: "asgn_navigation_retry",
+          status: "accepted",
+          updated_at: "2026-06-02T12:05:00Z",
+          status_changed_at: "2026-06-02T12:05:00Z",
+        };
+        return {
+          object: "project_handoff_follow_up",
+          data: {
+            handoff: sourceHandoff,
+            assignment: {
+              ...hecateAssignment,
+              id: "asgn_navigation_retry",
+              execution: undefined,
+              status: "queued",
+            },
+            outcome: "created",
+            replayed: true,
+          },
+        };
+      });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await user.click(
+      await within(detail).findByRole("button", { name: "Accept and create follow-up" }),
+    );
+    const firstPayload = vi.mocked(acceptProjectHandoffWithFollowUp).mock.calls[0]?.[3];
+    await user.click(screen.getByRole("link", { name: "Open work item Review cockpit behavior" }));
+    await screen.findByRole("article", { name: "Review cockpit behavior work item" });
+
+    await act(async () => {
+      rejectAccept(new Error("Connection interrupted."));
+      await acceptRequest.catch(() => undefined);
+    });
+
+    await user.click(screen.getByRole("link", { name: "Open work item Build cockpit UI" }));
+    await screen.findByRole("article", { name: "Build cockpit UI work item" });
+    const handoffsRegion = await within(detail).findByRole("region", { name: "Handoffs" });
+    expect(within(handoffsRegion).getByRole("alert")).toHaveTextContent("Connection interrupted.");
+    const retry = within(handoffsRegion).getByRole("button", {
+      name: "Accept and create follow-up",
+    });
+    expect(retry).toBeEnabled();
+
+    await user.click(retry);
+    await waitFor(() => expect(acceptProjectHandoffWithFollowUp).toHaveBeenCalledTimes(2));
+    const secondPayload = vi.mocked(acceptProjectHandoffWithFollowUp).mock.calls[1]?.[3];
+    expect(secondPayload?.idempotency_key).toBe(firstPayload?.idempotency_key);
+    await waitFor(() =>
+      expect(
+        within(detail).getByRole("group", { name: "Retry-safe navigation handoff handoff" }),
+      ).toHaveTextContent("Accepted"),
+    );
+    expect(within(handoffsRegion).queryByRole("alert")).toBeNull();
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
