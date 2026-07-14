@@ -955,7 +955,7 @@ describe("ConsoleShell navigation", () => {
     );
 
     fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue in chat" }));
 
     expect(selectChatSession).toHaveBeenCalledWith("chat_external_1");
     expect(createChatSession).not.toHaveBeenCalled();
@@ -963,13 +963,11 @@ describe("ConsoleShell navigation", () => {
     return { selectChatSession, setMessage };
   }
 
-  it("selects linked External Agent chats and seeds the draft after a successful selection", async () => {
-    const { setMessage } = await openLinkedExternalAgentChat(true);
+  it("selects linked External Agent chats without replacing an unsent draft", async () => {
+    const { selectChatSession, setMessage } = await openLinkedExternalAgentChat(true);
 
-    await waitFor(() =>
-      expect(setMessage).toHaveBeenCalledWith(expect.stringContaining("Launch context")),
-    );
-    expect(setMessage.mock.calls[0]?.[0]).toContain("- Driver: external_agent");
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledTimes(1));
+    expect(setMessage).not.toHaveBeenCalled();
   });
 
   it("selects linked External Agent chats without seeding a draft when selection fails", async () => {

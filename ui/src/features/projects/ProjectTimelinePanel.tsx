@@ -179,6 +179,9 @@ function ProjectTimelineRow({
           role: role ?? null,
         })
       : null;
+  const timelineChatRequest: ProjectAssignmentChatLaunchRequest | null = item.chatID
+    ? { projectID: project.id, chatSessionID: item.chatID }
+    : chatRequest;
   const memoryEntry = item.memoryEntry;
   return (
     <div style={timelineItemStyle}>
@@ -212,17 +215,21 @@ function ProjectTimelineRow({
               Task
             </button>
           )}
-          {chatRequest && (
+          {timelineChatRequest && (
             <button
               aria-label={`Open timeline chat for ${item.title}`}
               className="btn btn-ghost btn-sm"
               type="button"
-              onClick={() => onOpenChat?.(chatRequest)}
-              disabled={!onOpenChat || !chatRequest.model}
+              onClick={() => onOpenChat?.(timelineChatRequest)}
+              disabled={
+                !onOpenChat || (!timelineChatRequest.chatSessionID && !timelineChatRequest.model)
+              }
               title={
-                chatRequest.model
-                  ? `Open chat with ${chatRequest.model}`
-                  : "Set project defaults before opening chat."
+                timelineChatRequest.chatSessionID
+                  ? "Open linked chat"
+                  : timelineChatRequest.model
+                    ? `Open chat with ${timelineChatRequest.model}`
+                    : "Set project defaults before opening chat."
               }
             >
               <Icon d={Icons.chat} size={12} />

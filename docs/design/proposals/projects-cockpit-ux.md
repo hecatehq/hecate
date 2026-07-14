@@ -3,7 +3,8 @@
 > **Status:** Proposal with the overview-first, work-item execution,
 > assignment-destination, follow-through, supporting-surface hierarchy, and
 > shareable-navigation slices implemented. The Overview-hosted guided-start
-> and selected-work kickoff slices are also implemented.
+> selected-work kickoff, and External Agent continuity slices are also
+> implemented.
 >
 > **Current source of truth:** [Projects](../../operator/projects.md),
 > [Projects design](../accepted/projects.md), and the Hecate
@@ -34,6 +35,11 @@ Concrete issues from the current UI and browser behavior:
 - Assignment forms exposed implementation-shaped role/driver language, and the
   Hecate facade did not preserve Cairnline's `manual` destination for human
   work.
+- Preparing an External Agent assignment created a linked chat but immediately
+  presented the work as running, before the operator reviewed or sent the first
+  turn.
+- Reopening that prepared chat could seed the launch draft again and replace
+  unsent operator edits in the composer.
 - Completed assignments could make a work item look done before the operator
   resolved evidence, review follow-up, or an open handoff.
 - Review, handoff, evidence, and closeout controls were spread across several
@@ -149,9 +155,13 @@ flowchart TD
   JR -->|"Yes"| J
   J --> K{"Destination"}
   K -->|"Human"| KH["Start work directly"]
-  K -->|"Hecate Task or External Agent"| KA["Review launch context and approve start"]
+  K -->|"Hecate Task"| KA["Review launch context and approve start"]
+  K -->|"External Agent"| KE["Review and prepare chat"]
   KH --> L["Track progress, approvals, failures, and evidence"]
   KA --> L
+  KE --> KP["Chat ready · review the editable draft"]
+  KP --> KS["Send the first turn in Chats"]
+  KS --> L
   L --> M["Follow the selected work item's next action"]
   M --> N{"What is needed?"}
   N -->|"Evidence"| NE["Record evidence for the named assignment"]
@@ -189,8 +199,11 @@ flowchart TD
 7. **Selected-work kickoff:** make direct assignment the pristine-work primary
    action, quick-create a missing responsibility, move the idle Assistant behind
    disclosure, and preserve exact focus without chaining writes.
+8. **External Agent continuity:** distinguish a prepared linked chat from an
+   active agent turn, seed the editable launch draft once, preserve unsent edits
+   on reopen, and use state-specific Continue, Open, Review, and Inspect actions.
 
-Slices 1 through 7 are implemented. Slice 1 rearranges existing server
+Slices 1 through 8 are implemented. Slice 1 rearranges existing server
 projections and action routing. Slice 2 reshapes each assignment into a
 state-driven story. Slice 3 adds Human as a faithful facade label for
 Cairnline's `manual` execution mode, with direct Start work, Resume work, and
@@ -217,6 +230,11 @@ Slice 6 keeps the guided start on Overview until first work exists. Slice 7
 gives otherwise pristine selected work one direct kickoff, progressively
 discloses responsibility defaults, keeps Assistant drafting optional, and
 returns focus to the exact next control or created assignment story.
+Slice 8 derives a calm External Agent presentation from the existing assignment
+status and `execution_ref`: a prepared `chat_session_id` without `message_id` is
+**Chat ready**, while `message_id` records agent-turn continuity. It opens the
+prepared chat with one editable launch draft and never reseeds that draft when
+the operator returns to the linked session.
 None of the slices add local project lifecycle state or inferred execution
 events.
 
@@ -359,17 +377,22 @@ visible keyboard-focus target.
 
 ```mermaid
 flowchart LR
-  Q["Assigned"] --> S["Started · when recorded"]
+  Q["Assigned"] --> S["Started or chat prepared · when recorded"]
   S --> C["Current server/runtime state"]
   C --> F["Finished · when recorded"]
   C --> A{"Best operator action"}
-  A -->|"Queued"| L["Review launch"]
+  A -->|"Queued Hecate Task"| L["Review & start"]
+  A -->|"Queued External Agent"| EL["Review & prepare chat"]
   A -->|"Queued Human work"| H["Start work"]
   A -->|"Running Human work"| HC["Mark complete"]
   A -->|"Interrupted Human start"| HI["Finish starting"]
   A -->|"Human work waiting for review"| HR["Record review · Resume is secondary"]
-  A -->|"Running"| T["Open task or chat"]
+  A -->|"Running Hecate Task"| T["Open task"]
+  A -->|"Prepared External Agent chat"| EC["Continue in chat"]
+  A -->|"External Agent response recorded"| EO["Open chat"]
   A -->|"Pending approval evidence"| P["Review in task"]
+  A -->|"External Agent needs attention"| ER["Review in chat"]
+  A -->|"External Agent failed or cancelled"| EI["Inspect chat"]
   A -->|"Review state only"| U["Review task"]
   A -->|"Failed"| I["Inspect execution"]
   A -->|"Completed"| R["Request or record review"]
@@ -380,12 +403,36 @@ flowchart LR
 The execution rail uses only recorded `created_at`, `started_at`, and
 `completed_at`/runtime `finished_at` timestamps. It presents the current status
 as a snapshot when no transition time exists and never treats `updated_at` as
-execution history. Pending approvals, failures, missing runtime links, and an
-unprepared External Agent chat remain visible outside the disclosure. Blocked
-closeout guidance follows the assignments it describes; ready and completed
-closeout stays promoted near the work brief. Because the current Hecate facade
-also maps Cairnline's `awaiting_review` to `awaiting_approval`, the cockpit uses
-neutral review language unless a linked runtime reports a pending approval.
+execution history. For External Agent work, the recorded preparation timestamp
+is labeled **Chat prepared**, not execution started.
+
+```mermaid
+flowchart LR
+  Q["Queued assignment"] -->|"Review & prepare chat"| P["Chat ready · chat_session_id · no message_id"]
+  P -->|"Review and send the seeded draft"| A["Agent response recorded · message_id"]
+  P -.-> N["Prepare does not send · reopen preserves unsent edits"]
+  A --> S{"Authoritative projected status"}
+  S -->|"Running"| O["Open chat"]
+  S -->|"Operator attention"| R["Review in chat"]
+  S -->|"Failed or cancelled"| I["Inspect chat"]
+  S -->|"Completed"| F["Review outcome and follow-through"]
+```
+
+The first successful prepare seeds one editable launch draft in the linked
+chat; it does not append a prompt or start an agent turn. Returning through
+**Continue in chat** selects that same session without reseeding the composer,
+so unsent operator edits remain intact. A projected `message_id` records agent
+response continuity; assignment/runtime status still decides whether Projects
+offers **Open chat**, **Review in chat**, or **Inspect chat**. This presentation
+uses the existing Cairnline-backed assignment and Hecate execution reference;
+the browser does not persist a second prepared/active state.
+
+Pending approvals, failures, missing runtime links, and an unprepared External
+Agent chat remain visible outside the disclosure. Blocked closeout guidance
+follows the assignments it describes; ready and completed closeout stays
+promoted near the work brief. Because the current Hecate facade also maps
+Cairnline's `awaiting_review` to `awaiting_approval`, the cockpit uses neutral
+review language unless a linked runtime reports a pending approval.
 
 ## Verified Screen States
 
@@ -478,6 +525,17 @@ from `ui/`.
 
 ![Assignment execution at narrow width](../../screenshots/projects-work-execution-narrow.jpg)
 
+The External Agent continuity journey verifies queued preparation, the
+non-sending **Chat ready** state, a recorded agent turn, exact return to the
+originating work item, and desktop/390px containment:
+
+![External Agent assignment at desktop width](../../screenshots/projects-external-assignment.jpg)
+
+![External Agent assignment at narrow width](../../screenshots/projects-external-assignment-narrow.jpg)
+
+Regenerate both images from `ui/` with
+`HECATE_CAPTURE_PROJECTS_EXTERNAL=1 bunx playwright test e2e/projects.spec.ts -g "Projects External Agent continuity"`.
+
 The selected-work kickoff journey verifies a roleless direct path and produces
 both the pristine kickoff and resulting Human assignment references. Regenerate
 all four from `ui/` with
@@ -503,6 +561,11 @@ all four from `ui/` with
   Responsibility creation and assignment creation are separately confirmed;
   neither action chains another write, starts execution, or persists a local
   workflow phase.
+- External Agent continuity is derived from the existing assignment status and
+  execution reference. `chat_session_id` without `message_id` may change the
+  presentation to **Chat ready**, but it does not create a browser-owned
+  lifecycle phase or prove that a prompt was sent. Reopening the linked chat is
+  navigation only and must not replace unsent operator input.
 - The URL records presentation intent only. It may name a workspace, project
   view, and work item, but it never creates portable state, proves that a record
   exists, grants runtime permission, or substitutes for Cairnline validation.

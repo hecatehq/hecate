@@ -251,8 +251,9 @@ to configure or dispatch.
 Each assignment is presented as an execution story. The leading action follows
 the current assignment state: **Start work** and **Mark complete** for Human
 work, **Record review** while Human work waits for review, **Review & start** or
-**Review & prepare chat** while an agent assignment is queued, **Open
-task/chat** while running, **Review in task** for pending approval, **Inspect
+**Review & prepare chat** while an agent assignment is queued, **Continue in
+chat** after an External Agent chat is prepared, **Open task/chat** while work
+is active, **Review in task/chat** when operator attention is needed, **Inspect
 task/chat** after failure or cancellation, and a review action after completion
 when the work item has a suitable reviewer role. **Resume work** remains a
 secondary action while Human work waits for review. The
@@ -260,6 +261,25 @@ Assigned, Started, current, and Finished milestones use timestamps actually
 recorded by Cairnline or the linked Hecate runtime. If no start or finish time
 exists, Projects says so instead of using the assignment's general update time
 as execution history.
+
+External Agent preparation is a supervised handoff, not a prompt send. Projects
+derives its presentation from the assignment's canonical execution reference:
+
+| Recorded assignment/runtime facts                | Projects presentation                                                | Leading chat action       |
+| ------------------------------------------------ | -------------------------------------------------------------------- | ------------------------- |
+| Queued assignment, no prepared chat              | Queued                                                               | **Review & prepare chat** |
+| `chat_session_id`, no `message_id`               | Chat ready; the chat was prepared, but no agent response is recorded | **Continue in chat**      |
+| `chat_session_id` and `message_id` while running | Agent working                                                        | **Open chat**             |
+| Linked chat waiting for operator attention       | Review or approval, according to the authoritative projection        | **Review in chat**        |
+| Linked chat failed or was cancelled              | Failed or cancelled                                                  | **Inspect chat**          |
+
+After preparation succeeds, Hecate opens the linked chat and seeds its editable
+launch draft once. The operator can review or change that draft before sending
+the first turn. Returning to the prepared chat selects the existing session
+without reseeding the composer, so unsent edits are preserved. Projects does
+not persist another prepared/active lifecycle; Cairnline remains the portable
+assignment authority, and Hecate projects the linked chat and message IDs into
+the existing execution reference.
 
 If a Human start was interrupted after Cairnline saved the operator claim but
 before work began, the story says **Starting** and offers **Finish starting**.
@@ -271,10 +291,10 @@ change resets unsaved destination edits so the two changes remain reviewable.
 Cancelling work that never started keeps the start time empty.
 
 Hecate currently receives Cairnline's review-waiting and approval-waiting states
-through the same assignment status. Projects says **Review task** and uses
-neutral review copy unless the linked runtime reports at least one pending
-approval. A task/chat action means a real execution link exists; **Start related
-chat** is a separate supporting action that creates a new draft.
+through the same assignment status. Projects says **Review task** or **Review in
+chat** and uses neutral review copy unless the linked runtime reports at least
+one pending approval. A task/chat action means a real execution link exists;
+**Start related chat** is a separate supporting action that creates a new draft.
 
 Pending approvals, errors, missing runtime links, and missing prepared External
 Agent chats stay visible. Open **Execution details** for task/run/chat IDs,

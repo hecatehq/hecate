@@ -215,6 +215,56 @@ describe("ProjectTimelinePanel", () => {
     expect(handlers.onSelectWorkItem).toHaveBeenCalledWith("work_1");
   });
 
+  it("reopens a canonical linked chat without requiring a model", async () => {
+    const onOpenChat = vi.fn();
+    const linkedAssignment = assignment({
+      driver_kind: "external_agent",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_external",
+        status: "running",
+      },
+      execution: undefined,
+    });
+    const linkedActivity = activityItem();
+    linkedActivity.assignment = linkedAssignment;
+    linkedActivity.linked_task_id = undefined;
+    linkedActivity.linked_run_id = undefined;
+    linkedActivity.linked_chat_id = "chat_external";
+
+    render(
+      <ProjectTimelinePanel
+        activity={{
+          ...activity(),
+          buckets: { active: [linkedActivity], blocked: [], completed: [], recent: [] },
+          recent: [],
+        }}
+        artifacts={[]}
+        handoffs={[]}
+        memoryCandidates={[]}
+        memoryEntries={[]}
+        onEditMemory={vi.fn()}
+        onOpenChat={onOpenChat}
+        onSelectWorkItem={vi.fn()}
+        project={project({ default_provider: undefined, default_model: undefined })}
+        roles={[role({ default_provider: undefined, default_model: undefined })]}
+        workItems={[workItem()]}
+      />,
+    );
+
+    const button = screen.getByRole("button", {
+      name: "Open timeline chat for Extract timeline",
+    });
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("title", "Open linked chat");
+    await userEvent.click(button);
+
+    expect(onOpenChat).toHaveBeenCalledWith({
+      projectID: "proj_1",
+      chatSessionID: "chat_external",
+    });
+  });
+
   it("renders empty guidance when no project story exists", () => {
     render(
       <ProjectTimelinePanel

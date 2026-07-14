@@ -4906,16 +4906,12 @@ describe("ProjectsView cockpit", () => {
     const detail = await screen.findByRole("region", {
       name: "Selected work item",
     });
-    await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
+    await userEvent.click(within(detail).getByRole("button", { name: "Continue in chat" }));
 
-    expect(onOpenChat).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectID: project.id,
-        chatSessionID: "chat_external_1",
-        draft: expect.stringContaining("Launch context"),
-      }),
-    );
-    expect(onOpenChat.mock.calls[0]?.[0].draft).toContain("- Driver: external_agent");
+    expect(onOpenChat).toHaveBeenCalledWith({
+      projectID: project.id,
+      chatSessionID: "chat_external_1",
+    });
   });
 
   it("does not treat an activity-only chat as selected execution", async () => {
@@ -5111,7 +5107,9 @@ describe("ProjectsView cockpit", () => {
     const detail = await screen.findByRole("region", {
       name: "Selected work item",
     });
-    expect(within(detail).getByText("External Agent is running.")).toBeTruthy();
+    expect(
+      within(detail).getByText("Chat is prepared; no agent response is recorded yet."),
+    ).toBeTruthy();
     expect(within(detail).queryByText("chat completed")).toBeNull();
     expect(within(detail).queryByText(/linked chat · running/)).toBeNull();
 

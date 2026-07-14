@@ -8,6 +8,17 @@ export type ProjectAssignmentExecutionKind =
   | "none"
   | string;
 
+export type ProjectExternalAgentPhase =
+  | "queued"
+  | "prepared"
+  | "working"
+  | "needs_review"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "unlinked"
+  | "unknown";
+
 export type ProjectAssignmentExecutionViewModel = {
   kind: ProjectAssignmentExecutionKind;
   taskID: string;
@@ -23,6 +34,7 @@ export type ProjectAssignmentExecutionViewModel = {
   hasChatSession: boolean;
   hasContextSnapshot: boolean;
   hasAnyLink: boolean;
+  externalAgentPhase: ProjectExternalAgentPhase | null;
 };
 
 export type ProjectActivityItemViewModel = {
@@ -67,6 +79,7 @@ export function toProjectAssignmentExecutionViewModel(
   const kind = ref?.kind || "none";
   const pendingApprovalCount = ref?.pending_approval_count ?? 0;
   const missing = ref?.missing ?? false;
+  const status = firstNonEmpty(ref?.status, assignment.status);
   return {
     kind,
     taskID,
@@ -74,7 +87,7 @@ export function toProjectAssignmentExecutionViewModel(
     chatSessionID,
     messageID,
     contextSnapshotID,
-    status: firstNonEmpty(ref?.status, assignment.status),
+    status,
     pendingApprovalCount,
     traceID: firstNonEmpty(ref?.trace_id),
     missing,
@@ -82,7 +95,35 @@ export function toProjectAssignmentExecutionViewModel(
     hasChatSession: Boolean(chatSessionID || messageID),
     hasContextSnapshot: Boolean(contextSnapshotID),
     hasAnyLink: Boolean(taskID || runID || chatSessionID || messageID || contextSnapshotID),
+    externalAgentPhase:
+      assignment.driver_kind === "external_agent"
+        ? projectExternalAgentPhase(status, chatSessionID, messageID)
+        : null,
   };
+}
+
+function projectExternalAgentPhase(
+  status: string,
+  chatSessionID: string,
+  messageID: string,
+): ProjectExternalAgentPhase {
+  if (status !== "queued" && !chatSessionID) return "unlinked";
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "awaiting_approval":
+      return "needs_review";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    case "running":
+      return messageID ? "working" : "prepared";
+    default:
+      return "unknown";
+  }
 }
 
 export function toProjectActivityAssignmentExecutionViewModel(

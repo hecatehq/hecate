@@ -1,5 +1,11 @@
 import type { Page, Route } from "@playwright/test";
-import { expect, mockGatewayAPIs, MOCK_SETTINGS_CONFIG_WITH_PROVIDERS, test } from "./fixtures";
+import {
+  expect,
+  mockGatewayAPIs,
+  MOCK_AGENT_ADAPTERS,
+  MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
+  test,
+} from "./fixtures";
 import type {
   ProjectActivityData,
   ProjectAssignmentLaunchReadinessRecord,
@@ -863,6 +869,399 @@ test("Projects selected-work kickoff: add responsibility and assign rootless Hum
   expect(state.assignments[0]?.driver_kind).toBe("manual");
   expect(state.assignments[0]?.status).toBe("completed");
   expect(state.assignments[0]?.execution_ref).toBeUndefined();
+});
+
+test("Projects External Agent continuity: prepare chat, preserve the draft, and return to exact work", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date(NOW));
+  const state = await mockProjectJourneyAPIs(page);
+  const projectID = "proj_external";
+  const workItemID = "work_external";
+  const assignmentID = "assign_external";
+  const chatSessionID = "chat_external_assignment";
+  const contextSnapshotID = "ctx_external_assignment";
+  const assistantMessageID = "msg_external_assistant";
+  const messageAt = "2026-06-14T10:12:00Z";
+  const workURL = `/projects?project=${projectID}&view=work&work=${workItemID}`;
+
+  state.projects = [
+    {
+      id: projectID,
+      name: "External release coordination",
+      description: "Keep an operator-supervised agent assignment connected to its exact work.",
+      roots: [
+        {
+          id: "root_external",
+          path: "/tmp/hecate-e2e-project",
+          kind: "local",
+          git_branch: "main",
+          active: true,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+      ],
+      context_sources: [],
+      default_root_id: "root_external",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.roles = [
+    {
+      id: "role_external",
+      project_id: projectID,
+      name: "Implementation agent",
+      description: "Prepare the release change in a supervised chat.",
+      default_driver_kind: "external_agent",
+      default_agent_profile: "codex",
+      skill_ids: [],
+      built_in: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.workItems = [
+    {
+      id: workItemID,
+      project_id: projectID,
+      title: "Prepare external release notes",
+      brief: "Draft a concise release note and leave the result ready for operator review.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "role_external",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.assignments = [
+    {
+      id: assignmentID,
+      project_id: projectID,
+      work_item_id: workItemID,
+      role_id: "role_external",
+      root_id: "root_external",
+      driver_kind: "external_agent",
+      status: "queued",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+
+  const codexAdapter = MOCK_AGENT_ADAPTERS.find((adapter) => adapter.id === "codex");
+  await page.route("/hecate/v1/agent-adapters*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: codexAdapter
+          ? [{ ...codexAdapter, available: true, status: "available", error: "" }]
+          : [],
+      }),
+    });
+  });
+  await page.route(/\/hecate\/v1\/agent-adapters\/codex\/probe$/, async (route) => {
+    if (!codexAdapter) {
+      throw new Error("Expected the Codex adapter fixture");
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapter_probe",
+        data: {
+          adapter: {
+            ...codexAdapter,
+            available: true,
+            status: "available",
+            auth_status: "ok",
+            error: "",
+          },
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            path: "/usr/local/bin/codex-acp-adapter",
+            duration_ms: 12,
+          },
+        },
+      }),
+    });
+  });
+
+  let chatStatus = "idle";
+  let chatMessages: Array<Record<string, unknown>> = [];
+  const chatSession = () => ({
+    id: chatSessionID,
+    title: "External assignment continuity",
+    project_id: projectID,
+    agent_id: "codex",
+    agent_name: "Codex",
+    driver_kind: "acp",
+    native_session_id: "native_external_assignment",
+    workspace: "/tmp/hecate-e2e-project",
+    workspace_branch: "main",
+    status: chatStatus,
+    message_count: chatMessages.length,
+    created_at: NOW,
+    updated_at: chatMessages.length > 0 ? messageAt : NOW,
+    config_options: [],
+    segments:
+      chatMessages.length > 0
+        ? [
+            {
+              id: "segment_external_assignment",
+              execution_mode: "external_agent",
+              workspace: "/tmp/hecate-e2e-project",
+              status: "running",
+              message_count: 2,
+              started_at: messageAt,
+              updated_at: messageAt,
+            },
+          ]
+        : [],
+    messages: chatMessages,
+  });
+  const chatSummary = () => {
+    const {
+      config_options: _configOptions,
+      messages: _messages,
+      segments: _segments,
+      ...summary
+    } = chatSession();
+    return summary;
+  };
+
+  await page.route(/\/hecate\/v1\/chat\/sessions(?:\/.*)?(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const suffix = url.pathname.replace("/hecate/v1/chat/sessions", "").replace(/^\/+/, "");
+    const parts = suffix ? suffix.split("/").map(decodeURIComponent) : [];
+    const sessionID = parts[0] || "";
+
+    if (!sessionID && request.method() === "GET") {
+      const prepared = state.assignments.some(
+        (assignment) => assignment.execution_ref?.chat_session_id === chatSessionID,
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_sessions", data: prepared ? [chatSummary()] : [] }),
+      });
+      return;
+    }
+    if (sessionID !== chatSessionID) {
+      await route.fallback();
+      return;
+    }
+    if (parts[1] === "stream") {
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+      return;
+    }
+    if (parts[1] === "approvals" && request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_approvals", data: [] }),
+      });
+      return;
+    }
+    if (parts.length === 1 && request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_session", data: chatSession() }),
+      });
+      return;
+    }
+    if (parts[1] === "messages" && parts.length === 2 && request.method() === "POST") {
+      const body = JSON.parse(request.postData() || "{}") as {
+        content?: string;
+        execution_mode?: string;
+      };
+      chatMessages = [
+        {
+          id: "msg_external_user",
+          execution_mode: "external_agent",
+          segment_id: "segment_external_assignment",
+          role: "user",
+          content: body.content || "",
+          workspace: "/tmp/hecate-e2e-project",
+          created_at: messageAt,
+        },
+        {
+          id: assistantMessageID,
+          execution_mode: "external_agent",
+          segment_id: "segment_external_assignment",
+          role: "assistant",
+          content: "I’m drafting the release notes now.",
+          status: "running",
+          agent_id: "codex",
+          agent_name: "Codex",
+          driver_kind: "acp",
+          native_session_id: "native_external_assignment",
+          workspace: "/tmp/hecate-e2e-project",
+          request_id: "req_external_assignment",
+          trace_id: "trace_external_assignment",
+          cost_mode: "external",
+          raw_output:
+            '{"type":"agent_message_chunk","text":"I’m drafting the release notes now."}\n{"type":"session_update","status":"running"}',
+          activities: [
+            {
+              id: "thinking_external_assignment",
+              type: "thinking",
+              title: "Drafting release notes",
+              status: "running",
+              created_at: messageAt,
+            },
+          ],
+          created_at: messageAt,
+        },
+      ];
+      chatStatus = "running";
+      const canonicalAssignment = state.assignments.find(
+        (assignment) => assignment.id === assignmentID,
+      );
+      if (!canonicalAssignment?.execution_ref) {
+        throw new Error("Expected the prepared External Agent assignment before sending");
+      }
+      canonicalAssignment.execution_ref = {
+        ...canonicalAssignment.execution_ref,
+        message_id: assistantMessageID,
+        trace_id: "trace_external_assignment",
+        status: "running",
+      };
+      canonicalAssignment.updated_at = messageAt;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_session", data: chatSession() }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.addInitScript(
+    ({ projectID: seededProjectID }) => {
+      window.localStorage.setItem("hecate.workspace", "projects");
+      window.localStorage.setItem("hecate.project", seededProjectID);
+    },
+    { projectID },
+  );
+
+  await page.goto(workURL);
+  await page.waitForSelector(".hecate-activitybar");
+  const detail = page.getByRole("region", { name: "Selected work item" });
+  await expect(
+    detail.getByRole("heading", { name: "Prepare external release notes" }),
+  ).toBeVisible();
+  const queuedStory = page.getByRole("article", {
+    name: "Implementation agent assignment execution assign_external",
+  });
+  await expect(queuedStory.getByRole("button", { name: "Review & prepare chat" })).toBeVisible();
+
+  await queuedStory.getByRole("button", { name: "Review & prepare chat" }).click();
+  const preflight = page.getByRole("dialog", { name: /launch details/i });
+  const launchPosture = preflight.getByRole("region", { name: "Resolved launch posture" });
+  await expect(launchPosture.getByTitle("External Agent")).toBeVisible();
+  await expect(launchPosture.getByTitle("Codex (codex)")).toBeVisible();
+  const startRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        `/hecate/v1/projects/${projectID}/work-items/${workItemID}/assignments/${assignmentID}/start`
+    );
+  });
+  await preflight.getByRole("button", { name: "Prepare chat" }).click();
+  const startRequest = await startRequestPromise;
+  expect(startRequest.postDataJSON()).toEqual({ driver_kind: "external_agent" });
+
+  await expect(page).toHaveURL(/\/chats$/);
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect(composer).toHaveValue(/Launch context/);
+  const seededDraft = await composer.inputValue();
+  const editedDraft = `${seededDraft}\n\nOperator note: preserve this edited draft across the handoff.`;
+  await composer.fill(editedDraft);
+
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
+  const preparedStory = page.getByRole("article", {
+    name: "Implementation agent assignment execution assign_external",
+  });
+  await expect(preparedStory.getByText("Chat ready", { exact: true })).toBeVisible();
+  await expect(
+    preparedStory.getByText("Chat is prepared; no agent response is recorded yet."),
+  ).toBeVisible();
+  await expect(preparedStory.getByRole("button", { name: "Continue in chat" })).toBeVisible();
+  await expect(page.locator(".toast--error")).toHaveCount(0);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await preparedStory.scrollIntoViewIfNeeded();
+  if (process.env.HECATE_CAPTURE_PROJECTS_EXTERNAL === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-external-assignment.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await preparedStory.scrollIntoViewIfNeeded();
+  expect(
+    await preparedStory.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
+  if (process.env.HECATE_CAPTURE_PROJECTS_EXTERNAL === "1") {
+    await page.screenshot({
+      path: "../docs/screenshots/projects-external-assignment-narrow.jpg",
+      type: "jpeg",
+      quality: 90,
+    });
+  }
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await preparedStory.getByRole("button", { name: "Continue in chat" }).click();
+  await expect(page).toHaveURL(/\/chats$/);
+  await expect(composer).toHaveValue(editedDraft);
+
+  const messageRequestPromise = page.waitForRequest((request) => {
+    return (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === `/hecate/v1/chat/sessions/${chatSessionID}/messages`
+    );
+  });
+  await page.getByRole("button", { name: "Send message" }).click();
+  const messageRequest = await messageRequestPromise;
+  expect(messageRequest.postDataJSON()).toEqual(
+    expect.objectContaining({ content: editedDraft, execution_mode: "external_agent" }),
+  );
+  await expect(
+    page.getByText("I’m drafting the release notes now.", { exact: true }),
+  ).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
+  const activeStory = page.getByRole("article", {
+    name: "Implementation agent assignment execution assign_external",
+  });
+  await expect(
+    activeStory.getByText("External Agent work is continuing in the linked chat."),
+  ).toBeVisible();
+  await expect(activeStory.getByRole("button", { name: "Open chat" })).toBeVisible();
+  await expect(activeStory.getByRole("button", { name: "Continue in chat" })).toHaveCount(0);
+  expect(state.assignments[0]?.execution_ref).toEqual(
+    expect.objectContaining({
+      chat_session_id: chatSessionID,
+      context_snapshot_id: contextSnapshotID,
+      message_id: assistantMessageID,
+    }),
+  );
 });
 
 test("Projects follow-through journey: review, handoff, evidence, and durable closeout", async ({
@@ -2594,7 +2993,7 @@ async function handleWorkItemRoute(
       await route.fulfill(
         ok({
           object: "project_assignment_launch_readiness",
-          data: assignmentLaunchReadiness(projectID, workItemID, assignmentID),
+          data: assignmentLaunchReadiness(projectID, workItemID, assignment),
         }),
       );
       return;
@@ -2603,7 +3002,7 @@ async function handleWorkItemRoute(
       await route.fulfill(
         ok({
           object: "context_packet",
-          data: assignmentPreflight(projectID, workItemID, assignmentID),
+          data: assignmentPreflight(projectID, workItemID, assignment),
         }),
       );
       return;
@@ -2615,6 +3014,22 @@ async function handleWorkItemRoute(
           status: "running",
           started_at: NOW,
           updated_at: NOW,
+          execution: undefined,
+        });
+        await route.fulfill(ok({ object: "project_assignment", data: assignment }));
+        return;
+      }
+      if (assignment.driver_kind === "external_agent") {
+        Object.assign(assignment, {
+          status: "running",
+          started_at: NOW,
+          updated_at: NOW,
+          execution_ref: {
+            kind: "chat_session",
+            chat_session_id: "chat_external_assignment",
+            context_snapshot_id: "ctx_external_assignment",
+            status: "running",
+          },
           execution: undefined,
         });
         await route.fulfill(ok({ object: "project_assignment", data: assignment }));
@@ -2912,13 +3327,20 @@ function projectAssistantContext(state: ProjectJourneyState) {
   };
 }
 
-function assignmentPreflight(projectID: string, workItemID: string, assignmentID: string) {
+function assignmentPreflight(
+  projectID: string,
+  workItemID: string,
+  assignment: ProjectAssignmentRecord,
+) {
+  const external = assignment.driver_kind === "external_agent";
   return {
     id: "ctx_launch",
     version: "project_assignment_launch.v1",
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
-    refs: { project_id: projectID, work_item_id: workItemID, assignment_id: assignmentID },
+    execution_mode: external ? "external_agent" : "hecate_task",
+    provider: external ? "" : "anthropic",
+    model: external ? "" : "claude-sonnet-4-6",
+    workspace: "/tmp/hecate-e2e-project",
+    refs: { project_id: projectID, work_item_id: workItemID, assignment_id: assignment.id },
     items: [
       {
         section: "runtime_evidence",
@@ -2926,7 +3348,9 @@ function assignmentPreflight(projectID: string, workItemID: string, assignmentID
         trust_level: "system",
         origin: "hecate",
         title: "Launch readiness",
-        body: "Provider: anthropic\nModel: claude-sonnet-4-6\nReady: true",
+        body: external
+          ? "Driver: External Agent\nAgent: Codex\nChat session: created when the assignment is prepared\nReady: true"
+          : "Provider: anthropic\nModel: claude-sonnet-4-6\nReady: true",
         included: true,
       },
     ],
@@ -2936,12 +3360,13 @@ function assignmentPreflight(projectID: string, workItemID: string, assignmentID
 function assignmentLaunchReadiness(
   projectID: string,
   workItemID: string,
-  assignmentID: string,
+  assignment: ProjectAssignmentRecord,
 ): ProjectAssignmentLaunchReadinessRecord {
+  const external = assignment.driver_kind === "external_agent";
   return {
     project_id: projectID,
     work_item_id: workItemID,
-    assignment_id: assignmentID,
+    assignment_id: assignment.id,
     generated_at: NOW,
     ready: true,
     status: "ready",
@@ -2949,10 +3374,18 @@ function assignmentLaunchReadiness(
     detail: "Assignment can start after operator confirmation.",
     blockers: [],
     warnings: [],
-    driver_kind: "hecate_task",
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
-    execution_profile: "project_assignment",
+    driver_kind: external ? "external_agent" : "hecate_task",
+    provider: external ? "" : "anthropic",
+    model: external ? "" : "claude-sonnet-4-6",
+    execution_profile: external ? "external_agent_assignment" : "project_assignment",
+    ...(external
+      ? {
+          external_agent_id: "codex",
+          external_agent: "Codex",
+          session_title: "External assignment continuity",
+          workspace: "/tmp/hecate-e2e-project",
+        }
+      : {}),
   };
 }
 
@@ -3085,6 +3518,24 @@ function projectActivity(state: ProjectJourneyState): ProjectActivityData {
       status_summary: completed ? "completed" : status || "unknown",
       linked_task_id: assignment.execution_ref?.task_id,
       linked_run_id: assignment.execution_ref?.run_id,
+      linked_chat_id: assignment.execution_ref?.chat_session_id,
+      linked_message_id: assignment.execution_ref?.message_id,
+      ...(assignment.execution_ref?.chat_session_id
+        ? {
+            linked_chat: {
+              id: assignment.execution_ref.chat_session_id,
+              title: "External assignment continuity",
+              agent_id: "codex",
+              agent_title: "Codex",
+              status,
+              latest_message_id: assignment.execution_ref.message_id,
+              latest_role: assignment.execution_ref.message_id ? "assistant" : undefined,
+              latest_status: assignment.execution_ref.message_id ? status : undefined,
+              message_count: assignment.execution_ref.message_id ? 2 : 0,
+              updated_at: assignment.updated_at,
+            },
+          }
+        : {}),
       artifact_summary: {
         count: artifacts.length,
         latest_kind: artifacts[0]?.kind,

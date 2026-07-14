@@ -368,6 +368,16 @@ The Projects UI should stay lightweight but operational:
   persisted packet sections the agent actually saw. Activity remains a separate
   inbox projection and must not override the selected assignment's current
   execution state, evidence, links, or actions.
+- Present External Agent preparation truthfully inside that existing execution
+  story. A queued assignment remains queued; `chat_session_id` without
+  `message_id` is **Chat ready** with **Continue in chat**; a recorded
+  `message_id` establishes agent-turn continuity and running work uses **Open
+  chat**. Authoritative review, failure, and cancellation states use **Review in
+  chat** or **Inspect chat**. Preparing the session must not send the prompt.
+  Seed the editable launch draft once after a successful prepare, then reopen
+  the linked session without replacing unsent composer edits. These are
+  presentation rules over Cairnline assignment state and Hecate execution
+  references, not a second project lifecycle.
 - Present assignment destinations in product language: **Human**, **Hecate
   Task**, and **External Agent**. Human maps to Cairnline `manual`; it starts
   and completes through Cairnline assignment transitions without creating a
@@ -535,6 +545,9 @@ Cairnline coordination state. The current flow supports:
   direct Human progress and launch preflight for execution-backed destinations;
 - state-driven assignment execution stories with truthful recorded milestones
   and progressively disclosed runtime evidence;
+- supervised External Agent continuity from queued assignment to prepared chat
+  to recorded agent turn, with one-time draft seeding and state-specific chat
+  actions;
 - a selected-work follow-through rail that preserves server priority and
   focuses the exact assignment, review, handoff, or closeout target;
 - direct selected-work kickoff with responsibility quick-create, optional
@@ -621,6 +634,10 @@ Out of scope for this document and Projects V1:
   an assignment, explicitly creates a rootless Human assignment, returns focus
   to **Assign work** and then the exact assignment story, and verifies the
   idle/attention Assistant disclosure at desktop and 390px widths.
+  External Agent continuity coverage prepares a linked chat without sending a
+  prompt, verifies the editable draft is seeded once, records the first agent
+  turn, returns to the exact work item, and checks the resulting chat action at
+  desktop and 390px widths.
   URL coverage opens a non-first work item directly, reloads it, traverses
   workspace/tab history, repeats at 390px, and proves that missing project/work
   identifiers do not load an unrelated record.

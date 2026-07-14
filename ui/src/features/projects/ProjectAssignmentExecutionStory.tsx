@@ -12,6 +12,7 @@ import {
   toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
   type ProjectAssignmentEvidenceViewModel,
+  type ProjectExternalAgentPhase,
 } from "./projectAssignmentViewModels";
 import { assignmentStatusLabel, projectRootDisplayLabel, projectRootTitle } from "./projectDisplay";
 
@@ -97,6 +98,7 @@ export function ProjectAssignmentExecutionStory({
   const status = execution.status || assignment.status;
   const destination = projectAssignmentDestinationLabel(assignment.driver_kind);
   const external = assignment.driver_kind === "external_agent";
+  const externalPrepared = execution.externalAgentPhase === "prepared";
   const manual = assignment.driver_kind === "manual";
   const manualMissingStart = Boolean(
     manual && status === "running" && !assignment.started_at && !assignment.execution?.started_at,
@@ -118,6 +120,7 @@ export function ProjectAssignmentExecutionStory({
     canOpenTask,
     execution,
     external,
+    externalAgentPhase: execution.externalAgentPhase,
     manual,
     manualStartClaimBlocked,
     manualStartInterrupted,
@@ -141,7 +144,13 @@ export function ProjectAssignmentExecutionStory({
         manualStartInterrupted,
         manualStartClaimBlocked,
       )
-    : projectAssignmentStatusSummary(assignment, destination, execution.pendingApprovalCount);
+    : external
+      ? projectExternalAgentStatusSummary(
+          assignment,
+          execution.externalAgentPhase,
+          execution.pendingApprovalCount,
+        )
+      : projectAssignmentStatusSummary(assignment, destination, execution.pendingApprovalCount);
   const primaryKey = primaryAction?.key;
   const followThroughActions: ProjectAssignmentFollowThroughAction[] = [];
   const canFollowThrough = manual || execution.hasAnyLink;
@@ -204,7 +213,9 @@ export function ProjectAssignmentExecutionStory({
                     : manualStartInterrupted
                       ? "Starting"
                       : projectManualAssignmentStateLabel(status)
-                  : projectAssignmentStateLabel(status, execution.pendingApprovalCount)
+                  : externalPrepared
+                    ? "Chat ready"
+                    : projectAssignmentStateLabel(status, execution.pendingApprovalCount)
               }
             />
             <span className="badge badge-muted">{destination}</span>
@@ -406,6 +417,8 @@ export function projectAssignmentExecutionMilestones(
   const execution = toProjectAssignmentExecutionViewModel(assignment);
   const status = execution.status || assignment.status;
   const manual = assignment.driver_kind === "manual";
+  const external = assignment.driver_kind === "external_agent";
+  const externalPrepared = execution.externalAgentPhase === "prepared";
   const startedAt = assignment.execution?.started_at || assignment.started_at;
   const finishedAt = assignment.execution?.finished_at || assignment.completed_at;
   const manualMissingStart = Boolean(manual && status === "running" && !startedAt);
@@ -429,12 +442,17 @@ export function projectAssignmentExecutionMilestones(
   if (startedAt) {
     milestones.push({
       at: startedAt,
-      current: false,
-      detail: manual ? "Work began." : "Execution began.",
+      current: externalPrepared,
+      detail: manual
+        ? "Work began."
+        : external
+          ? "The supervised chat became ready."
+          : "Execution began.",
       key: "started",
-      label: "Started",
+      label: external ? "Chat prepared" : "Started",
     });
   }
+  if (externalPrepared) return milestones;
   if (terminal && finishedAt) {
     milestones.push({
       at: finishedAt,
@@ -454,7 +472,12 @@ export function projectAssignmentExecutionMilestones(
           : manualStartInterrupted
             ? "The start claim was saved, but work did not begin. Finish starting to recover."
             : projectManualAssignmentCurrentMilestoneDetail(status, execution.pendingApprovalCount)
-        : projectAssignmentCurrentMilestoneDetail(status, execution.pendingApprovalCount),
+        : external
+          ? projectExternalAgentCurrentMilestoneDetail(
+              execution.externalAgentPhase,
+              execution.pendingApprovalCount,
+            )
+          : projectAssignmentCurrentMilestoneDetail(status, execution.pendingApprovalCount),
       key: "current",
       label: manual
         ? manualStartClaimBlocked
@@ -462,7 +485,13 @@ export function projectAssignmentExecutionMilestones(
           : manualStartInterrupted
             ? "Starting"
             : projectManualAssignmentStateLabel(status)
-        : projectAssignmentStateLabel(status, execution.pendingApprovalCount),
+        : external
+          ? projectExternalAgentCurrentMilestoneLabel(
+              execution.externalAgentPhase,
+              execution.pendingApprovalCount,
+              status,
+            )
+          : projectAssignmentStateLabel(status, execution.pendingApprovalCount),
     });
   }
   return milestones;
@@ -474,6 +503,7 @@ function projectAssignmentPrimaryAction({
   canOpenTask,
   execution,
   external,
+  externalAgentPhase,
   manual,
   manualStartClaimBlocked,
   manualStartInterrupted,
@@ -495,6 +525,7 @@ function projectAssignmentPrimaryAction({
   canOpenTask: boolean;
   execution: ReturnType<typeof toProjectAssignmentExecutionViewModel>;
   external: boolean;
+  externalAgentPhase: ProjectExternalAgentPhase | null;
   manual: boolean;
   manualStartClaimBlocked: boolean;
   manualStartInterrupted: boolean;
@@ -595,10 +626,18 @@ function projectAssignmentPrimaryAction({
     }
   }
   if (external && canOpenChat && onOpenChat) {
+    const label =
+      externalAgentPhase === "prepared"
+        ? "Continue in chat"
+        : externalAgentPhase === "needs_review"
+          ? "Review in chat"
+          : externalAgentPhase === "failed" || externalAgentPhase === "cancelled"
+            ? "Inspect chat"
+            : "Open chat";
     return {
       icon: Icons.chat,
       key: "open-chat",
-      label: status === "failed" || status === "cancelled" ? "Inspect chat" : "Open chat",
+      label,
       onClick: onOpenChat,
     };
   }
@@ -653,6 +692,35 @@ function projectAssignmentStatusSummary(
       return "Execution completed. Review the outcome and choose the follow-through.";
     default:
       return `Current state: ${assignmentStatusLabel(status)}.`;
+  }
+}
+
+function projectExternalAgentStatusSummary(
+  assignment: ProjectAssignmentRecord,
+  phase: ProjectExternalAgentPhase | null,
+  pendingApprovalCount: number,
+): string {
+  switch (phase) {
+    case "queued":
+      return "Review launch context before preparing this External Agent chat.";
+    case "prepared":
+      return "Chat is prepared; no agent response is recorded yet.";
+    case "working":
+      return "External Agent work is continuing in the linked chat.";
+    case "needs_review":
+      return pendingApprovalCount > 0
+        ? `${pendingApprovalCount} approval${pendingApprovalCount === 1 ? "" : "s"} ${pendingApprovalCount === 1 ? "needs" : "need"} operator review in the linked chat.`
+        : "External Agent work needs operator review in the linked chat.";
+    case "failed":
+      return "External Agent work failed. Inspect the linked chat.";
+    case "cancelled":
+      return "External Agent work was cancelled. Inspect the linked chat.";
+    case "completed":
+      return "External Agent work completed. Review the outcome and choose the follow-through.";
+    case "unlinked":
+      return "No linked External Agent chat is available for this assignment.";
+    default:
+      return projectAssignmentStatusSummary(assignment, "External Agent", pendingApprovalCount);
   }
 }
 
@@ -757,6 +825,49 @@ function projectAssignmentCurrentMilestoneDetail(
       return "Execution is currently marked complete; no finish time was recorded.";
     default:
       return `Current assignment state: ${assignmentStatusLabel(status)}.`;
+  }
+}
+
+function projectExternalAgentCurrentMilestoneDetail(
+  phase: ProjectExternalAgentPhase | null,
+  pendingApprovalCount: number,
+): string {
+  switch (phase) {
+    case "prepared":
+      return "The supervised chat is ready for the first prompt.";
+    case "working":
+      return "The External Agent is working in the linked chat.";
+    case "needs_review":
+      return pendingApprovalCount > 0
+        ? "The linked chat is paused for operator approval."
+        : "The linked chat is waiting for operator review.";
+    case "failed":
+      return "External Agent work is currently failed; no finish time was recorded.";
+    case "cancelled":
+      return "External Agent work is currently cancelled; no finish time was recorded.";
+    case "completed":
+      return "External Agent work is currently complete; no finish time was recorded.";
+    case "unlinked":
+      return "No linked External Agent chat is available.";
+    default:
+      return "External Agent execution state is unavailable.";
+  }
+}
+
+function projectExternalAgentCurrentMilestoneLabel(
+  phase: ProjectExternalAgentPhase | null,
+  pendingApprovalCount: number,
+  status: string,
+): string {
+  switch (phase) {
+    case "prepared":
+      return "Chat prepared";
+    case "working":
+      return "Agent working";
+    case "needs_review":
+      return pendingApprovalCount > 0 ? "Approval" : "Review";
+    default:
+      return projectAssignmentStateLabel(status, pendingApprovalCount);
   }
 }
 

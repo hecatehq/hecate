@@ -603,10 +603,6 @@ export function ProjectWorkItemDetail({
                               const linkedChatRequest = {
                                 projectID: project.id,
                                 chatSessionID: executionRef.chatSessionID,
-                                ...(assignment.driver_kind === "external_agent" &&
-                                !executionRef.messageID
-                                  ? chatRequest
-                                  : {}),
                               };
                               onOpenChat?.(
                                 executionRef.chatSessionID ? linkedChatRequest : chatRequest,
