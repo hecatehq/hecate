@@ -249,7 +249,7 @@ async function openProjectWorkspaceTab(name: RegExp | string) {
 
 async function openProjectAttentionMenu() {
   await userEvent.click(await screen.findByRole("button", { name: /Project attention/ }));
-  return screen.getByRole("menu", { name: "Project attention" });
+  return screen.getByRole("dialog", { name: "Needs Attention" });
 }
 
 function returnProjectsToForeground() {
@@ -2090,10 +2090,10 @@ describe("ProjectsView index", () => {
     expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
 
     await openProjectAttentionMenu();
-    expect(screen.getByRole("menu", { name: "Project attention" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Needs Attention" })).toBeTruthy();
     fireEvent.mouseDown(workPanel);
     await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: "Project attention" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Needs Attention" })).toBeNull();
     });
   });
 
@@ -7106,6 +7106,10 @@ describe("ProjectsView cockpit", () => {
       recent: [],
     };
     const sourceHandoffItem = handoffActivity.buckets.recent[0]!;
+    vi.mocked(getProjectHandoffs).mockResolvedValue({
+      object: "project_handoffs",
+      data: sourceHandoffItem.recent_handoffs ?? [],
+    });
     handoffActivity.buckets.recent.push({
       ...sourceHandoffItem,
       id: "asgn_target",
@@ -7155,6 +7159,8 @@ describe("ProjectsView cockpit", () => {
             status: "awaiting_approval",
             action: projectHealthAction(project.id, "open_work_item", {
               activity_bucket: "recent",
+              assignment_id: hecateAssignment.id,
+              handoff_id: "handoff_pending",
               work_item_id: workItem.id,
             }),
             bucket: "recent",
@@ -7210,7 +7216,22 @@ describe("ProjectsView cockpit", () => {
       }),
     ).toBeNull();
 
-    await user.click(within(health).getByRole("button", { name: "Review memory candidate" }));
+    await user.click(
+      within(health).getByRole("button", {
+        name: "Open attention item Pending handoff: Build cockpit UI",
+      }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute("id", "project-work-handoff-handoff_pending"),
+    );
+
+    await openProjectWorkspaceTab("Overview");
+    const refreshedHealth = await openProjectAttentionMenu();
+    await user.click(
+      within(refreshedHealth).getByRole("button", {
+        name: "Review memory candidate: Memory candidate pending review",
+      }),
+    );
     expect(screen.getByRole("button", { name: "Save to memory" })).toBeTruthy();
   });
 
@@ -7354,7 +7375,7 @@ describe("ProjectsView cockpit", () => {
     const contextAttentionItem = within(health).getByRole("button", {
       name: "Open attention item No project memory or context sources enabled",
     });
-    expect(contextAttentionItem).toHaveClass("project-attention-item");
+    expect(contextAttentionItem.closest("li")).toHaveClass("project-attention-item");
 
     await userEvent.click(contextAttentionItem);
     expect(screen.getByRole("tab", { name: /Memory/ })).toHaveAttribute("aria-selected", "true");
@@ -7557,7 +7578,11 @@ describe("ProjectsView cockpit", () => {
     expect(within(health).getByText(/Stale or unknown assignment: Build cockpit UI/i)).toBeTruthy();
     expect(within(health).getByText(/linked run missing/i)).toBeTruthy();
 
-    await userEvent.click(within(health).getByRole("button", { name: "View blocked" }));
+    await userEvent.click(
+      within(health).getByRole("button", {
+        name: "View blocked: Stale or unknown assignment: Build cockpit UI",
+      }),
+    );
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /Work/ })).toHaveAttribute("aria-selected", "true");
       expect(screen.getAllByText(/linked runtime record is missing/i).length).toBeGreaterThan(0);

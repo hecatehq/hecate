@@ -2500,6 +2500,13 @@ export function ProjectsView({
     handleProjectActionRoute(routeProjectSetupAction(action, selectedProjectID));
   }
 
+  function handleProjectAttentionAction(route: ProjectActionRoute) {
+    if (route.kind === "open_work_item") {
+      setSelectedWorkItemOperationID("");
+    }
+    handleProjectActionRoute(route);
+  }
+
   function handleProjectActionRoute(route: ProjectActionRoute) {
     switch (route.kind) {
       case "error":
@@ -3510,6 +3517,7 @@ export function ProjectsView({
             setAgentPresetsModalOpen(true);
           }}
           onAttentionReviewCandidate={setPromotingCandidate}
+          onAttentionRoute={handleProjectAttentionAction}
           onAttentionRoles={() => {
             openRolesModal();
           }}
@@ -4231,6 +4239,7 @@ function ProjectHeader({
   onAttentionMemory,
   onAttentionPresets,
   onAttentionReviewCandidate,
+  onAttentionRoute,
   onAttentionRoles,
   onAttentionSkills,
   onAttentionTask,
@@ -4254,6 +4263,7 @@ function ProjectHeader({
   onAttentionMemory: () => void;
   onAttentionPresets: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onAttentionRoute: (route: ProjectActionRoute) => void;
   onAttentionRoles: () => void;
   onAttentionSkills: () => void;
   onAttentionTask?: (taskID: string, runID?: string) => void;
@@ -4268,11 +4278,11 @@ function ProjectHeader({
     ? `${workspace || "No local files attached"}${project.default_model ? ` · ${project.default_model}` : ""}`
     : "";
   return (
-    <div style={projectInlineHeaderStyle}>
+    <div className="project-inline-header" style={projectInlineHeaderStyle}>
       <div style={projectHeaderAvatarStyle} title="Project">
         <Icon d={Icons.folder} size={14} strokeWidth={1.7} />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="project-header-identity" style={{ flex: 1, minWidth: 0 }}>
         <div style={projectHeaderTitleStyle}>{project?.name ?? "No project selected"}</div>
         {subline && (
           <div style={projectHeaderSublineStyle} title={subline}>
@@ -4281,7 +4291,11 @@ function ProjectHeader({
         )}
       </div>
       {project && (
-        <div aria-label="Project header actions" style={projectHeaderActionsStyle}>
+        <div
+          className="project-header-actions"
+          aria-label="Project header actions"
+          style={projectHeaderActionsStyle}
+        >
           <ProjectHealthPanel
             attentionItems={attentionItems}
             disabled={!project}
@@ -4295,6 +4309,7 @@ function ProjectHeader({
             onAttentionMemory={onAttentionMemory}
             onAttentionPresets={onAttentionPresets}
             onAttentionReviewCandidate={onAttentionReviewCandidate}
+            onAttentionRoute={onAttentionRoute}
             onAttentionRoles={onAttentionRoles}
             onAttentionSkills={onAttentionSkills}
             onAttentionTask={onAttentionTask}
@@ -4675,6 +4690,7 @@ const projectHeaderActionsStyle: CSSProperties = {
   display: "flex",
   flexShrink: 0,
   gap: 4,
+  position: "relative",
 };
 
 const projectHeaderActionButtonStyle: CSSProperties = {
