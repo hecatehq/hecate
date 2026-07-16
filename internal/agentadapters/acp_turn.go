@@ -102,8 +102,13 @@ type acpTurn struct {
 	toolKindByCall map[string]acp.ToolKind
 	toolSeen       bool
 	postToolText   bool
-	onOutput       func(string)
-	onActivity     func(Activity)
+	// promptCommandLifecycle tracks only the generic command-bridge wrapper
+	// around a prompt subprocess. A classified missing-native error is safe to
+	// retry only when this exact start/failed-finish pair is the whole ACP
+	// update stream; any provider output or inner tool event invalidates it.
+	promptCommandLifecycle promptCommandLifecycle
+	onOutput               func(string)
+	onActivity             func(Activity)
 	// onTerminalActivity is a durable, turn-owned sink captured by every ACP
 	// terminal created during this turn. Unlike onActivity, it may be invoked
 	// after Run returns when a long-lived terminal finally exits.
@@ -247,6 +252,7 @@ func (t *acpTurn) lookupTerminalOutput(terminalID string) (string, bool) {
 }
 
 func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
+	t.observePromptCommandLifecycle(params)
 	raw, _ := json.Marshal(params)
 	if len(raw) > 0 {
 		t.appendRaw(append(raw, '\n'))
@@ -266,6 +272,81 @@ func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	case update.UsageUpdate != nil:
 		t.recordUsage(update.UsageUpdate)
 	}
+}
+
+type promptCommandLifecycle struct {
+	sessionID  string
+	toolCallID string
+	state      uint8
+	invalid    bool
+}
+
+const (
+	promptCommandLifecycleStarted uint8 = iota + 1
+	promptCommandLifecycleFailed
+)
+
+func (t *acpTurn) observePromptCommandLifecycle(params acp.SessionNotification) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.promptCommandLifecycle.invalid {
+		return
+	}
+	state := &t.promptCommandLifecycle
+	update := params.Update
+	switch state.state {
+	case 0:
+		start := update.ToolCall
+		if strings.TrimSpace(string(params.SessionId)) == "" || start == nil || start.SessionUpdate != "tool_call" ||
+			!strings.HasPrefix(string(start.ToolCallId), "prompt-command-") ||
+			start.Status != acp.ToolCallStatusInProgress || start.Kind != acp.ToolKindExecute {
+			state.invalid = true
+			return
+		}
+		state.sessionID = string(params.SessionId)
+		state.toolCallID = string(start.ToolCallId)
+		state.state = promptCommandLifecycleStarted
+	case promptCommandLifecycleStarted:
+		finish := update.ToolCallUpdate
+		if string(params.SessionId) != state.sessionID || finish == nil || finish.SessionUpdate != "tool_call_update" ||
+			string(finish.ToolCallId) != state.toolCallID || finish.Status == nil ||
+			*finish.Status != acp.ToolCallStatusFailed ||
+			(finish.Kind != nil && *finish.Kind != acp.ToolKindExecute) {
+			state.invalid = true
+			return
+		}
+		state.state = promptCommandLifecycleFailed
+	default:
+		state.invalid = true
+	}
+}
+
+func (t *acpTurn) hasOnlyFailedPromptCommandLifecycle() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return !t.promptCommandLifecycle.invalid &&
+		t.promptCommandLifecycle.state == promptCommandLifecycleFailed &&
+		t.promptCommandLifecycle.sessionID != "" &&
+		t.promptCommandLifecycle.toolCallID != ""
+}
+
+// IsFailedPromptCommandLifecycleRaw recognizes the persisted form of the
+// command bridge's outer prompt-subprocess start/failed-finish pair. It rejects
+// extra records, provider updates, mismatched sessions, and malformed JSON.
+func IsFailedPromptCommandLifecycleRaw(raw string) bool {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	if len(lines) != 2 {
+		return false
+	}
+	turn := &acpTurn{}
+	for _, line := range lines {
+		var notification acp.SessionNotification
+		if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &notification); err != nil {
+			return false
+		}
+		turn.observePromptCommandLifecycle(notification)
+	}
+	return turn.hasOnlyFailedPromptCommandLifecycle()
 }
 
 func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageChunk) {

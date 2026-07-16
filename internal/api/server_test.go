@@ -1822,6 +1822,7 @@ func TestAgentChatStreamDoesNotStartExternalNativeSessionOnSubscribe(t *testing.
 }
 
 func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
+	const recoveryReason = "the native conversation was missing before any successful external-agent turn"
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -1832,7 +1833,12 @@ func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 		output:          "recovered",
 		nativeSessionID: "native_fresh",
 		sessionStarted:  true,
-		sessionRecovery: "could not restore ACP session native_stale: not found",
+		sessionRecovery: recoveryReason,
+		nativeSessionReplacement: &agentadapters.NativeSessionReplacement{
+			PreviousNativeSessionID: "native_stale",
+			NativeSessionID:         "native_fresh",
+			Reason:                  recoveryReason,
+		},
 	})
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
 
@@ -1847,8 +1853,36 @@ func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 		t.Fatalf("native session = %q, want fresh session", updated.Data.NativeSessionID)
 	}
 	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
-	if !agentChatActivitiesContain(assistant.Activities, "recovered") {
-		t.Fatalf("activities = %+v, want recovered activity", assistant.Activities)
+	if !agentChatActivitiesContain(assistant.Activities, "session_recovery") {
+		t.Fatalf("activities = %+v, want session recovery activity", assistant.Activities)
+	}
+	var recoveryActivities int
+	for _, activity := range assistant.Activities {
+		if activity.Type == "recovered" || activity.Type == "session_recovery" {
+			recoveryActivities++
+		}
+	}
+	if recoveryActivities != 1 {
+		t.Fatalf("activities = %+v, want exactly one recovery activity", assistant.Activities)
+	}
+	tracePayload := mustRequestJSON[TraceResponse](client, http.MethodGet, "/hecate/v1/traces?request_id="+assistant.RequestID, "")
+	var replacementEvent *TraceEventRecord
+	for _, span := range tracePayload.Data.Spans {
+		for _, event := range span.Events {
+			if event.Name == telemetry.EventAgentChatSessionReplaced {
+				event := event
+				replacementEvent = &event
+			}
+		}
+	}
+	if replacementEvent == nil {
+		t.Fatalf("trace missing %s event: %#v", telemetry.EventAgentChatSessionReplaced, tracePayload.Data.Spans)
+	}
+	if missing := telemetry.ValidateEventAttrs(replacementEvent.Name, replacementEvent.Attributes); len(missing) != 0 {
+		t.Fatalf("replacement event missing attrs %v: %#v", missing, replacementEvent.Attributes)
+	}
+	if got := replacementEvent.Attributes[telemetry.AttrHecateAgentNativeSessionReplaced]; got != true {
+		t.Fatalf("replacement event attr = %#v, want true", got)
 	}
 }
 
@@ -3138,36 +3172,37 @@ func (s *failingUpdateSessionStore) Delete(ctx context.Context, id string) error
 }
 
 type fakeAgentChatRunner struct {
-	output                 string
-	finalOutput            string
-	chunks                 []string
-	activities             []agentadapters.Activity
-	terminalActivities     [][]agentadapters.Activity
-	delay                  time.Duration
-	waitForCancel          bool
-	nativeSessionID        string
-	sessionStarted         bool
-	sessionResumed         bool
-	sessionRecovery        string
-	agentInfo              *agentcontrols.ImplementationInfo
-	stopReason             string
-	seenPreviousID         string
-	usage                  agentadapters.Usage
-	diffStat               string
-	diff                   string
-	err                    error
-	prepareErr             error
-	setConfigErr           error
-	prepareRequests        []agentadapters.PrepareSessionRequest
-	runRequests            []agentadapters.RunRequest
-	prepareDeadline        time.Time
-	prepareHasDeadline     bool
-	closedSessions         []string
-	deletedSessions        []string
-	closeErr               error
-	configOptions          []agentcontrols.ConfigOption
-	availableCommands      []agentcontrols.Command
-	availableCommandsKnown bool
+	output                   string
+	finalOutput              string
+	chunks                   []string
+	activities               []agentadapters.Activity
+	nativeSessionReplacement *agentadapters.NativeSessionReplacement
+	terminalActivities       [][]agentadapters.Activity
+	delay                    time.Duration
+	waitForCancel            bool
+	nativeSessionID          string
+	sessionStarted           bool
+	sessionResumed           bool
+	sessionRecovery          string
+	agentInfo                *agentcontrols.ImplementationInfo
+	stopReason               string
+	seenPreviousID           string
+	usage                    agentadapters.Usage
+	diffStat                 string
+	diff                     string
+	err                      error
+	prepareErr               error
+	setConfigErr             error
+	prepareRequests          []agentadapters.PrepareSessionRequest
+	runRequests              []agentadapters.RunRequest
+	prepareDeadline          time.Time
+	prepareHasDeadline       bool
+	closedSessions           []string
+	deletedSessions          []string
+	closeErr                 error
+	configOptions            []agentcontrols.ConfigOption
+	availableCommands        []agentcontrols.Command
+	availableCommandsKnown   bool
 	// activitiesAfterCancel are emitted via OnActivity after ctx is
 	// cancelled (waitForCancel only), so they sit in the stream
 	// coalescer when the run returns and exercise the trailing
@@ -3206,6 +3241,14 @@ func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequ
 	r.runRequests = append(r.runRequests, req)
 	r.seenPreviousID = req.PreviousNativeSessionID
 	output := r.output
+	if r.nativeSessionReplacement != nil {
+		if !req.AllowNativeSessionReplacement || req.OnNativeSessionReplaced == nil {
+			return r.result(req, output, started, 1), errors.New("native-session replacement authority missing")
+		}
+		if err := req.OnNativeSessionReplaced(*r.nativeSessionReplacement); err != nil {
+			return r.result(req, output, started, 1), err
+		}
+	}
 	for _, activity := range r.activities {
 		if req.OnActivity != nil {
 			req.OnActivity(activity)

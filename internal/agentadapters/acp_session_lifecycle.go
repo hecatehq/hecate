@@ -208,64 +208,59 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	var configOptions []agentcontrols.ConfigOption
 	var managedConfig map[string]struct{}
 	previousNativeSessionID = strings.TrimSpace(previousNativeSessionID)
-	if previousNativeSessionID != "" && initResp.AgentCapabilities.LoadSession {
-		if sessionLogger != nil {
+	if previousNativeSessionID != "" {
+		if !initResp.AgentCapabilities.LoadSession {
+			if adapter.NativeSessionScope != NativeSessionScopeProcess {
+				terminateProcess(cmd)
+				return nil, false, "", fmt.Errorf("restore ACP session %s: adapter %q does not support session/load", previousNativeSessionID, adapter.ID)
+			}
+			recovery = processScopedSessionRecoveryReason(previousNativeSessionID)
+		}
+		if initResp.AgentCapabilities.LoadSession && sessionLogger != nil {
 			sessionLogger.Info("loading previous ACP session", slog.String("native_session_id", previousNativeSessionID))
 		}
-		loadCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		loaded, loadErr := conn.LoadSession(loadCtx, acp.LoadSessionRequest{
-			SessionId:  acp.SessionId(previousNativeSessionID),
-			Cwd:        workspace,
-			McpServers: acpMCPServers(mcpServers),
-		})
-		if loadErr == nil {
-			nativeID = previousNativeSessionID
-			resumed = true
-			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
-			configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
-			configOptions, loadErr = applySelectedACPModel(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+		if initResp.AgentCapabilities.LoadSession {
+			loadCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			loaded, loadErr := conn.LoadSession(loadCtx, acp.LoadSessionRequest{
+				SessionId:  acp.SessionId(previousNativeSessionID),
+				Cwd:        workspace,
+				McpServers: acpMCPServers(mcpServers),
+			})
 			if loadErr != nil {
-				recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
-				if sessionLogger != nil {
-					sessionLogger.Warn("previous ACP session model selection failed",
-						slog.String("native_session_id", previousNativeSessionID),
-						slog.Any("error", loadErr),
-					)
-				}
-				nativeID = ""
-				resumed = false
-			}
-			if nativeID != "" {
-				configOptions, loadErr = applySelectedACPConfigOptions(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
-				if loadErr != nil {
-					recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
+				cancel()
+				if adapter.NativeSessionScope != NativeSessionScopeProcess {
 					if sessionLogger != nil {
-						sessionLogger.Warn("previous ACP session config selection failed",
+						sessionLogger.Warn("previous ACP session load failed",
 							slog.String("native_session_id", previousNativeSessionID),
 							slog.Any("error", loadErr),
 						)
 					}
-					nativeID = ""
-					resumed = false
+					terminateProcess(cmd)
+					return nil, false, "", fmt.Errorf("restore ACP session %s: %w%s", previousNativeSessionID, loadErr, stderrSuffix(stderr.String()))
+				}
+				recovery = processScopedSessionRecoveryReason(previousNativeSessionID)
+			} else {
+				nativeID = previousNativeSessionID
+				resumed = true
+				configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
+				configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
+				configOptions, loadErr = applySelectedACPModel(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+				if loadErr == nil {
+					configOptions, loadErr = applySelectedACPConfigOptions(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+				}
+				cancel()
+				if loadErr != nil {
+					closeNativeACPSession(ctx, conn, nativeID, sessionLogger)
+					terminateProcess(cmd)
+					return nil, false, "", fmt.Errorf("restore ACP session %s configuration: %w%s", previousNativeSessionID, loadErr, stderrSuffix(stderr.String()))
 				}
 			}
 		}
-		cancel()
-		if loadErr == nil && nativeID != "" {
-			if sessionLogger != nil {
-				sessionLogger.Info("previous ACP session loaded",
-					slog.String("native_session_id", nativeID),
-					slog.Int("config_options", len(configOptions)),
-				)
-			}
-		} else {
-			recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
-			if sessionLogger != nil {
-				sessionLogger.Warn("previous ACP session load failed",
-					slog.String("native_session_id", previousNativeSessionID),
-					slog.Any("error", loadErr),
-				)
-			}
+		if nativeID != "" && sessionLogger != nil {
+			sessionLogger.Info("previous ACP session loaded",
+				slog.String("native_session_id", nativeID),
+				slog.Int("config_options", len(configOptions)),
+			)
 		}
 	}
 	if nativeID == "" {
@@ -329,9 +324,20 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	return session, resumed, recovery, nil
 }
 
+func processScopedSessionRecoveryReason(previousNativeSessionID string) string {
+	return "process-scoped ACP session " + strings.TrimSpace(previousNativeSessionID) + " was unavailable after adapter restart; Hecate persisted a fresh session before prompting"
+}
+
 func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, error) {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
+	return s.runTurnLocked(ctx, req)
+}
+
+// runTurnLocked requires turnMu. SessionManager keeps that lock through the
+// decision to reserve a native-session replacement so a queued Run cannot
+// dispatch against stale native state between the failed turn and the swap.
+func (s *acpSession) runTurnLocked(ctx context.Context, req RunRequest) (RunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return RunResult{}, err
 	}
@@ -453,6 +459,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 	runErr = turn.redactor().redactError(runErr)
 	output, raw, usage := turn.snapshot()
 	result, err := captureACPTurnResultWith(promptCtx, s.captureGitDiff, s.adapter, req, s.nativeID, stopReason, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
+	result.promptCommandFailureLifecycle = turn.hasOnlyFailedPromptCommandLifecycle()
 	result.AgentInfo = s.agentInfoSnapshot()
 	result.ConfigOptions = s.configOptionsSnapshot()
 	result.AvailableCommands, result.AvailableCommandsKnown = s.availableCommandsSnapshot()

@@ -23,6 +23,12 @@ const (
 	minACPPromptAliasFragmentBytes = 8
 )
 
+// IsPrivateACPRawOutputWithheld reports whether raw ACP diagnostics were
+// intentionally replaced because a turn carried private staged file inputs.
+func IsPrivateACPRawOutputWithheld(raw string) bool {
+	return strings.TrimSpace(raw) == strings.TrimSpace(privateACPRawOutputWithheld)
+}
+
 // acpPromptRedactor is an immutable, body-free set of aliases for a turn's
 // private prompt stage. A terminal may retain this object after RunTurn has
 // cleared the staged file bodies, so it must never acquire a reference to the

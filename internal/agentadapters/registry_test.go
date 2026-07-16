@@ -33,6 +33,9 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["codex"]; got.SupportedRange != ">=0.1.0" {
 		t.Fatalf("codex supported range = %q, want current Go adapter stable range", got.SupportedRange)
 	}
+	if got := found["codex"].NativeSessionScope; got != NativeSessionScopeProcess {
+		t.Fatalf("codex native session scope = %q, want process", got)
+	}
 	if got := found["codex"]; !got.SupportsAuthenticate {
 		t.Fatalf("codex supports authenticate = false, want true")
 	}
@@ -55,6 +58,9 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0" {
 		t.Fatalf("claude_code supported range = %q, want current Go adapter stable range", got.SupportedRange)
+	}
+	if got := found["claude_code"].NativeSessionScope; got != NativeSessionScopeDurable {
+		t.Fatalf("claude_code native session scope = %q, want durable", got)
 	}
 	if got := found["claude_code"]; !got.SupportsAuthenticate {
 		t.Fatalf("claude_code supports authenticate = false, want true")
@@ -1347,6 +1353,17 @@ func TestNormalizeErrorTagsClaudeBillingJSONRPC(t *testing.T) {
 	err := errors.New(`{"code":-32603,"message":"Internal error: Credit balance is too low","data":{"errorKind":"billing_error"}}`)
 	got := NormalizeError("Claude Code", err)
 	want := "Claude Code error (billing_error): Credit balance is too low"
+	if got != want {
+		t.Fatalf("NormalizeError = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeErrorExplainsMissingNativeSession(t *testing.T) {
+	t.Parallel()
+
+	err := errors.New(`{"code":-32000,"message":"prompt command failed","data":{"errorKind":"native_session_missing"}}`)
+	got := NormalizeError("Claude Code", err)
+	want := "Claude Code could not restore its native conversation. Hecate retries only after safely persisting replacement state; start a new external-agent chat if this chat still cannot continue."
 	if got != want {
 		t.Fatalf("NormalizeError = %q, want %q", got, want)
 	}

@@ -29,6 +29,8 @@ var (
 	ErrHecateCannotRunExternal  = errors.New("Hecate Chat sessions cannot run external-agent turns")
 	ErrSessionNotFound          = errors.New("agent chat session not found")
 	ErrSessionIDRequired        = errors.New("session id is required")
+	ErrNativeSessionIDRequired  = errors.New("native session ids are required")
+	ErrNativeSessionChanged     = errors.New("native session changed before replacement could be persisted")
 	ErrTitleRequired            = errors.New("request must include title")
 	ErrTitleEmpty               = errors.New("title cannot be set to an empty string")
 	ErrNothingToCompact         = errors.New("chat transcript has no older context to compact")
@@ -201,6 +203,12 @@ type CloseNativeSessionCommand struct {
 
 type CloseNativeSessionResult struct {
 	Session chat.Session
+}
+
+type ReplaceNativeSessionCommand struct {
+	SessionID               string
+	PreviousNativeSessionID string
+	NativeSessionID         string
 }
 
 type SetConfigOptionCommand struct {
@@ -430,6 +438,39 @@ func (app *Application) RenameSession(ctx context.Context, cmd RenameSessionComm
 	})
 	if err != nil {
 		return nil, err
+	}
+	return &SessionResult{Session: updated}, nil
+}
+
+// ReplaceNativeSession atomically fences a provider-native id replacement
+// against the durable session value observed before recovery. The caller must
+// complete this command before redisclosing the prompt to the fresh session.
+func (app *Application) ReplaceNativeSession(ctx context.Context, cmd ReplaceNativeSessionCommand) (*SessionResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	sessionID := strings.TrimSpace(cmd.SessionID)
+	previousID := strings.TrimSpace(cmd.PreviousNativeSessionID)
+	nativeID := strings.TrimSpace(cmd.NativeSessionID)
+	if sessionID == "" {
+		return nil, Validation(ErrSessionIDRequired)
+	}
+	if previousID == "" || nativeID == "" {
+		return nil, Validation(ErrNativeSessionIDRequired)
+	}
+	var changed bool
+	updated, err := app.store.UpdateSession(ctx, sessionID, func(item *chat.Session) {
+		if strings.TrimSpace(item.NativeSessionID) != previousID {
+			changed = true
+			return
+		}
+		item.NativeSessionID = nativeID
+	})
+	if err != nil {
+		return nil, err
+	}
+	if changed {
+		return nil, ErrNativeSessionChanged
 	}
 	return &SessionResult{Session: updated}, nil
 }

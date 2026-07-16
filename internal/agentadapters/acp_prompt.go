@@ -552,3 +552,16 @@ func clearPromptInput(input *PromptInput) {
 	input.Files = nil
 	input.Text = ""
 }
+
+func clonePromptInput(input PromptInput) PromptInput {
+	cloned := PromptInput{Text: input.Text}
+	if len(input.Files) == 0 {
+		return cloned
+	}
+	cloned.Files = make([]PromptFile, len(input.Files))
+	for index, file := range input.Files {
+		cloned.Files[index] = file
+		cloned.Files[index].Data = append([]byte(nil), file.Data...)
+	}
+	return cloned
+}

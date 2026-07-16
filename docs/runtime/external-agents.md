@@ -12,8 +12,46 @@ Hecate model credentials stay separate.
 
 With `HECATE_BACKEND=sqlite` or `postgres`, Hecate keeps the transcript and the
 agent's native ACP session id. After restart, the next prompt asks the agent to
-`session/load` that native session when supported. If the adapter cannot load it,
-Hecate starts a fresh native session and keeps the Hecate transcript.
+`session/load` that native session when supported. Durable or unknown native
+session scopes fail closed when load fails. An adapter explicitly registered as
+process-scoped may start fresh after restart, but Hecate first persists the
+replacement native id and shows the recovery; it never sends the prompt while
+durable storage still points at the dead process-local id.
+
+Some command-backed adapters can load a host-known id before the provider has
+actually created the matching native conversation. A supporting adapter reports
+that exact prompt failure as `native_session_missing` without retrying. Hecate
+accepts that discriminator only when the turn also contains the command bridge's
+exact outer start/failed-finish lifecycle and no provider output, inner tool,
+diff, or unknown update. Hecate then derives replacement authority from its
+durable pre-turn transcript through the chat application boundary. HTTP
+handlers do not interpret transcript evidence. Hecate may
+replace the native id only when every earlier assistant turn failed or was
+cancelled without agent output, completed tools, file changes, or compacted
+history. Hecate creates one fresh ACP session, persists its native id, shows a
+`session_recovery` activity, and only then retries the same prompt once. File
+inputs are rebuilt through the normal live-capability and private-staging path
+for that retry. Any established or ambiguous history keeps the old native id
+and surfaces an actionable failure instead.
+
+```mermaid
+flowchart LR
+    Start["Start ACP session"] --> Stored{"Stored native id?"}
+    Stored -->|"no"| Prompt["Prompt ACP session"]
+    Stored -->|"yes"| Load["Attempt session/load"]
+    Load -->|"success"| Prompt
+    Load -->|"process-scoped failure"| ProcessFresh["Create fresh ACP session"]
+    ProcessFresh --> ProcessPersist["Persist replacement native id"]
+    ProcessPersist --> Prompt
+    Load -->|"durable or unknown failure"| LoadClosed["Fail closed; keep native id"]
+    Prompt --> Missing{"Adapter proves native session missing?"}
+    Missing -->|"no"| Result["Return normal result or failure"]
+    Missing -->|"yes"| History{"Durable transcript proves no successful agent turn?"}
+    History -->|"no / ambiguous"| Closed["Fail closed; keep native id and history"]
+    History -->|"yes"| Fresh["Create replacement ACP session"]
+    Fresh --> Persist["Persist replacement native id"]
+    Persist --> Retry["Retry prompt once with rebuilt file blocks"]
+```
 
 The bundled Go Codex and Claude Code adapters use command-backed sessions today.
 Both support in-memory `session/load` / `session/resume` / `session/fork` while
@@ -196,7 +234,7 @@ available from the installed adapter today.
 
 | Capability          | Catalog status                                                       | What Hecate does                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt_session`    | `supported`                                                          | Starts, reuses, closes, and recovers ACP sessions while keeping the Hecate transcript durable.                                                                             |
+| `prompt_session`    | `supported`                                                          | Starts, reuses, and closes ACP sessions; missing-native recovery is one fail-closed, transcript-authorized retry after the replacement id is durable.                      |
 | `structured_stream` | `supported`                                                          | Converts ACP assistant messages, thoughts, tool calls/results, terminal rows, usage, and stop reasons into External Agent activity.                                        |
 | `cancel`            | `supported`                                                          | Sends operator stop/cancel through the ACP session boundary and ignores late stream chunks after cancellation.                                                             |
 | `permissions`       | `supported`                                                          | Turns ACP permission requests into External Agent approvals and durable grants.                                                                                            |
@@ -765,6 +803,10 @@ short-circuit, mode default, or prompt-mode wait) and carries
 `hecate.agent_adapter.approval.path` once the path is known;
 `agent_adapter.approval.resolve` wraps the operator's decision-application
 path with `decision` and `scope` attributes.
+Transcript-authorized native-session replacement adds
+`chat.session_replaced` to the `chat.run` span with
+`hecate.agent_adapter.native_session.replaced=true` and the new opaque native
+session id. Prompt bodies and file contents are never trace attributes.
 
 Durable approval grants are part of the chat-session storage bundle. When
 `HECATE_BACKEND=sqlite` or `postgres`, grants survive Hecate server restarts and

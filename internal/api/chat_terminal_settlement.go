@@ -10,6 +10,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatapp"
 )
 
 var errAgentChatSettlementClosed = errors.New("agent chat terminal settlement is closed")
@@ -225,6 +226,20 @@ func (t *agentChatSettlementTurn) updateSession(ctx context.Context, update func
 	d := t.dispatcher
 	return d.submit(ctx, false, false, func(writeCtx context.Context) (chat.Session, error) {
 		return d.handler.agentChat.UpdateSession(writeCtx, d.sessionID, update)
+	})
+}
+
+func (t *agentChatSettlementTurn) replaceNativeSession(ctx context.Context, cmd chatapp.ReplaceNativeSessionCommand) (chat.Session, error) {
+	if t == nil || t.dispatcher == nil {
+		return chat.Session{}, errAgentChatSettlementClosed
+	}
+	d := t.dispatcher
+	return d.submit(ctx, false, false, func(writeCtx context.Context) (chat.Session, error) {
+		result, err := d.handler.chatApplication().ReplaceNativeSession(writeCtx, cmd)
+		if err != nil {
+			return chat.Session{}, err
+		}
+		return result.Session, nil
 	})
 }
 

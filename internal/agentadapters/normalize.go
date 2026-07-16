@@ -64,6 +64,9 @@ func NormalizeError(adapterName string, err error) string {
 	if adapterName == "Grok Build" && strings.Contains(strings.ToLower(message), "no healthy upstream") {
 		return adapterName + " error: " + message + ". Hecate is using Grok Build's ACP agent runtime; check Grok Build/xAI service health, the selected agent-mode model, or XAI_API_KEY/grok login."
 	}
+	if parsed.Data.ErrorKind == "native_session_missing" {
+		return adapterName + " could not restore its native conversation. Hecate retries only after safely persisting replacement state; start a new external-agent chat if this chat still cannot continue."
+	}
 	if kind := parsed.Data.ErrorKind; kind != "" {
 		return adapterName + " error (" + kind + "): " + message
 	}

@@ -126,12 +126,13 @@ const (
 
 // External agent chats
 const (
-	EventAgentChatRunStarted    = "chat.run.started"
-	EventAgentChatOutputStarted = "chat.output.started"
-	EventAgentChatFilesChanged  = "chat.files_changed"
-	EventAgentChatRunFinished   = "chat.run.finished"
-	EventAgentChatRunFailed     = "chat.run.failed"
-	EventAgentChatRunCancelled  = "chat.run.cancelled"
+	EventAgentChatRunStarted      = "chat.run.started"
+	EventAgentChatOutputStarted   = "chat.output.started"
+	EventAgentChatFilesChanged    = "chat.files_changed"
+	EventAgentChatSessionReplaced = "chat.session_replaced"
+	EventAgentChatRunFinished     = "chat.run.finished"
+	EventAgentChatRunFailed       = "chat.run.failed"
+	EventAgentChatRunCancelled    = "chat.run.cancelled"
 )
 
 var allEventNames = []string{
@@ -193,6 +194,7 @@ var allEventNames = []string{
 	EventAgentChatRunStarted,
 	EventAgentChatOutputStarted,
 	EventAgentChatFilesChanged,
+	EventAgentChatSessionReplaced,
 	EventAgentChatRunFinished,
 	EventAgentChatRunFailed,
 	EventAgentChatRunCancelled,
@@ -537,6 +539,13 @@ var requiredEventAttrs = map[string][]string{
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 		AttrHecateAgentDiffCaptured,
+	},
+	EventAgentChatSessionReplaced: {
+		AttrHecateChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+		AttrHecateAgentNativeSessionID,
+		AttrHecateAgentNativeSessionReplaced,
 	},
 	EventAgentChatRunFinished: {
 		AttrHecateChatSessionID,
