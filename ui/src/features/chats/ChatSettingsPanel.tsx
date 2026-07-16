@@ -6,6 +6,7 @@ import type {
   ChatMCPServerRecord,
   ChatSessionRecord,
   ChatUsageRecord,
+  ChatWorkspaceMode,
 } from "../../types/chat";
 import { Icon, Icons } from "../shared/ui";
 import { ExternalAgentSettingsControls } from "./ChatAgentControls";
@@ -19,6 +20,9 @@ export function ChatSettingsPanel({
   rtkEnabled,
   rtkAvailable,
   rtkPath,
+  workspaceMode,
+  workspaceModeLocked,
+  workspaceModeInherited,
   externalAgentID,
   taskID,
   agentName,
@@ -38,6 +42,7 @@ export function ChatSettingsPanel({
   systemPrompt,
   onToolsChange,
   onRTKChange,
+  onWorkspaceModeChange,
   onConfigOptionChange,
   onSystemPromptChange,
   onCopyCommand,
@@ -48,6 +53,9 @@ export function ChatSettingsPanel({
   rtkEnabled: boolean;
   rtkAvailable: boolean;
   rtkPath: string;
+  workspaceMode: ChatWorkspaceMode;
+  workspaceModeLocked: boolean;
+  workspaceModeInherited: boolean;
   externalAgentID?: string;
   taskID?: string;
   agentName?: string;
@@ -67,6 +75,7 @@ export function ChatSettingsPanel({
   systemPrompt: string;
   onToolsChange: (enabled: boolean) => void;
   onRTKChange: (enabled: boolean) => void;
+  onWorkspaceModeChange: (mode: ChatWorkspaceMode) => void;
   onConfigOptionChange: (
     sessionID: string,
     configID: string,
@@ -115,11 +124,20 @@ export function ChatSettingsPanel({
         {showHecateControls && (
           <>
             <ChatSettingsSection title="Mode">
-              <ChatSettingsToolsRow
-                enabled={toolsEnabled}
-                disabled={toolsDisabledForModel}
-                onChange={onToolsChange}
-              />
+              <div style={{ display: "grid", gap: 8 }}>
+                <ChatSettingsToolsRow
+                  enabled={toolsEnabled}
+                  disabled={toolsDisabledForModel}
+                  onChange={onToolsChange}
+                />
+                <ChatSettingsWorkspaceModeRow
+                  mode={workspaceMode}
+                  locked={workspaceModeLocked}
+                  inherited={workspaceModeInherited}
+                  disabled={mutationsDisabled}
+                  onChange={onWorkspaceModeChange}
+                />
+              </div>
             </ChatSettingsSection>
             <ChatSettingsSection title="Command output">
               <ChatSettingsRTKRow
@@ -230,6 +248,67 @@ export function ChatSettingsPanel({
           </div>
         </ChatSettingsSection>
       </div>
+    </div>
+  );
+}
+
+function ChatSettingsWorkspaceModeRow({
+  mode,
+  locked,
+  inherited,
+  disabled,
+  onChange,
+}: {
+  mode: ChatWorkspaceMode;
+  locked: boolean;
+  inherited: boolean;
+  disabled: boolean;
+  onChange: (mode: ChatWorkspaceMode) => void;
+}) {
+  const controlDisabled = disabled || locked || inherited;
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--bg1)",
+        padding: 12,
+        display: "grid",
+        gap: 9,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Workspace execution</div>
+        <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          {mode === "in_place"
+            ? "Tools write directly to the selected folder. Review and approve this destructive posture carefully."
+            : "Hecate gives task-backed turns a separate managed workspace. The selected source folder stays untouched."}
+        </div>
+        {inherited ? (
+          <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            Inherited from the linked Project. Change it in Project settings before creating the
+            chat.
+          </div>
+        ) : locked ? (
+          <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
+            Locked after the first task-backed turn so one chat cannot switch execution posture.
+          </div>
+        ) : null}
+      </div>
+      <label style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t2)" }}>
+        Workspace mode
+        <select
+          className="input"
+          aria-label="Workspace mode"
+          value={mode}
+          disabled={controlDisabled}
+          onChange={(event) => onChange(event.target.value as ChatWorkspaceMode)}
+        >
+          <option value="persistent">Managed workspace</option>
+          <option value="ephemeral">Managed workspace (ephemeral setting)</option>
+          <option value="in_place">Current folder (writes directly)</option>
+        </select>
+      </label>
     </div>
   );
 }

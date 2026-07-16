@@ -486,6 +486,7 @@ describe("useRuntimeConsole", () => {
     expect(createBody).toMatchObject({
       agent_id: "hecate",
       model: "gpt-4o-mini",
+      workspace_mode: "persistent",
     });
     expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSessionID).toBe("chat_direct");
@@ -546,6 +547,7 @@ describe("useRuntimeConsole", () => {
       agent_id: "claude_code",
       workspace: "/tmp/hecate-project",
     });
+    expect(createBody).not.toHaveProperty("workspace_mode");
     expect(result.current.state.activeChatSessionID).toBe("chat_1");
     expect(result.current.state.activeChatSession?.config_options?.[0]?.current_value).toBe(
       "sonnet",
@@ -763,6 +765,7 @@ describe("useRuntimeConsole", () => {
         },
       ],
       default_root_id: "root_1",
+      default_workspace_mode: "in_place",
       created_at: "2026-05-21T10:00:00Z",
       updated_at: "2026-05-21T10:00:00Z",
     };
@@ -807,6 +810,7 @@ describe("useRuntimeConsole", () => {
       agent_id: "hecate",
       model: "gpt-4o-mini",
       project_id: "proj_1",
+      workspace_mode: "in_place",
     });
     expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
@@ -875,6 +879,7 @@ describe("useRuntimeConsole", () => {
       // and records the direct provider call with tools_enabled=false.
       model: "gpt-4o-mini",
       project_id: "proj_1",
+      workspace_mode: "persistent",
     });
     expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
@@ -1612,6 +1617,7 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     let createCount = 0;
     let messageCount = 0;
+    let createBody: unknown = null;
     let resolveCreate: ((response: Response) => void) | undefined;
     const createdSession = {
       id: "chat_implicit",
@@ -1629,6 +1635,7 @@ describe("useRuntimeConsole", () => {
         "/hecate/v1/chat/sessions": (init) => {
           if (init?.method === "POST") {
             createCount += 1;
+            createBody = JSON.parse(String(init.body ?? "{}"));
             return new Promise<Response>((resolve) => {
               resolveCreate = resolve;
             });
@@ -1679,6 +1686,7 @@ describe("useRuntimeConsole", () => {
 
     expect(createCount).toBe(1);
     expect(messageCount).toBe(1);
+    expect(createBody).toMatchObject({ agent_id: "hecate", workspace_mode: "persistent" });
     expect(result.current.state.activeChatSessionID).toBe("chat_implicit");
   });
 
@@ -3502,6 +3510,50 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.activeChatSession?.rtk_enabled).toBe(true);
   });
 
+  it("updates workspace execution through per-chat settings before task work starts", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatSessionID", "a1");
+    let settingsBody: unknown = null;
+    const session = (workspaceMode: "persistent" | "in_place") => ({
+      id: "a1",
+      title: "Hecate",
+      agent_id: "hecate",
+      status: "idle",
+      workspace: "/workspace",
+      workspace_mode: workspaceMode,
+      messages: [],
+      created_at: "2026-04-20T00:00:00Z",
+      updated_at: "2026-04-20T00:00:00Z",
+    });
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({
+            object: "chat_sessions",
+            data: [{ ...session("persistent"), message_count: 0 }],
+          }),
+        "/hecate/v1/chat/sessions/a1": () =>
+          jsonResponse({ object: "chat_session", data: session("persistent") }),
+        "/hecate/v1/chat/sessions/a1/settings": (init) => {
+          settingsBody = JSON.parse(String(init?.body ?? "{}"));
+          return jsonResponse({ object: "chat_session", data: session("in_place") });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
+
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.actions.setHecateWorkspaceMode("in_place");
+    });
+
+    expect(ok).toBe(true);
+    expect(settingsBody).toEqual({ workspace_mode: "in_place" });
+    expect(result.current.state.activeChatSession?.workspace_mode).toBe("in_place");
+  });
+
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
     window.localStorage.setItem("hecate.chatSessionID", "a1");
     fetchMock.mockImplementation(
@@ -4627,6 +4679,8 @@ describe("useRuntimeConsole", () => {
                   project_id: "proj_1",
                   agent_id: "hecate",
                   status: "idle",
+                  workspace: "/workspace",
+                  workspace_mode: "persistent",
                   messages: [],
                   provider: "openai",
                   model: "gpt-4o-mini",
@@ -4644,6 +4698,8 @@ describe("useRuntimeConsole", () => {
                 project_id: "proj_1",
                 agent_id: "hecate",
                 status: "idle",
+                workspace: "/workspace",
+                workspace_mode: "persistent",
                 messages: [],
                 provider: "openai",
                 model: "gpt-4o-mini",

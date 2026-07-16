@@ -234,6 +234,7 @@ export type CreateChatSessionPayload = {
   provider?: string;
   model?: string;
   workspace?: string;
+  workspace_mode?: "persistent" | "ephemeral" | "in_place";
   rtk_enabled?: boolean;
   config_options?: ChatConfigOptionRecord[];
   mcp_servers?: ChatMCPServerPayload[];
@@ -1150,7 +1151,10 @@ export async function setChatConfigOption(
 
 export async function setChatSettings(
   id: string,
-  settings: { rtk_enabled?: boolean },
+  settings: {
+    rtk_enabled?: boolean;
+    workspace_mode?: "persistent" | "ephemeral" | "in_place";
+  },
 ): Promise<ChatSessionResponse> {
   return fetchJSON<ChatSessionResponse>(
     `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/settings`,

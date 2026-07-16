@@ -48,6 +48,7 @@ import type {
   ChatSessionRecord,
   ChatSessionSummaryRecord,
   ChatSessionsResponse,
+  ChatWorkspaceMode,
 } from "../../types/chat";
 import {
   type ChatTarget,
@@ -180,6 +181,10 @@ export type ChatState = {
   agentMCPServers: MCPServerFormEntry[];
   agentWorkspace: string;
   agentWorkspaceBranch: string;
+  // Operator default for new Hecate chats without a project-owned default.
+  // Individual sessions persist their own immutable execution posture once a
+  // task-backed segment starts.
+  agentWorkspaceMode: ChatWorkspaceMode;
   chatSessions: ChatSessionsResponse["data"];
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
@@ -260,6 +265,7 @@ export type ChatActions = {
   setAgentMCPServers: Setter<MCPServerFormEntry[]>;
   setAgentWorkspace: Setter<string>;
   setAgentWorkspaceBranch: Setter<string>;
+  setAgentWorkspaceMode: Setter<ChatWorkspaceMode>;
   setChatSessions: Setter<ChatSessionsResponse["data"]>;
   setActiveChatSessionID: Setter<string>;
   setActiveChatSession: Setter<ChatSessionRecord | null>;
@@ -415,6 +421,11 @@ export function ChatProvider({
   const [agentWorkspace, setAgentWorkspace] = useState(initialState?.agentWorkspace ?? "");
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState(
     initialState?.agentWorkspaceBranch ?? "",
+  );
+  const [agentWorkspaceMode, setAgentWorkspaceMode] = usePersistedState<ChatWorkspaceMode>(
+    "hecate.agentWorkspaceMode",
+    (raw) => (raw === "persistent" || raw === "ephemeral" || raw === "in_place" ? raw : null),
+    initialState?.agentWorkspaceMode ?? "persistent",
   );
   // Deletion tombstones fence every summary writer, including dashboard and
   // detail responses that began before a delete completed.
@@ -1598,6 +1609,7 @@ export function ChatProvider({
       agentMCPServers,
       agentWorkspace,
       agentWorkspaceBranch,
+      agentWorkspaceMode,
       chatSessions,
       activeChatSessionID,
       activeChatSession,
@@ -1643,6 +1655,7 @@ export function ChatProvider({
       agentMCPServers,
       agentWorkspace,
       agentWorkspaceBranch,
+      agentWorkspaceMode,
       chatSessions,
       activeChatSessionID,
       activeChatSession,
@@ -1709,6 +1722,7 @@ export function ChatProvider({
       setAgentMCPServers,
       setAgentWorkspace,
       setAgentWorkspaceBranch,
+      setAgentWorkspaceMode,
       setChatSessions,
       setActiveChatSessionID,
       setActiveChatSession,
@@ -1831,6 +1845,8 @@ export function ChatProvider({
       setAgentConfigOptions,
       setAgentMCPServers,
       setAgentWorkspace,
+      setAgentWorkspaceBranch,
+      setAgentWorkspaceMode,
       setChatSessions,
       setActiveChatSessionID,
       setPendingChatAttachments,

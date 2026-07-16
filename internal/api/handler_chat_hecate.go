@@ -254,6 +254,16 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		return
 	}
 	segmentID = "task:" + task.ID
+	executionWorkspace := strings.TrimSpace(run.WorkspacePath)
+	if executionWorkspace == "" {
+		executionWorkspace = session.Workspace
+	}
+	executionWorkspaceBranch := session.WorkspaceBranch
+	if executionWorkspace != session.Workspace {
+		executionWorkspaceBranch = workspaceGitBranch(executionWorkspace)
+	}
+	session.Workspace = executionWorkspace
+	session.WorkspaceBranch = executionWorkspaceBranch
 	messageSnapshot = hecateAgentMessageSnapshot(chat.Session{
 		ID:           session.ID,
 		TaskID:       task.ID,
@@ -269,6 +279,12 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
+		message.Workspace = executionWorkspace
+		message.Context.Workspace = executionWorkspace
+		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
+			chatcontext.ChatMessageRefs(session.ID, userID, session.ProjectID),
+			chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),
+		))
 	}); userUpdateErr == nil {
 		h.agentChatLive.publishSession(userUpdated)
 	} else {
@@ -285,6 +301,8 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
+		message.Workspace = executionWorkspace
+		message.Context.Workspace = executionWorkspace
 		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
 			chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
 			chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),

@@ -29,14 +29,15 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 
 	task, run, err := orchestrator.StartOrContinue(ctx, hecateAgentTaskRunCommand{
 		Session: chat.Session{
-			ID:          "chat_start",
-			ProjectID:   "proj_start",
-			Workspace:   "/tmp/hecate-chat",
-			Provider:    "openai",
-			Model:       "gpt-4o",
-			RTKEnabled:  true,
-			Title:       " ",
-			LatestRunID: "ignored",
+			ID:            "chat_start",
+			ProjectID:     "proj_start",
+			Workspace:     "/tmp/hecate-chat",
+			WorkspaceMode: chat.WorkspaceModePersistent,
+			Provider:      "openai",
+			Model:         "gpt-4o",
+			RTKEnabled:    true,
+			Title:         " ",
+			LatestRunID:   "ignored",
 		},
 		Prompt:       "use tools",
 		SystemPrompt: "  be concise  ",
@@ -60,6 +61,9 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 	}
 	if task.WorkingDirectory != "/tmp/hecate-chat" || task.SandboxAllowedRoot != "/tmp/hecate-chat" || !task.RTKEnabled {
 		t.Fatalf("task workspace/rtk = wd %q root %q rtk %v, want session workspace and RTK", task.WorkingDirectory, task.SandboxAllowedRoot, task.RTKEnabled)
+	}
+	if task.WorkspaceMode != chat.WorkspaceModePersistent {
+		t.Fatalf("task workspace mode = %q, want persistent", task.WorkspaceMode)
 	}
 	if !task.CreatedAt.Equal(now) || !task.UpdatedAt.Equal(now) {
 		t.Fatalf("task timestamps = created %v updated %v, want fixed now", task.CreatedAt, task.UpdatedAt)

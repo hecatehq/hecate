@@ -9,6 +9,7 @@ import (
 
 var chatAppErrorMappings = []appErrorMapping{
 	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
+	conflictAppErrorMapping(http.StatusConflict, errCodeConflict),
 	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, chatapp.ErrSessionNotFound),
 	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, chatapp.ErrNoSettingsProvided),
 	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, chatapp.ErrNothingToCompact),

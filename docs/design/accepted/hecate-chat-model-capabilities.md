@@ -3,8 +3,8 @@
 > **Status:** accepted; partially implemented alpha direction.
 > **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md),
 > [Agent runtime](../../runtime/agent-runtime.md), and [Runtime API](../../runtime/runtime-api.md).
-> **Next action:** wire workspace modes and named Agent Presets into Hecate
-> Chat setup, implement automatic capability probes, and broaden e2e hardening.
+> **Next action:** wire named Agent Presets into Hecate Chat setup, implement
+> automatic capability probes, and broaden e2e hardening.
 >
 > **Terminology note:** this design record was written while "Hecate Agent" was the
 > proposed product label for Hecate-owned tools-on chat. Current UI and
@@ -41,7 +41,7 @@ requirements after the baseline bridge are:
 - task approvals resolved directly from Chats _(implemented)_
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - local composer queueing while a backing task is busy _(implemented)_
-- task workspace modes exposed in Hecate Chat setup
+- task workspace modes exposed in Hecate Chat setup _(implemented)_
 - named Agent Presets consumed by Hecate Chat setup
 - richer automatic capability detection with visible status
 
@@ -287,17 +287,25 @@ capability hint plus the model picker, not a global "enable tools" override.
 Hecate Agent must expose the same workspace mode choices that matter for
 Tasks. The chat setup should not hide this behind an implementation default.
 
-The UI should support:
+The UI supports:
 
-| Mode             | Meaning                                                                                                             | Default                                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Shared workspace | Run directly in the selected local workspace.                                                                       | Default for Hecate Chat tools-on segments while the product is local-first. |
-| Isolated clone   | Create an isolated task workspace from a repo/base branch when available.                                           | Optional when repo metadata is configured.                                  |
-| Read-only review | Allow reads and analysis, block writes unless the operator explicitly switches mode or approves a writable profile. | Useful for reviewer profiles.                                               |
+| Operator choice   | Stored mode                 | Meaning                                                                                                              |
+| ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Managed workspace | `persistent` or `ephemeral` | Run task-backed turns in a separate Hecate-managed workspace. Both currently use clone/copy provisioning.            |
+| Current folder    | `in_place`                  | Run directly in the selected folder. Tools write to the operator's live working tree, so this is an explicit opt-in. |
+
+Read-only review is an Agent Preset/runtime-policy concern rather than a
+workspace-provisioning mode. A future Git-worktree provisioner may implement
+Managed workspace for eligible repositories without changing this stable
+operator contract.
 
 The session stores both the chosen workspace path and workspace mode. The
-backing task should receive the same mode fields as a task created directly
-from Tasks, so approvals, patch review, artifacts, and OTel do not fork.
+backing task receives the same mode field as a task created directly from
+Tasks, so approvals, patch review, artifacts, and OTel do not fork. Managed
+runs update the session to the generated execution path so later review and
+continuation inspect the workspace the agent actually changed. Changing mode
+is allowed before task-backed work exists and locked after the first backing
+task is created.
 
 When a workspace mode cannot be honored, the message endpoint should fail
 before starting the run with a stable error and operator-facing copy.
@@ -496,10 +504,13 @@ Done in the core bridge:
   normal Hecate-native API path (including the optional runtime-token guard),
   and transiently hydrates bounded image history only for explicitly
   image-capable routes
+- Hecate Chat persists `persistent`, `ephemeral`, or `in_place` workspace
+  posture, exposes Managed workspace versus Current folder in chat settings,
+  snapshots it onto backing tasks, and locks posture after task-backed work
+  exists; External Agent sessions remain in-place ACP workspaces
 
 Still required for a complete Hecate Chat tools-on experience:
 
-- workspace modes in the chat setup
 - named Agent Presets in the chat setup; preset Core/API exists, but Chat does
   not yet select or snapshot a named chat preset
 - automatic capability probing
@@ -510,17 +521,14 @@ Still required for a complete Hecate Chat tools-on experience:
 
 The missing stable-scope pieces should land in this order:
 
-1. **Workspace modes.** Expose the same workspace choices that Tasks supports,
-   store the selected mode on the session/task, and fail early when a requested
-   mode cannot be honored.
-2. **Agent Presets.** Add named presets for model policy,
+1. **Agent Presets.** Add named presets for model policy,
    workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
    snapshot on each session so history remains explainable.
-3. **Automatic probing.** Add bounded, visible capability probes for configured
+2. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
    Probes must not execute tools or mutate workspaces, and provider-native
    capability metadata remains the stronger source when it is available.
-4. **E2E hardening.** Extend the existing browser paths to cover workspace
+3. **E2E hardening.** Extend the existing browser paths to cover workspace
    modes, profiles, automatic capability detection, refresh/reconnect edges,
    and long mixed chats with queued prompts.
 

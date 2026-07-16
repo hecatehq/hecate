@@ -96,6 +96,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 		ProjectID:       "proj_sqlite",
 		AgentID:         "cursor_agent",
 		Workspace:       "/tmp/hecate",
+		WorkspaceMode:   WorkspaceModeInPlace,
 		WorkspaceBranch: "feature/sqlite",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -165,7 +166,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Get after reopen: ok=%v err=%v", ok, err)
 	}
-	if got.ProjectID != "proj_sqlite" || got.AgentID != "cursor_agent" || got.WorkspaceBranch != "feature/sqlite" || got.Messages[0].Content != "hello" {
+	if got.ProjectID != "proj_sqlite" || got.AgentID != "cursor_agent" || got.WorkspaceMode != WorkspaceModeInPlace || got.WorkspaceBranch != "feature/sqlite" || got.Messages[0].Content != "hello" {
 		t.Fatalf("reopened session mismatch: %+v", got)
 	}
 	if got.Messages[0].ProviderInstance != wantProviderInstance {

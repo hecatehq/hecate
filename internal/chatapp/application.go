@@ -21,6 +21,8 @@ var (
 	ErrExternalSessionOnly      = errors.New("agent chat config options are only available for external-agent sessions")
 	ErrHecateSessionOnly        = errors.New("Hecate Chat settings are not available for external-agent sessions")
 	ErrNoSettingsProvided       = errors.New("no settings provided")
+	ErrWorkspaceModeInvalid     = errors.New("workspace_mode must be persistent, ephemeral, or in_place")
+	ErrWorkspaceModeLocked      = errors.New("workspace_mode cannot change after a task-backed chat segment starts")
 	ErrContentRequired          = errors.New("content is required")
 	ErrExecutionModeInvalid     = errors.New("execution_mode must be hecate_task or external_agent")
 	ErrExternalCannotRunHecate  = errors.New("external agent sessions cannot run Hecate Chat turns")
@@ -58,6 +60,21 @@ const (
 )
 
 type ValidationError = apperrors.ValidationError
+
+type ConflictError = apperrors.ConflictError
+
+func Conflict(err error) error { return apperrors.Conflict(err) }
+
+func NormalizeWorkspaceMode(mode string) (string, error) {
+	switch mode = strings.TrimSpace(mode); mode {
+	case chat.WorkspaceModePersistent, chat.WorkspaceModeEphemeral, chat.WorkspaceModeInPlace:
+		return mode, nil
+	case "":
+		return chat.WorkspaceModeInPlace, nil
+	default:
+		return "", Validation(ErrWorkspaceModeInvalid)
+	}
+}
 
 type AttachmentTotalQuotaError struct {
 	LimitBytes int64
@@ -197,8 +214,9 @@ type SetConfigOptionResult struct {
 }
 
 type SetHecateSettingsCommand struct {
-	Session    chat.Session
-	RTKEnabled *bool
+	Session       chat.Session
+	RTKEnabled    *bool
+	WorkspaceMode *string
 }
 
 type SetHecateSettingsResult struct {
@@ -866,22 +884,33 @@ func (app *Application) SetHecateSettings(ctx context.Context, cmd SetHecateSett
 	if isExternalSession(cmd.Session) {
 		return nil, ErrHecateSessionOnly
 	}
-	if cmd.RTKEnabled == nil {
+	if cmd.RTKEnabled == nil && cmd.WorkspaceMode == nil {
 		return nil, ErrNoSettingsProvided
 	}
 
-	rtkEnabled := *cmd.RTKEnabled
+	workspaceMode := chat.EffectiveWorkspaceMode(cmd.Session.WorkspaceMode)
+	if cmd.WorkspaceMode != nil {
+		var err error
+		workspaceMode, err = NormalizeWorkspaceMode(*cmd.WorkspaceMode)
+		if err != nil {
+			return nil, err
+		}
+		if cmd.Session.TaskID != "" && workspaceMode != chat.EffectiveWorkspaceMode(cmd.Session.WorkspaceMode) {
+			return nil, Conflict(ErrWorkspaceModeLocked)
+		}
+	}
+
 	// Update the task row first, then the session row. The two writes
 	// are NOT atomic because chat/task stores do not share a transaction
 	// boundary today. Task-first keeps existing continuations aligned
 	// with the executor's sandbox-arg construction.
-	if cmd.Session.TaskID != "" && app.taskStore != nil {
+	if cmd.RTKEnabled != nil && cmd.Session.TaskID != "" && app.taskStore != nil {
 		task, found, err := app.taskStore.GetTask(ctx, cmd.Session.TaskID)
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			task.RTKEnabled = rtkEnabled
+			task.RTKEnabled = *cmd.RTKEnabled
 			if _, err := app.taskStore.UpdateTask(ctx, task); err != nil {
 				return nil, err
 			}
@@ -889,7 +918,12 @@ func (app *Application) SetHecateSettings(ctx context.Context, cmd SetHecateSett
 	}
 
 	session, err := app.store.UpdateSession(ctx, cmd.Session.ID, func(item *chat.Session) {
-		item.RTKEnabled = rtkEnabled
+		if cmd.RTKEnabled != nil {
+			item.RTKEnabled = *cmd.RTKEnabled
+		}
+		if cmd.WorkspaceMode != nil {
+			item.WorkspaceMode = workspaceMode
+		}
 	})
 	if err != nil {
 		return nil, err

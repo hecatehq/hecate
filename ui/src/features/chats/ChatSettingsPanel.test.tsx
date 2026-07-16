@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
@@ -10,6 +10,9 @@ const baseProps = {
   rtkEnabled: false,
   rtkAvailable: false,
   rtkPath: "",
+  workspaceMode: "persistent" as const,
+  workspaceModeLocked: false,
+  workspaceModeInherited: false,
   externalAgentID: "codex",
   taskID: "",
   agentName: "Codex",
@@ -27,6 +30,7 @@ const baseProps = {
   systemPrompt: "",
   onToolsChange: vi.fn(),
   onRTKChange: vi.fn(),
+  onWorkspaceModeChange: vi.fn(),
   onConfigOptionChange: vi.fn(async () => true),
   onSystemPromptChange: vi.fn(),
   onCopyCommand: vi.fn(),
@@ -90,5 +94,45 @@ describe("ChatSettingsPanel external-agent MCP servers", () => {
     expect(screen.getByText("remote")).toBeTruthy();
     expect(screen.getByText("https://mcp.example.com/mcp")).toBeTruthy();
     expect(screen.getByText("Authorization")).toBeTruthy();
+  });
+});
+
+describe("ChatSettingsPanel Hecate workspace execution", () => {
+  it("explains isolated execution and changes the workspace mode", () => {
+    const onWorkspaceModeChange = vi.fn();
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        workspaceMode="persistent"
+        usageSource="hecate"
+        onWorkspaceModeChange={onWorkspaceModeChange}
+        externalSession={null}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "Workspace mode" });
+    expect(select).toHaveValue("persistent");
+    expect(screen.getByText(/selected source folder stays untouched/i)).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: "in_place" } });
+    expect(onWorkspaceModeChange).toHaveBeenCalledWith("in_place");
+  });
+
+  it("locks the execution posture after a task-backed turn", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        workspaceMode="in_place"
+        workspaceModeLocked
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "Workspace mode" })).toBeDisabled();
+    expect(screen.getByText(/locked after the first task-backed turn/i)).toBeTruthy();
+    expect(screen.getByText(/tools write directly/i)).toBeTruthy();
   });
 });

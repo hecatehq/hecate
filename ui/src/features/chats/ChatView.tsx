@@ -41,10 +41,19 @@ import {
   providerKeyMatches,
   runtimeProviderForKey,
 } from "../../lib/provider-utils";
-import { projectByID, projectDefaultWorkspace } from "../../lib/project-workspace";
+import {
+  projectByID,
+  projectDefaultChatWorkspaceMode,
+  projectDefaultWorkspace,
+} from "../../lib/project-workspace";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
-import type { ChatConfigOptionRecord, ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
+import type {
+  ChatConfigOptionRecord,
+  ChatSessionRecord,
+  ChatUsageRecord,
+  ChatWorkspaceMode,
+} from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
@@ -151,6 +160,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     agentAdapterHealthByID: providersAndModels.state.agentAdapterHealthByID,
     agentAdapterHealthLoadingByID: providersAndModels.state.agentAdapterHealthLoadingByID,
     agentWorkspace,
+    agentWorkspaceMode: chat.state.agentWorkspaceMode,
     chatCancelling: chat.state.chatCancelling,
     chatError: chat.state.chatError,
     chatErrorCode: chat.state.chatErrorCode,
@@ -199,6 +209,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     setChatTarget: chatActions.setChatTarget,
     setChatToolsEnabled: chatActions.setChatToolsEnabled,
     setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
+    setHecateWorkspaceMode: chatActions.setHecateWorkspaceMode,
     setModel: chatActions.selectChatModel,
     setProviderFilter: chatActions.selectProviderRoute,
     setSystemPrompt: chat.actions.setSystemPrompt,
@@ -519,6 +530,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const activeSessionProjectID = state.activeChatSession?.project_id?.trim() ?? "";
   const activeSessionProject = projectByID(projects.state.projects, activeSessionProjectID);
   const linkedProjectName = activeSessionProject?.name?.trim() || activeSessionProjectID;
+  const workspaceMode: ChatWorkspaceMode = state.activeChatSession
+    ? (state.activeChatSession.workspace_mode ?? "in_place")
+    : activeSessionProjectID
+      ? projectDefaultChatWorkspaceMode(activeSessionProject)
+      : state.agentWorkspaceMode;
+  const workspaceModeLocked = Boolean(state.activeChatSession?.task_id);
+  const workspaceModeInherited = !state.activeChatSession && Boolean(activeSessionProjectID);
   const workspaceChangesPanelOpen =
     selectedChatReady && isAgentChat && workspaceChangesOpen && Boolean(activeWorkspacePath.trim());
   const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
@@ -1041,6 +1059,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     void actions.setHecateRTKEnabled(enabled);
   }
 
+  function handleWorkspaceModeChange(mode: ChatWorkspaceMode) {
+    void actions.setHecateWorkspaceMode(mode);
+  }
+
   function focusComposerWhenReady() {
     focusComposerAfterNewChatRef.current = true;
   }
@@ -1492,6 +1514,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   rtkEnabled={Boolean(state.hecateRTKEnabled)}
                   rtkAvailable={Boolean(state.hecateRTKAvailable)}
                   rtkPath={state.hecateRTKPath}
+                  workspaceMode={workspaceMode}
+                  workspaceModeLocked={workspaceModeLocked}
+                  workspaceModeInherited={workspaceModeInherited}
                   externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
                   taskID={state.activeChatSession?.task_id}
                   agentName={selectedAgent?.name || activeHeaderFallback}
@@ -1507,10 +1532,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   instructionsAvailable={instructionsAvailable}
                   isHecateAgentChat={isHecateAgentChat}
                   instructionsLocked={messages.length > 0}
-                  mutationsDisabled={selectedChatCancelling}
+                  mutationsDisabled={selectedChatCancelling || agentBusy}
                   systemPrompt={state.systemPrompt}
                   onToolsChange={actions.setChatToolsEnabled}
                   onRTKChange={handleRTKChange}
+                  onWorkspaceModeChange={handleWorkspaceModeChange}
                   onConfigOptionChange={actions.setChatConfigOption}
                   onSystemPromptChange={actions.setSystemPrompt}
                   onCopyCommand={actions.copyCommand}

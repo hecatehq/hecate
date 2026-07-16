@@ -1607,13 +1607,13 @@ describe("api client", () => {
         jsonResponse({ object: "chat_session", data: { id: "s 1", rtk_enabled: true } }),
       );
 
-      await setChatSettings("s 1", { rtk_enabled: true });
+      await setChatSettings("s 1", { rtk_enabled: true, workspace_mode: "persistent" });
 
       expect(fetchMock).toHaveBeenCalledWith(
         "/hecate/v1/chat/sessions/s%201/settings",
         expect.objectContaining({
           method: "PATCH",
-          body: JSON.stringify({ rtk_enabled: true }),
+          body: JSON.stringify({ rtk_enabled: true, workspace_mode: "persistent" }),
         }),
       );
     });

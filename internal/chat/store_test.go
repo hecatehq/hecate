@@ -370,6 +370,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 		Model:           "gpt-4o-mini",
 		Capabilities:    types.ModelCapabilities{ToolCalling: "basic", Streaming: true, MaxContextTokens: 128000, Source: "provider"},
 		Workspace:       "/tmp/hecate",
+		WorkspaceMode:   WorkspaceModePersistent,
 		WorkspaceBranch: "main",
 	})
 	if err != nil {
@@ -380,6 +381,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if created.WorkspaceBranch != "main" {
 		t.Fatalf("created workspace branch = %q, want main", created.WorkspaceBranch)
+	}
+	if created.WorkspaceMode != WorkspaceModePersistent {
+		t.Fatalf("created workspace mode = %q, want persistent", created.WorkspaceMode)
 	}
 	if created.ProjectID != "proj_hecate" {
 		t.Fatalf("created project_id = %q, want proj_hecate", created.ProjectID)

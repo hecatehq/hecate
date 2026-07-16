@@ -1150,6 +1150,51 @@ func TestApplication_SetHecateSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestApplication_SetHecateSettingsWorkspaceMode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	app := New(Options{Store: store})
+	session, err := store.Create(ctx, chat.Session{
+		ID:            "chat_workspace_mode",
+		AgentID:       chat.DefaultAgentID,
+		WorkspaceMode: chat.WorkspaceModePersistent,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	inPlace := chat.WorkspaceModeInPlace
+	result, err := app.SetHecateSettings(ctx, SetHecateSettingsCommand{
+		Session:       session,
+		WorkspaceMode: &inPlace,
+	})
+	if err != nil {
+		t.Fatalf("SetHecateSettings(workspace mode) error = %v", err)
+	}
+	if result.Session.WorkspaceMode != chat.WorkspaceModeInPlace {
+		t.Fatalf("workspace mode = %q, want in_place", result.Session.WorkspaceMode)
+	}
+
+	invalid := "shared"
+	if _, err := app.SetHecateSettings(ctx, SetHecateSettingsCommand{
+		Session:       result.Session,
+		WorkspaceMode: &invalid,
+	}); !errors.Is(err, ErrWorkspaceModeInvalid) {
+		t.Fatalf("SetHecateSettings(invalid workspace mode) error = %v, want ErrWorkspaceModeInvalid", err)
+	}
+
+	locked := result.Session
+	locked.TaskID = "task_started"
+	persistent := chat.WorkspaceModePersistent
+	if _, err := app.SetHecateSettings(ctx, SetHecateSettingsCommand{
+		Session:       locked,
+		WorkspaceMode: &persistent,
+	}); !errors.Is(err, ErrWorkspaceModeLocked) {
+		t.Fatalf("SetHecateSettings(locked workspace mode) error = %v, want ErrWorkspaceModeLocked", err)
+	}
+}
+
 func TestApplication_AdmitMessageDefaultsAndTrims(t *testing.T) {
 	t.Parallel()
 

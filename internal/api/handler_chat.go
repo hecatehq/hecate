@@ -82,6 +82,15 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	projectID := strings.TrimSpace(req.ProjectID)
 	isExternalAgent := agentID != chat.DefaultAgentID
 	workspace := strings.TrimSpace(req.Workspace)
+	workspaceMode, err := chatapp.NormalizeWorkspaceMode(req.WorkspaceMode)
+	if err != nil {
+		writeChatAppError(w, err)
+		return
+	}
+	if isExternalAgent && workspaceMode != chat.WorkspaceModeInPlace {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "external-agent sessions require workspace_mode=in_place")
+		return
+	}
 	if isExternalAgent {
 		if workspace == "" {
 			writeAgentChatWorkspaceRequired(w, chat.ExecutionModeExternalAgent)
@@ -123,11 +132,11 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		ProjectID:       projectID,
 		AgentID:         agentID,
 		Workspace:       workspace,
+		WorkspaceMode:   workspaceMode,
 		WorkspaceBranch: workspaceBranch,
 		RTKEnabled:      req.RTKEnabled,
 		MCPServers:      mcpServers,
 	}
-	var err error
 	var externalAdapter agentadapters.Adapter
 	switch {
 	case agentID == chat.DefaultAgentID:
@@ -664,6 +673,8 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 
 func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimSpace(r.PathValue("id"))
+	lifecycle := h.agentChatLive.snapshotLifecycle(sessionID)
+	defer lifecycle.release()
 	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -681,9 +692,43 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := h.chatApplication().SetHecateSettings(r.Context(), chatapp.SetHecateSettingsCommand{
-		Session:    session,
-		RTKEnabled: req.RTKEnabled,
+	settingsCtx := r.Context()
+	if req.WorkspaceMode != nil {
+		var cancel context.CancelFunc
+		settingsCtx, cancel = context.WithCancel(r.Context())
+		switch h.agentChatLive.registerRun(lifecycle, cancel) {
+		case agentChatRunAdmissionClosed:
+			cancel()
+			writeChatSessionStopping(w)
+			return
+		case agentChatRunBusy:
+			cancel()
+			WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is busy", ErrorDetails{
+				UserMessage:    "This chat is busy.",
+				OperatorAction: "Wait for the active turn to finish before changing workspace execution.",
+			})
+			return
+		}
+		defer h.agentChatLive.clearRun(sessionID)
+		defer cancel()
+
+		// Winning exclusive admission only proves no turn can start now. Reload
+		// after admission so a task linked by the previous winner cannot be
+		// missed by the immutable-workspace-mode check.
+		session, ok, err = h.agentChat.Get(settingsCtx, sessionID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+			return
+		}
+	}
+	result, err := h.chatApplication().SetHecateSettings(settingsCtx, chatapp.SetHecateSettingsCommand{
+		Session:       session,
+		RTKEnabled:    req.RTKEnabled,
+		WorkspaceMode: req.WorkspaceMode,
 	})
 	if err != nil {
 		if errors.Is(err, chatapp.ErrStoreNotConfigured) {

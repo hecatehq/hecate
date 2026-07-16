@@ -4252,6 +4252,8 @@ GET /hecate/v1/chat/sessions
       },
       "status": "completed",
       "rtk_enabled": true,
+      "workspace": "/tmp/hecate-workspaces/task_.../run_...",
+      "workspace_mode": "persistent",
       "turns_used": 3,
       "max_turns_per_session": 50,
       "session_started_at": "2026-05-03T12:00:00Z",
@@ -4317,6 +4319,25 @@ compaction preference. It is only applied when a future turn runs through the
 task-backed `hecate_task` execution mode; direct model turns never execute
 local commands.
 
+`workspace_mode` records the execution posture for future task-backed turns:
+
+- `persistent` and `ephemeral` use a separate Hecate-managed workspace. They
+  remain distinct stored settings, although both currently use the same
+  isolated clone/copy provisioning path.
+- `in_place` runs in the selected `workspace`, so tools write directly to that
+  folder.
+
+For API compatibility, an omitted `workspace_mode` is stored and returned as
+`in_place`. The operator UI sends an explicit mode and defaults new
+project-free Hecate chats to `persistent`; project-linked chat creation uses
+the linked Cairnline Project's default as coordination intent. Once the first
+task-backed segment has been created, the mode is locked for that chat. Direct
+model turns store the posture but do not provision a workspace.
+
+External Agent sessions always use `workspace_mode=in_place` because the ACP
+session owns the selected workspace directly. Clients normally omit the field
+for External Agent creation; any explicit non-`in_place` value is rejected.
+
 When `workspace` is provided, it must be an operator-controlled local
 directory. Hecate validates and canonicalizes the path before a tool-backed or
 external-agent run starts, so later runs use the resolved directory instead of
@@ -4354,7 +4375,9 @@ POST /hecate/v1/chat/sessions
   "project_id": "proj_...",
   "provider": "ollama",
   "model": "qwen2.5-coder",
-  "title": "Hecate Chat"
+  "title": "Hecate Chat",
+  "workspace": "/Users/alice/src/my-app",
+  "workspace_mode": "persistent"
 }
 
 → 200
@@ -4374,6 +4397,8 @@ POST /hecate/v1/chat/sessions
     },
     "status": "idle",
     "rtk_enabled": false,
+    "workspace": "/Users/alice/src/my-app",
+    "workspace_mode": "persistent",
     "turns_used": 0,
     "session_started_at": "2026-05-03T12:00:00Z",
     "messages": []
@@ -4415,6 +4440,7 @@ POST /hecate/v1/chat/sessions
     "id": "chat_...",
     "agent_id": "grok_build",
     "workspace": "/Users/alice/src/my-app",
+    "workspace_mode": "in_place",
     "driver_kind": "acp",
     "agent_info": {
       "name": "grok-build-acp-adapter",
@@ -4568,18 +4594,30 @@ after the session has been restored.
 ### `PATCH /hecate/v1/chat/sessions/{id}/settings`
 
 Updates Hecate-owned chat settings for future turns. This endpoint currently
-accepts `rtk_enabled` for `agent_id="hecate"` sessions. External Agent sessions
-reject it with `chat.runtime_mismatch` because Codex, Claude Code, Cursor
-Agent, Grok Build, and other ACP adapters own their own command execution.
+accepts `rtk_enabled` and/or `workspace_mode` for `agent_id="hecate"` sessions.
+External Agent sessions reject it with `chat.runtime_mismatch` because their
+ACP adapters own command execution and use the selected workspace in place.
 
 When an existing Hecate Chat session already has a backing task, the task
 record is updated too so later continued runs inherit the same setting.
 Running turns are not mutated mid-flight.
 
+`workspace_mode` may be changed while the Hecate Chat is still an empty or
+direct-model-only shell. Once `task_id` is present, changing to a different
+mode returns `409 conflict`; sending the already-selected value remains
+idempotent. A concurrent active turn returns `409 chat.agent_session_busy`;
+workspace-mode mutation and turn admission are exclusive so creation cannot
+snapshot one posture while the session persists another. When a managed task
+run starts, Hecate updates the session's
+`workspace` to the actual generated execution path. Workspace review, file
+browsing, later task-backed turns, and message snapshots therefore point at
+the files the agent actually changed rather than the untouched source folder.
+
 ```json
 PATCH /hecate/v1/chat/sessions/chat_.../settings
 {
-  "rtk_enabled": true
+  "rtk_enabled": true,
+  "workspace_mode": "persistent"
 }
 
 → 200
@@ -4588,7 +4626,8 @@ PATCH /hecate/v1/chat/sessions/chat_.../settings
   "data": {
     "id": "chat_...",
     "agent_id": "hecate",
-    "rtk_enabled": true
+    "rtk_enabled": true,
+    "workspace_mode": "persistent"
   }
 }
 ```

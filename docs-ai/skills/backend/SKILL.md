@@ -313,6 +313,16 @@ cannot race a live task loop against a separate model call. The browser UI may
 queue a prompt locally while busy, but the backend contract remains one active
 task-backed turn per session.
 
+Hecate-owned chat sessions also persist workspace posture. Normalize only
+`persistent`, `ephemeral`, and `in_place`; preserve omitted legacy requests as
+`in_place`. Snapshot the effective value onto every backing task, reject a
+different value after `task_id` exists, and serialize mode mutation through the
+same exclusive live-run admission as message turns. Update the
+session/message/context workspace to the generated run path for managed execution. External Agent
+sessions always remain `in_place` because the ACP adapter owns the selected
+workspace. Cairnline Project defaults are coordination intent supplied at chat
+creation, never runtime permission or a reason to add parallel Project storage.
+
 External Agent has two live/persistence layers:
 
 1. `internal/chat` stores the Hecate transcript and native ACP session id
