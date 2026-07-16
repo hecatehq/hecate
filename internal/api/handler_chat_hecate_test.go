@@ -309,6 +309,72 @@ func TestHecateAgentChatWorkspaceModeMutationInvalidatesPreReadTurn(t *testing.T
 	}
 }
 
+func TestHecateAgentChatRTKMutationInvalidatesPreReadTurn(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-stale-rtk",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "must not run"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	store := &blockingNextChatGetStore{
+		Store:   chat.NewMemoryStore(),
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	apiHandler.agentChat = store
+	server := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, server)
+	workspace := t.TempDir()
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"persistent","provider":"openai","model":"gpt-4o-mini"}`, workspace))
+
+	store.arm()
+	turnDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages", strings.NewReader(`{"execution_mode":"hecate_task","content":"use stale settings"}`))
+		req.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, req)
+		turnDone <- recorder
+	}()
+	select {
+	case <-store.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn did not pause after its initial session read")
+	}
+
+	updated := mustRequestJSON[ChatSessionResponse](client, http.MethodPatch,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"rtk_enabled":true}`)
+	if !updated.Data.RTKEnabled {
+		t.Fatal("updated rtk_enabled = false, want true")
+	}
+	close(store.release)
+	select {
+	case response := <-turnDone:
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), errCodeSessionStopping) {
+			t.Fatalf("stale turn status/body = %d/%s, want conflict session-stopping", response.Code, response.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stale turn did not finish")
+	}
+	tasks, err := apiHandler.taskStore.ListTasks(t.Context(), taskstate.TaskFilter{})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("stale turn created tasks: %+v", tasks)
+	}
+}
+
 type blockingChatSettingsStore struct {
 	chat.Store
 	started chan struct{}
@@ -376,6 +442,12 @@ func (s failingTaskRunLinkStore) LinkTaskRun(context.Context, string, string, st
 	return chat.Session{}, fmt.Errorf("injected task-run link failure")
 }
 
+type failingTerminalTransitionTaskStore struct{ taskstate.Store }
+
+func (s failingTerminalTransitionTaskStore) ApplyRunTerminalTransition(context.Context, taskstate.TerminalRunTransition) (taskstate.TerminalRunTransitionResult, error) {
+	return taskstate.TerminalRunTransitionResult{}, fmt.Errorf("injected cancellation persistence failure")
+}
+
 func TestHecateAgentChatTaskRunLinkFailureFailsClosed(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	provider := &fakeProvider{
@@ -398,10 +470,11 @@ func TestHecateAgentChatTaskRunLinkFailureFailsClosed(t *testing.T) {
 	workspace := t.TempDir()
 	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
 		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"persistent","provider":"openai","model":"gpt-4o-mini"}`, workspace))
+	const requestBody = `{"execution_mode":"hecate_task","content":"inspect safely","client_request_id":"link-failure-once"}`
 
 	failed := client.mustRequestStatus(http.StatusInternalServerError, http.MethodPost,
 		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
-		`{"execution_mode":"hecate_task","content":"inspect safely"}`)
+		requestBody)
 	if !strings.Contains(failed.Body.String(), "could not link it safely") {
 		t.Fatalf("task-run link failure body = %s", failed.Body.String())
 	}
@@ -413,6 +486,14 @@ func TestHecateAgentChatTaskRunLinkFailureFailsClosed(t *testing.T) {
 	if durable.Data.TaskID != "" || durable.Data.Workspace != canonicalWorkspace {
 		t.Fatalf("partially linked session = task %q workspace %q, want empty task and source %q", durable.Data.TaskID, durable.Data.Workspace, canonicalWorkspace)
 	}
+	if durable.Data.Status != "failed" || len(durable.Data.Messages) != 2 || durable.Data.Messages[1].Status != "failed" || !strings.Contains(durable.Data.Messages[1].Content, "could not safely link") {
+		t.Fatalf("terminal link failure transcript = status %q messages %+v", durable.Data.Status, durable.Data.Messages)
+	}
+	replay := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages", requestBody)
+	if replay.MessageRequest == nil || !replay.MessageRequest.Replay || replay.Data.Status != "failed" || len(replay.Data.Messages) != 2 || replay.Data.Messages[1].Status != "failed" {
+		t.Fatalf("link failure replay = metadata %+v status %q messages %+v", replay.MessageRequest, replay.Data.Status, replay.Data.Messages)
+	}
 	locked := client.mustRequestStatus(http.StatusConflict, http.MethodPatch,
 		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
 	if !strings.Contains(locked.Body.String(), "workspace_mode cannot change") {
@@ -422,6 +503,111 @@ func TestHecateAgentChatTaskRunLinkFailureFailsClosed(t *testing.T) {
 		"/hecate/v1/chat/sessions/"+session.Data.ID+"/workspace-diff", "")
 	if !strings.Contains(review.Body.String(), "workspace link is incomplete") {
 		t.Fatalf("orphan task review body = %s", review.Body.String())
+	}
+}
+
+func TestCancelHecateChatTaskRunFindsUnlinkedOriginTask(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, controlplane.NewMemoryStore())
+	now := time.Now().UTC()
+	const sessionID = "chat_unlinked_cancel"
+	linkedTask, err := apiHandler.taskStore.CreateTask(t.Context(), types.Task{
+		ID:          "task_linked_terminal",
+		Title:       "Prior linked task",
+		OriginKind:  "chat",
+		OriginID:    sessionID,
+		LatestRunID: "run_linked_terminal",
+		Status:      "completed",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask(linked): %v", err)
+	}
+	if _, err := apiHandler.taskStore.CreateRun(t.Context(), types.TaskRun{
+		ID:         linkedTask.LatestRunID,
+		TaskID:     linkedTask.ID,
+		Status:     "completed",
+		StartedAt:  now,
+		FinishedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun(linked): %v", err)
+	}
+	task, err := apiHandler.taskStore.CreateTask(t.Context(), types.Task{
+		ID:          "task_unlinked_cancel",
+		Title:       "Unlinked chat task",
+		OriginKind:  "chat",
+		OriginID:    sessionID,
+		LatestRunID: "run_unlinked_cancel",
+		Status:      "running",
+		CreatedAt:   now.Add(time.Second),
+		UpdatedAt:   now.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := apiHandler.taskStore.CreateRun(t.Context(), types.TaskRun{
+		ID:        task.LatestRunID,
+		TaskID:    task.ID,
+		Status:    "running",
+		StartedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	chatSession := chat.Session{
+		ID:          sessionID,
+		AgentID:     chat.DefaultAgentID,
+		TaskID:      linkedTask.ID,
+		LatestRunID: linkedTask.LatestRunID,
+		Status:      "failed",
+	}
+	if busy, status := apiHandler.hecateAgentSessionBusy(t.Context(), chatSession); !busy || status != "running" {
+		t.Fatalf("hecateAgentSessionBusy = %v/%q, want true/running for unlinked origin run", busy, status)
+	}
+	cancelled, found, err := apiHandler.cancelHecateChatTaskRun(t.Context(), chatSession)
+	if err != nil || !found {
+		t.Fatalf("cancelHecateChatTaskRun: found=%v err=%v", found, err)
+	}
+	if cancelled.Status != "cancelled" {
+		t.Fatalf("cancelled run status = %q, want cancelled", cancelled.Status)
+	}
+}
+
+func TestCancelUnlinkedHecateTaskRunReportsUnconfirmedCancellation(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	baseStore := taskstate.NewMemoryStore()
+	store := failingTerminalTransitionTaskStore{Store: baseStore}
+	runner := orchestrator.NewRunner(logger, store, nil, orchestrator.Config{})
+	handler := &Handler{taskStore: store, taskRunner: runner}
+	now := time.Now().UTC()
+	task, err := store.CreateTask(t.Context(), types.Task{
+		ID:          "task_cancel_failure",
+		Title:       "Cancellation failure",
+		LatestRunID: "run_cancel_failure",
+		Status:      "running",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(t.Context(), types.TaskRun{
+		ID:        task.LatestRunID,
+		TaskID:    task.ID,
+		Status:    "running",
+		StartedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	confirmed, err := handler.cancelUnlinkedHecateTaskRun(t.Context(), task, task.LatestRunID)
+	if err == nil || confirmed {
+		t.Fatalf("cancelUnlinkedHecateTaskRun = confirmed %v err %v, want unconfirmed error", confirmed, err)
+	}
+	run, found, getErr := store.GetRun(t.Context(), task.ID, task.LatestRunID)
+	if getErr != nil || !found || run.Status != "running" {
+		t.Fatalf("run after failed cancellation = %+v found=%v err=%v", run, found, getErr)
 	}
 }
 

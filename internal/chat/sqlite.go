@@ -308,7 +308,28 @@ func (s *SQLiteStore) DeleteByProjectID(ctx context.Context, projectID string) e
 }
 
 func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(*Session)) (Session, error) {
-	session, err := s.loadSession(ctx, id)
+	// Session updates are full-record read/modify/writes. Serialize them with
+	// message/link transactions on SQLite, and lock the session row on
+	// PostgreSQL, so a callback that read before LinkTaskRun cannot later erase
+	// the committed task/workspace projection.
+	s.messageUpdateMu.Lock()
+	defer s.messageUpdateMu.Unlock()
+
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, fmt.Errorf("begin agent chat session update tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if s.client.Dialect() == storage.DialectPostgres {
+		var lockedID string
+		if err := tx.QueryRowContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ? FOR UPDATE`, s.sessionsTable), id).Scan(&lockedID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Session{}, fmt.Errorf("agent chat session %q not found", id)
+			}
+			return Session{}, fmt.Errorf("lock agent chat session for update: %w", err)
+		}
+	}
+	session, err := s.loadSessionFrom(ctx, tx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, fmt.Errorf("agent chat session %q not found", id)
@@ -317,10 +338,17 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 	}
 	update(&session)
 	session.UpdatedAt = time.Now().UTC()
-	if err := s.updateSessionRecord(ctx, s.client.DB(), session); err != nil {
+	if err := s.updateSessionRecord(ctx, tx, session); err != nil {
 		return Session{}, fmt.Errorf("update sqlite agent chat session: %w", err)
 	}
-	return s.loadSession(ctx, id)
+	committed, err := s.loadSessionFrom(ctx, tx, id)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, fmt.Errorf("commit agent chat session update tx: %w", err)
+	}
+	return committed, nil
 }
 
 func (s *SQLiteStore) updateSessionRecord(ctx context.Context, runner execRunner, session Session) error {

@@ -1192,4 +1192,65 @@ func runStoreTaskRunLinkAtomic(t *testing.T, store Store) {
 			t.Fatalf("linked message = %+v", message)
 		}
 	}
+
+	updateStarted := make(chan struct{})
+	releaseUpdate := make(chan struct{})
+	updateDone := make(chan error, 1)
+	go func() {
+		_, updateErr := store.UpdateSession(ctx, sessionID, func(session *Session) {
+			close(updateStarted)
+			<-releaseUpdate
+			session.Title = "renamed while linking"
+		})
+		updateDone <- updateErr
+	}()
+	select {
+	case <-updateStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("UpdateSession callback did not start")
+	}
+
+	linkDone := make(chan error, 1)
+	go func() {
+		_, linkErr := store.LinkTaskRun(ctx, sessionID, "msg_user", "msg_assistant", func(session *Session, user, assistant *Message) {
+			session.TaskID = "task_2"
+			session.LatestRunID = "run_2"
+			session.Workspace = "/managed-2"
+			user.TaskID = "task_2"
+			user.RunID = "run_2"
+			user.Workspace = "/managed-2"
+			assistant.TaskID = "task_2"
+			assistant.RunID = "run_2"
+			assistant.Workspace = "/managed-2"
+		})
+		linkDone <- linkErr
+	}()
+
+	var earlyLinkErr error
+	linkCompletedEarly := false
+	select {
+	case earlyLinkErr = <-linkDone:
+		linkCompletedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseUpdate)
+	if err := <-updateDone; err != nil {
+		t.Fatalf("UpdateSession(concurrent): %v", err)
+	}
+	if linkCompletedEarly {
+		if earlyLinkErr != nil {
+			t.Fatalf("LinkTaskRun(concurrent early): %v", earlyLinkErr)
+		}
+		t.Fatal("LinkTaskRun completed while a full-session update held a stale snapshot")
+	}
+	if err := <-linkDone; err != nil {
+		t.Fatalf("LinkTaskRun(concurrent): %v", err)
+	}
+	afterConcurrent, ok, err := store.Get(ctx, sessionID)
+	if err != nil || !ok {
+		t.Fatalf("Get after concurrent link: found=%v err=%v", ok, err)
+	}
+	if afterConcurrent.Title != "renamed while linking" || afterConcurrent.TaskID != "task_2" || afterConcurrent.LatestRunID != "run_2" || afterConcurrent.Workspace != "/managed-2" {
+		t.Fatalf("concurrent update/link lost a projection: %+v", afterConcurrent)
+	}
 }

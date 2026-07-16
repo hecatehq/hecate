@@ -38,7 +38,12 @@ import type { CreateProjectPayload, ProjectDeleteRecord, ProjectRecord } from ".
 import type { RetentionRunData } from "../types/retention";
 import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
-import type { ChatTurnKind, PendingToolCall, RecoverableComposerDraft } from "../app/state/chat";
+import type {
+  ChatTurnKind,
+  ChatWorkspaceModeMutation,
+  PendingToolCall,
+  RecoverableComposerDraft,
+} from "../app/state/chat";
 import type { ProjectCatalogLoadOptions, ProjectCatalogLoadResult } from "../app/state/projects";
 import type { NoticeState } from "../app/state/settings";
 import type { ChatMessage } from "../lib/api";
@@ -49,6 +54,7 @@ export type RuntimeConsoleFixtureState = {
   usageSummary: UsageSummaryResponse["data"] | null;
   activeChatSession: ChatSessionRecord | null;
   activeChatSessionID: string;
+  workspaceModeMutationsBySessionID: Map<string, ChatWorkspaceModeMutation>;
   agentAdapterID: string;
   agentConfigOptions: ChatConfigOptionRecord[];
   agentAdapters: AgentAdapterRecord[];
@@ -141,6 +147,7 @@ export function createRuntimeConsoleFixture(
     usageSummary: null,
     activeChatSession: null,
     activeChatSessionID: "",
+    workspaceModeMutationsBySessionID: new Map(),
     agentAdapterID: "codex",
     agentConfigOptions: [],
     agentAdapters: [],

@@ -694,7 +694,7 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	settingsCtx := r.Context()
-	if req.WorkspaceMode != nil {
+	if req.WorkspaceMode != nil || req.RTKEnabled != nil {
 		releaseMutation, admission := h.agentChatLive.beginExclusiveMutation(lifecycle)
 		switch admission {
 		case agentChatRunAdmissionClosed:
@@ -703,7 +703,7 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 		case agentChatRunBusy:
 			WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is busy", ErrorDetails{
 				UserMessage:    "This chat is busy.",
-				OperatorAction: "Wait for the active turn to finish before changing workspace execution.",
+				OperatorAction: "Wait for the active turn to finish before changing chat settings.",
 			})
 			return
 		}
@@ -724,14 +724,15 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 		// A task is created before the transcript link is committed. If that
 		// atomic link ever exhausts its retries, the task's durable chat origin
 		// remains the fail-closed authority for the immutable mode boundary.
-		if strings.TrimSpace(session.TaskID) == "" {
-			taskID, taskExists, taskErr := h.hecateChatOriginTask(settingsCtx, session.ID)
+		if req.WorkspaceMode != nil && strings.TrimSpace(session.TaskID) == "" {
+			originTask, taskExists, taskErr := h.hecateChatOriginTask(settingsCtx, session.ID)
 			if taskErr != nil {
-				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, taskErr.Error())
+				h.logger.ErrorContext(context.WithoutCancel(settingsCtx), "chat.hecate.origin_task_lookup_failed", "session_id", session.ID, "error", taskErr)
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "failed to verify chat task linkage")
 				return
 			}
 			if taskExists {
-				session.TaskID = taskID
+				session.TaskID = originTask.ID
 			}
 		}
 	}
@@ -755,20 +756,20 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
-func (h *Handler) hecateChatOriginTask(ctx context.Context, sessionID string) (string, bool, error) {
+func (h *Handler) hecateChatOriginTask(ctx context.Context, sessionID string) (types.Task, bool, error) {
 	if h.taskStore == nil || strings.TrimSpace(sessionID) == "" {
-		return "", false, nil
+		return types.Task{}, false, nil
 	}
 	tasks, err := h.taskStore.ListTasks(ctx, taskstate.TaskFilter{})
 	if err != nil {
-		return "", false, fmt.Errorf("list chat-origin tasks: %w", err)
+		return types.Task{}, false, fmt.Errorf("list chat-origin tasks: %w", err)
 	}
 	for _, task := range tasks {
 		if task.OriginKind == "chat" && task.OriginID == sessionID {
-			return task.ID, true, nil
+			return task, true, nil
 		}
 	}
-	return "", false, nil
+	return types.Task{}, false, nil
 }
 
 func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {
@@ -833,17 +834,17 @@ func isHecateChatSession(session chat.Session) bool {
 }
 
 func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Session) (types.TaskRun, bool, error) {
-	if !isHecateChatSession(session) || h.taskStore == nil || h.taskRunner == nil || session.TaskID == "" || session.LatestRunID == "" {
+	if !isHecateChatSession(session) || h.taskStore == nil || h.taskRunner == nil {
 		return types.TaskRun{}, false, nil
 	}
-	task, found, err := h.taskStore.GetTask(ctx, session.TaskID)
+	task, activeRun, found, err := h.activeHecateChatTaskRun(ctx, session)
 	if err != nil {
 		return types.TaskRun{}, false, err
 	}
 	if !found {
 		return types.TaskRun{}, false, nil
 	}
-	run, err := h.taskRunner.CancelRun(ctx, task, session.LatestRunID, "operator")
+	run, err := h.taskRunner.CancelRun(ctx, task, activeRun.ID, "operator")
 	if err != nil {
 		if strings.Contains(err.Error(), "already terminal") {
 			return types.TaskRun{}, false, nil
@@ -851,6 +852,51 @@ func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Sess
 		return types.TaskRun{}, true, err
 	}
 	return run, true, nil
+}
+
+func (h *Handler) activeHecateChatTaskRun(ctx context.Context, session chat.Session) (types.Task, types.TaskRun, bool, error) {
+	if h.taskStore == nil || strings.TrimSpace(session.ID) == "" {
+		return types.Task{}, types.TaskRun{}, false, nil
+	}
+	taskID := strings.TrimSpace(session.TaskID)
+	runID := strings.TrimSpace(session.LatestRunID)
+	if taskID != "" && runID != "" {
+		task, found, err := h.taskStore.GetTask(ctx, taskID)
+		if err != nil {
+			return types.Task{}, types.TaskRun{}, false, err
+		}
+		if found {
+			run, runFound, err := h.taskStore.GetRun(ctx, taskID, runID)
+			if err != nil {
+				return types.Task{}, types.TaskRun{}, false, err
+			}
+			if runFound && !types.IsTerminalTaskRunStatus(run.Status) {
+				return task, run, true, nil
+			}
+		}
+	}
+
+	// A task exists before the atomic chat link commits. Keep it authoritative
+	// for admission and cancellation when the first or a later segment leaves
+	// the transcript pointing at no task or an older terminal task.
+	tasks, err := h.taskStore.ListTasks(ctx, taskstate.TaskFilter{})
+	if err != nil {
+		return types.Task{}, types.TaskRun{}, false, err
+	}
+	for _, candidate := range tasks {
+		candidateRunID := strings.TrimSpace(candidate.LatestRunID)
+		if candidate.OriginKind != "chat" || candidate.OriginID != session.ID || candidateRunID == "" {
+			continue
+		}
+		candidateRun, found, err := h.taskStore.GetRun(ctx, candidate.ID, candidateRunID)
+		if err != nil {
+			return types.Task{}, types.TaskRun{}, false, err
+		}
+		if found && !types.IsTerminalTaskRunStatus(candidateRun.Status) {
+			return candidate, candidateRun, true, nil
+		}
+	}
+	return types.Task{}, types.TaskRun{}, false, nil
 }
 
 func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request) {

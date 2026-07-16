@@ -129,7 +129,8 @@ export function ChatSettingsPanel({
               <div style={{ display: "grid", gap: 8 }}>
                 <ChatSettingsToolsRow
                   enabled={toolsEnabled}
-                  disabled={toolsDisabledForModel}
+                  disabledForModel={toolsDisabledForModel}
+                  mutationsDisabled={mutationsDisabled}
                   onChange={onToolsChange}
                 />
                 <ChatSettingsWorkspaceModeRow
@@ -183,6 +184,7 @@ export function ChatSettingsPanel({
               embedded
               isHecateAgentChat={isHecateAgentChat}
               locked={instructionsLocked}
+              disabled={mutationsDisabled}
               value={systemPrompt}
               onChange={onSystemPromptChange}
             />
@@ -304,6 +306,9 @@ function ChatSettingsWorkspaceModeRow({
         {pending ? (
           <div
             id={statusID}
+            aria-atomic="true"
+            aria-live="polite"
+            role="status"
             style={{ marginTop: 4, fontSize: 11, color: "var(--teal)", lineHeight: 1.45 }}
           >
             Saving workspace execution… Sending is paused until Hecate confirms the active mode.
@@ -431,14 +436,16 @@ function ChatSettingsField({
 
 function ChatSettingsToolsRow({
   enabled,
-  disabled,
+  disabledForModel,
+  mutationsDisabled,
   onChange,
 }: {
   enabled: boolean;
-  disabled: boolean;
+  disabledForModel: boolean;
+  mutationsDisabled: boolean;
   onChange: (enabled: boolean) => void;
 }) {
-  const effectiveEnabled = enabled && !disabled;
+  const effectiveEnabled = enabled && !disabledForModel;
   return (
     <div
       style={{
@@ -459,7 +466,7 @@ function ChatSettingsToolsRow({
             ? "Use Hecate's task runtime, approvals, artifacts, and sandboxed tool calls."
             : "Send the next turn directly to the selected provider/model without local tools."}
         </div>
-        {disabled && (
+        {disabledForModel && (
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
             This model does not have known tool-calling support. You can still chat normally.
           </div>
@@ -470,16 +477,21 @@ function ChatSettingsToolsRow({
         type="button"
         aria-label={`Tools ${effectiveEnabled ? "on" : "off"}`}
         aria-pressed={effectiveEnabled}
-        disabled={disabled && !enabled}
+        disabled={mutationsDisabled || (disabledForModel && !enabled)}
         onClick={() => onChange(!enabled)}
         style={{
           flexShrink: 0,
           minWidth: 72,
           justifyContent: "center",
           color:
-            enabled && disabled ? "var(--amber)" : effectiveEnabled ? "var(--teal)" : "var(--t2)",
+            enabled && disabledForModel
+              ? "var(--amber)"
+              : effectiveEnabled
+                ? "var(--teal)"
+                : "var(--t2)",
           borderColor: effectiveEnabled ? "var(--teal-border)" : "var(--border)",
           background: effectiveEnabled ? "var(--teal-bg)" : "transparent",
+          opacity: mutationsDisabled ? 0.55 : 1,
         }}
       >
         {effectiveEnabled ? "on" : "off"}

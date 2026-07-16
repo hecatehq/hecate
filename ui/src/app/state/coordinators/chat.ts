@@ -591,7 +591,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     chatSessions,
     activeChatSessionID,
     activeChatSession,
-    workspaceModeMutation,
     composerDraftsBySessionID,
     savedComposerDraftsBySessionID,
     recoverableComposerDraft,
@@ -633,7 +632,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setChatSessions,
     setActiveChatSessionID,
     setActiveChatSession,
-    setWorkspaceModeMutation,
+    beginWorkspaceModeMutation,
+    currentWorkspaceModeMutation,
+    isCurrentWorkspaceModeMutation,
+    finishWorkspaceModeMutation,
     setComposerDraftsBySessionID,
     setSavedComposerDraftsBySessionID,
     saveRecoverableComposerDraft,
@@ -708,9 +710,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     scope: ComposerDraftScope;
     recoveryID: number | null;
   } | null>(null);
-  const nextWorkspaceModeMutationTokenRef = useRef(0);
-  const workspaceModeMutationRef = useRef(workspaceModeMutation);
-  workspaceModeMutationRef.current = workspaceModeMutation;
   const coordinatorRenderGenerationRef = useRef(0);
   coordinatorRenderGenerationRef.current += 1;
   const lastSubmitClaimRef = useRef<{ renderGeneration: number; content: string } | null>(null);
@@ -1681,9 +1680,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       settleQueuedLocalFailure();
       return;
     }
-    const workspaceMutation = workspaceModeMutationRef.current;
     const submittedSessionID = queued?.session_id ?? activeChatSessionID;
-    if (workspaceMutation?.sessionID === submittedSessionID) {
+    const workspaceMutation = currentWorkspaceModeMutation(submittedSessionID);
+    if (workspaceMutation) {
       setChatErrorState(
         new ApiError(
           "Wait for Hecate to confirm workspace execution before sending a message.",
@@ -3946,11 +3945,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
     if ((session.workspace_mode ?? "in_place") === nextMode) return true;
 
-    const token = ++nextWorkspaceModeMutationTokenRef.current;
-    const mutation = { sessionID, requestedMode: nextMode, token };
-    workspaceModeMutationRef.current = mutation;
-    setWorkspaceModeMutation(mutation);
-    const mutationIsCurrent = () => workspaceModeMutationRef.current?.token === token;
+    const mutation = beginWorkspaceModeMutation(sessionID, nextMode);
+    const mutationIsCurrent = () => isCurrentWorkspaceModeMutation(sessionID, mutation.token);
     const cancellationEpoch = currentChatCancellationEpoch(sessionID);
     const stopRequestToken = stopReadTokenAtRequestStart(sessionID);
     try {
@@ -3982,10 +3978,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       );
       return false;
     } finally {
-      if (mutationIsCurrent()) {
-        workspaceModeMutationRef.current = null;
-        setWorkspaceModeMutation(null);
-      }
+      finishWorkspaceModeMutation(sessionID, mutation.token);
     }
   }
 

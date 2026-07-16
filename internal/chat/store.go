@@ -549,6 +549,9 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 }
 
 func (s *MemoryStore) LinkTaskRun(_ context.Context, sessionID, userMessageID, assistantMessageID string, update func(*Session, *Message, *Message)) (Session, error) {
+	if strings.TrimSpace(userMessageID) == "" || strings.TrimSpace(assistantMessageID) == "" || userMessageID == assistantMessageID {
+		return Session{}, fmt.Errorf("distinct task-run message ids are required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[sessionID]

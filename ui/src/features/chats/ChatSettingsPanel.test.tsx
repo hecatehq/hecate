@@ -180,6 +180,7 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
         showHecateControls
         workspaceMode="in_place"
         workspaceModePending
+        mutationsDisabled
         usageSource="hecate"
         externalSession={null}
       />,
@@ -189,5 +190,7 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
     expect(select).toBeDisabled();
     expect(select).toHaveValue("in_place");
     expect(select).toHaveAccessibleDescription(/sending is paused/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/saving workspace execution/i);
+    expect(screen.getByRole("button", { name: "Tools off" })).toBeDisabled();
   });
 });

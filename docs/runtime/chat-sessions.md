@@ -541,7 +541,9 @@ default as coordination intent, while Hecate snapshots and enforces the value
 on the chat and backing task. An empty or direct-model-only Hecate Chat may
 change posture, including when it started from a linked Project default. While
 that write is pending, the requested value is shown immediately and message
-submission pauses until Hecate confirms or reloads the authoritative value.
+submission, attachments, route controls, and chat-setting edits pause until
+Hecate confirms or reloads the authoritative value. The composer announces the
+pending state and associates it with the disabled Send and attachment controls.
 After its first task-backed segment exists, the selector is locked so one
 transcript cannot silently switch between managed and live-folder execution. A
 managed run atomically replaces the session and launching message paths with the
@@ -549,6 +551,16 @@ actual generated execution path, keeping Review, Files, and evidence scoped to
 the files the agent changed. If a provider/model/MCP change starts a new task
 segment, it reuses that managed root so unstaged and untracked work remains
 visible to the next agent.
+
+All non-empty Hecate settings writes share the same exclusive turn boundary,
+including Compact command output changes. If the atomic task/run link cannot be
+confirmed after retry and an authoritative reread, Hecate cancels the backing
+run, terminalizes the assistant as failed, and keeps Review/Files closed. A
+same-`client_request_id` replay returns that terminal transcript without
+dispatching another run. Durable chat-origin metadata remains a fallback Stop
+path if the first cancellation attempt could not be confirmed.
+Until that origin run is terminal, Hecate also rejects another turn instead of
+starting a second backing task against an incompletely linked transcript.
 
 Tools decides whether future turns stay as direct model calls or enter the
 Hecate task runtime. If tools are on but the selected model is known not to

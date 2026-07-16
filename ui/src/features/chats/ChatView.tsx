@@ -91,6 +91,7 @@ const DEFAULT_RIGHT_PANEL_WIDTH = 380;
 
 function chatAttachmentsDisabledReason({
   ownershipMutationInFlight,
+  workspaceModePending,
   isExternalAgentChat,
   externalAgentReady,
   toolsEnabled,
@@ -99,6 +100,7 @@ function chatAttachmentsDisabledReason({
   model,
 }: {
   ownershipMutationInFlight: boolean;
+  workspaceModePending: boolean;
   isExternalAgentChat: boolean;
   externalAgentReady: boolean;
   toolsEnabled: boolean;
@@ -108,6 +110,9 @@ function chatAttachmentsDisabledReason({
 }): string {
   if (ownershipMutationInFlight) {
     return "Wait for the current chat ownership change to finish before attaching files.";
+  }
+  if (workspaceModePending) {
+    return "Wait for Hecate to confirm workspace execution before attaching files.";
   }
   if (agentBusy) return "Wait for the current response; messages with files cannot be queued.";
   if (isExternalAgentChat) {
@@ -161,7 +166,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     agentAdapterHealthLoadingByID: providersAndModels.state.agentAdapterHealthLoadingByID,
     agentWorkspace,
     agentWorkspaceMode: chat.state.agentWorkspaceMode,
-    workspaceModeMutation: chat.state.workspaceModeMutation,
+    workspaceModeMutationsBySessionID: chat.state.workspaceModeMutationsBySessionID,
     chatCancelling: chat.state.chatCancelling,
     chatError: chat.state.chatError,
     chatErrorCode: chat.state.chatErrorCode,
@@ -536,10 +541,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     : activeSessionProjectID
       ? projectDefaultChatWorkspaceMode(activeSessionProject)
       : state.agentWorkspaceMode;
-  const workspaceModeMutation =
-    state.workspaceModeMutation?.sessionID === state.activeChatSession?.id
-      ? state.workspaceModeMutation
-      : null;
+  const workspaceModeMutation = state.activeChatSession?.id
+    ? (state.workspaceModeMutationsBySessionID.get(state.activeChatSession.id) ?? null)
+    : null;
   const workspaceMode: ChatWorkspaceMode =
     workspaceModeMutation?.requestedMode ?? persistedWorkspaceMode;
   const workspaceModePending = Boolean(workspaceModeMutation);
@@ -721,6 +725,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     !chat.state.chatOwnershipMutationInFlight;
   const attachmentsDisabledReason = chatAttachmentsDisabledReason({
     ownershipMutationInFlight: chat.state.chatOwnershipMutationInFlight,
+    workspaceModePending,
     isExternalAgentChat,
     externalAgentReady: externalAgentAttachmentsReady,
     toolsEnabled: hecateChatToolsEnabled,
@@ -1463,6 +1468,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 textareaRef={textareaRef}
                 composerVisible={composerVisible}
                 composerInputDisabled={implicitSessionAllocation}
+                workspaceModePending={workspaceModePending}
                 composerRouteControlsDisabled={
                   detachedCreationPending || selectedChatCancelling || workspaceModePending
                 }

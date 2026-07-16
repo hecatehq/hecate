@@ -281,17 +281,43 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	linkCancel()
 	if err != nil {
 		h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.task_link_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", err)
-		cancelCtx, cancelRun := newAgentChatPersistenceContext(r.Context())
-		if h.taskRunner != nil {
-			if _, cancelErr := h.taskRunner.CancelRun(cancelCtx, task, run.ID, "chat transcript link failed"); cancelErr != nil && !strings.Contains(cancelErr.Error(), "already terminal") {
-				h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.task_link_cancel_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", cancelErr)
-			}
+		cancelConfirmed, cancelErr := h.cancelUnlinkedHecateTaskRun(r.Context(), task, run.ID)
+		if cancelErr != nil {
+			h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.task_link_cancel_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", cancelErr)
 		}
-		cancelRun()
+		completedAt := time.Now().UTC()
+		failureOutput := "Hecate could not safely link the managed workspace to this chat. The backing run was stopped."
+		operatorAction := "Retry after checking storage health. Workspace review is disabled until the link is repaired."
+		if !cancelConfirmed {
+			failureOutput = "Hecate could not safely link the managed workspace to this chat, and could not confirm that the backing run stopped."
+			operatorAction = "Check task-runtime storage health and cancel the newest chat-origin run from Runs before retrying. Workspace review remains disabled."
+		}
+		terminalCtx, terminalCancel := newAgentChatPersistenceContext(r.Context())
+		terminal, terminalErr := h.finishHecateAgentMessage(terminalCtx, session.ID, assistantID, "failed", failureOutput, "managed workspace link failed", startedAt, completedAt, &run, chat.Timing{})
+		terminalCancel()
+		if terminalErr != nil {
+			h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.task_link_terminal_update_failed", "session_id", session.ID, "message_id", assistantID, "error", terminalErr)
+		} else {
+			h.agentChatLive.publishSession(terminal)
+		}
+		trace.Record(agentChatTerminalEvent("failed"), hecateAgentChatTraceAttrs(session, task.ID, run.ID, assistantID, map[string]any{
+			telemetry.AttrHecateRunStatus:     "failed",
+			telemetry.AttrHecateRunDurationMS: completedAt.Sub(startedAt).Milliseconds(),
+			telemetry.AttrHecateResult:        telemetry.ResultError,
+			telemetry.AttrHecateErrorKind:     telemetry.ErrorKindOther,
+			telemetry.AttrErrorType:           "chat_task_link_failed",
+		}))
+		h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
+			AdapterID:  "hecate",
+			DriverKind: "hecate",
+			Status:     "failed",
+			Result:     telemetry.ResultError,
+			DurationMS: completedAt.Sub(startedAt).Milliseconds(),
+		})
 		if r.Context().Err() == nil {
 			WriteErrorDetails(w, http.StatusInternalServerError, errCodeGatewayError, "failed to persist the chat task workspace link", ErrorDetails{
 				UserMessage:    "The managed workspace started, but Hecate could not link it safely to this chat.",
-				OperatorAction: "Retry after checking storage health. Workspace review is disabled until the link is repaired.",
+				OperatorAction: operatorAction,
 			})
 		}
 		return
@@ -446,6 +472,7 @@ func (h *Handler) linkHecateTaskRun(
 			userMessage.ExecutionMode = messageSnapshot.ExecutionMode
 			userMessage.SegmentID = messageSnapshot.SegmentID
 			userMessage.TaskID = messageSnapshot.TaskID
+			userMessage.RunID = run.ID
 			userMessage.Provider = messageSnapshot.Provider
 			userMessage.Model = messageSnapshot.Model
 			userMessage.Capabilities = messageSnapshot.Capabilities
@@ -489,7 +516,65 @@ func (h *Handler) linkHecateTaskRun(
 		case <-timer.C:
 		}
 	}
+	verifyCtx, verifyCancel := newAgentChatPersistenceContext(ctx)
+	authoritative, found, readErr := h.agentChat.Get(verifyCtx, session.ID)
+	verifyCancel()
+	if readErr == nil && found && hecateTaskRunLinkMatches(authoritative, userMessageID, assistantMessageID, task.ID, run.ID, session.Workspace) {
+		return authoritative, nil
+	}
+	if readErr != nil {
+		lastErr = errors.Join(lastErr, fmt.Errorf("verify task-run link after ambiguous write: %w", readErr))
+	}
 	return chat.Session{}, lastErr
+}
+
+func hecateTaskRunLinkMatches(session chat.Session, userMessageID, assistantMessageID, taskID, runID, workspace string) bool {
+	if session.TaskID != taskID || session.LatestRunID != runID || strings.TrimSpace(session.Workspace) != strings.TrimSpace(workspace) {
+		return false
+	}
+	userLinked := false
+	assistantLinked := false
+	for _, message := range session.Messages {
+		switch message.ID {
+		case userMessageID:
+			userLinked = message.TaskID == taskID && message.RunID == runID && strings.TrimSpace(message.Workspace) == strings.TrimSpace(workspace)
+		case assistantMessageID:
+			assistantLinked = message.TaskID == taskID && message.RunID == runID && strings.TrimSpace(message.Workspace) == strings.TrimSpace(workspace)
+		}
+	}
+	return userLinked && assistantLinked
+}
+
+func (h *Handler) cancelUnlinkedHecateTaskRun(ctx context.Context, task types.Task, runID string) (bool, error) {
+	if h.taskRunner == nil {
+		return false, fmt.Errorf("task runner is not configured")
+	}
+	const maxAttempts = 3
+	durableCtx := context.WithoutCancel(ctx)
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		cancelCtx, cancel := newAgentChatPersistenceContext(durableCtx)
+		_, err := h.taskRunner.CancelRun(cancelCtx, task, runID, "chat transcript link failed")
+		cancel()
+		if err == nil || strings.Contains(err.Error(), "already terminal") {
+			return true, nil
+		}
+		lastErr = err
+		if h.taskStore != nil {
+			current, found, getErr := h.taskStore.GetRun(durableCtx, task.ID, runID)
+			if getErr == nil && found && types.IsTerminalTaskRunStatus(current.Status) {
+				return true, nil
+			}
+			if getErr != nil {
+				lastErr = errors.Join(lastErr, getErr)
+			}
+		}
+		if attempt < maxAttempts-1 {
+			timer := time.NewTimer(time.Duration(attempt+1) * 25 * time.Millisecond)
+			<-timer.C
+		}
+	}
+	return false, lastErr
 }
 
 func hecateAgentSegmentID(session chat.Session) string {
@@ -512,14 +597,13 @@ func hecateAgentMessageSnapshot(session chat.Session, caps types.ModelCapabiliti
 }
 
 func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session chat.Session) (bool, string) {
-	if session.TaskID == "" || session.LatestRunID == "" || h.taskStore == nil {
-		return false, ""
+	_, run, found, err := h.activeHecateChatTaskRun(ctx, session)
+	if err != nil {
+		// A task-store failure cannot prove that no unlinked backing run is
+		// active. Hold admission closed until the runtime can be inspected.
+		return true, "unknown"
 	}
-	run, found, err := h.taskStore.GetRun(ctx, session.TaskID, session.LatestRunID)
-	if err != nil || !found {
-		return false, ""
-	}
-	return !types.IsTerminalTaskRunStatus(run.Status), run.Status
+	return found, run.Status
 }
 
 func shouldStartNewHecateAgentSegment(session chat.Session, provider, model string) bool {
