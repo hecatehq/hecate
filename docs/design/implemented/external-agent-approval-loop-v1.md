@@ -238,7 +238,7 @@ oldest pending first.
       "adapter_id": "codex",
       "status": "pending",
       "tool_kind": "file_write",
-      "acp_payload": {/* verbatim RequestPermissionRequest */},
+      "acp_payload": {},
       "acp_options": [
         { "option_id": "allow_once", "kind": "allow_once", "name": "Allow once" },
         {
@@ -257,6 +257,9 @@ oldest pending first.
   ]
 }
 ```
+
+`acp_payload` contains the verbatim `RequestPermissionRequest`; the empty object
+above keeps the example compact.
 
 ### Single approval
 
