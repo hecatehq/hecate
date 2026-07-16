@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  normalizeChatWorkspaceMode,
   projectByID,
+  projectDefaultChatWorkspaceMode,
   projectDefaultWorkspace,
   projectDefaultWorkspaceFromRoots,
 } from "./project-workspace";
@@ -86,5 +88,18 @@ describe("project workspace helpers", () => {
     expect(projectByID([record], " proj_hecate ")).toBe(record);
     expect(projectByID([record], "")).toBeNull();
     expect(projectByID([record], "missing")).toBeNull();
+  });
+
+  it("normalizes project workspace execution defaults", () => {
+    expect(projectDefaultChatWorkspaceMode(project({ default_workspace_mode: "in_place" }))).toBe(
+      "in_place",
+    );
+    expect(projectDefaultChatWorkspaceMode(project({ default_workspace_mode: "ephemeral" }))).toBe(
+      "ephemeral",
+    );
+    expect(projectDefaultChatWorkspaceMode(project({ default_workspace_mode: "" }))).toBe(
+      "persistent",
+    );
+    expect(normalizeChatWorkspaceMode("future-mode")).toBe("persistent");
   });
 });

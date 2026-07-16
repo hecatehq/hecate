@@ -51,12 +51,15 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	workspace := t.TempDir()
 
 	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
-		fmt.Sprintf(`{"agent_id":"hecate","title":"Refactor chat","workspace":%q,"provider":"openai","model":"gpt-4o-mini","rtk_enabled":true}`, workspace))
+		fmt.Sprintf(`{"agent_id":"hecate","title":"Refactor chat","workspace":%q,"workspace_mode":"persistent","provider":"openai","model":"gpt-4o-mini","rtk_enabled":true}`, workspace))
 	if session.Data.AgentID != chat.DefaultAgentID {
 		t.Fatalf("agent_id = %q, want hecate", session.Data.AgentID)
 	}
 	if !session.Data.RTKEnabled {
 		t.Fatal("rtk_enabled = false, want true")
+	}
+	if session.Data.WorkspaceMode != chat.WorkspaceModePersistent {
+		t.Fatalf("workspace_mode = %q, want persistent", session.Data.WorkspaceMode)
 	}
 	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingParallel {
 		t.Fatalf("capabilities = %+v, want parallel catalog capabilities", session.Data.Capabilities)
@@ -74,6 +77,12 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if !found || !backingTask.RTKEnabled {
 		t.Fatalf("backing task RTKEnabled = %v, found %v; want true", backingTask.RTKEnabled, found)
 	}
+	if backingTask.WorkspaceMode != chat.WorkspaceModePersistent {
+		t.Fatalf("backing task workspace_mode = %q, want persistent", backingTask.WorkspaceMode)
+	}
+	if first.Data.Workspace == workspace || !filepath.IsAbs(first.Data.Workspace) {
+		t.Fatalf("session workspace = %q, want generated isolated workspace distinct from %q", first.Data.Workspace, workspace)
+	}
 	if first.Data.Status != "completed" {
 		t.Fatalf("first status = %q, want completed", first.Data.Status)
 	}
@@ -81,6 +90,9 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 		t.Fatalf("first transcript = %+v", first.Data.Messages)
 	}
 	assistant := first.Data.Messages[len(first.Data.Messages)-1]
+	if assistant.Workspace != first.Data.Workspace {
+		t.Fatalf("assistant workspace = %q, want isolated session workspace %q", assistant.Workspace, first.Data.Workspace)
+	}
 	if assistant.ExecutionMode != chat.ExecutionModeHecateTask || assistant.TaskID != first.Data.TaskID || assistant.SegmentID != "task:"+first.Data.TaskID {
 		t.Fatalf("assistant message execution snapshot = mode %q segment %q task %q", assistant.ExecutionMode, assistant.SegmentID, assistant.TaskID)
 	}
@@ -89,6 +101,9 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	}
 	if first.Data.Messages[0].SegmentID != assistant.SegmentID || first.Data.Messages[0].TaskID != first.Data.TaskID {
 		t.Fatalf("user message segment/task = %q/%q, want %q/%q", first.Data.Messages[0].SegmentID, first.Data.Messages[0].TaskID, assistant.SegmentID, first.Data.TaskID)
+	}
+	if first.Data.Messages[0].Workspace != first.Data.Workspace || first.Data.Messages[0].ContextPacket.Workspace != first.Data.Workspace {
+		t.Fatalf("user message workspace/context = %q/%q, want isolated session workspace %q", first.Data.Messages[0].Workspace, first.Data.Messages[0].ContextPacket.Workspace, first.Data.Workspace)
 	}
 	if !agentChatMessageHasActivity(assistant, "thinking") {
 		t.Fatalf("assistant activities missing projected task thinking activity: %+v", assistant.Activities)
@@ -122,6 +137,11 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if !found || updatedBackingTask.RTKEnabled {
 		t.Fatalf("updated backing task RTKEnabled = %v, found %v; want false", updatedBackingTask.RTKEnabled, found)
 	}
+	lockedMode := client.mustRequestStatus(http.StatusConflict, http.MethodPatch, "/hecate/v1/chat/sessions/"+session.Data.ID+"/settings",
+		`{"workspace_mode":"in_place"}`)
+	if !strings.Contains(lockedMode.Body.String(), "workspace_mode cannot change") {
+		t.Fatalf("locked workspace mode body = %s", lockedMode.Body.String())
+	}
 
 	second := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
 		`{"execution_mode":"hecate_task","content":"continue from there"}`)
@@ -154,6 +174,37 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if secondAssistant.RequestID != secondRun.RequestID || secondAssistant.TraceID != secondRun.TraceID || secondAssistant.SpanID != secondRun.RootSpanID {
 		t.Fatalf("second assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
 			secondAssistant.RequestID, secondAssistant.TraceID, secondAssistant.SpanID, secondRun.RequestID, secondRun.TraceID, secondRun.RootSpanID)
+	}
+}
+
+func TestHecateAgentChatWorkspaceModeChangeSerializesWithTurns(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, controlplane.NewMemoryStore())
+	client := newTaskTestClient(t, NewServer(logger, apiHandler))
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","workspace_mode":"persistent"}`)
+
+	lifecycle := apiHandler.agentChatLive.snapshotLifecycle(session.Data.ID)
+	if got := apiHandler.agentChatLive.registerRun(lifecycle, func() {}); got != agentChatRunAccepted {
+		lifecycle.release()
+		t.Fatalf("registerRun() = %v, want accepted", got)
+	}
+	busy := client.mustRequestStatus(http.StatusConflict, http.MethodPatch,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
+	if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
+		t.Fatalf("busy workspace mode body = %s", busy.Body.String())
+	}
+	apiHandler.agentChatLive.clearRun(session.Data.ID)
+	lifecycle.release()
+
+	unchanged := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+session.Data.ID, "")
+	if unchanged.Data.WorkspaceMode != chat.WorkspaceModePersistent {
+		t.Fatalf("workspace mode after busy change = %q, want persistent", unchanged.Data.WorkspaceMode)
+	}
+	updated := mustRequestJSON[ChatSessionResponse](client, http.MethodPatch,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
+	if updated.Data.WorkspaceMode != chat.WorkspaceModeInPlace {
+		t.Fatalf("workspace mode after idle change = %q, want in_place", updated.Data.WorkspaceMode)
 	}
 }
 

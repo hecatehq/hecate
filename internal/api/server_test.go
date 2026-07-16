@@ -2640,6 +2640,18 @@ func TestAgentChatCreateUsesStableErrorContracts(t *testing.T) {
 			statusCode: http.StatusBadRequest,
 			wantType:   errCodeAgentIDInvalid,
 		},
+		{
+			name:       "workspace mode invalid",
+			body:       `{"agent_id":"hecate","workspace_mode":"worktree"}`,
+			statusCode: http.StatusBadRequest,
+			wantType:   errCodeInvalidRequest,
+		},
+		{
+			name:       "external agent isolated workspace rejected",
+			body:       fmt.Sprintf(`{"agent_id":"codex","workspace":%q,"workspace_mode":"persistent"}`, t.TempDir()),
+			statusCode: http.StatusBadRequest,
+			wantType:   errCodeInvalidRequest,
+		},
 	}
 
 	for _, tt := range tests {

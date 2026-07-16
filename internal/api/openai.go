@@ -906,6 +906,7 @@ type CreateChatSessionRequest struct {
 	Provider      string                       `json:"provider,omitempty"`
 	Model         string                       `json:"model,omitempty"`
 	Workspace     string                       `json:"workspace"`
+	WorkspaceMode string                       `json:"workspace_mode,omitempty"`
 	RTKEnabled    bool                         `json:"rtk_enabled,omitempty"`
 	ConfigOptions []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 	// MCPServers configures MCP servers for an External Agent session.
@@ -949,7 +950,8 @@ type SetAgentChatConfigOptionRequest struct {
 }
 
 type SetAgentChatSettingsRequest struct {
-	RTKEnabled *bool `json:"rtk_enabled,omitempty"`
+	RTKEnabled    *bool   `json:"rtk_enabled,omitempty"`
+	WorkspaceMode *string `json:"workspace_mode,omitempty"`
 }
 
 type ChatSessionSummaryItem struct {
@@ -967,6 +969,7 @@ type ChatSessionSummaryItem struct {
 	Capabilities    types.ModelCapabilities           `json:"capabilities,omitempty"`
 	RTKEnabled      bool                              `json:"rtk_enabled,omitempty"`
 	Workspace       string                            `json:"workspace"`
+	WorkspaceMode   string                            `json:"workspace_mode"`
 	WorkspaceBranch string                            `json:"workspace_branch,omitempty"`
 	Status          string                            `json:"status"`
 	MCPServers      []MCPServerConfigItem             `json:"mcp_servers,omitempty"`
@@ -990,6 +993,7 @@ type ChatSessionItem struct {
 	Capabilities         types.ModelCapabilities           `json:"capabilities,omitempty"`
 	RTKEnabled           bool                              `json:"rtk_enabled,omitempty"`
 	Workspace            string                            `json:"workspace"`
+	WorkspaceMode        string                            `json:"workspace_mode"`
 	WorkspaceBranch      string                            `json:"workspace_branch,omitempty"`
 	Status               string                            `json:"status"`
 	TurnsUsed            int                               `json:"turns_used"`

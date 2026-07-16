@@ -93,10 +93,10 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_branch,
+				id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_mode, workspace_branch,
 				status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 )
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   project_id = excluded.project_id,
@@ -105,6 +105,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 			   native_session_id = excluded.native_session_id,
 			   agent_info = excluded.agent_info,
 			   workspace = excluded.workspace,
+			   workspace_mode = excluded.workspace_mode,
 			   workspace_branch = excluded.workspace_branch,
 			   status = excluded.status,
 			   task_id = excluded.task_id,
@@ -128,6 +129,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		session.NativeSessionID,
 		marshalImplementationInfo(session.AgentInfo),
 		session.Workspace,
+		session.WorkspaceMode,
 		session.WorkspaceBranch,
 		session.Status,
 		session.TaskID,
@@ -165,12 +167,12 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_branch,
+			`SELECT s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_mode, s.workspace_branch,
 			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
-			 GROUP BY s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_branch,
+			 GROUP BY s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_mode, s.workspace_branch,
 			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
@@ -202,6 +204,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&session.NativeSessionID,
 			&agentInfo,
 			&session.Workspace,
+			&session.WorkspaceMode,
 			&session.WorkspaceBranch,
 			&session.Status,
 			&session.TaskID,
@@ -318,7 +321,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   title = ?, project_id = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, agent_info = ?, workspace = ?, workspace_branch = ?,
+			   title = ?, project_id = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, agent_info = ?, workspace = ?, workspace_mode = ?, workspace_branch = ?,
 			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, available_commands = ?, mcp_servers = ?, rtk_enabled = ?, turns_used = ?, context_summary = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
@@ -330,6 +333,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		session.NativeSessionID,
 		marshalImplementationInfo(session.AgentInfo),
 		session.Workspace,
+		session.WorkspaceMode,
 		session.WorkspaceBranch,
 		session.Status,
 		session.TaskID,
@@ -541,6 +545,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				native_session_id TEXT NOT NULL DEFAULT '',
 				agent_info TEXT NOT NULL DEFAULT '{}',
 				workspace TEXT NOT NULL,
+				workspace_mode TEXT NOT NULL DEFAULT '',
 				workspace_branch TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
 				task_id TEXT NOT NULL DEFAULT '',
@@ -633,6 +638,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		return fmt.Errorf("migrate sqlite agent chat message requests: %w", err)
 	}
 	if err := s.ensureSessionColumn(ctx, "workspace_branch", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureSessionColumn(ctx, "workspace_mode", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureSessionColumn(ctx, "project_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -741,7 +749,7 @@ func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, i
 	err := runner.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_branch,
+			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_mode, workspace_branch,
 			        status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 FROM %s WHERE id = ?`,
 			s.sessionsTable,
@@ -756,6 +764,7 @@ func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, i
 		&session.NativeSessionID,
 		&agentInfo,
 		&session.Workspace,
+		&session.WorkspaceMode,
 		&session.WorkspaceBranch,
 		&session.Status,
 		&session.TaskID,

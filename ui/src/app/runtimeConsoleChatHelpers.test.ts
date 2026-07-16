@@ -578,6 +578,7 @@ describe("renderChatSessionSummary", () => {
       driver_kind: "acp",
       native_session_id: "n1",
       workspace: "/repo",
+      workspace_mode: "persistent",
       workspace_branch: "main",
       status: "running",
       messages: [
@@ -589,6 +590,7 @@ describe("renderChatSessionSummary", () => {
     expect(out.message_count).toBe(2);
     expect(out.agent_id).toBe("codex");
     expect(out.project_id).toBe("proj_1");
+    expect(out.workspace_mode).toBe("persistent");
     expect(out.workspace_branch).toBe("main");
     expect(out.status).toBe("running");
   });

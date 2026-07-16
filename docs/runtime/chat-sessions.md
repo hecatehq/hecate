@@ -521,12 +521,31 @@ Submitting a project command without text after the command returns a composer
 notice and does not draft a proposal. Unknown slash commands in Hecate Chat are
 submitted as ordinary chat text, matching the normal composer path.
 
-Hecate Chat settings also own the **Tools** toggle and the optional **Compact
-command output** toggle. Tools decides whether future turns stay as direct
-model calls or enter the Hecate task runtime. If tools are on but the selected
-model is known not to support tool-calling, Hecate keeps the chat usable by
-sending the turn as direct model chat and showing that state in the chat header.
-Compact command output is
+Hecate Chat settings also own **Workspace execution**, the **Tools** toggle,
+and the optional **Compact command output** toggle. **Managed workspace**
+(`persistent` or `ephemeral`) keeps the selected source folder untouched and
+provisions task-backed turns in a separate Hecate-owned workspace. **Current
+folder** (`in_place`) lets tools write directly to the selected folder and is
+therefore the explicitly destructive posture. The two managed values remain
+distinct persisted settings, but currently share clone/copy provisioning;
+Git-worktree provisioning can be added behind the managed-workspace contract
+without changing the operator choice. External Agent chats do not expose this
+control: their ACP sessions always own the selected workspace in place.
+
+The operator UI explicitly defaults project-free Hecate chats to Managed
+workspace. A project-linked new chat inherits the Cairnline Project's workspace
+default as coordination intent, while Hecate snapshots and enforces the value
+on the chat and backing task. An empty or direct-model-only Hecate Chat may
+change posture. After its first task-backed segment exists, the selector is
+locked so one transcript cannot silently switch between managed and live-folder
+execution. A managed run replaces the session's source path with the actual
+generated execution path, keeping Review, Files, message evidence, and later
+continuations scoped to the files the agent changed.
+
+Tools decides whether future turns stay as direct model calls or enter the
+Hecate task runtime. If tools are on but the selected model is known not to
+support tool-calling, Hecate keeps the chat usable by sending the turn as direct
+model chat and showing that state in the chat header. Compact command output is
 per-chat RTK support. It is off by default; if `rtk` is installed in the
 gateway process `PATH`, Hecate suggests enabling it during new-chat onboarding.
 When enabled, future shell/git tool calls in task-backed turns launch as

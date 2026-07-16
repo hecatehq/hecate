@@ -355,6 +355,7 @@ export function renderChatSessionSummary(
     model: session.model,
     capabilities: session.capabilities,
     workspace: session.workspace,
+    workspace_mode: session.workspace_mode,
     workspace_branch: session.workspace_branch,
     status: session.status,
     message_count: session.messages?.length ?? 0,

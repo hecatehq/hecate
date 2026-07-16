@@ -21,6 +21,11 @@ type Session struct {
 	DriverKind      string
 	NativeSessionID string
 	Workspace       string
+	// WorkspaceMode records whether Hecate-owned task turns run in an
+	// isolated copy of Workspace or directly in it. Legacy rows leave this
+	// empty and retain the historical in-place behavior through
+	// EffectiveWorkspaceMode.
+	WorkspaceMode string
 	// WorkspaceBranch is captured when the session is created so API
 	// snapshots don't spawn git on every streamed update.
 	WorkspaceBranch   string
@@ -43,6 +48,23 @@ type Session struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	Messages       []Message
+}
+
+const (
+	WorkspaceModePersistent = "persistent"
+	WorkspaceModeEphemeral  = "ephemeral"
+	WorkspaceModeInPlace    = "in_place"
+)
+
+// EffectiveWorkspaceMode preserves the historical Hecate Chat behavior for
+// sessions created before workspace posture was persisted. New clients send
+// an explicit value, with the operator UI defaulting to an isolated workspace.
+func EffectiveWorkspaceMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return WorkspaceModeInPlace
+	}
+	return mode
 }
 
 type Message struct {

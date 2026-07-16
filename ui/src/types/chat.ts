@@ -6,6 +6,8 @@ import type {
   ContextPacketSourceRecord,
 } from "./context";
 
+export type ChatWorkspaceMode = "persistent" | "ephemeral" | "in_place";
+
 // PersistedContentBlock mirrors the Hecate-extension wire shape used to
 // persist Anthropic-aware content (thinking, tool_use, image with
 // cache_control). Replay paths emit it; SDK clients hitting the OpenAI
@@ -39,6 +41,7 @@ export type ChatSessionSummaryRecord = {
   capabilities?: ModelCapabilitiesRecord;
   rtk_enabled?: boolean;
   workspace: string;
+  workspace_mode?: ChatWorkspaceMode;
   workspace_branch?: string;
   status: string;
   mcp_servers?: ChatMCPServerRecord[];
@@ -237,6 +240,7 @@ export type ChatSessionRecord = {
   capabilities?: ModelCapabilitiesRecord;
   rtk_enabled?: boolean;
   workspace: string;
+  workspace_mode?: ChatWorkspaceMode;
   workspace_branch?: string;
   status: string;
   turns_used?: number;

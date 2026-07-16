@@ -161,6 +161,14 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   blocked with clear manual-review copy when proof is impossible. Preserve FIFO,
   and disable editing, removal, retry, and status checks while `submitting` or a
   destructive chat-ownership reservation is active.
+- Hecate Chat exposes workspace posture as **Managed workspace**
+  (`persistent`/`ephemeral`) versus **Current folder** (`in_place`). New
+  project-free chats explicitly default to managed execution; project-linked
+  creation reflects the Cairnline Project default. Keep the selector editable
+  only before a backing task exists, explain that Current folder writes to the
+  live checkout, and render review/files against the generated managed
+  workspace returned by the session. External Agent chats do not expose this
+  selector because ACP sessions use their selected workspace in place.
 - Successful keyed message responses expose `message_request.replay` and the
   exact committed user-message id. A replay can return before its assistant is
   terminal: keep that queue item at the FIFO head, observe the live session

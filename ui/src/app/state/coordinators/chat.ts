@@ -57,7 +57,12 @@ import {
   modelSelectionHasNoToolCalling,
   modelSelectionImageInputCapability,
 } from "../../../lib/chat-setup-readiness";
-import { projectByID, projectDefaultWorkspace } from "../../../lib/project-workspace";
+import {
+  normalizeChatWorkspaceMode,
+  projectByID,
+  projectDefaultChatWorkspaceMode,
+  projectDefaultWorkspace,
+} from "../../../lib/project-workspace";
 import {
   toChatMessageViewModel,
   toChatSegmentViewModel,
@@ -105,6 +110,7 @@ import type {
   ChatResponse,
   ChatSessionSummaryRecord,
   ChatSessionRecord,
+  ChatWorkspaceMode,
 } from "../../../types/chat";
 
 const definiteHecateServerRejectionCodes = new Set([
@@ -426,12 +432,14 @@ export function findReusableEmptyDraftSession(
     projectID,
     provider,
     title,
+    workspaceMode,
   }: {
     agentID: string;
     model: string;
     projectID: string;
     provider: string;
     title: string;
+    workspaceMode?: ChatWorkspaceMode;
   },
 ): ChatSessionSummaryRecord | null {
   const expectedAgentID = agentID.trim() || "hecate";
@@ -448,12 +456,14 @@ export function findReusableEmptyDraftSession(
       const sessionModel = (session.model ?? "").trim();
       const sessionTitle = (session.title ?? "").trim();
       const sessionStatus = (session.status ?? "").trim();
+      const sessionWorkspaceMode = session.workspace_mode ?? "in_place";
       return (
         sessionAgentID === expectedAgentID &&
         sessionProjectID === expectedProjectID &&
         sessionProvider === expectedProvider &&
         sessionModel === expectedModel &&
         sessionTitle === expectedTitle &&
+        (workspaceMode === undefined || sessionWorkspaceMode === workspaceMode) &&
         (session.message_count ?? 0) === 0 &&
         (!sessionStatus || sessionStatus === "idle")
       );
@@ -544,6 +554,7 @@ type ChatActionsReturn = {
     value: string | boolean,
   ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
+  setHecateWorkspaceMode: (mode: ChatWorkspaceMode) => Promise<boolean>;
 };
 export type ChatActions = ChatActionsReturn;
 
@@ -576,6 +587,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     agentMCPServers,
     agentWorkspace,
     agentWorkspaceBranch,
+    agentWorkspaceMode,
     chatSessions,
     activeChatSessionID,
     activeChatSession,
@@ -616,6 +628,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setAgentMCPServers,
     setAgentWorkspace,
     setAgentWorkspaceBranch,
+    setAgentWorkspaceMode,
     setChatSessions,
     setActiveChatSessionID,
     setActiveChatSession,
@@ -917,6 +930,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const inherited = workspaceForProjectID(id);
     if (inherited) return inherited;
     return id ? "" : agentWorkspace.trim();
+  }
+
+  function workspaceModeForNewChat(projectID: string): ChatWorkspaceMode {
+    const id = projectID.trim();
+    if (!id) return normalizeChatWorkspaceMode(agentWorkspaceMode);
+    const project =
+      id === activeProjectID ? projects.activeProject : projectByID(projects.state.projects, id);
+    return projectDefaultChatWorkspaceMode(project);
   }
 
   function workspaceForActiveTurn(): string {
@@ -2168,6 +2189,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                 ? {
                     provider: turnProviderFilter === "auto" ? "" : turnProviderFilter,
                     model: turnModel,
+                    workspace_mode: workspaceModeForNewChat(activeProjectID),
                   }
                 : {}),
               ...(!isDirectModelTurn ? { workspace: turnWorkspace } : {}),
@@ -3171,6 +3193,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           ? ""
           : requestedSelectionModel;
       const workspace = workspaceForNewChat(createProjectID);
+      const workspaceMode = workspaceModeForNewChat(createProjectID);
       const createProvider = requestedProviderFilter === "auto" ? "" : requestedProviderFilter;
       if (requestedReuseEmptyDraft) {
         const reusable = findReusableEmptyDraftSession(chat.state.chatSessions, {
@@ -3179,6 +3202,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           provider: createProvider,
           model: requestedModel,
           title: requestedTitle,
+          workspaceMode,
         });
         if (reusable) {
           setChatTargetBySessionID((current) => {
@@ -3209,6 +3233,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           agent_id: "hecate",
           provider: createProvider,
           model: requestedModel,
+          workspace_mode: workspaceMode,
           ...(toolsEnabled && workspace ? { workspace } : {}),
           ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
         });
@@ -3882,6 +3907,48 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
   }
 
+  async function setHecateWorkspaceMode(mode: ChatWorkspaceMode): Promise<boolean> {
+    const nextMode = normalizeChatWorkspaceMode(mode);
+    const sessionID = currentActiveChatSessionID();
+    const session = activeChatSession?.id === sessionID ? activeChatSession : null;
+    if (!sessionID || !session) {
+      if (activeProjectID) {
+        params.setNoticeMessage(
+          "error",
+          "This new chat inherits its workspace mode from Project settings.",
+        );
+        return false;
+      }
+      setAgentWorkspaceMode(nextMode);
+      return true;
+    }
+    if (chatSessionIsExternal(session)) return false;
+    if (blockWhileChatCancellationOwnsSession(sessionID, "changing the workspace mode")) {
+      return false;
+    }
+    if ((session.workspace_mode ?? "in_place") === nextMode) return true;
+
+    const cancellationEpoch = currentChatCancellationEpoch(sessionID);
+    const stopRequestToken = stopReadTokenAtRequestStart(sessionID);
+    try {
+      const payload = await setChatSettingsRequest(sessionID, { workspace_mode: nextMode });
+      const latest = await latestSessionAfterCancellation(
+        sessionID,
+        cancellationEpoch,
+        payload.data,
+        snapshotSourceForStopRead(stopRequestToken),
+      );
+      applyChatSession(latest.session, latest.source);
+      return true;
+    } catch (error) {
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to update the workspace mode.",
+      );
+      return false;
+    }
+  }
+
   async function getChatMessageFileDiff(
     sessionID: string,
     messageID: string,
@@ -4000,6 +4067,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     getChatMessageFileDiff,
     setChatConfigOption,
     setHecateRTKEnabled,
+    setHecateWorkspaceMode,
   };
   const overrides = useContext(CoordinatorOverridesContext);
   return applyOverride(real, overrides?.chat);

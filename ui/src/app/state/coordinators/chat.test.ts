@@ -89,6 +89,34 @@ describe("findReusableEmptyDraftSession", () => {
       }),
     ).toBeNull();
   });
+
+  it("does not reuse an empty shell with a different workspace posture", () => {
+    const sessions: ChatSessionSummaryRecord[] = [
+      {
+        id: "chat_in_place",
+        title: "Plan next work - Product Manager",
+        project_id: "proj_1",
+        agent_id: "hecate",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        workspace: "/tmp/hecate",
+        workspace_mode: "in_place",
+        status: "idle",
+        message_count: 0,
+      },
+    ];
+
+    expect(
+      findReusableEmptyDraftSession(sessions, {
+        agentID: "hecate",
+        projectID: "proj_1",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        title: "Plan next work - Product Manager",
+        workspaceMode: "persistent",
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("queuedCommittedTurnIsTerminal", () => {
