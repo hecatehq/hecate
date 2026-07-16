@@ -98,6 +98,7 @@ function chatInitialState(fixture: RuntimeConsoleFixtureState) {
     chatSessions: fixture.chatSessions,
     activeChatSessionID: fixture.activeChatSessionID,
     activeChatSession: fixture.activeChatSession,
+    workspaceModeMutationsBySessionID: fixture.workspaceModeMutationsBySessionID,
     pendingChatAttachments: fixture.pendingChatAttachments,
     chatAttachmentTurnDraftCount: fixture.chatAttachmentTurnDraftCount,
     savedComposerDraftsBySessionID: fixture.savedComposerDraftsBySessionID,

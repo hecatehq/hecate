@@ -25,6 +25,57 @@ function wrapper({ children }: { children: ReactNode }) {
   return <ChatProvider>{children}</ChatProvider>;
 }
 
+describe("ChatProvider workspace-mode mutation ownership", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("keeps overlapping session fences independent across coordinator consumers", () => {
+    const { result } = renderHook(
+      () => ({ firstConsumer: useChat(), remountedConsumer: useChat() }),
+      { wrapper },
+    );
+    let firstToken = 0;
+    let secondToken = 0;
+    act(() => {
+      firstToken = result.current.firstConsumer.actions.beginWorkspaceModeMutation(
+        "chat_a",
+        "persistent",
+      ).token;
+      secondToken = result.current.remountedConsumer.actions.beginWorkspaceModeMutation(
+        "chat_b",
+        "in_place",
+      ).token;
+    });
+
+    expect(firstToken).not.toBe(secondToken);
+    expect(
+      result.current.firstConsumer.actions.currentWorkspaceModeMutation("chat_a"),
+    ).toMatchObject({ token: firstToken, requestedMode: "persistent" });
+    expect(
+      result.current.remountedConsumer.actions.currentWorkspaceModeMutation("chat_b"),
+    ).toMatchObject({ token: secondToken, requestedMode: "in_place" });
+
+    let firstFinished = false;
+    act(() => {
+      firstFinished = result.current.firstConsumer.actions.finishWorkspaceModeMutation(
+        "chat_a",
+        firstToken,
+      );
+    });
+    expect(firstFinished).toBe(true);
+    expect(result.current.firstConsumer.actions.currentWorkspaceModeMutation("chat_a")).toBeNull();
+    expect(
+      result.current.remountedConsumer.actions.currentWorkspaceModeMutation("chat_b"),
+    ).toMatchObject({ token: secondToken });
+    expect(
+      result.current.firstConsumer.actions.finishWorkspaceModeMutation("chat_a", firstToken),
+    ).toBe(false);
+    expect(
+      result.current.remountedConsumer.actions.currentWorkspaceModeMutation("chat_b"),
+    ).toMatchObject({ token: secondToken });
+  });
+});
+
 describe("ChatProvider turn admission ownership", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => window.localStorage.clear());

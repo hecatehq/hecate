@@ -4603,20 +4603,28 @@ ACP adapters own command execution and use the selected workspace in place.
 
 When an existing Hecate Chat session already has a backing task, the task
 record is updated too so later continued runs inherit the same setting.
-Running turns are not mutated mid-flight.
+Running turns are not mutated mid-flight. Every non-empty settings PATCH,
+including an RTK-only update, uses exclusive per-session admission and returns
+`409 chat.agent_session_busy` when a turn is active.
 
 `workspace_mode` may be changed while the Hecate Chat is still an empty or
 direct-model-only shell. Once `task_id` is present, changing to a different
 mode returns `409 conflict`; sending the already-selected value remains
 idempotent. A concurrent active turn returns `409 chat.agent_session_busy`;
-workspace-mode mutation and turn admission are exclusive so creation cannot
-snapshot one posture while the session persists another. The mutation is not a
-chat run, so the Cancel endpoint does not report or cancel it. When a managed
-task run starts, Hecate atomically updates the session and launching message
-pair to the actual generated execution path. Workspace review and file
-browsing fail closed if a durable chat-origin task exists without that link;
-otherwise later task-backed turns and message snapshots point at the files the
-agent actually changed rather than the untouched source folder.
+settings mutation and turn admission are exclusive so creation cannot snapshot
+one posture while the session persists another. The mutation is not a chat run,
+so the Cancel endpoint does not report or cancel it. When a managed task run
+starts, Hecate atomically updates the session and launching message pair to the
+actual generated execution path. SQL session updates serialize with that link
+and lock the PostgreSQL session row before a full-record read/modify/write. An
+ambiguous link result is reread before Hecate decides to cancel. A confirmed
+link failure terminalizes the assistant, retains chat-origin cancellation
+recovery, rejects new turn admission while an unlinked origin run remains
+active, and makes an idempotent replay return the failed transcript without
+redispatch. Workspace review and file browsing fail closed if a durable
+chat-origin task exists without that link; otherwise later task-backed turns
+and message snapshots point at the files the agent actually changed rather
+than the untouched source folder.
 
 ```json
 PATCH /hecate/v1/chat/sessions/chat_.../settings

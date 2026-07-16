@@ -921,6 +921,54 @@ describe("ChatView input", () => {
     expect(select).toHaveAccessibleDescription(/started from the linked project default/i);
   });
 
+  it("announces a pending workspace mode and freezes composer and settings controls", async () => {
+    const sessionID = "chat_mode_pending";
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      chatToolsEnabledBySessionID: new Map([[sessionID, false]]),
+      activeChatSessionID: sessionID,
+      activeChatSession: {
+        id: sessionID,
+        title: "Pending mode chat",
+        agent_id: "hecate",
+        execution_mode: "hecate_task",
+        tools_enabled: false,
+        workspace_mode: "persistent",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic", image_input: "supported" },
+        workspace: "/tmp/hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      workspaceModeMutationsBySessionID: new Map([
+        [sessionID, { sessionID, requestedMode: "in_place", token: 17 }],
+      ]),
+      hecateRTKAvailable: true,
+      hecateRTKPath: "/usr/local/bin/rtk",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const status = screen.getByRole("status", { name: "Workspace execution status" });
+    expect(status).toHaveTextContent(/confirming workspace execution/i);
+    const send = screen.getByRole("button", {
+      name: "Wait for workspace execution confirmation",
+    });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAccessibleDescription(/sending and chat settings are paused/i);
+    const attachment = screen.getByRole("button", { name: "Image" });
+    expect(attachment).toBeDisabled();
+    expect(attachment).toHaveAccessibleDescription(/confirming workspace execution/i);
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
+    expect(screen.getByRole("button", { name: "Tools off" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Workspace mode" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Compact command output off" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /system prompt/i })).toBeDisabled();
+    expect(screen.queryByText(/locked — start a new chat to change/i)).toBeNull();
+  });
+
   it("does not show the RTK onboarding hint after RTK is explicitly turned off in settings", async () => {
     const setHecateRTKEnabled = vi.fn(async () => true);
     const { state, actions } = setup(

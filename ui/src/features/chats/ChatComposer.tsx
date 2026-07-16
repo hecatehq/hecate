@@ -167,6 +167,7 @@ export type ChatComposerProps = {
   // Composer gating.
   composerVisible: boolean;
   composerInputDisabled: boolean;
+  workspaceModePending: boolean;
   composerRouteControlsDisabled: boolean;
   composerRepair: ChatSetupRepairState | null;
   suppressChatError?: boolean;
@@ -263,6 +264,7 @@ export function ChatComposer(props: ChatComposerProps) {
     textareaRef,
     composerVisible,
     composerInputDisabled,
+    workspaceModePending,
     composerRouteControlsDisabled,
     composerRepair,
     suppressChatError = false,
@@ -358,7 +360,11 @@ export function ChatComposer(props: ChatComposerProps) {
     : hecateTaskToolsAvailable
       ? "Tools use task approvals and per-call sandboxing in the selected workspace."
       : "";
-  const composerStatusText = activeRunStatusText || baselineComposerStatus;
+  const workspaceModeStatusText = workspaceModePending
+    ? "Confirming workspace execution. Sending and chat settings are paused."
+    : "";
+  const composerStatusText =
+    workspaceModeStatusText || activeRunStatusText || baselineComposerStatus;
 
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -373,6 +379,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const messageHistoryPendingTextRef = useRef("");
   const commandOptionRefs = useRef<Array<HTMLDivElement | null>>([]);
   const commandListboxID = useId();
+  const workspaceModeStatusID = useId();
   const [attachmentSelectionError, setAttachmentSelectionError] = useState("");
   const previousPendingAttachmentCountRef = useRef(chat.state.pendingChatAttachments.length);
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
@@ -1274,6 +1281,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 acceptance={attachmentAcceptance}
                 enabled={attachmentsEnabled}
                 disabledReason={attachmentsDisabledReason}
+                describedBy={workspaceModePending ? workspaceModeStatusID : undefined}
                 error={attachmentSelectionError}
                 compact
                 onAddFiles={addPendingFiles}
@@ -1287,22 +1295,27 @@ export function ChatComposer(props: ChatComposerProps) {
               <span aria-hidden="true" style={{ flex: 1 }} />
               <button
                 type="submit"
+                aria-describedby={workspaceModePending ? workspaceModeStatusID : undefined}
                 aria-label={
-                  attachmentTurnInFlight
-                    ? "Wait for attachment response"
-                    : queueingMessage
-                      ? "Queue message"
-                      : "Send message"
+                  workspaceModePending
+                    ? "Wait for workspace execution confirmation"
+                    : attachmentTurnInFlight
+                      ? "Wait for attachment response"
+                      : queueingMessage
+                        ? "Queue message"
+                        : "Send message"
                 }
                 disabled={sendDisabled}
                 title={
-                  attachmentTurnInFlight
-                    ? "Wait for the attachment response before sending this message"
-                    : queueingMessage
-                      ? "Queue this message after the active run finishes"
-                      : messageSendBlocked
-                        ? "Complete chat setup before sending"
-                        : "Send message"
+                  workspaceModePending
+                    ? "Wait for Hecate to confirm workspace execution before sending"
+                    : attachmentTurnInFlight
+                      ? "Wait for the attachment response before sending this message"
+                      : queueingMessage
+                        ? "Queue this message after the active run finishes"
+                        : messageSendBlocked
+                          ? "Complete chat setup before sending"
+                          : "Send message"
                 }
                 style={{
                   width: 28,
@@ -1398,7 +1411,17 @@ export function ChatComposer(props: ChatComposerProps) {
             }}
           >
             <span
-              aria-label={agentBusy ? "Active run status" : undefined}
+              id={workspaceModePending ? workspaceModeStatusID : undefined}
+              aria-atomic={workspaceModePending || undefined}
+              aria-label={
+                workspaceModePending
+                  ? "Workspace execution status"
+                  : agentBusy
+                    ? "Active run status"
+                    : undefined
+              }
+              aria-live={workspaceModePending ? "polite" : undefined}
+              role={workspaceModePending ? "status" : undefined}
               style={{
                 minWidth: 0,
                 color: agentBusy ? "var(--amber)" : "var(--t3)",

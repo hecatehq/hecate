@@ -2,6 +2,7 @@ type ChatInstructionsPanelProps = {
   embedded?: boolean;
   isHecateAgentChat: boolean;
   locked: boolean;
+  disabled?: boolean;
   value: string;
   onChange: (value: string) => void;
 };
@@ -10,9 +11,11 @@ export function ChatInstructionsPanel({
   embedded = false,
   isHecateAgentChat,
   locked,
+  disabled = false,
   value,
   onChange,
 }: ChatInstructionsPanelProps) {
+  const controlDisabled = locked || disabled;
   const label = isHecateAgentChat
     ? "System prompt / agent instructions"
     : "System prompt / instructions";
@@ -45,13 +48,13 @@ export function ChatInstructionsPanel({
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        disabled={locked}
+        disabled={controlDisabled}
         style={{
           width: "100%",
           background: "var(--bg3)",
           border: "1px solid var(--border)",
           borderRadius: "var(--radius-sm)",
-          color: locked ? "var(--t2)" : "var(--t0)",
+          color: controlDisabled ? "var(--t2)" : "var(--t0)",
           fontFamily: "var(--font-mono)",
           fontSize: 12,
           padding: "8px 10px",
@@ -59,7 +62,7 @@ export function ChatInstructionsPanel({
           minHeight: 72,
           outline: "none",
           lineHeight: 1.5,
-          opacity: locked ? 0.6 : 1,
+          opacity: controlDisabled ? 0.6 : 1,
         }}
       />
     </div>

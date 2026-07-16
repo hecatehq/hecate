@@ -104,6 +104,7 @@ export function ChatAttachmentDrafts({
   acceptance = "images",
   enabled,
   disabledReason,
+  describedBy,
   error,
   compact = false,
   onAddFiles,
@@ -113,6 +114,7 @@ export function ChatAttachmentDrafts({
   acceptance?: ChatAttachmentAcceptance;
   enabled: boolean;
   disabledReason: string;
+  describedBy?: string;
   error?: string;
   compact?: boolean;
   onAddFiles: (files: File[]) => void;
@@ -134,6 +136,7 @@ export function ChatAttachmentDrafts({
     ? `A message can include up to 4 ${acceptsFiles ? "files" : "images"}.`
     : disabledReason;
   const attachmentDescriptionIDs = [
+    describedBy ?? "",
     !canAdd && unavailableReason ? reasonID : "",
     error ? errorID : "",
   ]

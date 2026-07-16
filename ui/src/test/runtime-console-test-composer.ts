@@ -106,7 +106,7 @@ export function useRuntimeConsole() {
     chatSessions,
     activeChatSessionID,
     activeChatSession,
-    workspaceModeMutation,
+    workspaceModeMutationsBySessionID,
     pendingChatAttachments,
     savedComposerDraftsBySessionID,
     recoverableComposerDraft,
@@ -133,6 +133,9 @@ export function useRuntimeConsole() {
     modelFilter,
     providerFilter,
   } = chat.state;
+  const workspaceModeMutation = activeChatSessionID
+    ? (workspaceModeMutationsBySessionID.get(activeChatSessionID) ?? null)
+    : null;
   const {
     setAgentAdapterID,
     setChatCancelling,
