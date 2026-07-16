@@ -184,13 +184,15 @@ TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
 git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
         tauri/src-tauri/tauri.conf.json tauri/package.json
 git commit -m "chore(tauri): stamp version X.Y.Z"
-git tag -a vX.Y.Z -F /tmp/release-notes.md
+git tag -a --cleanup=verbatim vX.Y.Z -F /tmp/release-notes.md
 git push origin HEAD:master vX.Y.Z
 ```
 
 The annotation remains visible through `git show vX.Y.Z`; the same content is
 published on GitHub. A version-only annotation continues to use the generated
-commit changelog.
+commit changelog. Keep `--cleanup=verbatim` on Markdown annotations: Git's
+default cleanup treats lines beginning with `#` as comments and would silently
+strip the release title and section headings.
 
 The version stamp commit stays on `master`. This keeps the visible Tauri
 metadata (`tauri/package.json`, `Cargo.toml`, `tauri.conf.json`) aligned with

@@ -45,7 +45,10 @@ The release helper creates an annotated tag whose message is only the version,
 so ordinary releases use GoReleaser's generated changelog. For a substantive
 release, create an annotated tag manually from a reviewed Markdown file. The
 release workflow detects that non-version annotation and passes it to
-GoReleaser as the public GitHub Release body.
+GoReleaser as the public GitHub Release body. Create that tag with
+`git tag -a --cleanup=verbatim vX.Y.Z -F /tmp/release-notes.md`; without
+`--cleanup=verbatim`, Git treats Markdown headings as comments and silently
+strips them from the annotation.
 
 ## Tauri desktop app
 
