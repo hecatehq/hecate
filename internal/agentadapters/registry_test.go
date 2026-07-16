@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1074,6 +1075,56 @@ func TestPrependResolvedAgentRuntimePathDoesNotDuplicateDirectory(t *testing.T) 
 	})
 	if value := envValue(got, "PATH"); value != strings.TrimPrefix(input[0], "PATH=") {
 		t.Fatalf("PATH = %q, want existing path unchanged", value)
+	}
+}
+
+func TestPrependPathEntryUsesCaseSensitivePATHNameOnUnix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows environment names are case-insensitive")
+	}
+	dir := t.TempDir()
+	input := []string{"Path=/unused", "PATH=/system-bin"}
+
+	got := prependPathEntry(input, dir)
+	if value := envValue(got, "Path"); value != "/unused" {
+		t.Fatalf("Path = %q, want unused mixed-case value unchanged", value)
+	}
+	want := dir + string(os.PathListSeparator) + "/system-bin"
+	if value := envValue(got, "PATH"); value != want {
+		t.Fatalf("PATH = %q, want %q", value, want)
+	}
+}
+
+func TestClaudeStatusDoesNotUseLocalCandidatePathForRemoteRuntime(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "remote-test-key")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	adapter, ok := BuiltInByID("claude_code")
+	if !ok {
+		t.Fatal("missing Claude Code adapter")
+	}
+	localCandidate := filepath.Join(home, ".volta", "bin", "claude")
+
+	status := statusForAdapterWithDiagnostics(
+		remoteIdentityContext(),
+		adapter,
+		func(file string) (string, error) {
+			switch file {
+			case adapter.Command:
+				return filepath.Join(home, "bin", adapter.Command), nil
+			case adapter.AgentVersion.Command:
+				return "", errors.New("not found on remote PATH")
+			case localCandidate:
+				t.Fatalf("remote status probed local candidate %q", file)
+			default:
+				return "", errors.New("not found")
+			}
+			return "", errors.New("unreachable")
+		},
+		statusDiagnosticsCatalog,
+	)
+	if status.ClaudeCodeCLI.Available || status.ClaudeCodeCLI.ExecutablePath != "" {
+		t.Fatalf("ClaudeCodeCLI = %+v, want unavailable without remote PATH command", status.ClaudeCodeCLI)
 	}
 }
 

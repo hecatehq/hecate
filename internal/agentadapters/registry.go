@@ -742,14 +742,22 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 		Status:     StatusMissing,
 		AuthStatus: AuthStatusUnknown,
 	}
+	_, remoteRuntime := remoteruntime.FromContext(ctx)
 	if item.ID == "claude_code" {
-		status.ClaudeCodeCLI = DetectClaudeCodeCLI(item.AgentVersion, lookup)
+		probe := item.AgentVersion
+		if remoteRuntime {
+			// Remote launches intentionally do not inherit local per-user
+			// candidate directories. Keep readiness aligned with the remote
+			// adapter PATH and avoid exposing a runtime-host home path.
+			probe.CandidatePaths = nil
+		}
+		status.ClaudeCodeCLI = DetectClaudeCodeCLI(probe, lookup)
 	}
 	if err := ctx.Err(); err != nil {
 		status.Error = err.Error()
 		return status
 	}
-	if _, ok := remoteruntime.FromContext(ctx); ok {
+	if remoteRuntime {
 		mode, ready, hint := remoteCredentialStatus(item, os.Getenv)
 		status.RemoteCredentialOK = ready
 		status.RemoteCredentialHint = hint
@@ -1122,22 +1130,42 @@ func prependResolvedAgentRuntimePath(adapter Adapter, env []string, lookup Looku
 }
 
 func prependPathEntry(env []string, dir string) []string {
+	out := env
+	found := false
+	copied := false
 	for index, entry := range env {
 		name, value, ok := strings.Cut(entry, "=")
-		if !ok || !strings.EqualFold(name, "PATH") {
+		if !ok || !isPathEnvName(name) {
 			continue
 		}
+		found = true
+		present := false
 		for _, existing := range filepath.SplitList(value) {
 			if samePathEntry(existing, dir) {
-				return env
+				present = true
+				break
 			}
 		}
-		out := append([]string(nil), env...)
+		if present {
+			continue
+		}
+		if !copied {
+			out = append([]string(nil), env...)
+			copied = true
+		}
 		out[index] = name + "=" + strings.Join(append([]string{dir}, filepath.SplitList(value)...), string(os.PathListSeparator))
+	}
+	if found {
 		return out
 	}
-	out := append([]string(nil), env...)
-	return append(out, "PATH="+dir)
+	return append(append([]string(nil), env...), "PATH="+dir)
+}
+
+func isPathEnvName(name string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(name, "PATH")
+	}
+	return name == "PATH"
 }
 
 func samePathEntry(left, right string) bool {
