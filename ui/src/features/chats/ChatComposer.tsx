@@ -648,6 +648,12 @@ export function ChatComposer(props: ChatComposerProps) {
     if (e.key !== "Enter") return;
     const modPressed = isMac ? e.metaKey : e.ctrlKey;
 
+    if (workspaceModePending) {
+      const sendGesture = modEnterMode ? modPressed : !e.shiftKey && !modPressed;
+      if (sendGesture) e.preventDefault();
+      return;
+    }
+
     if (attachmentTurnInFlight) {
       const sendGesture = modEnterMode ? modPressed : !e.shiftKey && !modPressed;
       if (sendGesture) e.preventDefault();
@@ -669,7 +675,7 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
-    if (attachmentTurnInFlight) {
+    if (workspaceModePending || attachmentTurnInFlight) {
       e.preventDefault();
       return;
     }

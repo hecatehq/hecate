@@ -4615,9 +4615,10 @@ settings mutation and turn admission are exclusive so creation cannot snapshot
 one posture while the session persists another. The mutation is not a chat run,
 so the Cancel endpoint does not report or cancel it. When a managed task run
 starts, Hecate atomically updates the session and launching message pair to the
-actual generated execution path. SQL session updates serialize with that link
-and lock the PostgreSQL session row before a full-record read/modify/write. An
-ambiguous link result is reread before Hecate decides to cancel. A confirmed
+actual generated execution path. SQL session updates serialize with that link;
+PostgreSQL operations lock the session row before any message rows. An
+ambiguous link result is reread with a bounded persistence context before
+Hecate decides to cancel. A confirmed
 link failure terminalizes the assistant, retains chat-origin cancellation
 recovery, rejects new turn admission while an unlinked origin run remains
 active, and makes an idempotent replay return the failed transcript without

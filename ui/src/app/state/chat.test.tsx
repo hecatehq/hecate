@@ -74,6 +74,33 @@ describe("ChatProvider workspace-mode mutation ownership", () => {
       result.current.remountedConsumer.actions.currentWorkspaceModeMutation("chat_b"),
     ).toMatchObject({ token: secondToken });
   });
+
+  it("does not let an older same-session completion clear a newer fence", () => {
+    const { result } = renderHook(() => useChat(), { wrapper });
+    let olderToken = 0;
+    let newerToken = 0;
+    act(() => {
+      olderToken = result.current.actions.beginWorkspaceModeMutation(
+        "chat_same",
+        "persistent",
+      ).token;
+      newerToken = result.current.actions.beginWorkspaceModeMutation("chat_same", "in_place").token;
+    });
+
+    expect(newerToken).not.toBe(olderToken);
+    expect(result.current.actions.finishWorkspaceModeMutation("chat_same", olderToken)).toBe(false);
+    expect(result.current.actions.currentWorkspaceModeMutation("chat_same")).toMatchObject({
+      token: newerToken,
+      requestedMode: "in_place",
+    });
+
+    let newerFinished = false;
+    act(() => {
+      newerFinished = result.current.actions.finishWorkspaceModeMutation("chat_same", newerToken);
+    });
+    expect(newerFinished).toBe(true);
+    expect(result.current.actions.currentWorkspaceModeMutation("chat_same")).toBeNull();
+  });
 });
 
 describe("ChatProvider turn admission ownership", () => {

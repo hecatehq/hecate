@@ -448,6 +448,37 @@ func (s failingTerminalTransitionTaskStore) ApplyRunTerminalTransition(context.C
 	return taskstate.TerminalRunTransitionResult{}, fmt.Errorf("injected cancellation persistence failure")
 }
 
+type failingListTasksStore struct{ taskstate.Store }
+
+func (s failingListTasksStore) ListTasks(context.Context, taskstate.TaskFilter) ([]types.Task, error) {
+	return nil, fmt.Errorf("private schema detail: missing relation task_records")
+}
+
+func TestChatWorkspaceLinkReadyDoesNotDiscloseTaskStoreErrors(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := &Handler{
+		logger:    logger,
+		taskStore: failingListTasksStore{Store: taskstate.NewMemoryStore()},
+	}
+	recorder := httptest.NewRecorder()
+	if handler.chatWorkspaceLinkReady(t.Context(), recorder, chat.Session{
+		ID:      "chat_private_store_error",
+		AgentID: chat.DefaultAgentID,
+	}) {
+		t.Fatal("chatWorkspaceLinkReady = true, want fail closed")
+	}
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "private schema detail") || strings.Contains(body, "task_records") {
+		t.Fatalf("response disclosed task-store error: %s", body)
+	}
+	if !strings.Contains(body, "failed to verify chat workspace linkage") {
+		t.Fatalf("response body = %s, want fixed workspace-link message", body)
+	}
+}
+
 func TestHecateAgentChatTaskRunLinkFailureFailsClosed(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	provider := &fakeProvider{

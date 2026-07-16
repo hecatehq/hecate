@@ -467,7 +467,8 @@ func (h *Handler) chatWorkspaceLinkReady(ctx context.Context, w http.ResponseWri
 	}
 	_, taskExists, err := h.hecateChatOriginTask(ctx, session.ID)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		h.logger.ErrorContext(context.WithoutCancel(ctx), "chat.workspace.origin_task_lookup_failed", "session_id", session.ID, "error", err)
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "failed to verify chat workspace linkage")
 		return false
 	}
 	if !taskExists {

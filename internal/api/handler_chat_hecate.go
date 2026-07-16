@@ -561,7 +561,9 @@ func (h *Handler) cancelUnlinkedHecateTaskRun(ctx context.Context, task types.Ta
 		}
 		lastErr = err
 		if h.taskStore != nil {
-			current, found, getErr := h.taskStore.GetRun(durableCtx, task.ID, runID)
+			verifyCtx, verifyCancel := newAgentChatPersistenceContext(durableCtx)
+			current, found, getErr := h.taskStore.GetRun(verifyCtx, task.ID, runID)
+			verifyCancel()
 			if getErr == nil && found && types.IsTerminalTaskRunStatus(current.Status) {
 				return true, nil
 			}
