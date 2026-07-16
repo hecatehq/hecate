@@ -1128,6 +1128,45 @@ func TestClaudeStatusDoesNotUseLocalCandidatePathForRemoteRuntime(t *testing.T) 
 	}
 }
 
+func TestExplicitRemoteClaudeStatusDoesNotUseLocalAgentCandidatePath(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "remote-test-key")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	adapter, ok := BuiltInByID("claude_code")
+	if !ok {
+		t.Fatal("missing Claude Code adapter")
+	}
+	adapterBinary := writeFakeBinary(t, t.TempDir(), adapter.Command, "adapter 1.2.3")
+	localCandidate := filepath.Join(home, ".volta", "bin", "claude")
+
+	status, ok := StatusForAdapterAfterExplicitProbe(
+		remoteIdentityContext(),
+		adapter.ID,
+		func(file string) (string, error) {
+			switch file {
+			case adapter.Command:
+				return adapterBinary, nil
+			case adapter.AgentVersion.Command:
+				return "", errors.New("not found on remote PATH")
+			case localCandidate:
+				t.Fatalf("explicit remote status probed local candidate %q", file)
+			default:
+				return "", errors.New("not found")
+			}
+			return "", errors.New("unreachable")
+		},
+	)
+	if !ok {
+		t.Fatal("StatusForAdapterAfterExplicitProbe(claude_code) ok = false")
+	}
+	if status.AgentVersion != "" {
+		t.Fatalf("AgentVersion = %q, want unavailable without remote PATH command", status.AgentVersion)
+	}
+	if status.ClaudeCodeCLI.Available || status.ClaudeCodeCLI.ExecutablePath != "" {
+		t.Fatalf("ClaudeCodeCLI = %+v, want unavailable without remote PATH command", status.ClaudeCodeCLI)
+	}
+}
+
 func TestRemoteRuntimeAdapterEnvUsesOnlyRemoteCredentialKeysAndEphemeralHome(t *testing.T) {
 	t.Parallel()
 

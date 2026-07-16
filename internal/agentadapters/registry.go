@@ -737,21 +737,21 @@ const (
 )
 
 func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup LookupFunc, diagnostics statusDiagnosticsMode) Status {
+	_, remoteRuntime := remoteruntime.FromContext(ctx)
+	diagnosticItem := item
+	if remoteRuntime {
+		// Remote launches intentionally do not inherit local per-user provider
+		// directories. Apply the same boundary to every status probe, including
+		// the full version diagnostics used after an explicit adapter probe.
+		diagnosticItem.AgentVersion.CandidatePaths = nil
+	}
 	status := Status{
 		Adapter:    item,
 		Status:     StatusMissing,
 		AuthStatus: AuthStatusUnknown,
 	}
-	_, remoteRuntime := remoteruntime.FromContext(ctx)
 	if item.ID == "claude_code" {
-		probe := item.AgentVersion
-		if remoteRuntime {
-			// Remote launches intentionally do not inherit local per-user
-			// candidate directories. Keep readiness aligned with the remote
-			// adapter PATH and avoid exposing a runtime-host home path.
-			probe.CandidatePaths = nil
-		}
-		status.ClaudeCodeCLI = DetectClaudeCodeCLI(probe, lookup)
+		status.ClaudeCodeCLI = DetectClaudeCodeCLI(diagnosticItem.AgentVersion, lookup)
 	}
 	if err := ctx.Err(); err != nil {
 		status.Error = err.Error()
@@ -785,7 +785,7 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 	status.Status = StatusAvailable
 	status.Path = path
 	if diagnostics == statusDiagnosticsFull {
-		status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, item, path, lookup)
+		status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, diagnosticItem, path, lookup)
 		status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
 		status.AuthStatus, status.AuthError = DetectAuthStatus(item)
 	}
