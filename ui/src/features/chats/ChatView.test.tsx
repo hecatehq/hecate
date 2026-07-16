@@ -923,31 +923,37 @@ describe("ChatView input", () => {
 
   it("announces a pending workspace mode and freezes composer and settings controls", async () => {
     const sessionID = "chat_mode_pending";
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      defaultChatToolsEnabled: false,
-      chatToolsEnabledBySessionID: new Map([[sessionID, false]]),
-      activeChatSessionID: sessionID,
-      activeChatSession: {
-        id: sessionID,
-        title: "Pending mode chat",
-        agent_id: "hecate",
-        execution_mode: "hecate_task",
-        tools_enabled: false,
-        workspace_mode: "persistent",
-        provider: "openai",
-        model: "gpt-4o-mini",
-        capabilities: { tool_calling: "basic", image_input: "supported" },
-        workspace: "/tmp/hecate",
-        status: "idle",
-        messages: [],
-      } as any,
-      workspaceModeMutationsBySessionID: new Map([
-        [sessionID, { sessionID, requestedMode: "in_place", token: 17 }],
-      ]),
-      hecateRTKAvailable: true,
-      hecateRTKPath: "/usr/local/bin/rtk",
-    });
+    const compactChatSession = vi.fn(async () => true);
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        chatToolsEnabledBySessionID: new Map([[sessionID, false]]),
+        activeChatSessionID: sessionID,
+        activeChatSession: {
+          id: sessionID,
+          title: "Pending mode chat",
+          agent_id: "hecate",
+          execution_mode: "hecate_task",
+          tools_enabled: false,
+          workspace_mode: "persistent",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic", image_input: "supported" },
+          workspace: "/tmp/hecate",
+          status: "idle",
+          messages: [],
+        } as any,
+        message: "/compact ",
+        workspaceModeMutationsBySessionID: new Map([
+          [sessionID, { sessionID, requestedMode: "in_place", token: 17 }],
+        ]),
+        hecateRTKAvailable: true,
+        hecateRTKPath: "/usr/local/bin/rtk",
+      },
+      { compactChatSession, submitChat },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const status = screen.getByRole("status", { name: "Workspace execution status" });
@@ -960,6 +966,9 @@ describe("ChatView input", () => {
     const attachment = screen.getByRole("button", { name: "Image" });
     expect(attachment).toBeDisabled();
     expect(attachment).toHaveAccessibleDescription(/confirming workspace execution/i);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(compactChatSession).not.toHaveBeenCalled();
+    expect(submitChat).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
     expect(screen.getByRole("button", { name: "Tools off" })).toBeDisabled();

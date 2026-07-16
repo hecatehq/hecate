@@ -489,7 +489,8 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 	// SQLite has no SELECT ... FOR UPDATE and begins deferred transactions.
 	// Serialize in-process message RMWs so two callbacks cannot both read the
 	// same row and then overwrite each other's independent fields. PostgreSQL
-	// additionally takes a row lock below for cross-instance safety.
+	// locks the session before the message so this path has the same cross-
+	// instance order as LinkTaskRun.
 	s.messageUpdateMu.Lock()
 	defer s.messageUpdateMu.Unlock()
 
@@ -499,7 +500,17 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	message, err := loadMessage(ctx, tx, s.messagesTable, sessionID, messageID, s.client.Dialect() == storage.DialectPostgres)
+	forUpdate := s.client.Dialect() == storage.DialectPostgres
+	if forUpdate {
+		var lockedID string
+		if err := tx.QueryRowContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ? FOR UPDATE`, s.sessionsTable), sessionID).Scan(&lockedID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Session{}, fmt.Errorf("agent chat session %q not found", sessionID)
+			}
+			return Session{}, fmt.Errorf("lock agent chat session for message update: %w", err)
+		}
+	}
+	message, err := loadMessage(ctx, tx, s.messagesTable, sessionID, messageID, forUpdate)
 	if err != nil {
 		return Session{}, err
 	}
