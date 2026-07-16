@@ -37,7 +37,21 @@ const VIEWPORT = { width: 1280, height: 800 };
 const THEME_KEY = "hecate.theme";
 const WORKSPACE_KEY = "hecate.workspace";
 
-async function clearAndNavigate(page: Page, path = "/") {
+// URL path is the authoritative workspace selector (see ui/src/app/navigation.ts).
+// localStorage only records the last preferred workspace when the path is silent.
+const WORKSPACE_PATHS = {
+  chats: "/chats",
+  projects: "/projects",
+  runs: "/tasks",
+  connections: "/connections",
+  overview: "/observability",
+  usage: "/usage",
+  settings: "/settings",
+} as const;
+
+type CaptureWorkspaceID = keyof typeof WORKSPACE_PATHS;
+
+async function clearAndNavigate(page: Page, path = "/chats") {
   await page.context().clearCookies();
   await page.goto(BASE_URL);
   await page.evaluate((themeKey) => {
@@ -57,17 +71,15 @@ async function snap(page: Page, name: string) {
   console.log(`  saved ${path}`);
 }
 
-async function openWorkspace(
-  page: Page,
-  id: "overview" | "runs" | "chats" | "connections" | "projects" | "usage" | "settings",
-) {
+async function openWorkspace(page: Page, id: CaptureWorkspaceID) {
+  const path = WORKSPACE_PATHS[id];
   await page.evaluate(
     ({ key, workspace }) => {
       window.localStorage.setItem(key, workspace);
     },
     { key: WORKSPACE_KEY, workspace: id },
   );
-  await page.reload();
+  await page.goto(`${BASE_URL}${path}`);
   await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
 }
 
@@ -2466,14 +2478,13 @@ async function main() {
     }),
   );
   await routeLocalProviderDiscoveryDocsFixture(page);
-  await clearAndNavigate(page);
+  await clearAndNavigate(page, WORKSPACE_PATHS.chats);
   await page.evaluate((workspaceKey) => {
     window.localStorage.setItem(workspaceKey, "chats");
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
   }, WORKSPACE_KEY);
-  await page.reload();
   await openWorkspace(page, "chats");
   await page.getByRole("button", { name: /New Hecate chat/i }).click();
   await page.waitForSelector("text=Detected locally", { timeout: 5_000 });
@@ -2520,7 +2531,7 @@ async function main() {
 
   // ── 5. Populated Connections table ──────────────────────────────────────────
   console.log("→ connections (populated table)");
-  await page.reload();
+  await openWorkspace(page, "connections");
   await page.waitForSelector("text=Cloud providers", { timeout: 5_000 });
   await page.waitForTimeout(2_000);
   await snap(page, "connections");
@@ -2535,7 +2546,7 @@ async function main() {
 
   console.log("→ chat (Hecate Chat, tools on/off transcript)");
   await routeHecateChatDocsFixture(page);
-  await clearAndNavigate(page);
+  await clearAndNavigate(page, WORKSPACE_PATHS.chats);
   await page.evaluate(
     ({ sessionID, workspaceKey }) => {
       window.localStorage.setItem(workspaceKey, "chats");
@@ -2551,8 +2562,6 @@ async function main() {
     },
     { sessionID: docsHecateChatSessionID, workspaceKey: WORKSPACE_KEY },
   );
-  await page.reload();
-  await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "chats");
   await page.waitForSelector("text=Here are the last 3 commits", { timeout: 5_000 });
   await page.waitForSelector("text=Tools on", { timeout: 5_000 });
@@ -2580,7 +2589,7 @@ async function main() {
   // header tells the operator the selected model cannot drive task tools.
   console.log("→ chat-tools-fallback (non-tool model, direct chat fallback)");
   await routeHecateToolsFallbackDocsFixture(page);
-  await clearAndNavigate(page);
+  await clearAndNavigate(page, WORKSPACE_PATHS.chats);
   await page.evaluate(
     ({ sessionID, workspaceKey }) => {
       window.localStorage.setItem(workspaceKey, "chats");
@@ -2596,7 +2605,7 @@ async function main() {
     },
     { sessionID: docsHecateToolsFallbackSessionID, workspaceKey: WORKSPACE_KEY },
   );
-  await page.reload();
+  await openWorkspace(page, "chats");
   await page.waitForSelector("text=Direct chat", { timeout: 5_000 });
   await page.waitForSelector("text=tools unavailable", { timeout: 5_000 });
   await page.waitForTimeout(700);
@@ -2606,8 +2615,6 @@ async function main() {
   // ── 9. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (failed tool diagnostics fixture)");
   await routeTaskDiagnosticsDocsFixture(page);
-  await page.reload();
-  await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
   await openWorkspace(page, "runs");
   await page.waitForSelector("text=git_exec", { timeout: 5_000 });
   await page.locator("details").evaluateAll((nodes) => {
@@ -2627,7 +2634,7 @@ async function main() {
   // ── 10. Projects ───────────────────────────────────────────────────────────
   console.log("→ projects (work, memory, and handoff fixture)");
   await routeProjectDocsFixture(page);
-  await clearAndNavigate(page);
+  await clearAndNavigate(page, WORKSPACE_PATHS.projects);
   await page.evaluate(
     ({ projectID, workspaceKey }) => {
       window.localStorage.setItem(workspaceKey, "projects");
@@ -2635,16 +2642,30 @@ async function main() {
     },
     { projectID: docsProjectID, workspaceKey: WORKSPACE_KEY },
   );
-  await page.reload();
+  // Project identity is URL-owned (?project=&view=). localStorage alone is not enough.
+  await page.goto(
+    `${BASE_URL}${WORKSPACE_PATHS.projects}?project=${encodeURIComponent(docsProjectID)}&view=overview`,
+  );
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
-  await openWorkspace(page, "projects");
   await page.waitForSelector("text=Refresh README and screenshots", { timeout: 5_000 });
   await page.getByRole("region", { name: "Project overview" }).waitFor({ state: "visible" });
-  await page.getByRole("tab", { name: /Work/ }).click();
+  await page
+    .getByText(/approval pending|Open approval|Review pending approval/i)
+    .first()
+    .waitFor({ state: "visible", timeout: 8_000 });
+  await page.goto(
+    `${BASE_URL}${WORKSPACE_PATHS.projects}?project=${encodeURIComponent(docsProjectID)}&view=work&work=${encodeURIComponent(docsProjectWorkItemID)}`,
+  );
   await page.waitForSelector("text=Project Assistant", { timeout: 5_000 });
   await page.waitForSelector("text=Assignments", { timeout: 5_000 });
-  await page.waitForSelector("text=approval pending", { timeout: 5_000 });
-  await page.getByRole("button", { name: "Open task" }).first().scrollIntoViewIfNeeded();
+  // Prefer the native-task action when present; external review uses Open chat.
+  const openTask = page.getByRole("button", { name: "Open task" }).first();
+  const openChat = page.getByRole("button", { name: "Open chat" }).first();
+  if (await openTask.count()) {
+    await openTask.scrollIntoViewIfNeeded();
+  } else if (await openChat.count()) {
+    await openChat.scrollIntoViewIfNeeded();
+  }
   await page.waitForTimeout(700);
   await snap(page, "projects");
   await unrouteProjectDocsFixture(page);
@@ -2734,7 +2755,7 @@ async function main() {
   // and auth state happen to exist on the capture machine.
   console.log("→ connections / external agents");
   await routeAgentDocsFixtures(page);
-  await clearAndNavigate(page);
+  await clearAndNavigate(page, WORKSPACE_PATHS.connections);
   await openWorkspace(page, "connections");
   await page.waitForSelector("text=External agent grants", { timeout: 5_000 });
   await page.waitForTimeout(700);
@@ -2755,7 +2776,7 @@ async function main() {
     },
     { sessionID: docsChatSessionID, workspaceKey: WORKSPACE_KEY },
   );
-  await page.reload();
+  await openWorkspace(page, "chats");
   await page.waitForSelector("[data-testid='agent-approval-banner']", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat-agent-approval");
