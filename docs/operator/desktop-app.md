@@ -54,6 +54,11 @@ What works:
 - Runtime discovery file (`hecate.runtime.json`) written by the sidecar gateway
   on successful startup and removed on app exit for native diagnostics.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
+- Chat dictation through the webview microphone. macOS displays the native
+  permission prompt on first use with Hecate's purpose string; denying access
+  leaves the composer usable and the operator can restore permission in System
+  Settings. Audio follows the same selected-provider/no-retention boundary as
+  browser dictation.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,

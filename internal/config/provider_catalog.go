@@ -9,18 +9,20 @@ import (
 )
 
 type BuiltInProvider struct {
-	ID           string
-	Name         string
-	Kind         string
-	Protocol     string
-	BaseURL      string
-	APIKeyEnv    string
-	APIVersion   string
-	ChatPath     string
-	ModelsPath   string
-	DefaultModel string
-	DocsURL      string
-	Description  string
+	ID                        string
+	Name                      string
+	Kind                      string
+	Protocol                  string
+	BaseURL                   string
+	APIKeyEnv                 string
+	APIVersion                string
+	ChatPath                  string
+	ModelsPath                string
+	DefaultModel              string
+	TranscriptionPath         string
+	DefaultTranscriptionModel string
+	DocsURL                   string
+	Description               string
 }
 
 const FireworksDefaultAccountID = "fireworks"
@@ -117,14 +119,16 @@ var builtInProviders = []BuiltInProvider{
 		Description: "Google Gemini through the OpenAI-compatible endpoint. Long-context (1M+ token) and multimodal models from the Gemini family.",
 	},
 	{
-		ID:          "groq",
-		Name:        "Groq",
-		Kind:        "cloud",
-		Protocol:    "openai",
-		BaseURL:     "https://api.groq.com/openai/v1",
-		APIKeyEnv:   "PROVIDER_GROQ_API_KEY",
-		DocsURL:     "https://console.groq.com/docs/models",
-		Description: "Groq LPU inference. Sub-second time-to-first-token on open-weight models — among the lowest end-to-end latency for chat completions.",
+		ID:                        "groq",
+		Name:                      "Groq",
+		Kind:                      "cloud",
+		Protocol:                  "openai",
+		BaseURL:                   "https://api.groq.com/openai/v1",
+		APIKeyEnv:                 "PROVIDER_GROQ_API_KEY",
+		TranscriptionPath:         "/audio/transcriptions",
+		DefaultTranscriptionModel: "whisper-large-v3-turbo",
+		DocsURL:                   "https://console.groq.com/docs/models",
+		Description:               "Groq LPU inference. Sub-second time-to-first-token on open-weight models — among the lowest end-to-end latency for chat completions.",
 	},
 	{
 		ID:          "huggingface",
@@ -155,13 +159,15 @@ var builtInProviders = []BuiltInProvider{
 		Description: "Local LM Studio server. Desktop app that exposes downloaded GGUF and MLX models on a one-click OpenAI-compatible endpoint.",
 	},
 	{
-		ID:          "localai",
-		Name:        "LocalAI",
-		Kind:        "local",
-		Protocol:    "openai",
-		BaseURL:     "http://127.0.0.1:8080/v1",
-		DocsURL:     "https://localai.io/features/openai-functions/",
-		Description: "Local LocalAI server. Self-hosted OpenAI drop-in with backends for GGUF, MLX, Transformers, Whisper, and image generation.",
+		ID:                        "localai",
+		Name:                      "LocalAI",
+		Kind:                      "local",
+		Protocol:                  "openai",
+		BaseURL:                   "http://127.0.0.1:8080/v1",
+		TranscriptionPath:         "/audio/transcriptions",
+		DefaultTranscriptionModel: "whisper-1",
+		DocsURL:                   "https://localai.io/features/openai-functions/",
+		Description:               "Local LocalAI server. Self-hosted OpenAI drop-in with backends for GGUF, MLX, Transformers, Whisper, and image generation.",
 	},
 	{
 		ID:          "moonshot",
@@ -203,14 +209,16 @@ var builtInProviders = []BuiltInProvider{
 		Description: "Local Ollama server. The fastest path to running open-weight models on your machine — single binary, one-command model pull.",
 	},
 	{
-		ID:          "openai",
-		Name:        "OpenAI",
-		Kind:        "cloud",
-		Protocol:    "openai",
-		BaseURL:     "https://api.openai.com",
-		APIKeyEnv:   "PROVIDER_OPENAI_API_KEY",
-		DocsURL:     "https://developers.openai.com/api/docs/models",
-		Description: "OpenAI's hosted API. GPT chat models and the o-series reasoning models via the canonical Chat Completions endpoint.",
+		ID:                        "openai",
+		Name:                      "OpenAI",
+		Kind:                      "cloud",
+		Protocol:                  "openai",
+		BaseURL:                   "https://api.openai.com",
+		APIKeyEnv:                 "PROVIDER_OPENAI_API_KEY",
+		TranscriptionPath:         "/v1/audio/transcriptions",
+		DefaultTranscriptionModel: "gpt-4o-mini-transcribe",
+		DocsURL:                   "https://developers.openai.com/api/docs/models",
+		Description:               "OpenAI's hosted API. GPT chat models and the o-series reasoning models via the canonical Chat Completions endpoint.",
 	},
 	{
 		ID:          "openrouter",
@@ -332,16 +340,18 @@ func DefaultProviderTimeout(kind string) time.Duration {
 
 func (p BuiltInProvider) RuntimeConfig() OpenAICompatibleProviderConfig {
 	return OpenAICompatibleProviderConfig{
-		Name:           p.ID,
-		ProviderFamily: p.ID,
-		Kind:           p.Kind,
-		Protocol:       p.Protocol,
-		BaseURL:        p.BaseURL,
-		APIVersion:     p.APIVersion,
-		ChatPath:       p.ChatPath,
-		ModelsPath:     p.ModelsPath,
-		Timeout:        DefaultProviderTimeout(p.Kind),
-		StubMode:       false,
-		DefaultModel:   p.DefaultModel,
+		Name:                      p.ID,
+		ProviderFamily:            p.ID,
+		Kind:                      p.Kind,
+		Protocol:                  p.Protocol,
+		BaseURL:                   p.BaseURL,
+		APIVersion:                p.APIVersion,
+		ChatPath:                  p.ChatPath,
+		ModelsPath:                p.ModelsPath,
+		TranscriptionPath:         p.TranscriptionPath,
+		DefaultTranscriptionModel: p.DefaultTranscriptionModel,
+		Timeout:                   DefaultProviderTimeout(p.Kind),
+		StubMode:                  false,
+		DefaultModel:              p.DefaultModel,
 	}
 }

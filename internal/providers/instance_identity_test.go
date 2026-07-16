@@ -58,6 +58,13 @@ func TestConfigurationProviderInstanceIdentityTracksGenerationAndConfigWithoutSe
 	if got := configurationProviderInstanceIdentity(newEndpoint); got == first {
 		t.Fatal("identity did not change when dispatch configuration changed")
 	}
+
+	newTranscriptionRoute := base
+	newTranscriptionRoute.TranscriptionPath = "/audio/transcriptions"
+	newTranscriptionRoute.DefaultTranscriptionModel = "speech-model"
+	if got := configurationProviderInstanceIdentity(newTranscriptionRoute); got == first {
+		t.Fatal("identity did not change when transcription disclosure configuration changed")
+	}
 }
 
 func TestMutableRegistryRecreationChangesRuntimeIdentityButPreservesDurableGeneration(t *testing.T) {

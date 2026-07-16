@@ -585,6 +585,28 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 - Prefer derived display helpers over inline formatting logic scattered across JSX.
 - Avoid giant top-level components that fetch, normalize, render, and mutate everything at once.
 
+## Chat dictation ownership
+
+`ChatDictationControl` owns browser microphone and transcription-request
+lifecycle; `ChatComposer` owns only insertion into the editable message. Keep
+these boundaries when changing dictation:
+
+- load the typed `/hecate/v1/dictation/options` capability snapshot and default
+  to the first available route (the backend orders local first);
+- show the exact provider and local/cloud kind before recording, and never
+  silently select a different route after a failure;
+- cap recording duration and client-side bytes, stop every `MediaStreamTrack`
+  on stop/error/unmount/chat switch, abort the HTTP request on unmount, and keep
+  the provider selector disabled while audio is live;
+- insert returned text at the textarea selection with readable boundary
+  spacing, restore focus/cursor, and never call submit automatically;
+- keep MediaRecorder/getUserMedia/API mocks in focused component tests. Test
+  track cleanup and unmount-before-disclosure, not just the happy transcript.
+
+The API owns real media sniffing, size/read/concurrency limits, and the provider
+generation fence. The UI disclosure copy must not claim a `kind=local` custom
+URL is enforced loopback egress.
+
 ## Build / test commands
 
 | Command                                         | What it does                                        | When to use                                      |

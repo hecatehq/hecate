@@ -815,6 +815,27 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	if family := openai.RuntimeConfig().ProviderFamily; family != "openai" {
 		t.Fatalf("openai runtime provider family = %q, want openai", family)
 	}
+	if runtime := openai.RuntimeConfig(); runtime.TranscriptionPath != "/v1/audio/transcriptions" || runtime.DefaultTranscriptionModel != "gpt-4o-mini-transcribe" {
+		t.Fatalf("openai transcription runtime = path %q model %q", runtime.TranscriptionPath, runtime.DefaultTranscriptionModel)
+	}
+
+	for _, tc := range []struct {
+		id    string
+		path  string
+		model string
+	}{
+		{id: "groq", path: "/audio/transcriptions", model: "whisper-large-v3-turbo"},
+		{id: "localai", path: "/audio/transcriptions", model: "whisper-1"},
+	} {
+		provider, ok := BuiltInProviderByID(tc.id)
+		if !ok {
+			t.Fatalf("BuiltInProviderByID(%s) = not found", tc.id)
+		}
+		runtime := provider.RuntimeConfig()
+		if runtime.TranscriptionPath != tc.path || runtime.DefaultTranscriptionModel != tc.model {
+			t.Fatalf("%s transcription runtime = path %q model %q", tc.id, runtime.TranscriptionPath, runtime.DefaultTranscriptionModel)
+		}
+	}
 
 	anthropic, ok := BuiltInProviderByID("anthropic")
 	if !ok {
@@ -1060,6 +1081,8 @@ func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T)
 	t.Setenv("PROVIDER_CUSTOM_BASE_URL", "https://example.com/v1")
 	t.Setenv("PROVIDER_CUSTOM_API_KEY", "custom-secret")
 	t.Setenv("PROVIDER_CUSTOM_MODELS", "custom-fast, custom-large")
+	t.Setenv("PROVIDER_CUSTOM_TRANSCRIPTION_PATH", "/audio/transcriptions")
+	t.Setenv("PROVIDER_CUSTOM_TRANSCRIPTION_MODEL", "custom-whisper")
 
 	cfg := LoadFromEnv()
 	// Only providers with explicit env vars register — one custom var
@@ -1079,6 +1102,9 @@ func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T)
 	}
 	if len(custom.KnownModels) != 2 || custom.KnownModels[0] != "custom-fast" || custom.KnownModels[1] != "custom-large" {
 		t.Fatalf("custom known models = %#v, want custom-fast/custom-large", custom.KnownModels)
+	}
+	if custom.TranscriptionPath != "/audio/transcriptions" || custom.DefaultTranscriptionModel != "custom-whisper" {
+		t.Fatalf("custom transcription config = path %q model %q", custom.TranscriptionPath, custom.DefaultTranscriptionModel)
 	}
 }
 

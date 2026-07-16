@@ -39,6 +39,8 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/providers/presets"},
 	{method: http.MethodGet, path: "/hecate/v1/providers/status"},
 	{method: http.MethodGet, path: "/hecate/v1/providers/history"},
+	{method: http.MethodGet, path: "/hecate/v1/dictation/options"},
+	{method: http.MethodPost, path: "/hecate/v1/dictation/transcriptions"},
 
 	{method: http.MethodGet, path: "/hecate/v1/projects"},
 	{method: http.MethodPost, path: "/hecate/v1/projects"},

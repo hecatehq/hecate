@@ -424,19 +424,25 @@ type OpenAICompatibleProviderConfig struct {
 	// ProviderFamily is the canonical built-in identity used only for
 	// provider-specific discovery and model-capability inference. Runtime
 	// routing and operator-facing metadata continue to use Name.
-	ProviderFamily string        `json:"-"`
-	Kind           string        `json:"kind"`
-	Protocol       string        `json:"protocol"`
-	BaseURL        string        `json:"base_url"`
-	APIKey         string        `json:"api_key"`
-	APIVersion     string        `json:"api_version"`
-	ChatPath       string        `json:"chat_path,omitempty"`
-	ModelsPath     string        `json:"models_path,omitempty"`
-	Timeout        time.Duration `json:"timeout"`
-	StubMode       bool          `json:"stub_mode"`
-	StubResponse   string        `json:"stub_response"`
-	DefaultModel   string        `json:"default_model"`
-	Enabled        bool          `json:"enabled"`
+	ProviderFamily string `json:"-"`
+	Kind           string `json:"kind"`
+	Protocol       string `json:"protocol"`
+	BaseURL        string `json:"base_url"`
+	APIKey         string `json:"api_key"`
+	APIVersion     string `json:"api_version"`
+	ChatPath       string `json:"chat_path,omitempty"`
+	ModelsPath     string `json:"models_path,omitempty"`
+	// TranscriptionPath and DefaultTranscriptionModel are populated only for
+	// provider presets whose OpenAI-compatible audio contract Hecate has
+	// explicitly verified. They stay separate from chat model discovery because
+	// transcription models do not necessarily appear in the chat catalog.
+	TranscriptionPath         string        `json:"transcription_path,omitempty"`
+	DefaultTranscriptionModel string        `json:"default_transcription_model,omitempty"`
+	Timeout                   time.Duration `json:"timeout"`
+	StubMode                  bool          `json:"stub_mode"`
+	StubResponse              string        `json:"stub_response"`
+	DefaultModel              string        `json:"default_model"`
+	Enabled                   bool          `json:"enabled"`
 	// KnownModels is an operator-supplied static catalog override. Populated only
 	// via PROVIDER_<NAME>_MODELS env (comma-separated), it populates the static
 	// capabilities when no API key is set and live discovery is skipped. Empty
@@ -1088,6 +1094,8 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 		cfg.APIKey = getEnv(prefix+"API_KEY", cfg.APIKey)
 		cfg.StubMode = getEnvBool(prefix+"STUB_MODE", cfg.StubMode)
 		cfg.StubResponse = getEnv(prefix+"STUB_RESPONSE", cfg.StubResponse)
+		cfg.TranscriptionPath = getEnv(prefix+"TRANSCRIPTION_PATH", cfg.TranscriptionPath)
+		cfg.DefaultTranscriptionModel = getEnv(prefix+"TRANSCRIPTION_MODEL", cfg.DefaultTranscriptionModel)
 		if models := splitCSV(getEnv(prefix+"MODELS", "")); len(models) > 0 {
 			cfg.KnownModels = models
 		}

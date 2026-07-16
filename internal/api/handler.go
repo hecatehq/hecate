@@ -31,6 +31,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/remoteruntime"
 	"github.com/hecatehq/hecate/internal/sandbox"
@@ -51,6 +52,10 @@ type Handler struct {
 	service                           *gateway.Service
 	controlPlane                      controlplane.Store
 	providerRuntime                   ProviderRuntime
+	dictationRegistry                 providers.Registry
+	dictationAdmission                dictationAdmission
+	dictationBodyReadTimeout          time.Duration
+	dictationTranscriptionTimeout     time.Duration
 	taskStore                         taskstate.Store
 	taskRunner                        *orchestrator.Runner
 	taskOriginRunGateMu               sync.Mutex
@@ -176,6 +181,10 @@ type ProviderRuntime interface {
 	Delete(ctx context.Context, id string) error
 }
 
+type providerRegistryRuntime interface {
+	Registry() providers.Registry
+}
+
 type StateCleaner interface {
 	ClearData(ctx context.Context) (int, error)
 }
@@ -189,6 +198,10 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	var providerRuntime ProviderRuntime
 	if len(providerRuntimes) > 0 {
 		providerRuntime = providerRuntimes[0]
+	}
+	var dictationRegistry providers.Registry
+	if runtimeWithRegistry, ok := providerRuntime.(providerRegistryRuntime); ok {
+		dictationRegistry = runtimeWithRegistry.Registry()
 	}
 	if taskStore == nil {
 		taskStore = taskstate.NewMemoryStore()
@@ -358,6 +371,10 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		service:                           service,
 		controlPlane:                      cpStore,
 		providerRuntime:                   providerRuntime,
+		dictationRegistry:                 dictationRegistry,
+		dictationAdmission:                newDictationAdmission(maxConcurrentDictationRequests),
+		dictationBodyReadTimeout:          defaultDictationBodyReadTimeout,
+		dictationTranscriptionTimeout:     defaultDictationTranscriptionTimeout,
 		taskStore:                         taskStore,
 		taskRunner:                        runner,
 		taskOriginRunGate:                 taskOriginRunGate,

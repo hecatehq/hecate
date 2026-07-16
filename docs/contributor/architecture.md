@@ -7,6 +7,7 @@ Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- an
 ## Contents
 
 - [Gateway request flow](#gateway-request-flow)
+- [Dictation flow](#dictation-flow)
 - [Chat attachment flow](#chat-attachment-flow)
 - [Workspace mutation coordination](#workspace-mutation-coordination)
 - [Task runtime flow](#task-runtime-flow)
@@ -54,6 +55,46 @@ Key invariants:
   Long-lived response streams do not inherit a global server timeout.
 - **Usage events are append-only.** Hecate records tokens and known/reported
   cost for operator visibility, but it does not enforce a global spend gate.
+
+## Dictation flow
+
+Dictation is a narrow Hecate-native application seam, not a chat-router mode.
+The browser records audio, the API owns binary admission and media validation,
+`dictationapp` owns provider selection and the exact-instance disclosure fence,
+and the provider adapter owns the OpenAI-compatible multipart call. No chat
+handler or provider failover path receives the audio.
+
+```mermaid
+sequenceDiagram
+    participant UI as Chat composer / MediaRecorder
+    participant API as Dictation API
+    participant App as dictationapp
+    participant Registry as Provider registry
+    participant Provider as Selected transcription provider
+    UI->>API: GET /dictation/options
+    API->>App: list explicit transcription capabilities
+    App->>Registry: snapshot available instances (local first)
+    Registry-->>UI: provider, kind, default model, availability
+    UI->>API: POST multipart audio + explicit provider
+    API->>API: 10 MiB + 60s + signature + two-slot admission
+    API->>App: resolve route after bounded upload
+    App->>Registry: capture opaque provider generation
+    API->>App: transcribe with five-minute bound
+    App->>Registry: re-read exact name + generation
+    alt generation still matches
+        App->>Provider: one multipart transcription call
+        Provider-->>App: bounded transcript
+        App-->>UI: editable draft text
+    else provider changed or disappeared
+        App-->>UI: conflict before audio disclosure
+    end
+```
+
+Audio and transcript bodies are transient and must not enter Hecate storage,
+usage events, traces, metrics, logs, or artifacts. Provider configuration
+fingerprints include the transcription path and default model but exclude
+credentials. The UI stops microphone tracks on stop/unmount/chat switch,
+inserts returned text at the current selection, and never submits it.
 
 ## Chat attachment flow
 

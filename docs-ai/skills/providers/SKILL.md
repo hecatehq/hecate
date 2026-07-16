@@ -12,6 +12,7 @@ Use this skill for work in `internal/providers/` and any change that crosses the
 ```
 provider.go               Provider / Streamer / Capabilities interfaces
 openai.go                 OpenAI-compat adapter (real OpenAI, Together, Groq, Ollama, vLLM)
+openai_transcription.go   Explicit OpenAI-compatible audio transcription adapter
 anthropic.go              Native Anthropic Messages API adapter
 runtime_manager.go        provider catalog + protocol → adapter dispatch
 capabilities_cache.go     /v1/models discovery + TTL cache
@@ -100,6 +101,23 @@ The Anthropic adapter auto-attaches `cache_control: {"type":"ephemeral"}` marker
 - `cache_creation_input_tokens` → folded into `Usage.PromptTokens`; this at least counts the tokens for usage reporting — the prior adapter dropped them entirely.
 
 If Hecate later needs adapter-specific cache-cost reporting, split `cache_creation_input_tokens` back into its own `Usage` field. The trade-off is documented in the comment on `anthropicUsage`.
+
+## Audio transcription boundary
+
+Audio transcription is an optional `Transcriber` capability, not a chat model
+capability. Advertise it only when `TranscriptionPath` and
+`DefaultTranscriptionModel` are both explicit. Built-in defaults currently
+exist for OpenAI, Groq, and LocalAI; env-configured OpenAI-compatible providers
+may opt in explicitly. Do not infer support from `/v1/models` or from the
+provider speaking the OpenAI chat protocol.
+
+`dictationapp` resolves one named provider and carries its opaque
+`ProviderInstanceIdentity` to the call. Re-read the registry and compare that
+identity immediately before audio disclosure. Transcription path and model are
+part of the non-secret configuration fingerprint; credentials are not. There
+is no Auto route and no cross-provider failover. Keep audio/transcript bodies
+out of logs, traces, metrics, health, usage, and persistence; tests should pin
+multipart path/auth/fields and the replacement-before-disclosure fence.
 
 ## Common bugs to watch for
 

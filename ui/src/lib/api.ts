@@ -61,6 +61,11 @@ import type { TraceListResponse, TraceResponse } from "../types/trace";
 import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
+  DictationOptionsResponse,
+  DictationTranscriptionRecord,
+  DictationTranscriptionResponse,
+} from "../types/dictation";
+import type {
   InstallLocalPluginPayload,
   PluginHealthResponse,
   PluginResponse,
@@ -361,6 +366,25 @@ export async function getPluginHealth(pluginID: string): Promise<PluginHealthRes
 
 export async function getProviderPresets(): Promise<ProviderPresetResponse> {
   return fetchJSON<ProviderPresetResponse>(`${HECATE_API}/providers/presets`);
+}
+
+export async function getDictationOptions(signal?: AbortSignal): Promise<DictationOptionsResponse> {
+  return fetchJSON<DictationOptionsResponse>(`${HECATE_API}/dictation/options`, { signal });
+}
+
+export async function createDictationTranscription(
+  provider: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<DictationTranscriptionRecord> {
+  const form = new FormData();
+  form.append("provider", provider);
+  form.append("file", file, file.name);
+  const payload = await fetchJSON<DictationTranscriptionResponse>(
+    `${HECATE_API}/dictation/transcriptions`,
+    { method: "POST", body: form, signal },
+  );
+  return payload.data;
 }
 
 export async function discoverLocalProviders(): Promise<LocalProviderDiscoveryResponse> {
