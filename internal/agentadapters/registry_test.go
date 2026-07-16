@@ -1034,6 +1034,49 @@ func TestSanitizedEnvMapsProviderXAIKeyOnlyForGrokBuild(t *testing.T) {
 	}
 }
 
+func TestPrependResolvedAgentRuntimePathUsesCandidateOutsidePATH(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	runtimePath := filepath.Join(home, ".volta", "bin", "claude")
+	basePath := strings.Join([]string{
+		filepath.Join(home, "system-bin"),
+		filepath.Join(home, "fallback-bin"),
+	}, string(os.PathListSeparator))
+	input := []string{"PATH=" + basePath, "HOME=" + home}
+	adapter := Adapter{AgentVersion: VersionProbe{
+		Command:        "claude",
+		CandidatePaths: []string{"${HOME}/.volta/bin/claude"},
+	}}
+
+	got := prependResolvedAgentRuntimePath(adapter, input, func(file string) (string, error) {
+		if file == runtimePath {
+			return runtimePath, nil
+		}
+		return "", errors.New("not found")
+	})
+	wantPath := filepath.Dir(runtimePath) + string(os.PathListSeparator) + basePath
+	if value := envValue(got, "PATH"); value != wantPath {
+		t.Fatalf("PATH = %q, want %q", value, wantPath)
+	}
+	if input[0] != "PATH="+basePath {
+		t.Fatalf("input mutated to %#v", input)
+	}
+}
+
+func TestPrependResolvedAgentRuntimePathDoesNotDuplicateDirectory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	input := []string{"PATH=" + dir + string(os.PathListSeparator) + "/usr/bin"}
+	adapter := Adapter{AgentVersion: VersionProbe{Command: "claude"}}
+
+	got := prependResolvedAgentRuntimePath(adapter, input, func(string) (string, error) {
+		return path, nil
+	})
+	if value := envValue(got, "PATH"); value != strings.TrimPrefix(input[0], "PATH=") {
+		t.Fatalf("PATH = %q, want existing path unchanged", value)
+	}
+}
+
 func TestRemoteRuntimeAdapterEnvUsesOnlyRemoteCredentialKeysAndEphemeralHome(t *testing.T) {
 	t.Parallel()
 

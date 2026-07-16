@@ -215,7 +215,12 @@ The Docker runtime image includes the supported agent CLIs and ACP adapters so
 local/self-host Docker deployments can use External Agents without installing
 those binaries into the container at runtime. Bare binary and desktop
 deployments use whatever agent CLIs and Go ACP adapter binaries are installed on
-the operator's machine.
+the operator's machine. Local launches resolve each provider CLI from the
+adapter catalog's direct command and trusted candidate paths. Hecate prepends
+only the resolved executable directory to the adapter's sanitized `PATH`, so a
+desktop launch can use common per-user installations such as `~/.local/bin` or
+`~/.volta/bin` without importing a login shell environment. Remote runtimes keep
+their separate fail-closed credential and process-environment policy.
 
 ## Credential and account boundaries
 
