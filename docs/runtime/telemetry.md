@@ -405,13 +405,14 @@ Chats UI can point operators back to `/hecate/v1/traces?request_id=...`.
 
 | Span name                        | Events                                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `chat.run`                       | `chat.run.started`, `chat.output.started`, `chat.files_changed`, `chat.run.finished`, `chat.run.failed`, `chat.run.cancelled`                                                                                                                                                                                                                    |
+| `chat.run`                       | `chat.run.started`, `chat.output.started`, `chat.files_changed`, `chat.session_replaced`, `chat.run.finished`, `chat.run.failed`, `chat.run.cancelled`                                                                                                                                                                                           |
 | `agent_adapter.approval.request` | wraps the coordinator's RequestPermission decision (grant short-circuit, mode default, or prompt-mode wait); attributes include `hecate.agent_adapter.id`, `hecate.agent_adapter.session_id`, `hecate.agent_adapter.tool_kind`, `hecate.agent_adapter.approval.mode`, and `hecate.agent_adapter.approval.path` once the resolution path is known |
 | `agent_adapter.approval.resolve` | wraps the operator decision-application path; attributes include `hecate.agent_adapter.approval.id`, `hecate.agent_adapter.approval.decision`, `hecate.agent_adapter.approval.scope`, and the same adapter / session / tool_kind context once the row loads                                                                                      |
 
 External Agent spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
 `hecate.agent_adapter.driver.kind`, `hecate.agent_adapter.native_session.id`,
+`hecate.agent_adapter.native_session.replaced`,
 `hecate.chat.session.id`, `hecate.run.id`, `hecate.workspace.path`,
 `hecate.agent_adapter.output.bytes`, and
 `hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not

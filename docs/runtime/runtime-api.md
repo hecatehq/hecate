@@ -5124,6 +5124,24 @@ streaming; non-streaming providers still publish the final assistant content
 when the run finishes. External Agent turns continue to publish normalized
 adapter output as it arrives.
 
+If an adapter proves that a provider-native conversation is missing before it
+emits output, Hecate still fails closed by default. It retries once only when
+the current ACP update stream is exactly the command bridge's outer
+start/failed-finish pair, with no provider or inner-tool update, and when
+the persisted transcript contains no successful or otherwise ambiguous agent
+turn, and only after storing the replacement `native_session_id`. The running
+assistant row receives exactly one completed `session_recovery` activity; the
+same type is used by terminal fallback if a streaming activity write was lost. Established
+history is never silently reset; the failed assistant row instead explains that
+the native conversation could not be restored and tells the operator to start
+a new External Agent chat. Attachments on an authorized retry pass through the
+same live ACP capability checks, size limits, private staging, and cancellation
+checks as the original attempt.
+Process-scoped adapters may also replace an id that cannot be loaded after the
+adapter process restarts. That catalog-declared path uses the same durable-id
+callback and `session_recovery` activity before the first fresh-session prompt;
+durable or unknown scopes fail closed on `session/load` errors.
+
 Before starting the adapter, Hecate enforces optional chat guardrails:
 `HECATE_CHAT_MAX_TURNS_PER_SESSION`,
 `HECATE_CHAT_MAX_SESSION_DURATION`, and

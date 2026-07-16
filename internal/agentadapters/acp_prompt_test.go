@@ -32,6 +32,11 @@ func TestNormalizePromptInputValidatesAndCopiesFiles(t *testing.T) {
 	if string(input.Files[0].Data) != "private notes" {
 		t.Fatal("normalized prompt retained caller-owned attachment bytes")
 	}
+	attempt := clonePromptInput(input)
+	clearPromptInput(&attempt)
+	if string(input.Files[0].Data) != "private notes" {
+		t.Fatal("clearing one prompt attempt mutated retry-owned attachment bytes")
+	}
 	clearPromptInput(&input)
 	if input.Text != "" || input.Files != nil {
 		t.Fatalf("cleared prompt = %#v", input)

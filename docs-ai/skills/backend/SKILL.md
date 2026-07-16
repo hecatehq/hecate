@@ -331,6 +331,31 @@ External Agent has two live/persistence layers:
    parallel implementation-metadata shape.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
+Native-session recovery crosses both layers and must remain fail-closed.
+Provider-specific adapters may classify an exact prompt failure as
+`native_session_missing`, but they must not retry or replace the id. Hecate may
+replace only when the persisted pre-turn transcript proves there was no
+successful or ambiguous assistant turn. Keep that transcript-derived authority
+behind `internal/chatapp`; HTTP handlers pass its typed decision into the live
+adapter manager instead of reimplementing transcript policy. Keep the failed turn, replacement
+reservation, fresh ACP start, durable native-id callback, and one prompt retry
+serialized. The callback is the commit point: after it succeeds, install the
+fresh in-memory session even if request cancellation arrives, but check
+cancellation before redisclosing the prompt. Rebuild attachment blocks through
+the normal staging path. Load failures for durable or unknown session scopes and
+unknown or wrapped prompt-error shapes do not silently create a fresh session.
+A classified prompt failure also requires the exact command-bridge outer
+start/failed-finish pair and no provider update, inner tool, diff, or unknown
+record. Historical raw evidence uses the same exact pair (or the narrowly
+recognized process-command-not-found shape); a private raw-withheld marker needs
+one matching failed outer-command activity, and unknown activity statuses fail
+closed.
+A registry-declared process-scoped adapter may replace an unloadable id, but it
+must keep the fresh session behind the start reservation and invoke the same
+durable callback before publishing it or sending its first prompt. Every return
+path after callback success must carry the committed replacement id, including
+shutdown, so terminal settlement cannot restore stale durable state.
+
 Adapter action visibility uses a two-step contract. The built-in registry is
 the offline fallback for expected support; after an explicit probe,
 ACP `Initialize` capabilities are authoritative for that adapter row. Keep

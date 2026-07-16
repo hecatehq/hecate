@@ -82,9 +82,21 @@ type Adapter struct {
 	SupportedRange       string
 	SupportsAuthenticate bool
 	SupportsLogout       bool
-	CredentialModes      []CredentialMode
-	Capabilities         []Capability
+	// NativeSessionScope describes whether a stored ACP session id can be
+	// restored after the adapter process exits. Process-scoped adapters require
+	// an explicit fresh-session replacement after restart; the zero value fails
+	// closed when session/load fails.
+	NativeSessionScope NativeSessionScope
+	CredentialModes    []CredentialMode
+	Capabilities       []Capability
 }
+
+type NativeSessionScope string
+
+const (
+	NativeSessionScopeProcess NativeSessionScope = "process"
+	NativeSessionScopeDurable NativeSessionScope = "durable"
+)
 
 type Capability struct {
 	ID          string
@@ -201,6 +213,18 @@ type RunRequest struct {
 	// the emitted cancellation authoritative: no transcript callbacks occur for
 	// that terminal after OnTerminalClosed returns. Callers must return promptly.
 	OnTerminalClosed func(terminalID string)
+	// AllowNativeSessionReplacement is explicit host authority to replace a
+	// provider-native conversation that the adapter proves is missing. The
+	// zero value fails closed. OnNativeSessionReplaced must durably persist the
+	// new native ID before Hecate sends the prompt again.
+	AllowNativeSessionReplacement bool
+	OnNativeSessionReplaced       func(NativeSessionReplacement) error
+}
+
+type NativeSessionReplacement struct {
+	PreviousNativeSessionID string
+	NativeSessionID         string
+	Reason                  string
 }
 
 const (
@@ -296,6 +320,11 @@ type RunResult struct {
 	ConfigOptions          []agentcontrols.ConfigOption
 	AvailableCommands      []agentcontrols.Command
 	AvailableCommandsKnown bool
+	// promptCommandFailureLifecycle is set only when the ACP turn observed the
+	// exact command-bridge wrapper start/failed-finish pair and no provider
+	// update between them. It stays package-private because it is transient
+	// retry evidence, not part of the runtime API or durable transcript.
+	promptCommandFailureLifecycle bool
 }
 
 type Usage struct {
@@ -347,6 +376,7 @@ func BuiltIns() []Adapter {
 			SupportedRange:       ">=0.1.0",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
+			NativeSessionScope:   NativeSessionScopeProcess,
 			Capabilities: acpCapabilityMatrix(
 				CapabilityStatusSupported,
 				CapabilityStatusSupported,
@@ -392,6 +422,7 @@ func BuiltIns() []Adapter {
 			SupportedRange:       ">=0.1.0",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
+			NativeSessionScope:   NativeSessionScopeDurable,
 			Capabilities: acpCapabilityMatrix(
 				CapabilityStatusSupported,
 				CapabilityStatusSupported,

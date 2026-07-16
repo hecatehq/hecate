@@ -359,6 +359,27 @@ filesystem callback allows only that exact staged path, never widens the
 workspace filesystem boundary, and rejects every other read or write inside the
 stage namespace before workspace fallback. Immediately before dispatch, Hecate
 rechecks the retained parent, ancestor, directory, and child identities.
+If the adapter proves that the provider-native conversation is missing before
+any output, Hecate may rebuild and disclose the same prompt blocks once to a
+fresh session of that same selected adapter. This requires a durable transcript
+with no successful or ambiguous agent turn, and Hecate persists the replacement
+native id before retrying. A persistence failure, cancellation before the
+commit, partial output, file change, completed tool, compacted history, unknown
+activity, or unclassified adapter error prevents redisclosure.
+The current turn must contain only the command bridge's outer prompt-subprocess
+start and failed-finish records; any provider update or inner tool fails closed.
+Historical raw diagnostics must either contain that exact pair or the narrowly
+recognized process-command-not-found failure. When file privacy replaces raw
+diagnostics with the fixed withheld marker, one matching failed outer-command
+activity is required instead. Unknown or empty activity statuses are never
+treated as proof that a tool was harmless.
+The separate process-scoped adapter path may replace an unloadable id after an
+adapter restart because that catalog contract explicitly says the id cannot
+outlive the process. It keeps the fresh in-memory session unpublished while the
+durable callback runs, then uses the same persist-before-prompt rule. Durable
+and unknown scopes do not take that path. After either callback commits, every
+shutdown or cancellation result retains the replacement id so final settlement
+cannot write the stale id back.
 
 On Darwin and Linux, Hecate retains handles for the canonical temporary parent
 and its ancestors, requires root/current-user ownership, requires sticky

@@ -106,6 +106,7 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventAgentChatRunStarted, telemetry.SpanAgentChatRun},
 		{telemetry.EventAgentChatOutputStarted, telemetry.SpanAgentChatRun},
 		{telemetry.EventAgentChatFilesChanged, telemetry.SpanAgentChatRun},
+		{telemetry.EventAgentChatSessionReplaced, telemetry.SpanAgentChatRun},
 		{telemetry.EventAgentChatRunFinished, telemetry.SpanAgentChatRun},
 		{telemetry.EventAgentChatRunFailed, telemetry.SpanAgentChatRun},
 		{telemetry.EventAgentChatRunCancelled, telemetry.SpanAgentChatRun},

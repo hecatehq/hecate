@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1564,35 +1565,704 @@ func TestSessionManagerLoadSessionPassesMCPServers(t *testing.T) {
 	}
 }
 
-func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T) {
+func TestSessionManagerFailsClosedWhenDurableNativeSessionCannotLoad(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
-	installFakeACPExecutable(t, "codex-acp-adapter")
+	installFakeACPExecutable(t, "claude-code-acp-adapter")
 	workspace := t.TempDir()
 
 	manager := NewSessionManager()
-	run, err := manager.Run(context.Background(), RunRequest{
+	_, err := manager.Run(context.Background(), RunRequest{
 		SessionID:               "chat_stale",
-		AdapterID:               "codex",
+		AdapterID:               "claude_code",
 		Workspace:               workspace,
 		PreviousNativeSessionID: "fake_session_stale",
 		Prompt:                  PromptInput{Text: "fresh turn"},
 		Timeout:                 5 * time.Second,
 		MaxOutputBytes:          64 * 1024,
 	})
+	if err == nil || !strings.Contains(err.Error(), "restore ACP session fake_session_stale") {
+		t.Fatalf("Run error = %v, want fail-closed restore error", err)
+	}
+}
+
+func TestSessionManagerPersistsProcessScopedSessionReplacementBeforePrompt(t *testing.T) {
+	const staleID = "fake_session_stale"
+	persisted := filepath.Join(t.TempDir(), "persisted")
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
+	t.Setenv("HECATE_FAKE_ACP_REQUIRE_MARKER", persisted)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	var replacement NativeSessionReplacement
+	var activities []Activity
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_process_scoped_stale",
+		AdapterID:               "codex",
+		Workspace:               t.TempDir(),
+		PreviousNativeSessionID: staleID,
+		Prompt:                  PromptInput{Text: "fresh turn"},
+		Timeout:                 5 * time.Second,
+		OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+			replacement = got
+			return os.WriteFile(persisted, []byte(got.NativeSessionID), 0o600)
+		},
+		OnActivity: func(activity Activity) { activities = append(activities, activity) },
+	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if run.NativeSessionID == "" || run.NativeSessionID == "fake_session_stale" {
-		t.Fatalf("native session id = %q, want fresh id", run.NativeSessionID)
+	if replacement.PreviousNativeSessionID != staleID || replacement.NativeSessionID == "" || replacement.NativeSessionID == staleID {
+		t.Fatalf("replacement = %+v", replacement)
 	}
-	if !run.SessionStarted || run.SessionResumed {
-		t.Fatalf("session flags = started:%v resumed:%v, want started fresh", run.SessionStarted, run.SessionResumed)
+	if run.NativeSessionID != replacement.NativeSessionID || !run.SessionStarted || run.SessionResumed {
+		t.Fatalf("run session = id:%q started:%v resumed:%v", run.NativeSessionID, run.SessionStarted, run.SessionResumed)
 	}
-	if !strings.Contains(run.SessionRecovery, "fake_session_stale") {
-		t.Fatalf("session recovery = %q, want stale id", run.SessionRecovery)
+	if !strings.Contains(run.SessionRecovery, "process-scoped ACP session "+staleID) || !strings.Contains(run.Output, "fresh turn") {
+		t.Fatalf("run = recovery %q output %q", run.SessionRecovery, run.Output)
 	}
-	if !strings.Contains(run.Output, "fresh turn") {
-		t.Fatalf("output = %q, want fresh turn", run.Output)
+	if len(activities) != 1 || activities[0].Type != "session_recovery" {
+		t.Fatalf("activities = %+v, want one session recovery", activities)
+	}
+	assertPromptSessionIDs(t, promptSessions, replacement.NativeSessionID)
+}
+
+func TestSessionManagerProcessScopedReplacementKeepsFreshIDWhenShutdownWinsBeforePrompt(t *testing.T) {
+	const (
+		staleID   = "fake_session_stale"
+		sessionID = "chat_process_scoped_shutdown_after_publish"
+	)
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	t.Setenv("HECATE_FAKE_ACP_COMMANDS_DELAY", "1ms")
+	t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	// An incompatible prior session makes publication observable while session()
+	// drains it, allowing shutdown to deterministically win before Run can enter
+	// the newly persisted session.
+	priorTurn := make(chan struct{})
+	prior := &acpSession{
+		adapter:    Adapter{ID: "other"},
+		workspace:  t.TempDir(),
+		activeDone: priorTurn,
+	}
+	manager.sessions[sessionID] = prior
+
+	workspace := t.TempDir()
+	var replacement NativeSessionReplacement
+	type outcome struct {
+		result RunResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := manager.Run(context.Background(), RunRequest{
+			SessionID:               sessionID,
+			AdapterID:               "codex",
+			Workspace:               workspace,
+			PreviousNativeSessionID: staleID,
+			Prompt:                  PromptInput{Text: "do not disclose"},
+			Timeout:                 5 * time.Second,
+			OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+				replacement = got
+				return nil
+			},
+		})
+		done <- outcome{result: result, err: err}
+	}()
+
+	var fresh *acpSession
+	deadline := time.Now().Add(5 * time.Second)
+	for fresh == nil {
+		manager.mu.Lock()
+		candidate := manager.sessions[sessionID]
+		manager.mu.Unlock()
+		if candidate != nil && candidate != prior {
+			fresh = candidate
+			break
+		}
+		if time.Now().After(deadline) {
+			close(priorTurn)
+			t.Fatal("timed out waiting for process-scoped replacement publication")
+		}
+		runtime.Gosched()
+	}
+	fresh.turnMu.Lock()
+	shutdownErr := manager.Shutdown(context.Background())
+	fresh.turnMu.Unlock()
+	close(priorTurn)
+	if shutdownErr != nil {
+		t.Fatalf("Shutdown: %v", shutdownErr)
+	}
+
+	select {
+	case got := <-done:
+		if got.err == nil || !strings.Contains(got.err.Error(), "changed after process-scoped native-session replacement was persisted") {
+			t.Fatalf("Run error = %v, want post-commit session change", got.err)
+		}
+		if replacement.NativeSessionID == "" || got.result.NativeSessionID != replacement.NativeSessionID || got.result.NativeSessionID == staleID {
+			t.Fatalf("result native id = %q replacement = %+v, want committed fresh id", got.result.NativeSessionID, replacement)
+		}
+		assertRunResultHasSessionMetadata(t, got.result, "codex")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after shutdown")
+	}
+	if _, err := os.Stat(promptSessions); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("prompt session capture error = %v, want no prompt dispatch", err)
+	}
+}
+
+func TestSessionManagerDoesNotPromptWhenProcessScopedReplacementPersistenceFails(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	_, err := manager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_process_scoped_persist_failure",
+		AdapterID:               "codex",
+		Workspace:               t.TempDir(),
+		PreviousNativeSessionID: staleID,
+		Prompt:                  PromptInput{Text: "do not disclose"},
+		Timeout:                 5 * time.Second,
+		OnNativeSessionReplaced: func(NativeSessionReplacement) error {
+			return errors.New("store unavailable")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "persist process-scoped native-session replacement: store unavailable") {
+		t.Fatalf("Run error = %v, want persistence failure", err)
+	}
+	if _, statErr := os.Stat(promptSessions); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("prompt session capture error = %v, want no prompt dispatch", statErr)
+	}
+}
+
+func TestSessionManagerKeepsProcessScopedReplacementPrivateUntilPersistence(t *testing.T) {
+	const (
+		staleID   = "fake_session_stale"
+		sessionID = "chat_process_scoped_concurrent"
+	)
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	workspace := t.TempDir()
+	persisting := make(chan struct{})
+	releasePersistence := make(chan struct{})
+	var replacements atomic.Int32
+	request := func(prompt string) RunRequest {
+		return RunRequest{
+			SessionID:               sessionID,
+			AdapterID:               "codex",
+			Workspace:               workspace,
+			PreviousNativeSessionID: staleID,
+			Prompt:                  PromptInput{Text: prompt},
+			Timeout:                 5 * time.Second,
+			OnNativeSessionReplaced: func(NativeSessionReplacement) error {
+				if replacements.Add(1) == 1 {
+					close(persisting)
+				}
+				<-releasePersistence
+				return nil
+			},
+		}
+	}
+	type outcome struct {
+		result RunResult
+		err    error
+	}
+	firstDone := make(chan outcome, 1)
+	go func() {
+		result, err := manager.Run(context.Background(), request("first"))
+		firstDone <- outcome{result: result, err: err}
+	}()
+	select {
+	case <-persisting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process-scoped persistence")
+	}
+	manager.mu.Lock()
+	publishedBeforeCommit := manager.sessions[sessionID] != nil
+	startReserved := manager.starts[sessionID] != nil
+	manager.mu.Unlock()
+	if publishedBeforeCommit || !startReserved {
+		t.Fatalf("replacement publication before commit = %v, start reserved = %v", publishedBeforeCommit, startReserved)
+	}
+	secondDone := make(chan outcome, 1)
+	go func() {
+		result, err := manager.Run(context.Background(), request("second"))
+		secondDone <- outcome{result: result, err: err}
+	}()
+	if _, err := os.Stat(promptSessions); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("prompt capture before persistence = %v, want no prompt disclosure", err)
+	}
+	close(releasePersistence)
+	first := <-firstDone
+	second := <-secondDone
+	if first.err != nil || second.err != nil {
+		t.Fatalf("concurrent process-scoped Runs = %v / %v", first.err, second.err)
+	}
+	if replacements.Load() != 1 || first.result.NativeSessionID == "" || first.result.NativeSessionID != second.result.NativeSessionID {
+		t.Fatalf("replacement count/id = %d / %q / %q", replacements.Load(), first.result.NativeSessionID, second.result.NativeSessionID)
+	}
+	assertPromptSessionIDs(t, promptSessions, first.result.NativeSessionID, first.result.NativeSessionID)
+}
+
+func TestSessionManagerReplacesMissingNativeSessionBeforeRetry(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	promptCapture := filepath.Join(t.TempDir(), "prompt.json")
+	promptFileCapture := filepath.Join(t.TempDir(), "prompt-files.jsonl")
+	persisted := filepath.Join(t.TempDir(), "persisted")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", staleID)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_CAPTURE", promptCapture)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_FILE_CAPTURE", promptFileCapture)
+	t.Setenv("HECATE_FAKE_ACP_REQUIRE_MARKER", persisted)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := manager.Shutdown(ctx); err != nil {
+			t.Errorf("Shutdown: %v", err)
+		}
+	})
+	var replacement NativeSessionReplacement
+	var activities []Activity
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:                     "chat_missing_native",
+		AdapterID:                     "codex",
+		Workspace:                     t.TempDir(),
+		PreviousNativeSessionID:       staleID,
+		Prompt:                        PromptInput{Text: "inspect", Files: []PromptFile{promptTestFile("notes.txt", "text/plain", []byte("private input"))}},
+		Timeout:                       5 * time.Second,
+		MaxOutputBytes:                64 * 1024,
+		AllowNativeSessionReplacement: true,
+		OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+			replacement = got
+			return os.WriteFile(persisted, []byte(got.NativeSessionID), 0o600)
+		},
+		OnActivity: func(activity Activity) { activities = append(activities, activity) },
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if replacement.PreviousNativeSessionID != staleID || replacement.NativeSessionID == "" || replacement.NativeSessionID == staleID {
+		t.Fatalf("replacement = %+v", replacement)
+	}
+	if run.NativeSessionID != replacement.NativeSessionID || !run.SessionStarted || run.SessionResumed {
+		t.Fatalf("run session = id:%q started:%v resumed:%v, replacement %+v", run.NativeSessionID, run.SessionStarted, run.SessionResumed, replacement)
+	}
+	if run.SessionRecovery != nativeSessionReplacementReason || !strings.Contains(run.Output, "inspect") {
+		t.Fatalf("run = recovery %q output %q", run.SessionRecovery, run.Output)
+	}
+	var recoveryActivities int
+	for _, activity := range activities {
+		if activity.Type == "session_recovery" && activity.Status == "completed" {
+			recoveryActivities++
+		}
+	}
+	if recoveryActivities != 1 {
+		t.Fatalf("activities = %+v, want one completed session recovery", activities)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID, replacement.NativeSessionID)
+	raw, err := os.ReadFile(promptCapture)
+	if err != nil {
+		t.Fatalf("read retried prompt: %v", err)
+	}
+	var blocks []acp.ContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		t.Fatalf("decode retried prompt: %v", err)
+	}
+	if len(blocks) != 2 || promptBlockKind(blocks[1]) != "resource_link" {
+		t.Fatalf("retried prompt blocks = %#v, want text and restaged file", blocks)
+	}
+	fileCaptureRaw, err := os.ReadFile(promptFileCapture)
+	if err != nil {
+		t.Fatalf("read prompt file capture: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(fileCaptureRaw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("prompt file capture lines = %d, want two attempts: %s", len(lines), fileCaptureRaw)
+	}
+	var attempts [2]fakePromptFileCapture
+	for index := range lines {
+		if err := json.Unmarshal([]byte(lines[index]), &attempts[index]); err != nil {
+			t.Fatalf("decode prompt file capture %d: %v", index, err)
+		}
+		if len(attempts[index].URIs) != 1 || len(attempts[index].Contents) != 1 || attempts[index].Contents[0] != "private input" {
+			t.Fatalf("prompt file capture %d = %+v, want one original file body", index, attempts[index])
+		}
+	}
+	if attempts[0].URIs[0] == attempts[1].URIs[0] {
+		t.Fatalf("retry reused private staging URI %q", attempts[0].URIs[0])
+	}
+	if !attempts[1].PreviousStageMissing {
+		t.Fatalf("retry observed first private stage still present: %+v", attempts[1])
+	}
+}
+
+func TestSessionManagerDoesNotReplaceMissingNativeSessionWithoutAuthority(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", staleID)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	_, err := manager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_missing_native_no_authority",
+		AdapterID:               "codex",
+		Workspace:               t.TempDir(),
+		PreviousNativeSessionID: staleID,
+		Prompt:                  PromptInput{Text: "do not retry"},
+		Timeout:                 5 * time.Second,
+	})
+	if !isNativeSessionMissingError(err) {
+		t.Fatalf("Run error = %T %v, want native-session-missing error", err, err)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID)
+}
+
+func TestSessionManagerFailedRetryRetainsCommittedNativeSession(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", "*")
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "claude-code-acp-adapter")
+
+	manager := NewSessionManager()
+	var replacement NativeSessionReplacement
+	result, err := manager.Run(context.Background(), RunRequest{
+		SessionID:                     "chat_missing_native_twice",
+		AdapterID:                     "claude_code",
+		Workspace:                     t.TempDir(),
+		PreviousNativeSessionID:       staleID,
+		Prompt:                        PromptInput{Text: "retry once"},
+		Timeout:                       5 * time.Second,
+		AllowNativeSessionReplacement: true,
+		OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+			replacement = got
+			return nil
+		},
+	})
+	if !isNativeSessionMissingError(err) {
+		t.Fatalf("Run error = %T %v, want second classified missing-native failure", err, err)
+	}
+	if replacement.NativeSessionID == "" || result.NativeSessionID != replacement.NativeSessionID || result.SessionRecovery != nativeSessionReplacementReason {
+		t.Fatalf("result = %+v replacement = %+v, want committed replacement metadata", result, replacement)
+	}
+	if display := NormalizeError("Claude Code", err); strings.Contains(display, "kept this chat unchanged") {
+		t.Fatalf("normalized failed retry made stale-state claim: %q", display)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID, replacement.NativeSessionID)
+}
+
+func TestIsNativeSessionMissingErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	matching := &acp.RequestError{
+		Code:    -32000,
+		Message: "prompt command failed",
+		Data:    map[string]any{"errorKind": "native_session_missing"},
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "matching", err: matching, want: true},
+		{name: "wrapped", err: fmt.Errorf("wrapped: %w", matching)},
+		{name: "joined", err: errors.Join(matching, errors.New("cleanup failed"))},
+		{name: "wrong code", err: &acp.RequestError{Code: -32603, Message: matching.Message, Data: matching.Data}},
+		{name: "wrong message", err: &acp.RequestError{Code: matching.Code, Message: "Internal error", Data: matching.Data}},
+		{name: "wrong kind", err: &acp.RequestError{Code: matching.Code, Message: matching.Message, Data: map[string]any{"errorKind": "billing_error"}}},
+		{name: "string data", err: &acp.RequestError{Code: matching.Code, Message: matching.Message, Data: "native_session_missing"}},
+		{name: "ordinary error", err: errors.New("native_session_missing")},
+		{name: "nil"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isNativeSessionMissingError(test.err); got != test.want {
+				t.Fatalf("isNativeSessionMissingError(%T) = %v, want %v", test.err, got, test.want)
+			}
+		})
+	}
+}
+
+func TestCanReplaceMissingNativeSessionRejectsObservedResultEvidence(t *testing.T) {
+	t.Parallel()
+	err := &acp.RequestError{
+		Code:    -32000,
+		Message: "prompt command failed",
+		Data:    map[string]any{"errorKind": "native_session_missing"},
+	}
+	request := RunRequest{
+		AllowNativeSessionReplacement: true,
+		OnNativeSessionReplaced:       func(NativeSessionReplacement) error { return nil },
+	}
+	safe := RunResult{
+		RawOutput:                     "command bridge wrapper records",
+		promptCommandFailureLifecycle: true,
+	}
+	if !canReplaceMissingNativeSession(context.Background(), request, safe, err) {
+		t.Fatal("classified failure with only command-bridge lifecycle evidence should be replaceable")
+	}
+	for name, mutate := range map[string]func(*RunResult){
+		"output":            func(result *RunResult) { result.Output = "partial" },
+		"missing lifecycle": func(result *RunResult) { result.promptCommandFailureLifecycle = false },
+		"diff stat":         func(result *RunResult) { result.DiffStat = "file changed" },
+		"diff":              func(result *RunResult) { result.Diff = "patch" },
+	} {
+		mutate := mutate
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			result := safe
+			mutate(&result)
+			if canReplaceMissingNativeSession(context.Background(), request, result, err) {
+				t.Fatalf("result %+v should fail closed", result)
+			}
+		})
+	}
+}
+
+func TestSessionManagerRestoresStaleSessionWhenReplacementPersistenceFails(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", staleID)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	request := RunRequest{
+		SessionID:                     "chat_missing_native_persist_failure",
+		AdapterID:                     "codex",
+		Workspace:                     t.TempDir(),
+		PreviousNativeSessionID:       staleID,
+		Prompt:                        PromptInput{Text: "do not redisclose"},
+		Timeout:                       5 * time.Second,
+		AllowNativeSessionReplacement: true,
+		OnNativeSessionReplaced: func(NativeSessionReplacement) error {
+			return errors.New("store unavailable")
+		},
+	}
+	if _, err := manager.Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), "persist native-session replacement: store unavailable") {
+		t.Fatalf("first Run error = %v, want persistence failure", err)
+	}
+	request.AllowNativeSessionReplacement = false
+	request.OnNativeSessionReplaced = nil
+	if _, err := manager.Run(context.Background(), request); !isNativeSessionMissingError(err) {
+		t.Fatalf("second Run error = %T %v, want stale session failure", err, err)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID, staleID)
+}
+
+func TestSessionManagerCancellationAfterReplacementPersistenceDoesNotRetry(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", staleID)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	workspace := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	var replacement NativeSessionReplacement
+	_, err := manager.Run(ctx, RunRequest{
+		SessionID:                     "chat_missing_native_cancel",
+		AdapterID:                     "codex",
+		Workspace:                     workspace,
+		PreviousNativeSessionID:       staleID,
+		Prompt:                        PromptInput{Text: "cancel before retry"},
+		Timeout:                       5 * time.Second,
+		AllowNativeSessionReplacement: true,
+		OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+			replacement = got
+			cancel()
+			return nil
+		},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context cancellation", err)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID)
+	second, err := manager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_missing_native_cancel",
+		AdapterID:               "codex",
+		Workspace:               workspace,
+		PreviousNativeSessionID: staleID,
+		Prompt:                  PromptInput{Text: "next turn"},
+		Timeout:                 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if second.NativeSessionID != replacement.NativeSessionID {
+		t.Fatalf("second native session = %q, want persisted %q", second.NativeSessionID, replacement.NativeSessionID)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID, replacement.NativeSessionID)
+}
+
+func TestSessionManagerShutdownAfterReplacementCommitReturnsFreshNativeID(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", staleID)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	t.Setenv("HECATE_FAKE_ACP_COMMANDS_DELAY", "1ms")
+	t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
+	installFakeACPExecutable(t, "claude-code-acp-adapter")
+
+	manager := NewSessionManager()
+	shutdownDone := make(chan error, 1)
+	var replacement NativeSessionReplacement
+	result, err := manager.Run(context.Background(), RunRequest{
+		SessionID:                     "chat_missing_native_shutdown",
+		AdapterID:                     "claude_code",
+		Workspace:                     t.TempDir(),
+		PreviousNativeSessionID:       staleID,
+		Prompt:                        PromptInput{Text: "do not retry after shutdown"},
+		Timeout:                       5 * time.Second,
+		AllowNativeSessionReplacement: true,
+		OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+			replacement = got
+			go func() { shutdownDone <- manager.Shutdown(context.Background()) }()
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				manager.mu.Lock()
+				closed := manager.closed
+				manager.mu.Unlock()
+				if closed {
+					return nil
+				}
+				if time.Now().After(deadline) {
+					return errors.New("manager shutdown did not start")
+				}
+				runtime.Gosched()
+			}
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "shut down after native-session replacement was persisted") {
+		t.Fatalf("Run error = %v, want post-commit shutdown", err)
+	}
+	if replacement.NativeSessionID == "" || result.NativeSessionID != replacement.NativeSessionID || result.NativeSessionID == staleID {
+		t.Fatalf("result native id = %q replacement = %+v, want committed fresh id", result.NativeSessionID, replacement)
+	}
+	assertRunResultHasSessionMetadata(t, result, "claude_code")
+	select {
+	case shutdownErr := <-shutdownDone:
+		if shutdownErr != nil {
+			t.Fatalf("Shutdown: %v", shutdownErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown returned before replacement resources drained")
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID)
+}
+
+func TestSessionManagerConcurrentTurnsShareOneNativeSessionReplacement(t *testing.T) {
+	const staleID = "fake_session_stale"
+	promptSessions := filepath.Join(t.TempDir(), "prompt-sessions")
+	t.Setenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING", staleID)
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE", promptSessions)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+
+	manager := NewSessionManager()
+	workspace := t.TempDir()
+	persisting := make(chan struct{})
+	releasePersistence := make(chan struct{})
+	var replacements atomic.Int32
+	request := func(prompt string) RunRequest {
+		return RunRequest{
+			SessionID:                     "chat_missing_native_concurrent",
+			AdapterID:                     "codex",
+			Workspace:                     workspace,
+			PreviousNativeSessionID:       staleID,
+			Prompt:                        PromptInput{Text: prompt},
+			Timeout:                       5 * time.Second,
+			AllowNativeSessionReplacement: true,
+			OnNativeSessionReplaced: func(NativeSessionReplacement) error {
+				if replacements.Add(1) == 1 {
+					close(persisting)
+				}
+				<-releasePersistence
+				return nil
+			},
+		}
+	}
+	type outcome struct {
+		result RunResult
+		err    error
+	}
+	firstDone := make(chan outcome, 1)
+	go func() {
+		result, err := manager.Run(context.Background(), request("first"))
+		firstDone <- outcome{result: result, err: err}
+	}()
+	select {
+	case <-persisting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for replacement persistence")
+	}
+	secondDone := make(chan outcome, 1)
+	go func() {
+		result, err := manager.Run(context.Background(), request("second"))
+		secondDone <- outcome{result: result, err: err}
+	}()
+	close(releasePersistence)
+	first := <-firstDone
+	second := <-secondDone
+	if first.err != nil || second.err != nil {
+		t.Fatalf("concurrent Runs = %v / %v", first.err, second.err)
+	}
+	if replacements.Load() != 1 {
+		t.Fatalf("replacement callbacks = %d, want 1", replacements.Load())
+	}
+	if first.result.NativeSessionID == "" || first.result.NativeSessionID != second.result.NativeSessionID {
+		t.Fatalf("native sessions = %q / %q, want same fresh session", first.result.NativeSessionID, second.result.NativeSessionID)
+	}
+	assertPromptSessionIDs(t, promptSessions, staleID, first.result.NativeSessionID, first.result.NativeSessionID)
+}
+
+func assertPromptSessionIDs(t *testing.T, path string, want ...string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read prompt session capture: %v", err)
+	}
+	got := strings.Fields(string(raw))
+	if len(got) != len(want) {
+		t.Fatalf("prompt sessions = %q, want %q", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("prompt sessions = %q, want %q", got, want)
+		}
+	}
+}
+
+func assertRunResultHasSessionMetadata(t *testing.T, result RunResult, adapterID string) {
+	t.Helper()
+	if result.Adapter.ID != adapterID || result.DriverKind != DriverKindACP {
+		t.Fatalf("run adapter metadata = %q / %q, want %q / %q", result.Adapter.ID, result.DriverKind, adapterID, DriverKindACP)
+	}
+	if result.AgentInfo == nil || result.AgentInfo.Name != "fake-acp-agent" {
+		t.Fatalf("run agent info = %#v, want fake ACP agent", result.AgentInfo)
+	}
+	if len(result.ConfigOptions) == 0 {
+		t.Fatal("run config options are empty, want session snapshot")
+	}
+	if !result.AvailableCommandsKnown || len(result.AvailableCommands) != 2 {
+		t.Fatalf("run available commands = known:%v commands:%#v, want session snapshot", result.AvailableCommandsKnown, result.AvailableCommands)
 	}
 }
 
@@ -3596,7 +4266,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_AUTHENTICATE_DELAY=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q HECATE_FAKE_ACP_PROMPT_IMAGE=%q HECATE_FAKE_ACP_PROMPT_EMBEDDED=%q HECATE_FAKE_ACP_PROMPT_CAPTURE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_AUTHENTICATE_DELAY=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q HECATE_FAKE_ACP_PROMPT_IMAGE=%q HECATE_FAKE_ACP_PROMPT_EMBEDDED=%q HECATE_FAKE_ACP_PROMPT_CAPTURE=%q HECATE_FAKE_ACP_PROMPT_FILE_CAPTURE=%q HECATE_FAKE_ACP_NATIVE_SESSION_MISSING=%q HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE=%q HECATE_FAKE_ACP_REQUIRE_MARKER=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_FS"),
@@ -3625,6 +4295,10 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_PROMPT_IMAGE"),
 		os.Getenv("HECATE_FAKE_ACP_PROMPT_EMBEDDED"),
 		os.Getenv("HECATE_FAKE_ACP_PROMPT_CAPTURE"),
+		os.Getenv("HECATE_FAKE_ACP_PROMPT_FILE_CAPTURE"),
+		os.Getenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING"),
+		os.Getenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE"),
+		os.Getenv("HECATE_FAKE_ACP_REQUIRE_MARKER"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -3651,6 +4325,13 @@ type fakeACPSession struct {
 	mode            string
 	lastPrompt      string
 	lastPromptAlias string
+}
+
+type fakePromptFileCapture struct {
+	SessionID            string   `json:"session_id"`
+	URIs                 []string `json:"uris"`
+	Contents             []string `json:"contents"`
+	PreviousStageMissing bool     `json:"previous_stage_missing"`
 }
 
 func newFakeACPAgent() *fakeACPAgent {
@@ -3925,6 +4606,20 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
+	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_PROMPT_SESSION_CAPTURE")); path != "" {
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		_, writeErr := fmt.Fprintln(file, params.SessionId)
+		closeErr := file.Close()
+		if writeErr != nil {
+			return acp.PromptResponse{}, writeErr
+		}
+		if closeErr != nil {
+			return acp.PromptResponse{}, closeErr
+		}
+	}
 	prompt := promptText(params.Prompt)
 	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_PROMPT_CAPTURE")); path != "" {
 		raw, err := json.Marshal(params.Prompt)
@@ -3933,6 +4628,53 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		if err := os.WriteFile(path, raw, 0o600); err != nil {
 			return acp.PromptResponse{}, err
+		}
+	}
+	if err := captureFakePromptFiles(params); err != nil {
+		return acp.PromptResponse{}, err
+	}
+	if missing := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_NATIVE_SESSION_MISSING")); missing != "" && (missing == "*" || string(params.SessionId) == missing) {
+		conn, connErr := a.connection(ctx)
+		if connErr != nil {
+			return acp.PromptResponse{}, connErr
+		}
+		toolCallID := acp.ToolCallId("prompt-command-missing-native")
+		if err := conn.SessionUpdate(ctx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update: acp.SessionUpdate{ToolCall: &acp.SessionUpdateToolCall{
+				SessionUpdate: "tool_call",
+				ToolCallId:    toolCallID,
+				Title:         "Run claude",
+				Kind:          acp.ToolKindExecute,
+				Status:        acp.ToolCallStatusInProgress,
+			}},
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		failed := acp.ToolCallStatusFailed
+		kind := acp.ToolKindExecute
+		title := "Run claude"
+		if err := conn.SessionUpdate(ctx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update: acp.SessionUpdate{ToolCallUpdate: &acp.SessionToolCallUpdate{
+				SessionUpdate: "tool_call_update",
+				ToolCallId:    toolCallID,
+				Title:         &title,
+				Kind:          &kind,
+				Status:        &failed,
+			}},
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		return acp.PromptResponse{}, &acp.RequestError{
+			Code:    -32000,
+			Message: "prompt command failed",
+			Data:    map[string]any{"errorKind": "native_session_missing"},
+		}
+	}
+	if marker := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_REQUIRE_MARKER")); marker != "" {
+		if _, err := os.Stat(marker); err != nil {
+			return acp.PromptResponse{}, fmt.Errorf("replacement prompt ran before persistence marker: %w", err)
 		}
 	}
 	if prompt == "staged_error" {
@@ -4166,6 +4908,68 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{}, err
 	}
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+}
+
+func captureFakePromptFiles(params acp.PromptRequest) error {
+	path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_PROMPT_FILE_CAPTURE"))
+	if path == "" {
+		return nil
+	}
+	record := fakePromptFileCapture{SessionID: string(params.SessionId), PreviousStageMissing: true}
+	if previous, err := os.ReadFile(path); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(previous)), "\n")
+		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+			var prior fakePromptFileCapture
+			if err := json.Unmarshal([]byte(lines[len(lines)-1]), &prior); err != nil {
+				return fmt.Errorf("decode previous prompt file capture: %w", err)
+			}
+			for _, rawURI := range prior.URIs {
+				stagedPath, err := fakePromptFilePath(rawURI)
+				if err != nil {
+					return err
+				}
+				if _, err := os.Stat(stagedPath); !errors.Is(err, os.ErrNotExist) {
+					record.PreviousStageMissing = false
+				}
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, block := range params.Prompt {
+		if block.ResourceLink == nil {
+			continue
+		}
+		rawURI := block.ResourceLink.Uri
+		stagedPath, err := fakePromptFilePath(rawURI)
+		if err != nil {
+			return err
+		}
+		body, err := os.ReadFile(stagedPath)
+		if err != nil {
+			return fmt.Errorf("read staged prompt file: %w", err)
+		}
+		record.URIs = append(record.URIs, rawURI)
+		record.Contents = append(record.Contents, string(body))
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	encodeErr := json.NewEncoder(file).Encode(record)
+	closeErr := file.Close()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	return closeErr
+}
+
+func fakePromptFilePath(rawURI string) (string, error) {
+	parsed, err := url.Parse(rawURI)
+	if err != nil || parsed.Scheme != "file" || parsed.Path == "" {
+		return "", fmt.Errorf("invalid staged prompt file URI %q", rawURI)
+	}
+	return filepath.FromSlash(parsed.Path), nil
 }
 
 func (a *fakeACPAgent) waitForTerminalOutput(ctx context.Context, sessionID acp.SessionId, terminalID string, want string) (acp.TerminalOutputResponse, error) {

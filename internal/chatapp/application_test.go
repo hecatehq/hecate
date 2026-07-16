@@ -410,6 +410,61 @@ func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 	}
 }
 
+func TestApplication_ReplaceNativeSessionPersistsWithCompareAndSwap(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	if _, err := store.Create(ctx, chat.Session{ID: "chat_ext", NativeSessionID: "native_stale"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	app := New(Options{Store: store})
+	result, err := app.ReplaceNativeSession(ctx, ReplaceNativeSessionCommand{
+		SessionID:               "chat_ext",
+		PreviousNativeSessionID: "native_stale",
+		NativeSessionID:         "native_fresh",
+	})
+	if err != nil {
+		t.Fatalf("ReplaceNativeSession: %v", err)
+	}
+	if result.Session.NativeSessionID != "native_fresh" {
+		t.Fatalf("native session = %q, want native_fresh", result.Session.NativeSessionID)
+	}
+	_, err = app.ReplaceNativeSession(ctx, ReplaceNativeSessionCommand{
+		SessionID:               "chat_ext",
+		PreviousNativeSessionID: "native_stale",
+		NativeSessionID:         "native_other",
+	})
+	if !errors.Is(err, ErrNativeSessionChanged) {
+		t.Fatalf("stale ReplaceNativeSession error = %v, want ErrNativeSessionChanged", err)
+	}
+	stored, ok, err := store.Get(ctx, "chat_ext")
+	if err != nil || !ok {
+		t.Fatalf("Get(chat_ext) ok=%v err=%v", ok, err)
+	}
+	if stored.NativeSessionID != "native_fresh" {
+		t.Fatalf("stored native session = %q, want native_fresh", stored.NativeSessionID)
+	}
+}
+
+func TestApplication_ReplaceNativeSessionValidatesIDs(t *testing.T) {
+	t.Parallel()
+	app := New(Options{Store: chat.NewMemoryStore()})
+	for name, command := range map[string]ReplaceNativeSessionCommand{
+		"session":  {PreviousNativeSessionID: "old", NativeSessionID: "new"},
+		"previous": {SessionID: "chat", NativeSessionID: "new"},
+		"new":      {SessionID: "chat", PreviousNativeSessionID: "old"},
+	} {
+		command := command
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := app.ReplaceNativeSession(context.Background(), command); !IsValidationError(err) {
+				t.Fatalf("ReplaceNativeSession error = %v, want validation error", err)
+			}
+		})
+	}
+}
+
 func TestApplication_CreateSessionPrepareFailureDeletesSession(t *testing.T) {
 	t.Parallel()
 

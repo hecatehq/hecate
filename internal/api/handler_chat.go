@@ -1183,6 +1183,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	h.agentChatLive.publishSession(updated)
 
 	outputSeen := false
+	nativeSessionReplaced := false
 	runner := h.agentChatRunner
 	if runner == nil {
 		// Defensive: the constructor in NewHandler always sets
@@ -1259,8 +1260,33 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		OnActivity: func(activity agentadapters.Activity) {
 			streamCoalescer.activity(activity)
 		},
-		OnTerminalActivity: terminalActivitySink,
-		OnTerminalClosed:   settlementTurn.terminalClosed,
+		OnTerminalActivity:            terminalActivitySink,
+		OnTerminalClosed:              settlementTurn.terminalClosed,
+		AllowNativeSessionReplacement: h.chatApplication().AuthorizeNativeSessionReplacement(session),
+		OnNativeSessionReplaced: func(replacement agentadapters.NativeSessionReplacement) error {
+			persistCtx, persistCancel := newAgentChatPersistenceContext(r.Context())
+			defer persistCancel()
+			replaced, persistErr := settlementTurn.replaceNativeSession(persistCtx, chatapp.ReplaceNativeSessionCommand{
+				SessionID:               session.ID,
+				PreviousNativeSessionID: replacement.PreviousNativeSessionID,
+				NativeSessionID:         replacement.NativeSessionID,
+			})
+			if persistErr != nil {
+				return persistErr
+			}
+			nativeSessionReplaced = true
+			h.agentChatLive.publishSession(replaced)
+			h.logger.InfoContext(persistCtx, "chat.external_agent.native_session_replaced",
+				"session_id", session.ID,
+				"previous_native_session_id", replacement.PreviousNativeSessionID,
+				"native_session_id", replacement.NativeSessionID,
+			)
+			trace.Record(telemetry.EventAgentChatSessionReplaced, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+				telemetry.AttrHecateAgentNativeSessionID:       replacement.NativeSessionID,
+				telemetry.AttrHecateAgentNativeSessionReplaced: true,
+			}))
+			return nil
+		},
 	})
 	// Drop Hecate's hydrated body references before another External file turn
 	// is admitted. The synchronous runner owns any private copies it retains.
@@ -1298,6 +1324,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	})
 	if strings.TrimSpace(result.StopReason) != "" {
 		terminalAttrs["hecate.agent.stop_reason"] = result.StopReason
+	}
+	if nativeSessionReplaced {
+		terminalAttrs[telemetry.AttrHecateAgentNativeSessionReplaced] = true
 	}
 	if runErr != nil {
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
@@ -1356,8 +1385,8 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 			message.Activities = append([]chat.Activity{newChatActivity("resumed", "completed", "Resumed external session", adapter.Name+" restored "+result.NativeSessionID)}, message.Activities...)
 		} else if result.SessionStarted {
 			activities := []chat.Activity{newChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace)}
-			if result.SessionRecovery != "" {
-				activities = append(activities, newChatActivity("recovered", "completed", "Started fresh external session", result.SessionRecovery))
+			if result.SessionRecovery != "" && !chatActivitiesContainType(message.Activities, "session_recovery") {
+				activities = append(activities, newChatActivity("session_recovery", "completed", "Started fresh external session", result.SessionRecovery))
 			}
 			message.Activities = append(activities, message.Activities...)
 		}

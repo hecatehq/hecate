@@ -189,6 +189,7 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 						t.Errorf("Shutdown reload manager (%s): %v", tt.adapterID, err)
 					}
 				})
+				var replacement *NativeSessionReplacement
 				reloaded, err := reloadManager.Run(context.Background(), RunRequest{
 					SessionID:               "release_reload_" + tt.adapterID,
 					AdapterID:               tt.adapterID,
@@ -199,6 +200,10 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 					MCPServers:              tt.mcpServers,
 					Timeout:                 5 * time.Second,
 					MaxOutputBytes:          64 * 1024,
+					OnNativeSessionReplaced: func(got NativeSessionReplacement) error {
+						replacement = &got
+						return nil
+					},
 				})
 				if err != nil {
 					t.Fatalf("Run(%s reload): %v", tt.adapterID, err)
@@ -217,6 +222,12 @@ func TestACPAdapterReleaseBinariesSmoke(t *testing.T) {
 				}
 				if !tt.wantReloadRecovery && reloaded.SessionRecovery != "" {
 					t.Fatalf("Run(%s reload) recovery = %q, want empty recovery", tt.adapterID, reloaded.SessionRecovery)
+				}
+				if tt.wantReloadRecovery && (replacement == nil || replacement.PreviousNativeSessionID != prepared.NativeSessionID || replacement.NativeSessionID != reloaded.NativeSessionID) {
+					t.Fatalf("Run(%s reload) replacement = %+v, want %q -> %q", tt.adapterID, replacement, prepared.NativeSessionID, reloaded.NativeSessionID)
+				}
+				if !tt.wantReloadRecovery && replacement != nil {
+					t.Fatalf("Run(%s reload) replacement = %+v, want none", tt.adapterID, replacement)
 				}
 			}
 
