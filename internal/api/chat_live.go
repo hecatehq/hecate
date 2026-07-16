@@ -73,6 +73,7 @@ type agentChatLive struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan AgentChatLiveEvent]struct{}
 	running     map[string]*agentChatRunControl
+	mutating    map[string]struct{}
 	lifecycles  map[string]*agentChatLifecycleState
 	snapshot    agentChatSnapshotConfig
 }
@@ -155,6 +156,7 @@ func newAgentChatLive(snapshot agentChatSnapshotConfig) *agentChatLive {
 	return &agentChatLive{
 		subscribers: make(map[string]map[chan AgentChatLiveEvent]struct{}),
 		running:     make(map[string]*agentChatRunControl),
+		mutating:    make(map[string]struct{}),
 		lifecycles:  make(map[string]*agentChatLifecycleState),
 		snapshot:    snapshot,
 	}
@@ -335,6 +337,9 @@ func (l *agentChatLive) reapLifecycleLocked(sessionID string, state *agentChatLi
 	if _, running := l.running[sessionID]; running {
 		return
 	}
+	if _, mutating := l.mutating[sessionID]; mutating {
+		return
+	}
 	if l.lifecycles[sessionID] == state {
 		delete(l.lifecycles, sessionID)
 	}
@@ -353,8 +358,63 @@ func (l *agentChatLive) registerRun(snapshot agentChatLifecycleSnapshot, cancel 
 	if _, exists := l.running[snapshot.sessionID]; exists {
 		return agentChatRunBusy
 	}
+	if _, exists := l.mutating[snapshot.sessionID]; exists {
+		return agentChatRunBusy
+	}
 	l.running[snapshot.sessionID] = &agentChatRunControl{cancel: cancel, done: make(chan struct{})}
 	return agentChatRunAccepted
+}
+
+// beginExclusiveMutation admits a settings mutation that must exclude chat
+// turns without masquerading as a cancellable run. Releasing the mutation
+// advances the lifecycle generation so any turn that read the session before
+// the winning write cannot later register and execute with that stale
+// snapshot. Count it as a lifecycle operation so delete/close waits for the
+// durable settings write to settle.
+func (l *agentChatLive) beginExclusiveMutation(snapshot agentChatLifecycleSnapshot) (func(), agentChatRunRegistration) {
+	l.mu.Lock()
+	state, current := l.snapshotCurrentLocked(snapshot)
+	if !current {
+		l.mu.Unlock()
+		return nil, agentChatRunAdmissionClosed
+	}
+	if _, exists := l.running[snapshot.sessionID]; exists {
+		l.mu.Unlock()
+		return nil, agentChatRunBusy
+	}
+	if _, exists := l.mutating[snapshot.sessionID]; exists {
+		l.mu.Unlock()
+		return nil, agentChatRunBusy
+	}
+	if state.operations == 0 {
+		state.operationsDrained = make(chan struct{})
+	}
+	state.operations++
+	l.mutating[snapshot.sessionID] = struct{}{}
+	l.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			delete(l.mutating, snapshot.sessionID)
+			state := l.lifecycles[snapshot.sessionID]
+			if state != nil {
+				// Invalidate snapshots captured before or during the mutation,
+				// regardless of whether the store write succeeded.
+				state.epoch++
+				if state.operations > 0 {
+					state.operations--
+					if state.operations == 0 {
+						close(state.operationsDrained)
+						state.operationsDrained = nil
+					}
+				}
+				l.reapLifecycleLocked(snapshot.sessionID, state)
+			}
+			l.mu.Unlock()
+		})
+	}, agentChatRunAccepted
 }
 
 // beginLifecycleOperation admits a non-run mutation that must finish before a

@@ -150,6 +150,12 @@ const chatStopSettlementTimeoutMS = 2_000;
 
 export type ChatStopFenceSessionSnapshot = ChatSessionRecord | ChatSessionSummaryRecord;
 
+export type ChatWorkspaceModeMutation = {
+  sessionID: string;
+  requestedMode: ChatWorkspaceMode;
+  token: number;
+};
+
 function chatSessionSnapshotIsBusy(session: ChatStopFenceSessionSnapshot): boolean {
   const busy = (status?: string) =>
     status === "queued" || status === "running" || status === "awaiting_approval";
@@ -188,6 +194,7 @@ export type ChatState = {
   chatSessions: ChatSessionsResponse["data"];
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
+  workspaceModeMutation: ChatWorkspaceModeMutation | null;
   // Session-memory-only ownership for unsent text. These maps prevent a
   // draft or a rejected submission from crossing into another chat while the
   // server remains the transcript authority.
@@ -269,6 +276,7 @@ export type ChatActions = {
   setChatSessions: Setter<ChatSessionsResponse["data"]>;
   setActiveChatSessionID: Setter<string>;
   setActiveChatSession: Setter<ChatSessionRecord | null>;
+  setWorkspaceModeMutation: Setter<ChatWorkspaceModeMutation | null>;
   setComposerDraftsBySessionID: Setter<Map<string, string>>;
   setSavedComposerDraftsBySessionID: Setter<Map<string, string[]>>;
   saveRecoverableComposerDraft: (draft: {
@@ -469,6 +477,8 @@ export function ChatProvider({
   const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(
     initialState?.activeChatSession ?? null,
   );
+  const [workspaceModeMutation, setWorkspaceModeMutation] =
+    useState<ChatWorkspaceModeMutation | null>(initialState?.workspaceModeMutation ?? null);
   const [composerDraftsBySessionID, setComposerDraftsBySessionID] = useState(
     initialState?.composerDraftsBySessionID ?? new Map<string, string>(),
   );
@@ -1613,6 +1623,7 @@ export function ChatProvider({
       chatSessions,
       activeChatSessionID,
       activeChatSession,
+      workspaceModeMutation,
       composerDraftsBySessionID,
       savedComposerDraftsBySessionID,
       recoverableComposerDraft,
@@ -1659,6 +1670,7 @@ export function ChatProvider({
       chatSessions,
       activeChatSessionID,
       activeChatSession,
+      workspaceModeMutation,
       composerDraftsBySessionID,
       savedComposerDraftsBySessionID,
       recoverableComposerDraft,
@@ -1726,6 +1738,7 @@ export function ChatProvider({
       setChatSessions,
       setActiveChatSessionID,
       setActiveChatSession,
+      setWorkspaceModeMutation,
       setComposerDraftsBySessionID,
       setSavedComposerDraftsBySessionID,
       saveRecoverableComposerDraft,
@@ -1849,6 +1862,7 @@ export function ChatProvider({
       setAgentWorkspaceMode,
       setChatSessions,
       setActiveChatSessionID,
+      setWorkspaceModeMutation,
       setPendingChatAttachments,
       setQueuedChatMessages,
       deleteQueuedChatMessagesForSession,

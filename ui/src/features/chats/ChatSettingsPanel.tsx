@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { formatInteger } from "../../lib/format";
 import type {
   ChatAgentInfoRecord,
@@ -22,7 +22,8 @@ export function ChatSettingsPanel({
   rtkPath,
   workspaceMode,
   workspaceModeLocked,
-  workspaceModeInherited,
+  workspaceModeStartedFromProject,
+  workspaceModePending,
   externalAgentID,
   taskID,
   agentName,
@@ -55,7 +56,8 @@ export function ChatSettingsPanel({
   rtkPath: string;
   workspaceMode: ChatWorkspaceMode;
   workspaceModeLocked: boolean;
-  workspaceModeInherited: boolean;
+  workspaceModeStartedFromProject: boolean;
+  workspaceModePending: boolean;
   externalAgentID?: string;
   taskID?: string;
   agentName?: string;
@@ -133,7 +135,8 @@ export function ChatSettingsPanel({
                 <ChatSettingsWorkspaceModeRow
                   mode={workspaceMode}
                   locked={workspaceModeLocked}
-                  inherited={workspaceModeInherited}
+                  startedFromProject={workspaceModeStartedFromProject}
+                  pending={workspaceModePending}
                   disabled={mutationsDisabled}
                   onChange={onWorkspaceModeChange}
                 />
@@ -255,17 +258,28 @@ export function ChatSettingsPanel({
 function ChatSettingsWorkspaceModeRow({
   mode,
   locked,
-  inherited,
+  startedFromProject,
+  pending,
   disabled,
   onChange,
 }: {
   mode: ChatWorkspaceMode;
   locked: boolean;
-  inherited: boolean;
+  startedFromProject: boolean;
+  pending: boolean;
   disabled: boolean;
   onChange: (mode: ChatWorkspaceMode) => void;
 }) {
-  const controlDisabled = disabled || locked || inherited;
+  const descriptionID = useId();
+  const statusID = useId();
+  const controlDisabled = disabled || locked || pending;
+  const displayedMode = mode === "in_place" ? "in_place" : "persistent";
+  const describedBy = [
+    descriptionID,
+    pending || locked || startedFromProject || mode === "ephemeral" ? statusID : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <div
       style={{
@@ -279,19 +293,42 @@ function ChatSettingsWorkspaceModeRow({
     >
       <div>
         <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Workspace execution</div>
-        <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+        <div
+          id={descriptionID}
+          style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}
+        >
           {mode === "in_place"
             ? "Tools write directly to the selected folder. Review and approve this destructive posture carefully."
             : "Hecate gives task-backed turns a separate managed workspace. The selected source folder stays untouched."}
         </div>
-        {inherited ? (
-          <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-            Inherited from the linked Project. Change it in Project settings before creating the
-            chat.
+        {pending ? (
+          <div
+            id={statusID}
+            style={{ marginTop: 4, fontSize: 11, color: "var(--teal)", lineHeight: 1.45 }}
+          >
+            Saving workspace execution… Sending is paused until Hecate confirms the active mode.
           </div>
         ) : locked ? (
-          <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
+          <div
+            id={statusID}
+            style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}
+          >
             Locked after the first task-backed turn so one chat cannot switch execution posture.
+          </div>
+        ) : startedFromProject ? (
+          <div
+            id={statusID}
+            style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}
+          >
+            Started from the linked Project default. You can change this empty chat before its first
+            task-backed turn.
+          </div>
+        ) : mode === "ephemeral" ? (
+          <div
+            id={statusID}
+            style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}
+          >
+            This chat retains ephemeral intent; it currently uses the same managed lifecycle.
           </div>
         ) : null}
       </div>
@@ -300,12 +337,12 @@ function ChatSettingsWorkspaceModeRow({
         <select
           className="input"
           aria-label="Workspace mode"
-          value={mode}
+          aria-describedby={describedBy}
+          value={displayedMode}
           disabled={controlDisabled}
           onChange={(event) => onChange(event.target.value as ChatWorkspaceMode)}
         >
           <option value="persistent">Managed workspace</option>
-          <option value="ephemeral">Managed workspace (ephemeral setting)</option>
           <option value="in_place">Current folder (writes directly)</option>
         </select>
       </label>

@@ -889,6 +889,38 @@ describe("ChatView input", () => {
     expect(setHecateRTKEnabled).toHaveBeenCalledWith(true);
   });
 
+  it("shows a linked Project workspace default as an editable empty-chat starting point", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      projects: [
+        {
+          id: "proj_1",
+          name: "Managed project",
+          default_workspace_mode: "persistent",
+        } as any,
+      ],
+      activeChatSessionID: "chat_project",
+      activeChatSession: {
+        id: "chat_project",
+        title: "Project chat",
+        project_id: "proj_1",
+        agent_id: "hecate",
+        execution_mode: "hecate_task",
+        workspace_mode: "persistent",
+        workspace: "/Users/alice/dev/hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
+
+    const select = screen.getByRole("combobox", { name: "Workspace mode" });
+    expect(select).toBeEnabled();
+    expect(select).toHaveAccessibleDescription(/started from the linked project default/i);
+  });
+
   it("does not show the RTK onboarding hint after RTK is explicitly turned off in settings", async () => {
     const setHecateRTKEnabled = vi.fn(async () => true);
     const { state, actions } = setup(

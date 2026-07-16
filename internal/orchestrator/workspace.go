@@ -63,6 +63,17 @@ func (m *WorkspaceManager) planProvision(task types.Task, run types.TaskRun) (wo
 		return workspaceProvisionPlan{}, fmt.Errorf("workspace manager is not configured")
 	}
 	source := workspaceSource(task)
+	// A new task segment may intentionally reuse a workspace that Hecate
+	// already provisioned for this chat. Re-provisioning a Git source with
+	// clone would discard unstaged and untracked work, so preserve the exact
+	// runtime-owned root while keeping the task's operator posture persistent
+	// or ephemeral rather than relabelling it as source-folder in_place.
+	if task.WorkspaceReuse {
+		if source.path == "" {
+			return workspaceProvisionPlan{}, fmt.Errorf("workspace reuse requires an absolute, existing working_directory or repo path")
+		}
+		return workspaceProvisionPlan{workspacePath: source.path}, nil
+	}
 	// "in_place" mode: skip the clone/copy and run directly in the
 	// source directory. The sandbox AllowedRoot becomes the source
 	// path, so writes from shell_exec/file/agent_loop tools land in

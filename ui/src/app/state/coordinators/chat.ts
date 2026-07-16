@@ -591,6 +591,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     chatSessions,
     activeChatSessionID,
     activeChatSession,
+    workspaceModeMutation,
     composerDraftsBySessionID,
     savedComposerDraftsBySessionID,
     recoverableComposerDraft,
@@ -632,6 +633,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setChatSessions,
     setActiveChatSessionID,
     setActiveChatSession,
+    setWorkspaceModeMutation,
     setComposerDraftsBySessionID,
     setSavedComposerDraftsBySessionID,
     saveRecoverableComposerDraft,
@@ -706,6 +708,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     scope: ComposerDraftScope;
     recoveryID: number | null;
   } | null>(null);
+  const nextWorkspaceModeMutationTokenRef = useRef(0);
+  const workspaceModeMutationRef = useRef(workspaceModeMutation);
+  workspaceModeMutationRef.current = workspaceModeMutation;
   const coordinatorRenderGenerationRef = useRef(0);
   coordinatorRenderGenerationRef.current += 1;
   const lastSubmitClaimRef = useRef<{ renderGeneration: number; content: string } | null>(null);
@@ -1671,6 +1676,19 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           "Wait for the current chat ownership change to finish before sending a message.",
           409,
           "chat.ownership_mutation_in_flight",
+        ),
+      );
+      settleQueuedLocalFailure();
+      return;
+    }
+    const workspaceMutation = workspaceModeMutationRef.current;
+    const submittedSessionID = queued?.session_id ?? activeChatSessionID;
+    if (workspaceMutation?.sessionID === submittedSessionID) {
+      setChatErrorState(
+        new ApiError(
+          "Wait for Hecate to confirm workspace execution before sending a message.",
+          409,
+          "chat.workspace_mode_mutation_in_flight",
         ),
       );
       settleQueuedLocalFailure();
@@ -3928,24 +3946,46 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
     if ((session.workspace_mode ?? "in_place") === nextMode) return true;
 
+    const token = ++nextWorkspaceModeMutationTokenRef.current;
+    const mutation = { sessionID, requestedMode: nextMode, token };
+    workspaceModeMutationRef.current = mutation;
+    setWorkspaceModeMutation(mutation);
+    const mutationIsCurrent = () => workspaceModeMutationRef.current?.token === token;
     const cancellationEpoch = currentChatCancellationEpoch(sessionID);
     const stopRequestToken = stopReadTokenAtRequestStart(sessionID);
     try {
       const payload = await setChatSettingsRequest(sessionID, { workspace_mode: nextMode });
+      if (!mutationIsCurrent()) return false;
       const latest = await latestSessionAfterCancellation(
         sessionID,
         cancellationEpoch,
         payload.data,
         snapshotSourceForStopRead(stopRequestToken),
       );
+      if (!mutationIsCurrent()) return false;
       applyChatSession(latest.session, latest.source);
       return true;
     } catch (error) {
+      if (!mutationIsCurrent()) return false;
+      try {
+        const authoritative = await getChatSession(sessionID);
+        if (mutationIsCurrent()) {
+          applyChatSession(authoritative.data, snapshotSourceForStopRead(stopRequestToken));
+        }
+      } catch {
+        // Preserve the original mutation failure. A later dashboard/session
+        // refresh remains authoritative if this recovery read also fails.
+      }
       params.setNoticeMessage(
         "error",
         error instanceof Error ? error.message : "Failed to update the workspace mode.",
       );
       return false;
+    } finally {
+      if (mutationIsCurrent()) {
+        workspaceModeMutationRef.current = null;
+        setWorkspaceModeMutation(null);
+      }
     }
   }
 

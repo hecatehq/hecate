@@ -7,8 +7,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -205,6 +208,220 @@ func TestHecateAgentChatWorkspaceModeChangeSerializesWithTurns(t *testing.T) {
 		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
 	if updated.Data.WorkspaceMode != chat.WorkspaceModeInPlace {
 		t.Fatalf("workspace mode after idle change = %q, want in_place", updated.Data.WorkspaceMode)
+	}
+}
+
+type blockingNextChatGetStore struct {
+	chat.Store
+	mu      sync.Mutex
+	armed   bool
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingNextChatGetStore) arm() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.armed = true
+}
+
+func (s *blockingNextChatGetStore) Get(ctx context.Context, id string) (chat.Session, bool, error) {
+	s.mu.Lock()
+	armed := s.armed
+	if armed {
+		s.armed = false
+	}
+	s.mu.Unlock()
+	if armed {
+		close(s.started)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return chat.Session{}, false, ctx.Err()
+		}
+	}
+	return s.Store.Get(ctx, id)
+}
+
+func TestHecateAgentChatWorkspaceModeMutationInvalidatesPreReadTurn(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-stale-mode",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "must not run"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	store := &blockingNextChatGetStore{
+		Store:   chat.NewMemoryStore(),
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	apiHandler.agentChat = store
+	server := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, server)
+	workspace := t.TempDir()
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"persistent","provider":"openai","model":"gpt-4o-mini"}`, workspace))
+
+	store.arm()
+	turnDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages", strings.NewReader(`{"execution_mode":"hecate_task","content":"use the old mode"}`))
+		req.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, req)
+		turnDone <- recorder
+	}()
+	select {
+	case <-store.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn did not pause after its initial session read")
+	}
+
+	updated := mustRequestJSON[ChatSessionResponse](client, http.MethodPatch,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
+	if updated.Data.WorkspaceMode != chat.WorkspaceModeInPlace {
+		t.Fatalf("updated workspace mode = %q, want in_place", updated.Data.WorkspaceMode)
+	}
+	close(store.release)
+	select {
+	case response := <-turnDone:
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), errCodeSessionStopping) {
+			t.Fatalf("stale turn status/body = %d/%s, want conflict session-stopping", response.Code, response.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stale turn did not finish")
+	}
+	tasks, err := apiHandler.taskStore.ListTasks(t.Context(), taskstate.TaskFilter{})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("stale turn created tasks: %+v", tasks)
+	}
+}
+
+type blockingChatSettingsStore struct {
+	chat.Store
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingChatSettingsStore) UpdateSession(ctx context.Context, id string, update func(*chat.Session)) (chat.Session, error) {
+	close(s.started)
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return chat.Session{}, ctx.Err()
+	}
+	return s.Store.UpdateSession(ctx, id, update)
+}
+
+func TestHecateAgentChatWorkspaceModeMutationIsNotCancellableAsRun(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, controlplane.NewMemoryStore())
+	baseStore := chat.NewMemoryStore()
+	blockingStore := &blockingChatSettingsStore{
+		Store:   baseStore,
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	apiHandler.agentChat = blockingStore
+	server := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, server)
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","workspace_mode":"persistent"}`)
+
+	patchDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodPatch, "/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", strings.NewReader(`{"workspace_mode":"in_place"}`))
+		req.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, req)
+		patchDone <- recorder
+	}()
+
+	select {
+	case <-blockingStore.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("workspace settings mutation did not reach the store")
+	}
+	cancel := client.mustRequestStatus(http.StatusConflict, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/cancel", "")
+	if !strings.Contains(cancel.Body.String(), errCodeSessionNotRunning) {
+		t.Fatalf("cancel body = %s, want session-not-running", cancel.Body.String())
+	}
+	close(blockingStore.release)
+	select {
+	case response := <-patchDone:
+		if response.Code != http.StatusOK {
+			t.Fatalf("workspace settings status = %d, want 200, body=%s", response.Code, response.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("workspace settings mutation did not finish")
+	}
+}
+
+type failingTaskRunLinkStore struct{ chat.Store }
+
+func (s failingTaskRunLinkStore) LinkTaskRun(context.Context, string, string, string, func(*chat.Session, *chat.Message, *chat.Message)) (chat.Session, error) {
+	return chat.Session{}, fmt.Errorf("injected task-run link failure")
+}
+
+func TestHecateAgentChatTaskRunLinkFailureFailsClosed(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-link-failure",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "should not be returned"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	baseStore := chat.NewMemoryStore()
+	apiHandler.agentChat = failingTaskRunLinkStore{Store: baseStore}
+	client := newTaskTestClient(t, NewServer(logger, apiHandler))
+	workspace := t.TempDir()
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"persistent","provider":"openai","model":"gpt-4o-mini"}`, workspace))
+
+	failed := client.mustRequestStatus(http.StatusInternalServerError, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","content":"inspect safely"}`)
+	if !strings.Contains(failed.Body.String(), "could not link it safely") {
+		t.Fatalf("task-run link failure body = %s", failed.Body.String())
+	}
+	durable := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+session.Data.ID, "")
+	canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(workspace): %v", err)
+	}
+	if durable.Data.TaskID != "" || durable.Data.Workspace != canonicalWorkspace {
+		t.Fatalf("partially linked session = task %q workspace %q, want empty task and source %q", durable.Data.TaskID, durable.Data.Workspace, canonicalWorkspace)
+	}
+	locked := client.mustRequestStatus(http.StatusConflict, http.MethodPatch,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
+	if !strings.Contains(locked.Body.String(), "workspace_mode cannot change") {
+		t.Fatalf("orphan task mode lock body = %s", locked.Body.String())
+	}
+	review := client.mustRequestStatus(http.StatusConflict, http.MethodGet,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/workspace-diff", "")
+	if !strings.Contains(review.Body.String(), "workspace link is incomplete") {
+		t.Fatalf("orphan task review body = %s", review.Body.String())
 	}
 }
 
@@ -1254,7 +1471,7 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	workspace := t.TempDir()
 
 	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
-		`{"agent_id":"hecate","title":"Mixed chat","provider":"openai","model":"gpt-4o-mini"}`)
+		`{"agent_id":"hecate","title":"Mixed chat","workspace_mode":"persistent","provider":"openai","model":"gpt-4o-mini"}`)
 	if session.Data.AgentID != chat.DefaultAgentID || session.Data.TaskID != "" {
 		t.Fatalf("created session = agent %q task %q, want hecate/no task", session.Data.AgentID, session.Data.TaskID)
 	}
@@ -1284,6 +1501,14 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 		t.Fatalf("tools turn missing task/run: %+v", toolsTurn.Data)
 	}
 	firstTaskID := toolsTurn.Data.TaskID
+	managedTracked := filepath.Join(toolsTurn.Data.Workspace, "managed-unstaged.txt")
+	managedUntracked := filepath.Join(toolsTurn.Data.Workspace, "managed-untracked.txt")
+	if err := os.WriteFile(managedTracked, []byte("unstaged survives"), 0o644); err != nil {
+		t.Fatalf("write managed tracked marker: %v", err)
+	}
+	if err := os.WriteFile(managedUntracked, []byte("untracked survives"), 0o644); err != nil {
+		t.Fatalf("write managed untracked marker: %v", err)
+	}
 	toolsAssistant := toolsTurn.Data.Messages[len(toolsTurn.Data.Messages)-1]
 	if toolsAssistant.ExecutionMode != chat.ExecutionModeHecateTask || toolsAssistant.TaskID != firstTaskID || toolsAssistant.SegmentID != "task:"+firstTaskID {
 		t.Fatalf("tools assistant snapshot = execution_mode %q task %q segment %q", toolsAssistant.ExecutionMode, toolsAssistant.TaskID, toolsAssistant.SegmentID)
@@ -1315,6 +1540,19 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 		fmt.Sprintf(`{"execution_mode":"hecate_task","provider":"openai","model":"gpt-4o-mini","workspace":%q,"content":"tools again"}`, workspace))
 	if secondTools.Data.TaskID == "" || secondTools.Data.TaskID == firstTaskID {
 		t.Fatalf("tools re-entry task_id = %q, want new task distinct from %q", secondTools.Data.TaskID, firstTaskID)
+	}
+	if secondTools.Data.Workspace != toolsTurn.Data.Workspace {
+		t.Fatalf("tools re-entry workspace = %q, want reused managed workspace %q", secondTools.Data.Workspace, toolsTurn.Data.Workspace)
+	}
+	for path, want := range map[string]string{managedTracked: "unstaged survives", managedUntracked: "untracked survives"} {
+		body, err := os.ReadFile(path)
+		if err != nil || string(body) != want {
+			t.Fatalf("tools re-entry preserved file %q = %q err=%v, want %q", path, body, err, want)
+		}
+	}
+	secondTask, found, err := apiHandler.taskStore.GetTask(t.Context(), secondTools.Data.TaskID)
+	if err != nil || !found || !secondTask.WorkspaceReuse {
+		t.Fatalf("tools re-entry task = %+v found=%v err=%v, want managed workspace reuse", secondTask, found, err)
 	}
 	secondToolsAssistant := secondTools.Data.Messages[len(secondTools.Data.Messages)-1]
 	if secondToolsAssistant.ExecutionMode != chat.ExecutionModeHecateTask || secondToolsAssistant.TaskID != secondTools.Data.TaskID || secondToolsAssistant.SegmentID != "task:"+secondTools.Data.TaskID {

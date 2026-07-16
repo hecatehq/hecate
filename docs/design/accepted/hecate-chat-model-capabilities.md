@@ -303,9 +303,11 @@ The session stores both the chosen workspace path and workspace mode. The
 backing task receives the same mode field as a task created directly from
 Tasks, so approvals, patch review, artifacts, and OTel do not fork. Managed
 runs update the session to the generated execution path so later review and
-continuation inspect the workspace the agent actually changed. Changing mode
-is allowed before task-backed work exists and locked after the first backing
-task is created.
+continuation inspect the workspace the agent actually changed. A later task
+segment reuses that runtime-owned path instead of recloning a dirty Git tree.
+Changing mode is allowed before task-backed work exists and locked after the
+first backing task is created; the operator UI pauses sends while the mutation
+is unresolved.
 
 When a workspace mode cannot be honored, the message endpoint should fail
 before starting the run with a stable error and operator-facing copy.

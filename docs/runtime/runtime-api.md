@@ -4323,7 +4323,8 @@ local commands.
 
 - `persistent` and `ephemeral` use a separate Hecate-managed workspace. They
   remain distinct stored settings, although both currently use the same
-  isolated clone/copy provisioning path.
+  isolated clone/copy provisioning path. Operator clients may render them as
+  one Managed choice until the lifecycles differ.
 - `in_place` runs in the selected `workspace`, so tools write directly to that
   folder.
 
@@ -4332,7 +4333,9 @@ For API compatibility, an omitted `workspace_mode` is stored and returned as
 project-free Hecate chats to `persistent`; project-linked chat creation uses
 the linked Cairnline Project's default as coordination intent. Once the first
 task-backed segment has been created, the mode is locked for that chat. Direct
-model turns store the posture but do not provision a workspace.
+model turns store the posture but do not provision a workspace. A new task
+segment within an existing managed chat reuses the already-provisioned root
+instead of cloning away uncommitted or untracked work.
 
 External Agent sessions always use `workspace_mode=in_place` because the ACP
 session owns the selected workspace directly. Clients normally omit the field
@@ -4607,11 +4610,13 @@ direct-model-only shell. Once `task_id` is present, changing to a different
 mode returns `409 conflict`; sending the already-selected value remains
 idempotent. A concurrent active turn returns `409 chat.agent_session_busy`;
 workspace-mode mutation and turn admission are exclusive so creation cannot
-snapshot one posture while the session persists another. When a managed task
-run starts, Hecate updates the session's
-`workspace` to the actual generated execution path. Workspace review, file
-browsing, later task-backed turns, and message snapshots therefore point at
-the files the agent actually changed rather than the untouched source folder.
+snapshot one posture while the session persists another. The mutation is not a
+chat run, so the Cancel endpoint does not report or cancel it. When a managed
+task run starts, Hecate atomically updates the session and launching message
+pair to the actual generated execution path. Workspace review and file
+browsing fail closed if a durable chat-origin task exists without that link;
+otherwise later task-backed turns and message snapshots point at the files the
+agent actually changed rather than the untouched source folder.
 
 ```json
 PATCH /hecate/v1/chat/sessions/chat_.../settings

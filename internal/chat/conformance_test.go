@@ -77,4 +77,8 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreMessageRequestLeaseRenewal(t, factory(t))
 	})
+	t.Run(name+"/TaskRunLinkAtomic", func(t *testing.T) {
+		t.Parallel()
+		runStoreTaskRunLinkAtomic(t, factory(t))
+	})
 }

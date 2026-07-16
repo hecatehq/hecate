@@ -1133,3 +1133,63 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 		t.Fatalf("orphaned session status = %q, want cancelled", got.Status)
 	}
 }
+
+func runStoreTaskRunLinkAtomic(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	const sessionID = "chat_task_link"
+	if _, err := store.Create(ctx, Session{
+		ID:        sessionID,
+		Workspace: "/source",
+		Status:    "running",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, sessionID, Message{ID: "msg_user", Role: "user", Content: "run"}); err != nil {
+		t.Fatalf("AppendMessage(user): %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, sessionID, Message{ID: "msg_assistant", Role: "assistant", Status: "running"}); err != nil {
+		t.Fatalf("AppendMessage(assistant): %v", err)
+	}
+
+	if _, err := store.LinkTaskRun(ctx, sessionID, "msg_user", "missing", func(session *Session, user, assistant *Message) {
+		session.TaskID = "must_not_commit"
+		user.TaskID = "must_not_commit"
+		assistant.TaskID = "must_not_commit"
+	}); err == nil {
+		t.Fatal("LinkTaskRun(missing assistant) error = nil")
+	}
+	before, ok, err := store.Get(ctx, sessionID)
+	if err != nil || !ok {
+		t.Fatalf("Get after rejected link: found=%v err=%v", ok, err)
+	}
+	if before.TaskID != "" || before.Messages[0].TaskID != "" || before.Messages[1].TaskID != "" {
+		t.Fatalf("rejected link partially committed: %+v", before)
+	}
+
+	linked, err := store.LinkTaskRun(ctx, sessionID, "msg_user", "msg_assistant", func(session *Session, user, assistant *Message) {
+		session.TaskID = "task_1"
+		session.LatestRunID = "run_1"
+		session.Workspace = "/managed"
+		user.TaskID = "task_1"
+		user.RunID = "run_1"
+		user.Workspace = "/managed"
+		assistant.TaskID = "task_1"
+		assistant.RunID = "run_1"
+		assistant.Workspace = "/managed"
+	})
+	if err != nil {
+		t.Fatalf("LinkTaskRun: %v", err)
+	}
+	if linked.TaskID != "task_1" || linked.LatestRunID != "run_1" || linked.Workspace != "/managed" {
+		t.Fatalf("linked session = %+v", linked)
+	}
+	if len(linked.Messages) != 2 {
+		t.Fatalf("linked messages = %d, want 2", len(linked.Messages))
+	}
+	for _, message := range linked.Messages {
+		if message.TaskID != "task_1" || message.RunID != "run_1" || message.Workspace != "/managed" {
+			t.Fatalf("linked message = %+v", message)
+		}
+	}
+}

@@ -170,6 +170,45 @@ func TestWorkspaceManager_InPlaceWithoutValidSourceFails(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManager_ReusePreservesManagedWorkingTree(t *testing.T) {
+	source := t.TempDir()
+	if err := os.Mkdir(filepath.Join(source, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	trackedPath := filepath.Join(source, "tracked.txt")
+	untrackedPath := filepath.Join(source, "untracked.txt")
+	if err := os.WriteFile(trackedPath, []byte("unstaged edit"), 0o644); err != nil {
+		t.Fatalf("write tracked marker: %v", err)
+	}
+	if err := os.WriteFile(untrackedPath, []byte("untracked work"), 0o644); err != nil {
+		t.Fatalf("write untracked marker: %v", err)
+	}
+
+	root := t.TempDir()
+	mgr := NewWorkspaceManager(root)
+	got, err := mgr.Provision(context.Background(), types.Task{
+		ID:               "task-next",
+		WorkspaceMode:    "persistent",
+		WorkspaceReuse:   true,
+		WorkingDirectory: source,
+	}, types.TaskRun{ID: "run-next"})
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if got != canonicalTestPath(t, source) {
+		t.Fatalf("reused workspace = %q, want %q", got, canonicalTestPath(t, source))
+	}
+	for path, want := range map[string]string{trackedPath: "unstaged edit", untrackedPath: "untracked work"} {
+		body, err := os.ReadFile(path)
+		if err != nil || string(body) != want {
+			t.Fatalf("preserved file %q = %q err=%v, want %q", path, body, err, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "task-next", "run-next")); !os.IsNotExist(err) {
+		t.Fatalf("reuse unexpectedly provisioned a clone: %v", err)
+	}
+}
+
 func TestWorkspaceManagerRejectsUnsafeTaskAndRunIDs(t *testing.T) {
 	mgr := NewWorkspaceManager(t.TempDir())
 	source := t.TempDir()
