@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -742,7 +743,7 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 		AuthStatus: AuthStatusUnknown,
 	}
 	if item.ID == "claude_code" {
-		status.ClaudeCodeCLI = DetectClaudeCodeCLI(lookup)
+		status.ClaudeCodeCLI = DetectClaudeCodeCLI(item.AgentVersion, lookup)
 	}
 	if err := ctx.Err(); err != nil {
 		status.Error = err.Error()
@@ -1078,7 +1079,8 @@ func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string
 		return adapterProcessEnv{}, err
 	}
 	if _, ok := remoteruntime.FromContext(ctx); !ok {
-		return adapterProcessEnv{values: sanitizedEnvForAdapter(adapter.ID, env)}, nil
+		values := sanitizedEnvForAdapter(adapter.ID, env)
+		return adapterProcessEnv{values: prependResolvedAgentRuntimePath(adapter, values, exec.LookPath)}, nil
 	}
 	if mode.ID == CredentialModeLocalLogin {
 		home := remoteRuntimePersistentHome(env)
@@ -1099,6 +1101,52 @@ func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string
 			_ = os.RemoveAll(home)
 		},
 	}, nil
+}
+
+// prependResolvedAgentRuntimePath keeps local desktop launches independent of
+// the GUI process's often-minimal PATH. The adapter catalog already owns the
+// provider CLI's direct command and trusted candidate paths; resolve that same
+// metadata and expose only the selected executable directory to the adapter.
+// Remote runtime environments intentionally use their separate fail-closed
+// credential and PATH policy above.
+func prependResolvedAgentRuntimePath(adapter Adapter, env []string, lookup LookupFunc) []string {
+	path, ok := resolveVersionProbe(adapter.AgentVersion, lookup)
+	if !ok {
+		return env
+	}
+	dir := filepath.Clean(filepath.Dir(path))
+	if dir == "." || dir == "" {
+		return env
+	}
+	return prependPathEntry(env, dir)
+}
+
+func prependPathEntry(env []string, dir string) []string {
+	for index, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || !strings.EqualFold(name, "PATH") {
+			continue
+		}
+		for _, existing := range filepath.SplitList(value) {
+			if samePathEntry(existing, dir) {
+				return env
+			}
+		}
+		out := append([]string(nil), env...)
+		out[index] = name + "=" + strings.Join(append([]string{dir}, filepath.SplitList(value)...), string(os.PathListSeparator))
+		return out
+	}
+	out := append([]string(nil), env...)
+	return append(out, "PATH="+dir)
+}
+
+func samePathEntry(left, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func remoteRuntimePersistentHome(env []string) string {
