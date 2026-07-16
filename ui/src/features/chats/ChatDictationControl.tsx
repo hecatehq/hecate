@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useId, useRef, useState, type MutableRefObject } from "react";
 
 import { ApiError, createDictationTranscription, getDictationOptions } from "../../lib/api";
 import { parseStoredString, usePersistedState } from "../../lib/persistedState";
@@ -34,6 +34,7 @@ export function ChatDictationControl({
   const [phase, setPhase] = useState<DictationPhase>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
+  const statusID = useId();
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -201,12 +202,11 @@ export function ChatDictationControl({
       role="group"
       aria-label="Dictation"
       style={{
-        maxWidth: 820,
-        margin: "0 auto 6px",
         display: "flex",
         alignItems: "center",
-        gap: 8,
+        gap: 6,
         minHeight: 28,
+        minWidth: 0,
         color: "var(--t3)",
         fontFamily: "var(--font-mono)",
         fontSize: 10,
@@ -216,62 +216,73 @@ export function ChatDictationControl({
         type="button"
         className="btn btn-ghost btn-sm"
         aria-label={phase === "recording" ? "Stop dictation recording" : "Start dictation"}
+        aria-describedby={statusID}
         disabled={disabled || unavailable || phase === "requesting" || phase === "transcribing"}
         onClick={() => (phase === "recording" ? stopRecording() : void startRecording())}
         style={{
           color: phase === "recording" ? "var(--red)" : "var(--t1)",
-          gap: 5,
-          padding: "4px 7px",
+          padding: 4,
           flexShrink: 0,
         }}
+        title={
+          unavailable
+            ? "Configure OpenAI, Groq, or LocalAI in Connections to use dictation"
+            : phase === "recording"
+              ? "Stop dictation recording"
+              : "Start dictation"
+        }
       >
         <Icon d={phase === "recording" ? Icons.stop : Icons.microphone} size={13} />
-        {phase === "recording" ? "Stop" : "Dictate"}
       </button>
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 }}>
-        <span className="sr-only">Dictation provider</span>
-        <select
-          aria-label="Dictation provider"
-          value={selectedProvider}
-          disabled={disabled || active || unavailable}
-          onChange={(event) => {
-            setSelectedProvider(event.target.value);
-            setError("");
-          }}
-          style={{
-            maxWidth: 180,
-            minWidth: 110,
-            background: "var(--bg3)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            color: "var(--t1)",
-            font: "inherit",
-            padding: "3px 5px",
-          }}
-        >
-          {unavailable && (
-            <option value="" hidden>
-              No available providers
-            </option>
-          )}
-          {options.map((option) => (
-            <option key={option.provider} value={option.provider} disabled={!option.available}>
-              {option.provider}
-              {option.provider_kind === "local" ? " · local" : " · cloud"}
-              {!option.available ? " · unavailable" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
+      {!unavailable && (
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+          <span className="sr-only">Dictation provider</span>
+          <select
+            aria-label="Dictation provider"
+            value={selectedProvider}
+            disabled={disabled || active}
+            onChange={(event) => {
+              setSelectedProvider(event.target.value);
+              setError("");
+            }}
+            style={{
+              maxWidth: 145,
+              minWidth: 92,
+              background: "transparent",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--t2)",
+              font: "inherit",
+              padding: "3px 4px",
+            }}
+          >
+            {options.map((option) => (
+              <option key={option.provider} value={option.provider} disabled={!option.available}>
+                {option.provider}
+                {option.provider_kind === "local" ? " · local" : " · cloud"}
+                {!option.available ? " · unavailable" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <span
+        id={statusID}
         aria-live="polite"
         role="status"
-        style={{ minWidth: 0, color: error ? "var(--red)" : undefined }}
+        title={error || phaseLabel || undefined}
+        style={{
+          minWidth: 0,
+          color: error ? "var(--red)" : undefined,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
       >
         {error ||
           phaseLabel ||
           (unavailable
-            ? "Configure OpenAI, Groq, or LocalAI in Connections."
+            ? "Dictation unavailable"
             : `Audio goes only to ${selectedOption?.provider ?? selectedProvider}; Hecate does not retain it.`)}
       </span>
     </div>

@@ -64,6 +64,20 @@ describe("ChatDictationControl", () => {
     );
   });
 
+  it("keeps an unavailable route compact and points to setup", async () => {
+    vi.mocked(getDictationOptions).mockResolvedValue({
+      object: "dictation_options",
+      data: [],
+    });
+    render(<ChatDictationControl onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start dictation" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription("Dictation unavailable");
+    expect(button).toHaveAttribute("title", expect.stringContaining("Connections"));
+    expect(screen.queryByRole("combobox", { name: "Dictation provider" })).toBeNull();
+  });
+
   it("records, stops tracks, transcribes through the selected route, and returns draft text", async () => {
     const stopTrack = installRecorderMocks();
     const onTranscript = vi.fn();
