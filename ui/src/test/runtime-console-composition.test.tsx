@@ -3554,6 +3554,70 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.activeChatSession?.workspace_mode).toBe("in_place");
   });
 
+  it("shows the requested workspace mode immediately and blocks sends until failure reconciliation", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatSessionID", "a1");
+    const session = {
+      id: "a1",
+      title: "Hecate",
+      agent_id: "hecate",
+      status: "idle",
+      workspace: "/workspace",
+      workspace_mode: "persistent" as const,
+      provider: "openai",
+      model: "gpt-4o-mini",
+      messages: [],
+      created_at: "2026-04-20T00:00:00Z",
+      updated_at: "2026-04-20T00:00:00Z",
+    };
+    let rejectSettings: ((reason?: unknown) => void) | undefined;
+    let messagePosts = 0;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({ object: "chat_sessions", data: [{ ...session, message_count: 0 }] }),
+        "/hecate/v1/chat/sessions/a1": () =>
+          jsonResponse({ object: "chat_session", data: session }),
+        "/hecate/v1/chat/sessions/a1/settings": () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectSettings = reject;
+          }),
+        "/hecate/v1/chat/sessions/a1/messages": () => {
+          messagePosts += 1;
+          return jsonResponse({ object: "chat_session", data: session });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
+
+    let mutationPromise!: Promise<boolean>;
+    act(() => {
+      mutationPromise = result.current.actions.setHecateWorkspaceMode("in_place");
+    });
+    await waitFor(() =>
+      expect(result.current.state.workspaceModeMutation).toMatchObject({
+        sessionID: "a1",
+        requestedMode: "in_place",
+      }),
+    );
+
+    act(() => result.current.actions.setMessage("do not send yet"));
+    await act(async () => {
+      await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+    });
+    expect(messagePosts).toBe(0);
+    expect(result.current.state.chatErrorCode).toBe("chat.workspace_mode_mutation_in_flight");
+
+    await act(async () => {
+      rejectSettings?.(new Error("settings connection dropped"));
+      expect(await mutationPromise).toBe(false);
+    });
+    expect(result.current.state.workspaceModeMutation).toBeNull();
+    expect(result.current.state.activeChatSession?.workspace_mode).toBe("persistent");
+  });
+
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
     window.localStorage.setItem("hecate.chatSessionID", "a1");
     fetchMock.mockImplementation(

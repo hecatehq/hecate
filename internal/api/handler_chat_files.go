@@ -273,6 +273,9 @@ func (h *Handler) loadChatSession(ctx context.Context, w http.ResponseWriter, r 
 }
 
 func (h *Handler) currentChatWorkspaceDiff(ctx context.Context, w http.ResponseWriter, session chat.Session) (ChatWorkspaceDiffItem, bool) {
+	if !h.chatWorkspaceLinkReady(ctx, w, session) {
+		return ChatWorkspaceDiffItem{}, false
+	}
 	workspace := strings.TrimSpace(session.Workspace)
 	if workspace == "" {
 		return ChatWorkspaceDiffItem{
@@ -395,6 +398,9 @@ func writeChatWorkspaceDiffConflict(w http.ResponseWriter) {
 }
 
 func (h *Handler) currentChatWorkspaceFiles(ctx context.Context, w http.ResponseWriter, session chat.Session) (ChatWorkspaceFilesItem, bool) {
+	if !h.chatWorkspaceLinkReady(ctx, w, session) {
+		return ChatWorkspaceFilesItem{}, false
+	}
 	workspace := strings.TrimSpace(session.Workspace)
 	if workspace == "" {
 		return ChatWorkspaceFilesItem{Workspace: workspace, Files: []ChatWorkspaceFileItem{}}, true
@@ -453,6 +459,25 @@ func (h *Handler) currentChatWorkspaceFiles(ctx context.Context, w http.Response
 		Files:     files,
 		Truncated: truncated,
 	}, true
+}
+
+func (h *Handler) chatWorkspaceLinkReady(ctx context.Context, w http.ResponseWriter, session chat.Session) bool {
+	if !isHecateChatSession(session) || strings.TrimSpace(session.TaskID) != "" {
+		return true
+	}
+	_, taskExists, err := h.hecateChatOriginTask(ctx, session.ID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return false
+	}
+	if !taskExists {
+		return true
+	}
+	WriteErrorDetails(w, http.StatusConflict, errCodeConflict, "chat workspace link is incomplete", ErrorDetails{
+		UserMessage:    "Hecate cannot safely identify this chat's managed workspace yet.",
+		OperatorAction: "Retry after checking storage health. Do not review or discard source-folder changes as this run's output.",
+	})
+	return false
 }
 
 func shouldSkipWorkspaceTreeDir(name string) bool {

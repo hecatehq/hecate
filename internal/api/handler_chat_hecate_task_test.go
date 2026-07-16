@@ -126,6 +126,74 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithMCPServers(t *testing.T
 	}
 }
 
+func TestHecateAgentTaskOrchestrator_NewManagedSegmentReusesPriorRunWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	now := time.Date(2026, 7, 16, 8, 0, 0, 0, time.UTC)
+	priorTask, err := store.CreateTask(ctx, types.Task{
+		ID:            "task_prior",
+		OriginKind:    "chat",
+		OriginID:      "chat_reuse",
+		WorkspaceMode: chat.WorkspaceModePersistent,
+		Status:        "completed",
+		LatestRunID:   "run_prior",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	const managedWorkspace = "/tmp/hecate-managed-prior"
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID:            "run_prior",
+		TaskID:        priorTask.ID,
+		Status:        "completed",
+		WorkspacePath: managedWorkspace,
+		StartedAt:     now,
+	}); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	runner := &recordingHecateAgentTaskRunner{startRunID: "run_next_segment"}
+	orchestrator := hecateAgentTaskOrchestrator{
+		store:      store,
+		runner:     runner,
+		taskID:     func() string { return "task_next_segment" },
+		resourceID: func(prefix string) string { return prefix + "_next_segment" },
+		now:        func() time.Time { return now.Add(time.Hour) },
+	}
+
+	task, run, err := orchestrator.StartOrContinue(ctx, hecateAgentTaskRunCommand{
+		Session: chat.Session{
+			ID:            "chat_reuse",
+			TaskID:        priorTask.ID,
+			LatestRunID:   "run_prior",
+			Workspace:     managedWorkspace,
+			WorkspaceMode: chat.WorkspaceModePersistent,
+			Provider:      "openai",
+			Model:         "gpt-4o",
+		},
+		Prompt:       "start a fresh model segment without losing files",
+		ForceNewTask: true,
+		ContextPacket: chat.ContextPacket{
+			Version: "chat_context_v1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartOrContinue: %v", err)
+	}
+	if !task.WorkspaceReuse || task.WorkspaceMode != chat.WorkspaceModePersistent {
+		t.Fatalf("new task workspace posture = mode %q reuse %v, want persistent reusable managed root", task.WorkspaceMode, task.WorkspaceReuse)
+	}
+	if task.WorkingDirectory != managedWorkspace || task.SandboxAllowedRoot != managedWorkspace {
+		t.Fatalf("new task workspace = %q/%q, want %q", task.WorkingDirectory, task.SandboxAllowedRoot, managedWorkspace)
+	}
+	if run.ID != "run_next_segment" || runner.startCalls != 1 {
+		t.Fatalf("new segment run = %+v startCalls=%d", run, runner.startCalls)
+	}
+}
+
 func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	t.Parallel()
 

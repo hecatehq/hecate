@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -77,6 +78,25 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 	if title == "" {
 		title = "Hecate Chat"
 	}
+	workspaceMode := chat.EffectiveWorkspaceMode(cmd.Session.WorkspaceMode)
+	reuseWorkspace := cmd.ForceNewTask && strings.TrimSpace(cmd.Session.TaskID) != "" && workspaceMode != chat.WorkspaceModeInPlace
+	if reuseWorkspace {
+		if strings.TrimSpace(cmd.Session.LatestRunID) == "" {
+			return types.Task{}, types.TaskRun{}, fmt.Errorf("managed chat workspace cannot be reused without a latest run")
+		}
+		priorRun, found, err := o.store.GetRun(ctx, cmd.Session.TaskID, cmd.Session.LatestRunID)
+		if err != nil {
+			return types.Task{}, types.TaskRun{}, err
+		}
+		if !found {
+			return types.Task{}, types.TaskRun{}, fmt.Errorf("latest task run %q not found", cmd.Session.LatestRunID)
+		}
+		priorWorkspace := strings.TrimSpace(priorRun.WorkspacePath)
+		currentWorkspace := strings.TrimSpace(cmd.Session.Workspace)
+		if priorWorkspace == "" || currentWorkspace == "" || filepath.Clean(priorWorkspace) != filepath.Clean(currentWorkspace) {
+			return types.Task{}, types.TaskRun{}, fmt.Errorf("managed chat workspace does not match the latest task run")
+		}
+	}
 	task := types.Task{
 		ID:                 o.taskID(),
 		Title:              title,
@@ -87,7 +107,8 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		ExecutionProfile:   "chat_agent",
 		OriginKind:         "chat",
 		OriginID:           cmd.Session.ID,
-		WorkspaceMode:      chat.EffectiveWorkspaceMode(cmd.Session.WorkspaceMode),
+		WorkspaceMode:      workspaceMode,
+		WorkspaceReuse:     reuseWorkspace,
 		WorkingDirectory:   cmd.Session.Workspace,
 		SandboxAllowedRoot: cmd.Session.Workspace,
 		RTKEnabled:         cmd.Session.RTKEnabled,

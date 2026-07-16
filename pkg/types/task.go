@@ -42,19 +42,25 @@ type Task struct {
 	Repo                        string
 	BaseBranch                  string
 	WorkspaceMode               string
-	ExecutionKind               string
-	ExecutionProfile            string
-	OriginKind                  string
-	OriginID                    string
-	ShellCommand                string
-	GitCommand                  string
-	WorkingDirectory            string
-	FileOperation               string
-	FilePath                    string
-	FileContent                 string
-	SandboxAllowedRoot          string
-	SandboxReadOnly             bool
-	SandboxNetwork              bool
+	// WorkspaceReuse preserves an already-provisioned, runtime-owned
+	// workspace when a new task segment must be created. Unlike in_place, the
+	// operator-selected source remains isolated; the new task simply continues
+	// in the prior managed root instead of cloning it and dropping uncommitted
+	// or untracked work. Public task creation does not expose this flag.
+	WorkspaceReuse     bool
+	ExecutionKind      string
+	ExecutionProfile   string
+	OriginKind         string
+	OriginID           string
+	ShellCommand       string
+	GitCommand         string
+	WorkingDirectory   string
+	FileOperation      string
+	FilePath           string
+	FileContent        string
+	SandboxAllowedRoot string
+	SandboxReadOnly    bool
+	SandboxNetwork     bool
 	// RTKEnabled runs shell/git tool subprocesses through RTK for compact
 	// command output. It is persisted on the task so Hecate Chat follow-up
 	// runs keep the chat's command-output setting.

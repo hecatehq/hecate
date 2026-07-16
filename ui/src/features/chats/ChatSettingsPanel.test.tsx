@@ -12,7 +12,8 @@ const baseProps = {
   rtkPath: "",
   workspaceMode: "persistent" as const,
   workspaceModeLocked: false,
-  workspaceModeInherited: false,
+  workspaceModeStartedFromProject: false,
+  workspaceModePending: false,
   externalAgentID: "codex",
   taskID: "",
   agentName: "Codex",
@@ -113,6 +114,7 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
 
     const select = screen.getByRole("combobox", { name: "Workspace mode" });
     expect(select).toHaveValue("persistent");
+    expect(screen.getAllByRole("option")).toHaveLength(2);
     expect(screen.getByText(/selected source folder stays untouched/i)).toBeTruthy();
 
     fireEvent.change(select, { target: { value: "in_place" } });
@@ -131,8 +133,61 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
       />,
     );
 
-    expect(screen.getByRole("combobox", { name: "Workspace mode" })).toBeDisabled();
+    const select = screen.getByRole("combobox", { name: "Workspace mode" });
+    expect(select).toBeDisabled();
+    expect(select).toHaveAccessibleDescription(/locked after the first task-backed turn/i);
     expect(screen.getByText(/locked after the first task-backed turn/i)).toBeTruthy();
     expect(screen.getByText(/tools write directly/i)).toBeTruthy();
+  });
+
+  it("keeps a linked Project default editable until task work starts", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        workspaceModeStartedFromProject
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "Workspace mode" });
+    expect(select).toBeEnabled();
+    expect(select).toHaveAccessibleDescription(/started from the linked project default/i);
+  });
+
+  it("renders legacy ephemeral intent as the single Managed product choice", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        workspaceMode="ephemeral"
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "Workspace mode" });
+    expect(select).toHaveValue("persistent");
+    expect(select).toHaveAccessibleDescription(/retains ephemeral intent/i);
+    expect(screen.queryByRole("option", { name: /ephemeral/i })).toBeNull();
+  });
+
+  it("disables workspace execution while the requested mode is pending", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        workspaceMode="in_place"
+        workspaceModePending
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "Workspace mode" });
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue("in_place");
+    expect(select).toHaveAccessibleDescription(/sending is paused/i);
   });
 });

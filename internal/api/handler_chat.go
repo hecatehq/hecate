@@ -27,6 +27,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/requestscope"
 	"github.com/hecatehq/hecate/internal/taskapp"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -694,23 +695,19 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	}
 	settingsCtx := r.Context()
 	if req.WorkspaceMode != nil {
-		var cancel context.CancelFunc
-		settingsCtx, cancel = context.WithCancel(r.Context())
-		switch h.agentChatLive.registerRun(lifecycle, cancel) {
+		releaseMutation, admission := h.agentChatLive.beginExclusiveMutation(lifecycle)
+		switch admission {
 		case agentChatRunAdmissionClosed:
-			cancel()
 			writeChatSessionStopping(w)
 			return
 		case agentChatRunBusy:
-			cancel()
 			WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is busy", ErrorDetails{
 				UserMessage:    "This chat is busy.",
 				OperatorAction: "Wait for the active turn to finish before changing workspace execution.",
 			})
 			return
 		}
-		defer h.agentChatLive.clearRun(sessionID)
-		defer cancel()
+		defer releaseMutation()
 
 		// Winning exclusive admission only proves no turn can start now. Reload
 		// after admission so a task linked by the previous winner cannot be
@@ -723,6 +720,19 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 		if !ok {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 			return
+		}
+		// A task is created before the transcript link is committed. If that
+		// atomic link ever exhausts its retries, the task's durable chat origin
+		// remains the fail-closed authority for the immutable mode boundary.
+		if strings.TrimSpace(session.TaskID) == "" {
+			taskID, taskExists, taskErr := h.hecateChatOriginTask(settingsCtx, session.ID)
+			if taskErr != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, taskErr.Error())
+				return
+			}
+			if taskExists {
+				session.TaskID = taskID
+			}
 		}
 	}
 	result, err := h.chatApplication().SetHecateSettings(settingsCtx, chatapp.SetHecateSettingsCommand{
@@ -743,6 +753,22 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	}
 	h.agentChatLive.publishSession(result.Session)
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) hecateChatOriginTask(ctx context.Context, sessionID string) (string, bool, error) {
+	if h.taskStore == nil || strings.TrimSpace(sessionID) == "" {
+		return "", false, nil
+	}
+	tasks, err := h.taskStore.ListTasks(ctx, taskstate.TaskFilter{})
+	if err != nil {
+		return "", false, fmt.Errorf("list chat-origin tasks: %w", err)
+	}
+	for _, task := range tasks {
+		if task.OriginKind == "chat" && task.OriginID == sessionID {
+			return task.ID, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {

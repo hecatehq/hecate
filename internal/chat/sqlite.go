@@ -317,7 +317,14 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 	}
 	update(&session)
 	session.UpdatedAt = time.Now().UTC()
-	if _, err := s.client.DB().ExecContext(
+	if err := s.updateSessionRecord(ctx, s.client.DB(), session); err != nil {
+		return Session{}, fmt.Errorf("update sqlite agent chat session: %w", err)
+	}
+	return s.loadSession(ctx, id)
+}
+
+func (s *SQLiteStore) updateSessionRecord(ctx context.Context, runner execRunner, session Session) error {
+	_, err := runner.ExecContext(
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
@@ -348,11 +355,9 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		session.TurnsUsed,
 		marshalContextSummary(session.ContextSummary),
 		session.UpdatedAt.UTC(),
-		id,
-	); err != nil {
-		return Session{}, fmt.Errorf("update sqlite agent chat session: %w", err)
-	}
-	return s.loadSession(ctx, id)
+		session.ID,
+	)
+	return err
 }
 
 func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, message Message) (Session, error) {
@@ -472,7 +477,20 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 	}
 	previousStatus := message.Status
 	update(&message)
-	if _, err := tx.ExecContext(
+	if err := s.updateMessageRecord(ctx, tx, sessionID, message); err != nil {
+		return Session{}, fmt.Errorf("update sqlite agent chat message: %w", err)
+	}
+	if err := updateSessionAfterMessage(ctx, tx, s.sessionsTable, sessionID, message, message.Status != previousStatus); err != nil {
+		return Session{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, fmt.Errorf("commit sqlite agent chat tx: %w", err)
+	}
+	return s.loadSession(ctx, sessionID)
+}
+
+func (s *SQLiteStore) updateMessageRecord(ctx context.Context, runner execRunner, sessionID string, message Message) error {
+	_, err := runner.ExecContext(
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
@@ -518,18 +536,71 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		marshalUsage(message.Usage),
 		marshalTiming(message.Timing),
 		marshalContextPacket(message.Context),
-		messageID,
+		message.ID,
 		sessionID,
-	); err != nil {
-		return Session{}, fmt.Errorf("update sqlite agent chat message: %w", err)
+	)
+	return err
+}
+
+func (s *SQLiteStore) LinkTaskRun(ctx context.Context, sessionID, userMessageID, assistantMessageID string, update func(*Session, *Message, *Message)) (Session, error) {
+	if strings.TrimSpace(userMessageID) == "" || strings.TrimSpace(assistantMessageID) == "" || userMessageID == assistantMessageID {
+		return Session{}, fmt.Errorf("distinct task-run message ids are required")
 	}
-	if err := updateSessionAfterMessage(ctx, tx, s.sessionsTable, sessionID, message, message.Status != previousStatus); err != nil {
+	// Serialize SQLite RMW transactions with UpdateMessage. PostgreSQL also
+	// takes row locks below, preserving the same atomic contract across
+	// multiple gateway instances.
+	s.messageUpdateMu.Lock()
+	defer s.messageUpdateMu.Unlock()
+
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, fmt.Errorf("begin agent chat task-run link tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	forUpdate := s.client.Dialect() == storage.DialectPostgres
+	if forUpdate {
+		var lockedID string
+		if err := tx.QueryRowContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ? FOR UPDATE`, s.sessionsTable), sessionID).Scan(&lockedID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Session{}, fmt.Errorf("agent chat session %q not found", sessionID)
+			}
+			return Session{}, fmt.Errorf("lock agent chat session for task-run link: %w", err)
+		}
+	}
+	session, err := s.loadSessionFrom(ctx, tx, sessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Session{}, fmt.Errorf("agent chat session %q not found", sessionID)
+		}
+		return Session{}, err
+	}
+	userMessage, err := loadMessage(ctx, tx, s.messagesTable, sessionID, userMessageID, forUpdate)
+	if err != nil {
+		return Session{}, err
+	}
+	assistantMessage, err := loadMessage(ctx, tx, s.messagesTable, sessionID, assistantMessageID, forUpdate)
+	if err != nil {
+		return Session{}, err
+	}
+	update(&session, &userMessage, &assistantMessage)
+	session.UpdatedAt = time.Now().UTC()
+	if err := s.updateSessionRecord(ctx, tx, session); err != nil {
+		return Session{}, fmt.Errorf("update agent chat task-run session link: %w", err)
+	}
+	if err := s.updateMessageRecord(ctx, tx, sessionID, userMessage); err != nil {
+		return Session{}, fmt.Errorf("update agent chat task-run user link: %w", err)
+	}
+	if err := s.updateMessageRecord(ctx, tx, sessionID, assistantMessage); err != nil {
+		return Session{}, fmt.Errorf("update agent chat task-run assistant link: %w", err)
+	}
+	committed, err := s.loadSessionFrom(ctx, tx, sessionID)
+	if err != nil {
 		return Session{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return Session{}, fmt.Errorf("commit sqlite agent chat tx: %w", err)
+		return Session{}, fmt.Errorf("commit agent chat task-run link tx: %w", err)
 	}
-	return s.loadSession(ctx, sessionID)
+	return committed, nil
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
@@ -954,8 +1025,12 @@ type queryRunner interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-type txRunner interface {
+type execRunner interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+type txRunner interface {
+	execRunner
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 

@@ -161,6 +161,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     agentAdapterHealthLoadingByID: providersAndModels.state.agentAdapterHealthLoadingByID,
     agentWorkspace,
     agentWorkspaceMode: chat.state.agentWorkspaceMode,
+    workspaceModeMutation: chat.state.workspaceModeMutation,
     chatCancelling: chat.state.chatCancelling,
     chatError: chat.state.chatError,
     chatErrorCode: chat.state.chatErrorCode,
@@ -530,13 +531,22 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const activeSessionProjectID = state.activeChatSession?.project_id?.trim() ?? "";
   const activeSessionProject = projectByID(projects.state.projects, activeSessionProjectID);
   const linkedProjectName = activeSessionProject?.name?.trim() || activeSessionProjectID;
-  const workspaceMode: ChatWorkspaceMode = state.activeChatSession
+  const persistedWorkspaceMode: ChatWorkspaceMode = state.activeChatSession
     ? (state.activeChatSession.workspace_mode ?? "in_place")
     : activeSessionProjectID
       ? projectDefaultChatWorkspaceMode(activeSessionProject)
       : state.agentWorkspaceMode;
+  const workspaceModeMutation =
+    state.workspaceModeMutation?.sessionID === state.activeChatSession?.id
+      ? state.workspaceModeMutation
+      : null;
+  const workspaceMode: ChatWorkspaceMode =
+    workspaceModeMutation?.requestedMode ?? persistedWorkspaceMode;
+  const workspaceModePending = Boolean(workspaceModeMutation);
   const workspaceModeLocked = Boolean(state.activeChatSession?.task_id);
-  const workspaceModeInherited = !state.activeChatSession && Boolean(activeSessionProjectID);
+  const workspaceModeStartedFromProject = Boolean(
+    state.activeChatSession && activeSessionProjectID && !state.activeChatSession.task_id,
+  );
   const workspaceChangesPanelOpen =
     selectedChatReady && isAgentChat && workspaceChangesOpen && Boolean(activeWorkspacePath.trim());
   const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
@@ -707,6 +717,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     !agentBusy &&
     !anotherChatTurnActive &&
     !chatCreationPending &&
+    !workspaceModePending &&
     !chat.state.chatOwnershipMutationInFlight;
   const attachmentsDisabledReason = chatAttachmentsDisabledReason({
     ownershipMutationInFlight: chat.state.chatOwnershipMutationInFlight,
@@ -729,6 +740,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const sendDisabled =
     (!state.message.trim() && pendingAttachments.length === 0) ||
     state.chatCancelling ||
+    workspaceModePending ||
     attachmentTurnInFlight ||
     (pendingAttachments.length > 0 && !attachmentsEnabled) ||
     (chatCreationPending && !queueingMessage) ||
@@ -1451,7 +1463,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 textareaRef={textareaRef}
                 composerVisible={composerVisible}
                 composerInputDisabled={implicitSessionAllocation}
-                composerRouteControlsDisabled={detachedCreationPending || selectedChatCancelling}
+                composerRouteControlsDisabled={
+                  detachedCreationPending || selectedChatCancelling || workspaceModePending
+                }
                 composerRepair={composerRepair}
                 suppressChatError={suppressComposerChatError}
                 messageControlsVisible={messageControlsVisible}
@@ -1516,7 +1530,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   rtkPath={state.hecateRTKPath}
                   workspaceMode={workspaceMode}
                   workspaceModeLocked={workspaceModeLocked}
-                  workspaceModeInherited={workspaceModeInherited}
+                  workspaceModeStartedFromProject={workspaceModeStartedFromProject}
+                  workspaceModePending={workspaceModePending}
                   externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
                   taskID={state.activeChatSession?.task_id}
                   agentName={selectedAgent?.name || activeHeaderFallback}
@@ -1532,7 +1547,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   instructionsAvailable={instructionsAvailable}
                   isHecateAgentChat={isHecateAgentChat}
                   instructionsLocked={messages.length > 0}
-                  mutationsDisabled={selectedChatCancelling || agentBusy}
+                  mutationsDisabled={selectedChatCancelling || agentBusy || workspaceModePending}
                   systemPrompt={state.systemPrompt}
                   onToolsChange={actions.setChatToolsEnabled}
                   onRTKChange={handleRTKChange}

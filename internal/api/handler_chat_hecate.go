@@ -42,8 +42,13 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return
 		}
-		session.Workspace = resolved
-		session.WorkspaceBranch = workspaceGitBranch(resolved)
+		// Once a managed task exists, the durable session path is the
+		// runtime-owned workspace. Older clients may keep resending the original
+		// source folder; accepting it here would reclone away dirty managed work.
+		if strings.TrimSpace(session.TaskID) == "" || chat.EffectiveWorkspaceMode(session.WorkspaceMode) == chat.WorkspaceModeInPlace {
+			session.Workspace = resolved
+			session.WorkspaceBranch = workspaceGitBranch(resolved)
+		}
 	}
 	if strings.TrimSpace(session.Workspace) == "" {
 		writeAgentChatWorkspaceRequired(w, chat.ExecutionModeHecateTask)
@@ -272,69 +277,27 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Capabilities: caps,
 	}, caps, segmentID)
 	linkCtx, linkCancel := newAgentChatPersistenceContext(r.Context())
-	if userUpdated, userUpdateErr := h.agentChat.UpdateMessage(linkCtx, session.ID, userID, func(message *chat.Message) {
-		message.ExecutionMode = messageSnapshot.ExecutionMode
-		message.SegmentID = messageSnapshot.SegmentID
-		message.TaskID = messageSnapshot.TaskID
-		message.Provider = messageSnapshot.Provider
-		message.Model = messageSnapshot.Model
-		message.Capabilities = messageSnapshot.Capabilities
-		message.Workspace = executionWorkspace
-		message.Context.Workspace = executionWorkspace
-		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
-			chatcontext.ChatMessageRefs(session.ID, userID, session.ProjectID),
-			chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),
-		))
-	}); userUpdateErr == nil {
-		h.agentChatLive.publishSession(userUpdated)
-	} else {
-		h.logger.WarnContext(linkCtx, "chat.hecate.user_task_link_update_failed", "session_id", session.ID, "message_id", userID, "error", userUpdateErr)
-	}
-	updated, err = h.agentChat.UpdateMessage(linkCtx, session.ID, assistantID, func(message *chat.Message) {
-		message.ExecutionMode = messageSnapshot.ExecutionMode
-		message.SegmentID = messageSnapshot.SegmentID
-		message.TaskID = messageSnapshot.TaskID
-		message.RunID = run.ID
-		message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
-		message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
-		message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
-		message.Provider = messageSnapshot.Provider
-		message.Model = messageSnapshot.Model
-		message.Capabilities = messageSnapshot.Capabilities
-		message.Workspace = executionWorkspace
-		message.Context.Workspace = executionWorkspace
-		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
-			chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
-			chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),
-		))
-		message.Activities = mergeChatActivity(message.Activities, newHecateAgentRunActivity(task.ID, run.ID, run.Status))
-	})
-	if err == nil {
-		h.agentChatLive.publishSession(updated)
-	} else {
-		h.logger.WarnContext(linkCtx, "chat.hecate.assistant_task_link_update_failed", "session_id", session.ID, "message_id", assistantID, "error", err)
-	}
-	updated, err = h.agentChat.UpdateSession(linkCtx, session.ID, func(item *chat.Session) {
-		item.TaskID = task.ID
-		item.LatestRunID = run.ID
-		item.Provider = session.Provider
-		item.Model = session.Model
-		item.Capabilities = caps
-		item.Workspace = session.Workspace
-		item.WorkspaceBranch = session.WorkspaceBranch
-	})
+	updated, err = h.linkHecateTaskRun(linkCtx, session, userID, assistantID, task, run, messageSnapshot, caps)
 	linkCancel()
 	if err != nil {
-		h.logger.WarnContext(context.WithoutCancel(r.Context()), "chat.hecate.session_task_link_update_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", err)
-		session.TaskID = task.ID
-		session.LatestRunID = run.ID
-		session.Provider = messageSnapshot.Provider
-		session.Model = messageSnapshot.Model
-		session.Capabilities = caps
-	} else {
-		session = updated
-		h.agentChatLive.publishSession(updated)
+		h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.task_link_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", err)
+		cancelCtx, cancelRun := newAgentChatPersistenceContext(r.Context())
+		if h.taskRunner != nil {
+			if _, cancelErr := h.taskRunner.CancelRun(cancelCtx, task, run.ID, "chat transcript link failed"); cancelErr != nil && !strings.Contains(cancelErr.Error(), "already terminal") {
+				h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.task_link_cancel_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", cancelErr)
+			}
+		}
+		cancelRun()
+		if r.Context().Err() == nil {
+			WriteErrorDetails(w, http.StatusInternalServerError, errCodeGatewayError, "failed to persist the chat task workspace link", ErrorDetails{
+				UserMessage:    "The managed workspace started, but Hecate could not link it safely to this chat.",
+				OperatorAction: "Retry after checking storage health. Workspace review is disabled until the link is repaired.",
+			})
+		}
+		return
 	}
+	session = updated
+	h.agentChatLive.publishSession(updated)
 
 	finalRun, err := h.waitForHecateAgentRun(runCtx, task.ID, run.ID, session.ID, assistantID)
 	if finalRun.ID == "" {
@@ -456,6 +419,77 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Data:           renderChatSession(updated, h.agentChatSnapshotConfig()),
 		MessageRequest: requestGuard.responseMetadata(false, ""),
 	})
+}
+
+func (h *Handler) linkHecateTaskRun(
+	ctx context.Context,
+	session chat.Session,
+	userMessageID string,
+	assistantMessageID string,
+	task types.Task,
+	run types.TaskRun,
+	messageSnapshot chat.Message,
+	caps types.ModelCapabilities,
+) (chat.Session, error) {
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		updated, err := h.agentChat.LinkTaskRun(ctx, session.ID, userMessageID, assistantMessageID, func(item *chat.Session, userMessage *chat.Message, assistantMessage *chat.Message) {
+			item.TaskID = task.ID
+			item.LatestRunID = run.ID
+			item.Provider = session.Provider
+			item.Model = session.Model
+			item.Capabilities = caps
+			item.Workspace = session.Workspace
+			item.WorkspaceBranch = session.WorkspaceBranch
+
+			userMessage.ExecutionMode = messageSnapshot.ExecutionMode
+			userMessage.SegmentID = messageSnapshot.SegmentID
+			userMessage.TaskID = messageSnapshot.TaskID
+			userMessage.Provider = messageSnapshot.Provider
+			userMessage.Model = messageSnapshot.Model
+			userMessage.Capabilities = messageSnapshot.Capabilities
+			userMessage.Workspace = session.Workspace
+			userMessage.Context.Workspace = session.Workspace
+			userMessage.Context = chatcontext.Normalize(userMessage.Context, chatcontext.MergeRefs(
+				chatcontext.ChatMessageRefs(session.ID, userMessageID, session.ProjectID),
+				chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),
+			))
+
+			assistantMessage.ExecutionMode = messageSnapshot.ExecutionMode
+			assistantMessage.SegmentID = messageSnapshot.SegmentID
+			assistantMessage.TaskID = messageSnapshot.TaskID
+			assistantMessage.RunID = run.ID
+			assistantMessage.RequestID = firstNonEmpty(run.RequestID, assistantMessage.RequestID)
+			assistantMessage.TraceID = firstNonEmpty(run.TraceID, assistantMessage.TraceID)
+			assistantMessage.SpanID = firstNonEmpty(run.RootSpanID, assistantMessage.SpanID)
+			assistantMessage.Provider = messageSnapshot.Provider
+			assistantMessage.Model = messageSnapshot.Model
+			assistantMessage.Capabilities = messageSnapshot.Capabilities
+			assistantMessage.Workspace = session.Workspace
+			assistantMessage.Context.Workspace = session.Workspace
+			assistantMessage.Context = chatcontext.Normalize(assistantMessage.Context, chatcontext.MergeRefs(
+				chatcontext.ChatMessageRefs(session.ID, assistantMessageID, session.ProjectID),
+				chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),
+			))
+			assistantMessage.Activities = mergeChatActivity(assistantMessage.Activities, newHecateAgentRunActivity(task.ID, run.ID, run.Status))
+		})
+		if err == nil {
+			return updated, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil || attempt == maxAttempts-1 {
+			break
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return chat.Session{}, errors.Join(lastErr, ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return chat.Session{}, lastErr
 }
 
 func hecateAgentSegmentID(session chat.Session) string {

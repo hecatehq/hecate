@@ -528,19 +528,27 @@ provisions task-backed turns in a separate Hecate-owned workspace. **Current
 folder** (`in_place`) lets tools write directly to the selected folder and is
 therefore the explicitly destructive posture. The two managed values remain
 distinct persisted settings, but currently share clone/copy provisioning;
-Git-worktree provisioning can be added behind the managed-workspace contract
-without changing the operator choice. External Agent chats do not expose this
-control: their ACP sessions always own the selected workspace in place.
+the UI intentionally renders both as one stable **Managed workspace** choice
+until their lifecycles differ. Existing `ephemeral` sessions retain that API
+intent while showing the same managed choice. Git-worktree provisioning can be
+added behind the managed-workspace contract without changing the operator
+choice. External Agent chats do not expose this control: their ACP sessions
+always own the selected workspace in place.
 
 The operator UI explicitly defaults project-free Hecate chats to Managed
 workspace. A project-linked new chat inherits the Cairnline Project's workspace
 default as coordination intent, while Hecate snapshots and enforces the value
 on the chat and backing task. An empty or direct-model-only Hecate Chat may
-change posture. After its first task-backed segment exists, the selector is
-locked so one transcript cannot silently switch between managed and live-folder
-execution. A managed run replaces the session's source path with the actual
-generated execution path, keeping Review, Files, message evidence, and later
-continuations scoped to the files the agent changed.
+change posture, including when it started from a linked Project default. While
+that write is pending, the requested value is shown immediately and message
+submission pauses until Hecate confirms or reloads the authoritative value.
+After its first task-backed segment exists, the selector is locked so one
+transcript cannot silently switch between managed and live-folder execution. A
+managed run atomically replaces the session and launching message paths with the
+actual generated execution path, keeping Review, Files, and evidence scoped to
+the files the agent changed. If a provider/model/MCP change starts a new task
+segment, it reuses that managed root so unstaged and untracked work remains
+visible to the next agent.
 
 Tools decides whether future turns stay as direct model calls or enter the
 Hecate task runtime. If tools are on but the selected model is known not to

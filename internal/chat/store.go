@@ -289,6 +289,11 @@ type Store interface {
 	CommitMessageRequest(ctx context.Context, lease MessageRequestLease, message Message) (Session, error)
 	ReleaseMessageRequest(ctx context.Context, lease MessageRequestLease) error
 	UpdateMessage(ctx context.Context, sessionID string, messageID string, update func(*Message)) (Session, error)
+	// LinkTaskRun atomically binds a newly created Hecate task/run to its
+	// session and the user/assistant message pair that launched it. Managed
+	// workspace rebinding must never leave those three durable projections
+	// disagreeing about which workspace Review should inspect.
+	LinkTaskRun(ctx context.Context, sessionID, userMessageID, assistantMessageID string, update func(*Session, *Message, *Message)) (Session, error)
 }
 
 func ReconcileInterruptedRuns(ctx context.Context, store Store, now time.Time) (int, error) {
@@ -541,6 +546,34 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 		return cloneSession(session), nil
 	}
 	return Session{}, fmt.Errorf("agent chat message %q not found", messageID)
+}
+
+func (s *MemoryStore) LinkTaskRun(_ context.Context, sessionID, userMessageID, assistantMessageID string, update func(*Session, *Message, *Message)) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, fmt.Errorf("agent chat session %q not found", sessionID)
+	}
+	userIndex, assistantIndex := -1, -1
+	for i := range session.Messages {
+		switch session.Messages[i].ID {
+		case userMessageID:
+			userIndex = i
+		case assistantMessageID:
+			assistantIndex = i
+		}
+	}
+	if userIndex < 0 {
+		return Session{}, fmt.Errorf("agent chat message %q not found", userMessageID)
+	}
+	if assistantIndex < 0 {
+		return Session{}, fmt.Errorf("agent chat message %q not found", assistantMessageID)
+	}
+	update(&session, &session.Messages[userIndex], &session.Messages[assistantIndex])
+	session.UpdatedAt = time.Now().UTC()
+	s.sessions[sessionID] = session
+	return cloneSession(session), nil
 }
 
 func cloneSession(session Session) Session {

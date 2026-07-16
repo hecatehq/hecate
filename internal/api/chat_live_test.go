@@ -64,3 +64,36 @@ func drainAgentChatLiveEvents(updates <-chan AgentChatLiveEvent, n int) []AgentC
 	}
 	return out
 }
+
+func TestAgentChatLiveExclusiveMutationInvalidatesStaleTurnsWithoutBecomingCancellable(t *testing.T) {
+	t.Parallel()
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	staleTurn := live.snapshotLifecycle("s")
+	defer staleTurn.release()
+	mutationSnapshot := live.snapshotLifecycle("s")
+	defer mutationSnapshot.release()
+
+	releaseMutation, admission := live.beginExclusiveMutation(mutationSnapshot)
+	if admission != agentChatRunAccepted {
+		t.Fatalf("beginExclusiveMutation = %v, want accepted", admission)
+	}
+	currentTurn := live.snapshotLifecycle("s")
+	defer currentTurn.release()
+	if got := live.registerRun(currentTurn, func() {}); got != agentChatRunBusy {
+		t.Fatalf("registerRun during mutation = %v, want busy", got)
+	}
+	if live.cancelRun("s") {
+		t.Fatal("cancelRun reported an exclusive settings mutation as a run")
+	}
+
+	releaseMutation()
+	if got := live.registerRun(staleTurn, func() {}); got != agentChatRunAdmissionClosed {
+		t.Fatalf("registerRun with pre-mutation snapshot = %v, want admission closed", got)
+	}
+	freshTurn := live.snapshotLifecycle("s")
+	defer freshTurn.release()
+	if got := live.registerRun(freshTurn, func() {}); got != agentChatRunAccepted {
+		t.Fatalf("registerRun after mutation = %v, want accepted", got)
+	}
+	live.clearRun("s")
+}

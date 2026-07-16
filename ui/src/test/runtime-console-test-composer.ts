@@ -106,6 +106,7 @@ export function useRuntimeConsole() {
     chatSessions,
     activeChatSessionID,
     activeChatSession,
+    workspaceModeMutation,
     pendingChatAttachments,
     savedComposerDraftsBySessionID,
     recoverableComposerDraft,
@@ -484,6 +485,9 @@ export function useRuntimeConsole() {
     if (chatOwnershipMutationInFlight) {
       return;
     }
+    if (workspaceModeMutation?.sessionID === activeChatSessionID) {
+      return;
+    }
     if (hasChatAttachmentTurn() || pendingChatAttachments.length > 0) {
       return;
     }
@@ -560,6 +564,7 @@ export function useRuntimeConsole() {
     activeChatSessionID,
     chatCancelling,
     chatOwnershipMutationInFlight,
+    workspaceModeMutation,
     chatAttachmentTurnDraftCount,
     chatCreating,
     chatLoading,
@@ -574,6 +579,7 @@ export function useRuntimeConsole() {
     state: {
       activeChatSession,
       activeChatSessionID,
+      workspaceModeMutation,
       recoverableComposerDraft,
       activeRecoverableComposerDraftID,
       savedComposerDraftsBySessionID,

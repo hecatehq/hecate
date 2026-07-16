@@ -273,6 +273,7 @@ See [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client) for the full sc
 Every run has a workspace — a directory the sandbox locks tools to. Two modes:
 
 - **isolated clone** (default; `WorkspaceMode` empty / `persistent` / `ephemeral`) — the workspace manager copies or git-clones `task.WorkingDirectory` (or `task.Repo`) to a fresh temp dir under `${TMPDIR}/hecate-workspaces/<task_id>/<run_id>`. Writes don't touch the source. Safe by default.
+- **managed reuse** (internal `WorkspaceReuse`) — when Hecate Chat needs a new task segment after a managed run, the workspace manager reuses that runtime-owned root byte-for-byte. The operator source remains isolated, while unstaged and untracked work survives the segment boundary. Public task creation cannot set this flag.
 - **`in_place`** — the workspace IS `task.WorkingDirectory`. Tools write directly to the operator's source. Necessarily destructive; opt-in. Requires an absolute existing directory or the run fails up-front rather than silently flipping back to the clone behavior.
 
 The new-task UI exposes `in_place` as a "Run directly in this workspace" checkbox under WORKSPACE.
