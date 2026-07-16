@@ -377,6 +377,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const previousPendingAttachmentCountRef = useRef(chat.state.pendingChatAttachments.length);
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+  const [composerFocused, setComposerFocused] = useState(false);
   const commandQuery = messageCommandQuery(message);
   const commandSuggestions = useMemo(() => {
     if (commandQuery === null) return [];
@@ -1084,221 +1085,243 @@ export function ChatComposer(props: ChatComposerProps) {
             </div>
           )}
           <div
+            aria-label="Message composer"
+            role="group"
             style={{
               maxWidth: 820,
               margin: "0 auto",
+              position: "relative",
+              border: `1px solid ${composerFocused ? "var(--teal)" : "var(--border)"}`,
+              borderRadius: "var(--radius)",
+              background: "var(--bg3)",
+              boxShadow: composerFocused ? "0 0 0 1px var(--teal-bg)" : "none",
+              transition: "border-color 0.1s, box-shadow 0.1s",
+              opacity: composerInputDisabled ? 0.72 : undefined,
+            }}
+            onFocusCapture={() => setComposerFocused(true)}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setComposerFocused(false);
+              }
             }}
           >
-            <ChatAttachmentDrafts
-              attachments={chat.state.pendingChatAttachments}
-              acceptance={attachmentAcceptance}
-              enabled={attachmentsEnabled}
-              disabledReason={attachmentsDisabledReason}
-              error={attachmentSelectionError}
-              onAddFiles={addPendingFiles}
-              onRemove={removePendingFile}
-            />
-          </div>
-          <ChatDictationControl
-            key={activeSessionID || "new-chat"}
-            disabled={composerInputDisabled}
-            onTranscript={insertDictationTranscript}
-          />
-          <div
-            role="combobox"
-            aria-controls={commandPickerVisible ? commandListboxID : undefined}
-            aria-expanded={commandPickerVisible}
-            aria-haspopup="listbox"
-            aria-label="Message command picker"
-            style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}
-          >
-            {commandPickerVisible && (
-              <div
-                id={commandListboxID}
-                role="listbox"
-                aria-label="Message commands"
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 44,
-                  bottom: "calc(100% + 6px)",
-                  zIndex: 5,
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--bg2)",
-                  boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
-                  maxHeight: "min(60vh, 520px)",
-                  overflowY: "auto",
-                  overscrollBehavior: "contain",
-                  scrollbarGutter: "stable",
-                  touchAction: "pan-y",
-                  padding: 4,
-                  display: "grid",
-                  gap: 2,
-                }}
-                onWheel={(event) => event.stopPropagation()}
-              >
-                {commandSuggestions.map((command, index) => {
-                  const commandText = messageCommandInsertion(command).trim();
-                  const selected = index === activeCommandIndex;
-                  return (
-                    <div
-                      key={`${command.kind}:${command.name}:${index}`}
-                      ref={(node) => {
-                        commandOptionRefs.current[index] = node;
-                      }}
-                      id={`${commandListboxID}-option-${index}`}
-                      role="option"
-                      aria-label={`Insert ${commandText} command`}
-                      aria-selected={selected}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setActiveCommandIndex(index)}
-                      onClick={() => selectCommandSuggestion(command)}
-                      style={{
-                        width: "100%",
-                        border: "none",
-                        borderRadius: "var(--radius-sm)",
-                        background: selected ? "var(--bg4)" : "transparent",
-                        color: "var(--t0)",
-                        cursor: "pointer",
-                        display: "grid",
-                        gridTemplateColumns: "minmax(84px, auto) minmax(0, 1fr) auto",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "7px 8px",
-                        textAlign: "left",
-                      }}
-                    >
-                      <span
+            <div
+              role="combobox"
+              aria-controls={commandPickerVisible ? commandListboxID : undefined}
+              aria-expanded={commandPickerVisible}
+              aria-haspopup="listbox"
+              aria-label="Message command picker"
+              style={{ position: "relative" }}
+            >
+              {commandPickerVisible && (
+                <div
+                  id={commandListboxID}
+                  role="listbox"
+                  aria-label="Message commands"
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    bottom: "calc(100% + 6px)",
+                    zIndex: 5,
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--bg2)",
+                    boxShadow: "0 10px 28px rgba(0, 0, 0, 0.28)",
+                    maxHeight: "min(60vh, 520px)",
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                    scrollbarGutter: "stable",
+                    touchAction: "pan-y",
+                    padding: 4,
+                    display: "grid",
+                    gap: 2,
+                  }}
+                  onWheel={(event) => event.stopPropagation()}
+                >
+                  {commandSuggestions.map((command, index) => {
+                    const commandText = messageCommandInsertion(command).trim();
+                    const selected = index === activeCommandIndex;
+                    return (
+                      <div
+                        key={`${command.kind}:${command.name}:${index}`}
+                        ref={(node) => {
+                          commandOptionRefs.current[index] = node;
+                        }}
+                        id={`${commandListboxID}-option-${index}`}
+                        role="option"
+                        aria-label={`Insert ${commandText} command`}
+                        aria-selected={selected}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveCommandIndex(index)}
+                        onClick={() => selectCommandSuggestion(command)}
                         style={{
-                          color: selected ? "var(--teal)" : "var(--t1)",
-                          fontFamily: "var(--font-mono)",
-                          fontSize: 12,
-                          minWidth: 0,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          width: "100%",
+                          border: "none",
+                          borderRadius: "var(--radius-sm)",
+                          background: selected ? "var(--bg4)" : "transparent",
+                          color: "var(--t0)",
+                          cursor: "pointer",
+                          display: "grid",
+                          gridTemplateColumns: "minmax(84px, auto) minmax(0, 1fr) auto",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "7px 8px",
+                          textAlign: "left",
                         }}
                       >
-                        {commandText}
-                      </span>
-                      <span
-                        style={{
-                          color: "var(--t3)",
-                          fontSize: 12,
-                          minWidth: 0,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {messageCommandDetail(command)}
-                      </span>
-                      {command.sourceLabel && (
                         <span
                           style={{
-                            color: "var(--t3)",
+                            color: selected ? "var(--teal)" : "var(--t1)",
                             fontFamily: "var(--font-mono)",
-                            fontSize: 10,
-                            textTransform: "uppercase",
-                            letterSpacing: 0,
+                            fontSize: 12,
                             minWidth: 0,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {command.sourceLabel}
+                          {commandText}
                         </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <textarea
-              ref={textareaRef}
-              aria-label="Message"
-              aria-activedescendant={activeCommandOptionID}
-              aria-controls={commandPickerVisible ? commandListboxID : undefined}
-              aria-haspopup="listbox"
-              aria-disabled={composerInputDisabled || undefined}
-              readOnly={composerInputDisabled}
-              value={message}
-              onChange={(e) => handleMessageChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={(event) => {
-                const files = Array.from(event.clipboardData.files);
-                if (files.length > 0) addPendingFiles(files);
-              }}
-              placeholder={
-                modEnterMode
-                  ? `Message… (${modKey}+Enter to send)`
-                  : "Message… (Shift+Enter for newline)"
-              }
-              rows={1}
+                        <span
+                          style={{
+                            color: "var(--t3)",
+                            fontSize: 12,
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {messageCommandDetail(command)}
+                        </span>
+                        {command.sourceLabel && (
+                          <span
+                            style={{
+                              color: "var(--t3)",
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              textTransform: "uppercase",
+                              letterSpacing: 0,
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {command.sourceLabel}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                aria-label="Message"
+                aria-activedescendant={activeCommandOptionID}
+                aria-controls={commandPickerVisible ? commandListboxID : undefined}
+                aria-haspopup="listbox"
+                aria-disabled={composerInputDisabled || undefined}
+                readOnly={composerInputDisabled}
+                value={message}
+                onChange={(e) => handleMessageChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={(event) => {
+                  const files = Array.from(event.clipboardData.files);
+                  if (files.length > 0) addPendingFiles(files);
+                }}
+                placeholder={
+                  modEnterMode
+                    ? `Message… (${modKey}+Enter to send)`
+                    : "Message… (Shift+Enter for newline)"
+                }
+                rows={1}
+                style={{
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: "var(--radius) var(--radius) 0 0",
+                  color: "var(--t0)",
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 13,
+                  boxSizing: "border-box",
+                  padding: "11px 12px 7px",
+                  outline: "none",
+                  resize: "none",
+                  lineHeight: 1.5,
+                  minHeight: COMPOSER_TEXTAREA_MIN_HEIGHT,
+                  overflowY: "hidden",
+                  cursor: composerInputDisabled ? "wait" : undefined,
+                }}
+                onInput={(e) => adjustComposerTextareaHeight(e.target as HTMLTextAreaElement)}
+              />
+            </div>
+            <div
+              aria-label="Composer actions"
+              role="group"
               style={{
-                width: "100%",
-                background: "var(--bg3)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius)",
-                color: "var(--t0)",
-                fontFamily: "var(--font-sans)",
-                fontSize: 13,
-                boxSizing: "border-box",
-                padding: "10px 44px 10px 12px",
-                outline: "none",
-                resize: "none",
-                lineHeight: 1.5,
-                transition: "border-color 0.1s",
-                minHeight: COMPOSER_TEXTAREA_MIN_HEIGHT,
-                overflowY: "hidden",
-                cursor: composerInputDisabled ? "wait" : undefined,
-                opacity: composerInputDisabled ? 0.72 : undefined,
-              }}
-              onInput={(e) => adjustComposerTextareaHeight(e.target as HTMLTextAreaElement)}
-              onFocus={(e) => (e.target.style.borderColor = "var(--teal)")}
-              onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
-            />
-            <button
-              type="submit"
-              aria-label={
-                attachmentTurnInFlight
-                  ? "Wait for attachment response"
-                  : queueingMessage
-                    ? "Queue message"
-                    : "Send message"
-              }
-              disabled={sendDisabled}
-              title={
-                attachmentTurnInFlight
-                  ? "Wait for the attachment response before sending this message"
-                  : queueingMessage
-                    ? "Queue this message after the active run finishes"
-                    : messageSendBlocked
-                      ? "Complete chat setup before sending"
-                      : "Send message"
-              }
-              style={{
-                position: "absolute",
-                right: 8,
-                top: "50%",
-                transform: "translateY(-50%)",
-                width: 28,
-                height: 28,
-                borderRadius: "var(--radius-sm)",
-                background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
-                border: "none",
-                cursor: !sendDisabled ? "pointer" : "default",
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "background 0.1s",
-                color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
+                alignItems: "flex-end",
+                gap: 6,
+                minWidth: 0,
+                padding: "0 7px 7px",
               }}
             >
-              <Icon d={Icons.send} size={14} />
-            </button>
+              <ChatAttachmentDrafts
+                attachments={chat.state.pendingChatAttachments}
+                acceptance={attachmentAcceptance}
+                enabled={attachmentsEnabled}
+                disabledReason={attachmentsDisabledReason}
+                error={attachmentSelectionError}
+                compact
+                onAddFiles={addPendingFiles}
+                onRemove={removePendingFile}
+              />
+              <ChatDictationControl
+                key={activeSessionID || "new-chat"}
+                disabled={composerInputDisabled}
+                onTranscript={insertDictationTranscript}
+              />
+              <span aria-hidden="true" style={{ flex: 1 }} />
+              <button
+                type="submit"
+                aria-label={
+                  attachmentTurnInFlight
+                    ? "Wait for attachment response"
+                    : queueingMessage
+                      ? "Queue message"
+                      : "Send message"
+                }
+                disabled={sendDisabled}
+                title={
+                  attachmentTurnInFlight
+                    ? "Wait for the attachment response before sending this message"
+                    : queueingMessage
+                      ? "Queue this message after the active run finishes"
+                      : messageSendBlocked
+                        ? "Complete chat setup before sending"
+                        : "Send message"
+                }
+                style={{
+                  width: 28,
+                  height: 28,
+                  flexShrink: 0,
+                  borderRadius: "var(--radius-sm)",
+                  background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
+                  border: "none",
+                  cursor: !sendDisabled ? "pointer" : "default",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background 0.1s",
+                  color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
+                }}
+              >
+                <Icon d={Icons.send} size={14} />
+              </button>
+            </div>
           </div>
           {composerNoticeVisible && (
             <div

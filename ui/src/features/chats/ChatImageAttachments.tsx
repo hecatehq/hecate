@@ -105,6 +105,7 @@ export function ChatAttachmentDrafts({
   enabled,
   disabledReason,
   error,
+  compact = false,
   onAddFiles,
   onRemove,
 }: {
@@ -113,6 +114,7 @@ export function ChatAttachmentDrafts({
   enabled: boolean;
   disabledReason: string;
   error?: string;
+  compact?: boolean;
   onAddFiles: (files: File[]) => void;
   onRemove: (id: string) => void;
 }) {
@@ -222,12 +224,13 @@ export function ChatAttachmentDrafts({
       onDrop={handleDrop}
       style={{
         display: "grid",
-        gap: 6,
-        marginBottom: 6,
+        minWidth: 0,
+        gap: compact ? 4 : 6,
+        marginBottom: compact ? 0 : 6,
         border: dragging ? "1px dashed var(--teal)" : "1px solid transparent",
         borderRadius: "var(--radius-sm)",
         background: dragging ? "var(--teal-bg)" : "transparent",
-        padding: dragging ? 6 : "0 6px",
+        padding: dragging ? 6 : compact ? 0 : "0 6px",
       }}
     >
       {attachments.length > 0 && (
@@ -277,8 +280,8 @@ export function ChatAttachmentDrafts({
           title={
             canAdd
               ? acceptance === "images"
-                ? "Attach PNG, JPEG, or WebP images"
-                : "Attach files"
+                ? "Attach PNG, JPEG, or WebP images · 4 images · 5 MiB each · 12 MiB total"
+                : "Attach files · 4 files · 5 MiB each · 12 MiB total"
               : unavailableReason
           }
           style={{
@@ -294,18 +297,27 @@ export function ChatAttachmentDrafts({
           ref={unavailableStatusRef}
           id={!canAdd && unavailableReason ? reasonID : undefined}
           tabIndex={!canAdd && unavailableReason ? -1 : undefined}
+          title={compact ? (canAdd ? undefined : unavailableReason) : undefined}
           style={{
             color: "var(--t3)",
             fontFamily: "var(--font-mono)",
             fontSize: 10,
+            maxWidth: compact ? 150 : undefined,
+            overflow: compact ? "hidden" : undefined,
+            textOverflow: compact ? "ellipsis" : undefined,
+            whiteSpace: compact ? "nowrap" : undefined,
           }}
         >
           {dragging
             ? `Drop ${acceptsFiles ? "files" : "images"} here`
             : canAdd
-              ? acceptance === "images"
-                ? "paste, choose, or drop · PNG/JPEG/WebP · 5 MiB each · 12 MiB total"
-                : "paste, choose, or drop · 4 files · 5 MiB each · 12 MiB total"
+              ? compact
+                ? acceptance === "images"
+                  ? "PNG/JPEG/WebP · 4 max"
+                  : "4 files max"
+                : acceptance === "images"
+                  ? "paste, choose, or drop · PNG/JPEG/WebP · 5 MiB each · 12 MiB total"
+                  : "paste, choose, or drop · 4 files · 5 MiB each · 12 MiB total"
               : unavailableReason}
         </span>
       </div>

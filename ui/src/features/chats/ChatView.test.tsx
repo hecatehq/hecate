@@ -1441,6 +1441,11 @@ describe("ChatView input", () => {
     expect(screen.getByRole("group", { name: "File attachments" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Files" })).toBeEnabled();
     expect(screen.getByLabelText("Choose files")).not.toHaveAttribute("accept");
+    const composerActions = screen.getByRole("group", { name: "Composer actions" });
+    expect(within(composerActions).getByRole("button", { name: "Files" })).toBeVisible();
+    expect(within(composerActions).getByRole("button", { name: "Start dictation" })).toBeVisible();
+    expect(within(composerActions).getByRole("button", { name: "Send message" })).toBeVisible();
+    expect(within(composerActions).getByText("4 files max")).toBeVisible();
 
     const file = new File(["report"], "report.pdf", { type: "application/pdf" });
     fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
