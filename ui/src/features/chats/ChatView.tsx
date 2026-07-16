@@ -22,10 +22,13 @@ import { discoverLocalProviders, draftChatProjectAssistant } from "../../lib/api
 import { writeProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
 import { withConfiguredDefaultModels } from "../../app/runtimeConsoleChatHelpers";
 import {
+  modelSelectionImageInputCapability,
   modelSelectionHasNoToolCalling,
+  normalizeImageInputCapability,
   resolveChatSetupRepairState,
   toolCallingSupportsTaskMode,
   type ChatSetupRepairState,
+  type ImageInputCapability,
 } from "../../lib/chat-setup-readiness";
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
@@ -76,6 +79,38 @@ type Props = {
 
 const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
 const DEFAULT_RIGHT_PANEL_WIDTH = 380;
+
+function chatAttachmentsDisabledReason({
+  ownershipMutationInFlight,
+  isExternalAgentChat,
+  externalAgentReady,
+  toolsEnabled,
+  agentBusy,
+  capability,
+  model,
+}: {
+  ownershipMutationInFlight: boolean;
+  isExternalAgentChat: boolean;
+  externalAgentReady: boolean;
+  toolsEnabled: boolean;
+  agentBusy: boolean;
+  capability: ImageInputCapability;
+  model: string;
+}): string {
+  if (ownershipMutationInFlight) {
+    return "Wait for the current chat ownership change to finish before attaching files.";
+  }
+  if (agentBusy) return "Wait for the current response; messages with files cannot be queued.";
+  if (isExternalAgentChat) {
+    return externalAgentReady ? "" : "Complete External Agent setup before attaching files.";
+  }
+  if (toolsEnabled) return "Turn Tools off to attach images.";
+  if (capability === "none") return `${model || "This model"} does not support image input.`;
+  if (capability !== "supported") {
+    return `Image input has not been confirmed for ${model || "the selected model"}.`;
+  }
+  return "";
+}
 
 export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const runtime = useRuntime();
@@ -164,15 +199,17 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     setChatTarget: chatActions.setChatTarget,
     setChatToolsEnabled: chatActions.setChatToolsEnabled,
     setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
-    setModel: chat.actions.setModel,
+    setModel: chatActions.selectChatModel,
     setProviderFilter: chatActions.selectProviderRoute,
     setSystemPrompt: chat.actions.setSystemPrompt,
   };
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  // approvalModalID is the per-banner-click open state for the
-  // approval modal. The modal itself fetches the full row on mount;
-  // we only carry the id here.
-  const [approvalModalID, setApprovalModalID] = useState<string | null>(null);
+  // Bind modal intent to the session that surfaced the approval. A later
+  // navigation must never reinterpret an approval id against another chat.
+  const [approvalModal, setApprovalModal] = useState<{
+    sessionID: string;
+    approvalID: string;
+  } | null>(null);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
   const workspaceDialogOpenRef = useRef(false);
@@ -228,6 +265,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
+  const selectedChatCancelling =
+    chat.state.chatCancelling && chat.state.chatCancellingSessionID === activeSessionID;
   const selectedChatReady = Boolean(
     activeSessionID && state.activeChatSession?.id === activeSessionID,
   );
@@ -275,11 +314,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   // Session preparation and live turns have independent ownership and may
   // overlap. Project transcript/Stop/queue state only for the selected turn;
   // chatCreating independently guards Send and New chat.
-  const selectedTurnLoading = Boolean(
-    state.chatTurnSessionID && state.chatTurnSessionID === activeSessionID,
-  );
   const unknownTurnOwnsDetachedComposer = Boolean(
     state.chatTurnActive && !state.chatTurnSessionID && !activeSessionID,
+  );
+  const selectedTurnLoading = Boolean(
+    state.chatTurnActive &&
+    ((state.chatTurnSessionID && state.chatTurnSessionID === activeSessionID) ||
+      unknownTurnOwnsDetachedComposer),
   );
   const streaming =
     state.chatLoading && (selectedTurnLoading || (!state.chatTurnActive && !state.chatCreating));
@@ -432,7 +473,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeChatSession);
   const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);
   const externalAgentBusy =
-    isExternalAgentChat && externalAgentSessionIsBusy(state.activeChatSession);
+    isExternalAgentChat && agentSessionHasActiveWork(state.activeChatSession);
   const activeHecateTaskID = activeHecateAgentSegment?.task_id || "";
   const activeHecateRunID = activeHecateAgentSegment?.latest_run_id || "";
   const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
@@ -471,6 +512,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         models: selectableModels,
         providerFilter: state.providerFilter,
         model: state.model,
+        configuredProviders,
       });
   const hecateTaskToolsAvailable = isHecateAgentChat && !hecateAgentToolsDisabledForModel;
   const activeWorkspacePath = state.activeChatSession?.workspace || state.agentWorkspace;
@@ -502,6 +544,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     isHecateChat &&
     !chatSettingsOpen &&
     !rtkOnboardingDismissed &&
+    !selectedChatCancelling &&
     !state.activeChatSessionID &&
     visibleMessages.length === 0 &&
     activeQueuedChatMessages.length === 0 &&
@@ -524,6 +567,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const externalAgentModelRequired = externalAgentRequiresModelSelection(
     externalAgentConfigOptions,
   );
+  const pendingAttachments = chat.state.pendingChatAttachments;
   const draftHecateReadyForComposer =
     isHecateChat &&
     (draftChatStarted || (!activeSessionID && (state.chatCreating || Boolean(state.message)))) &&
@@ -533,7 +577,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     (!hecateTaskToolsAvailable || Boolean(state.agentWorkspace.trim()));
   const draftExternalAgentReadyForComposer =
     isExternalAgentChat &&
-    (draftChatStarted || (!activeSessionID && (state.chatCreating || Boolean(state.message)))) &&
+    (draftChatStarted ||
+      (!activeSessionID &&
+        (state.chatCreating || Boolean(state.message) || pendingAttachments.length > 0))) &&
     !selectedChatReady &&
     Boolean(selectedAgent?.available) &&
     !externalAgentSetupRequired &&
@@ -573,6 +619,27 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.pendingToolCalls.length === 0 &&
     (emptyStateExplainsModelRoute || emptyStateExplainsSetupRepair || externalAgentModelRequired);
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy || externalAgentBusy);
+  const workspaceRevertBusy =
+    isAgentChat &&
+    (agentBusy ||
+      agentSessionHasActiveWork(state.activeChatSession) ||
+      activeQueuedChatMessages.length > 0);
+  const attachmentTurnInFlight = chat.state.chatAttachmentTurnDraftCount > 0;
+  const selectedCancellingTurnKind = selectedChatCancelling
+    ? chat.state.chatCancellingTurnKind
+    : "";
+  const activeRunKind = selectedCancellingTurnKind
+    ? selectedCancellingTurnKind
+    : state.chatTurnActive && selectedTurnLoading && chat.state.chatTurnKind
+      ? chat.state.chatTurnKind
+      : isExternalAgentChat
+        ? "external_agent"
+        : activeHecateAgentSegment || hecateTaskToolsAvailable
+          ? "hecate_task"
+          : "direct_model";
+  const activeRunCancellationAvailable = state.chatTurnActive
+    ? selectedTurnLoading && chat.state.chatTurnCancellationAvailable
+    : agentBusy;
   const chatCreationPending = state.chatCreating;
   const implicitSessionAllocation = state.chatCreating && unknownTurnOwnsDetachedComposer;
   const detachedCreationPending = state.chatCreating && !activeSessionID;
@@ -580,9 +647,58 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? (state.savedComposerDraftsBySessionID.get(activeSessionID)?.length ?? 0)
     : 0;
   const queueingMessage =
+    !attachmentTurnInFlight &&
     (agentBusy || anotherChatTurnActive) &&
     Boolean(activeSessionID) &&
     Boolean(state.message.trim());
+  const catalogImageInputCapability = modelSelectionImageInputCapability({
+    models: selectableModels,
+    providerFilter: state.providerFilter,
+    model: hecateChatModelValue,
+    configuredProviders,
+  });
+  const activeSessionMatchesSelectedImageRoute =
+    state.providerFilter !== "auto" &&
+    state.activeChatSession?.model === hecateChatModelValue &&
+    Boolean(state.activeChatSession.provider) &&
+    (selectedConfiguredProvider
+      ? configuredProviderMatches(selectedConfiguredProvider, state.activeChatSession.provider)
+      : providerKeyMatches(state.activeChatSession.provider, [state.providerFilter]));
+  const selectedImageInputCapability =
+    catalogImageInputCapability !== "unknown"
+      ? catalogImageInputCapability
+      : activeSessionMatchesSelectedImageRoute
+        ? normalizeImageInputCapability(state.activeChatSession?.capabilities?.image_input)
+        : "unknown";
+  const attachmentAcceptance = isExternalAgentChat ? "files" : "images";
+  const externalAgentAttachmentsReady =
+    isExternalAgentChat &&
+    (selectedChatReady || draftExternalAgentReadyForComposer) &&
+    Boolean(selectedAgent?.available) &&
+    !externalAgentSetupRequired &&
+    !externalAgentModelRequired &&
+    Boolean(activeWorkspacePath.trim());
+  const attachmentModeAllowed = isExternalAgentChat
+    ? externalAgentAttachmentsReady
+    : isHecateChat && state.chatTarget === "agent" && !hecateChatToolsEnabled;
+  const selectedModeAcceptsAttachments =
+    isExternalAgentChat || selectedImageInputCapability === "supported";
+  const attachmentsEnabled =
+    attachmentModeAllowed &&
+    selectedModeAcceptsAttachments &&
+    !agentBusy &&
+    !anotherChatTurnActive &&
+    !chatCreationPending &&
+    !chat.state.chatOwnershipMutationInFlight;
+  const attachmentsDisabledReason = chatAttachmentsDisabledReason({
+    ownershipMutationInFlight: chat.state.chatOwnershipMutationInFlight,
+    isExternalAgentChat,
+    externalAgentReady: externalAgentAttachmentsReady,
+    toolsEnabled: hecateChatToolsEnabled,
+    agentBusy: agentBusy || anotherChatTurnActive || chatCreationPending,
+    capability: selectedImageInputCapability,
+    model: hecateChatModelValue,
+  });
   const messageSendBlocked =
     !agentBusy &&
     ((isHecateChat && !hecateChatModelReady) ||
@@ -593,7 +709,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   const sendDisabled =
-    !state.message.trim() ||
+    (!state.message.trim() && pendingAttachments.length === 0) ||
+    state.chatCancelling ||
+    attachmentTurnInFlight ||
+    (pendingAttachments.length > 0 && !attachmentsEnabled) ||
     (chatCreationPending && !queueingMessage) ||
     (anotherChatTurnActive && !activeSessionID) ||
     messageSendBlocked ||
@@ -611,6 +730,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     selectedChatReady &&
     isHecateChat &&
     !agentBusy &&
+    !projectNavigationBlockReason() &&
     Boolean(activeSessionProjectID) &&
     Boolean(onNavigate) &&
     Boolean(state.message.trim());
@@ -629,6 +749,32 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     onNavigate?.("connections");
   }
 
+  function projectNavigationBlockReason(): string {
+    if (
+      chat.actions.hasPendingChatAttachments() ||
+      chat.actions.hasChatAttachmentTurn() ||
+      chat.actions.isChatOwnershipMutationInFlight()
+    ) {
+      return chat.actions.chatOwnershipMutationBlockReason();
+    }
+    return "";
+  }
+
+  function canOpenProject() {
+    const reason = projectNavigationBlockReason();
+    if (!reason) return true;
+    settingsActions.setNoticeMessage("error", reason);
+    return false;
+  }
+
+  function openProject(projectID: string) {
+    const id = projectID.trim();
+    if (!id || !canOpenProject()) return false;
+    void projects.actions.selectProject(id);
+    onNavigate?.("projects");
+    return true;
+  }
+
   function restoreSavedDraft() {
     if (!activeSessionID) return;
     const preservesCurrentDraft = Boolean(state.message.trim());
@@ -643,10 +789,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   function openLinkedProject() {
-    const projectID = activeSessionProjectID.trim();
-    if (!projectID) return;
-    void projects.actions.selectProject(projectID);
-    onNavigate?.("projects");
+    openProject(activeSessionProjectID);
   }
 
   async function draftProjectProposalFromChat(explicitRequest?: string) {
@@ -654,11 +797,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     const projectID = activeSessionProjectID.trim();
     const request = (explicitRequest ?? state.message).trim();
     if (!sessionID || !projectID || !request || projectProposalDrafting) return;
+    if (!canOpenProject()) return;
     setProjectProposalDrafting(true);
     try {
       const payload = await draftChatProjectAssistant(sessionID, {
         request,
       });
+      if (!canOpenProject()) return;
       const handoffWritten = writeProjectAssistantChatHandoff({
         project_id: projectID,
         proposal: payload.data,
@@ -673,9 +818,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         );
         return;
       }
+      if (!openProject(projectID)) return;
       runtime.actions.setMessage("");
-      void projects.actions.selectProject(projectID);
-      onNavigate?.("projects");
       settingsActions.setNoticeMessage(
         "success",
         "Project Assistant proposal drafted. Review it in Projects.",
@@ -726,6 +870,15 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   useEffect(() => {
     setWorkspacePathValue(state.agentWorkspace);
   }, [state.agentWorkspace]);
+
+  useEffect(() => {
+    if (!approvalModal) return;
+    const stillPending =
+      state.pendingApprovalsBySessionID
+        .get(approvalModal.sessionID)
+        ?.some((approval) => approval.approval_id === approvalModal.approvalID) ?? false;
+    if (!stillPending) setApprovalModal(null);
+  }, [approvalModal, state.pendingApprovalsBySessionID]);
 
   useEffect(() => {
     if (
@@ -897,13 +1050,17 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       {sidebarOpen && (
         <ChatSidebar
           isAgentChat={isAgentChat}
-          onSelectSession={(sessionID) => {
+          onSelectSession={async (sessionID) => {
+            const selected = await actions.selectChatSession(sessionID);
+            if (!selected) return false;
+            setApprovalModal(null);
             setDraftChatStarted(!sessionID);
             focusComposerWhenReady();
-            void actions.selectChatSession(sessionID);
             textareaRef.current?.focus();
+            return true;
           }}
           onCreateChat={(agentID, projectID) => {
+            setApprovalModal(null);
             setChatSettingsOpen(false);
             setDraftChatStarted(true);
             focusComposerWhenReady();
@@ -1028,7 +1185,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 {state.activeChatSessionID && (
                   <AgentApprovalsBanner
                     pending={state.pendingApprovalsBySessionID.get(state.activeChatSessionID) ?? []}
-                    onSelect={(id) => setApprovalModalID(id)}
+                    disabled={selectedChatCancelling}
+                    onSelect={(approvalID) =>
+                      setApprovalModal({
+                        sessionID: state.activeChatSessionID,
+                        approvalID,
+                      })
+                    }
                   />
                 )}
               </>
@@ -1043,6 +1206,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   taskID={state.activeChatSession.task_id}
                   runID={state.activeChatSession.latest_run_id}
                   busyID={taskApprovalBusyID}
+                  disabled={selectedChatCancelling}
                   onOpenTask={onOpenTask}
                   onResolve={handleResolveTaskApproval}
                 />
@@ -1089,6 +1253,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   setChatSettingsOpen(false);
                   setWorkspaceChangesOpen(true);
                 }}
+                canOpenProject={canOpenProject}
+                onOpenProject={openProject}
                 openExternalAgentSetup={openAgentSetup}
                 emptyState={
                   <ChatEmptyState
@@ -1099,6 +1265,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                     setupRepair={chatSetupRepair}
                     modelRouteUnavailable={modelRouteUnavailable}
                     selectedModelIssue={selectedModelIssue}
+                    modelMutationDisabled={selectedChatCancelling}
                     agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
                     nothingRunnable={nothingRunnable}
                     agentAdapters={state.agentAdapters}
@@ -1257,18 +1424,24 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 isHecateChat={isHecateChat}
                 isExternalAgentChat={isExternalAgentChat}
                 hecateTaskToolsAvailable={hecateTaskToolsAvailable}
+                activeRunKind={activeRunKind}
                 activeSessionID={activeSessionID}
                 textareaRef={textareaRef}
                 composerVisible={composerVisible}
                 composerInputDisabled={implicitSessionAllocation}
-                composerRouteControlsDisabled={detachedCreationPending}
+                composerRouteControlsDisabled={detachedCreationPending || selectedChatCancelling}
                 composerRepair={composerRepair}
                 suppressChatError={suppressComposerChatError}
                 messageControlsVisible={messageControlsVisible}
                 messageSendBlocked={messageSendBlocked}
                 sendDisabled={sendDisabled}
                 agentBusy={agentBusy}
+                activeRunCancellationAvailable={activeRunCancellationAvailable}
+                attachmentTurnInFlight={attachmentTurnInFlight}
                 queueingMessage={queueingMessage}
+                attachmentAcceptance={attachmentAcceptance}
+                attachmentsEnabled={attachmentsEnabled}
+                attachmentsDisabledReason={attachmentsDisabledReason}
                 selectedModelIssue={selectedModelIssue}
                 chatDiagnostic={chatDiagnostic}
                 hecateAgentModelLocked={hecateAgentModelLocked}
@@ -1334,6 +1507,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   instructionsAvailable={instructionsAvailable}
                   isHecateAgentChat={isHecateAgentChat}
                   instructionsLocked={messages.length > 0}
+                  mutationsDisabled={selectedChatCancelling}
                   systemPrompt={state.systemPrompt}
                   onToolsChange={actions.setChatToolsEnabled}
                   onRTKChange={handleRTKChange}
@@ -1346,6 +1520,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   sessionID={activeSessionID}
                   workspace={activeWorkspacePath}
                   refreshSignal={workspaceRefreshSignal}
+                  revertDisabled={selectedChatCancelling || workspaceRevertBusy}
                   onGetWorkspaceDiff={chatActions.getChatWorkspaceDiff}
                   onGetWorkspaceFiles={chatActions.getChatWorkspaceFiles}
                   onGetWorkspaceFileDiff={chatActions.getChatWorkspaceFileDiff}
@@ -1366,16 +1541,22 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         }
       `}</style>
 
-      {approvalModalID && isExternalAgentChat && state.activeChatSessionID && (
-        <AgentApprovalModal
-          sessionID={state.activeChatSessionID}
-          approvalID={approvalModalID}
-          onClose={() => setApprovalModalID(null)}
-          fetchApproval={actions.getChatApproval}
-          onResolve={actions.resolveChatApproval}
-          onCancel={actions.cancelChatApproval}
-        />
-      )}
+      {approvalModal &&
+        isExternalAgentChat &&
+        state.activeChatSessionID === approvalModal.sessionID && (
+          <AgentApprovalModal
+            sessionID={approvalModal.sessionID}
+            approvalID={approvalModal.approvalID}
+            disabled={
+              chat.state.chatCancelling &&
+              chat.state.chatCancellingSessionID === approvalModal.sessionID
+            }
+            onClose={() => setApprovalModal(null)}
+            fetchApproval={actions.getChatApproval}
+            onResolve={actions.resolveChatApproval}
+            onCancel={actions.cancelChatApproval}
+          />
+        )}
       <AddProviderModal open={addProviderOpen} onClose={() => setAddProviderOpen(false)} />
     </div>
   );
@@ -1523,26 +1704,30 @@ function findLatestAgentUsage(session: ChatSessionRecord | null): ChatUsageRecor
   return null;
 }
 
-function externalAgentSessionIsBusy(session: ChatSessionRecord | null): boolean {
-  const busy = (status?: string) =>
-    status === "queued" ||
-    status === "running" ||
-    status === "in_progress" ||
-    status === "awaiting_approval" ||
-    status === "pending";
-  if (!session?.agent_id || session.agent_id === "hecate") return false;
+function agentSessionHasActiveWork(session: ChatSessionRecord | null): boolean {
+  const busy = (status?: string) => {
+    switch (status?.trim().toLowerCase()) {
+      case "queued":
+      case "running":
+      case "in_progress":
+      case "awaiting_approval":
+      case "pending":
+        return true;
+      default:
+        return false;
+    }
+  };
+  if (!session) return false;
   if (busy(session.status)) return true;
   if (
     (session.segments ?? []).some((segment) => {
       const turn = toChatSegmentViewModel(segment);
-      return turn.isExternalAgent && busy(turn.status);
+      return busy(turn.status);
     })
   ) {
     return true;
   }
-  return (session.messages ?? []).some(
-    (message) => message.role === "assistant" && busy(message.status),
-  );
+  return (session.messages ?? []).some((message) => busy(message.status));
 }
 
 function agentUsageEmpty(usage: ChatUsageRecord): boolean {

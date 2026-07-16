@@ -401,6 +401,16 @@ for model-backed drafting, or out-of-bound model actions return
 Validates a candidate proposal and returns a server-shaped proposal id,
 warnings, confirmation posture, and trace id.
 
+For `create_project`, an explicit `patch.id` is preserved. When `patch.id` is
+omitted but `target.project_id` is present, that target becomes the canonical
+patch id. When both are omitted, Hecate deterministically derives `patch.id`
+from the proposal id and action index before project-fence admission. The
+response and durable proposal record contain that canonical typed action.
+Clients should review and apply the returned proposal rather than reconstructing
+the request action. A direct apply retry with the same proposal id derives the
+same project id even if an earlier attempt was rejected before ledger
+persistence.
+
 ```json
 POST /hecate/v1/project-assistant/propose
 {
@@ -409,7 +419,6 @@ POST /hecate/v1/project-assistant/propose
   "actions": [
     {
       "kind": "create_project",
-      "target": { "project_id": "proj_hecate" },
       "patch": {
         "name": "Hecate",
         "description": "Local AI operations console",
@@ -427,7 +436,19 @@ POST /hecate/v1/project-assistant/propose
     "id": "pa_...",
     "title": "Create project",
     "summary": "Create a Hecate project with the current workspace root.",
-    "actions": [],
+    "actions": [
+      {
+        "kind": "create_project",
+        "patch": {
+          "id": "proj_...",
+          "name": "Hecate",
+          "description": "Local AI operations console",
+          "workspace_path": "/Users/alice/src/hecate",
+          "workspace_kind": "git"
+        },
+        "reason": "Track chats, project work, and context under one project."
+      }
+    ],
     "warnings": [],
     "requires_confirmation": true,
     "trace_id": "..."
@@ -492,7 +513,10 @@ to mutate durable project state.
 ### `POST /hecate/v1/project-assistant/apply`
 
 Applies a previously proposed change set. Requests must send the proposal and
-`confirm: true` when `requires_confirmation` is true.
+`confirm: true` when `requires_confirmation` is true. Send the canonical
+proposal returned by `propose` or `draft`, including any generated
+`create_project` patch id; changing the returned action set conflicts with the
+durable fingerprint.
 
 ```json
 POST /hecate/v1/project-assistant/apply
@@ -604,21 +628,21 @@ Every action has the same envelope:
 
 ## Supported action kinds
 
-| Kind                      | Store path used        | Notes                                                                                                                                                                                                                                                                              |
-| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create_project`          | `internal/projects`    | Creates a project with optional explicit id, `workspace_path`, roots, and defaults. Omit workspace fields for a workspace-less project.                                                                                                                                            |
-| `update_project`          | `internal/projects`    | Updates metadata and whole-list roots/context-source fields.                                                                                                                                                                                                                       |
-| `attach_project_root`     | `internal/projects`    | Adds a root to an existing project.                                                                                                                                                                                                                                                |
-| `remove_project_root`     | `internal/projects`    | Removes a root from an existing project.                                                                                                                                                                                                                                           |
-| `set_project_defaults`    | `internal/projects`    | Updates provider/model/profile/tools/workspace/system-prompt defaults.                                                                                                                                                                                                             |
-| `move_chat_session`       | `internal/chat`        | Moves exactly one chat session into a project or back to no project.                                                                                                                                                                                                               |
-| `create_role`             | `internal/projectwork` | Creates a custom project role; built-in role ids remain immutable.                                                                                                                                                                                                                 |
-| `create_work_item`        | `internal/projectwork` | Creates a project-scoped work item; does not start a task.                                                                                                                                                                                                                         |
-| `update_work_item`        | `internal/projectwork` | Updates one existing work item.                                                                                                                                                                                                                                                    |
-| `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work; supplied `root_id` must match one of the project's roots.                                                                                                                                                                         |
-| `create_handoff`          | `internal/projectwork` | Creates a handoff record; does not launch follow-up work.                                                                                                                                                                                                                          |
-| `update_handoff`          | `internal/projectwork` | Sparse compatibility update for a handoff target assignment, target role, or status. Requires the exact `expected_updated_at` revision. Review follow-up drafts do not emit it. Cairnline-origin full-replacement updates are rejected instead of being narrowed into this action. |
-| `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                                                                                                                                                                 |
+| Kind                      | Store path used        | Notes                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_project`          | `internal/projects`    | Creates a project with optional explicit id, `workspace_path`, roots, and defaults. An omitted id uses `target.project_id` when present or a deterministic proposal-id/action-index id otherwise; the returned proposal contains the canonical patch. Omit workspace fields for a workspace-less project. |
+| `update_project`          | `internal/projects`    | Updates metadata and whole-list roots/context-source fields.                                                                                                                                                                                                                                              |
+| `attach_project_root`     | `internal/projects`    | Adds a root to an existing project.                                                                                                                                                                                                                                                                       |
+| `remove_project_root`     | `internal/projects`    | Removes a root from an existing project.                                                                                                                                                                                                                                                                  |
+| `set_project_defaults`    | `internal/projects`    | Updates provider/model/profile/tools/workspace/system-prompt defaults.                                                                                                                                                                                                                                    |
+| `move_chat_session`       | `internal/chat`        | Moves exactly one chat session into a project or back to no project.                                                                                                                                                                                                                                      |
+| `create_role`             | `internal/projectwork` | Creates a custom project role; built-in role ids remain immutable.                                                                                                                                                                                                                                        |
+| `create_work_item`        | `internal/projectwork` | Creates a project-scoped work item; does not start a task.                                                                                                                                                                                                                                                |
+| `update_work_item`        | `internal/projectwork` | Updates one existing work item.                                                                                                                                                                                                                                                                           |
+| `create_assignment`       | `internal/projectwork` | Creates an assignment for existing project work; supplied `root_id` must match one of the project's roots.                                                                                                                                                                                                |
+| `create_handoff`          | `internal/projectwork` | Creates a handoff record; does not launch follow-up work.                                                                                                                                                                                                                                                 |
+| `update_handoff`          | `internal/projectwork` | Sparse compatibility update for a handoff target assignment, target role, or status. Requires the exact `expected_updated_at` revision. Review follow-up drafts do not emit it. Cairnline-origin full-replacement updates are rejected instead of being narrowed into this action.                        |
+| `create_memory_candidate` | `internal/memory`      | Creates a candidate with provenance; never a durable memory entry.                                                                                                                                                                                                                                        |
 
 A proposal may contain at most one `update_handoff` action for a given handoff.
 Combine target-role, target-assignment, and status changes into that single

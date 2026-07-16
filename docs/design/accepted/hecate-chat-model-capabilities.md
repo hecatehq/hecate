@@ -92,9 +92,10 @@ Hecate Agent. The first capability record is deliberately small:
 ```ts
 type ModelCapabilities = {
   tool_calling: "unknown" | "none" | "basic" | "parallel";
+  image_input: "unknown" | "none" | "supported";
   streaming?: boolean;
   max_context_tokens?: number;
-  source: "unknown" | "catalog" | "provider";
+  source: "unknown" | "catalog" | "provider" | "mixed";
 };
 ```
 
@@ -109,11 +110,50 @@ Capability sources merge with this precedence:
 4. **Unknown local/custom default**: local/custom models default to
    `tool_calling="unknown"` until proven otherwise.
 
+Model discovery provenance is not capability provenance. Seeing a model in a
+provider's `/models` response does not make Hecate's name-based/default
+capability inference provider-native. `source="mixed"` means at least one
+effective dimension came from provider metadata while another still comes from
+catalog inference. For Auto, the pre-route snapshot contains only guarantees
+shared by the currently routable matching routes; the completed direct turn
+updates its message and session snapshots from the route the gateway actually
+used.
+
 `GET /v1/models` includes the effective capability snapshot in
 `metadata.capabilities` so the UI can render badges and decide whether a
 tools-on Hecate Chat turn should create a task-backed segment or fall back to
 direct model chat. The operator chooses tools per chat; there is no global
 model-capability override UI or API in the current implementation.
+
+Image input uses the same precedence with a stricter dispatch rule:
+image-bearing turns require `image_input="supported"`; `unknown` and `none`
+are ineligible. Provider-native Fireworks and Ollama metadata win when
+available, with conservative catalog inference for known cloud model families.
+Hecate-owned attachment turns set an explicit internal request requirement, and
+the gateway router admits only an explicitly supported initial route. Once
+image bytes are hydrated, dispatch is pinned to the canonical provider name and
+opaque generation resolved during admission. The executor revalidates both
+against the live registry immediately before dispatch; same-instance retries
+remain available but cross-provider failover is disabled. Removal,
+same-name replacement, normalized-name takeover, and alias takeover therefore
+fail without retargeting bytes. A failed call that reached an upstream retains
+its attempted provider/model/generation and trace metadata internally.
+Provider identity admission includes configured providers that currently report
+no model rows, so alias collisions remain fail-closed. Historical bytes are
+rehydrated only for the configured provider generation recorded on the original
+turn; legacy missing generations are omitted. Provider-compatible
+`/v1` rich-content requests do not set the Hecate requirement and retain normal
+upstream passthrough semantics; this matters for custom providers whose
+discovery API does not report image support. Image-bearing compatibility
+requests still disable cross-provider failover, revalidate the selected opaque
+provider instance immediately before dispatch, and use the bounded 32 MiB,
+60-second compatibility ingress contract.
+The original product surface is Hecate-owned, Tools-off Chat with staged
+PNG/JPEG/WebP attachments. Task-backed turns still do not accept attachment ids.
+External Agent/ACP sessions now accept bounded arbitrary files and resolve them
+against live ACP image/embedded-resource capabilities, with a private per-turn
+`resource_link` as the baseline fallback; that path does not weaken direct
+model image-capability admission.
 
 ### Automatic probing
 
@@ -451,6 +491,11 @@ Done in the core bridge:
   busy and submits them after the run or approval reaches a terminal state
 - each assistant turn exposes user-friendly task and trace links in the message
   header
+- Hecate Chat stages image bodies outside transcript JSON, persists immutable
+  attachment metadata on direct-model user turns, renders previews through the
+  normal Hecate-native API path (including the optional runtime-token guard),
+  and transiently hydrates bounded image history only for explicitly
+  image-capable routes
 
 Still required for a complete Hecate Chat tools-on experience:
 
@@ -482,8 +527,8 @@ The missing stable-scope pieces should land in this order:
 ## Future Work
 
 - Auto-compatible model routing by profile capability requirements.
-- Richer capability dimensions: structured output, reasoning/thinking,
-  multimodal inputs, cache-control, context-window confidence.
+- Richer capability dimensions: structured output, reasoning/thinking, audio
+  and document inputs, cache-control, context-window confidence.
 - Tool schema fidelity: distinguish basic tool calling from strict or
   provider-native tool schemas, forced tool choice, nested JSON schema support,
   `enum` / `required` reliability, and parallel-tool behavior. This should

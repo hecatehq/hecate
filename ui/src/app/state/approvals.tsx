@@ -9,8 +9,8 @@
 // `.get(sessionID)?.length` reads as "no pending banner" without
 // a separate empty-vs-missing branch.
 //
-// Race protection: each mutator (upsert, remove) bumps a per-
-// session version counter in a ref. `refetchPending` snapshots
+// Race protection: each live mutator (upsert, remove, invalidate)
+// bumps a per-session version counter in a ref. `refetchPending` snapshots
 // the version before its request and compares after; a mismatch
 // means a live SSE update or optimistic local action landed
 // during the catch-up, so we ignore the stale GET rather than
@@ -62,7 +62,8 @@ export type ApprovalsActions = {
   setPendingForSession: (sessionID: string, rows: PendingAgentApproval[]) => void;
   upsertPending: (event: PendingAgentApproval) => void;
   removePending: (sessionID: string, approvalID: string) => void;
-  refetchPending: (sessionID: string) => Promise<void>;
+  invalidatePendingForSession: (sessionID: string) => void;
+  refetchPending: (sessionID: string, isCurrent?: () => boolean) => Promise<void>;
   // Request API — return Results so callers can wire notice/UI
   // feedback without the slice importing them.
   getApproval: (sessionID: string, approvalID: string) => Promise<GetApprovalResult>;
@@ -191,27 +192,42 @@ export function ApprovalsProvider({
     [bumpVersion],
   );
 
-  const refetchPending = useCallback(async (sessionID: string) => {
-    if (!sessionID) return;
-    const startedAtVersion = versionBySessionID.current.get(sessionID) ?? 0;
-    try {
-      const result = await listChatApprovalsRequest(sessionID, "pending");
-      const currentVersion = versionBySessionID.current.get(sessionID) ?? 0;
-      if (currentVersion !== startedAtVersion) {
-        // A live SSE update or optimistic local action landed
-        // during this catch-up. Ignore the stale GET rather than
-        // clearing a newer pending approval or re-adding one
-        // that was just resolved.
-        return;
+  const invalidatePendingForSession = useCallback(
+    (sessionID: string) => {
+      if (!sessionID) return;
+      // Stop is authoritative for actionability: clear every pending
+      // control synchronously and bump the version before any follow-up
+      // read can observe or restore the pre-Stop cache.
+      bumpVersion(sessionID);
+      dispatch({ type: "pending/setForSession", sessionID, rows: [] });
+    },
+    [bumpVersion],
+  );
+
+  const refetchPending = useCallback(
+    async (sessionID: string, isCurrent: () => boolean = () => true) => {
+      if (!sessionID || !isCurrent()) return;
+      const startedAtVersion = versionBySessionID.current.get(sessionID) ?? 0;
+      try {
+        const result = await listChatApprovalsRequest(sessionID, "pending");
+        const currentVersion = versionBySessionID.current.get(sessionID) ?? 0;
+        if (currentVersion !== startedAtVersion || !isCurrent()) {
+          // A live SSE update, optimistic local action, or a newer
+          // cancellation epoch landed during this catch-up. Ignore the
+          // stale GET rather than restoring controls that no longer own
+          // the session lifecycle.
+          return;
+        }
+        const rows = (result.data ?? []).map(approvalRecordToPending);
+        dispatch({ type: "pending/setForSession", sessionID, rows });
+      } catch {
+        // Banner is best-effort; failure here just means the
+        // operator doesn't see the catch-up state until the next
+        // reconnect.
       }
-      const rows = (result.data ?? []).map(approvalRecordToPending);
-      dispatch({ type: "pending/setForSession", sessionID, rows });
-    } catch {
-      // Banner is best-effort; failure here just means the
-      // operator doesn't see the catch-up state until the next
-      // reconnect.
-    }
-  }, []);
+    },
+    [],
+  );
 
   const getApproval = useCallback(
     async (sessionID: string, approvalID: string): Promise<GetApprovalResult> => {
@@ -298,6 +314,7 @@ export function ApprovalsProvider({
       setPendingForSession,
       upsertPending,
       removePending,
+      invalidatePendingForSession,
       refetchPending,
       getApproval,
       resolveApproval,
@@ -309,6 +326,7 @@ export function ApprovalsProvider({
       setPendingForSession,
       upsertPending,
       removePending,
+      invalidatePendingForSession,
       refetchPending,
       getApproval,
       resolveApproval,

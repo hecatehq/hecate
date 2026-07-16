@@ -61,6 +61,17 @@ func TestClassifyGatewayError(t *testing.T) {
 			anthropicType: "invalid_request_error",
 		},
 		{
+			name: "untrusted upstream type",
+			err: &providers.UpstreamError{
+				StatusCode: http.StatusBadRequest,
+				Message:    "request rejected",
+				Type:       "https://operator:password@example.test/type?token=secret",
+			},
+			status:        http.StatusBadRequest,
+			openAIType:    errCodeUpstreamError,
+			anthropicType: "api_error",
+		},
+		{
 			name:          "unsupported model from router",
 			err:           errors.New(`route request: provider "ollama" does not support explicit model "qwen2.5:7b"`),
 			status:        http.StatusBadRequest,

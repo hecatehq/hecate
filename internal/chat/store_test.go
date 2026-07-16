@@ -2,6 +2,9 @@ package chat
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,8 +12,246 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+func messageRequestTestFingerprint(value string) MessageRequestFingerprint {
+	return sha256.Sum256([]byte(value))
+}
+
+type messageRequestNowSetter interface {
+	setMessageRequestNow(func() time.Time)
+}
+
+type controlledMessageRequestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (clock *controlledMessageRequestClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+func (clock *controlledMessageRequestClock) Set(now time.Time) {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = now
+}
+
+func runStoreMessageRequestIdempotency(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := store.Create(ctx, Session{ID: "chat_idempotency", AgentID: DefaultAgentID}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	fingerprint := messageRequestTestFingerprint("same payload")
+	claim, err := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-1", fingerprint)
+	if err != nil {
+		t.Fatalf("ClaimMessageRequest: %v", err)
+	}
+	if claim.Replay || claim.Lease.Empty() {
+		t.Fatalf("initial claim = %+v, want owned lease", claim)
+	}
+
+	type claimResult struct {
+		claim MessageRequestClaim
+		err   error
+	}
+	replayed := make(chan claimResult, 1)
+	go func() {
+		got, claimErr := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-1", fingerprint)
+		replayed <- claimResult{claim: got, err: claimErr}
+	}()
+	select {
+	case got := <-replayed:
+		t.Fatalf("concurrent claim returned before commit: %+v", got)
+	case <-time.After(40 * time.Millisecond):
+	}
+	if _, err := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-1", messageRequestTestFingerprint("changed while pending")); !errors.Is(err, ErrMessageRequestPayloadConflict) {
+		t.Fatalf("pending mismatched ClaimMessageRequest error = %v, want payload conflict", err)
+	}
+
+	committed, err := store.CommitMessageRequest(ctx, claim.Lease, Message{
+		ID:      "msg_user",
+		Role:    "user",
+		Content: "hello once",
+	})
+	if err != nil {
+		t.Fatalf("CommitMessageRequest: %v", err)
+	}
+	if len(committed.Messages) != 1 || committed.Messages[0].ID != "msg_user" {
+		t.Fatalf("committed messages = %+v, want one authoritative user row", committed.Messages)
+	}
+	select {
+	case got := <-replayed:
+		if got.err != nil {
+			t.Fatalf("concurrent ClaimMessageRequest: %v", got.err)
+		}
+		if !got.claim.Replay || !got.claim.Lease.Empty() || got.claim.CommittedMessageID != "msg_user" || len(got.claim.Session.Messages) != 1 {
+			t.Fatalf("concurrent replay = %+v, want committed authoritative session", got.claim)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent claim did not return after commit")
+	}
+
+	// Retrying the owner's commit is also safe after an ambiguous database
+	// response; it returns the current session without appending again.
+	committedAgain, err := store.CommitMessageRequest(ctx, claim.Lease, Message{
+		ID:      "msg_duplicate",
+		Role:    "user",
+		Content: "must not append",
+	})
+	if err != nil {
+		t.Fatalf("CommitMessageRequest retry: %v", err)
+	}
+	if len(committedAgain.Messages) != 1 || committedAgain.Messages[0].ID != "msg_user" {
+		t.Fatalf("commit retry messages = %+v, want original message only", committedAgain.Messages)
+	}
+	displacedLease := claim.Lease
+	displacedLease.OwnerToken = "displaced-owner-token"
+	if _, err := store.CommitMessageRequest(ctx, displacedLease, Message{ID: "msg_displaced", Role: "user", Content: "must not append"}); !errors.Is(err, ErrMessageRequestLeaseInvalid) {
+		t.Fatalf("displaced committed owner error = %v, want invalid lease", err)
+	}
+
+	if _, err := store.AppendMessage(ctx, "chat_idempotency", Message{ID: "msg_assistant", Role: "assistant", Content: "done", Status: "completed"}); err != nil {
+		t.Fatalf("AppendMessage assistant: %v", err)
+	}
+	latest, err := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-1", fingerprint)
+	if err != nil {
+		t.Fatalf("ClaimMessageRequest replay: %v", err)
+	}
+	if !latest.Replay || latest.CommittedMessageID != "msg_user" || len(latest.Session.Messages) != 2 || latest.Session.Messages[1].ID != "msg_assistant" {
+		t.Fatalf("latest replay = %+v, want current authoritative session", latest)
+	}
+
+	if _, err := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-1", messageRequestTestFingerprint("changed payload")); !errors.Is(err, ErrMessageRequestPayloadConflict) {
+		t.Fatalf("mismatched ClaimMessageRequest error = %v, want payload conflict", err)
+	}
+
+	releasable, err := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-release", fingerprint)
+	if err != nil {
+		t.Fatalf("ClaimMessageRequest releasable: %v", err)
+	}
+	if err := store.ReleaseMessageRequest(ctx, releasable.Lease); err != nil {
+		t.Fatalf("ReleaseMessageRequest: %v", err)
+	}
+	reclaimed, err := store.ClaimMessageRequest(ctx, "chat_idempotency", "queued-chat-release", fingerprint)
+	if err != nil {
+		t.Fatalf("ClaimMessageRequest after release: %v", err)
+	}
+	if reclaimed.Replay || reclaimed.Lease.Empty() || reclaimed.Lease.OwnerToken == releasable.Lease.OwnerToken {
+		t.Fatalf("reclaimed claim = %+v, want fresh owned lease", reclaimed)
+	}
+	if err := store.ReleaseMessageRequest(ctx, reclaimed.Lease); err != nil {
+		t.Fatalf("ReleaseMessageRequest reclaimed: %v", err)
+	}
+}
+
+func runStoreMessageRequestLeaseRenewal(t *testing.T, store Store) {
+	t.Helper()
+	setter, ok := store.(messageRequestNowSetter)
+	if !ok {
+		t.Fatalf("%T does not expose the message-request test clock", store)
+	}
+	base := time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)
+	clock := &controlledMessageRequestClock{now: base}
+	setter.setMessageRequestNow(clock.Now)
+
+	ctx := context.Background()
+	if _, err := store.Create(ctx, Session{ID: "chat_lease_renewal", AgentID: DefaultAgentID}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	fingerprint := messageRequestTestFingerprint("lease payload")
+	claim, err := store.ClaimMessageRequest(ctx, "chat_lease_renewal", "queued-renewal", fingerprint)
+	if err != nil {
+		t.Fatalf("ClaimMessageRequest: %v", err)
+	}
+
+	tamperedOwner := claim.Lease
+	tamperedOwner.OwnerToken = "not-the-owner"
+	if err := store.RenewMessageRequest(ctx, RenewMessageRequestRequest{Lease: tamperedOwner}); !errors.Is(err, ErrMessageRequestLeaseInvalid) {
+		t.Fatalf("tampered-owner RenewMessageRequest error = %v, want invalid lease", err)
+	}
+	tamperedFingerprint := claim.Lease
+	tamperedFingerprint.Fingerprint = messageRequestTestFingerprint("different payload")
+	if err := store.RenewMessageRequest(ctx, RenewMessageRequestRequest{Lease: tamperedFingerprint}); !errors.Is(err, ErrMessageRequestLeaseInvalid) {
+		t.Fatalf("tampered-fingerprint RenewMessageRequest error = %v, want invalid lease", err)
+	}
+
+	ttl := store.MessageRequestLeaseTTL()
+	renewedAt := base.Add(ttl - time.Second)
+	clock.Set(renewedAt)
+	if err := store.RenewMessageRequest(ctx, RenewMessageRequestRequest{Lease: claim.Lease}); err != nil {
+		t.Fatalf("RenewMessageRequest: %v", err)
+	}
+
+	// This instant is stale relative to the original claim but fresh relative
+	// to the controlled renewal, so a competing owner must still wait.
+	clock.Set(base.Add(ttl + time.Second))
+	waitCtx, cancelWait := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, err = store.ClaimMessageRequest(waitCtx, "chat_lease_renewal", "queued-renewal", fingerprint)
+	cancelWait()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("claim after renewal error = %v, want deadline without takeover", err)
+	}
+
+	clock.Set(renewedAt.Add(ttl + time.Second))
+	reclaimed, err := store.ClaimMessageRequest(ctx, "chat_lease_renewal", "queued-renewal", fingerprint)
+	if err != nil {
+		t.Fatalf("ClaimMessageRequest after renewed lease expiry: %v", err)
+	}
+	if reclaimed.Lease.Empty() || reclaimed.Lease.OwnerToken == claim.Lease.OwnerToken {
+		t.Fatalf("reclaimed lease = %+v, want a fresh owner", reclaimed.Lease)
+	}
+	if err := store.RenewMessageRequest(ctx, RenewMessageRequestRequest{Lease: claim.Lease}); !errors.Is(err, ErrMessageRequestLeaseInvalid) {
+		t.Fatalf("displaced RenewMessageRequest error = %v, want invalid lease", err)
+	}
+	if _, err := store.CommitMessageRequest(ctx, claim.Lease, Message{ID: "msg_displaced", Role: "user"}); !errors.Is(err, ErrMessageRequestLeaseInvalid) {
+		t.Fatalf("displaced CommitMessageRequest error = %v, want invalid lease", err)
+	}
+	committed, err := store.CommitMessageRequest(ctx, reclaimed.Lease, Message{ID: "msg_owner", Role: "user", Content: "once"})
+	if err != nil {
+		t.Fatalf("reclaimed CommitMessageRequest: %v", err)
+	}
+	if len(committed.Messages) != 1 || committed.Messages[0].ID != "msg_owner" {
+		t.Fatalf("committed messages = %+v, want reclaimed owner only", committed.Messages)
+	}
+	if err := store.RenewMessageRequest(ctx, RenewMessageRequestRequest{Lease: reclaimed.Lease}); !errors.Is(err, ErrMessageRequestLeaseInvalid) {
+		t.Fatalf("committed RenewMessageRequest error = %v, want invalid lease", err)
+	}
+}
+
 func TestMemoryStoreConformance(t *testing.T) {
 	RunConformanceTests(t, "MemoryStore", func(*testing.T) Store { return NewMemoryStore() })
+}
+
+func TestMemoryStoreRoundTripsProviderInstance(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryStore()
+	if _, err := store.Create(context.Background(), Session{ID: "chat_provider_instance", AgentID: DefaultAgentID}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	initial := types.ProviderInstanceIdentity{ID: "runtime-initial", Kind: types.ProviderInstanceIdentityRuntime}
+	if _, err := store.AppendMessage(context.Background(), "chat_provider_instance", Message{
+		ID:               "msg_provider_instance",
+		Role:             "user",
+		ProviderInstance: initial,
+	}); err != nil {
+		t.Fatalf("AppendMessage() error = %v", err)
+	}
+	updatedIdentity := types.ProviderInstanceIdentity{ID: "configuration-updated", Kind: types.ProviderInstanceIdentityConfiguration}
+	if _, err := store.UpdateMessage(context.Background(), "chat_provider_instance", "msg_provider_instance", func(message *Message) {
+		message.ProviderInstance = updatedIdentity
+	}); err != nil {
+		t.Fatalf("UpdateMessage() error = %v", err)
+	}
+	got, ok, err := store.Get(context.Background(), "chat_provider_instance")
+	if err != nil || !ok {
+		t.Fatalf("Get() = found %v, error %v", ok, err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].ProviderInstance != updatedIdentity {
+		t.Fatalf("provider instance round trip = %+v, want %+v", got.Messages, updatedIdentity)
+	}
 }
 
 func TestContextPacketEmptyConsidersItems(t *testing.T) {
@@ -26,6 +267,87 @@ func TestContextPacketEmptyConsidersItems(t *testing.T) {
 
 	if packet.Empty() {
 		t.Fatal("ContextPacket.Empty() = true for itemized packet, want false")
+	}
+}
+
+func runStoreMessageAttachmentsRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := store.Create(ctx, Session{ID: "chat_attachments", AgentID: DefaultAgentID}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	createdAt := time.Date(2026, time.July, 13, 9, 0, 0, 0, time.UTC)
+	attachment := MessageAttachment{
+		ID:        "att_1",
+		Filename:  "diagram.png",
+		MediaType: "image/png",
+		SizeBytes: 123,
+		SHA256:    "abc123",
+		CreatedAt: createdAt,
+	}
+	if _, err := store.AppendMessage(ctx, "chat_attachments", Message{
+		ID:          "msg_1",
+		Role:        "user",
+		Content:     "Review this diagram",
+		Attachments: []MessageAttachment{attachment},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	got, ok, err := store.Get(ctx, "chat_attachments")
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if len(got.Messages) != 1 || len(got.Messages[0].Attachments) != 1 || got.Messages[0].Attachments[0] != attachment {
+		t.Fatalf("attachments = %+v, want %+v", got.Messages, attachment)
+	}
+	got.Messages[0].Attachments[0].Filename = "mutated.png"
+	again, ok, err := store.Get(ctx, "chat_attachments")
+	if err != nil || !ok {
+		t.Fatalf("Get again: ok=%v err=%v", ok, err)
+	}
+	if again.Messages[0].Attachments[0].Filename != "diagram.png" {
+		t.Fatalf("stored filename = %q, want immutable metadata copy", again.Messages[0].Attachments[0].Filename)
+	}
+}
+
+func runStoreActivityOnlyUpdateDoesNotReprojectSessionStatus(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := store.Create(ctx, Session{ID: "chat_activity_status", AgentID: "codex"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, "chat_activity_status", Message{
+		ID: "msg_origin", Role: "assistant", Status: "completed",
+	}); err != nil {
+		t.Fatalf("AppendMessage origin: %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, "chat_activity_status", Message{
+		ID: "msg_current", Role: "assistant", Status: "running",
+	}); err != nil {
+		t.Fatalf("AppendMessage current: %v", err)
+	}
+
+	updated, err := store.UpdateMessage(ctx, "chat_activity_status", "msg_origin", func(message *Message) {
+		message.Activities = append(message.Activities, Activity{ID: "terminal:origin", Type: "terminal", Status: "completed"})
+	})
+	if err != nil {
+		t.Fatalf("UpdateMessage activity only: %v", err)
+	}
+	if updated.Status != "running" {
+		t.Fatalf("session status after old activity update = %q, want running", updated.Status)
+	}
+	if len(updated.Messages) != 2 || len(updated.Messages[0].Activities) != 1 {
+		t.Fatalf("messages after old activity update = %+v, want activity retained", updated.Messages)
+	}
+
+	updated, err = store.UpdateMessage(ctx, "chat_activity_status", "msg_origin", func(message *Message) {
+		message.Status = "failed"
+	})
+	if err != nil {
+		t.Fatalf("UpdateMessage status transition: %v", err)
+	}
+	if updated.Status != "failed" {
+		t.Fatalf("session status after explicit message transition = %q, want failed", updated.Status)
 	}
 }
 

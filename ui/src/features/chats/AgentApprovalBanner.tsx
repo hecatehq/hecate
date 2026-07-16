@@ -46,9 +46,11 @@ export function AgentApprovalAutoModeBanner({ mode }: { mode: string }) {
 export function AgentApprovalsBanner({
   pending,
   onSelect,
+  disabled = false,
 }: {
   pending: PendingAgentApproval[];
   onSelect: (approvalID: string) => void;
+  disabled?: boolean;
 }) {
   if (pending.length === 0) return null;
   const sorted = [...pending].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -69,12 +71,18 @@ export function AgentApprovalsBanner({
         title={pending.length === 1 ? "Approval required" : `${pending.length} approvals required`}
       />
       {visible.map((row) => (
-        <PendingApprovalRow key={row.approval_id} row={row} onSelect={onSelect} />
+        <PendingApprovalRow
+          key={row.approval_id}
+          row={row}
+          onSelect={onSelect}
+          disabled={disabled}
+        />
       ))}
       {overflow > 0 && nextOverflowID && (
         <button
           type="button"
           data-testid="agent-approval-banner-more"
+          disabled={disabled}
           onClick={() => onSelect(nextOverflowID)}
           style={{
             display: "block",
@@ -87,7 +95,8 @@ export function AgentApprovalsBanner({
             fontFamily: "var(--font-mono)",
             fontSize: 11,
             textAlign: "left",
-            cursor: "pointer",
+            cursor: disabled ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.6 : 1,
           }}
         >
           + {overflow} more — review next
@@ -100,9 +109,11 @@ export function AgentApprovalsBanner({
 function PendingApprovalRow({
   row,
   onSelect,
+  disabled,
 }: {
   row: PendingAgentApproval;
   onSelect: (approvalID: string) => void;
+  disabled: boolean;
 }) {
   const label = agentApprovalToolLabel(row);
   const expiresIn = formatExpiresIn(row.expires_at);
@@ -138,6 +149,7 @@ function PendingApprovalRow({
       <button
         type="button"
         className="btn btn-primary btn-sm"
+        disabled={disabled}
         onClick={() => onSelect(row.approval_id)}
         data-testid="agent-approval-banner-review"
       >

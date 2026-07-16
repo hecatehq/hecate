@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1167,6 +1168,337 @@ func TestProjectsAPI_CairnlineIdentityAuthorityRollsBackCairnlineOnlyDeleteWhenS
 	}
 }
 
+func TestProjectsAPI_CairnlineOnlyDeleteRollbackPreservesConcurrentUnrelatedProjectUpdate(t *testing.T) {
+	t.Parallel()
+	const (
+		deletedProjectID = "proj_identity_delete_concurrent_rollback"
+		otherProjectID   = "proj_identity_delete_concurrent_other"
+	)
+	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
+	cleanupStarted := make(chan struct{})
+	releaseCleanup := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCleanup) })
+	}
+	t.Cleanup(release)
+	handler.SetProjectSkillStore(&blockingFailingProjectSkillDeleteStore{
+		Store:   projectskills.NewMemoryStore(),
+		started: cleanupStarted,
+		release: releaseCleanup,
+		err:     errors.New("skill cleanup failed"),
+	})
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   deletedProjectID,
+			Name: "Deleted project",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   otherProjectID,
+			Name: "Other project before concurrent update",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline projects: %v", err)
+	}
+
+	deleteDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+deletedProjectID, nil))
+		deleteDone <- rec
+	}()
+	select {
+	case <-cleanupStarted:
+	case rec := <-deleteDone:
+		t.Fatalf("project deletion completed before blocking cleanup: status=%d body=%s", rec.Code, rec.Body.String())
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Hecate shadow cleanup")
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline during blocked cleanup: %v", err)
+	}
+	defer store.Close()
+	if _, err := service.GetProject(t.Context(), deletedProjectID); !errors.Is(err, cairnline.ErrNotFound) {
+		t.Fatalf("deleted project during shadow cleanup error = %v, want ErrNotFound", err)
+	}
+	other, err := service.GetProject(t.Context(), otherProjectID)
+	if err != nil {
+		t.Fatalf("get unrelated project during cleanup: %v", err)
+	}
+	other.Name = "Other project after concurrent update"
+	if _, err := service.UpdateProject(t.Context(), other); err != nil {
+		t.Fatalf("update unrelated project during cleanup: %v", err)
+	}
+
+	release()
+	var rec *httptest.ResponseRecorder
+	select {
+	case rec = <-deleteDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for failed project deletion")
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("delete status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	restored, err := service.GetProject(t.Context(), deletedProjectID)
+	if err != nil {
+		t.Fatalf("get restored deleted project: %v", err)
+	}
+	if restored.Name != "Deleted project" {
+		t.Fatalf("restored deleted project name = %q, want %q", restored.Name, "Deleted project")
+	}
+	other, err = service.GetProject(t.Context(), otherProjectID)
+	if err != nil {
+		t.Fatalf("get unrelated project after rollback: %v", err)
+	}
+	if other.Name != "Other project after concurrent update" {
+		t.Fatalf("unrelated project name after rollback = %q, want concurrent update preserved", other.Name)
+	}
+}
+
+func TestProjectsAPI_CairnlineOnlyDeleteRollbackFencesSameProjectFacadeMutation(t *testing.T) {
+	t.Parallel()
+	const (
+		deletedProjectID = "proj_delete_fenced"
+		otherProjectID   = "proj_delete_fenced_other"
+	)
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	cleanupStarted := make(chan struct{})
+	releaseCleanup := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCleanup) })
+	}
+	t.Cleanup(release)
+	handler.SetProjectSkillStore(&blockingFailingProjectSkillDeleteStore{
+		Store:   projectskills.NewMemoryStore(),
+		started: cleanupStarted,
+		release: releaseCleanup,
+		err:     errors.New("skill cleanup failed"),
+	})
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		if _, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   deletedProjectID,
+			Name: "Deleted project before rollback",
+		}); err != nil {
+			return err
+		}
+		_, err := service.CreateProject(t.Context(), cairnline.Project{
+			ID:   otherProjectID,
+			Name: "Other project before update",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline projects: %v", err)
+	}
+
+	deleteDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+deletedProjectID, nil))
+		deleteDone <- rec
+	}()
+	select {
+	case <-cleanupStarted:
+	case rec := <-deleteDone:
+		t.Fatalf("project deletion completed before blocking cleanup: status=%d body=%s", rec.Code, rec.Body.String())
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Hecate shadow cleanup")
+	}
+
+	sameProjectUpdate := httptest.NewRecorder()
+	server.ServeHTTP(sameProjectUpdate, httptest.NewRequest(
+		http.MethodPatch,
+		"/hecate/v1/projects/"+deletedProjectID,
+		bytes.NewReader([]byte(`{"name":"Same project after rollback"}`)),
+	))
+	if sameProjectUpdate.Code != http.StatusConflict {
+		t.Fatalf("same-project update status = %d body=%s, want conflict during delete cleanup", sameProjectUpdate.Code, sameProjectUpdate.Body.String())
+	}
+
+	otherProjectUpdateDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequest(
+			http.MethodPatch,
+			"/hecate/v1/projects/"+otherProjectID,
+			bytes.NewReader([]byte(`{"name":"Other project during cleanup"}`)),
+		))
+		otherProjectUpdateDone <- rec
+	}()
+	select {
+	case rec := <-otherProjectUpdateDone:
+		if rec.Code != http.StatusOK {
+			t.Fatalf("different-project update status = %d body=%s, want 200", rec.Code, rec.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("different-project update was blocked by unrelated project deletion")
+	}
+
+	release()
+	select {
+	case rec := <-deleteDone:
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("delete status = %d body=%s, want 500", rec.Code, rec.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for failed project deletion")
+	}
+	sameProjectUpdate = httptest.NewRecorder()
+	server.ServeHTTP(sameProjectUpdate, httptest.NewRequest(
+		http.MethodPatch,
+		"/hecate/v1/projects/"+deletedProjectID,
+		bytes.NewReader([]byte(`{"name":"Same project after rollback"}`)),
+	))
+	if sameProjectUpdate.Code != http.StatusOK {
+		t.Fatalf("same-project update retry status = %d body=%s, want 200 after rollback", sameProjectUpdate.Code, sameProjectUpdate.Body.String())
+	}
+
+	service, store, err := cairnline.NewSQLiteService(t.Context(), handler.cairnlineEmbeddedDatabasePath())
+	if err != nil {
+		t.Fatalf("open Cairnline after rollback: %v", err)
+	}
+	defer store.Close()
+	restored, err := service.GetProject(t.Context(), deletedProjectID)
+	if err != nil {
+		t.Fatalf("get restored project: %v", err)
+	}
+	if restored.Name != "Same project after rollback" {
+		t.Fatalf("restored project name = %q, want acknowledged same-project update", restored.Name)
+	}
+	other, err := service.GetProject(t.Context(), otherProjectID)
+	if err != nil {
+		t.Fatalf("get other project: %v", err)
+	}
+	if other.Name != "Other project during cleanup" {
+		t.Fatalf("other project name = %q, want concurrent different-project update", other.Name)
+	}
+}
+
+func TestProjectsAPI_CairnlineOnlyDeleteWaitsForProjectAssistantResponseBeforeSnapshot(t *testing.T) {
+	t.Parallel()
+	const (
+		projectID  = "proj_delete_assistant_fenced"
+		proposalID = "pa_delete_assistant_fenced"
+	)
+	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
+	proposalWritten := make(chan struct{})
+	releaseProposal := make(chan struct{})
+	proposalStore := &blockingProjectAssistantProposalStore{
+		ProposalStore: projectassistant.NewMemoryProposalStore(),
+		written:       proposalWritten,
+		release:       releaseProposal,
+	}
+	handler.SetProjectAssistantProposalStore(proposalStore)
+	cleanupStarted := make(chan struct{})
+	releaseCleanup := make(chan struct{})
+	handler.SetProjectSkillStore(&blockingFailingProjectSkillDeleteStore{
+		Store:   projectskills.NewMemoryStore(),
+		started: cleanupStarted,
+		release: releaseCleanup,
+		err:     errors.New("skill cleanup failed"),
+	})
+	var releaseProposalOnce sync.Once
+	var releaseCleanupOnce sync.Once
+	releaseProposalWrite := func() { releaseProposalOnce.Do(func() { close(releaseProposal) }) }
+	releaseCleanupWrite := func() { releaseCleanupOnce.Do(func() { close(releaseCleanup) }) }
+	t.Cleanup(releaseProposalWrite)
+	t.Cleanup(releaseCleanupWrite)
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.CreateProject(t.Context(), cairnline.Project{ID: projectID, Name: "Assistant fence"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed Cairnline project: %v", err)
+	}
+
+	proposeDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, httptest.NewRequest(
+			http.MethodPost,
+			"/hecate/v1/project-assistant/propose",
+			bytes.NewReader([]byte(`{
+				"id":"`+proposalID+`",
+				"title":"Fence assistant proposal",
+				"actions":[{
+					"kind":"create_work_item",
+					"target":{"project_id":"`+projectID+`"},
+					"patch":{"project_id":"`+projectID+`","id":"work_fenced","title":"Fenced work"}
+				}]
+			}`)),
+		))
+		proposeDone <- recorder
+	}()
+	select {
+	case <-proposalWritten:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Project Assistant proposal write")
+	}
+
+	deleteDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+projectID, nil))
+		deleteDone <- recorder
+	}()
+	waitForProjectMutationDestructive(t, &handler.projectMutationGate, projectID)
+	select {
+	case <-cleanupStarted:
+		t.Fatal("project delete reached cleanup before the admitted Assistant response completed")
+	default:
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		_, err := service.GetProject(t.Context(), projectID)
+		return err
+	}); err != nil {
+		t.Fatalf("project identity was removed before admitted Assistant response completed: %v", err)
+	}
+
+	releaseProposalWrite()
+	select {
+	case recorder := <-proposeDone:
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("Project Assistant propose status = %d body=%s, want 200", recorder.Code, recorder.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Project Assistant response")
+	}
+	select {
+	case <-cleanupStarted:
+	case recorder := <-deleteDone:
+		t.Fatalf("project deletion completed before blocking cleanup: status=%d body=%s", recorder.Code, recorder.Body.String())
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Hecate cleanup after Assistant response")
+	}
+	releaseCleanupWrite()
+	select {
+	case recorder := <-deleteDone:
+		if recorder.Code != http.StatusInternalServerError {
+			t.Fatalf("delete status = %d body=%s, want 500", recorder.Code, recorder.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for failed project deletion")
+	}
+	if err := handler.withCairnlineEmbeddedService(t.Context(), func(service *cairnline.Service) error {
+		proposal, err := service.GetAssistantProposal(t.Context(), proposalID)
+		if err != nil {
+			return err
+		}
+		if proposal.ProjectID != projectID {
+			return fmt.Errorf("restored proposal project_id = %q, want %q", proposal.ProjectID, projectID)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("get rolled-back Assistant proposal: %v", err)
+	}
+}
+
 func TestProjectsAPI_CairnlineIdentityAuthorityRollsBackDeleteWhenCompatibilityCleanupFails(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectsCairnlineIdentityAuthorityTestServer(t)
@@ -2305,6 +2637,44 @@ func findMirroredCairnlineSourceForTest(sources []cairnline.Source, id string) *
 type failingProjectSkillDeleteStore struct {
 	projectskills.Store
 	err error
+}
+
+type blockingFailingProjectSkillDeleteStore struct {
+	projectskills.Store
+	started chan struct{}
+	release chan struct{}
+	err     error
+}
+
+type blockingProjectAssistantProposalStore struct {
+	projectassistant.ProposalStore
+	written chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingProjectAssistantProposalStore) UpsertProposal(ctx context.Context, record projectassistant.ProposalRecord) (projectassistant.ProposalRecord, error) {
+	written, err := s.ProposalStore.UpsertProposal(ctx, record)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	s.once.Do(func() { close(s.written) })
+	select {
+	case <-s.release:
+		return written, nil
+	case <-ctx.Done():
+		return projectassistant.ProposalRecord{}, ctx.Err()
+	}
+}
+
+func (s *blockingFailingProjectSkillDeleteStore) DeleteProject(ctx context.Context, _ string) (int, error) {
+	close(s.started)
+	select {
+	case <-s.release:
+		return 0, s.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
 }
 
 func (s failingProjectSkillDeleteStore) DeleteProject(context.Context, string) (int, error) {

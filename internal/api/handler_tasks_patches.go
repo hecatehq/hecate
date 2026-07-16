@@ -179,6 +179,11 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	workspaceLease, admitted := h.acquireWorkspaceWriter(w, ctx, run.WorkspacePath)
+	if !admitted {
+		return
+	}
+	defer workspaceLease.Release()
 	if err := verifyPatchRevertPrecondition(fsys, rel, after, afterExisted); err != nil {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
 		return
@@ -244,6 +249,11 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	workspaceLease, admitted := h.acquireWorkspaceWriter(w, ctx, run.WorkspacePath)
+	if !admitted {
+		return
+	}
+	defer workspaceLease.Release()
 	if err := verifyPatchApplyPrecondition(fsys, rel, before, beforeExisted); err != nil {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
 		return

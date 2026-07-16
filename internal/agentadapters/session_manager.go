@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -25,10 +26,11 @@ type SessionManager struct {
 	// acpChatClient created from this manager. Optional — nil is
 	// safe (every Record* method is nil-tolerant) and matches the
 	// pre-existing constructor surface that older tests rely on.
-	metrics             *telemetry.AgentAdapterMetrics
-	onAvailableCommands func(AvailableCommandsUpdate)
-	terminalSupport     bool
-	closed              bool
+	metrics              *telemetry.AgentAdapterMetrics
+	onAvailableCommands  func(AvailableCommandsUpdate)
+	workspaceCoordinator *workspacecoord.Registry
+	terminalSupport      bool
+	closed               bool
 }
 
 func NewSessionManager() *SessionManager {
@@ -87,6 +89,18 @@ func (m *SessionManager) SetTerminalSupportEnabled(enabled bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.terminalSupport = enabled
+}
+
+// SetWorkspaceCoordinator installs the process-scoped registry used by ACP
+// terminal callbacks. A terminal receives its own writer lease before spawn so
+// it remains visible to destructive workspace operations even after the ACP
+// turn that created it has returned. Wire it before preparing or running
+// sessions; like the other manager launch settings, an existing session keeps
+// the composition it started with.
+func (m *SessionManager) SetWorkspaceCoordinator(registry *workspacecoord.Registry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.workspaceCoordinator = registry
 }
 
 // shutdownCancelHook is invoked once per adapter id torn down via
@@ -175,6 +189,9 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	if m == nil {
 		return RunResult{}, fmt.Errorf("agent session manager is required")
 	}
+	if err := ctx.Err(); err != nil {
+		return RunResult{}, err
+	}
 	adapter, ok := BuiltInByID(req.AdapterID)
 	if !ok {
 		return RunResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
@@ -187,10 +204,12 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	}
 	adapter = adapterWithLaunchConfig(adapter, req.ConfigOptions)
 	req.AdapterID = adapter.ID
-	req.Prompt = strings.TrimSpace(req.Prompt)
-	if req.Prompt == "" {
-		return RunResult{}, fmt.Errorf("prompt is required")
+	normalizedPrompt, err := normalizePromptInput(req.Prompt)
+	if err != nil {
+		return RunResult{}, err
 	}
+	req.Prompt = normalizedPrompt
+	defer clearPromptInput(&req.Prompt)
 	workspace, err := ValidateWorkspace(req.Workspace)
 	if err != nil {
 		return RunResult{}, err
@@ -269,10 +288,11 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		coordinator := m.coordinator
 		metrics := m.metrics
 		onAvailableCommands := m.onAvailableCommands
+		workspaceCoordinator := m.workspaceCoordinator
 		terminalSupport := m.terminalSupport
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands, terminalSupport)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands, workspaceCoordinator, terminalSupport)
 		startCancel()
 
 		var previous *acpSession
@@ -347,6 +367,9 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
 	items := make([]*acpSession, 0, len(m.sessions))
 	for id, session := range m.sessions {
@@ -377,15 +400,17 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 			start.cancel()
 		}
 	}
+	var firstErr error
+waitForStarts:
 	for _, start := range starts {
 		select {
 		case <-start.done:
 		case <-ctx.Done():
-			return ctx.Err()
+			firstErr = ctx.Err()
+			break waitForStarts
 		}
 	}
 
-	var firstErr error
 	for _, session := range items {
 		if err := session.Close(ctx); err != nil && firstErr == nil {
 			firstErr = err

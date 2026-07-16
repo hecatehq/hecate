@@ -15,9 +15,10 @@ export type ModelRecord = {
 
 export type ModelCapabilitiesRecord = {
   tool_calling?: "unknown" | "none" | "basic" | "parallel" | string;
+  image_input?: "unknown" | "none" | "supported" | string;
   streaming?: boolean;
   max_context_tokens?: number;
-  source?: "unknown" | "catalog" | "provider" | string;
+  source?: "unknown" | "catalog" | "provider" | "mixed" | string;
   note?: string;
   updated_at?: string;
 };

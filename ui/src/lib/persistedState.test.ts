@@ -157,6 +157,68 @@ describe("usePersistedState (write failures)", () => {
   });
 });
 
+describe("usePersistedState (write-through)", () => {
+  it("persists functional updates before the setter returns", () => {
+    window.localStorage.setItem("k", "seed");
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseStoredString, "", { writeThrough: true }),
+    );
+    let storedBeforeSetterReturned = "";
+
+    act(() => {
+      result.current[1]((current) => `${current}+next`);
+      storedBeforeSetterReturned = window.localStorage.getItem("k") ?? "";
+    });
+
+    expect(storedBeforeSetterReturned).toBe("seed+next");
+    expect(result.current[0]).toBe("seed+next");
+  });
+
+  it("uses the latest synchronous write-through value for sequential functional updates", () => {
+    window.localStorage.setItem("k", "seed");
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseStoredString, "", { writeThrough: true }),
+    );
+
+    act(() => {
+      result.current[1]((current) => `${current}+one`);
+      result.current[1]((current) => `${current}+two`);
+    });
+
+    expect(window.localStorage.getItem("k")).toBe("seed+one+two");
+    expect(result.current[0]).toBe("seed+one+two");
+  });
+
+  it("runs the write-through updater synchronously so stale work can be denied admission", () => {
+    type QueueItem = { id: string; content: string; state?: string };
+    const initial: QueueItem[] = [{ id: "queued", content: "newer edit" }];
+    window.localStorage.setItem("k", JSON.stringify(initial));
+    const parseQueue = parseStoredJSON<QueueItem[]>((parsed) =>
+      Array.isArray(parsed) ? (parsed as QueueItem[]) : null,
+    );
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseQueue, [], { writeThrough: true }),
+    );
+    let marked = false;
+    let dispatched = false;
+
+    act(() => {
+      result.current[1]((current) =>
+        current.map((item) => {
+          if (item.id !== "queued" || item.content !== "stale snapshot") return item;
+          marked = true;
+          return { ...item, state: "submitting" };
+        }),
+      );
+      if (marked) dispatched = true;
+    });
+
+    expect(marked).toBe(false);
+    expect(dispatched).toBe(false);
+    expect(JSON.parse(window.localStorage.getItem("k") ?? "[]")).toEqual(initial);
+  });
+});
+
 describe("usePersistedState (sessionStorage)", () => {
   beforeEach(() => {
     window.sessionStorage.clear();

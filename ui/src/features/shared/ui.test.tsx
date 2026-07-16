@@ -427,6 +427,39 @@ describe("Modal", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Next action" })).toHaveFocus());
   });
+
+  it("restores focus to a stable fallback when the opener is removed", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const fallbackRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          {!open && <button onClick={() => setOpen(true)}>Open disposable modal</button>}
+          <button ref={fallbackRef}>Stable fallback</button>
+          {open && (
+            <Modal
+              title="Disposable modal"
+              footer={<button>OK</button>}
+              onClose={() => setOpen(false)}
+              returnFocusRef={fallbackRef}
+            >
+              Modal content
+            </Modal>
+          )}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Open disposable modal" }));
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Stable fallback" })).toHaveFocus(),
+    );
+  });
 });
 
 describe("SlideOver", () => {
@@ -463,6 +496,7 @@ describe("ConfirmModal", () => {
   });
 
   it("disables confirm and shows 'Working…' while pending", () => {
+    const onClose = vi.fn();
     render(
       <ConfirmModal
         title="Delete?"
@@ -470,13 +504,52 @@ describe("ConfirmModal", () => {
         confirmLabel="Delete"
         pending
         onConfirm={() => {}}
-        onClose={() => {}}
+        onClose={onClose}
       />,
     );
     // Pending replaces the label — operator can't accidentally
     // double-fire the action while the request is in flight.
     const btn = screen.getByRole("button", { name: /Working/i });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
+    const dialog = screen.getByRole("dialog", { name: "Delete?" });
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("restores confirm focus when a pending confirmation fails", async () => {
+    const props = {
+      title: "Delete?",
+      message: "x",
+      confirmLabel: "Delete",
+      onConfirm: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(
+      <>
+        <button>Outside</button>
+        <ConfirmModal {...props} />
+      </>,
+    );
+    screen.getByRole("button", { name: "Delete" }).focus();
+
+    rerender(
+      <>
+        <button>Outside</button>
+        <ConfirmModal {...props} pending />
+      </>,
+    );
+    screen.getByRole("button", { name: "Outside" }).focus();
+    expect(screen.getByRole("button", { name: "Outside" })).toHaveFocus();
+
+    rerender(
+      <>
+        <button>Outside</button>
+        <ConfirmModal {...props} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus());
   });
 
   it("uses btn-primary by default and btn-danger when danger=true", () => {

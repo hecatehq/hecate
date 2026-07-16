@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -79,6 +80,14 @@ func executionResultTerminalTransition(input executionResultTerminalTransitionIn
 		Trace:                  input.Trace,
 		Now:                    input.FinishedAt,
 		SuppressDuplicateEvent: true,
+		TrustedSupplementalRunMetadata: &taskstate.TerminalRunSupplementalMetadata{
+			Provider:           run.Provider,
+			ProviderKind:       run.ProviderKind,
+			Model:              run.Model,
+			StepCount:          run.StepCount,
+			ArtifactCount:      run.ArtifactCount,
+			TotalCostMicrosUSD: run.TotalCostMicrosUSD,
+		},
 		UpdateRun: func(target *types.TaskRun) {
 			target.Provider = run.Provider
 			target.ProviderKind = run.ProviderKind

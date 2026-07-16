@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -51,21 +52,29 @@ type ResolveApprovalResult struct {
 }
 
 func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, error) {
+	started, _, err := r.resumeTaskAfterApproval(ctx, task, approval, idgen)
+	return started, err
+}
+
+func (r *Runner) resumeTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, types.TaskApproval, error) {
 	if r.store == nil {
-		return nil, fmt.Errorf("task store is not configured")
+		return nil, types.TaskApproval{}, fmt.Errorf("task store is not configured")
 	}
 	if idgen == nil {
-		return nil, fmt.Errorf("resource id generator is required")
+		return nil, types.TaskApproval{}, fmt.Errorf("resource id generator is required")
+	}
+	if approval.Status != "approved" {
+		return nil, types.TaskApproval{}, fmt.Errorf("approval status must be approved")
 	}
 	run, found, err := r.store.GetRun(ctx, task.ID, approval.RunID)
 	if err != nil {
-		return nil, err
+		return nil, types.TaskApproval{}, err
 	}
 	if !found {
-		return nil, fmt.Errorf("task run %q not found", approval.RunID)
+		return nil, types.TaskApproval{}, fmt.Errorf("task run %q not found", approval.RunID)
 	}
 	if run.Status != "awaiting_approval" {
-		return nil, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
+		return nil, types.TaskApproval{}, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
@@ -78,15 +87,12 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 
 	ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
 	now := time.Now().UTC()
-	approvalWaitMS := int64(0)
-	if !approval.CreatedAt.IsZero() {
-		resolvedAt := approval.ResolvedAt
-		if resolvedAt.IsZero() {
-			resolvedAt = time.Now().UTC()
-		}
-		approvalWaitMS = resolvedAt.Sub(approval.CreatedAt).Milliseconds()
+	if approval.ResolvedAt.IsZero() {
+		approval.ResolvedAt = now
 	}
-	r.recordApprovalResolved(ctx, trace, task.ID, run.ID, approval, "approved", approvalWaitMS)
+	if strings.TrimSpace(approval.ResolvedBy) == "" {
+		approval.ResolvedBy = "operator"
+	}
 
 	run.Status = "queued"
 	run.RequestID = requestID
@@ -94,9 +100,6 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 	run.RootSpanID = trace.RootSpanID()
 	run.LastError = ""
 	run.FinishedAt = time.Time{}
-	if _, err := r.store.UpdateRun(ctx, run); err != nil {
-		return nil, err
-	}
 
 	task.Status = "queued"
 	task.LatestRunID = run.ID
@@ -105,13 +108,25 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 	task.LastError = ""
 	task.LatestTraceID = trace.TraceID
 	task.LatestRequestID = requestID
-	if _, err := r.store.UpdateTask(ctx, task); err != nil {
-		return nil, err
+	transition, err := r.store.ApplyRunStateTransition(ctx, taskstate.RunStateTransition{
+		Task:                task,
+		Run:                 run,
+		ExpectedRunStatuses: []string{"awaiting_approval"},
+		ApprovalResolution:  pendingApprovalResolution(approval, requestID, trace.TraceID),
+	})
+	if err != nil {
+		return nil, types.TaskApproval{}, err
 	}
-
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalResolved.String(), requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
-	if err := r.emitRunQueuedAndEnqueue(ctx, task.ID, run.ID, requestID, trace.TraceID, map[string]any{"resume": true}); err != nil {
-		return nil, err
+	if !transition.Applied {
+		return nil, transition.Approval, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", transition.Run.Status)}
+	}
+	task = transition.Task
+	run = transition.Run
+	approval = transition.Approval
+	approvalWaitMS := approvalWaitMilliseconds(approval.CreatedAt, approval.ResolvedAt)
+	r.recordApprovalResolved(ctx, trace, task.ID, run.ID, approval, "approved", approvalWaitMS)
+	if err := r.enqueueRun(task.ID, run.ID); err != nil {
+		return nil, approval, err
 	}
 
 	return &StartTaskResult{
@@ -119,7 +134,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		Run:     run,
 		TraceID: trace.TraceID,
 		SpanID:  trace.RootSpanID(),
-	}, nil
+	}, approval, nil
 }
 
 func (r *Runner) ResolveTaskApproval(ctx context.Context, req ResolveApprovalRequest) (*ResolveApprovalResult, error) {
@@ -139,6 +154,13 @@ func (r *Runner) ResolveTaskApproval(ctx context.Context, req ResolveApprovalReq
 	}
 	if req.IDGenerator == nil {
 		return nil, fmt.Errorf("resource id generator is required")
+	}
+	originLease, err := r.beginOriginRunMutation(ctx, req.Task)
+	if err != nil {
+		return nil, err
+	}
+	if originLease != nil {
+		defer originLease.Release()
 	}
 
 	approval, found, err := r.store.GetApproval(ctx, req.Task.ID, approvalID)
@@ -172,26 +194,19 @@ func (r *Runner) ResolveTaskApproval(ctx context.Context, req ResolveApprovalReq
 	}
 	approval.ResolvedAt = now
 
-	updatedApproval, updated, err := r.store.UpdatePendingApprovalForAwaitingRun(ctx, approval)
-	if err != nil {
-		return nil, err
-	}
-	if !updated {
-		return nil, approvalConflictError{message: "task approval is not pending or run is no longer awaiting approval"}
-	}
-
-	requestID := firstNonEmpty(strings.TrimSpace(req.RequestID), telemetry.RequestIDFromContext(ctx), updatedApproval.RequestID, run.RequestID)
+	requestID := firstNonEmpty(strings.TrimSpace(req.RequestID), telemetry.RequestIDFromContext(ctx), approval.RequestID, run.RequestID)
 	if requestID == "" && req.IDGenerator != nil {
 		requestID = req.IDGenerator("request")
 	}
 	ctx = telemetry.WithRequestID(ctx, requestID)
 
 	var started *StartTaskResult
+	var resolvedApproval types.TaskApproval
 	switch decision {
 	case "approved":
-		started, err = r.ResumeTaskAfterApproval(ctx, req.Task, updatedApproval, req.IDGenerator)
+		started, resolvedApproval, err = r.resumeTaskAfterApproval(ctx, req.Task, approval, req.IDGenerator)
 	case "rejected":
-		started, err = r.RejectTaskAfterApproval(ctx, req.Task, updatedApproval, req.IDGenerator)
+		started, resolvedApproval, err = r.rejectTaskAfterApproval(ctx, req.Task, approval, req.IDGenerator)
 	default:
 		err = ErrInvalidApprovalDecision
 	}
@@ -203,7 +218,7 @@ func (r *Runner) ResolveTaskApproval(ctx context.Context, req ResolveApprovalReq
 	}
 
 	return &ResolveApprovalResult{
-		Approval: updatedApproval,
+		Approval: resolvedApproval,
 		Task:     started.Task,
 		Run:      started.Run,
 		TraceID:  started.TraceID,
@@ -225,21 +240,29 @@ func normalizeApprovalDecision(decision string) (string, error) {
 }
 
 func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, error) {
+	started, _, err := r.rejectTaskAfterApproval(ctx, task, approval, idgen)
+	return started, err
+}
+
+func (r *Runner) rejectTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, types.TaskApproval, error) {
 	if r.store == nil {
-		return nil, fmt.Errorf("task store is not configured")
+		return nil, types.TaskApproval{}, fmt.Errorf("task store is not configured")
 	}
 	if idgen == nil {
-		return nil, fmt.Errorf("resource id generator is required")
+		return nil, types.TaskApproval{}, fmt.Errorf("resource id generator is required")
+	}
+	if approval.Status != "rejected" {
+		return nil, types.TaskApproval{}, fmt.Errorf("approval status must be rejected")
 	}
 	run, found, err := r.store.GetRun(ctx, task.ID, approval.RunID)
 	if err != nil {
-		return nil, err
+		return nil, types.TaskApproval{}, err
 	}
 	if !found {
-		return nil, fmt.Errorf("task run %q not found", approval.RunID)
+		return nil, types.TaskApproval{}, fmt.Errorf("task run %q not found", approval.RunID)
 	}
 	if run.Status != "awaiting_approval" {
-		return nil, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
+		return nil, types.TaskApproval{}, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
@@ -254,31 +277,61 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	defer trace.Finalize()
 
 	ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
-	rejectWaitMS := int64(0)
-	if !approval.CreatedAt.IsZero() {
-		resolvedAt := approval.ResolvedAt
-		if resolvedAt.IsZero() {
-			resolvedAt = time.Now().UTC()
-		}
-		rejectWaitMS = resolvedAt.Sub(approval.CreatedAt).Milliseconds()
+	now := time.Now().UTC()
+	if approval.ResolvedAt.IsZero() {
+		approval.ResolvedAt = now
 	}
-	r.recordApprovalResolved(ctx, trace, task.ID, run.ID, approval, "rejected", rejectWaitMS)
-
-	run, err = r.cancelRunWithMessage(ctx, task, run, "approval rejected", requestID, trace.TraceID)
+	if strings.TrimSpace(approval.ResolvedBy) == "" {
+		approval.ResolvedBy = "operator"
+	}
+	terminal := cancelRunTerminalTransition(task, run, "approval rejected", requestID, trace.TraceID, trace, now)
+	terminal.ApprovalResolution = pendingApprovalResolution(approval, requestID, trace.TraceID)
+	transition, err := r.applyTerminalRunTransition(ctx, terminal)
 	if err != nil {
-		return nil, err
+		return nil, types.TaskApproval{}, err
+	}
+	if transition.Skipped {
+		return nil, transition.Approval, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", transition.Run.Status)}
+	}
+	approval = transition.Approval
+	rejectWaitMS := approvalWaitMilliseconds(approval.CreatedAt, approval.ResolvedAt)
+	r.recordApprovalResolved(ctx, trace, transition.Task.ID, transition.Run.ID, approval, "rejected", rejectWaitMS)
+
+	// The resolution and cancellation winner are durable before the executor
+	// is signalled. A losing resolver never closes or drains executor state.
+	r.cancelInFlightJob(run.ID)
+	if closer, ok := r.agent.(agentTerminalRunCloser); ok {
+		closer.CloseTerminalsForRun(ctx, run.ID)
+	}
+	if err := r.cancelAndWaitForInFlightJob(ctx, run.ID); err != nil {
+		return nil, approval, fmt.Errorf("wait for rejected run %q executor exit: %w", run.ID, err)
+	}
+	run, err = r.cleanupCancelledRunAfterDrain(ctx, transition.Task, transition.Run, trace)
+	if err != nil {
+		return nil, approval, err
 	}
 	task, _, err = r.store.GetTask(ctx, task.ID)
 	if err != nil {
-		return nil, err
+		return nil, approval, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalResolved.String(), requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
 	return &StartTaskResult{
 		Task:    task,
 		Run:     run,
 		TraceID: trace.TraceID,
 		SpanID:  trace.RootSpanID(),
-	}, nil
+	}, approval, nil
+}
+
+func pendingApprovalResolution(approval types.TaskApproval, requestID, traceID string) *taskstate.PendingApprovalResolution {
+	return &taskstate.PendingApprovalResolution{
+		ApprovalID:     approval.ID,
+		Status:         approval.Status,
+		ResolvedBy:     approval.ResolvedBy,
+		ResolutionNote: approval.ResolutionNote,
+		ResolvedAt:     approval.ResolvedAt,
+		RequestID:      requestID,
+		TraceID:        traceID,
+	}
 }
 
 func (r *Runner) recordApprovalResolved(ctx context.Context, trace *profiler.Trace, taskID, runID string, approval types.TaskApproval, decision string, waitMS int64) {
@@ -306,6 +359,13 @@ func (r *Runner) recordApprovalResolved(ctx context.Context, trace *profiler.Tra
 			WaitMS:       waitMS,
 		})
 	}
+}
+
+func approvalWaitMilliseconds(createdAt, resolvedAt time.Time) int64 {
+	if createdAt.IsZero() || resolvedAt.IsZero() || !resolvedAt.After(createdAt) {
+		return 0
+	}
+	return resolvedAt.Sub(createdAt).Milliseconds()
 }
 
 func (r *Runner) approvalRequiredForTask(task types.Task) bool {

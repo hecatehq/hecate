@@ -1,13 +1,22 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -98,5 +107,247 @@ func TestDirectModelTurnOutcomeFailureAndCancellation(t *testing.T) {
 	outcome = newDirectModelTurnOutcome(nil, err, context.Canceled)
 	if outcome.Status != "cancelled" || outcome.Output != "model request cancelled" || outcome.ErrorText != "cancelled" {
 		t.Fatalf("cancel outcome = %+v, want cancellation result", outcome)
+	}
+}
+
+func TestDirectModelTurnOutcomeRedactsInlineImagePayload(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Repeat("A", 128)
+	outcome := newDirectModelTurnOutcome(nil, errors.New("bad data:image/png;base64,"+payload), nil)
+	if strings.Contains(outcome.Output, payload) || strings.Contains(outcome.ErrorText, payload) ||
+		!strings.Contains(outcome.ErrorText, "[redacted inline image]") {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+}
+
+type cancelBlockingProvider struct {
+	*fakeProvider
+	startedOnce sync.Once
+	started     chan struct{}
+	cancelled   chan error
+}
+
+func (p *cancelBlockingProvider) Chat(ctx context.Context, _ types.ChatRequest) (*types.ChatResponse, error) {
+	p.startedOnce.Do(func() { close(p.started) })
+	<-ctx.Done()
+	p.cancelled <- ctx.Err()
+	return nil, ctx.Err()
+}
+
+type terminalContextChatStore struct {
+	chat.Store
+	mu                 sync.Mutex
+	terminalObserved   bool
+	terminalContextErr error
+	terminalDeadline   time.Time
+}
+
+func (s *terminalContextChatStore) UpdateMessage(ctx context.Context, sessionID, messageID string, update func(*chat.Message)) (chat.Session, error) {
+	if err := ctx.Err(); err != nil {
+		return chat.Session{}, err
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	updated, err := s.Store.UpdateMessage(ctx, sessionID, messageID, update)
+	if err != nil {
+		return chat.Session{}, err
+	}
+	for _, message := range updated.Messages {
+		if message.ID != messageID || message.Role != "assistant" || message.Status != "cancelled" {
+			continue
+		}
+		s.mu.Lock()
+		s.terminalObserved = true
+		s.terminalContextErr = ctx.Err()
+		if hasDeadline {
+			s.terminalDeadline = deadline
+		}
+		s.mu.Unlock()
+		break
+	}
+	return updated, nil
+}
+
+func (s *terminalContextChatStore) terminalContextSnapshot() (bool, error, time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.terminalObserved, s.terminalContextErr, s.terminalDeadline
+}
+
+type failFirstUserMessageUpdateStore struct {
+	chat.Store
+	mu       sync.Mutex
+	failures int
+}
+
+func (s *failFirstUserMessageUpdateStore) UpdateMessage(ctx context.Context, sessionID, messageID string, update func(*chat.Message)) (chat.Session, error) {
+	stored, ok, err := s.Store.Get(ctx, sessionID)
+	if err != nil {
+		return chat.Session{}, err
+	}
+	if ok {
+		for _, message := range stored.Messages {
+			if message.ID != messageID || message.Role != "user" {
+				continue
+			}
+			s.mu.Lock()
+			if s.failures == 0 {
+				s.failures++
+				s.mu.Unlock()
+				return chat.Session{}, errors.New("injected user route snapshot failure")
+			}
+			s.mu.Unlock()
+			break
+		}
+	}
+	return s.Store.UpdateMessage(ctx, sessionID, messageID, update)
+}
+
+func (s *failFirstUserMessageUpdateStore) failureCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failures
+}
+
+func TestDirectModelTurnTerminalizesAssistantWhenUserRouteSnapshotUpdateFails(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	provider := &fakeProvider{
+		name: "actual-provider",
+		response: &types.ChatResponse{
+			ID:    "chatcmpl-route-snapshot",
+			Model: "gpt-4o-mini",
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "route selected"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, nil)
+	baseStore := chat.NewMemoryStore()
+	store := &failFirstUserMessageUpdateStore{Store: baseStore}
+	apiHandler.SetAgentChatStore(store)
+
+	const sessionID = "chat_direct_user_route_update_failure"
+	if _, err := baseStore.Create(t.Context(), chat.Session{
+		ID:      sessionID,
+		AgentID: chat.DefaultAgentID,
+		Model:   "gpt-4o-mini",
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	client := newTaskTestClient(t, NewServer(logger, apiHandler))
+	response := mustRequestJSON[ChatSessionResponse](
+		client,
+		http.MethodPost,
+		"/hecate/v1/chat/sessions/"+sessionID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":false,"content":"select a route"}`,
+	)
+
+	if store.failureCount() != 1 {
+		t.Fatalf("injected user update failures = %d, want 1", store.failureCount())
+	}
+	if len(response.Data.Messages) != 2 {
+		t.Fatalf("response messages = %+v, want user and assistant", response.Data.Messages)
+	}
+	user := response.Data.Messages[0]
+	assistant := response.Data.Messages[1]
+	if user.Role != "user" || user.Provider != "" {
+		t.Fatalf("user route snapshot = %+v, want failed update to leave original Auto route", user)
+	}
+	if assistant.Role != "assistant" || assistant.Status != "completed" || assistant.Content != "route selected" || assistant.Provider != "actual-provider" {
+		t.Fatalf("assistant = %+v, want completed actual-provider terminal state", assistant)
+	}
+	if response.Data.Provider != "actual-provider" || response.Data.TurnsUsed != 1 {
+		t.Fatalf("session route/turn snapshot = provider %q turns %d, want actual-provider/1", response.Data.Provider, response.Data.TurnsUsed)
+	}
+	if !strings.Contains(logs.String(), "chat.direct_model.user_route_snapshot_update_failed") {
+		t.Fatalf("logs = %q, want user route snapshot failure event", logs.String())
+	}
+}
+
+func TestDirectModelTurnPersistsCancellationAfterRequestDisconnect(t *testing.T) {
+	provider := &cancelBlockingProvider{
+		fakeProvider: &fakeProvider{name: "openai"},
+		started:      make(chan struct{}),
+		cancelled:    make(chan error, 1),
+	}
+	apiHandler := newTestAPIHandlerWithSettings(quietLogger(), []providers.Provider{provider}, config.Config{}, nil)
+	baseStore := chat.NewMemoryStore()
+	store := &terminalContextChatStore{Store: baseStore}
+	apiHandler.SetAgentChatStore(store)
+
+	const sessionID = "chat_direct_request_disconnect"
+	if _, err := baseStore.Create(t.Context(), chat.Session{
+		ID:       sessionID,
+		AgentID:  chat.DefaultAgentID,
+		Provider: "openai",
+		Model:    "gpt-4o-mini",
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	handler := NewServer(quietLogger(), apiHandler)
+	requestCtx, cancelRequest := context.WithCancel(t.Context())
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/hecate/v1/chat/sessions/"+sessionID+"/messages",
+		strings.NewReader(`{"execution_mode":"hecate_task","tools_enabled":false,"content":"wait for cancellation"}`),
+	).WithContext(requestCtx)
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(recorder, request)
+		close(done)
+	}()
+
+	select {
+	case <-provider.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("provider did not start")
+	}
+	cancelRequest()
+	select {
+	case err := <-provider.cancelled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("provider context error = %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("provider did not observe request cancellation")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("message handler did not finish after request cancellation")
+	}
+
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("response body = %q, want no response after caller disconnected", recorder.Body.String())
+	}
+	stored, ok, err := baseStore.Get(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if !ok || len(stored.Messages) != 2 {
+		t.Fatalf("stored session = %+v, want user and assistant messages", stored)
+	}
+	assistant := stored.Messages[1]
+	if assistant.Role != "assistant" || assistant.Status != "cancelled" || assistant.Content != "model request cancelled" {
+		t.Fatalf("assistant = %+v, want persisted cancelled terminal state", assistant)
+	}
+	if stored.TurnsUsed != 1 {
+		t.Fatalf("turns_used = %d, want 1", stored.TurnsUsed)
+	}
+	observed, contextErr, deadline := store.terminalContextSnapshot()
+	if !observed {
+		t.Fatal("terminal UpdateMessage was not observed")
+	}
+	if contextErr != nil {
+		t.Fatalf("terminal UpdateMessage context error = %v, want live context", contextErr)
+	}
+	if deadline.IsZero() || !deadline.After(time.Now()) {
+		t.Fatalf("terminal UpdateMessage deadline = %s, want a live bounded deadline", deadline)
 	}
 }

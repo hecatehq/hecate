@@ -6,7 +6,9 @@ import (
 
 	"github.com/hecatehq/hecate/internal/policy"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/safetext"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // errorKind* aliases map gateway-local names to the authoritative exported
@@ -38,7 +40,7 @@ func traceErrorAttrs(phase, kind string, err error, attrs map[string]any) map[st
 		out[telemetry.AttrErrorType] = kind
 	}
 	if err != nil {
-		out[telemetry.AttrErrorMessage] = err.Error()
+		out[telemetry.AttrErrorMessage] = safetext.ErrorMessage(err)
 		if _, ok := out[telemetry.AttrErrorType]; !ok {
 			out[telemetry.AttrErrorType] = traceErrorType(err)
 		}
@@ -64,6 +66,19 @@ func recordTrace(trace *profiler.Trace, name, phase string, attrs map[string]any
 
 func recordTraceError(trace *profiler.Trace, name, phase, kind string, err error, attrs map[string]any) {
 	trace.Record(name, traceErrorAttrs(phase, kind, err, attrs))
+}
+
+func recordProviderCallBlocked(trace *profiler.Trace, decision types.RouteDecision, providerIndex int, err error) {
+	reason := string(RoutePreflightProviderNotFound)
+	if preflightErr, ok := AsRoutePreflightError(err); ok {
+		reason = string(preflightErr.Kind)
+	}
+	recordTraceError(trace, "provider.call.blocked", "provider", reason, err, map[string]any{
+		telemetry.AttrGenAIProviderName:     decision.Provider,
+		telemetry.AttrGenAIRequestModel:     decision.Model,
+		telemetry.AttrHecateProviderIndex:   providerIndex,
+		telemetry.AttrHecateRouteSkipReason: reason,
+	})
 }
 
 func cloneTraceAttrs(attrs map[string]any) map[string]any {

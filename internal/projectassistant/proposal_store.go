@@ -247,6 +247,13 @@ func validateProposalRecord(record ProposalRecord) error {
 	if record.Proposal.ID != record.ID {
 		return fmt.Errorf("%w: proposal record id mismatch", ErrInvalid)
 	}
+	projectID, err := ProposalRecordProjectID(record.Proposal, record.ProjectID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(record.ProjectID) != projectID {
+		return fmt.Errorf("%w: proposal record project_id must match its canonical action scope", ErrInvalid)
+	}
 	if len(record.Proposal.Actions) == 0 {
 		return fmt.Errorf("%w: actions are required", ErrInvalid)
 	}
@@ -384,18 +391,39 @@ func cloneTimePtr(value *time.Time) *time.Time {
 }
 
 func proposalProjectID(proposal Proposal) string {
-	for _, action := range proposal.Actions {
-		if projectID := actionProjectID(action); projectID != "" {
-			return projectID
-		}
+	projectIDs := ProposalProjectIDs(proposal)
+	if len(projectIDs) > 0 {
+		return projectIDs[0]
 	}
 	return ""
 }
 
-func actionProjectID(action Action) string {
-	if projectID := targetValue(action, "project_id"); projectID != "" {
-		return projectID
+// ProposalProjectIDs returns every explicit portable project scope in action
+// order. Callers that need a complete mutation boundary should admit the full
+// returned set atomically; the first ID is the proposal record's canonical
+// project scope.
+func ProposalProjectIDs(proposal Proposal) []string {
+	projectIDs := make([]string, 0, len(proposal.Actions))
+	seen := make(map[string]struct{}, len(proposal.Actions))
+	appendProjectID := func(projectID string) {
+		projectID = strings.TrimSpace(projectID)
+		if projectID == "" {
+			return
+		}
+		if _, ok := seen[projectID]; ok {
+			return
+		}
+		seen[projectID] = struct{}{}
+		projectIDs = append(projectIDs, projectID)
 	}
+	for _, action := range proposal.Actions {
+		appendProjectID(targetValue(action, "project_id"))
+		appendProjectID(actionPatchProjectID(action))
+	}
+	return projectIDs
+}
+
+func actionPatchProjectID(action Action) string {
 	switch normalizeKind(action.Kind) {
 	case ActionCreateProject:
 		var patch projectPatch

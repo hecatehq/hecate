@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/safetext"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -86,7 +87,7 @@ func newDirectModelTurnOutcome(result *gateway.ChatResult, runErr, ctxErr error)
 	errorText := ""
 	if runErr != nil {
 		status = "failed"
-		errorText = runErr.Error()
+		errorText = safetext.ErrorMessage(runErr)
 		output = errorText
 	}
 	if errors.Is(ctxErr, context.Canceled) {

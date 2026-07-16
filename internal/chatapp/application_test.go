@@ -1,15 +1,18 @@
 package chatapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -25,6 +28,114 @@ type recordingAgentRunner struct {
 	closedSessions  []string
 	deletedSessions []string
 	configOptions   []agentcontrols.ConfigOption
+}
+
+type blockingAttachmentCreateStore struct {
+	chatattachments.Store
+	created chan struct{}
+	release chan struct{}
+}
+
+type deadlineAttachmentResolveStore struct {
+	chatattachments.Store
+	cancelRequest context.CancelFunc
+	deadlineSeen  chan bool
+	resolveErr    chan error
+}
+
+type cancelAfterAttachmentCreateStore struct {
+	chatattachments.Store
+	cancelRequest context.CancelFunc
+	cleanupLive   chan bool
+}
+
+type cancelAwareSessionGetStore struct {
+	SessionStore
+}
+
+type attachmentCreateErrorStore struct {
+	chatattachments.Store
+	err error
+}
+
+type ownerDeletingAttachmentStore struct {
+	chatattachments.Store
+	sessions   SessionStore
+	cleanupErr error
+}
+
+type failFirstAttachmentSessionDeleteStore struct {
+	chatattachments.Store
+	deleteCalls int
+	deleteErr   error
+}
+
+func (s *blockingAttachmentCreateStore) Create(ctx context.Context, attachment chatattachments.StoredAttachment) (chatattachments.StoredAttachment, error) {
+	created, err := s.Store.Create(ctx, attachment)
+	close(s.created)
+	<-s.release
+	return created, err
+}
+
+func (s *deadlineAttachmentResolveStore) Claim(ctx context.Context, ref chatattachments.ClaimRef) ([]chatattachments.StoredAttachment, error) {
+	attachments, err := s.Store.Claim(ctx, ref)
+	s.cancelRequest()
+	return attachments, err
+}
+
+func (s *deadlineAttachmentResolveStore) ResolveClaim(ctx context.Context, _ chatattachments.ClaimRef, _ chatattachments.ClaimResolution) error {
+	_, hasDeadline := ctx.Deadline()
+	s.deadlineSeen <- hasDeadline
+	<-ctx.Done()
+	err := ctx.Err()
+	s.resolveErr <- err
+	return err
+}
+
+func (s *cancelAfterAttachmentCreateStore) Create(ctx context.Context, attachment chatattachments.StoredAttachment) (chatattachments.StoredAttachment, error) {
+	created, err := s.Store.Create(ctx, attachment)
+	s.cancelRequest()
+	return created, err
+}
+
+func (s *cancelAfterAttachmentCreateStore) DeleteDraft(ctx context.Context, sessionID, id string) error {
+	_, hasDeadline := ctx.Deadline()
+	s.cleanupLive <- ctx.Err() == nil && hasDeadline
+	return s.Store.DeleteDraft(ctx, sessionID, id)
+}
+
+func (s cancelAwareSessionGetStore) Get(ctx context.Context, id string) (chat.Session, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return chat.Session{}, false, err
+	}
+	return s.SessionStore.Get(ctx, id)
+}
+
+func (s attachmentCreateErrorStore) Create(context.Context, chatattachments.StoredAttachment) (chatattachments.StoredAttachment, error) {
+	return chatattachments.StoredAttachment{}, s.err
+}
+
+func (s *ownerDeletingAttachmentStore) Create(ctx context.Context, attachment chatattachments.StoredAttachment) (chatattachments.StoredAttachment, error) {
+	created, err := s.Store.Create(ctx, attachment)
+	if err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	if err := s.sessions.Delete(ctx, attachment.SessionID); err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	return created, nil
+}
+
+func (s *ownerDeletingAttachmentStore) DeleteDraft(context.Context, string, string) error {
+	return s.cleanupErr
+}
+
+func (s *failFirstAttachmentSessionDeleteStore) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	s.deleteCalls++
+	if s.deleteCalls == 1 {
+		return s.deleteErr
+	}
+	return s.Store.DeleteBySessionID(ctx, sessionID)
 }
 
 func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
@@ -404,7 +515,7 @@ func TestApplication_DeleteSessionDeletesNativeSessionWhenRequested(t *testing.T
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, DeleteNative: true}); err != nil {
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{SessionID: session.ID, DeleteNative: true}); err != nil {
 		t.Fatalf("DeleteSession() error = %v", err)
 	}
 	if runner.deleteCalls != 1 || runner.deletedSessions[0] != "chat_ext" {
@@ -429,11 +540,407 @@ func TestApplication_DeleteSessionWithoutRunnerStillDeletes(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, DeleteNative: true}); err != nil {
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{SessionID: session.ID, DeleteNative: true}); err != nil {
 		t.Fatalf("DeleteSession(no runner) error = %v", err)
 	}
 	if _, ok, err := store.Get(ctx, "chat_ext"); err != nil || ok {
 		t.Fatalf("Get(chat_ext) ok=%v err=%v, want deleted session", ok, err)
+	}
+}
+
+func TestApplication_DeleteSessionRetryFinishesAttachmentCleanupAfterTranscriptDelete(t *testing.T) {
+	ctx := context.Background()
+	sessions := chat.NewMemoryStore()
+	baseAttachments := chatattachments.NewMemoryStore()
+	attachments := &failFirstAttachmentSessionDeleteStore{
+		Store:     baseAttachments,
+		deleteErr: errors.New("injected attachment delete failure"),
+	}
+	app := New(Options{Store: sessions, Attachments: attachments})
+	session, err := sessions.Create(ctx, chat.Session{ID: "chat_delete_retry", AgentID: chat.DefaultAgentID})
+	if err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	created, err := baseAttachments.Create(ctx, chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{ID: "att_delete_retry", SessionID: session.ID, SizeBytes: 3},
+		Data:       []byte("png"),
+	})
+	if err != nil {
+		t.Fatalf("Create attachment: %v", err)
+	}
+
+	cmd := DeleteSessionCommand{SessionID: session.ID}
+	if err := app.DeleteSession(ctx, cmd); !errors.Is(err, attachments.deleteErr) {
+		t.Fatalf("first DeleteSession error = %v, want injected attachment failure", err)
+	}
+	if _, ok, err := sessions.Get(ctx, session.ID); err != nil || ok {
+		t.Fatalf("Get session after first delete = ok %v, err %v", ok, err)
+	}
+	if _, ok, err := baseAttachments.Get(ctx, session.ID, created.ID); err != nil || !ok {
+		t.Fatalf("Get attachment after failed cleanup = ok %v, err %v", ok, err)
+	}
+
+	if err := app.DeleteSession(ctx, cmd); err != nil {
+		t.Fatalf("retry DeleteSession: %v", err)
+	}
+	if _, ok, err := baseAttachments.Get(ctx, session.ID, created.ID); err != nil || ok {
+		t.Fatalf("Get attachment after retry = ok %v, err %v", ok, err)
+	}
+	if err := app.DeleteSession(ctx, cmd); err != nil {
+		t.Fatalf("idempotent DeleteSession: %v", err)
+	}
+	if attachments.deleteCalls != 3 {
+		t.Fatalf("attachment delete calls = %d, want 3", attachments.deleteCalls)
+	}
+}
+
+func TestApplication_AttachmentLifecycleIsSessionScoped(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	attachmentStore := chatattachments.NewMemoryStore()
+	app := New(Options{Store: store, Attachments: attachmentStore})
+	if _, err := store.Create(ctx, chat.Session{ID: "chat_images", AgentID: chat.DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	created, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{
+			ID:        "att_1",
+			SessionID: "chat_images",
+			Filename:  "diagram.png",
+			MediaType: "image/png",
+			SizeBytes: 3,
+			SHA256:    "digest",
+		},
+		Data: []byte("png"),
+	}})
+	if err != nil {
+		t.Fatalf("CreateAttachment: %v", err)
+	}
+	claim := chatattachments.ClaimRef{SessionID: "chat_images", MessageID: "msg_1", AttachmentIDs: []string{"att_1"}}
+	resolved, err := app.ClaimAttachments(ctx, claim)
+	if err != nil {
+		t.Fatalf("ClaimAttachments: %v", err)
+	}
+	if len(resolved) != 1 || !bytes.Equal(resolved[0].Data, created.Data) {
+		t.Fatalf("resolved = %#v, want created attachment", resolved)
+	}
+	if err := app.ResolveAttachmentClaim(ctx, claim, chatattachments.ClaimLinked); err != nil {
+		t.Fatalf("LinkAttachments: %v", err)
+	}
+	if _, err := app.ClaimAttachments(ctx, chatattachments.ClaimRef{SessionID: "chat_images", MessageID: "msg_2", AttachmentIDs: []string{"att_1", "att_1"}}); !errors.Is(err, ErrDuplicateAttachmentID) {
+		t.Fatalf("ClaimAttachments duplicate error = %v, want ErrDuplicateAttachmentID", err)
+	}
+	if _, err := app.ClaimAttachments(ctx, chatattachments.ClaimRef{SessionID: "other_chat", MessageID: "msg_3", AttachmentIDs: []string{"att_1"}}); !errors.Is(err, ErrAttachmentNotFound) {
+		t.Fatalf("ClaimAttachments other session error = %v, want ErrAttachmentNotFound", err)
+	}
+
+	if _, err := store.AppendMessage(ctx, "chat_images", chat.Message{
+		ID:      "msg_1",
+		Role:    "user",
+		Content: "inspect",
+		Attachments: []chat.MessageAttachment{{
+			ID:        created.ID,
+			Filename:  created.Filename,
+			MediaType: created.MediaType,
+			SizeBytes: created.SizeBytes,
+			SHA256:    created.SHA256,
+			CreatedAt: created.CreatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if err := app.DeleteAttachment(ctx, AttachmentCommand{SessionID: "chat_images", AttachmentID: "att_1"}); !errors.Is(err, ErrAttachmentInUse) {
+		t.Fatalf("DeleteAttachment linked error = %v, want ErrAttachmentInUse", err)
+	}
+	session, ok, err := store.Get(ctx, "chat_images")
+	if err != nil || !ok {
+		t.Fatalf("Get session: ok=%v err=%v", ok, err)
+	}
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{SessionID: session.ID}); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	if _, ok, err := attachmentStore.Get(ctx, "chat_images", "att_1"); err != nil || ok {
+		t.Fatalf("attachment after session delete: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestApplication_ExternalAttachmentLifecycleUsesSamePrivateStoreBoundary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sessions := chat.NewMemoryStore()
+	attachments := chatattachments.NewMemoryStore()
+	app := New(Options{Store: sessions, Attachments: attachments})
+	if _, err := sessions.Create(ctx, chat.Session{ID: "chat_external_files", AgentID: "codex"}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	created, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{
+			ID:        "att_external",
+			SessionID: "chat_external_files",
+			Filename:  "notes.txt",
+			MediaType: "text/plain",
+			SizeBytes: 5,
+			SHA256:    "digest",
+		},
+		Data: []byte("notes"),
+	}})
+	if err != nil {
+		t.Fatalf("CreateAttachment: %v", err)
+	}
+	if got, err := app.GetAttachment(ctx, AttachmentCommand{SessionID: created.SessionID, AttachmentID: created.ID}); err != nil || !bytes.Equal(got.Data, created.Data) {
+		t.Fatalf("GetAttachment = %#v, %v", got, err)
+	}
+	ref := chatattachments.ClaimRef{SessionID: created.SessionID, MessageID: "msg_external", AttachmentIDs: []string{created.ID}}
+	claimed, err := app.ClaimAttachments(ctx, ref)
+	if err != nil || len(claimed) != 1 || !bytes.Equal(claimed[0].Data, created.Data) {
+		t.Fatalf("ClaimAttachments = %#v, %v", claimed, err)
+	}
+	if err := app.ResolveAttachmentClaim(ctx, ref, chatattachments.ClaimLinked); err != nil {
+		t.Fatalf("ResolveAttachmentClaim: %v", err)
+	}
+	if err := app.DeleteAttachment(ctx, AttachmentCommand{SessionID: created.SessionID, AttachmentID: created.ID}); !errors.Is(err, ErrAttachmentInUse) {
+		t.Fatalf("DeleteAttachment error = %v, want ErrAttachmentInUse", err)
+	}
+}
+
+func TestApplication_CreateAttachmentRechecksOwnerAfterConcurrentSessionDelete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sessions := chat.NewMemoryStore()
+	baseAttachments := chatattachments.NewMemoryStore()
+	attachments := &blockingAttachmentCreateStore{
+		Store:   baseAttachments,
+		created: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	app := New(Options{Store: sessions, Attachments: attachments})
+	session, err := sessions.Create(ctx, chat.Session{ID: "chat_upload_delete", AgentID: chat.DefaultAgentID})
+	if err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+			Attachment: chatattachments.Attachment{ID: "att_race", SessionID: session.ID, SizeBytes: 1},
+			Data:       []byte("x"),
+		}})
+		result <- err
+	}()
+	<-attachments.created
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{SessionID: session.ID}); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	close(attachments.release)
+	if err := <-result; !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("CreateAttachment concurrent delete error = %v, want ErrSessionNotFound", err)
+	}
+	if _, ok, err := baseAttachments.Get(ctx, session.ID, "att_race"); err != nil || ok {
+		t.Fatalf("orphan attachment = ok %v, err %v", ok, err)
+	}
+}
+
+func TestApplication_CreateAttachmentCleansUpAfterRequestCancelBeforeOwnerRecheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	baseSessions := chat.NewMemoryStore()
+	sessions := cancelAwareSessionGetStore{SessionStore: baseSessions}
+	baseAttachments := chatattachments.NewMemoryStore()
+	attachments := &cancelAfterAttachmentCreateStore{
+		Store:         baseAttachments,
+		cancelRequest: cancel,
+		cleanupLive:   make(chan bool, 1),
+	}
+	app := New(Options{Store: sessions, Attachments: attachments})
+	if _, err := baseSessions.Create(context.Background(), chat.Session{ID: "chat_cancelled_upload", AgentID: chat.DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+
+	_, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{ID: "att_cancelled_upload", SessionID: "chat_cancelled_upload", SizeBytes: 1},
+		Data:       []byte("x"),
+	}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("CreateAttachment error = %v, want request cancellation", err)
+	}
+	if live := <-attachments.cleanupLive; !live {
+		t.Fatal("post-create rollback did not use a live bounded detached context")
+	}
+	if _, ok, getErr := baseAttachments.Get(context.Background(), "chat_cancelled_upload", "att_cancelled_upload"); getErr != nil || ok {
+		t.Fatalf("Get after cancelled upload rollback = ok %v, err %v", ok, getErr)
+	}
+}
+
+func TestApplication_CreateAttachmentReturnsSafeTypedErrorWhenOwnerRollbackFails(t *testing.T) {
+	ctx := context.Background()
+	sessions := chat.NewMemoryStore()
+	if _, err := sessions.Create(ctx, chat.Session{ID: "chat_failed_rollback", AgentID: chat.DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	cleanupErr := errors.New("rollback exposed att_private private.png digest-private body-private")
+	attachments := &ownerDeletingAttachmentStore{
+		Store:      chatattachments.NewMemoryStore(),
+		sessions:   sessions,
+		cleanupErr: cleanupErr,
+	}
+	app := New(Options{Store: sessions, Attachments: attachments})
+
+	_, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{
+			ID:        "att_private",
+			SessionID: "chat_failed_rollback",
+			Filename:  "private.png",
+			SHA256:    "digest-private",
+			SizeBytes: 12,
+		},
+		Data: []byte("body-private"),
+	}})
+	var rollbackErr *AttachmentRollbackError
+	if !errors.As(err, &rollbackErr) {
+		t.Fatalf("CreateAttachment error = %T %v, want AttachmentRollbackError", err, err)
+	}
+	if !errors.Is(err, ErrAttachmentRollback) || !errors.Is(err, ErrSessionNotFound) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("CreateAttachment error chain = %v, want rollback, owner, and cleanup causes", err)
+	}
+	for _, sensitive := range []string{"att_private", "private.png", "digest-private", "body-private"} {
+		if strings.Contains(err.Error(), sensitive) {
+			t.Fatalf("safe rollback error exposed %q: %v", sensitive, err)
+		}
+	}
+	if _, ok, getErr := attachments.Store.Get(ctx, "chat_failed_rollback", "att_private"); getErr != nil || !ok {
+		t.Fatalf("attachment after failed rollback = ok %v, err %v", ok, getErr)
+	}
+}
+
+func TestApplication_CreateAttachmentPreservesEffectiveTotalQuotaLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sessions := chat.NewMemoryStore()
+	if _, err := sessions.Create(ctx, chat.Session{ID: "chat_total_quota", AgentID: chat.DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	const limit = int64(1234)
+	app := New(Options{
+		Store: sessions,
+		Attachments: attachmentCreateErrorStore{
+			Store: chatattachments.NewMemoryStore(),
+			err:   chatattachments.TotalQuotaError{LimitBytes: limit},
+		},
+	})
+
+	_, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{ID: "att_total_quota", SessionID: "chat_total_quota", SizeBytes: 1},
+		Data:       []byte("x"),
+	}})
+	if !errors.Is(err, ErrAttachmentTotalQuota) {
+		t.Fatalf("CreateAttachment error = %v, want ErrAttachmentTotalQuota", err)
+	}
+	var quota AttachmentTotalQuotaError
+	if !errors.As(err, &quota) || quota.LimitBytes != limit {
+		t.Fatalf("CreateAttachment quota = %#v, want limit %d", quota, limit)
+	}
+}
+
+func TestApplication_GetAttachmentRequiresLiveHecateOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	attachments := chatattachments.NewMemoryStore()
+	if _, err := attachments.Create(ctx, chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{ID: "att_orphan", SessionID: "missing", SizeBytes: 1},
+		Data:       []byte("x"),
+	}); err != nil {
+		t.Fatalf("Create orphan fixture: %v", err)
+	}
+	app := New(Options{Store: chat.NewMemoryStore(), Attachments: attachments})
+	if _, err := app.GetAttachment(ctx, AttachmentCommand{SessionID: "missing", AttachmentID: "att_orphan"}); !errors.Is(err, ErrAttachmentNotFound) {
+		t.Fatalf("GetAttachment orphan error = %v, want ErrAttachmentNotFound", err)
+	}
+}
+
+func TestApplication_ClaimAttachmentsReleasesDraftsAboveCombinedMessageLimit(t *testing.T) {
+	ctx := context.Background()
+	sessions := chat.NewMemoryStore()
+	attachments := chatattachments.NewMemoryStore()
+	app := New(Options{Store: sessions, Attachments: attachments})
+	if _, err := sessions.Create(ctx, chat.Session{ID: "chat_combined_limit", AgentID: chat.DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+
+	ids := []string{"att_1", "att_2", "att_3"}
+	sizes := []int{4 << 20, 4 << 20, (4 << 20) + 1}
+	for i, id := range ids {
+		data := make([]byte, sizes[i])
+		if _, err := app.CreateAttachment(ctx, CreateAttachmentCommand{Attachment: chatattachments.StoredAttachment{
+			Attachment: chatattachments.Attachment{ID: id, SessionID: "chat_combined_limit", SizeBytes: int64(len(data))},
+			Data:       data,
+		}}); err != nil {
+			t.Fatalf("CreateAttachment(%s): %v", id, err)
+		}
+	}
+
+	if _, err := app.ClaimAttachments(ctx, chatattachments.ClaimRef{SessionID: "chat_combined_limit", MessageID: "msg_limit", AttachmentIDs: ids}); !errors.Is(err, ErrAttachmentMessageBytes) {
+		t.Fatalf("ClaimAttachments error = %v, want ErrAttachmentMessageBytes", err)
+	}
+	for _, id := range ids {
+		if err := app.DeleteAttachment(ctx, AttachmentCommand{SessionID: "chat_combined_limit", AttachmentID: id}); err != nil {
+			t.Fatalf("DeleteAttachment(%s) after rejected claim: %v", id, err)
+		}
+	}
+}
+
+func TestApplication_ClaimAttachmentsBoundsDetachedReleaseAfterRequestCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sessions := chat.NewMemoryStore()
+	baseAttachments := chatattachments.NewMemoryStore()
+	attachments := &deadlineAttachmentResolveStore{
+		Store:         baseAttachments,
+		cancelRequest: cancel,
+		deadlineSeen:  make(chan bool, 1),
+		resolveErr:    make(chan error, 1),
+	}
+	app := New(Options{
+		Store:                    sessions,
+		Attachments:              attachments,
+		AttachmentCleanupTimeout: 20 * time.Millisecond,
+	})
+	if _, err := sessions.Create(context.Background(), chat.Session{ID: "chat_cleanup_deadline", AgentID: chat.DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	body := make([]byte, MaxMessageAttachmentBytes+1)
+	if _, err := baseAttachments.Create(context.Background(), chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{ID: "att_large", SessionID: "chat_cleanup_deadline", SizeBytes: int64(len(body))},
+		Data:       body,
+	}); err != nil {
+		t.Fatalf("Create attachment: %v", err)
+	}
+
+	_, err := app.ClaimAttachments(ctx, chatattachments.ClaimRef{
+		SessionID:     "chat_cleanup_deadline",
+		MessageID:     "msg_cleanup_deadline",
+		AttachmentIDs: []string{"att_large"},
+	})
+	if !errors.Is(err, ErrAttachmentMessageBytes) {
+		t.Fatalf("ClaimAttachments error = %v, want ErrAttachmentMessageBytes", err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("claim fixture did not cancel the request context")
+	}
+	if hasDeadline := <-attachments.deadlineSeen; !hasDeadline {
+		t.Fatal("detached claim release had no deadline")
+	}
+	if resolveErr := <-attachments.resolveErr; !errors.Is(resolveErr, context.DeadlineExceeded) {
+		t.Fatalf("ResolveClaim context error = %v, want deadline exceeded", resolveErr)
+	}
+	pending, pendingErr := baseAttachments.ListPendingClaims(context.Background())
+	if pendingErr != nil {
+		t.Fatalf("ListPendingClaims: %v", pendingErr)
+	}
+	if len(pending) != 1 || pending[0].Ref.MessageID != "msg_cleanup_deadline" {
+		t.Fatalf("pending claims = %#v, want fenced claim left for startup reconciliation", pending)
 	}
 }
 
@@ -471,7 +978,7 @@ func TestApplication_DeleteAndCloseNativeSessionNilStore(t *testing.T) {
 
 	ctx := context.Background()
 	app := New(Options{})
-	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: chat.Session{ID: "chat"}}); !errors.Is(err, ErrStoreNotConfigured) {
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{SessionID: "chat"}); !errors.Is(err, ErrStoreNotConfigured) {
 		t.Fatalf("DeleteSession(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
 	if _, err := app.CloseNativeSession(ctx, CloseNativeSessionCommand{Session: chat.Session{ID: "chat"}}); !errors.Is(err, ErrStoreNotConfigured) {
@@ -658,6 +1165,50 @@ func TestApplication_AdmitMessageDefaultsAndTrims(t *testing.T) {
 	}
 	if result.Content != "hello" || result.ExecutionMode != chat.ExecutionModeHecateTask || result.ToolsEnabled {
 		t.Fatalf("admission = %+v, want trimmed Hecate tools-off message", result)
+	}
+}
+
+func TestApplication_AdmitMessageAllowsImageOnlyDirectTurns(t *testing.T) {
+	t.Parallel()
+
+	toolsOff := false
+	result, err := New(Options{}).AdmitMessage(AdmitMessageCommand{
+		Session:         chat.Session{AgentID: chat.DefaultAgentID},
+		ToolsEnabled:    &toolsOff,
+		AttachmentCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("AdmitMessage(image only) error = %v", err)
+	}
+	if result.Content != "" || result.ToolsEnabled {
+		t.Fatalf("result = %+v, want empty content and tools off", result)
+	}
+}
+
+func TestApplication_AdmitMessageAllowsExternalAgentAttachmentsAndRejectsHecateToolsOn(t *testing.T) {
+	t.Parallel()
+
+	toolsOn := true
+	toolsOff := false
+	cmd := AdmitMessageCommand{Session: chat.Session{AgentID: chat.DefaultAgentID}, ToolsEnabled: &toolsOn, AttachmentCount: 1}
+	if _, err := New(Options{}).AdmitMessage(cmd); !errors.Is(err, ErrAttachmentsDirectOnly) || !IsValidationError(err) {
+		t.Fatalf("AdmitMessage(%+v) error = %v, want tools-on validation", cmd, err)
+	}
+	external, err := New(Options{}).AdmitMessage(AdmitMessageCommand{
+		Session:         chat.Session{AgentID: "codex"},
+		ExecutionMode:   chat.ExecutionModeExternalAgent,
+		ToolsEnabled:    &toolsOff,
+		AttachmentCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("AdmitMessage(external attachment) error = %v", err)
+	}
+	if external.Content != "" || external.ExecutionMode != chat.ExecutionModeExternalAgent {
+		t.Fatalf("external admission = %+v", external)
+	}
+	tooMany := AdmitMessageCommand{Session: chat.Session{AgentID: chat.DefaultAgentID}, ToolsEnabled: &toolsOff, AttachmentCount: MaxMessageAttachments + 1}
+	if _, err := New(Options{}).AdmitMessage(tooMany); !errors.Is(err, ErrTooManyAttachments) {
+		t.Fatalf("AdmitMessage(too many) error = %v, want ErrTooManyAttachments", err)
 	}
 }
 

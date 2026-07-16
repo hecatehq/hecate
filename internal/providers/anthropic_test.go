@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +13,160 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+func TestDecodeAnthropicErrorRedactsRemoteImageURLCredentials(t *testing.T) {
+	t.Parallel()
+
+	const echoedURL = "https://operator:password@images.example.test/cat.png?X-Amz-Signature=private#access-token"
+	body, err := json.Marshal(anthropicErrorEnvelope{Error: anthropicErrorDetail{
+		Message: "image fetch failed: " + echoedURL,
+		Type:    "invalid_request_error",
+	}})
+	if err != nil {
+		t.Fatalf("marshal error envelope: %v", err)
+	}
+	decoded := decodeAnthropicError(&http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+	})
+	upstreamErr, ok := decoded.(*UpstreamError)
+	if !ok {
+		t.Fatalf("error type = %T, want *UpstreamError", decoded)
+	}
+	want := "image fetch failed: https://[redacted]@images.example.test/cat.png?[redacted]#[redacted]"
+	if upstreamErr.Message != want {
+		t.Fatalf("upstream message = %q, want %q", upstreamErr.Message, want)
+	}
+}
+
+func TestDecodeAnthropicErrorSanitizesUntrustedErrorType(t *testing.T) {
+	t.Parallel()
+
+	const secretType = "https://operator:password@errors.example.test/type?token=secret"
+	body, err := json.Marshal(anthropicErrorEnvelope{Error: anthropicErrorDetail{
+		Message: "request rejected",
+		Type:    secretType,
+	}})
+	if err != nil {
+		t.Fatalf("marshal error envelope: %v", err)
+	}
+	decoded := decodeAnthropicError(&http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+	})
+	upstreamErr, ok := decoded.(*UpstreamError)
+	if !ok {
+		t.Fatalf("error type = %T, want *UpstreamError", decoded)
+	}
+	if upstreamErr.Type != "anthropic_error" {
+		t.Fatalf("upstream type = %q, want anthropic_error", upstreamErr.Type)
+	}
+	if strings.Contains(upstreamErr.Error(), "password") || strings.Contains(upstreamErr.Error(), "secret") {
+		t.Fatalf("UpstreamError.Error() leaked untrusted type: %q", upstreamErr.Error())
+	}
+}
+
+func TestTranslateAnthropicSSEReturnsSanitizedErrorEvent(t *testing.T) {
+	t.Parallel()
+
+	const (
+		assistantText = "ordinary assistant response"
+		errorURL      = "https://operator:password@images.example/image.png?signature=secret"
+	)
+	stream := strings.Join([]string{
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"` + assistantText + `"}}`,
+		"",
+		"event: error",
+		`data: {"type":"error","error":{"type":"` + errorURL + `","message":"image fetch failed: ` + errorURL + `"}}`,
+		"",
+	}, "\n")
+	var output strings.Builder
+	err := translateAnthropicSSE(context.Background(), "claude-test", strings.NewReader(stream), &output)
+	var upstreamErr *UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("translateAnthropicSSE() error = %v, want *UpstreamError", err)
+	}
+	if !strings.Contains(output.String(), assistantText) {
+		t.Fatalf("ordinary assistant content was altered: %q", output.String())
+	}
+	if strings.Contains(output.String(), "password") || strings.Contains(output.String(), "signature=secret") {
+		t.Fatalf("translated output leaked provider error event: %q", output.String())
+	}
+	if upstreamErr.Type != "anthropic_error" || strings.Contains(upstreamErr.Message, "password") || strings.Contains(upstreamErr.Message, "signature=secret") {
+		t.Fatalf("sanitized stream error = %+v", upstreamErr)
+	}
+}
+
+func TestTranslateAnthropicSSERejectsMalformedErrorEventBeforeMessageStop(t *testing.T) {
+	t.Parallel()
+
+	stream := strings.Join([]string{
+		"event:error",
+		"data:{bad",
+		"",
+		"event:message_stop",
+		`data:{"type":"message_stop"}`,
+		"",
+	}, "\n")
+	var output strings.Builder
+	err := translateAnthropicSSE(context.Background(), "claude-test", strings.NewReader(stream), &output)
+	var upstreamErr *UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("translateAnthropicSSE() error = %v, want *UpstreamError", err)
+	}
+	if upstreamErr.Type != "anthropic_error" || upstreamErr.Message != "upstream provider stream error" {
+		t.Fatalf("translateAnthropicSSE() error = %+v, want generic sanitized stream error", upstreamErr)
+	}
+	if strings.Contains(output.String(), "[DONE]") {
+		t.Fatalf("malformed error event was marked complete: %q", output.String())
+	}
+}
+
+func TestTranslateAnthropicSSERejectsPrematureEOF(t *testing.T) {
+	t.Parallel()
+
+	var output strings.Builder
+	err := translateAnthropicSSE(context.Background(), "claude-test", strings.NewReader(
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg\",\"model\":\"claude-test\"}}\n\n",
+	), &output)
+	var upstreamErr *UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("translateAnthropicSSE() error = %v, want premature-stream *UpstreamError", err)
+	}
+	if strings.Contains(output.String(), "[DONE]") {
+		t.Fatalf("premature stream was marked complete: %q", output.String())
+	}
+}
+
+func TestTranslateAnthropicSSEAcceptsNoSpaceFields(t *testing.T) {
+	t.Parallel()
+
+	stream := strings.Join([]string{
+		`event:message_start`,
+		`data:{"type":"message_start","message":{"id":"msg-no-space","model":"claude-test","usage":{"input_tokens":1,"output_tokens":0}}}`,
+		``,
+		`event:content_block_delta`,
+		`data:{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"visible"}}`,
+		``,
+		`event:message_delta`,
+		`data:{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+		``,
+		`event:message_stop`,
+		`data:{"type":"message_stop"}`,
+		``,
+	}, "\n")
+
+	var output strings.Builder
+	if err := translateAnthropicSSE(context.Background(), "claude-test", strings.NewReader(stream), &output); err != nil {
+		t.Fatalf("translateAnthropicSSE() error = %v", err)
+	}
+	for _, want := range []string{`"content":"visible"`, `"finish_reason":"end_turn"`, "data: [DONE]"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("translated no-space stream missing %q: %q", want, output.String())
+		}
+	}
+}
 
 func TestAnthropicProviderChatMapsMessagesAPI(t *testing.T) {
 	t.Parallel()
@@ -693,10 +848,10 @@ func TestAnthropicProviderToolResultMultiBlockContent(t *testing.T) {
 				ToolCallID: "toolu_2",
 				ContentBlocks: []types.ContentBlock{
 					{Type: "text", Text: "screenshot summary", CacheControl: cc},
-					// "image" with a `source` blob (tested as raw JSON
-					// pass-through; the gateway model puts image
-					// source under the Input field for content blocks).
-					{Type: "image", Input: json.RawMessage(`{"type":"base64","media_type":"image/png","data":"iVBORw0K"}`)},
+					{Type: "image", Image: &types.ContentImage{
+						Data:      "iVBORw0K",
+						MediaType: "image/png",
+					}},
 				},
 			},
 		},
@@ -894,7 +1049,7 @@ func TestAnthropicProviderTranslatesDataURIImageBlock(t *testing.T) {
 		Messages: []types.Message{{
 			Role: "user",
 			ContentBlocks: []types.ContentBlock{
-				{Type: "image_url", Image: &types.ContentImage{URL: "data:image/jpeg;base64,/9j/4AAQ"}},
+				{Type: "image_url", Image: &types.ContentImage{URL: "DATA:image/jpeg;BASE64,/9j/4AAQ"}},
 			},
 		}},
 	})

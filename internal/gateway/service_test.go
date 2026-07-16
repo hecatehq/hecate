@@ -77,6 +77,82 @@ func TestServiceHandleChatFallsBackWhenPrimaryFails(t *testing.T) {
 	}
 }
 
+func TestServiceHandleChatReturnsAttemptedRouteMetadataOnProviderError(t *testing.T) {
+	t.Parallel()
+
+	provider := &sequenceProvider{
+		name: "vision",
+		kind: providers.KindCloud,
+		responses: []providerResponse{
+			{err: &providers.UpstreamError{StatusCode: 400, Message: "image rejected"}},
+		},
+	}
+	registry := providers.NewRegistry(provider)
+	providerInstance, _ := registry.GetInstance("vision")
+	store := governor.NewMemoryUsageStore()
+	service := NewService(Dependencies{
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Router:    staticFallbackRouter{route: types.RouteDecision{Provider: "vision", ProviderKind: string(providers.KindCloud), ProviderInstance: providerInstance.Identity, Model: "model-a", Reason: "auto_image"}},
+		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
+		Providers: registry,
+		Tracer:    profiler.NewInMemoryTracer(nil),
+		Resilience: ResilienceOptions{
+			MaxAttempts: 1,
+		},
+	})
+
+	result, err := service.HandleChat(context.Background(), types.ChatRequest{
+		RequestID:    "req-failed-image",
+		Model:        "model-a",
+		Messages:     []types.Message{{Role: "user", Content: "image"}},
+		Requirements: types.ChatRequestRequirements{ImageInput: true, NoProviderFailover: true},
+	})
+	if err == nil {
+		t.Fatal("HandleChat() error = nil, want provider failure")
+	}
+	if result == nil || result.Response != nil {
+		t.Fatalf("HandleChat() result = %+v, want metadata-only failure result", result)
+	}
+	if result.Metadata.RequestID != "req-failed-image" || result.Metadata.Provider != "vision" || result.Metadata.Model != "model-a" {
+		t.Fatalf("attempted route metadata = %+v, want request/provider/model attribution", result.Metadata)
+	}
+	if result.Metadata.AttemptCount != 1 || result.Metadata.TraceID == "" || result.Metadata.SpanID == "" {
+		t.Fatalf("attempt/trace metadata = %+v, want one correlated provider attempt", result.Metadata)
+	}
+}
+
+func TestServiceListModelsCarriesCapabilityFamilySeparatelyFromProvider(t *testing.T) {
+	t.Parallel()
+
+	provider := providers.NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:           "OpenAI Production",
+		Aliases:        []string{"openai-prod", "openai"},
+		ProviderFamily: "openai",
+		Kind:           "cloud",
+		Protocol:       "openai",
+		StubMode:       true,
+		KnownModels:    []string{"gpt-4o"},
+		DefaultModel:   "gpt-4o",
+		Enabled:        true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	registry := providers.NewRegistry(provider)
+	service := NewService(Dependencies{Providers: registry})
+
+	result, err := service.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if len(result.Models) != 1 {
+		t.Fatalf("models len = %d, want 1", len(result.Models))
+	}
+	if got := result.Models[0]; got.Provider != "OpenAI Production" || got.ProviderFamily != "openai" || len(got.ProviderAliases) != 2 || got.ProviderAliases[0] != "openai-prod" {
+		t.Fatalf("model provider identity = provider %q aliases %#v family %q, want configured provider plus stable aliases and canonical family", got.Provider, got.ProviderAliases, got.ProviderFamily)
+	}
+	if len(result.ProviderIdentities) != 1 || result.ProviderIdentities[0].Name != "OpenAI Production" || len(result.ProviderIdentities[0].Aliases) != 2 {
+		t.Fatalf("provider identity inventory = %+v, want configured provider independent of model rows", result.ProviderIdentities)
+	}
+}
+
 func TestProviderModelDiscoveryCheckDistinguishesSkippedDiscovery(t *testing.T) {
 	t.Parallel()
 
@@ -470,6 +546,72 @@ func TestProviderModelReadiness(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestProviderModelReadinessPrefersCanonicalProviderOverAlias(t *testing.T) {
+	t.Parallel()
+
+	entries := []catalog.Entry{
+		{
+			Name:            "vision-a",
+			ProviderAliases: []string{"vision-b"},
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "configured",
+			Models:          []string{"alias-model"},
+		},
+		{
+			Name:            "vision-b",
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "configured",
+			Models:          []string{"canonical-model"},
+		},
+	}
+
+	readiness := providerModelReadiness(entries, "vision-b", "canonical-model")
+	if !readiness.Ready || readiness.MatchedProvider != "vision-b" || readiness.Reason != "model_available" {
+		t.Fatalf("providerModelReadiness() = %+v, want canonical vision-b ready", readiness)
+	}
+
+	missingModel := providerModelReadiness(entries, "vision-b", "")
+	if missingModel.Reason != "model_required" || len(missingModel.SuggestedModels) != 1 || missingModel.SuggestedModels[0] != "canonical-model" {
+		t.Fatalf("providerModelReadiness(model required) = %+v, want only canonical provider suggestions", missingModel)
+	}
+}
+
+func TestProviderModelReadinessRejectsAmbiguousProviderAlias(t *testing.T) {
+	t.Parallel()
+
+	entries := []catalog.Entry{
+		{
+			Name:            "vision-a",
+			ProviderAliases: []string{"shared-vision"},
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "configured",
+			Models:          []string{"vision-model"},
+		},
+		{
+			Name:            "vision-b",
+			ProviderAliases: []string{"shared-vision"},
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "configured",
+			Models:          []string{"vision-model"},
+		},
+	}
+
+	for _, model := range []string{"vision-model", ""} {
+		readiness := providerModelReadiness(entries, "shared-vision", model)
+		if readiness.Ready || readiness.Reason != "provider_ambiguous" || readiness.OperatorAction == "" || len(readiness.SuggestedModels) != 0 {
+			t.Fatalf("providerModelReadiness(model=%q) = %+v, want fail-closed ambiguous provider without suggestions", model, readiness)
+		}
 	}
 }
 

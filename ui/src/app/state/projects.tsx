@@ -35,9 +35,19 @@ export type ProjectsState = {
 
 export type ProjectCatalogLoadOptions = {
   background?: boolean;
+  /**
+   * Marks every catalog snapshot already in flight as older than a
+   * server-side mutation. Coalesced readers will refetch before applying.
+   */
+  invalidateInFlightSnapshot?: boolean;
   onError?: (message: string) => void;
   shouldApply?: () => boolean;
 };
+
+export type ProjectCatalogLoadResult =
+  | { status: "applied" }
+  | { status: "failed"; message: string }
+  | { status: "superseded" };
 
 type SetStateAction<T> = T | ((prev: T) => T);
 
@@ -46,7 +56,7 @@ export type ProjectsActions = {
   setLoading: (value: boolean) => void;
   setError: (value: string) => void;
   setActiveProjectID: (id: string) => void;
-  loadProjects: (options?: ProjectCatalogLoadOptions) => Promise<void>;
+  loadProjects: (options?: ProjectCatalogLoadOptions) => Promise<ProjectCatalogLoadResult>;
   selectProject: (id: string) => Promise<void>;
   createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
@@ -127,7 +137,9 @@ export function ProjectsProvider({
   const projectsMutationSequenceRef = useRef(0);
   const loadProjectsInFlightRef = useRef<{
     background: boolean;
-    request: Promise<void>;
+    participants: ProjectCatalogLoadOptions[];
+    request: Promise<ProjectCatalogLoadResult>;
+    token: object;
   } | null>(null);
 
   const setProjects = useCallback((next: SetStateAction<ProjectRecord[]>) => {
@@ -150,20 +162,32 @@ export function ProjectsProvider({
   );
 
   const loadProjects = useCallback(
-    function loadProjects(options: ProjectCatalogLoadOptions = {}): Promise<void> {
+    function loadProjects(
+      options: ProjectCatalogLoadOptions = {},
+    ): Promise<ProjectCatalogLoadResult> {
+      if (options.invalidateInFlightSnapshot) {
+        projectsMutationSequenceRef.current += 1;
+      }
       const background = Boolean(options.background);
       const inFlight = loadProjectsInFlightRef.current;
       if (inFlight) {
-        if (!background && inFlight.background) {
+        if (background !== inFlight.background) {
           return inFlight.request.then(() => loadProjects(options));
         }
+        inFlight.participants.push(options);
         return inFlight.request;
       }
-      const request = (async () => {
+      const token = {};
+      const participants = [options];
+      const request = Promise.resolve().then(async (): Promise<ProjectCatalogLoadResult> => {
         if (!background) {
-          setCatalogError("");
           dispatch({ type: "loading/set", value: true });
         }
+
+        let result: ProjectCatalogLoadResult = { status: "superseded" };
+        let items: ProjectRecord[] = [];
+        let loadFailed = false;
+        let loadError: unknown;
         try {
           let mutationSequence = projectsMutationSequenceRef.current;
           let payload = await getProjectsRequest();
@@ -171,8 +195,40 @@ export function ProjectsProvider({
             mutationSequence = projectsMutationSequenceRef.current;
             payload = await getProjectsRequest();
           }
-          if (options.shouldApply && !options.shouldApply()) return;
-          const items = payload.data ?? [];
+          items = projectCatalogItems(payload);
+        } catch (error) {
+          loadFailed = true;
+          loadError = error;
+        }
+        try {
+          let canApply = true;
+          for (const participant of participants) {
+            if (participant.shouldApply && !participant.shouldApply()) {
+              canApply = false;
+            }
+          }
+          if (canApply) {
+            if (loadFailed) {
+              result = {
+                status: "failed",
+                message: projectCatalogErrorMessage(loadError),
+              };
+            } else {
+              result = { status: "applied" };
+            }
+          }
+        } catch (error) {
+          result = {
+            status: "failed",
+            message: projectCatalogErrorMessage(error),
+          };
+        } finally {
+          if (loadProjectsInFlightRef.current?.token === token) {
+            loadProjectsInFlightRef.current = null;
+          }
+        }
+
+        if (result.status === "applied") {
           dispatch({ type: "projects/set", next: items });
           dispatch({ type: "loaded/set", value: true });
           setCatalogError("");
@@ -180,21 +236,25 @@ export function ProjectsProvider({
           if (currentActiveProjectID && !items.some((item) => item.id === currentActiveProjectID)) {
             setActiveProjectID("");
           }
-        } catch (error) {
-          if (options.shouldApply && !options.shouldApply()) return;
-          const message = error instanceof Error ? error.message : "Failed to load projects.";
-          options.onError?.(message);
-          if (!background) setCatalogError(message);
-        } finally {
-          if (!background) dispatch({ type: "loading/set", value: false });
+        } else if (result.status === "failed") {
+          if (!background) setCatalogError(result.message);
         }
-      })();
-      loadProjectsInFlightRef.current = { background, request };
-      void request.finally(() => {
-        if (loadProjectsInFlightRef.current?.request === request) {
-          loadProjectsInFlightRef.current = null;
+
+        if (!background) dispatch({ type: "loading/set", value: false });
+        if (result.status === "failed") {
+          for (const participant of participants) {
+            try {
+              participant.onError?.(result.message);
+            } catch {
+              // Recovery observers must not change the typed load result or
+              // prevent another coalesced caller from receiving the failure.
+            }
+          }
         }
+
+        return result;
       });
+      loadProjectsInFlightRef.current = { background, participants, request, token };
       return request;
     },
     [setActiveProjectID, setCatalogError],
@@ -322,6 +382,123 @@ export function ProjectsProvider({
 
 function opaqueRecordID(value: string): string {
   return value.trim() ? value : "";
+}
+
+function projectCatalogItems(payload: unknown): ProjectRecord[] {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Project catalog response was invalid.");
+  }
+  const data = (payload as { data?: unknown }).data;
+  if (!Array.isArray(data) || !data.every(isProjectRecord)) {
+    throw new Error("Project catalog response was invalid.");
+  }
+  return data;
+}
+
+function isProjectRecord(value: unknown): value is ProjectRecord {
+  if (!isUnknownRecord(value)) return false;
+  if (
+    !isNonBlankStringField(value, "id") ||
+    !isNonBlankStringField(value, "name") ||
+    !isNonBlankStringField(value, "created_at") ||
+    !isNonBlankStringField(value, "updated_at") ||
+    !Array.isArray(value.roots) ||
+    !value.roots.every(isProjectRootRecord)
+  ) {
+    return false;
+  }
+  if (!optionalStringFieldsAreValid(value, PROJECT_OPTIONAL_STRING_FIELDS)) return false;
+  if (!optionalBooleanFieldsAreValid(value, PROJECT_OPTIONAL_BOOLEAN_FIELDS)) return false;
+  return (
+    value.context_sources === undefined ||
+    (Array.isArray(value.context_sources) &&
+      value.context_sources.every(isProjectContextSourceRecord))
+  );
+}
+
+const PROJECT_OPTIONAL_STRING_FIELDS = [
+  "description",
+  "default_root_id",
+  "default_provider",
+  "default_model",
+  "default_agent_profile",
+  "default_workspace_mode",
+  "default_system_prompt",
+  "last_opened_at",
+] as const;
+
+const PROJECT_OPTIONAL_BOOLEAN_FIELDS = [
+  "default_tools_enabled",
+  "default_compact_tool_output",
+] as const;
+
+function isProjectRootRecord(value: unknown): boolean {
+  if (!isUnknownRecord(value)) return false;
+  return (
+    isNonBlankStringField(value, "id") &&
+    isNonBlankStringField(value, "path") &&
+    isStringField(value, "kind") &&
+    typeof value.active === "boolean" &&
+    isStringField(value, "created_at") &&
+    isStringField(value, "updated_at") &&
+    optionalStringFieldsAreValid(value, ["git_remote", "git_branch"])
+  );
+}
+
+function isProjectContextSourceRecord(value: unknown): boolean {
+  if (!isUnknownRecord(value)) return false;
+  return (
+    isNonBlankStringField(value, "id") &&
+    isStringField(value, "kind") &&
+    isStringField(value, "path") &&
+    typeof value.enabled === "boolean" &&
+    isStringField(value, "created_at") &&
+    isStringField(value, "updated_at") &&
+    optionalStringFieldsAreValid(value, [
+      "title",
+      "format",
+      "scope",
+      "trust_label",
+      "source_category",
+    ]) &&
+    (value.metadata === undefined || isStringRecord(value.metadata))
+  );
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonBlankStringField(value: Record<string, unknown>, field: string): boolean {
+  const fieldValue = value[field];
+  return typeof fieldValue === "string" && Boolean(fieldValue.trim());
+}
+
+function isStringField(value: Record<string, unknown>, field: string): boolean {
+  return typeof value[field] === "string";
+}
+
+function optionalStringFieldsAreValid(
+  value: Record<string, unknown>,
+  fields: readonly string[],
+): boolean {
+  return fields.every((field) => value[field] === undefined || typeof value[field] === "string");
+}
+
+function optionalBooleanFieldsAreValid(
+  value: Record<string, unknown>,
+  fields: readonly string[],
+): boolean {
+  return fields.every((field) => value[field] === undefined || typeof value[field] === "boolean");
+}
+
+function isStringRecord(value: unknown): boolean {
+  return isUnknownRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function projectCatalogErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return "Failed to load projects.";
 }
 
 export function useProjects(): ProjectsContextValue {

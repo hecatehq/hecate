@@ -182,13 +182,56 @@ type RunRequest struct {
 	AdapterID               string
 	Workspace               string
 	PreviousNativeSessionID string
-	Prompt                  string
+	Prompt                  PromptInput
 	ConfigOptions           []agentcontrols.ConfigOption
 	MCPServers              []types.MCPServerConfig
 	Timeout                 time.Duration
 	MaxOutputBytes          int64
 	OnOutput                func(string)
 	OnActivity              func(Activity)
+	// OnTerminalActivity is bound to terminals created by this turn and may be
+	// called after Run returns, until OnTerminalClosed reports that terminal's
+	// authoritative settlement. Callers must return promptly, keep it safe for
+	// concurrent late delivery, and bind it to the originating durable message
+	// rather than mutable current-turn state.
+	OnTerminalActivity func(Activity)
+	// OnTerminalClosed runs exactly once for each successfully-created terminal,
+	// after its final OnTerminalActivity callback. A session-close deadline makes
+	// the emitted cancellation authoritative: no transcript callbacks occur for
+	// that terminal after OnTerminalClosed returns. Callers must return promptly.
+	OnTerminalClosed func(terminalID string)
+}
+
+const (
+	// MaxPromptFiles matches Hecate Chat's public per-message attachment
+	// ceiling. Keeping the transport boundary independently bounded prevents a
+	// non-HTTP caller from constructing an unexpectedly large ACP prompt.
+	MaxPromptFiles = 4
+	// MaxPromptFileBytes is the public per-file upload ceiling.
+	MaxPromptFileBytes = int64(5 << 20)
+	// MaxPromptFilesBytes preserves the public combined-message attachment
+	// limit. ACP dispatch independently stages rich blocks that would exceed
+	// its conservative inline wire budget.
+	MaxPromptFilesBytes = int64(12 << 20)
+)
+
+// PromptInput is the provider-neutral input for one External Agent turn.
+// Attachment bodies remain Hecate-owned and are copied into this short-lived
+// request only after session-scoped claim admission succeeds.
+type PromptInput struct {
+	Text  string
+	Files []PromptFile
+}
+
+// PromptFile is an immutable attachment snapshot passed to one selected ACP
+// session. Size and digest are checked again at the adapter boundary before
+// any content block or staged file is created.
+type PromptFile struct {
+	Filename  string
+	MediaType string
+	SizeBytes int64
+	SHA256    string
+	Data      []byte
 }
 
 type PrepareSessionRequest struct {
@@ -1271,12 +1314,16 @@ type limitedBuffer struct {
 	limit     int64
 	truncated bool
 	onWrite   func(string)
+	disabled  bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if b.disabled {
+		return len(p), nil
+	}
 	accepted := p
 	if b.limit <= 0 {
 		n, err := b.Buffer.Write(p)
@@ -1313,8 +1360,13 @@ func (b *limitedBuffer) ReadFrom(r io.Reader) (int64, error) {
 		n, readErr := r.Read(buf)
 		if n > 0 {
 			total += int64(n)
-			if _, err := b.Write(buf[:n]); err != nil {
-				return total, err
+			_, writeErr := b.Write(buf[:n])
+			// The scratch buffer can outlive individual writes for the lifetime of
+			// a subprocess copy loop. Do not retain the last stderr/output chunk
+			// there after the bounded writer has accepted or discarded it.
+			clear(buf[:n])
+			if writeErr != nil {
+				return total, writeErr
 			}
 		}
 		if readErr == io.EOF {
@@ -1330,4 +1382,14 @@ func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.Buffer.String()
+}
+
+func (b *limitedBuffer) disableAndClear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	clear(b.Buffer.Bytes())
+	b.Buffer.Reset()
+	b.truncated = false
+	b.onWrite = nil
+	b.disabled = true
 }

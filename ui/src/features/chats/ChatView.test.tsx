@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatView } from "./ChatView";
+import { useChat } from "../../app/state/chat";
+import { useSettings } from "../../app/state/settings";
+import {
+  queuedChatDeletedItemStorageKeyPrefix,
+  queuedChatMessageStorageKeyPrefix,
+  queuedChatMessagesV2MarkerStorageKey,
+} from "../../app/state/queuedChatStorage";
 import {
   discoverLocalProviders,
   draftChatProjectAssistant,
@@ -204,6 +211,88 @@ function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
   });
   const actions = { ...createRuntimeConsoleActions(), ...actionOverrides };
   return { state, actions };
+}
+
+function ChatAttachmentOwnershipTestControls() {
+  const chat = useChat();
+  const settings = useSettings();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          chat.actions.setPendingChatAttachments([
+            { id: "test-image-draft", file: new File(["image"], "map.png", { type: "image/png" }) },
+          ])
+        }
+      >
+        Add test image draft
+      </button>
+      <button type="button" onClick={() => chat.actions.beginChatAttachmentTurn("s1", 1)}>
+        Begin test image turn
+      </button>
+      <output data-testid="pending-attachment-count">
+        {chat.state.pendingChatAttachments.length}
+      </output>
+      <output data-testid="runtime-notice">{settings.state.notice?.message ?? ""}</output>
+    </>
+  );
+}
+
+function linkedProjectFixture(): ProjectRecord {
+  return {
+    id: "proj_1",
+    name: "Hecate",
+    roots: [],
+    created_at: "2026-05-29T00:00:00Z",
+    updated_at: "2026-05-29T00:00:00Z",
+  };
+}
+
+function linkedHecateChatFixture(messages: any[] = []) {
+  return {
+    id: "s1",
+    agent_id: "hecate",
+    title: "Project chat",
+    project_id: "proj_1",
+    provider: "openai",
+    model: "gpt-4o-mini",
+    status: "idle",
+    workspace: "/tmp/hecate",
+    messages,
+    provider_calls: [],
+  } as any;
+}
+
+function projectProposalArtifactMessages() {
+  return [
+    {
+      id: "m_user",
+      role: "user",
+      content: "Plan next project work",
+      created_at: "2026-05-29T10:00:00Z",
+    },
+    {
+      id: "m_assistant",
+      role: "assistant",
+      content: "I drafted a proposal for review in Projects.",
+      created_at: "2026-05-29T10:00:02Z",
+      execution_mode: "hecate_task",
+      task_id: "task_1",
+      run_id: "run_1",
+      activities: [
+        {
+          id: "activity_proposal",
+          type: "project_assistant_proposal",
+          kind: "project_assistant_proposal",
+          status: "ready",
+          title: "Project Assistant proposal",
+          detail: "Plan next project work - 1 action - ready for review",
+          artifact_id: "artifact_project_proposal",
+        },
+      ],
+    },
+  ];
 }
 
 function expectBefore(before: Element, after: Element) {
@@ -1065,6 +1154,304 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(true);
   });
 
+  it("keeps follow-up text local without offering queueing during an image turn", () => {
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "follow up after the image",
+        chatLoading: true,
+        chatAttachmentTurnDraftCount: 1,
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { image_input: "supported" },
+            },
+          },
+        ],
+        activeChatSession: {
+          id: "chat_1",
+          title: "Vision chat",
+          agent_id: "hecate",
+          status: "running",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic", image_input: "supported" },
+          tools_enabled: false,
+          workspace: "",
+          messages: [],
+        },
+      },
+      { submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue(
+      "follow up after the image",
+    );
+    const waitButton = screen.getByRole("button", { name: "Wait for attachment response" });
+    expect(waitButton).toBeDisabled();
+    expect(waitButton).toHaveAttribute(
+      "title",
+      "Wait for the attachment response before sending this message",
+    );
+    expect(screen.queryByRole("button", { name: "Queue message" })).toBeNull();
+    expect(screen.queryByText(/New messages will queue/)).toBeNull();
+    expect(screen.getByLabelText("Active run status")).toHaveTextContent(
+      "New text stays in the composer until the response finishes.",
+    );
+    fireEvent.click(waitButton);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    expect(submitChat).not.toHaveBeenCalled();
+  });
+
+  it("accepts and announces pasted images for a confirmed vision model in Tools-off Hecate Chat", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      message: "",
+      providerScopedModels: [
+        {
+          id: "gpt-4o-mini",
+          owned_by: "openai",
+          metadata: {
+            provider: "openai",
+            provider_kind: "cloud",
+            capabilities: { image_input: "supported" },
+          },
+        },
+      ],
+      activeChatSession: {
+        id: "chat_1",
+        title: "Vision chat",
+        agent_id: "hecate",
+        status: "idle",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic", image_input: "supported" },
+        tools_enabled: false,
+        workspace: "",
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
+      clipboardData: { files: [file] },
+    });
+
+    expect(screen.getByRole("button", { name: "Remove map.png" })).toBeVisible();
+    expect(await screen.findByText("map.png added. 1 image ready to attach.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
+  it("clears a stale image selection error when submission consumes the drafts", async () => {
+    const pendingFile = new File(["image"], "map.png", { type: "image/png" });
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        message: "",
+        pendingChatAttachments: [{ id: "draft-1", file: pendingFile }],
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { image_input: "supported" },
+            },
+          },
+        ],
+        activeChatSession: {
+          id: "chat_1",
+          title: "Vision chat",
+          agent_id: "hecate",
+          status: "idle",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic", image_input: "supported" },
+          tools_enabled: false,
+          workspace: "",
+          messages: [],
+        },
+      },
+      { submitChat },
+    );
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    fireEvent.change(screen.getByLabelText("Choose images"), {
+      target: { files: [new File(["svg"], "map.svg", { type: "image/svg+xml" })] },
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("map.svg must be PNG, JPEG, or WebP.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(submitChat).toHaveBeenCalledOnce());
+    rerender(
+      withRuntimeConsole(<ChatView />, {
+        state: { ...state, pendingChatAttachments: [] },
+        actions,
+      }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("enables images when the selected provider id maps to the runtime provider name", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      providerFilter: "vision-prod",
+      model: "vision-model",
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          {
+            id: "vision-prod",
+            name: "Vision Production",
+            kind: "cloud",
+            protocol: "openai",
+            base_url: "https://gateway.example/v1",
+            credential_configured: true,
+          },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+      providerScopedModels: [
+        {
+          id: "vision-model",
+          owned_by: "Vision Production",
+          metadata: {
+            provider: "Vision Production",
+            provider_kind: "cloud",
+            capabilities: { image_input: "supported" },
+          },
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const imageButton = screen.getByRole("button", { name: "Image" });
+    expect(imageButton).toBeEnabled();
+
+    const file = new File(["image"], "route-alias.png", { type: "image/png" });
+    fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
+      clipboardData: { files: [file] },
+    });
+
+    expect(screen.getByRole("button", { name: "Remove route-alias.png" })).toBeVisible();
+  });
+
+  it("explains why images stay disabled when model support is unknown", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSession: {
+        id: "chat_1",
+        title: "Unprobed chat",
+        agent_id: "hecate",
+        status: "idle",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic", image_input: "unknown" },
+        tools_enabled: false,
+        workspace: "",
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Image" })).toBeDisabled();
+    expect(screen.getByText("Image input has not been confirmed for gpt-4o-mini.")).toBeVisible();
+  });
+
+  it("does not reuse image capability from a previous provider route", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      providerFilter: "anthropic",
+      providerScopedModels: [
+        {
+          id: "shared-model",
+          owned_by: "anthropic",
+          metadata: {
+            provider: "anthropic",
+            provider_kind: "cloud",
+            capabilities: { image_input: "none" },
+          },
+        },
+      ],
+      model: "shared-model",
+      activeChatSession: {
+        id: "chat_1",
+        title: "Previous provider chat",
+        agent_id: "hecate",
+        status: "idle",
+        provider: "openai",
+        model: "shared-model",
+        capabilities: { tool_calling: "basic", image_input: "supported" },
+        tools_enabled: false,
+        workspace: "",
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Image" })).toBeDisabled();
+    expect(screen.getByText("shared-model does not support image input.")).toBeVisible();
+  });
+
+  it("accepts arbitrary pasted files for a ready External Agent session", async () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp-adapter",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      activeChatSession: {
+        id: "chat_1",
+        title: "External files",
+        agent_id: "codex",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("group", { name: "File attachments" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Files" })).toBeEnabled();
+    expect(screen.getByLabelText("Choose files")).not.toHaveAttribute("accept");
+
+    const file = new File(["report"], "report.pdf", { type: "application/pdf" });
+    fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
+      clipboardData: { files: [file] },
+    });
+
+    expect(screen.getByRole("button", { name: "Remove report.pdf" })).toBeVisible();
+    expect(await screen.findByText("report.pdf added. 1 file ready to attach.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
   it("keeps model composer editable but blocks send when no provider is configured", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -1246,65 +1633,85 @@ describe("ChatView input", () => {
     expect(onNavigate).toHaveBeenCalledWith("connections");
   });
 
-  it("offers the backend-suggested model as a one-click repair", async () => {
-    const setModel = vi.fn();
-    const setProviderFilter = vi.fn();
-    const { state, actions } = setup(
-      {
-        chatTarget: "agent",
-        defaultChatToolsEnabled: false,
-        providerFilter: "anthropic",
-        model: "claude-sonnet-4-6",
-        message: "hello",
-        settingsConfig: {
-          backend: "memory",
-          providers: [
+  it.each([false, true])(
+    "scopes the backend-suggested model repair to Stop ownership (stopping: %s)",
+    async (chatCancelling) => {
+      const setModel = vi.fn();
+      const setProviderFilter = vi.fn();
+      const { state, actions } = setup(
+        {
+          chatTarget: "agent",
+          defaultChatToolsEnabled: false,
+          chatCancelling,
+          chatCancellingSessionID: chatCancelling ? "chat_1" : "",
+          activeChatSessionID: "chat_1",
+          activeChatSession: {
+            id: "chat_1",
+            title: "Model repair",
+            agent_id: "hecate",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            status: "completed",
+            messages: [],
+          } as any,
+          providerFilter: "anthropic",
+          model: "claude-sonnet-4-6",
+          message: "hello",
+          settingsConfig: {
+            backend: "memory",
+            providers: [
+              {
+                id: "anthropic",
+                name: "Anthropic",
+                preset_id: "anthropic",
+                kind: "cloud",
+                protocol: "anthropic",
+                base_url: "https://api.anthropic.com/v1",
+                credential_configured: false,
+              },
+            ],
+            policy_rules: [],
+            events: [],
+          },
+          providerScopedModels: [
             {
-              id: "anthropic",
-              name: "Anthropic",
-              preset_id: "anthropic",
-              kind: "cloud",
-              protocol: "anthropic",
-              base_url: "https://api.anthropic.com/v1",
-              credential_configured: false,
-            },
-          ],
-          policy_rules: [],
-          events: [],
-        },
-        providerScopedModels: [
-          {
-            id: "claude-sonnet-4-6",
-            owned_by: "anthropic",
-            metadata: {
-              provider: "anthropic",
-              provider_kind: "cloud",
-              readiness: {
-                ready: false,
-                status: "blocked",
-                reason: "credential_missing",
-                message: "Anthropic needs credentials before this model can route.",
-                suggested_models: ["gpt-4o-mini"],
+              id: "claude-sonnet-4-6",
+              owned_by: "anthropic",
+              metadata: {
+                provider: "anthropic",
+                provider_kind: "cloud",
+                readiness: {
+                  ready: false,
+                  status: "blocked",
+                  reason: "credential_missing",
+                  message: "Anthropic needs credentials before this model can route.",
+                  suggested_models: ["gpt-4o-mini"],
+                },
               },
             },
-          },
-          {
-            id: "gpt-4o-mini",
-            owned_by: "openai",
-            metadata: { provider: "openai", provider_kind: "cloud" },
-          },
-        ],
-      },
-      { setModel, setProviderFilter },
-    );
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
+            {
+              id: "gpt-4o-mini",
+              owned_by: "openai",
+              metadata: { provider: "openai", provider_kind: "cloud" },
+            },
+          ],
+        },
+        { setModel, setProviderFilter },
+      );
+      render(withRuntimeConsole(<ChatView />, { state, actions }));
+      setModel.mockClear();
+      setProviderFilter.mockClear();
 
-    const user = userEvent.setup();
-    await user.click(screen.getAllByRole("button", { name: "Use gpt-4o-mini" })[0]);
-
-    expect(setProviderFilter).toHaveBeenCalledWith("auto");
-    expect(setModel).toHaveBeenCalledWith("gpt-4o-mini");
-  });
+      const user = userEvent.setup();
+      const repairs = screen.getAllByRole("button", { name: "Use gpt-4o-mini" });
+      expect(repairs.every((repair) => (repair as HTMLButtonElement).disabled)).toBe(
+        chatCancelling,
+      );
+      await user.click(repairs[0]);
+      expect(setProviderFilter.mock.calls).toEqual(chatCancelling ? [] : [["auto"]]);
+      expect(setModel.mock.calls).toEqual(chatCancelling ? [] : [[""], ["gpt-4o-mini"]]);
+    },
+  );
 
   it("opens Connections from the model empty state", async () => {
     const onNavigate = vi.fn();
@@ -2464,7 +2871,7 @@ describe("ChatView input", () => {
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
 
-  it("renders queued messages with a remove action", async () => {
+  it("renders retryable queued messages with edit, retry, and remove actions", async () => {
     const removeQueuedChatMessage = vi.fn();
     const updateQueuedChatMessage = vi.fn();
     const user = userEvent.setup();
@@ -2476,6 +2883,7 @@ describe("ChatView input", () => {
             id: "queued_1",
             session_id: "chat_1",
             content: "run tests after this",
+            delivery_state: "retryable",
             execution_mode: "hecate_task",
             provider_filter: "ollama",
             model: "qwen2.5-coder",
@@ -2499,8 +2907,107 @@ describe("ChatView input", () => {
       "queued_1",
       "run unit tests after this",
     );
+    expect(screen.getByRole("button", { name: "Retry queued message 1" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Remove queued message 1" }));
     expect(removeQueuedChatMessage).toHaveBeenCalledWith("queued_1");
+  });
+
+  it("locks a queued message while its submission is in flight", () => {
+    const { state, actions } = setup({
+      activeChatSessionID: "chat_1",
+      queuedChatMessages: [
+        {
+          id: "queued_1",
+          session_id: "chat_1",
+          content: "run tests after this",
+          delivery_state: "submitting",
+          execution_mode: "hecate_task",
+          provider_filter: "ollama",
+          model: "qwen2.5-coder",
+          workspace: "/workspace",
+          system_prompt: "",
+          agent_id: "hecate",
+          created_at: "2026-04-20T00:00:00Z",
+        },
+      ],
+    });
+
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("sending queued item…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry queued message 1" })).toBeNull();
+    expect(screen.getByLabelText("Queued message 1")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove queued message 1" })).toBeDisabled();
+  });
+
+  it("requires a delivery check before an ambiguous queued message can be retried", () => {
+    const { state, actions } = setup({
+      activeChatSessionID: "chat_1",
+      queuedChatMessages: [
+        {
+          id: "queued_1",
+          session_id: "chat_1",
+          content: "run tests after this",
+          delivery_state: "reconcile_required",
+          delivery_baseline_message_ids: [],
+          execution_mode: "hecate_task",
+          provider_filter: "ollama",
+          model: "qwen2.5-coder",
+          workspace: "/workspace",
+          system_prompt: "",
+          agent_id: "hecate",
+          created_at: "2026-04-20T00:00:00Z",
+        },
+      ],
+    });
+
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("check delivery status before retrying")).toBeTruthy();
+    expect(screen.getByLabelText("Queued message 1")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Queued message 1")).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Check queued message 1 delivery status" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry queued message 1" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove queued message 1" })).toBeEnabled();
+  });
+
+  it("requires remove and resubmit for a local queue-id replacement conflict", () => {
+    const queuedID = "queued_1";
+    const fingerprint = "0".repeat(64);
+    localStorage.setItem(queuedChatMessagesV2MarkerStorageKey, "1");
+    localStorage.setItem(
+      `${queuedChatDeletedItemStorageKeyPrefix}0:${fingerprint}:${encodeURIComponent(queuedID)}`,
+      `deleted:v1:0:${fingerprint}`,
+    );
+    localStorage.setItem(
+      `${queuedChatMessageStorageKeyPrefix}${encodeURIComponent(queuedID)}`,
+      JSON.stringify({
+        id: queuedID,
+        session_id: "chat_1",
+        content: "changed in another tab",
+        delivery_state: "ready",
+        execution_mode: "hecate_task",
+        provider_filter: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/workspace",
+        system_prompt: "",
+        agent_id: "hecate",
+        created_at: "2026-04-20T00:00:00Z",
+      }),
+    );
+    const { state, actions } = setup({ activeChatSessionID: "chat_1" });
+
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("queue id conflict — remove and submit again")).toBeTruthy();
+    expect(screen.getByLabelText("Queued message 1")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Queued message 1")).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Check queued message 1 delivery status" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove queued message 1" })).toBeEnabled();
   });
 
   it("only renders queued messages for the active agent chat", () => {
@@ -3029,6 +3536,56 @@ describe("ChatView input", () => {
     expect(resolveTaskApproval).toHaveBeenCalledWith("task_hecate_123456", "appr_123", {
       decision: "approve",
     });
+  });
+
+  it("disables matching Hecate approval and RTK mutations while Stop settles", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      chatCancelling: true,
+      chatCancellingSessionID: "chat_1",
+      activeChatSessionID: "chat_1",
+      hecateRTKAvailable: true,
+      hecateRTKEnabled: false,
+      activeChatSession: {
+        id: "chat_1",
+        execution_mode: "hecate_task",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "awaiting_approval",
+        messages: [
+          {
+            id: "m2",
+            run_id: "run_hecate_abcdef",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            activities: [
+              {
+                id: "task:step:step_approval",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "approval",
+                title: "Awaiting approval",
+                approval_id: "appr_123",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: /Approve Approval/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Reject Approval/i })).toBeDisabled();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Chat settings" }));
+    expect(screen.getByRole("button", { name: "Compact command output off" })).toBeDisabled();
   });
 
   it("does not keep stale resolved Hecate Chat task approvals actionable", () => {
@@ -4875,6 +5432,7 @@ describe("ChatView external-agent target", () => {
     const writeText = vi.fn(() => Promise.resolve());
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:workspace-review",
       diff_stat: "README.md | 1 +\ndocs/guide.md | 1 +\n2 files changed, 2 insertions(+)",
       diff: [
         "diff --git a/README.md b/README.md",
@@ -4933,6 +5491,7 @@ describe("ChatView external-agent target", () => {
     );
     const revertChatWorkspaceFiles = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:workspace-clean",
       diff_stat: "",
       diff: "",
       has_changes: false,
@@ -5036,13 +5595,94 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Discard docs/guide.md" }));
     expect(revertChatWorkspaceFiles).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm discard docs/guide.md" }));
-    expect(revertChatWorkspaceFiles).toHaveBeenCalledWith("a1", ["docs/guide.md"]);
+    expect(revertChatWorkspaceFiles).toHaveBeenCalledWith(
+      "a1",
+      ["docs/guide.md"],
+      "revision:workspace-review",
+    );
     expect(await screen.findByText("The current workspace is clean.")).toBeTruthy();
+  });
+
+  it("disables workspace discard while the selected external agent is active", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      revision: "revision:active-agent",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -0,0 +1 @@\n+new",
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+    }));
+    const revertChatWorkspaceFiles = vi.fn(async () => null);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Active agent",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "running",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, revertChatWorkspaceFiles },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    const discard = await screen.findByRole("button", { name: "Discard README.md" });
+    expect(discard).toBeDisabled();
+    await userEvent.click(discard);
+    expect(revertChatWorkspaceFiles).not.toHaveBeenCalled();
+  });
+
+  it("disables workspace discard for a reloaded active direct Hecate turn", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      revision: "revision:reloaded-direct-turn",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -0,0 +1 @@\n+new",
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+    }));
+    const revertChatWorkspaceFiles = vi.fn(async () => null);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "h1",
+        activeChatSession: {
+          id: "h1",
+          title: "Reloaded direct turn",
+          agent_id: "hecate",
+          execution_mode: "direct_model",
+          tools_enabled: false,
+          workspace: "/tmp/hecate",
+          status: "running",
+          segments: [],
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, revertChatWorkspaceFiles },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    const discard = await screen.findByRole("button", { name: "Discard README.md" });
+    expect(discard).toBeDisabled();
+    await userEvent.click(discard);
+    expect(revertChatWorkspaceFiles).not.toHaveBeenCalled();
   });
 
   it("shows a loading empty state while the current workspace diff is still loading", async () => {
     let resolveDiff!: (value: {
       workspace: string;
+      revision: string;
       diff_stat: string;
       diff: string;
       has_changes: boolean;
@@ -5052,6 +5692,7 @@ describe("ChatView external-agent target", () => {
       () =>
         new Promise<{
           workspace: string;
+          revision: string;
           diff_stat: string;
           diff: string;
           has_changes: boolean;
@@ -5085,6 +5726,7 @@ describe("ChatView external-agent target", () => {
 
     resolveDiff({
       workspace: "/tmp/hecate",
+      revision: "revision:workspace-clean",
       diff_stat: "",
       diff: "",
       has_changes: false,
@@ -5096,6 +5738,7 @@ describe("ChatView external-agent target", () => {
   it("shows an explicit empty diff preview when a selected file has no text patch", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:binary",
       diff_stat: "docs/screenshots/chat.png | Bin 100 -> 120 bytes\n1 file changed",
       diff: "",
       has_changes: true,
@@ -5162,6 +5805,7 @@ describe("ChatView external-agent target", () => {
     ].join("\n");
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:mixed",
       diff_stat:
         "docs/screenshots/chat.png | Bin 100 -> 120 bytes\nREADME.md | 1 +\n2 files changed, 1 insertion(+)",
       diff: readmeDiff,
@@ -5220,6 +5864,7 @@ describe("ChatView external-agent target", () => {
     }));
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:metadata",
       diff_stat: "32 files changed, 32 insertions(+)",
       diff: "",
       has_changes: true,
@@ -5273,6 +5918,7 @@ describe("ChatView external-agent target", () => {
   it("shows the full workspace file tree separately from the review diff list", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:file-tree",
       diff_stat:
         "ui/src/features/chats/ChatView.tsx | 1 +\nui/src/features/chats/ChatView.test.tsx | 1 +\n2 files changed, 2 insertions(+)",
       diff: "",
@@ -5406,6 +6052,7 @@ describe("ChatView external-agent target", () => {
   it("shows a clean current-diff state even when the transcript has no captured changes", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:clean-current",
       diff_stat: "",
       diff: "",
       has_changes: false,
@@ -5441,6 +6088,7 @@ describe("ChatView external-agent target", () => {
   it("keeps settings and workspace changes in the same resizable right panel", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:clean-panel",
       diff_stat: "",
       diff: "",
       has_changes: false,
@@ -5562,6 +6210,7 @@ describe("ChatView external-agent target", () => {
   it("clears workspace file diff loading state when a file diff request rejects", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:file-diff-reject",
       diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
       diff: "",
       has_changes: true,
@@ -5600,6 +6249,7 @@ describe("ChatView external-agent target", () => {
   it("clears workspace discard state when revert rejects", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
+      revision: "revision:revert-reject",
       diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
       diff: [
         "diff --git a/README.md b/README.md",
@@ -5656,7 +6306,9 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
 
     expect(await screen.findByText("Could not discard those workspace changes.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Discard README.md" })).not.toBeDisabled();
+    expect(screen.getByText("Could not load the current workspace diff.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Discard README.md" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Refresh" })).not.toBeDisabled();
     expect(screen.queryByText("Discarding...")).toBeNull();
   });
 
@@ -5690,10 +6342,315 @@ describe("ChatView external-agent target", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
+    const stop = screen.getByRole("button", {
+      name: "Stopping external agent...",
+    }) as HTMLButtonElement;
+    expect(stop.disabled).toBe(true);
+    expect(stop.title).toBe("Stopping external agent...");
+    const stoppingStatus = screen.getByText("Stopping external agent...");
+    expect(stoppingStatus).toHaveAttribute("role", "status");
+    expect(stoppingStatus).toHaveAttribute("aria-live", "polite");
+    expect(stoppingStatus).toHaveAttribute("aria-atomic", "true");
+  });
+
+  it("disables matching external-session mutation controls while Stop settles", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      revision: "revision:stop-settles",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -0,0 +1 @@\n+new",
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+    }));
+    const pendingApprovalsBySessionID = new Map([
+      [
+        "a1",
+        [
+          {
+            approval_id: "approval_1",
+            session_id: "a1",
+            adapter_id: "codex",
+            tool_kind: "fs",
+            created_at: "2026-04-21T10:00:00Z",
+            expires_at: "2026-04-21T10:05:00Z",
+          },
+        ],
+      ],
+    ]);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        chatCancelling: true,
+        chatCancellingSessionID: "a1",
+        agentWorkspace: "/tmp/hecate",
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+        pendingApprovalsBySessionID,
+        queuedChatMessages: [
+          {
+            id: "queued_1",
+            session_id: "a1",
+            content: "queued",
+            delivery_state: "reconcile_required",
+            created_at: "2026-04-21T10:00:00Z",
+          },
+        ] as any,
+        chatSessions: [
+          {
+            id: "a1",
+            title: "Stopping work",
+            agent_id: "codex",
+            status: "completed",
+            message_count: 0,
+          } as any,
+        ],
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Stopping work",
+          agent_id: "codex",
+          driver_kind: "acp",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          config_options: [
+            { id: "auto_approve", name: "Auto approve", type: "boolean", current_bool: false },
+          ],
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByTestId("agent-approval-banner-review")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Check queued message 1 delivery status" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Chat Stopping work/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Rename chat Stopping work" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete chat Stopping work" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Auto approve: off/i })).toBeDisabled();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+    expect(await screen.findByRole("button", { name: "Discard README.md" })).toBeDisabled();
+  });
+
+  it("blocks a pending Delete confirmation when Stop acquires the same session", async () => {
+    const deleteChatSession = vi.fn(async () => true);
+    const session = {
+      id: "a1",
+      title: "Pending deletion",
+      agent_id: "codex",
+      driver_kind: "acp",
+      workspace: "/tmp/hecate",
+      status: "running",
+      messages: [],
+    } as any;
+    const fixture = {
+      chatTarget: "external_agent",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp-adapter",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      chatSessions: [{ ...session, message_count: 0 }],
+      activeChatSessionID: "a1",
+      activeChatSession: session,
+    };
+    const { state, actions } = setup(fixture, { deleteChatSession });
+    const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Delete chat Pending deletion" }));
+    expect(screen.getByRole("button", { name: "Delete chat" })).toBeEnabled();
+
+    const { state: stoppingState } = setup(
+      { ...fixture, chatCancelling: true, chatCancellingSessionID: "a1" },
+      { deleteChatSession },
+    );
+    view.rerender(withRuntimeConsole(<ChatView />, { state: stoppingState, actions }));
+
+    const confirm = await screen.findByRole("button", { name: "Delete chat" });
+    await waitFor(() => expect(confirm).toBeDisabled());
+    await user.click(confirm);
+    expect(deleteChatSession).not.toHaveBeenCalled();
+  });
+
+  it("labels direct-model cancellation as stopping the model response", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: true,
+      chatLoading: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "a1",
+      chatTurnKind: "direct_model",
+      chatTurnCancellationAvailable: true,
+      activeChatSessionID: "a1",
+      activeChatSession: {
+        id: "a1",
+        title: "Vision response",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Stop model response" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Stop active task" })).toBeNull();
+  });
+
+  it("keeps the focused direct-model Stop mounted while local cancellation settles", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: true,
+      chatLoading: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "a1",
+      chatTurnKind: "direct_model",
+      chatTurnCancellationAvailable: false,
+      chatCancelling: true,
+      chatCancellingSessionID: "a1",
+      activeChatSessionID: "a1",
+      activeChatSession: {
+        id: "a1",
+        title: "Vision response",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Stopping model response..." })).toBeDisabled();
+    expect(screen.getByText("Stopping model response...")).toHaveAttribute("role", "status");
+  });
+
+  it("preserves the submitted turn kind after submit unwinds during server cancellation", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: true,
+      chatLoading: false,
+      chatTurnActive: false,
+      chatTurnKind: "",
+      chatCancelling: true,
+      chatCancellingSessionID: "a1",
+      chatCancellingTurnKind: "direct_model",
+      message: "start another response",
+      activeChatSessionID: "a1",
+      activeChatSession: {
+        id: "a1",
+        title: "Queued vision response",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Stopping model response..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(screen.getByText("Stopping model response...")).toHaveAttribute("role", "status");
+    expect(screen.queryByText("Stopping active task...")).toBeNull();
+  });
+
+  it("withholds Stop while direct-model message admission is unconfirmed", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: true,
+      chatLoading: true,
+      chatTurnActive: true,
+      chatTurnSessionID: "a1",
+      chatTurnKind: "direct_model",
+      chatTurnCancellationAvailable: false,
+      activeChatSessionID: "a1",
+      activeChatSession: {
+        id: "a1",
+        title: "Vision response",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByRole("button", { name: "Stop model response" })).toBeNull();
+    expect(screen.getByText("Hecate Chat is working. New messages will queue.")).toBeVisible();
+  });
+
+  it("disables Stop in another chat while the global cancellation slot is owned", async () => {
+    const cancelAgentChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        chatLoading: true,
+        chatCancelling: true,
+        chatCancellingSessionID: "a1",
+        agentWorkspace: "/tmp/hecate",
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+        activeChatSessionID: "b1",
+        activeChatSession: {
+          id: "b1",
+          title: "Other running chat",
+          agent_id: "codex",
+          driver_kind: "acp",
+          workspace: "/tmp/hecate",
+          status: "running",
+          messages: [],
+        } as any,
+      },
+      { cancelAgentChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
     const stop = screen.getByRole("button", { name: "Stop external agent" }) as HTMLButtonElement;
     expect(stop.disabled).toBe(true);
-    expect(stop.title).toBe("Stopping...");
-    expect(screen.getByText("Stopping...")).toBeTruthy();
+    expect(stop.title).toBe("Another chat is stopping. Wait for that request to finish.");
+    expect(screen.queryByText("Stopping...")).toBeNull();
+    expect(
+      screen.getByText("Another chat is stopping. Wait for that request to finish."),
+    ).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(stop);
+    expect(cancelAgentChat).not.toHaveBeenCalled();
   });
 
   it("shows stop controls for a restored running external-agent session", async () => {
@@ -6075,6 +7032,58 @@ describe("ChatView model target", () => {
     await user.click(screen.getByText("gpt-4.1-mini"));
     expect(setModel).toHaveBeenCalledWith("gpt-4.1-mini");
   });
+
+  it.each([
+    ["s1", true],
+    ["another-session", false],
+  ] as const)(
+    "scopes stopping route controls to the cancellation owner %s",
+    (chatCancellingSessionID, disabled) => {
+      const { state, actions } = setup({
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        providerFilter: "openai",
+        model: "gpt-4o-mini",
+        chatCancelling: true,
+        chatCancellingSessionID,
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          title: "Model switching",
+          agent_id: "hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+        settingsConfig: {
+          providers: [
+            { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
+            { id: "openai", name: "OpenAI", kind: "cloud", credential_configured: true },
+          ],
+        } as any,
+        providerPresets: [
+          { id: "anthropic", name: "Anthropic", kind: "cloud" },
+          { id: "openai", name: "OpenAI", kind: "cloud" },
+        ] as any,
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: { provider: "openai", provider_kind: "cloud" },
+          },
+        ],
+      });
+      render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+      const controls = screen.getByLabelText("Hecate message controls");
+      within(controls).getByRole("button", {
+        name: "Provider picker: OpenAI",
+      });
+      within(controls).getByRole("button", {
+        name: "Model picker: gpt-4o-mini",
+      });
+      expect((controls as HTMLFieldSetElement).disabled).toBe(disabled);
+    },
+  );
 });
 
 describe("ChatView error display", () => {
@@ -6404,13 +7413,15 @@ describe("ChatView session title", () => {
       chatLoading: true,
       chatTurnActive: true,
       chatTurnSessionID: "chat_running",
+      chatTurnKind: "direct_model",
+      chatTurnCancellationAvailable: true,
       message: "Queue during preparation",
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByRole("status", { name: "Starting chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Stop active task" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop model response" })).toBeInTheDocument();
     expect(screen.getByText(/Hecate Chat is working/)).toBeInTheDocument();
   });
 
@@ -6469,6 +7480,8 @@ describe("ChatView session title", () => {
       chatCreating: true,
       chatTurnActive: true,
       chatTurnSessionID: "",
+      chatTurnKind: "direct_model",
+      chatTurnCancellationAvailable: true,
       chatLoading: true,
       message: "",
     });
@@ -6481,8 +7494,8 @@ describe("ChatView session title", () => {
     expect(composer).toHaveFocus();
     expect(screen.getByLabelText("Hecate message controls")).toBeDisabled();
     expect(screen.getByRole("status", { name: "Starting chat" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop active task" })).toBeNull();
-    expect(screen.queryByText(/Hecate Chat is working/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop model response" })).toBeEnabled();
+    expect(screen.getByText(/Hecate Chat is working/)).toBeInTheDocument();
   });
 
   it("keeps an explicitly prepared draft editable while its route controls stay fixed", () => {
@@ -6543,6 +7556,8 @@ describe("ChatView session title", () => {
       chatCreating: true,
       chatTurnActive: true,
       chatTurnSessionID: "",
+      chatTurnKind: "external_agent",
+      chatTurnCancellationAvailable: true,
       chatLoading: true,
       agentAdapters: [
         {
@@ -6572,6 +7587,7 @@ describe("ChatView session title", () => {
     expect(screen.getByLabelText("External agent message controls")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Stop external agent" })).toBeEnabled();
   });
 
   it("offers a saved unsent message without replacing the current draft", async () => {
@@ -6716,6 +7732,62 @@ describe("ChatView session title", () => {
     expect(onNavigate).toHaveBeenCalledWith("projects");
   });
 
+  it("blocks linked-project shortcuts while an image draft owns the chat", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "Plan next project work",
+        projects: [linkedProjectFixture()],
+        activeChatSessionID: "s1",
+        activeChatSession: linkedHecateChatFixture(),
+        pendingChatAttachments: [{ id: "draft-1", file }],
+      },
+      { selectProject },
+    );
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+
+    expect(
+      screen.queryByRole("button", { name: "Draft Project Assistant proposal from message" }),
+    ).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Open project: Hecate" }));
+
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("blocks the linked-project shortcut while a submitted image turn owns the chat", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        projects: [linkedProjectFixture()],
+        activeChatSessionID: "s1",
+        activeChatSession: linkedHecateChatFixture(),
+      },
+      { selectProject },
+    );
+    render(
+      withRuntimeConsole(
+        <>
+          <ChatView onNavigate={onNavigate} />
+          <ChatAttachmentOwnershipTestControls />
+        </>,
+        { state, actions },
+      ),
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Begin test image turn" }));
+    await user.click(screen.getByRole("button", { name: "Open project: Hecate" }));
+
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
   it("drafts a Project Assistant proposal from a project-linked Hecate chat message", async () => {
     const selectProject = vi.fn(async () => undefined);
     const setMessage = vi.fn();
@@ -6769,6 +7841,59 @@ describe("ChatView session title", () => {
       source_session_id: "s1",
       proposal: { id: "pa_chat" },
     });
+  });
+
+  it("preserves the prompt and image draft when ownership changes during proposal drafting", async () => {
+    const defaultDraft = vi.mocked(draftChatProjectAssistant).getMockImplementation();
+    expect(defaultDraft).toBeDefined();
+    let releaseDraft: (() => void) | undefined;
+    vi.mocked(draftChatProjectAssistant).mockImplementationOnce(async (...args) => {
+      await new Promise<void>((resolve) => {
+        releaseDraft = resolve;
+      });
+      return defaultDraft!(...args);
+    });
+    const selectProject = vi.fn(async () => undefined);
+    const setMessage = vi.fn();
+    const onNavigate = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "Plan next project work",
+        projects: [linkedProjectFixture()],
+        activeChatSessionID: "s1",
+        activeChatSession: linkedHecateChatFixture(),
+      },
+      { selectProject, setMessage },
+    );
+    render(
+      withRuntimeConsole(
+        <>
+          <ChatView onNavigate={onNavigate} />
+          <ChatAttachmentOwnershipTestControls />
+        </>,
+        { state, actions },
+      ),
+    );
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "Draft Project Assistant proposal from message" }),
+    );
+    await waitFor(() => expect(releaseDraft).toBeDefined());
+    await user.click(screen.getByRole("button", { name: "Add test image draft" }));
+    await act(async () => releaseDraft?.());
+
+    await waitFor(() =>
+      expect(screen.getByTestId("runtime-notice")).toHaveTextContent(
+        "Remove attached files before changing or deleting chat ownership.",
+      ),
+    );
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(setMessage).not.toHaveBeenCalledWith("");
+    expect(screen.getByTestId("pending-attachment-count")).toHaveTextContent("1");
+    expect(readProjectAssistantChatHandoff()).toBeNull();
   });
 
   it("opens a Project Assistant proposal artifact from the chat transcript", async () => {
@@ -6850,6 +7975,93 @@ describe("ChatView session title", () => {
       source_session_id: "s1",
       proposal: { id: "pa_artifact" },
     });
+  });
+
+  it("does not fetch a Project Assistant artifact while an image draft owns the chat", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        projects: [linkedProjectFixture()],
+        activeChatSessionID: "s1",
+        activeChatSession: linkedHecateChatFixture(projectProposalArtifactMessages()),
+        pendingChatAttachments: [{ id: "draft-1", file }],
+      },
+      { selectProject },
+    );
+    render(
+      withRuntimeConsole(
+        <>
+          <ChatView onNavigate={onNavigate} />
+          <ChatAttachmentOwnershipTestControls />
+        </>,
+        { state, actions },
+      ),
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText(/1 proposal ready/));
+    await user.click(screen.getByText("Proposal"));
+    await user.click(screen.getByRole("button", { name: "Review in Projects" }));
+
+    expect(getTaskRunArtifact).not.toHaveBeenCalled();
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("runtime-notice")).toHaveTextContent(
+      "Remove attached files before changing or deleting chat ownership.",
+    );
+  });
+
+  it("does not hand off a Project Assistant artifact when image ownership changes mid-fetch", async () => {
+    const defaultArtifact = vi.mocked(getTaskRunArtifact).getMockImplementation();
+    expect(defaultArtifact).toBeDefined();
+    let releaseArtifact: (() => void) | undefined;
+    vi.mocked(getTaskRunArtifact).mockImplementationOnce(async (...args) => {
+      await new Promise<void>((resolve) => {
+        releaseArtifact = resolve;
+      });
+      return defaultArtifact!(...args);
+    });
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        projects: [linkedProjectFixture()],
+        activeChatSessionID: "s1",
+        activeChatSession: linkedHecateChatFixture(projectProposalArtifactMessages()),
+      },
+      { selectProject },
+    );
+    render(
+      withRuntimeConsole(
+        <>
+          <ChatView onNavigate={onNavigate} />
+          <ChatAttachmentOwnershipTestControls />
+        </>,
+        { state, actions },
+      ),
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText(/1 proposal ready/));
+    await user.click(screen.getByText("Proposal"));
+    await user.click(screen.getByRole("button", { name: "Review in Projects" }));
+    await waitFor(() => expect(releaseArtifact).toBeDefined());
+    await user.click(screen.getByRole("button", { name: "Add test image draft" }));
+    await act(async () => releaseArtifact?.());
+
+    await waitFor(() =>
+      expect(screen.getByTestId("runtime-notice")).toHaveTextContent(
+        "Remove attached files before changing or deleting chat ownership.",
+      ),
+    );
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("pending-attachment-count")).toHaveTextContent("1");
+    expect(readProjectAssistantChatHandoff()).toBeNull();
   });
 
   it("does not show the project shortcut for unprojected chats", () => {
@@ -6942,6 +8154,89 @@ describe("ChatView New chat button", () => {
     rerender(withRuntimeConsole(<ChatView />, { state: nextState, actions }));
     const textarea = await screen.findByPlaceholderText(/^Message…/i);
     await waitFor(() => expect(document.activeElement).toBe(textarea));
+  });
+
+  it("does not create a new chat while image drafts belong to the active session", async () => {
+    const selectChatSession = vi.fn(async () => true);
+    const createChatSession = vi.fn();
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    const { state, actions } = setup(
+      {
+        defaultChatToolsEnabled: false,
+        pendingChatAttachments: [{ id: "draft-1", file }],
+      },
+      { createChatSession, selectChatSession },
+    );
+    const user = userEvent.setup();
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    await user.click(screen.getByRole("button", { name: /new .* chat/i }));
+
+    expect(selectChatSession).not.toHaveBeenCalled();
+    expect(createChatSession).not.toHaveBeenCalled();
+  });
+
+  it("blocks project-scope changes before mutating chat or project state with image drafts", async () => {
+    const projectA: ProjectRecord = {
+      id: "project_a",
+      name: "Project A",
+      roots: [],
+      created_at: "2026-07-13T10:00:00Z",
+      updated_at: "2026-07-13T10:00:00Z",
+    };
+    const projectB: ProjectRecord = {
+      id: "project_b",
+      name: "Project B",
+      roots: [],
+      created_at: "2026-07-13T10:00:00Z",
+      updated_at: "2026-07-13T10:00:00Z",
+    };
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    const selectProject = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => true);
+    const setAgentWorkspace = vi.fn();
+    const { state, actions } = setup(
+      {
+        activeProjectID: projectA.id,
+        projects: [projectA, projectB],
+        activeChatSessionID: "chat_a",
+        activeChatSession: {
+          id: "chat_a",
+          project_id: projectA.id,
+          agent_id: "hecate",
+          title: "A",
+          status: "completed",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages: [],
+        } as any,
+        chatSessions: [
+          {
+            id: "chat_a",
+            project_id: projectA.id,
+            title: "A",
+            message_count: 0,
+          } as any,
+          {
+            id: "chat_b",
+            project_id: projectB.id,
+            title: "B",
+            message_count: 0,
+          } as any,
+        ],
+        pendingChatAttachments: [{ id: "draft-1", file }],
+      },
+      { selectProject, selectChatSession, setAgentWorkspace },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Expand projects" }));
+    await user.click(screen.getByRole("button", { name: "Project Project B" }));
+
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(selectChatSession).not.toHaveBeenCalled();
+    expect(setAgentWorkspace).not.toHaveBeenCalled();
   });
 });
 
@@ -7145,7 +8440,7 @@ describe("ChatView agent approvals", () => {
     expect(getChatApproval).toHaveBeenCalledWith(sessionID, "ap-1");
   });
 
-  it("does not carry an external approval modal into Hecate Chat", async () => {
+  it("keeps an external approval modal bound to its originating chat", async () => {
     const sessionID = "external-approval-session";
     const pending = new Map<string, any>([
       [
@@ -7212,5 +8507,97 @@ describe("ChatView agent approvals", () => {
     view.rerender(withRuntimeConsole(<ChatView />, { state: hecateState, actions }));
 
     expect(getChatApproval).toHaveBeenCalledTimes(1);
+
+    const { state: otherExternalState } = setup(
+      {
+        chatTarget: "external_agent",
+        activeChatSessionID: "other-external-session",
+        activeChatSession: {
+          id: "other-external-session",
+          title: "Other agent",
+          agent_id: "codex",
+          workspace: "/tmp",
+          status: "running",
+        } as any,
+        pendingApprovalsBySessionID: pending,
+      },
+      { getChatApproval },
+    );
+    view.rerender(withRuntimeConsole(<ChatView />, { state: otherExternalState, actions }));
+
+    expect(getChatApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a stopped session approval modal after the pending cache reconciles", async () => {
+    const sessionID = "external-approval-session";
+    const pendingRow = {
+      approval_id: "ap-external",
+      session_id: sessionID,
+      adapter_id: "codex",
+      tool_kind: "fs",
+      tool_name: "write_file",
+      created_at: "2026-04-21T10:00:00Z",
+      expires_at: "2026-04-21T10:05:00Z",
+    };
+    const pending = new Map<string, any>([[sessionID, [pendingRow]]]);
+    const getChatApproval = vi.fn(async () => ({
+      id: "ap-external",
+      session_id: sessionID,
+      adapter_id: "codex",
+      tool_kind: "fs",
+      tool_name: "write_file",
+      status: "pending",
+      acp_options: [],
+      scope_choices: ["once"],
+      created_at: pendingRow.created_at,
+      expires_at: pendingRow.expires_at,
+    }));
+    const fixture = {
+      chatTarget: "external_agent",
+      activeChatSessionID: sessionID,
+      activeChatSession: {
+        id: sessionID,
+        title: "External agent",
+        agent_id: "codex",
+        driver_kind: "acp",
+        workspace: "/tmp",
+        status: "running",
+        messages: [],
+      } as any,
+      pendingApprovalsBySessionID: pending,
+      chatSessions: [
+        {
+          id: sessionID,
+          title: "External agent",
+          agent_id: "codex",
+          status: "running",
+          message_count: 0,
+        } as any,
+      ],
+    };
+    const { state, actions } = setup(fixture, { getChatApproval });
+    const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("agent-approval-banner-review"));
+    expect(await screen.findByTestId("agent-approval-modal-submit")).toBeEnabled();
+
+    const { state: stoppingState } = setup(
+      { ...fixture, chatCancelling: true, chatCancellingSessionID: sessionID },
+      { getChatApproval },
+    );
+    view.rerender(withRuntimeConsole(<ChatView />, { state: stoppingState, actions }));
+    await waitFor(() => expect(screen.getByTestId("agent-approval-modal-submit")).toBeDisabled());
+
+    const { state: reconciledState } = setup(
+      {
+        ...fixture,
+        chatCancelling: false,
+        chatCancellingSessionID: "",
+        pendingApprovalsBySessionID: new Map([[sessionID, []]]),
+      },
+      { getChatApproval },
+    );
+    view.rerender(withRuntimeConsole(<ChatView />, { state: reconciledState, actions }));
+    await waitFor(() => expect(screen.queryByTestId("agent-approval-modal-submit")).toBeNull());
   });
 });

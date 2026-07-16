@@ -8,7 +8,7 @@ import {
   type SyntheticEvent,
 } from "react";
 
-import { useChat } from "../../app/state/chat";
+import { useChat, type ChatTurnKind } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
@@ -38,6 +38,11 @@ import {
   LockedHecateModelSnapshot,
 } from "./ChatAgentControls";
 import { ChatNoticeInline } from "./ChatNotice";
+import {
+  appendChatFiles,
+  ChatAttachmentDrafts,
+  type ChatAttachmentAcceptance,
+} from "./ChatImageAttachments";
 import { mergeAgentConfigOptions } from "./agentConfigOptions";
 import { mcpServerFormEntriesToPayload } from "../../lib/mcp-server-form";
 
@@ -151,6 +156,7 @@ export type ChatComposerProps = {
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
   hecateTaskToolsAvailable: boolean;
+  activeRunKind: ChatTurnKind;
   activeSessionID: string;
 
   // Cross-region ref. ChatView owns creation so onSelectSession can
@@ -167,7 +173,12 @@ export type ChatComposerProps = {
   messageSendBlocked: boolean;
   sendDisabled: boolean;
   agentBusy: boolean;
+  activeRunCancellationAvailable: boolean;
+  attachmentTurnInFlight: boolean;
   queueingMessage: boolean;
+  attachmentAcceptance: ChatAttachmentAcceptance;
+  attachmentsEnabled: boolean;
+  attachmentsDisabledReason: string;
   selectedModelIssue: SelectedModelIssue | null;
   chatDiagnostic: ReturnType<typeof describeGatewayError>;
 
@@ -227,7 +238,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const chatErrorRequestID = chat.state.chatErrorRequestID;
   const chatErrorStatus = chat.state.chatErrorStatus;
   const chatErrorTraceID = chat.state.chatErrorTraceID;
-  const chatCancelling = chat.state.chatCancelling;
+  const rawChatCancelling = chat.state.chatCancelling;
   const providerFilter = chat.state.providerFilter;
   const model = chat.state.model;
   const activeChatSession = chat.state.activeChatSession;
@@ -246,6 +257,7 @@ export function ChatComposer(props: ChatComposerProps) {
     isHecateChat,
     isExternalAgentChat,
     hecateTaskToolsAvailable,
+    activeRunKind,
     activeSessionID,
     textareaRef,
     composerVisible,
@@ -257,7 +269,12 @@ export function ChatComposer(props: ChatComposerProps) {
     messageSendBlocked,
     sendDisabled,
     agentBusy,
+    activeRunCancellationAvailable,
+    attachmentTurnInFlight,
     queueingMessage,
+    attachmentAcceptance,
+    attachmentsEnabled,
+    attachmentsDisabledReason,
     selectedModelIssue,
     chatDiagnostic,
     hecateAgentModelLocked,
@@ -284,6 +301,21 @@ export function ChatComposer(props: ChatComposerProps) {
     onOpenChatSettings,
     onOpenLinkedProject,
   } = props;
+  const chatCancelling =
+    rawChatCancelling && chat.state.chatCancellingSessionID === activeSessionID;
+  const anotherChatCancelling = rawChatCancelling && !chatCancelling;
+  const stopActionLabel =
+    activeRunKind === "external_agent"
+      ? "Stop external agent"
+      : activeRunKind === "direct_model"
+        ? "Stop model response"
+        : "Stop active task";
+  const stoppingStatusText =
+    activeRunKind === "external_agent"
+      ? "Stopping external agent..."
+      : activeRunKind === "direct_model"
+        ? "Stopping model response..."
+        : "Stopping active task...";
   const activeExternalAgentID =
     activeChatSession?.agent_id && activeChatSession.agent_id !== "hecate"
       ? activeChatSession.agent_id
@@ -313,11 +345,13 @@ export function ChatComposer(props: ChatComposerProps) {
   const composerNoticeVisible = Boolean(
     composerRepair || chatError || (isHecateChat && selectedModelIssue),
   );
-  const activeRunStatusText = agentBusy
-    ? isExternalAgentChat
-      ? "External Agent is working. New messages will queue."
-      : "Hecate Chat is working. New messages will queue."
-    : "";
+  const activeRunStatusText = attachmentTurnInFlight
+    ? "Chat is processing attached files. New text stays in the composer until the response finishes."
+    : agentBusy
+      ? isExternalAgentChat
+        ? "External Agent is working. New messages will queue."
+        : "Hecate Chat is working. New messages will queue."
+      : "";
   const baselineComposerStatus = isExternalAgentChat
     ? "External agents run as your OS user in the selected workspace — no sandbox"
     : hecateTaskToolsAvailable
@@ -338,6 +372,8 @@ export function ChatComposer(props: ChatComposerProps) {
   const messageHistoryPendingTextRef = useRef("");
   const commandOptionRefs = useRef<Array<HTMLDivElement | null>>([]);
   const commandListboxID = useId();
+  const [attachmentSelectionError, setAttachmentSelectionError] = useState("");
+  const previousPendingAttachmentCountRef = useRef(chat.state.pendingChatAttachments.length);
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const commandQuery = messageCommandQuery(message);
@@ -433,7 +469,17 @@ export function ChatComposer(props: ChatComposerProps) {
   useEffect(() => {
     messageHistoryCursorRef.current = null;
     messageHistoryPendingTextRef.current = "";
+    setAttachmentSelectionError("");
   }, [activeSessionID]);
+
+  useEffect(() => {
+    const previousCount = previousPendingAttachmentCountRef.current;
+    const currentCount = chat.state.pendingChatAttachments.length;
+    previousPendingAttachmentCountRef.current = currentCount;
+    if (previousCount > 0 && currentCount === 0) {
+      setAttachmentSelectionError("");
+    }
+  }, [chat.state.pendingChatAttachments.length]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -456,6 +502,26 @@ export function ChatComposer(props: ChatComposerProps) {
     messageHistoryCursorRef.current = null;
     messageHistoryPendingTextRef.current = value;
     runtime.actions.setMessage(value);
+  }
+
+  function addPendingFiles(files: File[]) {
+    if (chat.actions.isChatOwnershipMutationInFlight()) {
+      setAttachmentSelectionError(
+        "Wait for the current chat ownership change to finish before attaching files.",
+      );
+      return;
+    }
+    if (!attachmentsEnabled || files.length === 0) return;
+    const result = appendChatFiles(chat.state.pendingChatAttachments, files, attachmentAcceptance);
+    chat.actions.setPendingChatAttachments(result.attachments);
+    setAttachmentSelectionError(result.error);
+  }
+
+  function removePendingFile(id: string) {
+    chat.actions.setPendingChatAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id),
+    );
+    setAttachmentSelectionError("");
   }
 
   function handleMessageHistoryKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -551,6 +617,13 @@ export function ChatComposer(props: ChatComposerProps) {
     if (handleMessageHistoryKey(e)) return;
     if (e.key !== "Enter") return;
     const modPressed = isMac ? e.metaKey : e.ctrlKey;
+
+    if (attachmentTurnInFlight) {
+      const sendGesture = modEnterMode ? modPressed : !e.shiftKey && !modPressed;
+      if (sendGesture) e.preventDefault();
+      return;
+    }
+
     if (modEnterMode) {
       // ⌘/Ctrl+Enter sends; plain Enter is a newline (default behaviour)
       if (modPressed) {
@@ -566,8 +639,17 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
+    if (attachmentTurnInFlight) {
+      e.preventDefault();
+      return;
+    }
     const hecateCommand = parseHecateMessageCommand(message);
-    if (hecateCommand && isHecateChat && hecateCommandDefinition(hecateCommand.name)) {
+    if (
+      chat.state.pendingChatAttachments.length === 0 &&
+      hecateCommand &&
+      isHecateChat &&
+      hecateCommandDefinition(hecateCommand.name)
+    ) {
       e.preventDefault();
       void handleHecateMessageCommand(hecateCommand);
       if (textareaRef.current) {
@@ -720,6 +802,7 @@ export function ChatComposer(props: ChatComposerProps) {
         <div style={{ marginBottom: 0 }}>
           <SelectedModelReadinessNotice
             issue={selectedModelIssue}
+            disabled={composerRouteControlsDisabled}
             onOpenProviders={() => onNavigate?.("connections")}
             onUseSuggestedModel={(model) => {
               chatActions.selectProviderRoute("auto");
@@ -750,6 +833,7 @@ export function ChatComposer(props: ChatComposerProps) {
             <>
               <ExternalAgentConfigControls
                 session={externalConfigSession}
+                disabled={composerRouteControlsDisabled}
                 onChange={handleExternalAgentConfigChange}
                 placement="composer"
               />
@@ -853,7 +937,27 @@ export function ChatComposer(props: ChatComposerProps) {
                   Queued next
                 </span>
                 <span style={{ color: "var(--t3)", fontSize: 11 }}>
-                  will send when the active run finishes
+                  {activeQueuedChatMessages.some(
+                    (queued) => queued.delivery_storage_failed === true,
+                  )
+                    ? "browser storage failed — retry save or remove"
+                    : activeQueuedChatMessages.some(
+                          (queued) => queued.delivery_storage_conflict === "ready_replacement",
+                        )
+                      ? "queue id conflict — remove and submit again"
+                      : activeQueuedChatMessages.some(
+                            (queued) => queued.delivery_state === "submitting",
+                          )
+                        ? "sending queued item…"
+                        : activeQueuedChatMessages.some(
+                              (queued) => queued.delivery_state === "reconcile_required",
+                            )
+                          ? "check delivery status before retrying"
+                          : activeQueuedChatMessages.some(
+                                (queued) => queued.delivery_state === "retryable",
+                              )
+                            ? "review the failed item before retrying"
+                            : "will send when the active run finishes"}
                 </span>
               </div>
               {activeQueuedChatMessages.map((queued, index) => (
@@ -877,6 +981,8 @@ export function ChatComposer(props: ChatComposerProps) {
                     aria-label={`Queued message ${index + 1}`}
                     className="queued-chat-message-input"
                     value={queued.content}
+                    disabled={queued.delivery_state === "submitting"}
+                    readOnly={queued.delivery_state === "reconcile_required"}
                     onChange={(event) =>
                       chat.actions.updateQueuedChatMessage(queued.id, event.target.value)
                     }
@@ -895,30 +1001,89 @@ export function ChatComposer(props: ChatComposerProps) {
                       outline: "none",
                     }}
                   />
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    aria-label={`Remove queued message ${index + 1}`}
-                    onClick={() => chat.actions.removeQueuedChatMessage(queued.id)}
-                    style={{ padding: "2px 6px", fontFamily: "var(--font-mono)", fontSize: 10 }}
-                  >
-                    remove
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    {queued.delivery_state === "reconcile_required" &&
+                      queued.delivery_storage_conflict !== "ready_replacement" && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          aria-label={`Check queued message ${index + 1} delivery status`}
+                          disabled={chat.state.chatLoading || chatCancelling}
+                          onClick={() => void chatActions.reconcileQueuedChatMessage(queued.id)}
+                          style={{
+                            padding: "2px 6px",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 10,
+                          }}
+                        >
+                          check status
+                        </button>
+                      )}
+                    {queued.delivery_state === "retryable" && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        aria-label={`Retry queued message ${index + 1}`}
+                        onClick={() => chat.actions.retryQueuedChatMessage(queued.id)}
+                        style={{
+                          padding: "2px 6px",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 10,
+                        }}
+                      >
+                        retry
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      aria-label={`Remove queued message ${index + 1}`}
+                      disabled={
+                        queued.delivery_state === "submitting" ||
+                        queued.delivery_storage_fenced === true
+                      }
+                      title={
+                        queued.delivery_storage_fenced
+                          ? "Check delivery status before removing a queued item observed from another tab or reload."
+                          : undefined
+                      }
+                      onClick={() => chat.actions.removeQueuedChatMessage(queued.id)}
+                      style={{
+                        padding: "2px 6px",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                      }}
+                    >
+                      remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
+          <div
+            style={{
+              maxWidth: 820,
+              margin: "0 auto",
+            }}
+          >
+            <ChatAttachmentDrafts
+              attachments={chat.state.pendingChatAttachments}
+              acceptance={attachmentAcceptance}
+              enabled={attachmentsEnabled}
+              disabledReason={attachmentsDisabledReason}
+              error={attachmentSelectionError}
+              onAddFiles={addPendingFiles}
+              onRemove={removePendingFile}
+            />
+          </div>
           <div
             role="combobox"
             aria-controls={commandPickerVisible ? commandListboxID : undefined}
             aria-expanded={commandPickerVisible}
             aria-haspopup="listbox"
             aria-label="Message command picker"
-            style={{
-              maxWidth: 820,
-              margin: "0 auto",
-              position: "relative",
-            }}
+            style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}
           >
             {commandPickerVisible && (
               <div
@@ -1035,6 +1200,10 @@ export function ChatComposer(props: ChatComposerProps) {
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={(event) => {
+                const files = Array.from(event.clipboardData.files);
+                if (files.length > 0) addPendingFiles(files);
+              }}
               placeholder={
                 modEnterMode
                   ? `Message… (${modKey}+Enter to send)`
@@ -1066,14 +1235,22 @@ export function ChatComposer(props: ChatComposerProps) {
             />
             <button
               type="submit"
-              aria-label={queueingMessage ? "Queue message" : "Send message"}
+              aria-label={
+                attachmentTurnInFlight
+                  ? "Wait for attachment response"
+                  : queueingMessage
+                    ? "Queue message"
+                    : "Send message"
+              }
               disabled={sendDisabled}
               title={
-                queueingMessage
-                  ? "Queue this message after the active run finishes"
-                  : messageSendBlocked
-                    ? "Complete chat setup before sending"
-                    : "Send message"
+                attachmentTurnInFlight
+                  ? "Wait for the attachment response before sending this message"
+                  : queueingMessage
+                    ? "Queue this message after the active run finishes"
+                    : messageSendBlocked
+                      ? "Complete chat setup before sending"
+                      : "Send message"
               }
               style={{
                 position: "absolute",
@@ -1131,6 +1308,7 @@ export function ChatComposer(props: ChatComposerProps) {
               {isHecateChat && selectedModelIssue && (
                 <SelectedModelReadinessNotice
                   issue={selectedModelIssue}
+                  disabled={composerRouteControlsDisabled}
                   onOpenProviders={() => onNavigate?.("connections")}
                   onUseSuggestedModel={(model) => {
                     chatActions.selectProviderRoute("auto");
@@ -1140,8 +1318,11 @@ export function ChatComposer(props: ChatComposerProps) {
               )}
             </div>
           )}
-          {isAgentChat && chatCancelling && (
+          {isAgentChat && rawChatCancelling && (
             <div
+              aria-atomic="true"
+              aria-live="polite"
+              role="status"
               style={{
                 maxWidth: 820,
                 margin: "6px auto 0",
@@ -1150,7 +1331,9 @@ export function ChatComposer(props: ChatComposerProps) {
                 fontSize: 11,
               }}
             >
-              Stopping...
+              {chatCancelling
+                ? stoppingStatusText
+                : "Another chat is stopping. Wait for that request to finish."}
             </div>
           )}
           <div
@@ -1198,31 +1381,32 @@ export function ChatComposer(props: ChatComposerProps) {
                   Open task
                 </button>
               )}
-              {agentBusy && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-                  title={
-                    chatCancelling
-                      ? "Stopping..."
-                      : isExternalAgentChat
-                        ? "Stop external agent"
-                        : "Stop active task"
-                  }
-                  onClick={chatActions.cancelAgentChat}
-                  disabled={chatCancelling}
-                  style={{
-                    flexShrink: 0,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    padding: "2px 6px",
-                    color: "var(--danger)",
-                  }}
-                >
-                  Stop
-                </button>
-              )}
+              {(agentBusy || chatCancelling) &&
+                (activeRunCancellationAvailable || chatCancelling) && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label={chatCancelling ? stoppingStatusText : stopActionLabel}
+                    title={
+                      chatCancelling
+                        ? stoppingStatusText
+                        : anotherChatCancelling
+                          ? "Another chat is stopping. Wait for that request to finish."
+                          : stopActionLabel
+                    }
+                    onClick={chatActions.cancelAgentChat}
+                    disabled={rawChatCancelling}
+                    style={{
+                      flexShrink: 0,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      color: "var(--danger)",
+                    }}
+                  >
+                    Stop
+                  </button>
+                )}
               {projectProposalAvailable && onDraftProjectProposal && (
                 <button
                   type="button"
@@ -1546,11 +1730,13 @@ export function ChatSetupRepairNotice({
 export function SelectedModelReadinessNotice({
   issue,
   compact = false,
+  disabled = false,
   onOpenProviders,
   onUseSuggestedModel,
 }: {
   issue: SelectedModelIssue;
   compact?: boolean;
+  disabled?: boolean;
   onOpenProviders?: () => void;
   onUseSuggestedModel?: (model: string) => void;
 }) {
@@ -1595,6 +1781,7 @@ export function SelectedModelReadinessNotice({
             <button
               className="btn btn-primary btn-sm"
               type="button"
+              disabled={disabled}
               onClick={() => onUseSuggestedModel(issue.suggestedModel!)}
               style={{ flexShrink: 0 }}
             >
@@ -1634,6 +1821,7 @@ export function SelectedModelReadinessNotice({
             <button
               className="btn btn-primary btn-sm"
               type="button"
+              disabled={disabled}
               onClick={() => onUseSuggestedModel(issue.suggestedModel!)}
               style={{ marginTop: 10 }}
             >

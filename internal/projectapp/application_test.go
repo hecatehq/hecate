@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatapp"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projectruntime"
@@ -14,6 +16,20 @@ import (
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
+
+type failFirstProjectChatAttachmentDeleteStore struct {
+	chatattachments.Store
+	deleteCalls int
+	deleteErr   error
+}
+
+func (s *failFirstProjectChatAttachmentDeleteStore) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	s.deleteCalls++
+	if s.deleteCalls == 1 {
+		return s.deleteErr
+	}
+	return s.Store.DeleteBySessionID(ctx, sessionID)
+}
 
 func TestApplication_DeleteProjectCleansProjectScopedStores(t *testing.T) {
 	t.Parallel()
@@ -339,6 +355,82 @@ func TestApplication_DeleteProjectKeepsProjectWhenLaterCleanupFails(t *testing.T
 		items, err := memoryStore.List(ctx, memory.Filter{ProjectID: projectID, IncludeDisabled: true})
 		return len(items), err
 	}, 1)
+}
+
+func TestApplication_DeleteProjectRetrySweepsOrphanAfterAttachmentCleanupFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	chatStore := chat.NewMemoryStore()
+	baseAttachments := chatattachments.NewMemoryStore()
+	attachmentErr := errors.New("attachment cleanup failed")
+	attachments := &failFirstProjectChatAttachmentDeleteStore{
+		Store:     baseAttachments,
+		deleteErr: attachmentErr,
+	}
+	projectID := "proj_attachment_retry"
+	sessionID := "chat_attachment_retry"
+	if _, err := projectStore.Create(ctx, projects.Project{ID: projectID, Name: "Retry attachments"}); err != nil {
+		t.Fatalf("Create(project): %v", err)
+	}
+	session, err := chatStore.Create(ctx, chat.Session{ID: sessionID, ProjectID: projectID, AgentID: chat.DefaultAgentID})
+	if err != nil {
+		t.Fatalf("Create(chat): %v", err)
+	}
+	attachment, err := baseAttachments.Create(ctx, chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{ID: "att_project_retry", SessionID: sessionID, SizeBytes: 3},
+		Data:       []byte("png"),
+	})
+	if err != nil {
+		t.Fatalf("Create(attachment): %v", err)
+	}
+	chatApplication := chatapp.New(chatapp.Options{Store: chatStore, Attachments: attachments})
+	app := New(Options{
+		Projects:                     projectStore,
+		Chats:                        chatStore,
+		SweepOrphanedChatAttachments: chatApplication.SweepOrphanedAttachments,
+		DeleteChat: func(ctx context.Context, session chat.Session) (bool, error) {
+			return false, chatApplication.DeleteSession(ctx, chatapp.DeleteSessionCommand{SessionID: session.ID})
+		},
+	})
+
+	result, err := app.DeleteProject(ctx, projectID)
+	if !errors.Is(err, attachmentErr) {
+		t.Fatalf("first DeleteProject error = %v, want attachment cleanup failure", err)
+	}
+	if result.ChatSessionsDeleted != 0 {
+		t.Fatalf("first DeleteProject result = %+v, want no deleted chats", result)
+	}
+	if _, ok, err := projectStore.Get(ctx, projectID); err != nil || !ok {
+		t.Fatalf("Get(project) after failed cleanup = ok %v, err %v", ok, err)
+	}
+	if _, ok, err := chatStore.Get(ctx, session.ID); err != nil || ok {
+		t.Fatalf("Get(chat) after failed cleanup = ok %v, err %v", ok, err)
+	}
+	if _, ok, err := baseAttachments.Get(ctx, session.ID, attachment.ID); err != nil || !ok {
+		t.Fatalf("Get(attachment) after failed cleanup = ok %v, err %v", ok, err)
+	}
+
+	result, err = app.DeleteProject(ctx, projectID)
+	if err != nil {
+		t.Fatalf("retry DeleteProject: %v", err)
+	}
+	if result.ChatSessionsDeleted != 0 {
+		t.Fatalf("retry DeleteProject result = %+v, want orphan sweep before chat listing", result)
+	}
+	if _, ok, err := projectStore.Get(ctx, projectID); err != nil || ok {
+		t.Fatalf("Get(project) after retry = ok %v, err %v", ok, err)
+	}
+	if _, ok, err := chatStore.Get(ctx, session.ID); err != nil || ok {
+		t.Fatalf("Get(chat) after retry = ok %v, err %v", ok, err)
+	}
+	if _, ok, err := baseAttachments.Get(ctx, session.ID, attachment.ID); err != nil || ok {
+		t.Fatalf("Get(attachment) after retry = ok %v, err %v", ok, err)
+	}
+	if attachments.deleteCalls != 2 {
+		t.Fatalf("attachment delete calls = %d, want 2", attachments.deleteCalls)
+	}
 }
 
 func TestApplication_DeleteProjectMapsMissingProject(t *testing.T) {

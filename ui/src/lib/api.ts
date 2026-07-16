@@ -4,7 +4,6 @@ import type {
   RuntimeHeaders,
   RuntimeStatsResponse,
   SessionResponse,
-  SystemResetDataResponse,
 } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
 import type { ContextPacketResponse } from "../types/context";
@@ -31,12 +30,13 @@ import type {
   ChatApprovalResolvedEvent,
   ChatApprovalResponse,
   ChatApprovalsResponse,
+  ChatAttachmentResponse,
+  ChatAttachmentRecord,
   ChatConfigOptionRecord,
   ChatChangedFileDiffResponse,
   ChatChangedFilesResponse,
   ChatGrantsResponse,
   ChatResponse,
-  ChatRevertResponse,
   ChatSessionResponse,
   ChatSessionsResponse,
   ChatStreamEvent,
@@ -129,6 +129,7 @@ import type {
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
+  signal?: AbortSignal;
 };
 
 type ErrorPayload = {
@@ -245,6 +246,10 @@ export type ChatMCPServerPayload = {
 
 export type CreateChatMessagePayload = {
   content: string;
+  // Browser-queued turns reuse their durable queue id so concurrent tabs and
+  // ambiguous retries reach the server through one idempotency boundary.
+  client_request_id?: string;
+  attachment_ids?: string[];
   // External-agent turns send the literal mode. Hecate-owned turns use
   // hecate_task and carry direct-model vs tool-runtime intent through
   // tools_enabled.
@@ -319,12 +324,6 @@ export async function getRuntimeStats(): Promise<RuntimeStatsResponse> {
 
 export async function getMCPCacheStats(): Promise<MCPCacheStatsResponse> {
   return fetchJSON<MCPCacheStatsResponse>(`${HECATE_API}/system/mcp/cache`);
-}
-
-export async function resetSystemData(): Promise<SystemResetDataResponse> {
-  return fetchJSON<SystemResetDataResponse>(`${HECATE_API}/system/reset-data`, {
-    method: "POST",
-  });
 }
 
 export async function getPlugins(): Promise<PluginsResponse> {
@@ -1020,10 +1019,12 @@ export async function getChatSessions(): Promise<ChatSessionsResponse> {
 
 export async function createChatSession(
   payload: CreateChatSessionPayload,
+  signal?: AbortSignal,
 ): Promise<ChatSessionResponse> {
   return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions`, {
     method: "POST",
     body: payload,
+    signal,
   });
 }
 
@@ -1067,6 +1068,40 @@ export async function createChatMessage(
     `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/messages`,
     { method: "POST", body },
   );
+}
+
+export async function uploadChatAttachment(
+  sessionID: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<ChatAttachmentRecord> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const payload = await fetchJSON<ChatAttachmentResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/attachments`,
+    { method: "POST", body: form, signal },
+  );
+  return payload.data;
+}
+
+export async function deleteChatAttachment(sessionID: string, attachmentID: string): Promise<void> {
+  await fetchJSON<void>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/attachments/${encodeURIComponent(attachmentID)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getChatAttachmentContentBlob(
+  sessionID: string,
+  attachmentID: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const url = `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/attachments/${encodeURIComponent(attachmentID)}/content`;
+  const response = await fetchWithNetworkError(url, { ...buildRequestOptions({}, url), signal });
+  if (!response.ok) {
+    throw await apiError(response, "failed to load chat attachment");
+  }
+  return response.blob();
 }
 
 export async function getChatMessageContext(
@@ -1133,11 +1168,12 @@ export async function getChatWorkspaceFileDiff(
 
 export async function revertChatWorkspaceFiles(
   sessionID: string,
-  paths: string[] = [],
+  paths: string[],
+  expectedRevision: string,
 ): Promise<ChatWorkspaceDiffResponse> {
   return fetchJSON<ChatWorkspaceDiffResponse>(
     `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/workspace-diff/revert`,
-    { method: "POST", body: { paths } },
+    { method: "POST", body: { paths, expected_revision: expectedRevision } },
   );
 }
 
@@ -1148,17 +1184,6 @@ export async function getChatMessageFileDiff(
 ): Promise<ChatChangedFileDiffResponse> {
   return fetchJSON<ChatChangedFileDiffResponse>(
     `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
-  );
-}
-
-export async function revertChatMessageFiles(
-  sessionID: string,
-  messageID: string,
-  paths: string[] = [],
-): Promise<ChatRevertResponse> {
-  return fetchJSON<ChatRevertResponse>(
-    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/revert`,
-    { method: "POST", body: { paths } },
   );
 }
 
@@ -1827,7 +1852,8 @@ function readRuntimeHeaders(response: Response): RuntimeHeaders {
 
 export function buildRequestOptions(options: RequestOptions, url = ""): RequestInit {
   const headers = new Headers();
-  if (options.body !== undefined) {
+  const multipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (options.body !== undefined && !multipart) {
     headers.set("Content-Type", "application/json");
   }
   const runtimeToken = readRuntimeToken();
@@ -1842,7 +1868,13 @@ export function buildRequestOptions(options: RequestOptions, url = ""): RequestI
   return {
     method: options.method ?? "GET",
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    ...(options.signal ? { signal: options.signal } : {}),
+    body:
+      options.body === undefined
+        ? undefined
+        : multipart
+          ? (options.body as FormData)
+          : JSON.stringify(options.body),
   };
 }
 

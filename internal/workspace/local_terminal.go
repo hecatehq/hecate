@@ -11,22 +11,22 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // localTerminal is the on-host implementation. Each terminal owns a
-// child process plus three goroutines (stdout/stderr readers and a
-// wait-for-exit). Closing serializes through closeOnce so concurrent
-// Kill / Close / WaitForExit don't race the cleanup.
+// process tree plus three goroutines (stdout/stderr readers and a
+// wait-for-exit). Closing serializes so concurrent Kill / Close /
+// WaitForExit don't race cleanup, while a cancelled Close remains retryable.
 type localTerminal struct {
 	id     string
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 	stderr io.ReadCloser
+	tree   terminalProcessTree
 
 	output chan OutputChunk
 
@@ -42,13 +42,21 @@ type localTerminal struct {
 	stdoutBuf strings.Builder
 	stderrBuf strings.Builder
 
-	closeOnce sync.Once
+	inputPolicyMu    sync.Mutex
+	inputPolicyState sandbox.SupervisedTerminalInputState
+	inputPolicyErr   error
+	inputPolicyMode  sandbox.SupervisedTerminalInputMode
+
+	closeGate        chan struct{}
+	closeGracePeriod time.Duration
 }
 
 // localTerminalBufLimit caps the retained stdout/stderr that
 // WaitForExit returns. Mirrors a sensible upper bound for "captured
 // command output" without letting a runaway child OOM the gateway.
 const localTerminalBufLimit = 256 * 1024
+
+const defaultLocalTerminalCloseGracePeriod = 5 * time.Second
 
 // nextTerminalID is bumped per terminal for a workspace-unique handle.
 // Local-only counter; cross-process uniqueness isn't required.
@@ -64,32 +72,63 @@ func (w *LocalWorkspace) OpenTerminal(ctx context.Context, opts TerminalOptions)
 	if err != nil {
 		return nil, err
 	}
+	tree, err := prepareTerminalProcessTree(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("prepare terminal process tree: %w", err)
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		tree.close()
 		return nil, fmt.Errorf("open stdin: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
+		tree.close()
 		return nil, fmt.Errorf("open stdout: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		tree.close()
 		return nil, fmt.Errorf("open stderr: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		tree.close()
 		return nil, fmt.Errorf("start terminal: %w", err)
+	}
+	if err := tree.attach(cmd); err != nil {
+		// Windows starts the process suspended so it cannot create an
+		// unowned descendant before attach succeeds. A direct kill is the
+		// only safe cleanup when process-tree ownership could not be
+		// established; Unix attach is infallible.
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		tree.close()
+		return nil, fmt.Errorf("attach terminal process tree: %w", err)
 	}
 
 	t := &localTerminal{
-		id:     fmt.Sprintf("term_%d", nextTerminalID.Add(1)),
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-		output: make(chan OutputChunk, 64),
-		exit:   make(chan struct{}),
+		id:               fmt.Sprintf("term_%d", nextTerminalID.Add(1)),
+		cmd:              cmd,
+		stdin:            stdin,
+		stdout:           stdout,
+		stderr:           stderr,
+		tree:             tree,
+		output:           make(chan OutputChunk, 64),
+		exit:             make(chan struct{}),
+		inputPolicyMode:  sandbox.SupervisedTerminalInputModeForCommand(opts.Command, opts.Args),
+		closeGate:        newTerminalCloseGate(),
+		closeGracePeriod: defaultLocalTerminalCloseGracePeriod,
 	}
 
 	// Reader goroutines forward stdout / stderr into the merged
@@ -107,15 +146,23 @@ func (w *LocalWorkspace) OpenTerminal(ctx context.Context, opts TerminalOptions)
 
 	// Wait goroutine captures exit status; everyone observing the
 	// terminal goes through atomic.Pointer reads to see the result
-	// once it's published. Use Process.Wait instead of Cmd.Wait:
+	// once it's published. Completion includes the entire owned process
+	// tree, not only the command leader, so background children cannot
+	// outlive the terminal or release its workspace lease early. Use
+	// Process.Wait instead of Cmd.Wait:
 	// Cmd.StdoutPipe/Cmd.StderrPipe docs require callers to finish
 	// reading before Cmd.Wait because Cmd.Wait closes the pipes. The
-	// pumps below own those reads, so we wait for process exit, then
-	// wait for both pumps to drain before publishing the terminal
-	// result.
+	// pumps below own those reads, so we wait for the process tree to
+	// exit and both pumps to drain before publishing the terminal result.
 	go func() {
 		state, err := cmd.Process.Wait()
+		tree.wait()
 		pumpDone.Wait()
+		// Natural completion must reclaim the parent-side stdin handle too.
+		// Close after the full owned tree drains so a background member that
+		// inherited stdin can still receive input while the terminal is live.
+		_ = stdin.Close()
+		tree.close()
 		var result Result
 		if state != nil {
 			cmd.ProcessState = state
@@ -146,13 +193,63 @@ func (t *localTerminal) Write(_ context.Context, input string) error {
 	if t.stdin == nil {
 		return errors.New("stdin is closed")
 	}
+	// Keep validation, tail accounting, and the pipe write in one order. If
+	// concurrent callers could validate in one order and reach the pipe in
+	// another, separately harmless fragments could assemble into a rejected
+	// detachment command after validation.
+	t.inputPolicyMu.Lock()
+	defer t.inputPolicyMu.Unlock()
+	nextPolicyState, err := t.validateTerminalInputOwnership(input)
+	if err != nil {
+		return err
+	}
 	// Synchronous write: an *os.File-backed pipe doesn't honor a
 	// deadline cleanly, and a goroutine-based ctx race would leak
 	// the inner write if the pipe blocks. Callers who need to
 	// unblock a stuck stdin should Kill or Close — those close the
 	// pipe and the write returns.
-	_, err := t.stdin.Write([]byte(input))
-	return err
+	written, writeErr := t.stdin.Write([]byte(input))
+	stateErr := t.recordTerminalInputWrite(input, written, nextPolicyState)
+	if stateErr != nil {
+		return errors.Join(writeErr, stateErr)
+	}
+	if writeErr == nil && written != len(input) {
+		return io.ErrShortWrite
+	}
+	return writeErr
+}
+
+func (t *localTerminal) validateTerminalInputOwnership(input string) (sandbox.SupervisedTerminalInputState, error) {
+	if t == nil || t.inputPolicyMode == sandbox.SupervisedTerminalInputNone || input == "" {
+		if t == nil {
+			return sandbox.SupervisedTerminalInputState{}, nil
+		}
+		return t.inputPolicyState, nil
+	}
+	if t.inputPolicyErr != nil {
+		return t.inputPolicyState, t.inputPolicyErr
+	}
+	return sandbox.ValidateSupervisedTerminalInputWrite(t.inputPolicyMode, t.inputPolicyState, input)
+}
+
+func (t *localTerminal) recordTerminalInputWrite(input string, written int, completeState sandbox.SupervisedTerminalInputState) error {
+	if t == nil || t.inputPolicyMode == sandbox.SupervisedTerminalInputNone || written <= 0 {
+		return nil
+	}
+	if written > len(input) {
+		written = len(input)
+	}
+	if written == len(input) {
+		t.inputPolicyState = completeState
+		return nil
+	}
+	partialState, err := sandbox.ValidateSupervisedTerminalInputWrite(t.inputPolicyMode, t.inputPolicyState, input[:written])
+	if err != nil {
+		t.inputPolicyErr = &sandbox.PolicyError{Reason: fmt.Sprintf("terminal input supervision state is indeterminate after a partial write: %v", err)}
+		return t.inputPolicyErr
+	}
+	t.inputPolicyState = partialState
+	return nil
 }
 
 func (t *localTerminal) WaitForExit(ctx context.Context) (Result, error) {
@@ -179,62 +276,92 @@ func (t *localTerminal) WaitForExit(ctx context.Context) (Result, error) {
 }
 
 func (t *localTerminal) Kill(_ context.Context) error {
-	if t.cmd == nil || t.cmd.Process == nil {
+	if t == nil || t.tree == nil {
 		return nil
 	}
-	if runtime.GOOS == "windows" {
-		// Process.Kill on Windows sends a TerminateProcess; same
-		// effect as our unix SIGTERM in this code path.
-		return t.cmd.Process.Kill()
+	select {
+	case <-t.exit:
+		return nil
+	default:
 	}
-	// SIGTERM first — gives the child a chance to clean up. The
-	// caller can poll WaitForExit with a deadline and escalate to
-	// Kill() (which is SIGKILL via os.Process.Kill) if the child
-	// refuses to exit.
-	if err := t.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		// Process is gone already; treat as a no-op.
-		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EINVAL) {
-			return nil
-		}
-		return err
+	// Unix gives the full process group a graceful SIGTERM. Windows has
+	// no equivalent tree-wide graceful signal, so its Job Object
+	// implementation terminates the job.
+	return t.tree.terminate()
+}
+
+func newTerminalCloseGate() chan struct{} {
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	return gate
+}
+
+func (t *localTerminal) forceKill() {
+	if t != nil && t.tree != nil {
+		_ = t.tree.forceKill()
 	}
-	return nil
 }
 
 func (t *localTerminal) Close(ctx context.Context) error {
-	var closeErr error
-	t.closeOnce.Do(func() {
-		// Send SIGTERM if the process is still running, then wait
-		// for the readers and the Wait goroutine to drain. This
-		// guarantees Close blocks until all goroutines are
-		// reclaimed — no leaks even on early-exit error paths.
-		_ = t.Kill(ctx)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-t.exit:
+		return nil
+	default:
+	}
 
-		// Closing stdin first unblocks any pump that's reading
-		// from the same fd table. The OS will close stdout/stderr
-		// when the child fully exits; we don't force-close those
-		// here because some pumps may still be draining the last
-		// buffered bytes.
-		if t.stdin != nil {
-			_ = t.stdin.Close()
-		}
+	// Close attempts serialize through a context-aware gate. A caller racing a
+	// slow drain must not wait past its own shutdown deadline, and a cancelled
+	// caller must not permanently consume close authority.
+	select {
+	case <-t.exit:
+		return nil
+	case <-ctx.Done():
+		t.forceKill()
+		return ctx.Err()
+	case <-t.closeGate:
+	}
+	defer func() { t.closeGate <- struct{}{} }()
+	select {
+	case <-t.exit:
+		return nil
+	default:
+	}
 
-		// Wait for exit with a small upper bound so Close is not
-		// a forever-block on a wedged process. Operators who need
-		// hard-kill semantics can Kill() then Close().
+	// Send SIGTERM if the process is still running, then wait for the readers
+	// and Wait goroutine to drain. Closing stdin first also unblocks a child
+	// waiting for input.
+	_ = t.Kill(ctx)
+	if t.stdin != nil {
+		_ = t.stdin.Close()
+	}
+
+	gracePeriod := t.closeGracePeriod
+	if gracePeriod <= 0 {
+		gracePeriod = defaultLocalTerminalCloseGracePeriod
+	}
+	timer := time.NewTimer(gracePeriod)
+	defer timer.Stop()
+	select {
+	case <-t.exit:
+		return nil
+	case <-ctx.Done():
+		t.forceKill()
+		return ctx.Err()
+	case <-timer.C:
+		// Escalate the complete tree. Output pumps can still be draining
+		// after the OS reports process termination, so keep the final wait
+		// context-aware instead of pinning application shutdown forever.
+		t.forceKill()
 		select {
 		case <-t.exit:
+			return nil
 		case <-ctx.Done():
-			closeErr = ctx.Err()
-		case <-time.After(5 * time.Second):
-			// Escalate to SIGKILL — the child ignored SIGTERM.
-			if t.cmd != nil && t.cmd.Process != nil {
-				_ = t.cmd.Process.Kill()
-			}
-			<-t.exit
+			return ctx.Err()
 		}
-	})
-	return closeErr
+	}
 }
 
 func (t *localTerminal) pump(wg *sync.WaitGroup, r io.ReadCloser, stream string) {
@@ -283,6 +410,9 @@ func (t *localTerminal) pump(wg *sync.WaitGroup, r io.ReadCloser, stream string)
 // means we don't apply Timeout — caller controls lifetime via
 // Kill/Close.
 func buildTerminalCommand(opts TerminalOptions) (*exec.Cmd, error) {
+	if err := sandbox.ValidateSupervisedTerminalCommand(opts.Command, opts.Args); err != nil {
+		return nil, err
+	}
 	// Working-directory escape is the most common mis-configuration
 	// surface; reject before spawn so the caller doesn't get a
 	// confusing post-spawn permission error. Reuses the same

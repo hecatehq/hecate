@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/catalog"
 	"github.com/hecatehq/hecate/internal/gateway"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/providers"
@@ -47,12 +48,222 @@ func TestApplication_ListModelsResolvesCapabilities(t *testing.T) {
 		t.Fatalf("models len = %d, want 1", len(models))
 	}
 	caps := models[0].Capabilities
-	if caps.ToolCalling != modelcaps.ToolCallingBasic || !caps.Streaming || caps.Source != modelcaps.SourceProvider {
-		t.Fatalf("capabilities = %+v, want provider-resolved basic streaming", caps)
+	if caps.ToolCalling != modelcaps.ToolCallingBasic || !caps.Streaming || caps.Source != modelcaps.SourceMixed {
+		t.Fatalf("capabilities = %+v, want provider tool metadata plus catalog image provenance", caps)
 	}
 	models[0].Readiness.SuggestedModels[0] = "mutated"
 	if service.models[0].Readiness.SuggestedModels[0] != "other" {
 		t.Fatalf("ListModels returned readiness suggestions aliased to service state")
+	}
+}
+
+func TestApplication_ListModelsUsesProviderFamilyWithoutChangingRoutingIdentity(t *testing.T) {
+	t.Parallel()
+	openAIInstance := types.ProviderInstanceIdentity{ID: "configuration-openai", Kind: types.ProviderInstanceIdentityConfiguration}
+
+	service := &fakeModelService{models: []types.ModelInfo{
+		{
+			ID:               "gpt-4o",
+			Provider:         "OpenAI Production",
+			ProviderAliases:  []string{"openai-prod", "openai"},
+			ProviderFamily:   "openai",
+			ProviderInstance: openAIInstance,
+			Kind:             string(providers.KindCloud),
+			Readiness:        types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+		{
+			ID:              "claude-sonnet-4-6",
+			Provider:        "Anthropic Production",
+			ProviderAliases: []string{"anthropic-prod", "anthropic"},
+			ProviderFamily:  "anthropic",
+			Kind:            string(providers.KindCloud),
+			Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+	}}
+
+	models, err := New(Options{Service: service}).ListModels(context.Background(), ListModelsCommand{})
+	if err != nil {
+		t.Fatalf("ListModels returned error: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("models len = %d, want 2", len(models))
+	}
+	for _, model := range models {
+		if model.Capabilities.ImageInput != modelcaps.ImageInputSupported {
+			t.Fatalf("%s image_input = %q, want supported", model.Provider, model.Capabilities.ImageInput)
+		}
+	}
+	if models[0].Provider != "OpenAI Production" || models[1].Provider != "Anthropic Production" {
+		t.Fatalf("configured provider identities changed: %#v", []string{models[0].Provider, models[1].Provider})
+	}
+
+	caps, err := New(Options{Service: service}).ResolveCapabilities(context.Background(), "openai-prod", "gpt-4o")
+	if err != nil || caps.ImageInput != modelcaps.ImageInputSupported {
+		t.Fatalf("ResolveCapabilities(alias) = %+v, %v, want image-capable OpenAI route", caps, err)
+	}
+	supported, err := New(Options{Service: service}).SupportsImageInput(context.Background(), "anthropic-prod", "claude-sonnet-4-6")
+	if err != nil || !supported {
+		t.Fatalf("SupportsImageInput(alias) = %v, %v, want true", supported, err)
+	}
+	providerName, err := New(Options{Service: service}).ResolveProviderName(context.Background(), "openai-prod", "gpt-4o")
+	if err != nil || providerName != "OpenAI Production" {
+		t.Fatalf("ResolveProviderName(alias) = %q, %v, want runtime name", providerName, err)
+	}
+	providerRoute, err := New(Options{Service: service}).ResolveProviderRoute(context.Background(), "openai-prod", "gpt-4o")
+	if err != nil || providerRoute.Name != "OpenAI Production" || providerRoute.Instance != openAIInstance {
+		t.Fatalf("ResolveProviderRoute(alias) = %+v, %v, want canonical provider and instance", providerRoute, err)
+	}
+
+	models[0].ProviderAliases[0] = "mutated"
+	if service.models[0].ProviderAliases[0] != "openai-prod" {
+		t.Fatal("ListModels returned provider aliases aliased to service state")
+	}
+}
+
+func TestApplication_CanonicalProviderNameWinsAliasCollision(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeModelService{models: []types.ModelInfo{
+		{
+			ID:              "shared-model",
+			Provider:        "vision-a",
+			ProviderAliases: []string{"vision-b"},
+			Capabilities:    types.ModelCapabilities{ImageInput: modelcaps.ImageInputSupported},
+			Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+		{
+			ID:              "shared-model",
+			Provider:        "vision-b",
+			ProviderAliases: []string{"provider-b"},
+			Capabilities:    types.ModelCapabilities{ImageInput: modelcaps.ImageInputNone},
+			Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+	}}
+	app := New(Options{Service: service})
+
+	providerName, err := app.ResolveProviderName(context.Background(), "vision-b", "shared-model")
+	if err != nil || providerName != "vision-b" {
+		t.Fatalf("ResolveProviderName() = %q, %v, want canonical vision-b", providerName, err)
+	}
+	caps, err := app.ResolveCapabilities(context.Background(), "vision-b", "shared-model")
+	if err != nil {
+		t.Fatalf("ResolveCapabilities() error = %v", err)
+	}
+	if caps.ImageInput != modelcaps.ImageInputNone {
+		t.Fatalf("ResolveCapabilities() image_input = %q, want canonical provider's none", caps.ImageInput)
+	}
+	supported, err := app.SupportsImageInput(context.Background(), "vision-b", "shared-model")
+	if err != nil {
+		t.Fatalf("SupportsImageInput() error = %v", err)
+	}
+	if supported {
+		t.Fatal("SupportsImageInput() = true, want canonical text-only provider to win alias collision")
+	}
+}
+
+func TestApplication_ProviderResolutionPrecedesModelMatching(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeModelService{models: []types.ModelInfo{
+		{
+			ID:              "alias-only-model",
+			Provider:        "vision-a",
+			ProviderAliases: []string{"vision-b"},
+			Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+		{
+			ID:        "canonical-only-model",
+			Provider:  "vision-b",
+			Readiness: types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+	}}
+
+	_, err := New(Options{Service: service}).ResolveProviderName(context.Background(), "vision-b", "alias-only-model")
+	if err == nil || !strings.Contains(err.Error(), `model "alias-only-model" is not available from provider "vision-b"`) {
+		t.Fatalf("ResolveProviderName() error = %v, want canonical provider model-unavailable error", err)
+	}
+}
+
+func TestApplication_RejectsAmbiguousProviderAlias(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeModelService{models: []types.ModelInfo{
+		{
+			ID:              "shared-model",
+			Provider:        "vision-a",
+			ProviderAliases: []string{"shared-vision"},
+			Capabilities:    types.ModelCapabilities{ImageInput: modelcaps.ImageInputSupported},
+			Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+		{
+			ID:              "shared-model",
+			Provider:        "vision-b",
+			ProviderAliases: []string{"shared-vision"},
+			Capabilities:    types.ModelCapabilities{ImageInput: modelcaps.ImageInputSupported},
+			Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+	}}
+	app := New(Options{Service: service})
+	wantError := `provider "shared-vision" matches multiple configured providers`
+
+	_, err := app.ResolveProviderName(context.Background(), "shared-vision", "shared-model")
+	if err == nil || err.Error() != wantError {
+		t.Fatalf("ResolveProviderName() error = %v, want %q", err, wantError)
+	}
+	if !errors.Is(err, ErrProviderAmbiguous) {
+		t.Fatalf("ResolveProviderName() error = %v, want ErrProviderAmbiguous", err)
+	}
+	if _, err := app.ResolveCapabilities(context.Background(), "shared-vision", "shared-model"); err == nil || err.Error() != wantError {
+		t.Fatalf("ResolveCapabilities() error = %v, want %q", err, wantError)
+	}
+	if _, err := app.SupportsImageInput(context.Background(), "shared-vision", "shared-model"); err == nil || err.Error() != wantError {
+		t.Fatalf("SupportsImageInput() error = %v, want %q", err, wantError)
+	}
+}
+
+func TestApplication_RejectsAliasCollisionWithConfiguredZeroModelProvider(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeModelService{
+		models: []types.ModelInfo{
+			{
+				ID:              "shared-model",
+				Provider:        "vision-a",
+				ProviderAliases: []string{"shared-vision"},
+				Capabilities:    types.ModelCapabilities{ImageInput: modelcaps.ImageInputSupported},
+				Readiness:       types.ModelReadiness{Ready: true, RoutingReady: true},
+			},
+		},
+		providerIdentities: []catalog.ProviderIdentity{
+			{Name: "vision-a", Aliases: []string{"shared-vision"}},
+			{Name: "vision-b", Aliases: []string{"shared-vision"}},
+		},
+	}
+	app := New(Options{Service: service})
+
+	for _, resolve := range []struct {
+		name string
+		call func() error
+	}{
+		{name: "provider name", call: func() error {
+			_, err := app.ResolveProviderName(context.Background(), "shared-vision", "shared-model")
+			return err
+		}},
+		{name: "capabilities", call: func() error {
+			_, err := app.ResolveCapabilities(context.Background(), "shared-vision", "shared-model")
+			return err
+		}},
+		{name: "image admission", call: func() error {
+			_, err := app.SupportsImageInput(context.Background(), "shared-vision", "shared-model")
+			return err
+		}},
+	} {
+		t.Run(resolve.name, func(t *testing.T) {
+			err := resolve.call()
+			if !errors.Is(err, ErrProviderAmbiguous) {
+				t.Fatalf("error = %v, want ErrProviderAmbiguous from zero-model alias collision", err)
+			}
+		})
 	}
 }
 
@@ -143,16 +354,108 @@ func TestApplication_ResolveCapabilitiesWithoutServiceFallsBackToStaticRules(t *
 	}
 }
 
+func TestApplication_SupportsImageInputChecksEveryAutoRoute(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeModelService{models: []types.ModelInfo{
+		{
+			ID:       "shared-model",
+			Provider: "text-only",
+			Capabilities: types.ModelCapabilities{
+				ImageInput: modelcaps.ImageInputNone,
+			},
+			Readiness: types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+		{
+			ID:       "shared-model",
+			Provider: "vision",
+			Capabilities: types.ModelCapabilities{
+				ImageInput: modelcaps.ImageInputSupported,
+			},
+			Readiness: types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+	}}
+	app := New(Options{Service: service})
+
+	got, err := app.SupportsImageInput(context.Background(), "auto", "shared-model")
+	if err != nil {
+		t.Fatalf("SupportsImageInput(auto) returned error: %v", err)
+	}
+	if !got {
+		t.Fatal("SupportsImageInput(auto) = false, want true from second matching route")
+	}
+
+	got, err = app.SupportsImageInput(context.Background(), "text-only", "shared-model")
+	if err != nil {
+		t.Fatalf("SupportsImageInput(pinned) returned error: %v", err)
+	}
+	if got {
+		t.Fatal("SupportsImageInput(text-only) = true, want false")
+	}
+}
+
+func TestApplication_ImageAdmissionIgnoresCapableButUnreadyAutoRoute(t *testing.T) {
+	t.Parallel()
+
+	service := &fakeModelService{models: []types.ModelInfo{
+		{
+			ID:           "shared-model",
+			Provider:     "ready-text",
+			Capabilities: types.ModelCapabilities{ImageInput: modelcaps.ImageInputNone},
+			Readiness:    types.ModelReadiness{Ready: true, RoutingReady: true},
+		},
+		{
+			ID:           "shared-model",
+			Provider:     "blocked-vision",
+			Capabilities: types.ModelCapabilities{ImageInput: modelcaps.ImageInputSupported},
+			Readiness:    types.ModelReadiness{Ready: false, RoutingReady: false},
+		},
+	}}
+	app := New(Options{Service: service})
+
+	supported, err := app.SupportsImageInput(context.Background(), "auto", "shared-model")
+	if err != nil {
+		t.Fatalf("SupportsImageInput(auto) returned error: %v", err)
+	}
+	if supported {
+		t.Fatal("SupportsImageInput(auto) = true, want blocked capable route ignored")
+	}
+	caps, err := app.ResolveCapabilities(context.Background(), "auto", "shared-model")
+	if err != nil {
+		t.Fatalf("ResolveCapabilities(auto) returned error: %v", err)
+	}
+	if caps.ImageInput != modelcaps.ImageInputNone {
+		t.Fatalf("aggregate image_input = %q, want none from the only routable route", caps.ImageInput)
+	}
+}
+
+func TestApplication_SupportsImageInputFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	got, err := New(Options{}).SupportsImageInput(context.Background(), "openai", "gpt-4o")
+	if err != nil || !got {
+		t.Fatalf("SupportsImageInput(static gpt-4o) = %v, %v, want true, nil", got, err)
+	}
+	got, err = New(Options{}).SupportsImageInput(context.Background(), "custom", "unknown")
+	if err != nil {
+		t.Fatalf("SupportsImageInput(static unknown) returned error: %v", err)
+	}
+	if got {
+		t.Fatal("SupportsImageInput(static unknown) = true, want false")
+	}
+}
+
 type fakeModelService struct {
-	models            []types.ModelInfo
-	listErr           error
-	refreshErr        error
-	readiness         gateway.ProviderModelReadiness
-	readinessErr      error
-	listCalls         int
-	refreshCalls      int
-	readinessProvider string
-	readinessModel    string
+	models             []types.ModelInfo
+	providerIdentities []catalog.ProviderIdentity
+	listErr            error
+	refreshErr         error
+	readiness          gateway.ProviderModelReadiness
+	readinessErr       error
+	listCalls          int
+	refreshCalls       int
+	readinessProvider  string
+	readinessModel     string
 }
 
 func (s *fakeModelService) ListModels(context.Context) (*gateway.ModelsResult, error) {
@@ -160,7 +463,7 @@ func (s *fakeModelService) ListModels(context.Context) (*gateway.ModelsResult, e
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
-	return &gateway.ModelsResult{Models: append([]types.ModelInfo(nil), s.models...)}, nil
+	return s.modelsResult(), nil
 }
 
 func (s *fakeModelService) RefreshModels(context.Context) (*gateway.ModelsResult, error) {
@@ -168,7 +471,33 @@ func (s *fakeModelService) RefreshModels(context.Context) (*gateway.ModelsResult
 	if s.refreshErr != nil {
 		return nil, s.refreshErr
 	}
-	return &gateway.ModelsResult{Models: append([]types.ModelInfo(nil), s.models...)}, nil
+	return s.modelsResult(), nil
+}
+
+func (s *fakeModelService) modelsResult() *gateway.ModelsResult {
+	identities := s.providerIdentities
+	if identities == nil {
+		indexes := make(map[string]int, len(s.models))
+		identities = make([]catalog.ProviderIdentity, 0, len(s.models))
+		for _, model := range s.models {
+			index, ok := indexes[model.Provider]
+			if !ok {
+				index = len(identities)
+				indexes[model.Provider] = index
+				identities = append(identities, catalog.ProviderIdentity{Name: model.Provider})
+			}
+			identities[index].Aliases = append(identities[index].Aliases, model.ProviderAliases...)
+		}
+	}
+	providerIdentities := make([]catalog.ProviderIdentity, 0, len(identities))
+	for _, identity := range identities {
+		identity.Aliases = append([]string(nil), identity.Aliases...)
+		providerIdentities = append(providerIdentities, identity)
+	}
+	return &gateway.ModelsResult{
+		Models:             append([]types.ModelInfo(nil), s.models...),
+		ProviderIdentities: providerIdentities,
+	}
 }
 
 func (s *fakeModelService) ProviderModelReadiness(_ context.Context, provider, model string) (*gateway.ProviderModelReadinessResult, error) {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/hecatehq/hecate/internal/taskapp"
@@ -28,9 +29,15 @@ var taskAppErrorMappings = []appErrorMapping{
 		taskapp.ErrDeleteActiveRun,
 		taskapp.ErrRunNotRetryable,
 		taskapp.ErrRunNotResumable,
+		taskapp.ErrOriginRunAdmissionClosed,
+		taskapp.ErrOriginUnavailable,
 	),
 }
 
 func writeTaskAppError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, taskapp.ErrOriginValidationFailed) {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, taskapp.ErrOriginValidationFailed.Error())
+		return true
+	}
 	return writeAppError(w, err, taskAppErrorMappings)
 }

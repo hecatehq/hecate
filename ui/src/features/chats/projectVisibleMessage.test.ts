@@ -67,4 +67,23 @@ describe("projectVisibleMessage", () => {
     expect(visible.timing).toBe(timing);
     expect(visible.context_packet).toBe(context_packet);
   });
+
+  it("projects persisted attachment metadata for transcript reloads", () => {
+    const attachments = [
+      {
+        id: "att-1",
+        session_id: "chat-1",
+        filename: "map.png",
+        media_type: "image/png",
+        size_bytes: 5,
+        sha256: "abc",
+        created_at: "2026-07-13T10:00:00Z",
+        content_url: "/hecate/v1/chat/sessions/chat-1/attachments/att-1/content",
+      },
+    ];
+
+    expect(projectVisibleMessage(message("m1", "look", { attachments }), 0).attachments).toBe(
+      attachments,
+    );
+  });
 });

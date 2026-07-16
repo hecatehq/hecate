@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/safetext"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -132,7 +133,7 @@ func (t *MemoryHealthTracker) ObserveWithContext(ctx context.Context, provider s
 	state.Available = true
 	state.Status = HealthStatusDegraded
 	state.LastFailureAt = now
-	state.LastError = observation.Error.Error()
+	state.LastError = safetext.ErrorMessage(observation.Error)
 	errorClass := classifyHealthError(observation.Error)
 	state.LastErrorClass = errorClass
 	switch errorClass {

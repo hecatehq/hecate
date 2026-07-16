@@ -20,6 +20,7 @@ type recordingTaskApplicationRunner struct {
 	resumeTask   types.Task
 	resumeRun    types.TaskRun
 	resumeReason string
+	resumeBudget int64
 
 	continueCalls  int
 	continuePrompt string
@@ -29,7 +30,9 @@ type recordingTaskApplicationRunner struct {
 
 	cancelCalls  int
 	cancelRunID  string
+	cancelRunIDs []string
 	cancelReason string
+	cancelErr    error
 
 	resolveCalls int
 	resolveReq   orchestrator.ResolveApprovalRequest
@@ -42,11 +45,15 @@ func (r *recordingTaskApplicationRunner) StartTask(_ context.Context, task types
 	return &orchestrator.StartTaskResult{Task: task, Run: run}, nil
 }
 
-func (r *recordingTaskApplicationRunner) ResumeTask(_ context.Context, task types.Task, run types.TaskRun, reason string, _ func(string) string) (*orchestrator.StartTaskResult, error) {
+func (r *recordingTaskApplicationRunner) ResumeTaskWithBudget(_ context.Context, task types.Task, run types.TaskRun, reason string, budgetMicrosUSD int64, _ func(string) string) (*orchestrator.StartTaskResult, error) {
 	r.resumeCalls++
+	if budgetMicrosUSD > 0 {
+		task.BudgetMicrosUSD = budgetMicrosUSD
+	}
 	r.resumeTask = task
 	r.resumeRun = run
 	r.resumeReason = reason
+	r.resumeBudget = budgetMicrosUSD
 	resumed := types.TaskRun{ID: "run_resumed", TaskID: task.ID, Status: "queued"}
 	return &orchestrator.StartTaskResult{Task: task, Run: resumed}, nil
 }
@@ -68,7 +75,11 @@ func (r *recordingTaskApplicationRunner) RetryTaskFromTurn(_ context.Context, ta
 func (r *recordingTaskApplicationRunner) CancelRun(_ context.Context, task types.Task, runID string, reason string) (types.TaskRun, error) {
 	r.cancelCalls++
 	r.cancelRunID = runID
+	r.cancelRunIDs = append(r.cancelRunIDs, runID)
 	r.cancelReason = reason
+	if r.cancelErr != nil {
+		return types.TaskRun{}, r.cancelErr
+	}
 	return types.TaskRun{ID: runID, TaskID: task.ID, Status: "cancelled"}, nil
 }
 
@@ -357,6 +368,135 @@ func TestTaskApplication_CancelDispatchesRunIDAndReason(t *testing.T) {
 	}
 }
 
+func TestTaskApplication_CancelNonTerminalRunsByOrigin(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingTaskApplicationRunner{}
+	app := newTestTaskApplication(store, runner)
+	now := time.Now().UTC()
+	ownedOne := createTaskForAppTest(t, ctx, store, types.Task{
+		ID: "task_owned_one", OriginKind: "chat", OriginID: "chat_delete", Status: "running", CreatedAt: now, UpdatedAt: now,
+	})
+	ownedTwo := createTaskForAppTest(t, ctx, store, types.Task{
+		ID: "task_owned_two", OriginKind: "chat", OriginID: "chat_delete", Status: "awaiting_approval", CreatedAt: now.Add(time.Second), UpdatedAt: now.Add(time.Second),
+	})
+	otherOrigin := createTaskForAppTest(t, ctx, store, types.Task{
+		ID: "task_other_origin", OriginKind: "chat", OriginID: "chat_other", Status: "running", CreatedAt: now.Add(2 * time.Second), UpdatedAt: now.Add(2 * time.Second),
+	})
+	otherKind := createTaskForAppTest(t, ctx, store, types.Task{
+		ID: "task_other_kind", OriginKind: "project_work_item", OriginID: "chat_delete", Status: "running", CreatedAt: now.Add(3 * time.Second), UpdatedAt: now.Add(3 * time.Second),
+	})
+	createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_owned_running", TaskID: ownedOne.ID, Status: "running"})
+	createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_owned_terminal", TaskID: ownedOne.ID, Status: "completed"})
+	createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_owned_approval", TaskID: ownedTwo.ID, Status: "awaiting_approval"})
+	createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_other_origin", TaskID: otherOrigin.ID, Status: "running"})
+	createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_other_kind", TaskID: otherKind.ID, Status: "running"})
+
+	result, settlement, err := app.CancelNonTerminalRunsByOrigin(ctx, CancelRunsByOriginCommand{
+		OriginKind: " chat ",
+		OriginID:   " chat_delete ",
+		Reason:     " source deleted ",
+	})
+	if err != nil {
+		t.Fatalf("CancelNonTerminalRunsByOrigin() error = %v", err)
+	}
+	defer settlement.Release()
+	if len(result.Runs) != 2 || runner.cancelCalls != 3 {
+		t.Fatalf("cancelled result/cancel calls = %d/%d, want 2/3", len(result.Runs), runner.cancelCalls)
+	}
+	cancelledIDs := make(map[string]bool, len(runner.cancelRunIDs))
+	for _, runID := range runner.cancelRunIDs {
+		cancelledIDs[runID] = true
+	}
+	if !cancelledIDs["run_owned_running"] || !cancelledIDs["run_owned_approval"] {
+		t.Fatalf("cancelled run ids = %v, want both owned nonterminal runs", runner.cancelRunIDs)
+	}
+	if !cancelledIDs["run_owned_terminal"] {
+		t.Fatalf("cancelled run ids = %v, want terminal run drain/cleanup retry", runner.cancelRunIDs)
+	}
+	for _, unexpected := range []string{"run_other_origin", "run_other_kind"} {
+		if cancelledIDs[unexpected] {
+			t.Fatalf("cancelled run ids = %v, did not want %q", runner.cancelRunIDs, unexpected)
+		}
+	}
+	if runner.cancelReason != "source deleted" {
+		t.Fatalf("cancel reason = %q, want source deleted", runner.cancelReason)
+	}
+	if _, found, err := store.GetTask(ctx, ownedOne.ID); err != nil || !found {
+		t.Fatalf("owned task history after cancellation: found=%t err=%v", found, err)
+	}
+	if _, found, err := store.GetRun(ctx, ownedOne.ID, "run_owned_terminal"); err != nil || !found {
+		t.Fatalf("terminal run history after cancellation: found=%t err=%v", found, err)
+	}
+}
+
+func TestTaskApplication_CancelNonTerminalRunsByOriginReportsEveryFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	cancelErr := errors.New("cancel persistence failed")
+	runner := &recordingTaskApplicationRunner{cancelErr: cancelErr}
+	app := newTestTaskApplication(store, runner)
+	for index, taskID := range []string{"task_origin_a", "task_origin_b"} {
+		task := createTaskForAppTest(t, ctx, store, types.Task{
+			ID: taskID, OriginKind: "chat", OriginID: "chat_failure", Status: "running", UpdatedAt: time.Now().UTC().Add(time.Duration(index) * time.Second),
+		})
+		createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_" + taskID, TaskID: task.ID, Status: "running"})
+	}
+
+	result, settlement, err := app.CancelNonTerminalRunsByOrigin(ctx, CancelRunsByOriginCommand{OriginKind: "chat", OriginID: "chat_failure"})
+	defer settlement.Release()
+	if !errors.Is(err, cancelErr) {
+		t.Fatalf("CancelNonTerminalRunsByOrigin() error = %v, want cancellation cause", err)
+	}
+	if len(result.Runs) != 0 || runner.cancelCalls != 2 {
+		t.Fatalf("cancelled result/calls = %d/%d, want 0/2 after best-effort failures", len(result.Runs), runner.cancelCalls)
+	}
+}
+
+func TestTaskApplication_CancelNonTerminalRunsByOriginFailsClosedWhenTerminalExecutorHasNotDrained(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	drainErr := errors.New("executor still draining")
+	runner := &recordingTaskApplicationRunner{cancelErr: drainErr}
+	app := newTestTaskApplication(store, runner)
+	task := createTaskForAppTest(t, ctx, store, types.Task{
+		ID: "task_terminal_drain", OriginKind: "chat", OriginID: "chat_terminal_drain", Status: "cancelled",
+	})
+	createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_terminal_drain", TaskID: task.ID, Status: "cancelled"})
+
+	_, settlement, err := app.CancelNonTerminalRunsByOrigin(ctx, CancelRunsByOriginCommand{
+		OriginKind: "chat", OriginID: "chat_terminal_drain",
+	})
+	if settlement == nil {
+		t.Fatal("missing origin settlement")
+	}
+	defer settlement.Release()
+	if !errors.Is(err, drainErr) {
+		t.Fatalf("CancelNonTerminalRunsByOrigin error = %v, want drain failure", err)
+	}
+	if runner.cancelCalls != 1 {
+		t.Fatalf("terminal cancellation calls = %d, want 1", runner.cancelCalls)
+	}
+}
+
+func TestTaskApplication_CancelNonTerminalRunsByOriginValidatesOwnership(t *testing.T) {
+	t.Parallel()
+
+	app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
+	if _, _, err := app.CancelNonTerminalRunsByOrigin(context.Background(), CancelRunsByOriginCommand{OriginID: "chat_1"}); !errors.Is(err, ErrOriginKindRequired) || !IsValidationError(err) {
+		t.Fatalf("empty origin kind error = %v, want validation ErrOriginKindRequired", err)
+	}
+	if _, _, err := app.CancelNonTerminalRunsByOrigin(context.Background(), CancelRunsByOriginCommand{OriginKind: "chat"}); !errors.Is(err, ErrOriginIDRequired) || !IsValidationError(err) {
+		t.Fatalf("empty origin id error = %v, want validation ErrOriginIDRequired", err)
+	}
+}
+
 func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T) {
 	t.Parallel()
 
@@ -569,12 +709,8 @@ func TestTaskApplication_ResumeRaisesBudgetBeforeRunner(t *testing.T) {
 	if runner.resumeReason != "raise ceiling" {
 		t.Fatalf("resume reason = %q, want raise ceiling", runner.resumeReason)
 	}
-	persisted, found, err := store.GetTask(ctx, task.ID)
-	if err != nil || !found {
-		t.Fatalf("GetTask: found=%t err=%v", found, err)
-	}
-	if persisted.BudgetMicrosUSD != 250 {
-		t.Fatalf("persisted budget = %d, want 250", persisted.BudgetMicrosUSD)
+	if runner.resumeBudget != 250 {
+		t.Fatalf("runner budget command = %d, want 250", runner.resumeBudget)
 	}
 }
 

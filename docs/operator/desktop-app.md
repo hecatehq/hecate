@@ -187,7 +187,13 @@ the ones likely to bite an operator:
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
 - **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and the menu "Quit Hecate" item all funnel through the same path. If any agent runs are in-flight, a native confirmation dialog appears ("X tasks still running. Quitting Hecate will stop them.") with Quit anyway / Keep running. On confirm — or when there are no running tasks — the gateway is asked to drain via `POST /hecate/v1/system/shutdown` (same code path as `SIGINT`/`SIGTERM`) before the app exits, so MCP subprocesses are torn down cleanly and no run is left stuck in `running`.
-- **Reset local data does not relaunch the app.** Settings → Maintenance → Danger zone calls `POST /hecate/v1/system/reset-data`, closes live external-agent chat sessions, removes the authoritative embedded Cairnline project database plus Hecate-owned chats, tasks, runtime overlays, provider setup, policy rules, and saved external-agent grants, then clears remaining configured Hecate SQL-backend rows in place. Workspace files and external CLI auth files stay on disk.
+- **Reset local data is unavailable while the app is running.** Settings →
+  Maintenance → Danger zone shows the action disabled. Quit Hecate completely
+  before removing or replacing its platform data directory; the reserved
+  `POST /hecate/v1/system/reset-data` route returns `409 conflict` without
+  deleting anything until runtime-wide writer quiescence exists. Back up the
+  directory first if you may need provider setup, chats, tasks, or project
+  coordination state later.
 - **Data dir is platform-specific.** Settings saved on macOS don't migrate
   to a Linux build of the same version. Multi-machine users keep separate
   config per platform.

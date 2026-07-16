@@ -62,12 +62,14 @@ func prepareClaimedRunStartTransition(input claimedRunStartTransitionInput) clai
 	}
 }
 
-func persistClaimedRunStartTransition(ctx context.Context, store taskstate.Store, transition claimedRunStartTransition) error {
-	if _, err := store.UpdateRun(ctx, transition.Run); err != nil {
-		return err
+func persistClaimedRunStartTransition(ctx context.Context, store taskstate.Store, transition claimedRunStartTransition) (bool, error) {
+	result, err := store.ApplyRunStateTransition(ctx, taskstate.RunStateTransition{
+		Task:                transition.Task,
+		Run:                 transition.Run,
+		ExpectedRunStatuses: []string{"queued"},
+	})
+	if err != nil {
+		return false, err
 	}
-	if _, err := store.UpdateTask(ctx, transition.Task); err != nil {
-		return err
-	}
-	return nil
+	return result.Applied, nil
 }

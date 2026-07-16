@@ -95,6 +95,7 @@ func (h *Handler) deleteCairnlineOnlyProjectWithAuthority(ctx context.Context, p
 		if err != nil {
 			return err
 		}
+		rollback = cairnlinebridge.CairnlineSnapshotForProject(rollback, project.ID)
 		return cairnlinebridge.DeleteProject(ctx, service, project)
 	})
 	if errors.Is(err, cairnline.ErrNotFound) {

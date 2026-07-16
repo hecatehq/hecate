@@ -55,11 +55,12 @@ type DraftCommand struct {
 }
 
 type ProposeCommand struct {
-	ID      string
-	Title   string
-	Summary string
-	Actions []projectassistant.Action
-	TraceID string
+	ID        string
+	ProjectID string
+	Title     string
+	Summary   string
+	Actions   []projectassistant.Action
+	TraceID   string
 }
 
 type ApplyCommand struct {
@@ -128,13 +129,43 @@ func (app *Application) Propose(ctx context.Context, command ProposeCommand) (pr
 		return projectassistant.Proposal{}, projectassistant.ErrStoreNotConfigured
 	}
 	return app.service.Propose(ctx, projectassistant.ProposalInput{
-		ID:      command.ID,
-		Source:  projectassistant.ProposalSourceAPI,
-		Title:   command.Title,
-		Summary: command.Summary,
-		Actions: command.Actions,
-		TraceID: command.TraceID,
+		ID:        command.ID,
+		ProjectID: command.ProjectID,
+		Source:    projectassistant.ProposalSourceAPI,
+		Title:     command.Title,
+		Summary:   command.Summary,
+		Actions:   command.Actions,
+		TraceID:   command.TraceID,
 	})
+}
+
+func (app *Application) PrepareProposal(command ProposeCommand) (projectassistant.Proposal, error) {
+	if app == nil || app.service == nil {
+		return projectassistant.Proposal{}, projectassistant.ErrStoreNotConfigured
+	}
+	return app.service.PrepareProposal(projectassistant.ProposalInput{
+		ID:        command.ID,
+		ProjectID: command.ProjectID,
+		Source:    projectassistant.ProposalSourceAPI,
+		Title:     command.Title,
+		Summary:   command.Summary,
+		Actions:   command.Actions,
+		TraceID:   command.TraceID,
+	})
+}
+
+func (app *Application) ProposePrepared(ctx context.Context, proposal projectassistant.Proposal, projectID string) (projectassistant.Proposal, error) {
+	if app == nil || app.service == nil {
+		return projectassistant.Proposal{}, projectassistant.ErrStoreNotConfigured
+	}
+	return app.service.ProposePrepared(ctx, proposal, projectID, projectassistant.ProposalSourceAPI, "")
+}
+
+func (app *Application) CanonicalizeProposal(proposal projectassistant.Proposal) (projectassistant.Proposal, error) {
+	if app == nil || app.service == nil {
+		return projectassistant.Proposal{}, projectassistant.ErrStoreNotConfigured
+	}
+	return app.service.CanonicalizeProposal(proposal)
 }
 
 func (app *Application) Apply(ctx context.Context, command ApplyCommand) (projectassistant.ApplyResult, error) {

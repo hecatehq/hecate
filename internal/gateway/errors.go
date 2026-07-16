@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/ratelimit"
+	"github.com/hecatehq/hecate/internal/safetext"
 )
 
 var (
@@ -34,7 +35,7 @@ func UserFacingMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := err.Error()
+	msg := safetext.ErrorMessage(err)
 	for _, prefix := range []string{errClient.Error() + ": ", errDenied.Error() + ": "} {
 		if strings.HasPrefix(msg, prefix) {
 			return strings.TrimPrefix(msg, prefix)

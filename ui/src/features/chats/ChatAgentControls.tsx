@@ -640,10 +640,12 @@ export function ExternalAgentConfigControls({
   session,
   onChange,
   placement = "header",
+  disabled = false,
 }: {
   session: { id?: string; agent_id?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
   placement?: "header" | "composer";
+  disabled?: boolean;
 }) {
   if (
     !session?.id ||
@@ -675,6 +677,7 @@ export function ExternalAgentConfigControls({
           key={option.id}
           sessionID={session.id!}
           option={option}
+          disabled={disabled}
           onChange={onChange}
           menuPlacement={placement === "composer" ? "up" : "down"}
         />
@@ -686,9 +689,11 @@ export function ExternalAgentConfigControls({
 export function ExternalAgentSettingsControls({
   session,
   onChange,
+  disabled = false,
 }: {
   session: { id?: string; agent_id?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  disabled?: boolean;
 }) {
   if (
     !session?.id ||
@@ -711,6 +716,7 @@ export function ExternalAgentSettingsControls({
           key={option.id}
           sessionID={session.id!}
           option={option}
+          disabled={disabled}
           onChange={onChange}
         />
       ))}
@@ -831,11 +837,13 @@ function ExternalAgentConfigControl({
   option,
   onChange,
   menuPlacement = "down",
+  disabled = false,
 }: {
   sessionID: string;
   option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
   menuPlacement?: "down" | "up";
+  disabled?: boolean;
 }) {
   const label = agentConfigOptionLabel(option);
   const title = [option.name, option.description].filter(Boolean).join(" · ");
@@ -846,6 +854,7 @@ function ExternalAgentConfigControl({
         type="button"
         className="btn btn-ghost btn-sm"
         aria-pressed={checked}
+        disabled={disabled}
         title={title || label}
         onClick={() => void onChange(sessionID, option.id, !checked)}
         style={{
@@ -876,6 +885,8 @@ function ExternalAgentConfigControl({
       value={option.current_value ?? ""}
       options={options}
       onChange={(value) => void onChange(sessionID, option.id, value)}
+      disabled={disabled}
+      disabledReason="Wait for Stop to finish before changing agent settings."
       placeholder={option.name}
       triggerPrefix={label}
       triggerMinWidth={150}
@@ -893,14 +904,21 @@ function ExternalAgentSettingsControl({
   sessionID,
   option,
   onChange,
+  disabled = false,
 }: {
   sessionID: string;
   option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  disabled?: boolean;
 }) {
   if (agentConfigOptionIsText(option)) {
     return (
-      <ExternalAgentTextConfigControl sessionID={sessionID} option={option} onChange={onChange} />
+      <ExternalAgentTextConfigControl
+        sessionID={sessionID}
+        option={option}
+        onChange={onChange}
+        disabled={disabled}
+      />
     );
   }
   return (
@@ -924,7 +942,12 @@ function ExternalAgentSettingsControl({
           </div>
         )}
       </div>
-      <ExternalAgentConfigControl sessionID={sessionID} option={option} onChange={onChange} />
+      <ExternalAgentConfigControl
+        sessionID={sessionID}
+        option={option}
+        onChange={onChange}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -933,10 +956,12 @@ function ExternalAgentTextConfigControl({
   sessionID,
   option,
   onChange,
+  disabled = false,
 }: {
   sessionID: string;
   option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  disabled?: boolean;
 }) {
   const [textValue, setTextValue] = useState(option.current_value ?? "");
   const [saving, setSaving] = useState(false);
@@ -985,6 +1010,7 @@ function ExternalAgentTextConfigControl({
       <textarea
         aria-label={label}
         value={textValue}
+        disabled={disabled}
         onChange={(event) => setTextValue(event.target.value)}
         rows={4}
         style={{
@@ -1005,7 +1031,7 @@ function ExternalAgentTextConfigControl({
       <button
         type="button"
         className="btn btn-primary btn-sm"
-        disabled={!changed || saving}
+        disabled={disabled || !changed || saving}
         onClick={() => void save()}
         style={{ justifySelf: "start" }}
       >

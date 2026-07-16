@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -322,6 +324,7 @@ func TestChatCompletionsStreamMidStreamErrorMessageIsValidJSON(t *testing.T) {
 	var payload struct {
 		Error struct {
 			Message string `json:"message"`
+			Type    string `json:"type"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(dataLine), &payload); err != nil {
@@ -330,6 +333,37 @@ func TestChatCompletionsStreamMidStreamErrorMessageIsValidJSON(t *testing.T) {
 	want := `upstream "rate limit" failed:` + "\n" + `details=\path\file`
 	if payload.Error.Message != want {
 		t.Errorf("parsed message = %q, want %q", payload.Error.Message, want)
+	}
+	if payload.Error.Type != errCodeProviderUnavailable {
+		t.Errorf("parsed type = %q, want %q", payload.Error.Type, errCodeProviderUnavailable)
+	}
+}
+
+func TestChatCompletionsStreamGenericErrorRedactsInlineImageFromSSEAndLogs(t *testing.T) {
+	t.Parallel()
+	const secretPayload = "cHJpdmF0ZS1pbWFnZS1ieXRlcw=="
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	provider := &failingStreamProvider{
+		fakeProvider: fakeProvider{name: "openai", defaultModel: "gpt-4o-mini"},
+		streamErr:    errors.New("stream failed for DATA:image/png;base64," + secretPayload),
+	}
+	handler := newTestHTTPHandler(logger, provider)
+
+	rec := performJSONRequest(t, handler, `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for surface, value := range map[string]string{
+		"SSE":  rec.Body.String(),
+		"logs": logs.String(),
+	} {
+		if strings.Contains(value, secretPayload) || strings.Contains(strings.ToLower(value), "data:image") {
+			t.Fatalf("%s leaked inline image data: %q", surface, value)
+		}
+		if !strings.Contains(value, "[redacted inline image]") {
+			t.Fatalf("%s = %q, want redaction marker", surface, value)
+		}
 	}
 }
 
@@ -433,7 +467,7 @@ func TestOpenAIMessageContentUnmarshalsBothShapes(t *testing.T) {
 // addition could accidentally drop text or blocks.
 func TestOpenAIMessageContentMarshalRoundTrip(t *testing.T) {
 	t.Parallel()
-	imageURL := "data:image/png;base64,iVBOR"
+	imageURL := "data:image/png;base64,iVBORw0KGgo="
 	cases := []struct {
 		name string
 		in   OpenAIMessageContent
@@ -450,7 +484,7 @@ func TestOpenAIMessageContentMarshalRoundTrip(t *testing.T) {
 					{Type: "image_url", ImageURL: &OpenAIContentImageURL{URL: imageURL, Detail: "low"}},
 				},
 			},
-			`[{"type":"text","text":"a"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBOR","detail":"low"}}]`,
+			`[{"type":"text","text":"a"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo=","detail":"low"}}]`,
 		},
 	}
 	for _, tc := range cases {
@@ -514,6 +548,181 @@ func TestNormalizeChatRequestParsesImageBlocks(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsRejectsMalformedImageURLBlocks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		content     string
+		wantMessage string
+	}{
+		{
+			name:        "missing image object",
+			content:     `[{"type":"text","text":"describe"},{"type":"image_url"}]`,
+			wantMessage: "messages[0].content[1].image_url is required",
+		},
+		{
+			name:        "empty URL",
+			content:     `[{"type":"image_url","image_url":{"url":"   "}}]`,
+			wantMessage: "messages[0].content[0].image_url.url is required",
+		},
+		{
+			name:        "unsupported detail",
+			content:     `[{"type":"image_url","image_url":{"url":"https://example.com/image.png","detail":"full"}}]`,
+			wantMessage: "messages[0].content[0].image_url.detail must be one of auto, low, or high",
+		},
+		{
+			name:        "unsupported credential URL scheme",
+			content:     `[{"type":"image_url","image_url":{"url":"ftp://operator:password@example.com/image.png"}}]`,
+			wantMessage: "messages[0].content[0].image_url.url must use http, https, or a valid base64 image data URI",
+		},
+		{
+			name:        "non-base64 image data URI",
+			content:     `[{"type":"image_url","image_url":{"url":"data:image/svg+xml,<svg>private</svg>"}}]`,
+			wantMessage: "messages[0].content[0].image_url.url must use http, https, or a valid base64 image data URI",
+		},
+		{
+			name:        "invalid base64 image data URI",
+			content:     `[{"type":"image_url","image_url":{"url":"data:image/png;base64,not-valid!"}}]`,
+			wantMessage: "messages[0].content[0].image_url.url must use http, https, or a valid base64 image data URI",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &fakeProvider{name: "openai", response: &types.ChatResponse{}}
+			handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), provider)
+			recorder := performJSONRequest(t, handler, `{"model":"gpt-4o-mini","messages":[{"role":"user","content":`+test.content+`}]}`)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+			}
+			var payload struct {
+				Error struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if payload.Error.Type != errCodeInvalidRequest || payload.Error.Message != test.wantMessage {
+				t.Fatalf("error = %+v, want type %q and message %q", payload.Error, errCodeInvalidRequest, test.wantMessage)
+			}
+			if provider.CallCount() != 0 {
+				t.Fatalf("provider calls = %d, want 0", provider.CallCount())
+			}
+		})
+	}
+}
+
+func TestChatCompletionsRejectsMalformedPersistedImageBlocks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		block       string
+		wantMessage string
+	}{
+		{
+			name:        "missing image object",
+			block:       `{"type":"image"}`,
+			wantMessage: "messages[0].content_blocks[0].image_url is required",
+		},
+		{
+			name:        "empty URL",
+			block:       `{"type":"image_url","image_url":{"url":"  "}}`,
+			wantMessage: "messages[0].content_blocks[0].image_url.url is required",
+		},
+		{
+			name:        "unsupported detail",
+			block:       `{"type":"image_url","image_url":{"url":"https://example.com/image.png","detail":"full"}}`,
+			wantMessage: "messages[0].content_blocks[0].image_url.detail must be one of auto, low, or high",
+		},
+		{
+			name:        "unsupported credential URL scheme",
+			block:       `{"type":"image_url","image_url":{"url":"ftp://operator:password@example.com/image.png"}}`,
+			wantMessage: "messages[0].content_blocks[0].image_url.url must use http, https, or a valid base64 image data URI",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &fakeProvider{name: "openai", response: &types.ChatResponse{}}
+			handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), provider)
+			body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"ignored","content_blocks":[` + test.block + `]}]}`
+			recorder := performJSONRequest(t, handler, body)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+			}
+			var payload struct {
+				Error struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if payload.Error.Type != errCodeInvalidRequest || payload.Error.Message != test.wantMessage {
+				t.Fatalf("error = %+v, want type %q and message %q", payload.Error, errCodeInvalidRequest, test.wantMessage)
+			}
+			if provider.CallCount() != 0 {
+				t.Fatalf("provider calls = %d, want 0", provider.CallCount())
+			}
+		})
+	}
+}
+
+func TestChatCompletionsImagePassthroughDoesNotRequireDiscoveredCapability(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeProvider{
+		name: "custom",
+		capabilities: providers.Capabilities{
+			Name:            "custom",
+			Kind:            providers.KindCloud,
+			DefaultModel:    "custom-multimodal",
+			Models:          []string{"custom-multimodal"},
+			DiscoverySource: "upstream_v1_models",
+		},
+		response: &types.ChatResponse{
+			ID:    "chatcmpl-public-image",
+			Model: "custom-multimodal",
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "seen"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), provider)
+	recorder := performJSONRequest(t, handler, `{
+		"model":"custom-multimodal",
+		"messages":[{"role":"user","content":[
+			{"type":"text","text":"describe"},
+			{"type":"image_url","image_url":{"url":"https://example.com/image.png"}}
+		]}]
+	}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 passthrough; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if provider.CallCount() != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.CallCount())
+	}
+	request := provider.LastRequest()
+	if request.Requirements.ImageInput {
+		t.Fatal("public /v1 request unexpectedly opted into Hecate image capability admission")
+	}
+	if !request.Requirements.NoProviderFailover {
+		t.Fatal("public /v1 image request did not prevent cross-provider failover")
+	}
+	if len(request.Messages) != 1 || len(request.Messages[0].ContentBlocks) != 2 {
+		t.Fatalf("forwarded messages = %+v, want structured image content preserved", request.Messages)
+	}
+}
+
 // TestNormalizeChatRequestStringContentUnchanged is the backward-
 // compat guard for the single-modal text path. Pre-multi-modal
 // every request had `content: "..."` as a plain string; that
@@ -536,6 +745,9 @@ func TestNormalizeChatRequestStringContentUnchanged(t *testing.T) {
 	}
 	if len(m.ContentBlocks) != 0 {
 		t.Errorf("ContentBlocks len = %d, want 0 (string-content path should not populate blocks)", len(m.ContentBlocks))
+	}
+	if internal.Requirements.NoProviderFailover {
+		t.Fatal("text-only compatibility request unexpectedly disabled provider failover")
 	}
 }
 

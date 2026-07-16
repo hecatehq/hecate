@@ -59,17 +59,15 @@ test("maintenance 'Clean up now' fires POST request", async ({ page }) => {
   await expect.poll(() => posted).toBe(true);
 });
 
-test("memory backend labels reset as runtime state", async ({ page }) => {
-  await expect(page.getByText("Reset runtime state")).toBeVisible();
-  await expect(page.getByText(/current in-memory state/i)).toBeVisible();
-
-  await page.getByRole("button", { name: /Reset/i }).click();
-  await expect(page.getByText(/memory storage/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
+test("memory backend disables in-process reset", async ({ page }) => {
+  await expect(page.getByText("Reset runtime state unavailable")).toBeVisible();
+  await expect(
+    page.getByText(/Restart the runtime to clear Hecate-owned in-memory state/i),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unavailable" })).toBeDisabled();
 });
 
-test("sqlite backend labels reset as local data and posts after confirmation", async ({ page }) => {
-  let posted = false;
+test("sqlite backend disables in-process reset", async ({ page }) => {
   await page.route("/hecate/v1/settings*", async (route) => {
     await route.fulfill({
       status: 200,
@@ -80,38 +78,12 @@ test("sqlite backend labels reset as local data and posts after confirmation", a
       }),
     });
   });
-  await page.route("/hecate/v1/system/reset-data", async (route) => {
-    if (route.request().method() === "POST") {
-      posted = true;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          object: "system_reset",
-          data: {
-            projects_deleted: 0,
-            chat_sessions_deleted: 0,
-            tasks_deleted: 0,
-            providers_deleted: 0,
-            policy_rules_deleted: 0,
-            agent_approval_grants_deleted: 0,
-            database_rows_deleted: 2,
-          },
-        }),
-      });
-      return;
-    }
-    await route.fallback();
-  });
-
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
-  await expect(page.getByText("Reset local data")).toBeVisible();
-  await expect(page.getByText(/remaining Hecate database rows/i)).toBeVisible();
-
-  await page.getByRole("button", { name: /Reset/i }).click();
-  await page.getByLabel(/Type RESET/i).fill("RESET");
-  await page.getByRole("button", { name: "Reset local data" }).click();
-  await expect.poll(() => posted).toBe(true);
+  await expect(page.getByText("Reset local data unavailable")).toBeVisible();
+  await expect(
+    page.getByText(/Stop the runtime before removing its configured data directory/i),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unavailable" })).toBeDisabled();
 });

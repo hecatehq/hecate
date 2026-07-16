@@ -19,6 +19,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/remoteruntime"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -42,7 +43,7 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 		SessionID:      "chat_1",
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "first turn",
+		Prompt:         PromptInput{Text: "first turn"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -53,7 +54,7 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 		SessionID:      "chat_1",
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "second turn",
+		Prompt:         PromptInput{Text: "second turn"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -90,6 +91,288 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	}
 	if second.Usage.ContextSize != 200_000 || second.Usage.ContextUsed != 20_000 {
 		t.Fatalf("second usage = %+v, want turn 2 context usage", second.Usage)
+	}
+}
+
+func TestSessionManagerDispatchesPromptFilesAgainstLiveCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		mediaType      string
+		capabilityEnv  string
+		wantBlock      string
+		wantStagedFile bool
+	}{
+		{name: "image", mediaType: "image/png", capabilityEnv: "HECATE_FAKE_ACP_PROMPT_IMAGE", wantBlock: "image"},
+		{name: "embedded", mediaType: "text/plain", capabilityEnv: "HECATE_FAKE_ACP_PROMPT_EMBEDDED", wantBlock: "resource"},
+		{name: "resource link baseline", mediaType: "text/plain", wantBlock: "resource_link", wantStagedFile: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.capabilityEnv != "" {
+				t.Setenv(test.capabilityEnv, "1")
+			}
+			capturePath := filepath.Join(t.TempDir(), "prompt.json")
+			t.Setenv("HECATE_FAKE_ACP_PROMPT_CAPTURE", capturePath)
+			installFakeACPExecutable(t, "codex-acp-adapter")
+			workspace := t.TempDir()
+			manager := NewSessionManager()
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := manager.Shutdown(ctx); err != nil {
+					t.Errorf("Shutdown: %v", err)
+				}
+			})
+			file := promptTestFile("input.txt", test.mediaType, []byte("private input"))
+			if _, err := manager.Run(context.Background(), RunRequest{
+				SessionID:      "chat_prompt_" + strings.ReplaceAll(test.name, " ", "_"),
+				AdapterID:      "codex",
+				Workspace:      workspace,
+				Prompt:         PromptInput{Text: "inspect", Files: []PromptFile{file}},
+				Timeout:        5 * time.Second,
+				MaxOutputBytes: 64 * 1024,
+			}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			raw, err := os.ReadFile(capturePath)
+			if err != nil {
+				t.Fatalf("read captured prompt: %v", err)
+			}
+			var blocks []acp.ContentBlock
+			if err := json.Unmarshal(raw, &blocks); err != nil {
+				t.Fatalf("decode captured prompt: %v", err)
+			}
+			if len(blocks) != 2 || promptBlockKind(blocks[1]) != test.wantBlock {
+				t.Fatalf("captured blocks = %#v, want text + %s", blocks, test.wantBlock)
+			}
+			if test.wantStagedFile {
+				path := cleanACPReadPath(blocks[1].ResourceLink.Uri)
+				if path == "" {
+					t.Fatalf("resource link URI = %q", blocks[1].ResourceLink.Uri)
+				}
+				if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+					t.Fatalf("staged prompt directory survived Run: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionManagerRedactsRetainedStageAliasesFromSetConfigResponses(t *testing.T) {
+	prepare := func(t *testing.T, prompt string) (*SessionManager, string, string, string) {
+		t.Helper()
+		t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
+		t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+		capturePath := filepath.Join(t.TempDir(), "prompt.json")
+		t.Setenv("HECATE_FAKE_ACP_PROMPT_CAPTURE", capturePath)
+		installFakeACPExecutable(t, "cursor-agent")
+		manager := NewSessionManager()
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := manager.Shutdown(ctx); err != nil {
+				t.Errorf("Shutdown: %v", err)
+			}
+		})
+		sessionID := "chat_retained_config_" + strings.ReplaceAll(prompt, "_", "-")
+		file := promptTestFile("private.txt", "text/plain", []byte("private input"))
+		if _, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "cursor_agent",
+			Workspace:      t.TempDir(),
+			Prompt:         PromptInput{Text: prompt, Files: []PromptFile{file}},
+			Timeout:        5 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		}); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		raw, err := os.ReadFile(capturePath)
+		if err != nil {
+			t.Fatalf("read captured prompt: %v", err)
+		}
+		var blocks []acp.ContentBlock
+		if err := json.Unmarshal(raw, &blocks); err != nil || len(blocks) != 2 || blocks[1].ResourceLink == nil {
+			t.Fatalf("captured staged prompt = %#v, %v", blocks, err)
+		}
+		uri := blocks[1].ResourceLink.Uri
+		path := cleanACPReadPath(uri)
+		if path == "" {
+			t.Fatalf("resource link URI = %q", uri)
+		}
+		return manager, sessionID, path, uri
+	}
+
+	t.Run("metadata", func(t *testing.T) {
+		manager, sessionID, path, uri := prepare(t, "echo_alias_in_config")
+		for _, request := range []SetSessionConfigOptionRequest{
+			{SessionID: sessionID, ConfigID: "mode", Value: "auto"},
+			{SessionID: sessionID, ConfigID: "model", Value: "model-b"},
+		} {
+			result, err := manager.SetSessionConfigOption(context.Background(), request)
+			if err != nil {
+				t.Fatalf("SetSessionConfigOption(%s): %v", request.ConfigID, err)
+			}
+			encoded, err := json.Marshal(result.ConfigOptions)
+			if err != nil {
+				t.Fatalf("marshal config options: %v", err)
+			}
+			if strings.Contains(string(encoded), path) || strings.Contains(string(encoded), uri) ||
+				!strings.Contains(string(encoded), privateACPPromptInputRedaction) {
+				t.Fatalf("SetSessionConfigOption(%s) exposed retained alias: %s", request.ConfigID, encoded)
+			}
+		}
+	})
+
+	t.Run("peer errors", func(t *testing.T) {
+		manager, sessionID, path, uri := prepare(t, "echo_alias_in_config_error")
+		for _, request := range []SetSessionConfigOptionRequest{
+			{SessionID: sessionID, ConfigID: "mode", Value: "auto"},
+			{SessionID: sessionID, ConfigID: "model", Value: "model-b"},
+		} {
+			_, err := manager.SetSessionConfigOption(context.Background(), request)
+			if err == nil {
+				t.Fatalf("SetSessionConfigOption(%s) error = nil", request.ConfigID)
+			}
+			if strings.Contains(err.Error(), path) || strings.Contains(err.Error(), uri) ||
+				!strings.Contains(err.Error(), privateACPPromptInputRedaction) {
+				t.Fatalf("SetSessionConfigOption(%s) exposed retained alias: %v", request.ConfigID, err)
+			}
+		}
+	})
+}
+
+func TestSessionManagerCancelsDuringFinalPromptStageAuditBeforeDispatch(t *testing.T) {
+	capturePath := filepath.Join(t.TempDir(), "prompt.json")
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_CAPTURE", capturePath)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	manager := NewSessionManager()
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	const sessionID = "chat_cancel_final_stage_audit"
+	workspace := t.TempDir()
+	if _, err := manager.PrepareSession(t.Context(), PrepareSessionRequest{
+		SessionID: sessionID,
+		AdapterID: "codex",
+		Workspace: workspace,
+	}); err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	manager.mu.Lock()
+	session := manager.sessions[sessionID]
+	manager.mu.Unlock()
+	if session == nil {
+		t.Fatal("prepared ACP session is unavailable")
+	}
+
+	auditComplete := make(chan string, 1)
+	releaseAudit := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseAudit) }) }
+	defer release()
+	session.verifyPromptStage = func(stage *acpPromptStage) error {
+		if err := stage.verifyIdentity(); err != nil {
+			return err
+		}
+		auditComplete <- stage.dir
+		<-releaseAudit
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	file := promptTestFile("private.txt", "text/plain", []byte("private staged input"))
+	go func() {
+		_, err := manager.Run(ctx, RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         PromptInput{Text: "must not dispatch", Files: []PromptFile{file}},
+			Timeout:        5 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		})
+		done <- err
+	}()
+
+	var stageDir string
+	select {
+	case stageDir = <-auditComplete:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for final staged-file audit")
+	}
+	cancel()
+	release()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for cancelled staged-file turn")
+	}
+	if _, err := os.Stat(capturePath); !os.IsNotExist(err) {
+		t.Fatalf("cancelled turn reached ACP prompt handler: %v", err)
+	}
+	if _, err := os.Stat(stageDir); !os.IsNotExist(err) {
+		t.Fatalf("cancelled staged prompt directory survived cleanup: %v", err)
+	}
+}
+
+func TestSessionManagerRedactsStagedPromptPathFromAgentError(t *testing.T) {
+	capturePath := filepath.Join(t.TempDir(), "prompt.json")
+	t.Setenv("HECATE_FAKE_ACP_PROMPT_CAPTURE", capturePath)
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	manager := NewSessionManager()
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	file := promptTestFile("private.txt", "text/plain", []byte("private input"))
+	result, runErr := manager.Run(context.Background(), RunRequest{
+		SessionID:      "chat_staged_error",
+		AdapterID:      "codex",
+		Workspace:      t.TempDir(),
+		Prompt:         PromptInput{Text: "staged_error", Files: []PromptFile{file}},
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if runErr == nil {
+		t.Fatal("Run error = nil, want staged-path agent error")
+	}
+	raw, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("read captured prompt: %v", err)
+	}
+	var blocks []acp.ContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil || len(blocks) != 2 || blocks[1].ResourceLink == nil {
+		t.Fatalf("captured staged prompt = %#v, %v", blocks, err)
+	}
+	path := cleanACPReadPath(blocks[1].ResourceLink.Uri)
+	for _, secret := range []string{path, blocks[1].ResourceLink.Uri, filepath.Dir(path), filepath.Base(filepath.Dir(path))} {
+		if strings.Contains(runErr.Error(), secret) {
+			t.Fatalf("agent error exposed staged alias %q: %v", secret, runErr)
+		}
+	}
+	if !strings.Contains(runErr.Error(), privateACPPromptInputRedaction) {
+		t.Fatalf("agent error = %q, want redaction marker", runErr)
+	}
+	if result.RawOutput != "" && result.RawOutput != privateACPRawOutputWithheld {
+		t.Fatalf("raw output = %q, want empty or staged-turn withheld marker", result.RawOutput)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("staged prompt directory survived failed Run: %v", err)
+	}
+}
+
+func promptBlockKind(block acp.ContentBlock) string {
+	switch {
+	case block.Text != nil:
+		return "text"
+	case block.Image != nil:
+		return "image"
+	case block.Resource != nil:
+		return "resource"
+	case block.ResourceLink != nil:
+		return "resource_link"
+	default:
+		return "unknown"
 	}
 }
 
@@ -132,6 +415,9 @@ func TestSessionManagerAdvertisesACPTerminalsOnlyWhenEnabled(t *testing.T) {
 
 			manager := NewSessionManager()
 			manager.SetTerminalSupportEnabled(tt.enabled)
+			if tt.enabled {
+				manager.SetWorkspaceCoordinator(workspacecoord.NewRegistry())
+			}
 			t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
 			_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
 				SessionID: "chat_terminal_capability_" + tt.name,
@@ -158,6 +444,21 @@ func TestSessionManagerAdvertisesACPTerminalsOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestSessionManagerRejectsACPTerminalSupportWithoutWorkspaceCoordinator(t *testing.T) {
+	manager := NewSessionManager()
+	manager.SetTerminalSupportEnabled(true)
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_terminal_missing_coordination",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "workspace coordination is required") {
+		t.Fatalf("PrepareSession error = %v, want missing workspace coordination failure", err)
+	}
+}
+
 func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T) {
 	if os.Getenv("HECATE_FAKE_ACP_AGENT") == "1" {
 		return
@@ -167,6 +468,7 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 	store := NewMemoryApprovalStore()
 
 	manager := NewSessionManager()
+	manager.SetWorkspaceCoordinator(workspacecoord.NewRegistry())
 	manager.SetTerminalSupportEnabled(true)
 	manager.SetApprovalCoordinator(NewApprovalCoordinator(CoordinatorOptions{
 		Mode:  ModeAuto,
@@ -176,13 +478,14 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 	var activityCapture acpSessionActivityCapture
 
 	result, err := manager.Run(context.Background(), RunRequest{
-		SessionID:      "chat_terminal_callback",
-		AdapterID:      "codex",
-		Workspace:      workspace,
-		Prompt:         "terminal command",
-		Timeout:        5 * time.Second,
-		MaxOutputBytes: 64 * 1024,
-		OnActivity:     activityCapture.record,
+		SessionID:          "chat_terminal_callback",
+		AdapterID:          "codex",
+		Workspace:          workspace,
+		Prompt:             PromptInput{Text: "terminal command"},
+		Timeout:            5 * time.Second,
+		MaxOutputBytes:     64 * 1024,
+		OnActivity:         activityCapture.record,
+		OnTerminalActivity: activityCapture.record,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -237,7 +540,7 @@ func TestSessionManagerRunsACPTerminalCallbackThroughAdapterProcess(t *testing.T
 	}
 }
 
-func TestSessionManagerCloseSessionCleansUnreleasedACPTerminal(t *testing.T) {
+func TestSessionManagerUnreleasedACPTerminalHoldsWorkspaceUntilSessionClose(t *testing.T) {
 	if os.Getenv("HECATE_FAKE_ACP_AGENT") == "1" {
 		return
 	}
@@ -248,6 +551,8 @@ func TestSessionManagerCloseSessionCleansUnreleasedACPTerminal(t *testing.T) {
 	workspace := t.TempDir()
 
 	manager := NewSessionManager()
+	workspaceCoordinator := workspacecoord.NewRegistry()
+	manager.SetWorkspaceCoordinator(workspaceCoordinator)
 	manager.SetTerminalSupportEnabled(true)
 	manager.SetApprovalCoordinator(NewApprovalCoordinator(CoordinatorOptions{Mode: ModeAuto}))
 	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
@@ -258,7 +563,7 @@ func TestSessionManagerCloseSessionCleansUnreleasedACPTerminal(t *testing.T) {
 		SessionID:      sessionID,
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "terminal command no release",
+		Prompt:         PromptInput{Text: "terminal command no release"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 		OnActivity:     activityCapture.record,
@@ -283,6 +588,12 @@ func TestSessionManagerCloseSessionCleansUnreleasedACPTerminal(t *testing.T) {
 	if !strings.Contains(terminalTool.ArtifactPreview, "terminal retained") {
 		t.Fatalf("terminal-ref tool preview = %q, want retained terminal output", terminalTool.ArtifactPreview)
 	}
+	if closure, closeErr := workspaceCoordinator.TryClose(t.Context(), workspace); closeErr == nil {
+		closure.Release()
+		t.Fatal("workspace closure succeeded after the ACP turn ended with a live terminal; want active-writer conflict")
+	} else if !errors.Is(closeErr, workspacecoord.ErrBusy) {
+		t.Fatalf("workspace closure error = %v, want workspacecoord.ErrBusy", closeErr)
+	}
 
 	closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -290,6 +601,11 @@ func TestSessionManagerCloseSessionCleansUnreleasedACPTerminal(t *testing.T) {
 		t.Fatalf("CloseSession: %v", err)
 	}
 	waitForFileContent(t, filepath.Join(workspace, "terminal-closed.txt"), "closed")
+	closure, err := workspaceCoordinator.TryClose(t.Context(), workspace)
+	if err != nil {
+		t.Fatalf("workspace closure after terminal drain: %v", err)
+	}
+	closure.Release()
 }
 
 type acpSessionActivityCapture struct {
@@ -346,7 +662,7 @@ func TestSessionManagerPreservesACPStopReason(t *testing.T) {
 		SessionID:      "chat_stop_reason",
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "max_tokens",
+		Prompt:         PromptInput{Text: "max_tokens"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -703,7 +1019,7 @@ func TestSessionManagerChangesACPModelWithoutRestartingSession(t *testing.T) {
 		SessionID:      "chat_grok_model",
 		AdapterID:      "grok_build",
 		Workspace:      workspace,
-		Prompt:         "after model switch",
+		Prompt:         PromptInput{Text: "after model switch"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 		ConfigOptions:  updated.ConfigOptions,
@@ -838,7 +1154,7 @@ func TestSessionManagerAppliesSelectedACPConfigOptionDuringLoad(t *testing.T) {
 		AdapterID:               "cursor_agent",
 		Workspace:               t.TempDir(),
 		PreviousNativeSessionID: "fake_session_existing",
-		Prompt:                  "restored mode",
+		Prompt:                  PromptInput{Text: "restored mode"},
 		Timeout:                 5 * time.Second,
 		MaxOutputBytes:          64 * 1024,
 		ConfigOptions: []agentcontrols.ConfigOption{{
@@ -1098,7 +1414,7 @@ func TestSessionManagerSerializesConcurrentSessionStart(t *testing.T) {
 				SessionID:      "chat_concurrent",
 				AdapterID:      "codex",
 				Workspace:      workspace,
-				Prompt:         prompt,
+				Prompt:         PromptInput{Text: prompt},
 				Timeout:        5 * time.Second,
 				MaxOutputBytes: 64 * 1024,
 			})
@@ -1141,7 +1457,7 @@ func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
 		SessionID:      "chat_persisted",
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "first turn",
+		Prompt:         PromptInput{Text: "first turn"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -1161,7 +1477,7 @@ func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
 		AdapterID:               "codex",
 		Workspace:               workspace,
 		PreviousNativeSessionID: first.NativeSessionID,
-		Prompt:                  "second turn",
+		Prompt:                  PromptInput{Text: "second turn"},
 		Timeout:                 5 * time.Second,
 		MaxOutputBytes:          64 * 1024,
 	})
@@ -1259,7 +1575,7 @@ func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T
 		AdapterID:               "codex",
 		Workspace:               workspace,
 		PreviousNativeSessionID: "fake_session_stale",
-		Prompt:                  "fresh turn",
+		Prompt:                  PromptInput{Text: "fresh turn"},
 		Timeout:                 5 * time.Second,
 		MaxOutputBytes:          64 * 1024,
 	})
@@ -1318,7 +1634,7 @@ func TestSessionManagerCancelsACPPrompt(t *testing.T) {
 			SessionID:      "chat_cancel",
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "wait",
+			Prompt:         PromptInput{Text: "wait"},
 			Timeout:        30 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 			OnOutput: func(chunk string) {
@@ -1340,6 +1656,310 @@ func TestSessionManagerCancelsACPPrompt(t *testing.T) {
 	}
 }
 
+func TestSessionManagerRejectsCancelledContextBeforeStartingACP(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	manager := NewSessionManager()
+	_, err := manager.Run(ctx, RunRequest{
+		SessionID: "chat_cancelled_before_start",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+		Prompt:    PromptInput{Text: "must not be sent"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+}
+
+func TestACPSessionRunTurnRejectsCancelledContextBeforeBuildingPrompt(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	session := &acpSession{}
+	_, err := session.RunTurn(ctx, RunRequest{Prompt: PromptInput{Text: "private prompt"}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunTurn error = %v, want context.Canceled", err)
+	}
+}
+
+func TestACPSessionRetainsFailedPromptStageUntilJanitorDeletesIt(t *testing.T) {
+	t.Parallel()
+
+	data := []byte("private staged input")
+	stage := &acpPromptStage{}
+	if _, err := stage.write(0, "private.txt", data); err != nil {
+		t.Fatalf("stage.write: %v", err)
+	}
+	dir := stage.dir
+	allowCleanup := make(chan struct{})
+	var removeAttempts atomic.Int32
+	stage.removeStage = func(identity *acpPromptStageIdentity, filenames []string) error {
+		if removeAttempts.Add(1) <= acpPromptStageCleanupTries {
+			return os.ErrPermission
+		}
+		<-allowCleanup
+		return removePrivateACPPromptStage(identity, filenames)
+	}
+	stage.waitForRetry = func(time.Duration) {}
+
+	owner := newACPPromptStageCleanupOwner(maxRetainedACPPromptStagesProcess)
+	session := &acpSession{promptStageOwner: owner}
+	admission, err := session.admitPromptFiles(1)
+	if err != nil {
+		t.Fatalf("admit staged prompt: %v", err)
+	}
+	defer admission.release()
+	if err := session.cleanupPromptStage(stage, admission); err == nil {
+		t.Fatal("initial cleanup error = nil, want retained transient failure")
+	}
+	if got := session.pendingPromptStageCount(); got != 1 {
+		t.Fatalf("pending prompt stages = %d, want 1", got)
+	}
+	if stage.dir == "" || stage.identity == nil {
+		t.Fatal("failed cleanup dropped the retained stage identity")
+	}
+	for index, value := range data {
+		if value != 0 {
+			t.Fatalf("in-memory staged byte %d survived failed cleanup", index)
+		}
+	}
+
+	close(allowCleanup)
+	cleanupCtx, cleanupCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cleanupCancel()
+	if err := session.waitForPromptStageCleanup(cleanupCtx); err != nil {
+		t.Fatalf("wait for retained prompt cleanup: %v", err)
+	}
+	if got := session.pendingPromptStageCount(); got != 0 {
+		t.Fatalf("pending prompt stages after janitor retry = %d, want 0", got)
+	}
+	if stage.dir != "" || stage.identity != nil {
+		t.Fatalf("stage ownership survived janitor cleanup: dir=%q identity=%#v", stage.dir, stage.identity)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("original staged directory name reappeared after janitor cleanup: %v", err)
+	}
+}
+
+func TestACPSessionBoundsFailedPromptStageBacklog(t *testing.T) {
+	t.Parallel()
+
+	owner := newACPPromptStageCleanupOwner(maxRetainedACPPromptStagesProcess)
+	session := &acpSession{promptStageOwner: owner}
+	admissions := make([]*acpPromptStageAdmission, 0, maxRetainedACPPromptStages)
+	for index := 0; index < maxRetainedACPPromptStages; index++ {
+		admission, err := session.admitPromptFiles(1)
+		if err != nil {
+			t.Fatalf("file admission %d: %v", index, err)
+		}
+		admissions = append(admissions, admission)
+	}
+	defer func() {
+		for _, admission := range admissions {
+			admission.release()
+		}
+	}()
+	if _, err := session.admitPromptFiles(1); !errors.Is(err, errACPPromptStageCleanupPending) {
+		t.Fatalf("file admission error = %v, want cleanup backlog error", err)
+	}
+	if admission, err := session.admitPromptFiles(0); err != nil || admission != nil {
+		t.Fatalf("text-only admission error = %v", err)
+	}
+}
+
+func TestACPPromptStageCleanupOwnerBoundsRetiredSessionsProcessWide(t *testing.T) {
+	t.Parallel()
+
+	const processLimit = 2
+	owner := newACPPromptStageCleanupOwner(processLimit)
+	allowCleanup := atomic.Bool{}
+	sessions := make([]*acpSession, 0, processLimit)
+	for index := 0; index < processLimit; index++ {
+		session := &acpSession{promptStageOwner: owner}
+		admission, err := session.admitPromptFiles(1)
+		if err != nil {
+			t.Fatalf("session %d admission: %v", index, err)
+		}
+		stage := &acpPromptStage{
+			dir:             fmt.Sprintf("retired-%d", index),
+			identity:        &acpPromptStageIdentity{},
+			removalIssued:   true,
+			identityRemoved: func(*acpPromptStageIdentity) bool { return allowCleanup.Load() },
+			waitForRetry:    func(time.Duration) {},
+		}
+		if !admission.retain(stage, nil) {
+			t.Fatalf("session %d failed to transfer retained stage", index)
+		}
+		sessions = append(sessions, session)
+	}
+
+	for index := 0; index < processLimit*3; index++ {
+		retired := &acpSession{promptStageOwner: owner}
+		if _, err := retired.admitPromptFiles(1); !errors.Is(err, errACPPromptStageCleanupPending) {
+			t.Fatalf("retired session %d admission error = %v, want process cleanup bound", index, err)
+		}
+	}
+	owner.mu.Lock()
+	if got := len(owner.stages); got != processLimit {
+		owner.mu.Unlock()
+		t.Fatalf("process retained stages = %d, want hard bound %d", got, processLimit)
+	}
+	if !owner.worker {
+		owner.mu.Unlock()
+		t.Fatal("process cleanup owner has no worker")
+	}
+	owner.mu.Unlock()
+
+	allowCleanup.Store(true)
+	owner.wakeCleanup()
+	for index, session := range sessions {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		err := session.waitForPromptStageCleanup(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("wait for retired session %d cleanup: %v", index, err)
+		}
+	}
+}
+
+func TestACPSessionShutdownClosesLaterTurnAdmission(t *testing.T) {
+	t.Parallel()
+
+	session := &acpSession{}
+	if err := session.shutdown(t.Context(), acpSessionShutdownClose); err != nil {
+		t.Fatalf("shutdown idle session: %v", err)
+	}
+	_, err := session.RunTurn(t.Context(), RunRequest{
+		Timeout: time.Second,
+		Prompt:  PromptInput{Text: "late turn"},
+	})
+	if !errors.Is(err, errACPSessionClosing) {
+		t.Fatalf("late turn error = %v, want closing admission error", err)
+	}
+}
+
+func TestACPSessionShutdownReportsUndrainedTurn(t *testing.T) {
+	t.Parallel()
+
+	done := make(chan struct{})
+	session := &acpSession{
+		activeCancel: func() {},
+		activeDone:   done,
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := session.shutdown(ctx, acpSessionShutdownClose); err == nil {
+		t.Fatal("shutdown error = nil, want undrained turn failure")
+	}
+	close(done)
+}
+
+func TestACPSessionShutdownCancelsFinalDiffCapture(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp-adapter")
+	workspace := t.TempDir()
+	const sessionID = "chat_final_diff_shutdown"
+	manager := NewSessionManager()
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+	if _, err := manager.PrepareSession(t.Context(), PrepareSessionRequest{
+		SessionID: sessionID,
+		AdapterID: "codex",
+		Workspace: workspace,
+	}); err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+
+	manager.mu.Lock()
+	session := manager.sessions[sessionID]
+	manager.mu.Unlock()
+	if session == nil {
+		t.Fatal("prepared ACP session is missing")
+	}
+	finalCapture := make(chan struct{})
+	var captureCalls atomic.Int32
+	var finalOnce sync.Once
+	session.captureDiff = func(ctx context.Context, _ string, _ int64) (string, string) {
+		if captureCalls.Add(1) == 1 {
+			return "", ""
+		}
+		finalOnce.Do(func() { close(finalCapture) })
+		<-ctx.Done()
+		return "", ""
+	}
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      sessionID,
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         PromptInput{Text: "finish before evidence capture"},
+			Timeout:        5 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+		})
+		runDone <- err
+	}()
+	select {
+	case <-finalCapture:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn did not reach final diff capture")
+	}
+
+	closeCtx, closeCancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer closeCancel()
+	if err := manager.CloseSession(closeCtx, sessionID); err != nil {
+		t.Fatalf("CloseSession while final diff capture was active: %v", err)
+	}
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not leave final diff capture after shutdown")
+	}
+}
+
+func TestWaitForPromptStageCleanupRechecksAuthoritativeOwnerCount(t *testing.T) {
+	t.Parallel()
+
+	owner := newACPPromptStageCleanupOwner(1)
+	session := &acpSession{promptStageOwner: owner}
+	key := session.promptStageCleanupKeyValue()
+	owner.mu.Lock()
+	owner.counts[key] = 1
+	owner.mu.Unlock()
+
+	result := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	go func() { result <- session.waitForPromptStageCleanup(ctx) }()
+
+	owner.mu.Lock()
+	owner.notifyChangedLocked()
+	owner.mu.Unlock()
+	select {
+	case err := <-result:
+		t.Fatalf("cleanup waiter returned on a notification without ownership change: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	owner.mu.Lock()
+	owner.decrementSessionLocked(key)
+	owner.notifyChangedLocked()
+	owner.mu.Unlock()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("wait for authoritative cleanup count: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("cleanup waiter did not finish after owner count drained")
+	}
+}
+
 func TestSessionManagerShutdownCancelsActiveACPPrompt(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp-adapter")
 	workspace := t.TempDir()
@@ -1353,7 +1973,7 @@ func TestSessionManagerShutdownCancelsActiveACPPrompt(t *testing.T) {
 			SessionID:      "chat_shutdown_cancel",
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "wait",
+			Prompt:         PromptInput{Text: "wait"},
 			Timeout:        30 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 			OnOutput: func(chunk string) {
@@ -1400,7 +2020,7 @@ func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
 			SessionID:      "chat_shutdown_kill",
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "ignore_cancel",
+			Prompt:         PromptInput{Text: "ignore_cancel"},
 			Timeout:        30 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 			OnOutput: func(chunk string) {
@@ -1434,6 +2054,31 @@ func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
 	}
 }
 
+func TestSessionManagerShutdownClosesSnapshottedSessionsWhenStartWaitExpires(t *testing.T) {
+	manager := NewSessionManager()
+	cleaned := make(chan struct{})
+	manager.sessions["existing"] = &acpSession{
+		envCleanup: func() { close(cleaned) },
+	}
+	startDone := make(chan struct{})
+	manager.starts["starting"] = &sessionStart{
+		done:   startDone,
+		cancel: func() {},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := manager.Shutdown(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Shutdown error = %v, want context.Canceled", err)
+	}
+	select {
+	case <-cleaned:
+	default:
+		t.Fatal("Shutdown skipped Close for a session snapshotted before start wait expired")
+	}
+	close(startDone)
+}
+
 func TestSessionManagerCloseTreatsUnsupportedACPCloseAsOptional(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_CLOSE_UNSUPPORTED", "1")
 	installFakeACPExecutable(t, "cursor-agent")
@@ -1444,7 +2089,7 @@ func TestSessionManagerCloseTreatsUnsupportedACPCloseAsOptional(t *testing.T) {
 		SessionID:      sessionID,
 		AdapterID:      "cursor_agent",
 		Workspace:      t.TempDir(),
-		Prompt:         "close unsupported",
+		Prompt:         PromptInput{Text: "close unsupported"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -1473,7 +2118,7 @@ func TestSessionManagerDeleteSendsACPDelete(t *testing.T) {
 		SessionID:      sessionID,
 		AdapterID:      "codex",
 		Workspace:      t.TempDir(),
-		Prompt:         "delete me",
+		Prompt:         PromptInput{Text: "delete me"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -1510,7 +2155,7 @@ func TestSessionManagerDeleteFallsBackToCloseWhenACPDeleteUnsupported(t *testing
 		SessionID:      sessionID,
 		AdapterID:      "codex",
 		Workspace:      t.TempDir(),
-		Prompt:         "delete fallback",
+		Prompt:         PromptInput{Text: "delete fallback"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -1553,7 +2198,7 @@ func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing
 			SessionID:      sessionID,
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "permission prompt",
+			Prompt:         PromptInput{Text: "permission prompt"},
 			Timeout:        10 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 		})
@@ -1595,7 +2240,7 @@ func TestSessionManagerACPApprovalApproveCreatesGrantAndReusesSession(t *testing
 		SessionID:      sessionID,
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "permission prompt again",
+		Prompt:         PromptInput{Text: "permission prompt again"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -1632,7 +2277,7 @@ func TestSessionManagerACPApprovalRecordsMCPToolKind(t *testing.T) {
 			SessionID:      sessionID,
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "mcp permission prompt",
+			Prompt:         PromptInput{Text: "mcp permission prompt"},
 			Timeout:        10 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 		})
@@ -1683,7 +2328,7 @@ func TestSessionManagerACPApprovalRejectLeavesSessionReusable(t *testing.T) {
 			SessionID:      sessionID,
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "permission prompt",
+			Prompt:         PromptInput{Text: "permission prompt"},
 			Timeout:        10 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 		})
@@ -1732,7 +2377,7 @@ func TestSessionManagerACPApprovalCancelLeavesSessionReusable(t *testing.T) {
 			SessionID:      sessionID,
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "permission prompt",
+			Prompt:         PromptInput{Text: "permission prompt"},
 			Timeout:        10 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 		})
@@ -1816,7 +2461,7 @@ func assertFollowUpRunReusesACPSession(t *testing.T, manager *SessionManager, se
 		SessionID:      sessionID,
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "fresh prompt body",
+		Prompt:         PromptInput{Text: "fresh prompt body"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -1842,7 +2487,7 @@ func TestSessionManagerRejectsRunsAfterShutdown(t *testing.T) {
 		SessionID:      "chat_after_shutdown",
 		AdapterID:      "codex",
 		Workspace:      t.TempDir(),
-		Prompt:         "hello",
+		Prompt:         PromptInput{Text: "hello"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -2951,7 +3596,7 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_AUTHENTICATE_DELAY=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_NEW_SESSION_FS=%q HECATE_FAKE_ACP_COMMANDS_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q HECATE_FAKE_ACP_EXPECT_MCP_METHOD=%q HECATE_FAKE_ACP_EXPECT_MCP_JSON=%q HECATE_FAKE_ACP_AUTHENTICATE_FILE=%q HECATE_FAKE_ACP_AUTHENTICATE_ERROR=%q HECATE_FAKE_ACP_AUTHENTICATE_DELAY=%q HECATE_FAKE_ACP_LOGOUT_FILE=%q HECATE_FAKE_ACP_LOGOUT_ERROR=%q HECATE_FAKE_ACP_AUTH_FS=%q HECATE_FAKE_ACP_AUTH_AGENT_LOGIN=%q HECATE_FAKE_ACP_AUTH_AGENT_OTHER=%q HECATE_FAKE_ACP_AUTH_ENV_VAR=%q HECATE_FAKE_ACP_AUTH_TERMINAL=%q HECATE_FAKE_ACP_SUPPORTS_LOGOUT=%q HECATE_FAKE_ACP_CLOSE_UNSUPPORTED=%q HECATE_FAKE_ACP_CLOSE_FILE=%q HECATE_FAKE_ACP_DELETE_UNSUPPORTED=%q HECATE_FAKE_ACP_DELETE_FILE=%q HECATE_FAKE_ACP_INIT_FILE=%q HECATE_FAKE_ACP_PROMPT_IMAGE=%q HECATE_FAKE_ACP_PROMPT_EMBEDDED=%q HECATE_FAKE_ACP_PROMPT_CAPTURE=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_FS"),
@@ -2977,6 +3622,9 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		os.Getenv("HECATE_FAKE_ACP_DELETE_UNSUPPORTED"),
 		os.Getenv("HECATE_FAKE_ACP_DELETE_FILE"),
 		os.Getenv("HECATE_FAKE_ACP_INIT_FILE"),
+		os.Getenv("HECATE_FAKE_ACP_PROMPT_IMAGE"),
+		os.Getenv("HECATE_FAKE_ACP_PROMPT_EMBEDDED"),
+		os.Getenv("HECATE_FAKE_ACP_PROMPT_CAPTURE"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -2996,11 +3644,13 @@ type fakeACPAgent struct {
 }
 
 type fakeACPSession struct {
-	turns  int
-	cancel context.CancelFunc
-	cwd    string
-	model  string
-	mode   string
+	turns           int
+	cancel          context.CancelFunc
+	cwd             string
+	model           string
+	mode            string
+	lastPrompt      string
+	lastPromptAlias string
 }
 
 func newFakeACPAgent() *fakeACPAgent {
@@ -3115,6 +3765,10 @@ func (a *fakeACPAgent) Initialize(_ context.Context, params acp.InitializeReques
 		AgentCapabilities: acp.AgentCapabilities{
 			Auth:        authCaps,
 			LoadSession: true,
+			PromptCapabilities: acp.PromptCapabilities{
+				Image:           os.Getenv("HECATE_FAKE_ACP_PROMPT_IMAGE") == "1",
+				EmbeddedContext: os.Getenv("HECATE_FAKE_ACP_PROMPT_EMBEDDED") == "1",
+			},
 			SessionCapabilities: acp.SessionCapabilities{
 				Close:  &acp.SessionCloseCapabilities{},
 				Delete: &acp.SessionDeleteCapabilities{},
@@ -3272,11 +3926,39 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		return acp.PromptResponse{}, err
 	}
 	prompt := promptText(params.Prompt)
+	if path := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_PROMPT_CAPTURE")); path != "" {
+		raw, err := json.Marshal(params.Prompt)
+		if err != nil {
+			return acp.PromptResponse{}, err
+		}
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			return acp.PromptResponse{}, err
+		}
+	}
+	if prompt == "staged_error" {
+		for _, block := range params.Prompt {
+			if block.ResourceLink != nil {
+				return acp.PromptResponse{}, fmt.Errorf("fake agent could not read %s", block.ResourceLink.Uri)
+			}
+		}
+		return acp.PromptResponse{}, errors.New("fake agent staged resource link missing")
+	}
 	turnCtx, cancel := context.WithCancel(ctx)
+	var promptAlias string
+	for _, block := range params.Prompt {
+		if block.ResourceLink != nil {
+			promptAlias = block.ResourceLink.Uri
+			break
+		}
+	}
 	a.mu.Lock()
 	session.turns++
 	turn := session.turns
 	session.cancel = cancel
+	session.lastPrompt = prompt
+	if promptAlias != "" {
+		session.lastPromptAlias = promptAlias
+	}
 	a.mu.Unlock()
 	defer cancel()
 	conn, err := a.connection(turnCtx)
@@ -3632,9 +4314,22 @@ func (a *fakeACPAgent) SetSessionConfigOption(_ context.Context, params acp.SetS
 	a.mu.Lock()
 	mode := session.mode
 	model := session.model
+	lastPrompt := session.lastPrompt
+	lastPromptAlias := session.lastPromptAlias
 	a.mu.Unlock()
+	if lastPrompt == "echo_alias_in_config_error" && lastPromptAlias != "" {
+		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("config response referenced %s", lastPromptAlias)
+	}
+	options := fakeACPConfigOptions(mode, model)
+	if lastPrompt == "echo_alias_in_config" && lastPromptAlias != "" {
+		for _, option := range options {
+			if option.Select != nil {
+				option.Select.Name += " from " + lastPromptAlias
+			}
+		}
+	}
 	return acp.SetSessionConfigOptionResponse{
-		ConfigOptions: fakeACPConfigOptions(mode, model),
+		ConfigOptions: options,
 	}, nil
 }
 

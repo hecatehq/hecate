@@ -60,3 +60,17 @@ func TestEvaluateRewriteRewritesModel(t *testing.T) {
 		t.Fatalf("rewritten model = %q, want gpt-4o-mini", rewritten)
 	}
 }
+
+func TestBuildRequestSubjectCountsImageOnlyPrompts(t *testing.T) {
+	t.Parallel()
+
+	subject := BuildRequestSubject(types.ChatRequest{Messages: []types.Message{{
+		ContentBlocks: []types.ContentBlock{{
+			Type:  "image",
+			Image: &types.ContentImage{Width: 1000, Height: 1000},
+		}},
+	}}})
+	if subject.PromptTokens != 1296 {
+		t.Fatalf("PromptTokens = %d, want 1296", subject.PromptTokens)
+	}
+}

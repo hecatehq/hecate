@@ -39,6 +39,32 @@ paths such as `/v1/traces`, `/v1/metrics`, and `/v1/logs`. The operator UI
 sends it to local provider-compatible paths when `hecate.inferenceToken` is
 present in `sessionStorage` or `localStorage`.
 
+Provider-compatible inference bodies are bounded independently of Hecate Chat
+attachments. `POST /v1/chat/completions` and `POST /v1/messages` accept one JSON
+value, including inline rich-content data, up to 32 MiB of encoded request body.
+They reject a larger body with `413`; a valid JSON prefix does not bypass the
+limit because the decoder also requires EOF. The complete body must arrive
+within the route-local 60-second read deadline or Hecate returns `408`, includes
+`read_timeout_ms`. For HTTP/1.1, Hecate installs a route-local transport read
+deadline and closes the expired connection. For HTTP/2, Hecate deliberately
+does not set a connection-scoped transport read deadline: a route timer closes
+only the stalled request body, then the handler returns the protocol-shaped
+`408` envelope without disrupting unrelated streams. OpenAI ingress uses the
+stable `request_too_large` / `request_body_timeout` error types. Messages
+ingress keeps the Anthropic `{"type":"error","error":{...}}` envelope and uses
+`request_too_large` / `invalid_request_error` respectively. Early malformed,
+multi-value, oversized, and rate-limited requests commit their shaped error
+before aborting unread bytes. HTTP/1.1 also marks the connection for close;
+HTTP/2 flushes the response stream first and leaves the connection available
+to other streams. This does not impose a global server timeout on SSE or other
+long-lived responses.
+
+OpenAI-shaped `image_url` blocks must include a non-empty HTTP(S) URL or valid
+base64 image data URI. Optional `image_url.detail` is `auto`, `low`, or `high`; malformed
+standard blocks and Hecate replay `content_blocks` return `400 invalid_request`
+with the indexed `messages[n].content[n]` or `messages[n].content_blocks[n]`
+field path before routing or any provider call.
+
 When `HECATE_REMOTE_RUNTIME_MODE=1`, `/healthz` remains the unauthenticated
 liveness probe and every other path requires trusted trusted proxy headers:
 `X-Hecate-Remote-Runtime-Secret`, `X-Hecate-Remote-Actor-ID`,
@@ -99,27 +125,45 @@ Hecate-native JSON errors use one stable envelope:
   task; `provider`, `model`, and `capabilities` for tool-capability failures;
   `limit_ms` / `turns_used` for session guardrails.
 
-Common Hecate-native error types:
+Common JSON error types:
 
-| Type                                   | Status | Meaning                                                                          |
-| -------------------------------------- | -----: | -------------------------------------------------------------------------------- |
-| `invalid_request`                      |    400 | Request JSON, query parameters, or required fields are invalid.                  |
-| `not_found`                            |    404 | The requested Hecate resource does not exist.                                    |
-| `conflict`                             |    409 | The resource changed state or the requested transition is not valid now.         |
-| `gateway_error`                        |    500 | Hecate failed before it could classify the failure more specifically.            |
-| `rate_limit_exceeded`                  |    429 | The local gateway rate limiter rejected the request.                             |
-| `model_not_configured`                 |    422 | The selected model is stale or not currently reported by the selected provider.  |
-| `chat.agent_session_busy`              |    409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.         |
-| `chat.model_capability_required`       |    422 | A task-backed Hecate Chat turn was requested, but the model is not tool-capable. |
-| `chat.workspace_required`              |    400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.           |
-| `chat.session_limit_exceeded`          |    422 | The chat turn limit was reached.                                                 |
-| `chat.session_duration_limit_exceeded` |    422 | The chat wall-clock limit was reached.                                           |
-| `chat.session_idle_timeout`            |    422 | The chat was idle beyond the configured timeout.                                 |
+| Type                                     |      Status | Meaning                                                                              |
+| ---------------------------------------- | ----------: | ------------------------------------------------------------------------------------ |
+| `invalid_request`                        | 400/409/422 | Endpoint-specific request, precondition, or transition validation failed.            |
+| `request_body_timeout`                   |         408 | A provider-compatible inference body missed its 60-second read deadline.             |
+| `request_too_large`                      |         413 | A provider-compatible inference body exceeds the 32 MiB encoded limit.               |
+| `not_found`                              |         404 | The requested Hecate resource does not exist.                                        |
+| `conflict`                               |         409 | The resource changed state or the requested transition is not valid now.             |
+| `gateway_error`                          |         500 | Hecate failed before it could classify the failure more specifically.                |
+| `rate_limit_exceeded`                    |         429 | The local gateway rate limiter rejected the request.                                 |
+| `model_not_configured`                   |         422 | The selected model is stale or not currently reported by the selected provider.      |
+| `chat.agent_session_busy`                |         409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.             |
+| `chat.model_capability_required`         |         422 | A task-backed Hecate Chat turn was requested, but the model is not tool-capable.     |
+| `chat.image_capability_required`         |         422 | No matching routable provider/model route has effective image-input support.         |
+| `chat.attachment_invalid`                |         422 | The multipart upload is empty or malformed.                                          |
+| `chat.attachment_too_large`              |         413 | A file exceeds the per-file, multipart, or combined-message byte limit.              |
+| `chat.attachment_unsupported`            |         422 | The file format or requested chat runtime does not support attachments.              |
+| `chat.attachment_not_found`              |         404 | The attachment does not belong to the requested chat session.                        |
+| `chat.attachment_in_use`                 |         409 | A persisted message already references the attachment.                               |
+| `chat.attachment_draft_quota_exceeded`   |         409 | The chat has eight unlinked drafts or 40 MiB of staged file bodies.                  |
+| `chat.attachment_session_quota_exceeded` |         409 | The chat has reached 512 MiB of retained file bodies.                                |
+| `chat.attachment_total_quota_exceeded`   |         409 | The backend-wide retained-attachment limit was reached.                              |
+| `chat.attachment_upload_busy`            |         429 | Both attachment validation slots are occupied; retry after the advertised delay.     |
+| `chat.attachment_upload_timeout`         |         408 | The upload body could not be read within the route-local deadline.                   |
+| `chat.attachment_content_busy`           |         429 | All four bounded file download slots are occupied; retry after the advertised delay. |
+| `chat.image_turn_busy`                   |         429 | Both image-turn slots are occupied; retry after the advertised delay.                |
+| `chat.external_file_turn_busy`           |         429 | Both External file-turn slots are occupied; retry after the advertised delay.        |
+| `chat.workspace_required`                |         400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.               |
+| `chat.session_limit_exceeded`            |         422 | The chat turn limit was reached.                                                     |
+| `chat.session_duration_limit_exceeded`   |         422 | The chat wall-clock limit was reached.                                               |
+| `chat.session_idle_timeout`              |         422 | The chat was idle beyond the configured timeout.                                     |
 
 OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
 shape, but gateway-classified failures also include the same
 `user_message` / `operator_action` / correlation fields inside their `error`
-object when available.
+object when available. The common error-type table names Hecate/OpenAI-shaped
+codes; Anthropic-shaped endpoints map them to the corresponding Messages API
+type while preserving the status and remediation fields.
 
 ## Contents
 
@@ -174,6 +218,13 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 - `priority` / `timeout_ms`
 
+When `project_id` is non-empty, manual `POST /hecate/v1/tasks` creation holds
+Hecate's process-local project mutation fence from the Cairnline-backed project
+existence check through durable Hecate Task creation. Same-project deletion
+therefore makes a competing create return `409 conflict`; another project can
+continue. This coordinates Hecate execution state with Cairnline authority and
+does not create a second project store.
+
 Task responses may also include `workspace_system_prompt_policy`. Empty /
 omitted means the normal workspace `CLAUDE.md` / `AGENTS.md` prompt layer is
 eligible. `exclude` means the runner skips that compatibility layer for the
@@ -190,6 +241,28 @@ plus the output-only optional `agent_preset_tools_enabled` field,
 so retries and resumes do not change when the preset is later edited or
 deleted. An omitted tools snapshot identifies a legacy/manual task whose prior
 catalog behavior is preserved; explicit `false` is an all-tools denial.
+For `origin_kind="chat"`, every run-creation endpoint and approval-resolution
+requeue validates that the owning chat still exists and participates in the
+chat deletion fence. Start, retry, resume, continue, retry-from-turn, and
+approval resolution return `409 invalid_request` without creating or requeueing
+a run when deletion owns that origin or the durable chat owner is already
+missing. The retained Task and earlier run history remain readable.
+
+Every run-creation action also passes one atomic task/run start transition.
+Within a process, Hecate serializes the full preflight and workspace-provision
+path per task. Isolated provisioning admits the planned destination before any
+write, then uses stable root-relative filesystem handles, owner-writable private
+staging, and atomic no-replace publication so a concurrent reservation, path
+swap, or symlink swap cannot replace another directory or redirect clone/copy
+output outside the managed root. Source directory modes are restored before
+publication; identity-gated cleanup makes incomplete trees removable and
+surfaces cleanup failures. The memory, SQLite, or Postgres task store then
+authoritatively checks that no non-terminal run exists, preserves or raises
+(never lowers) the current `budget_micros_usd`, assigns the next run number,
+creates the run, and advances the task projection in one lock/transaction.
+Concurrent actions can therefore create at most one active run; losers return
+the existing active-run conflict, and a stale resume cannot overwrite a higher
+committed ceiling.
 
 `execution_profile` applies task-create defaults:
 
@@ -275,13 +348,26 @@ catalog behavior is preserved; explicit `false` is an all-tools denial.
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/apply`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/revert`
 
-`patches` is a review-focused projection over `patch` artifacts. File-writing tools create patches with `status=applied`; `file_edit` and `apply_patch` can also create `status=proposed` patches when called with `propose=true`. The apply endpoint writes the proposed after-content only when the current file still matches the captured before-content, then emits `tool.file.applied`. The revert endpoint restores the before-content captured in Hecate's patch artifact and updates the patch to `status=reverted`. Before reverting, Hecate verifies that the current file still matches the artifact's after-content (or is still present/absent as expected for create/delete patches). If it drifted, the endpoint returns `409 Conflict`, leaves the workspace unchanged, and emits no `tool.file.reverted` event. Repeated reverts of an already-reverted patch are clean no-ops. Reverting a new-file patch removes the file. Reverting emits `tool.file.reverted` on the run-event stream.
+`patches` is a review-focused projection over `patch` artifacts. File-writing
+tools create patches with `status=applied`; `file_edit` and `apply_patch` can
+also create `status=proposed` patches when called with `propose=true`. The apply
+endpoint writes the proposed after-content only when the current file still
+matches the captured before-content, then emits `tool.file.applied`. The revert
+endpoint restores the before-content captured in Hecate's patch artifact and
+updates the patch to `status=reverted`. Before reverting, Hecate verifies that
+the current file still matches the artifact's after-content (or is still
+present/absent as expected for create/delete patches). If it drifted, the
+endpoint returns `409 conflict`, leaves the workspace unchanged, keeps the
+artifact `applied`, and emits no `tool.file.reverted` event. Reverting an
+already-reverted artifact also returns `409`. Reverting a new-file patch removes
+the file; a successful revert emits `tool.file.reverted` on the run-event
+stream.
 
-Revert is also conflict-checked. Before touching the workspace, Hecate verifies
-that the current file still matches the patch artifact's captured after-content.
-If the operator or another agent changed or removed the file after the patch was
-applied, revert returns `409 conflict`, leaves the workspace unchanged, and keeps
-the patch artifact in `applied`.
+Both patch mutation endpoints hold a writer lease from the shared process-local
+workspace registry across the final content precondition, filesystem change,
+and artifact/event update. They return `409 conflict` without touching the file
+when an overlapping chat workspace discard currently owns the exclusive
+closure.
 
 `GET /hecate/v1/tasks/{id}/runs/{run_id}/context` returns the context packet
 snapshot for a task run. Hecate first returns a run-owned packet when the run
@@ -439,6 +525,20 @@ When a run is queued, workers consume it through a claim/lease protocol:
 3. worker heartbeats to extend lease while work is running
 4. worker `ack`s on success/terminal handling or `nack`s to requeue
 5. expired leases can be reclaimed by another worker
+
+Before workers start on gateway boot, Hecate scans every durable `queued` or
+`running` run in stable id-cursor pages and re-enqueues recoverable work. The
+500-row page size bounds each read; it is not a recovery cap. A page failure is
+retried, and per-run failures remain in the targeted reconciliation set.
+
+Cancellation first commits the `cancelled` terminal winner so operators see it
+without waiting for a slow executor, then cancels and drains every process-local
+executor registered for that run. After drain, Hecate reapplies step, streaming
+artifact, and pending-approval cleanup without emitting a second
+`run.cancelled` event. This final sweep also runs when deletion retries find an
+already-cancelled run, preserves any newer run's parent-task projection, and
+ensures executor output racing with the first cleanup cannot leave an
+actionable approval behind.
 
 ```mermaid
 sequenceDiagram
@@ -631,31 +731,36 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, Cairnline project coordination state, Hecate-owned project runtime overlays, plugin registry records, Agent Preset rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are asked to delete their native ACP session before their rows disappear. If an adapter does not support `session/delete`, Hecate falls back to `session/close` and still tears down the owned process. When SQLite or Postgres is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only and blocked in remote runtime mode: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` is reserved but intentionally unavailable.
+The running process cannot yet prove that task workers/reconcilers, retention,
+External Agent callbacks, gateway finalizers, and writer-capable Cairnline opens
+have all stopped. It therefore returns a stable `409 conflict` before acquiring
+a mutation fence or deleting any state; it never reports a partial reset as
+successful.
 
 ```json
-→ 200
+→ 409
 {
-  "object": "system_reset",
-  "data": {
-    "projects_deleted": 1,
-    "project_runtime_rows_deleted": 1,
-    "plugins_deleted": 1,
-    "agent_presets_deleted": 1,
-    "chat_sessions_deleted": 2,
-    "tasks_deleted": 1,
-    "providers_deleted": 1,
-    "policy_rules_deleted": 1,
-    "agent_approval_grants_deleted": 1,
-    "database_rows_deleted": 8,
-    "cairnline_files_deleted": 1
+  "error": {
+    "type": "conflict",
+    "message": "in-process data reset is unavailable until runtime-wide write quiescence is implemented; stop the runtime before clearing its configured state",
+    "user_message": "In-process data reset is unavailable.",
+    "operator_action": "Stop the runtime completely, then follow the deployment-specific state reset procedure."
   }
 }
 ```
 
-If a running chat does not settle before the bounded close wait, or a standalone task still has an active run, the endpoint returns `409 conflict`; retry after the chat finishes cancelling or cancel the active task first.
+The route remains local-only and blocked in remote runtime mode: non-loopback
+sockets and forwarded-client headers are rejected before this response. Stop
+Hecate completely and follow the deployment-specific procedure: SQLite-backed
+deployments clear the configured data directory, while Postgres deployments
+must clear their configured database state plus any local Cairnline/bootstrap
+files they intend to reset. Restarting a memory-backed runtime clears only
+Hecate-owned in-memory state; embedded Cairnline Projects remain persistent
+until their stopped-runtime data is cleared. Do not remove a live
+SQLite/Cairnline data directory or treat this endpoint as a shutdown request.
 
-`POST /hecate/v1/system/shutdown` requests an orderly process shutdown. The desktop app uses this from its window-close confirmation flow so the gateway runs the same drain path `SIGINT`/`SIGTERM` take (retention cancel, runner drain — including MCP subprocess teardown, then HTTP server shutdown) instead of being SIGKILL'd by the child-process handle. Empty body, returns `202` and an `object: "system_shutdown"` ack; the signal fires asynchronously after a short delay so the response can flush before the listener tears down. Clients that need to observe the gateway actually exiting should poll `/healthz` until it stops responding (the desktop app uses a 12-second deadline). The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/shutdown` requests an orderly process shutdown. The desktop app uses this from its window-close confirmation flow so the gateway runs the same drain path `SIGINT`/`SIGTERM` take instead of being SIGKILL'd by the child-process handle. The task runner, External Agent sessions, and operator terminals begin draining concurrently within the bounded shutdown window; new terminal admission is fenced immediately, while each terminal watcher retains its workspace writer lease until process exit and output drain are observed. The MCP cache closes after the task runner returns, then the HTTP server drains. Empty body, returns `202` and an `object: "system_shutdown"` ack; the signal fires asynchronously after a short delay so the response can flush before the listener tears down. Clients that need to observe the gateway actually exiting should poll `/healthz` until it stops responding (the desktop app uses a 12-second deadline). The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
 The shipped `cmd/hecate` binary wires `Handler.SetQuitFunc` unconditionally, so the endpoint is available in every standard deployment (Tauri sidecar, Docker, systemd) from the gateway's local network namespace. In Docker, call it from inside the container or use the normal orchestrator stop path (`docker stop`, Compose, systemd, Kubernetes); requests through a published port usually arrive from a non-loopback bridge address and are rejected. Returns `503` with `error.code = "gateway_error"` when the endpoint is not wired; this path is reached only by test harnesses or custom embedders that build a `Handler` without calling `SetQuitFunc`.
 
@@ -942,7 +1047,7 @@ GET /v1/models
   "object": "list",
   "data": [
     {
-      "id": "qwen2.5-coder",
+      "id": "vision-model:latest",
       "object": "model",
       "owned_by": "ollama",
       "metadata": {
@@ -952,6 +1057,7 @@ GET /v1/models
         "discovery_source": "provider",
         "capabilities": {
           "tool_calling": "unknown",
+          "image_input": "supported",
           "streaming": true,
           "max_context_tokens": 32768,
           "source": "provider"
@@ -959,11 +1065,11 @@ GET /v1/models
         "readiness": {
           "provider": "ollama",
           "matched_provider": "ollama",
-          "model": "qwen2.5-coder",
+          "model": "vision-model:latest",
           "ready": true,
           "status": "ok",
           "reason": "model_available",
-          "message": "Provider \"ollama\" reports model \"qwen2.5-coder\".",
+          "message": "Provider \"ollama\" reports model \"vision-model:latest\".",
           "routing_ready": true,
           "provider_status": "healthy"
         }
@@ -982,6 +1088,37 @@ OpenAI-compatible providers often report `unknown`; Ollama models are enriched
 from the native `/api/show` capability list when available. Tool usage is a
 per-chat setting; model capability metadata is observed from provider/catalog
 data rather than edited globally.
+
+`capabilities.image_input` is one of `unknown`, `none`, or `supported`.
+Image-bearing Hecate Chat turns require `supported`; both `unknown` and `none`
+fail closed. Provider-native Fireworks and Ollama metadata override static
+catalog inference when available. `capabilities.source` is `catalog`,
+`provider`, `mixed`, or `unknown`; provider model discovery alone does not make
+catalog-inferred capabilities provider-native, and `mixed` identifies a
+snapshot whose dimensions came from both sources. For Auto, the pre-route
+snapshot exposes only guarantees shared by routable matching routes; completed
+direct turns replace it with the actual route's provider/model capability
+snapshot.
+
+Hecate attachment turns set an internal image-input requirement. The router
+admits only an initial route with explicit support. Any request that actually
+contains hydrated image bytes is bound to that provider name and opaque
+configuration generation: same-instance retries remain available, but
+cross-provider failover is disabled. The executor revalidates both values
+against the live registry immediately before dispatch, so removal, alias
+reassignment, or same-name provider replacement fails closed. Legacy history
+without a generation is omitted. The generation is internal-only and is never
+accepted from clients or rendered in model/chat responses, errors, logs, or
+telemetry. Failed calls retain attempted provider/model and trace metadata when
+the provider received the request.
+Ordinary
+provider-compatible `/v1/chat/completions` and `/v1/messages` rich-content
+requests do not opt into this Hecate runtime requirement and preserve upstream
+passthrough for custom providers whose discovery metadata is incomplete. They
+still disable cross-provider failover whenever normalized content contains an
+image, so a retryable failure cannot disclose that image to a second configured
+provider; same-provider retries remain available. Their encoded JSON body is
+limited to 32 MiB and must finish arriving within 60 seconds.
 
 `metadata.readiness` is the backend-owned provider/model readiness snapshot for
 that discovered row. Chats should use it before sending instead of inferring
@@ -1177,7 +1314,17 @@ ACP terminal callbacks are not advertised by default. Operators must set
 `clientCapabilities.terminal=true`; remote runtime mode also requires
 `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1`. Approved `terminal/create` requests are
 scoped to the selected workspace and routed through the External Agent approval
-coordinator before command spawn.
+coordinator before command spawn. Each live terminal retains its own shared
+workspace writer admission after the creating turn settles and releases it only
+after its Unix process group or Windows Job Object and output pipes are observed
+drained, so current-workspace discard returns `409` while an ACP terminal can
+still write. Unix requests that statically use known session/process-group
+detachers are rejected before spawn; interactive shell/interpreter code receives
+the same best-effort check on input. Explicit shell stdin and force-interactive
+interpreter modes remain code-scanned; ordinary script and inline-command stdin
+is data. Shell writes may retain up to 64 KiB of syntactically incomplete input
+before failing closed. This is not hard sandboxing of arbitrary wrappers,
+generated code, custom binaries, or external supervisors.
 
 `config_options` are omitted from the catalog response. Hecate returns
 launch-control options on explicit probe responses and prepared chat sessions,
@@ -2226,6 +2373,17 @@ session where supported. This does not delete workspace files. Unprojected
 chats and chats scoped to other projects stay untouched. Assignment links to
 task/chat IDs are metadata only; the linked tasks or unprojected chat sessions
 are not deleted through assignment cleanup.
+
+The project facade admits every mutation through its complete set of affected
+process-local project keys. Ordinary mutations may remain concurrent, and a
+multi-project operation acquires its normalized key set atomically. Deletion
+closes its key, waits for admitted mutations, and holds the closure from
+Cairnline identity removal through Hecate-owned cleanup and any rollback. A new
+same-project mutation during deletion returns `409 conflict`, so a stale
+rollback import cannot overwrite an acknowledged facade write. Mutations whose
+project sets do not overlap remain concurrent. This fence coordinates one
+Hecate process; it is not a distributed revision or CAS mechanism for direct
+Cairnline writers.
 
 The response reports the scoped records Hecate cleaned up:
 
@@ -3615,7 +3773,12 @@ workspace root, creates and prepares the chat session through the External Agent
 supervisor, stores a project assignment context packet on the assignment, and
 links `execution_ref.chat_session_id` plus
 `execution_ref.context_snapshot_id`. Task-run fields and `message_id` remain
-empty until the operator sends a turn in the linked chat.
+empty until the operator sends a turn in the linked chat. Project deletion uses
+the same chat-creation admission gate as direct chat creation: an admitted
+start finishes linking before cleanup proceeds, while a start that
+predates or overlaps cleanup but has not been admitted returns
+`409 chat.session_create_conflict`. Refresh project, work, and chat state before
+an explicit retry.
 
 ```json
 {
@@ -3889,6 +4052,22 @@ apply attempt before writing another action. A
 resume after the committed actions. Changing the action set or reapplying a
 fully applied proposal returns `409 conflict`.
 
+Draft, propose, and apply derive every affected portable project before the
+first write. Hecate atomically admits that complete process-local key set and
+retains it through action and proposal-ledger writes, compatibility mirrors,
+and the response decision. For `move_chat_session`, the set includes both the
+chat's current project and the requested project. A concurrent deletion of any
+affected project returns `409 conflict` before admission. The proposal record's
+primary `project_id` is derived from and validated against its first typed
+action scope rather than trusted from the HTTP request.
+For a `create_project` action with no `patch.id`, Hecate uses
+`target.project_id` when present; if the action is pathless, it derives a stable
+id from the proposal id and action index before gate admission. The propose
+response and ledger contain that canonical typed action. Clients should apply
+the returned proposal unchanged. A direct apply retry with the same proposal id
+derives the same project id even when a prior attempt was rejected before a
+ledger write.
+
 Endpoints:
 
 - `POST /hecate/v1/project-assistant/context`
@@ -3957,15 +4136,17 @@ chooses the chat owner:
   Hecate supervises lifecycle, transcript, diagnostics, and external-agent
   approvals. Turns use `execution_mode="external_agent"`.
 
-`HECATE_BACKEND=sqlite` or `postgres` persists the entire chat state bundle: sessions,
-messages, **and** the operator-facing
-approval rows + grants documented under
-`/hecate/v1/chat/sessions/{id}/approvals` and `/hecate/v1/chat/grants`. They all
-move together so chat state can't go split-brain. On startup the gateway
-runs a reconcile pass that flips any approvals stuck in `pending` from a prior
-process to `status=timed_out` with `path=startup_reconcile` — process-local
-waiters can't be resurrected, so the operator UI never sees an actionable
-"pending" row that nothing is actually blocked on.
+`HECATE_BACKEND=sqlite` or `postgres` selects matching persistent backends for
+sessions/messages, attachment bodies, and the operator-facing approval
+rows + grants documented under `/hecate/v1/chat/sessions/{id}/approvals` and
+`/hecate/v1/chat/grants`. Transcript, attachment, and approval operations are
+separate persistence boundaries rather than one cross-store transaction. Before
+serving traffic, startup reconciliation resolves ambiguous attachment claims
+against the authoritative transcript, purges attachment sessions whose owner is
+gone, and flips approvals left `pending` by a prior process to
+`status=timed_out` with `path=startup_reconcile`. Process-local waiters cannot
+be resurrected, so the operator UI never sees an actionable pending approval
+that nothing is actually blocked on.
 
 Resolved approvals are pruned by the retention worker
 (`HECATE_RETENTION_CHAT_APPROVALS_*`, default 30d / 10k). Operator-
@@ -4075,6 +4256,20 @@ Hecate chat state.
 Project-scoped sessions are still normal chat sessions, but deleting the
 project later deletes those project-scoped transcripts as part of the project
 cleanup.
+
+Chat creation is server-coordinated with project deletion. The
+project-existence check and durable chat create hold one reservation. The same
+reservation covers the supervised
+External Agent chat created by a project-assignment start. A destructive
+mutation closes admission, waits for an already reserved create, and then
+cleans up that completed session; not-yet-reserved requests whose request epoch
+predates or overlaps the destructive interval fail with
+`409 chat.session_create_conflict` instead of creating after cleanup. Refresh
+projects and chats before explicitly retrying. The process-wide gate is
+deliberately conservative: any project deletion also pauses project-free and
+other-project chat creates for its duration. This guarantee applies to both
+Hecate and embedded Cairnline project authority. The reserved system-reset
+endpoint does not enter this flow because it fails before mutation.
 
 `title` is optional session metadata. The Projects UI uses it when launching a
 chat from a project-work assignment so the empty chat shell is named after the
@@ -4238,6 +4433,15 @@ fields. If tools are re-enabled after a direct model segment, Hecate creates a
 new task-backed segment in the same transcript; older messages keep their
 original runtime/model/task snapshots.
 
+User messages with files also carry an `attachments` array containing only
+`id`, `session_id`, `filename`, `media_type`, `size_bytes`, `sha256`,
+`created_at`, and the session-scoped `content_url`. File bytes and base64 are
+not part of the session response or stream snapshots. The normalized filename
+and raw SHA-256 digest are operator-visible metadata: filenames can disclose
+sensitive wording, and the stable digest reveals content equality and permits
+known-file comparison to any client that can read the session. Neither field is
+a confidentiality control or proof of ownership.
+
 The response also includes a derived `segments` array. Messages remain the
 durable source of truth; segments are a render helper that groups contiguous
 turns with the same `segment_id` so clients can show transcript boundaries such
@@ -4385,12 +4589,208 @@ POST /hecate/v1/chat/sessions/chat_.../compact
 }
 ```
 
+### `POST /hecate/v1/chat/sessions/{id}/attachments`
+
+Stages one file for a future message. Send `multipart/form-data` with exactly
+one part named `file`. Uploading does not append a transcript message or contact
+a provider or External Agent.
+
+Hecate-owned chats accept PNG, JPEG, and WebP for Tools-off direct-model turns.
+External Agent chats also accept arbitrary file media types. Every file is
+limited to 5 MiB. Direct-model rasters are additionally limited to 8000 pixels
+per axis and 16 megapixels and are fully decoded before storage. A supported
+raster uploaded to an External Agent chat receives image treatment only when
+that bounded decode succeeds; malformed or over-dimension image-like bytes are
+stored as an opaque `application/octet-stream` file instead of being rejected.
+Hecate normalizes
+the display filename to 128 bytes and computes a SHA-256 digest. Oversized input
+returns `413 chat.attachment_too_large`; malformed, mismatched, or unsupported
+input returns a stable `422 chat.attachment_*` error.
+
+Each Hecate process admits at most two upload body-read and attachment-validation
+paths concurrently. When both slots are occupied, the endpoint rejects the
+request before reading its body with `429 chat.attachment_upload_busy`, a
+`Retry-After: 1` header, and `max_concurrent_uploads` plus
+`retry_after_seconds` error fields. Clients may retry that upload after the
+advertised delay; no draft was created by the rejected request. The bounded
+body guard starts before session lookup and admission, so missing-session and
+busy responses also abort unread upload bytes after
+the JSON error is committed.
+
+The upload body-read phase has a route-local 60-second deadline. HTTP/1.1 uses
+a transport read deadline and closes the expired connection. HTTP/2 avoids a
+connection-scoped read deadline; the route timer closes only the stalled
+request body so Hecate can return and flush the JSON `408` envelope while other
+streams remain usable. Successful HTTP/1.1 body reads clear the transport
+deadline before decode and storage. A deadline rejection returns
+`408 chat.attachment_upload_timeout` with `read_timeout_ms: 60000`; no draft is
+created, and the client may retry the original file in a new request. These
+route guards do not add a global HTTP server read timeout that would affect
+streaming endpoints.
+
+Each session may hold at most eight unlinked drafts totaling 40 MiB. Before
+applying that limit, a staging request reclaims unlinked drafts older than 24
+hours. Exceeding the limit returns
+`409 chat.attachment_draft_quota_exceeded` with `max_draft_attachments`,
+`max_draft_bytes`, and `draft_ttl_seconds` fields. Once a draft is linked to a
+persisted message, it no longer consumes draft quota and does not expire.
+Draft and linked bodies together are capped at 512 MiB per chat; exceeding the
+cap returns `409 chat.attachment_session_quota_exceeded` with
+`max_session_attachment_bytes`. Across all chats, the memory backend is capped
+at 512 MiB and SQLite/Postgres are capped at 4 GiB; exceeding the active
+backend's cap returns
+`409 chat.attachment_total_quota_exceeded` with
+`max_total_attachment_bytes`. Any upload also reclaims eligible stale drafts
+across all sessions, rather than only the session receiving that upload. The
+24-hour age is a reclamation threshold, not a scheduled expiry time.
+
+After a definite message rejection, the operator console deletes the uploaded
+drafts and retries each failed deletion once. If cleanup still fails, it
+restores the local Files and preserves the typed submission error with a
+warning that the retained server copies can consume quota until a later upload
+reclaims them after they are at least 24 hours old. Chat deletion releases them
+immediately; there is no wall-clock expiry worker. If an upload response is
+ambiguous, the console restores the exact prompt and Files without automatically
+retrying, deletes only acknowledged drafts, preserves typed error metadata, and
+warns that one unlinked copy may remain hidden. These warnings never include
+attachment ids.
+
+The draft-to-message transition uses a durable user-message-id fence. Before
+serving requests after restart, Hecate reconciles any pending fence against the
+transcript: exact committed metadata links the bodies, an absent message
+releases them, a deleted owner purges the attachment session, and conflicting
+metadata remains claimed and non-deletable. The same startup pass performs a
+metadata-only sweep for ordinary draft or linked bodies whose chat was deleted
+before cleanup completed.
+
+```json
+→ 201
+{
+  "object": "chat_attachment",
+  "data": {
+    "id": "att_...",
+    "session_id": "chat_...",
+    "filename": "diagram.png",
+    "media_type": "image/png",
+    "size_bytes": 42137,
+    "sha256": "8de7...",
+    "created_at": "2026-07-13T10:00:00Z",
+    "content_url": "/hecate/v1/chat/sessions/chat_.../attachments/att_.../content"
+  }
+}
+```
+
+### `GET /hecate/v1/chat/sessions/{id}/attachments/{attachment_id}/content`
+
+Returns the session-scoped file body with its exact `Content-Type` and
+`Content-Length`. Supported raster images use `Content-Disposition: inline`;
+other files use `Content-Disposition: attachment`. Every response includes
+`X-Content-Type-Options: nosniff`, and `Cache-Control: private, no-store`.
+It also includes `Content-Security-Policy: sandbox; default-src 'none'` so an
+arbitrary uploaded document cannot become active same-origin content.
+Remote-runtime clients must use the same authenticated request path as other
+Hecate-native routes; the operator UI fetches a Blob and creates a temporary
+object URL rather than putting the API URL directly in an image element.
+An id from another session returns `404 chat.attachment_not_found`.
+
+Each Hecate process admits at most four attachment content responses at once.
+The permit spans the session-scoped body lookup, integrity validation, and
+response write, so stalled readers cannot create an unbounded set of hydrated
+5 MiB bodies. Saturation returns `429 chat.attachment_content_busy` before the
+attachment store is read, with `Retry-After: 1`, `max_concurrent_downloads: 4`,
+and `retry_after_seconds: 1`. An admitted response has a route-local 30-second
+socket write deadline; the permit is released when the write completes or the
+deadline aborts it, without imposing a global write timeout on SSE endpoints.
+If the HTTP transport or a response wrapper cannot establish that deadline,
+Hecate closes the connection and returns a fixed `500 gateway_error` before
+committing the file `200`; it never performs an unbounded fallback body write
+while holding the download permit.
+Session deletion waits for an admitted body lookup/write to finish before it
+removes the transcript and attachment rows.
+
+### `DELETE /hecate/v1/chat/sessions/{id}/attachments/{attachment_id}`
+
+Deletes an unused staged attachment and returns `204`. Once a persisted message
+references the attachment, deletion returns `409 chat.attachment_in_use` so a
+transcript never silently loses its file. Deleting the owning chat session
+deletes all of its attachment bodies. Draft deletion is admitted against the
+same session lifecycle as upload and content access: an already-admitted delete
+drains before session teardown, while a request arriving after teardown closes
+admission returns `409 chat.session_stopping` without reaching attachment storage.
+
 ### `POST /hecate/v1/chat/sessions/{id}/messages`
 
 Sends the submitted prompt to the session's backing runtime and appends both
 the user message and assistant output.
 
 `POST` also accepts per-turn overrides:
+
+- `client_request_id` — optional session-scoped idempotency key for a durable
+  client queue item. It must contain 1-128 ASCII letters, digits, dots,
+  underscores, colons, or hyphens. Reuse the exact key and payload when
+  retrying an ambiguous submission. Hecate reserves the key before admission
+  and atomically commits it with the user transcript row before the submitted
+  turn's provider, task, or ACP dispatch. Admission-time semantic compaction is
+  separate provider work and may precede that commit. Hecate renews the pending
+  reservation through that pre-commit work and conditionally verifies its
+  ownership and payload fingerprint immediately before commit; renewal loss
+  fails the send before backing-turn dispatch. Concurrent or later requests
+  with the same key and payload return `200` with the latest
+  authoritative session and do not dispatch duplicate backing-turn work. That replay may return while the original turn's
+  assistant is still running. Reusing the key with any changed request field
+  fails closed with `409 chat.client_request_conflict`. Review the authoritative
+  transcript, remove the conflicting item, and use a new `client_request_id`
+  only if another turn is still needed; a changed payload can never succeed
+  under the committed key. Omitting the field preserves the ordinary
+  non-idempotent endpoint behavior.
+
+  For an attachment-bearing request, replay also idempotently repairs the committed
+  user message's durable attachment claim before returning success. If the
+  original response failed after the atomic message commit and both immediate
+  claim-finalization attempts failed, retry the exact payload and key; Hecate
+  links the already-committed metadata without redispatching the provider turn.
+  A repair that cannot confirm the original claim fails closed with a fixed
+  `500` rather than exposing storage details.
+
+  Every successful response to a request carrying `client_request_id` also
+  carries privacy-safe reconciliation metadata outside `data`:
+
+  ```json
+  {
+    "message_request": {
+      "replay": true,
+      "committed_message_id": "msg_..."
+    }
+  }
+  ```
+
+  The original keyed request returns `replay=false`; a same-payload retry
+  returns `replay=true` with the exact already-committed user message id. The
+  field is omitted for unkeyed sends and ordinary session or stream snapshots.
+  It never contains the client key, request fingerprint or payload copy, or the
+  internal lease token.
+
+  Once admission reaches that atomic keyed commit, Hecate gives the user-row/key
+  write a bounded server-owned persistence window; unkeyed sends retain ordinary
+  request cancellation. Immediate assistant creation, task/run linkage, and
+  terminal assistant/session updates then use separate bounded persistence
+  windows. A client disconnect therefore cannot turn a successful keyed commit
+  into an apparent failure or leave the committed turn permanently `running`.
+  Direct model and External Agent execution remain tied to the request and
+  terminalize as `cancelled` after a disconnect. The tools-on Hecate task
+  watcher is server-owned after commit and continues across browser disconnect
+  until the Task reaches a terminal state, the operator cancels it, or the
+  30-minute chat-run ceiling expires. That ceiling ends the chat watcher and
+  terminalizes the chat turn; it does not cancel the orchestrator-owned Task.
+  A Task that remains active, including one awaiting approval, stays visible and
+  independently cancellable through the Task API. Same-key replay only reads
+  the resulting durable turn; it never redispatches it.
+
+  The operator UI keeps a replayed queue item at the FIFO head until the exact
+  committed user message is followed, before the next user turn, by a terminal
+  assistant. It observes the live session stream and polls this API as a
+  fallback. Without that terminal proof, the item remains blocked for explicit
+  reconciliation rather than allowing later queued work to overtake it.
 
 - `execution_mode` — `hecate_task` or `external_agent`. Hecate Chat sessions
   use `hecate_task` (tools-on/off is set separately via `tools_enabled`);
@@ -4403,7 +4803,49 @@ the user message and assistant output.
 - `provider` / `model` — used for tools-off turns and new task-backed
   Hecate Chat segments. Existing task-backed segments continue with their
   saved model snapshot until the operator turns tools off or starts a new
-  task-backed segment.
+  task-backed segment. Provider keys resolve an exact configured runtime name
+  first, then a unique normalized runtime name, then a unique stable alias;
+  ambiguous aliases are rejected instead of selecting by catalog order.
+  Configured providers still participate when they currently report no model
+  rows.
+- `attachment_ids` — up to four ids returned by the staging endpoint. The ids
+  must belong to this session and total no more than 12 MiB. Hecate-owned
+  `tools_enabled=false` turns accept supported raster images only and require a
+  currently routable matching route whose effective capability is
+  `image_input="supported"`. External Agent turns accept the staged files;
+  text may be empty when at least one attachment is present. Hecate persists
+  only immutable attachment metadata on the user message and hydrates the
+  binary bodies transiently for the selected provider or ACP session. ACP rich
+  blocks share a cumulative 768 KiB encoded wire budget below the supported
+  adapters' 1 MiB JSON-RPC line limit. Actual serialized prompt text, base64
+  expansion, and JSON escaping consume that budget; a file that would overflow
+  it uses a private per-turn `resource_link` even when a rich capability is
+  advertised. Payload size is preflighted before Hecate allocates base64 or
+  serialized rich-block copies, and prompt text that exceeds the budget fails
+  before ACP dispatch. The 12 MiB combined attachment limit remains available through
+  this staged fallback and is not an inline-payload allowance.
+  Image-bearing requests may retry on that provider but never fail over to a
+  different provider. Historical images are included only when the active
+  configured provider name and opaque generation match the route recorded on
+  their original user message; legacy rows without a generation, provider
+  switches, recreated runtime-only providers, and unresolved Auto boundaries
+  receive a text omission marker instead of the bytes. After hydration,
+  dispatch revalidates the exact canonical runtime name and generation resolved
+  during admission. Removing or replacing that provider, even under the same
+  name, or reassigning its normalized name/alias fails without sending the
+  bytes to the replacement. The generation is internal persisted metadata and
+  is not part of this API's response schema. An attempted provider/model and
+  trace remain on a failed Auto-routed turn when that provider received the
+  request.
+  Each Hecate process admits at most two image-bearing direct-model turns at a
+  time. The permit covers attachment claim, historical body reads, base64
+  expansion, provider serialization, and the provider call. Saturation fails
+  before attachment claim or transcript mutation with
+  `429 chat.image_turn_busy`, `Retry-After: 1`, and
+  `max_concurrent_image_turns` plus `retry_after_seconds` error fields. Turns
+  that cannot send current or historical image bodies do not use this gate.
+  An oversized combination returns `413 chat.attachment_too_large` with
+  `max_message_attachment_bytes`.
 - `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
   segments. When the chat is linked to a project, Hecate prepends hidden
   project workflow guidance and bounded project context before the operator
@@ -4431,9 +4873,96 @@ Project-linked direct model turns receive the same project workflow guidance
 in their system prompt, but they still cannot run tools or mutate project
 state.
 For `execution_mode="external_agent"`, Hecate sends the prompt to the
-session's native ACP session. For `tools_enabled=true` on a Hecate Chat
-session, the first tool-enabled prompt creates a visible `agent_loop` task and
-starts it; follow-up prompts continue the latest terminal run when the
+session's native ACP session. Attachment blocks are resolved against that
+session's live ACP Initialize capabilities at dispatch: a supported raster uses
+`image` only when advertised; otherwise `resource` is used only when embedded
+context is advertised. The baseline fallback is a `resource_link` to an exact
+read-only file in a private per-turn staging directory. Hecate attempts to
+remove that directory when `session/prompt` settles. ACP filesystem callbacks
+can read only the exact staged path while the turn is live; every other read or
+write in that namespace is rejected before workspace fallback. Body-free deny
+namespaces cover both the advertised and quarantine paths across later
+callbacks and turns until cleanup proves removal. Absolute paths, file URIs, and
+workspace-relative paths are compared under lexical and canonical roots. The
+namespace fence spans the full WorkspaceFS fallback so a quarantine rename
+cannot cross an already-admitted read or write.
+Darwin/Linux builds retain and verify the temporary parent, ancestors, stage,
+and children, reject unsafe ownership, writable non-sticky ancestors, and
+extended ACLs, and create entries relative to retained handles. Darwin requires
+`MNT_LOCAL` on every verified handle. Linux accepts only ext2/3/4, XFS, Btrfs,
+tmpfs, overlayfs, ramfs, or F2FS from `fstatfs`; every other model, including
+NFS, SMB/CIFS, FUSE, ZFS, AUFS, eCryptfs, and 9p, fails closed before an
+unsupported POSIX ACL operation can be treated as ACL-free. They remove and read back ACL state before bytes, verify
+`0700` directory and `0600` empty-file modes, then seal the file/directory as
+`0400`/`0500`. The canonical temporary path and each ancestor mount must pass
+the platform check; launch Hecate with `TMPDIR` on an allowlisted local
+filesystem when the default path does not. Other Unix builds fail the fallback closed. Windows builds
+reject remote/reparse resolution and unsafe parent/ancestor owners or
+delete/DACL-control grants. Existing managed parents and ancestors may be
+controlled by the current user, LocalSystem, Administrators, or the fixed
+TrustedInstaller service SID; that service is not granted access to the new
+stage. Hecate atomically creates the directory relative to
+the retained parent with a current-user owner and protected
+current-user-plus-LocalSystem DACL, read back that exact inheritable shape, then
+create children relative to the stage with an explicit current-user owner and
+protected current-user-plus-LocalSystem DACL. Each empty child is verified
+before writing. Protected read-only DACLs are verified after sealing; the
+sealed directory DACL is explicitly non-inheritable because every child already
+has its own protected DACL.
+Write-capable Windows construction handles are then replaced with
+read/identity-only retained handles whose share mode remains compatible with
+ordinary read-only-sharing opens. Cleanup reacquires mutation access to the
+exact parent-relative directory only after prompt settlement and identity
+verification. It first verifies the sealed DACL through a share-compatible
+owner-`WRITE_DAC` handle and restores a non-inheritable private full-control
+DACL, retaining that state across retries, before opening the mutation handle.
+After re-verifying each child, Hecate closes its own retained child handles
+immediately before the same-parent quarantine rename because Windows forbids
+renaming a directory with open descendants. Incompatible external readers
+cause bounded cleanup retry/failure.
+
+Hecate clears body references at prompt settlement, quarantines the retained
+directory under a fresh random parent-relative name, and removes children
+relative to retained handles. Four bounded attempts cover the complete
+quarantine, preparation, and removal transition. Identity drift fails closed
+without changing permissions through an unverified pathname and preserves the
+retained identity for retry. Successful removal enters a separate bounded
+proof-only state; retries never restart pathname work after the name may be
+gone. After exhausted synchronous cleanup, the turn reports an error and
+transfers the stage to one process-owned background janitor that outlives the
+ACP session. The janitor accepts at most four failed stages per session and 16
+file-turn reservations or failed stages process-wide, and is woken again after
+agent-process termination. File-bearing turns fail closed when either bound is
+full while text-only turns remain available. A protected remnant can still
+remain while another same-user process holds it. Body-free alias redactors mask
+complete staged path/URI aliases and ordinary accumulated ACP chunking from
+operator-visible output, activities, approvals, stop reasons, errors,
+command/config display metadata, and late terminal activity. They remain
+session-owned after cleanup proof so delayed typed updates stay covered; entries
+whose protocol identifiers or values would change are dropped, and the original
+typed-control wire records are withheld. Staged-turn raw ACP diagnostics are
+withheld when present.
+The ACP receive loop is gated until a structural SDK logger is installed; SDK
+diagnostics discard peer-controlled lines, identifiers, methods, and error
+values before local or exported logging while retaining fixed events and
+bounded queue counters. Native close/delete RPC failures retain only a fixed
+classification and numeric code, never peer message or data.
+The redactor is not DLP against a selected agent deliberately transforming the
+path or segmenting it into unrelated short records. This is not an isolation
+boundary from another process running as the same OS user; such a process may
+change owner-controlled permissions/DACLs or inspect a discovered stage. A
+separate two-slot process-wide gate bounds
+attachment claim, hydration, staging, and synchronous ACP prompt lifetime; saturation returns
+`429 chat.external_file_turn_busy` with `Retry-After: 1` before claim or
+transcript mutation. Hecate rejects an already-cancelled run before prompt
+construction and rechecks cancellation immediately before ACP dispatch. The
+turn holds shared workspace-writer admission
+from before user-message append and ACP dispatch through terminal assistant
+persistence; an overlapping destructive closure rejects admission with
+`409 conflict` without appending or dispatching the turn. For
+`tools_enabled=true` on a Hecate Chat session, the first tool-enabled prompt
+creates a visible `agent_loop` task and starts it; follow-up prompts continue
+the latest terminal run when the
 immediately previous segment was also task-backed. If the previous segment was
 direct model chat (tools off), Hecate starts a fresh task-backed segment in
 the same transcript.
@@ -4446,10 +4975,52 @@ task to finish, resolve the pending approval, or cancel/stop the active run
 before sending another prompt. The operator UI layers a local composer queue on
 top of that API contract: prompts submitted while a run is busy are held in a
 client-side FIFO and posted only after the active task reaches a terminal
-state. Queue entries are scoped to the chat session that created them so a
-prompt cannot drain into a different transcript after the operator switches
-sessions. That queue is intentionally not durable until each prompt is
-submitted.
+state. Queue entries carry the chat session and project ownership that created
+them, including an explicit empty project-free sentinel, so a prompt cannot
+drain into a different transcript and project deletion can target its durable
+record. Verified cleanup removes matching prompts; failures quarantine retained
+records and make deletion report an operator-visible error.
+The UI writes each entry through to browser-local storage before dispatch. Each
+mutation writes a new immutable record under a reset-generation, random-revision,
+and item-id key; the exact previous revision is removed only after the new value
+is verified. Same-origin tabs in the same browser profile merge the logical
+snapshot through storage events instead of replacing the whole queue, and
+duplicate live revisions quarantine every queued row until the handoff becomes
+unambiguous. Project deletion first records a generation-scoped tombstone and
+verifies both the marker and matching prompt cleanup. Single-chat deletion does
+the same with a prompt-free session tombstone, which later reads, writes,
+storage events, and reload migration use to reject or purge stale work. A durable
+`submitting` record created by another tab or recovered after reload is shown
+locally as `reconcile_required` without rewriting the fence; only explicit
+status reconciliation may claim an exact matching keyed record for replay.
+This survives a reload in that profile, but it is not server-owned or
+synchronized to another profile, browser, or device until the user transcript
+row commits.
+
+Queue mutations fail closed when browser storage cannot verify the exact item.
+The UI preserves the latest visible text, blocks FIFO drain, warns before
+unload, and best-effort removes an older ready record rather than allowing stale
+content to auto-send after reload. Existing `submitting` records remain intact
+for reconciliation. Chat/project deletion verifies queue cleanup and reports
+when the operator must clear site data manually. Item revisions,
+project/session tombstones, exact-payload deletion tombstones, and
+legacy-migration fingerprints prevent cleanup of an older physical key from
+erasing a fresh same-ID record. An exact-payload tombstone is SHA-256 over the
+canonical queue payload without its storage revision. A matching late rewrite
+stays consumed, while a different same-ID ready payload is a local
+remove-and-resubmit conflict and a different `submitting` payload remains
+fenced. Hashes reveal equality even though they contain no prompt.
+
+Migration of a previous mutable unscoped/revisionless record keeps
+the original prompt as a fingerprint-suppressed shadow because local storage has
+no safe compare-and-delete operation. A matching shadow does not resurrect after
+its immutable revision is delivered or removed; a changed shadow is blocked.
+The shadow prompt and its equality-revealing migration fingerprint can persist
+until explicit browser-queue cleanup or manual site-data cleanup. Explicit
+all-session queue cleanup snapshots and post-audits all four keyed queue
+namespaces plus the prompt-bearing legacy whole-array key before removing
+old-generation artifacts; the disabled server reset endpoint does not invoke
+this browser action.
 
 Clients can block obvious stale selections by combining `/v1/models` with
 `/hecate/v1/providers/status`, but the server remains authoritative. If a stale
@@ -4458,7 +5029,8 @@ provider/model selection slips through, Hecate Chat returns
 models, and an `operator_action` repair hint in the error details.
 
 The response returns after the backing turn finishes, times out, is cancelled,
-or fails. For live output while the turn is running, subscribe to the session
+or fails, except an idempotent replay can return the already committed current
+session while the original turn is still running. For live output while the turn is running, subscribe to the session
 stream before posting the message. Task-backed Hecate Chat turns update the running
 assistant message's `content` when the backing task's model route supports
 streaming; non-streaming providers still publish the final assistant content
@@ -4576,7 +5148,10 @@ artifact duration because Hecate does not yet record artifact-write spans for
 every task artifact.
 `content` is the normalized transcript that should be shown by default.
 `raw_output` preserves raw ACP update JSON for diagnostics when an adapter emits
-surprising structured output. `driver_kind` and `native_session_id` identify the
+surprising structured output. For a turn with private resource-link staging,
+Hecate instead returns a fixed withheld marker when raw data exists; arbitrary
+ACP chunk boundaries cannot be redacted safely. `driver_kind` and
+`native_session_id` identify the
 underlying ACP session reused across turns in the Hecate chat. `activities` is
 the structured progress model for the Chats UI: it records lifecycle markers
 such as starting, running, output, files changed, failed, cancelled, and final
@@ -4598,10 +5173,12 @@ Chat execution errors:
 | `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `hecate_task` or `external_agent`.                                                                                                          |
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
 | `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                      |
+| `409`  | `conflict`                       | An External Agent turn cannot acquire workspace-writer admission because an overlapping destructive workspace operation currently owns the process-local closure.                           |
 | `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for tools-off turns in the same Hecate Chat session.       |
 | `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                         |
 | `409`  | `chat.session_not_running`       | A stop request was issued when no run was active.                                                                                                                                           |
 | `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                         |
+| `422`  | `provider_ambiguous`             | The supplied provider alias matches multiple configured providers. Choose the provider by its canonical runtime name or remove the conflicting alias.                                       |
 | `422`  | `chat.model_capability_required` | A task-backed Hecate Chat turn was explicitly requested, but the selected model is not known to support tools. Continue with direct model chat or choose a model that reports tool support. |
 
 Client note: browser/operator clients may queue a prompt locally when they
@@ -4771,51 +5348,20 @@ Status codes:
 - `200 OK` with the per-file diff.
 - `404 not_found` when the session, message, or file path is unknown.
 
-### `POST /hecate/v1/chat/sessions/{id}/messages/{message_id}/revert`
-
-Reverts workspace changes captured by a chat assistant message. This is
-only available for Git workspaces and only for paths present in the stored
-agent-message diff; Hecate rejects arbitrary paths. Pass a non-empty `paths`
-array to revert selected files, or an empty array to revert every file in the
-captured diff.
-
-```json
-POST /hecate/v1/chat/sessions/chat_.../messages/msg_.../revert
-{
-  "paths": ["src/foo.go"]
-}
-
-→ 200
-{
-  "object": "chat_revert",
-  "data": {
-    "reverted": true,
-    "paths": ["src/foo.go"],
-    "diff_stat": "README.md | 1 +",
-    "files": [
-      {
-        "path": "README.md",
-        "additions": 1,
-        "deletions": 0,
-        "status": "modified"
-      }
-    ]
-  }
-}
-```
-
-After a successful revert, Hecate refreshes the message's stored `diff` and
-`diff_stat` for the originally captured path set, appends a `files_reverted`
-activity, and publishes an updated chat session snapshot. Non-Git
-workspaces return `400 invalid_request` with a human-readable limitation.
+The message file endpoints are read-only historical evidence. A captured
+message diff can be stale relative to the working tree, so it never authorizes
+a workspace mutation. The revision-bound current workspace discard endpoint
+below is the only chat file-revert surface.
 
 ### `GET /hecate/v1/chat/sessions/{id}/workspace-diff`
 
-Returns the current Git diff for the chat session's selected workspace. This is
-live working-tree state, not the captured diff from any assistant message.
-The operator UI renders this as a Review tab: a changed-file list where each
-file expands to its own rich diff, plus copy/discard actions for the full patch
-or a single file.
+Returns the current **unstaged tracked** Git patch (index → worktree) for the
+chat session's selected workspace. This is live state for that one Git layer,
+not the captured diff from any assistant message. Staged index changes and
+untracked files are not part of this patch or its discard authority. The
+operator UI renders the response as a Review tab: a changed-file list where
+each file expands to its own rich diff, plus copy/discard actions for the full
+patch or a single file.
 
 ```json
 GET /hecate/v1/chat/sessions/chat_.../workspace-diff
@@ -4824,6 +5370,7 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-diff
   "object": "chat_workspace_diff",
   "data": {
     "workspace": "/Users/alice/project",
+    "revision": "sha256:6cc8...",
     "diff_stat": "README.md | 1 +",
     "diff": "diff --git a/README.md b/README.md\n...",
     "has_changes": true,
@@ -4839,8 +5386,29 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-diff
 }
 ```
 
-Sessions without a workspace return an empty diff response. Non-Git
-workspaces return `400 invalid_request`.
+`revision` is an opaque, content-derived concurrency token for the complete raw
+unstaged tracked patch, including any final newline. Hecate captures that patch
+through GitRunner's hardened passive view. When the selected workspace is
+nested inside a larger checkout, the patch, staged-state check, and returned
+paths remain scoped to the selected workspace. It is not patch content, a
+durable identifier, or a value clients should log or persist. Because someone
+with a known complete unstaged patch can compare its digest for equality, treat
+the revision as sensitive operational metadata even though it does not reveal
+the patch by itself.
+
+If any staged change exists in the scoped workspace—staged-only or mixed with
+unstaged edits—Hecate returns `422 invalid_request` without a diff revision.
+The operator must unstage those changes, refresh, and review the resulting
+index-to-worktree patch before discarding. Hecate never represents staged-only
+state as a clean empty patch or issues authority for only the visible half of a
+mixed change. Sessions without a workspace return an empty diff response with
+the deterministic empty-patch revision. For a Git workspace, that empty
+revision is issued only after the staged-state check passes, and means only that
+there is no unstaged tracked patch; it does not claim that untracked files are
+absent. Non-Git workspaces return `400 invalid_request`. If the unstaged tracked
+patch exceeds the 4 MiB safe review limit, Hecate returns
+`422 invalid_request` instead of issuing a revision that could authorize an
+incomplete discard.
 
 ### `GET /hecate/v1/chat/sessions/{id}/workspace-diff/files/{path}`
 
@@ -4869,8 +5437,8 @@ paths.
 
 Returns the current file tree for the chat session's selected workspace. This
 surface is intentionally separate from `workspace-diff`: clients can browse and
-search the full workspace without mixing unchanged files into the changed-file
-review flow.
+search the full workspace file tree without mixing unchanged files into the
+changed-file review flow. It returns metadata, not unchanged file contents.
 
 The operator UI renders this as a **Files** tab. The tree is collapsed by
 default, while search expands matching directories.
@@ -4907,14 +5475,18 @@ eagerly.
 
 ### `POST /hecate/v1/chat/sessions/{id}/workspace-diff/revert`
 
-Restores selected tracked files from the current Git workspace diff. Pass a
-non-empty `paths` array to restore selected files, or an empty array to restore
-every currently changed tracked file.
+Discards selected unstaged tracked changes by conditionally reverse-applying
+the exact index-to-worktree Git patch the operator reviewed. Pass a non-empty
+`paths` array to discard selected files, or an empty array to discard every
+unstaged tracked file in that patch. This endpoint does not discard staged
+index changes or untracked files. It is the only chat endpoint that mutates
+workspace files; stored per-message diffs remain read-only evidence.
 
 ```json
 POST /hecate/v1/chat/sessions/chat_.../workspace-diff/revert
 {
-  "paths": ["README.md"]
+  "paths": ["README.md"],
+  "expected_revision": "sha256:6cc8..."
 }
 
 → 200
@@ -4922,14 +5494,68 @@ POST /hecate/v1/chat/sessions/chat_.../workspace-diff/revert
   "object": "chat_workspace_diff",
   "data": {
     "workspace": "/Users/alice/project",
+    "revision": "sha256:e3b0...",
     "has_changes": false,
     "files": []
   }
 }
 ```
 
-Only paths present in the current diff can be restored. The endpoint refreshes
-and returns the live workspace diff after Git restore completes.
+`expected_revision` is required and must be copied from the exact diff the
+operator confirmed. Before mutation, Hecate:
+
+1. closes and drains the owning chat's per-session lifecycle;
+2. acquires an exclusive closure from the one process-local workspace registry,
+   using canonical paths and treating parent and child roots as overlapping;
+3. rereads the authoritative session and scans durable non-terminal task runs
+   plus other active chat sessions for overlapping workspace roots; and
+4. verifies again that the scoped workspace has no staged changes, captures the
+   complete raw scoped unstaged tracked patch, and compares its revision with
+   `expected_revision`.
+
+Task provisioning/start admission/execution, External Agent ACP turns and live
+ACP terminals, task-patch apply/revert, and operator terminals use writer leases
+from the same registry. A live overlapping writer, a durable active owner, or an
+owning session that is `queued`, `running`, or `awaiting_approval` returns
+`409 chat.agent_session_busy`, even if a caller bypasses the UI. The operator
+console disables discard controls during known active work.
+
+With the closures still held, Hecate reserves Git's conventional real-index
+lock, rechecks that no scoped change was staged after the final snapshot,
+proves that the reviewed patch's old side still applies to the live index
+baseline, and reverse-applies selected paths from those exact reviewed patch
+bytes. Index contention, a committed or staged baseline change, or an
+overlapping edit from an external editor or another process returns `409
+conflict` without changing files. Unrelated and non-overlapping later edits are
+preserved. Only paths present in the reviewed diff can be discarded. A
+successful discard returns a newly computed revision for the remaining live
+diff.
+
+Any staged state observed during review or the final pre-mutation capture
+returns `422 invalid_request` without issuing a new revision or changing files.
+Unstage the scoped changes, refresh, and review again. Full staged-layer review
+and discard is not part of this endpoint's current contract.
+
+The shared registry coordinates one Hecate process and is not a distributed
+lock. The transient Git index reservation coordinates with well-behaved Git
+index writers only; it does not exclude direct worktree edits or non-cooperating
+index writes. The durable-owner scan, index reservation, and conditional reverse
+apply are independent fail-closed protections, not a guarantee of replica-wide
+atomic exclusion.
+
+Status codes:
+
+- `200 OK` with the refreshed workspace diff and revision.
+- `400 invalid_request` when `expected_revision` is missing or a requested path
+  is not present in the reviewed diff.
+- `409 conflict` when the workspace revision changed after review, Git's index
+  is busy or becomes staged after the final snapshot, or the exact patch no
+  longer applies because a later edit overlaps a selected hunk.
+- `409 chat.agent_session_busy` while the selected chat or another overlapping
+  workspace owner has active work.
+- `422 invalid_request` when the scoped workspace has any staged change
+  (staged-only or mixed), or when the complete unstaged tracked patch exceeds
+  the safe review limit.
 
 ### `GET /hecate/v1/chat/sessions/{id}/stream`
 
@@ -4969,12 +5595,32 @@ POST /hecate/v1/chat/sessions/chat_.../cancel
 Returns `202` when a running turn was signalled. If the session is not
 currently running, the endpoint returns `409 invalid_request`.
 
+The session snapshot in a `202` response is an acknowledgement, not terminal
+proof: cancellation is asynchronous and the returned snapshot may still show
+the pre-signal `running` or `awaiting_approval` state. Clients must retain a
+session-and-turn-scoped terminal fence, reject reordered non-terminal snapshots
+and approval requests for that stopped turn, and release it only after the
+matching SSE stream, original message POST, or a GET started after the accepted
+Stop reports a terminal turn (`completed`, `failed`, or `cancelled`). A bounded
+UI wait may release interaction ownership, but must not remove that terminal
+fence or let stale approval controls reappear. If a later cancellation retry
+fails, clients must restore any earlier accepted fence and keep the original
+turn's terminal path alive for a renewed bounded settlement window.
+
 ### `POST /hecate/v1/chat/sessions/{id}/close`
 
 Closes the native ACP agent session while keeping the Hecate chat history.
 If a turn is currently running, Hecate cancels and waits briefly before closing
 the external session. This uses ACP `session/close` and does not delete the
 provider-side native session from the adapter's session list.
+The close advances and owns a per-session lifecycle generation until the native
+close returns. Lifecycle snapshots are leased only while their requests remain
+in flight. Destructive owners execute serially, wait for already-admitted
+attachment/config mutations, reread the authoritative session, and cancel an
+already-registered turn. A request whose session snapshot predates the close,
+including one delayed until after admission reopens, receives
+`409 chat.session_stopping` before transcript mutation or runtime dispatch;
+inactive lifecycle state is reclaimed after every lease and operation drains.
 
 ### `DELETE /hecate/v1/chat/sessions/{id}`
 
@@ -4983,9 +5629,35 @@ If the session has an active native ACP agent process, Hecate asks the adapter
 to delete the native session with ACP `session/delete` and terminates the owned
 process as part of deletion. If the adapter does not support `session/delete`,
 Hecate falls back to `session/close` before tearing down the process.
-If the session is a task-backed Hecate Chat with a non-terminal backing run,
-Hecate cancels that run before removing the chat transcript. The backing Task
-record remains available from Tasks.
+If the session is a task-backed Hecate Chat, Hecate first cancels its linked
+backing run, waits for the live chat handler, then cancels every remaining
+non-terminal Task run durably owned by that chat origin. This final ownership
+scan catches a task created before its session link persisted. Before scanning,
+deletion closes the process-scoped origin-run gate and waits for every admitted
+start, retry, resume, continue, retry-from-turn, and approval-resolution
+mutation to finish. It holds that fence through durable session deletion; later
+run creation and approval requeue also validate durable chat ownership so a
+process restart cannot reopen retained history and validator-backed in-memory
+fence state can be reclaimed. The backing Task records and run history remain
+available from Tasks; cancellation uncertainty fails the delete closed with
+`409`.
+Deletion advances per-session lifecycle admission before cancellation and holds
+that guard through transcript and attachment cleanup. Overlapping destructive
+requests run one at a time and reread the session after acquiring ownership, so
+none dispatches from stale task or native-session fields. A turn or attachment
+write that registered first is cancelled or drained before cleanup; a delayed
+request whose earlier lifecycle snapshot is stale receives
+`409 chat.session_stopping` before message append, attachment persistence or
+deletion, claim/body access, or provider, task, or ACP dispatch. Project
+deletion uses the
+same guarded session-delete path. The reserved system-reset endpoint does not
+call session deletion because it fails before mutation.
+Deletion is idempotent: an already-missing session still runs session-scoped
+attachment cleanup and returns `204`. Project deletion also sweeps attachment
+bodies whose transcript owner is already gone before project chat cleanup, so a
+retry repairs a partial cross-store session delete. In Cairnline-authoritative
+mode, a later cleanup failure attempts to restore only the deleted project's
+portable snapshot; unrelated project state is not rolled back.
 
 ### `POST /hecate/v1/workspace-dialog`
 
@@ -5081,7 +5753,28 @@ POST /hecate/v1/terminals
 Hecate canonicalizes `workspace`, resolves relative `working_directory` inside
 that workspace, rejects escapes, sanitizes the child environment, applies the
 same static command checks and OS sandbox wrapper path used by shell tasks where
-available, and retains bounded merged stdout/stderr.
+available, and retains bounded merged stdout/stderr. A live terminal holds
+workspace-writer admission until its owned Unix process group or Windows Job
+Object and output pipes are observed drained, including for overlapping parent
+or child workspace roots. A close deadline can return before drain without
+releasing that admission. A
+destructive workspace discard therefore reports `409` while such a terminal is
+live, and terminal creation reports `409` while a destructive discard owns the
+workspace closure.
+
+On Unix, creation returns `400 invalid_request` before spawn for literal known
+session/process-group detachers, shell job-control escapes, and unsafe dynamic
+command forms. Hecate also checks writes when stdin is executable interactive
+shell/interpreter code; it does not scan ordinary stdin data for a script or
+inline command unless a force-interactive option keeps executable stdin active.
+Explicit shell stdin such as `sh -` and `bash -` is always code-scanned. Shell
+writes retain at most 64 KiB of syntactically incomplete input and fail closed
+at that bound; validated complete commands leave no cumulative history.
+Interpreter input retains only fixed-size token tails. The check is static and
+best effort: sourced/generated/encoded code, arbitrary execution wrappers,
+custom binaries/syscalls, and delegation to an external service manager remain
+outside this guarantee. Windows terminal lifecycle uses a Job Object, while its
+filesystem/network posture remains the documented trusted-subprocess boundary.
 
 Use `GET /hecate/v1/terminals/{terminal_id}/output` to read retained output,
 `POST /hecate/v1/terminals/{terminal_id}/input` with `{"input":"...\n"}` to
@@ -5095,11 +5788,12 @@ terminal IDs become invalid for all other terminal endpoints.
 runtime mode reports `false` by default and `true` only when
 `HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1` is explicitly set.
 
-Hecate does not expose an embedded terminal over the runtime API. Operators who
-need direct host access should use their normal local terminal or the deployment
-platform's administrative shell; Hecate-owned command execution belongs in the
-task-runtime APIs where approvals, timeouts, output caps, and sandbox policies
-can apply.
+The operator console does not embed a terminal UI. The opt-in local terminal API
+is for trusted operator clients that need a workspace-scoped process with the
+documented checks and output bounds. Operators who need unrestricted host
+access should use their normal local terminal or the deployment platform's
+administrative shell (`ssh`, `docker exec`, `kubectl exec`, a provider console,
+or equivalent).
 
 ## Rate-limit headers on chat / messages
 

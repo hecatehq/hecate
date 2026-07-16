@@ -9,13 +9,19 @@ import (
 // Terminal interactively — write to stdin, observe streaming output,
 // kill or wait for exit on demand.
 //
-// LocalWorkspace spawns the command under the existing sandbox policy gates and
-// keeps the process alive until the caller calls Close.
+// LocalWorkspace spawns the command under the existing sandbox policy gates,
+// owns its Unix process group or Windows Job Object, and keeps the terminal
+// alive until the complete owned unit and output pipes drain or the caller
+// closes it.
 type TerminalOptions struct {
 	// Command is the program to execute. When empty, an interactive
 	// shell is started (sh -i on unix, cmd.exe on windows). The
 	// shell case is what interactive terminal callers expect when an
 	// agent asks for a terminal pane it can drive.
+	//
+	// Unix LocalWorkspace terminals reject known ways literal commands can
+	// escape the owned process group. That check is static and best effort;
+	// callers must still treat terminal commands as trusted subprocesses.
 	Command string
 
 	// Args are additional arguments passed to Command. Ignored when
@@ -69,7 +75,8 @@ type Terminal interface {
 	// today implementations do not honor it for the inner write.
 	Write(ctx context.Context, input string) error
 
-	// WaitForExit blocks until the process exits and returns its
+	// WaitForExit blocks until the owned process unit exits and output drains,
+	// then returns its
 	// exit code plus a bounded snapshot of the stdout / stderr the
 	// implementation retained. Retention is best-effort and capped
 	// per implementation (currently 256 KiB per stream on
@@ -78,11 +85,14 @@ type Terminal interface {
 	// consumers.
 	WaitForExit(ctx context.Context) (Result, error)
 
-	// Kill sends SIGTERM (or the platform equivalent) and returns
+	// Kill sends SIGTERM to the owned Unix process group (or terminates the
+	// Windows Job Object) and returns
 	// immediately. Use WaitForExit afterward to observe the result.
 	Kill(ctx context.Context) error
 
-	// Close releases the terminal. If the process is still running,
-	// Close kills it first. Subsequent calls are no-ops.
+	// Close releases the terminal. If the owned process unit is still running,
+	// Close kills it first and waits for output drain within ctx. A deadline can
+	// return before drain after force termination; callers may retry. Subsequent
+	// calls after completed drain are no-ops.
 	Close(ctx context.Context) error
 }

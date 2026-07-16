@@ -12,6 +12,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -24,8 +25,13 @@ const (
 )
 
 type agentLoopTerminals struct {
-	mu       sync.Mutex
-	sessions map[string]*agentLoopTerminalSession
+	mu                   sync.Mutex
+	sessions             map[string]*agentLoopTerminalSession
+	workspaceCoordinator *workspacecoord.Registry
+	openTerminal         func(context.Context, workspace.TerminalOptions) (workspace.Terminal, error)
+	closed               bool
+	startsInFlight       int
+	startsDrained        chan struct{}
 }
 
 type agentLoopTerminalSession struct {
@@ -36,14 +42,19 @@ type agentLoopTerminalSession struct {
 	workingDir string
 	terminal   workspace.Terminal
 	outputDone chan struct{}
+	done       chan struct{}
+	lease      *workspacecoord.WriterLease
 
-	mu        sync.Mutex
-	output    []byte
-	truncated bool
-	running   bool
-	exitCode  *int
-	errText   string
-	closed    bool
+	mu                   sync.Mutex
+	output               []byte
+	truncated            bool
+	running              bool
+	exitCode             *int
+	waitErr              error
+	errText              string
+	closed               bool
+	workspaceReleaseOnce sync.Once
+	closeCleanupOnce     sync.Once
 }
 
 type agentLoopTerminalSnapshot struct {
@@ -61,7 +72,17 @@ type agentLoopTerminalSnapshot struct {
 }
 
 func newAgentLoopTerminals() *agentLoopTerminals {
-	return &agentLoopTerminals{sessions: make(map[string]*agentLoopTerminalSession)}
+	return newAgentLoopTerminalsWithCoordinator(workspacecoord.NewRegistry())
+}
+
+func newAgentLoopTerminalsWithCoordinator(registry *workspacecoord.Registry) *agentLoopTerminals {
+	return &agentLoopTerminals{
+		sessions:             make(map[string]*agentLoopTerminalSession),
+		workspaceCoordinator: registry,
+		openTerminal: func(ctx context.Context, opts workspace.TerminalOptions) (workspace.Terminal, error) {
+			return workspace.NewLocalWorkspace().OpenTerminal(ctx, opts)
+		},
+	}
 }
 
 func (e *AgentLoopExecutor) terminalSessionsForRun(runID string) *agentLoopTerminals {
@@ -76,8 +97,12 @@ func (e *AgentLoopExecutor) terminalSessionsForRun(runID string) *agentLoopTermi
 	}
 	sessions := e.terminalRuns[key]
 	if sessions == nil {
-		sessions = newAgentLoopTerminals()
-		e.terminalRuns[key] = sessions
+		sessions = newAgentLoopTerminalsWithCoordinator(e.workspaceCoord)
+		if e.terminalClosed {
+			sessions.closed = true
+		} else {
+			e.terminalRuns[key] = sessions
+		}
 	}
 	return sessions
 }
@@ -98,6 +123,26 @@ func (e *AgentLoopExecutor) closeTerminalSessionsForRun(ctx context.Context, run
 
 func (e *AgentLoopExecutor) CloseTerminalsForRun(ctx context.Context, runID string) {
 	e.closeTerminalSessionsForRun(ctx, runID)
+}
+
+// CloseAllTerminals fences new native terminal managers and closes every
+// retained run, including awaiting-approval runs that have no queue worker to
+// drain during Runner.Shutdown.
+func (e *AgentLoopExecutor) CloseAllTerminals(ctx context.Context) {
+	if e == nil {
+		return
+	}
+	e.terminalMu.Lock()
+	e.terminalClosed = true
+	runs := make([]*agentLoopTerminals, 0, len(e.terminalRuns))
+	for key, sessions := range e.terminalRuns {
+		runs = append(runs, sessions)
+		delete(e.terminalRuns, key)
+	}
+	e.terminalMu.Unlock()
+	for _, sessions := range runs {
+		sessions.CloseAll(ctx)
+	}
 }
 
 func dispatchTerminalOpenTool(ctx context.Context, spec ExecutionSpec, args terminalOpenArgs, stepIndex int, startedAt time.Time, toolCallID, toolName string, terminals *agentLoopTerminals) (string, *types.TaskStep, []types.TaskArtifact, error) {
@@ -172,6 +217,10 @@ func dispatchTerminalKillTool(ctx context.Context, spec ExecutionSpec, args term
 }
 
 func (t *agentLoopTerminals) Open(ctx context.Context, spec ExecutionSpec, args terminalOpenArgs) (agentLoopTerminalSnapshot, error) {
+	if !t.beginStart() {
+		return agentLoopTerminalSnapshot{}, fmt.Errorf("terminal manager is closed")
+	}
+	defer t.finishStart()
 	root, err := agentLoopTerminalWorkspaceRoot(spec)
 	if err != nil {
 		return agentLoopTerminalSnapshot{}, err
@@ -180,13 +229,21 @@ func (t *agentLoopTerminals) Open(ctx context.Context, spec ExecutionSpec, args 
 	if strings.TrimSpace(policy.AllowedRoot) == "" {
 		policy.AllowedRoot = root
 	}
-	term, err := workspace.NewLocalWorkspace().OpenTerminal(ctx, workspace.TerminalOptions{
+	if t.workspaceCoordinator == nil {
+		return agentLoopTerminalSnapshot{}, fmt.Errorf("workspace coordination is required for native terminals")
+	}
+	lease, err := t.workspaceCoordinator.AcquireWriter(ctx, root)
+	if err != nil {
+		return agentLoopTerminalSnapshot{}, fmt.Errorf("acquire native terminal workspace writer: %w", err)
+	}
+	term, err := t.openTerminal(ctx, workspace.TerminalOptions{
 		Command:          strings.TrimSpace(args.Command),
 		Args:             args.Args,
 		WorkingDirectory: args.WorkingDirectory,
 		Policy:           policy,
 	})
 	if err != nil {
+		lease.Release()
 		return agentLoopTerminalSnapshot{}, err
 	}
 	id := spec.NewID("terminal")
@@ -198,13 +255,49 @@ func (t *agentLoopTerminals) Open(ctx context.Context, spec ExecutionSpec, args 
 		workingDir: firstNonEmpty(args.WorkingDirectory, "."),
 		terminal:   term,
 		outputDone: make(chan struct{}),
+		done:       make(chan struct{}),
+		lease:      lease,
 		running:    true,
 	}
-	t.mu.Lock()
-	t.sessions[id] = session
-	t.mu.Unlock()
 	go session.consumeOutput()
+	go session.watch()
+	t.mu.Lock()
+	accepted := !t.closed
+	if accepted {
+		t.sessions[id] = session
+	}
+	t.mu.Unlock()
+	if !accepted {
+		session.close(ctx)
+		return agentLoopTerminalSnapshot{}, fmt.Errorf("terminal manager closed while terminal was starting")
+	}
 	return session.Snapshot(agentLoopTerminalDefaultReadBytes), nil
+}
+
+func (t *agentLoopTerminals) beginStart() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return false
+	}
+	if t.startsInFlight == 0 {
+		t.startsDrained = make(chan struct{})
+	}
+	t.startsInFlight++
+	return true
+}
+
+func (t *agentLoopTerminals) finishStart() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.startsInFlight--
+	if t.startsInFlight == 0 {
+		close(t.startsDrained)
+		t.startsDrained = nil
+	}
 }
 
 func (t *agentLoopTerminals) Write(ctx context.Context, id, input string) (agentLoopTerminalSnapshot, error) {
@@ -234,18 +327,12 @@ func (t *agentLoopTerminals) Wait(ctx context.Context, id string, timeoutMS int)
 	timeout := normalizeTerminalWait(timeoutMS)
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := session.terminal.WaitForExit(waitCtx)
-	if err != nil {
-		if waitCtx.Err() != nil {
-			return session.Snapshot(agentLoopTerminalDefaultReadBytes), true, nil
-		}
-		session.markDone(result.ExitCode, err)
-		session.waitOutputDrained(waitCtx)
-		return session.Snapshot(agentLoopTerminalDefaultReadBytes), false, err
+	select {
+	case <-session.done:
+		return session.Snapshot(agentLoopTerminalDefaultReadBytes), false, session.waitError()
+	case <-waitCtx.Done():
+		return session.Snapshot(agentLoopTerminalDefaultReadBytes), true, nil
 	}
-	session.markDone(result.ExitCode, nil)
-	session.waitOutputDrained(waitCtx)
-	return session.Snapshot(agentLoopTerminalDefaultReadBytes), false, nil
 }
 
 func (t *agentLoopTerminals) Kill(ctx context.Context, id string) (agentLoopTerminalSnapshot, error) {
@@ -258,27 +345,37 @@ func (t *agentLoopTerminals) Kill(ctx context.Context, id string) (agentLoopTerm
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	result, err := session.terminal.WaitForExit(waitCtx)
-	if err == nil {
-		session.markDone(result.ExitCode, nil)
-		session.waitOutputDrained(waitCtx)
-	} else if waitCtx.Err() == nil {
-		session.markDone(result.ExitCode, err)
-		session.waitOutputDrained(waitCtx)
+	select {
+	case <-session.done:
+	case <-waitCtx.Done():
 	}
 	return session.Snapshot(agentLoopTerminalDefaultReadBytes), nil
 }
 
 func (t *agentLoopTerminals) CloseAll(ctx context.Context) {
+	if t == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	t.mu.Lock()
+	t.closed = true
 	sessions := make([]*agentLoopTerminalSession, 0, len(t.sessions))
 	for id, session := range t.sessions {
 		sessions = append(sessions, session)
 		delete(t.sessions, id)
 	}
+	startsDrained := t.startsDrained
 	t.mu.Unlock()
 	for _, session := range sessions {
 		session.close(ctx)
+	}
+	if startsDrained != nil {
+		select {
+		case <-startsDrained:
+		case <-ctx.Done():
+		}
 	}
 }
 
@@ -297,6 +394,14 @@ func (s *agentLoopTerminalSession) consumeOutput() {
 	for chunk := range s.terminal.Output() {
 		s.appendOutput(chunk)
 	}
+}
+
+func (s *agentLoopTerminalSession) watch() {
+	defer close(s.done)
+	defer s.releaseWorkspace()
+	result, err := s.terminal.WaitForExit(context.Background())
+	s.waitOutputDrained(context.Background())
+	s.markDone(result.ExitCode, err)
 }
 
 func (s *agentLoopTerminalSession) waitOutputDrained(ctx context.Context) {
@@ -331,12 +436,31 @@ func (s *agentLoopTerminalSession) markDone(exitCode int, err error) {
 	defer s.mu.Unlock()
 	s.running = false
 	s.exitCode = &exitCode
+	s.waitErr = err
 	if err != nil {
 		s.errText = err.Error()
 	}
 }
 
+func (s *agentLoopTerminalSession) waitError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.waitErr
+}
+
+func (s *agentLoopTerminalSession) releaseWorkspace() {
+	if s == nil {
+		return
+	}
+	s.workspaceReleaseOnce.Do(func() {
+		s.lease.Release()
+	})
+}
+
 func (s *agentLoopTerminalSession) close(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -344,10 +468,29 @@ func (s *agentLoopTerminalSession) close(ctx context.Context) {
 	}
 	s.closed = true
 	s.mu.Unlock()
-	_ = s.terminal.Close(ctx)
-	s.mu.Lock()
-	s.running = false
-	s.mu.Unlock()
+	if err := s.terminal.Close(ctx); err != nil {
+		s.continueClose()
+		return
+	}
+	select {
+	case <-s.done:
+	case <-ctx.Done():
+		s.continueClose()
+	}
+}
+
+// continueClose retains cleanup authority after the caller's shutdown budget
+// expires. The watcher still owns the workspace lease and only releases it
+// after the terminal reports process-unit exit and output drain.
+func (s *agentLoopTerminalSession) continueClose() {
+	if s == nil || s.terminal == nil {
+		return
+	}
+	s.closeCleanupOnce.Do(func() {
+		go func() {
+			_ = s.terminal.Close(context.Background())
+		}()
+	})
 }
 
 func (s *agentLoopTerminalSession) Snapshot(maxBytes int) agentLoopTerminalSnapshot {

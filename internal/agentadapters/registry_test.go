@@ -202,6 +202,44 @@ func TestLimitedBufferReadFromUsesLimitedWritePath(t *testing.T) {
 	}
 }
 
+func TestLimitedBufferDisableAndClearWipesStartupDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	var writes []string
+	buf := limitedBuffer{
+		limit:   256,
+		onWrite: func(chunk string) { writes = append(writes, chunk) },
+	}
+	startup := []byte("startup diagnostic")
+	if _, err := buf.Write(startup); err != nil {
+		t.Fatalf("startup Write: %v", err)
+	}
+	if got := buf.String(); got != string(startup) {
+		t.Fatalf("startup buffer = %q, want %q", got, startup)
+	}
+	retained := buf.Buffer.Bytes()
+	buf.disableAndClear()
+	for index, value := range retained {
+		if value != 0 {
+			t.Fatalf("cleared startup byte %d = %d, want 0", index, value)
+		}
+	}
+	if got := buf.String(); got != "" {
+		t.Fatalf("disabled buffer retained startup diagnostics: %q", got)
+	}
+
+	secret := []byte("post-start private attachment bytes")
+	if n, err := buf.ReadFrom(strings.NewReader(string(secret))); err != nil || n != int64(len(secret)) {
+		t.Fatalf("disabled ReadFrom = %d, %v, want %d, nil", n, err, len(secret))
+	}
+	if got := buf.String(); got != "" {
+		t.Fatalf("disabled buffer retained post-start bytes: %q", got)
+	}
+	if len(writes) != 1 || writes[0] != string(startup) {
+		t.Fatalf("onWrite chunks = %#v, want only startup diagnostic", writes)
+	}
+}
+
 func TestBuiltInGoAdaptersUseReleasedBinaries(t *testing.T) {
 	t.Parallel()
 

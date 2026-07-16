@@ -2,11 +2,13 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -60,12 +62,18 @@ func (p *claimedRunProcessor) process() {
 func (p *claimedRunProcessor) loadClaimedRun() bool {
 	p.queue = p.coordinator.getQueue()
 	task, found, err := p.runner.store.GetTask(context.Background(), p.claim.Job.TaskID)
-	if err != nil || !found {
+	if err != nil {
+		return false
+	}
+	if !found {
 		p.ackClaim()
 		return false
 	}
 	run, found, err := p.runner.store.GetRun(context.Background(), p.claim.Job.TaskID, p.claim.Job.RunID)
-	if err != nil || !found {
+	if err != nil {
+		return false
+	}
+	if !found {
 		p.ackClaim()
 		return false
 	}
@@ -90,15 +98,26 @@ func (p *claimedRunProcessor) startTrace() {
 func (p *claimedRunProcessor) beginJob() (context.Context, func()) {
 	jobCtx, jobCancel := context.WithCancel(p.coordinator.workerCtx)
 	p.coordinator.workerWg.Add(1)
-	p.coordinator.registerJob(p.run.ID, jobCancel)
+	job := p.coordinator.registerJob(p.run.ID, jobCancel)
 	return jobCtx, func() {
 		jobCancel()
-		p.coordinator.unregisterJob(p.run.ID)
+		p.coordinator.unregisterJob(p.run.ID, job)
 		p.coordinator.workerWg.Done()
 	}
 }
 
 func (p *claimedRunProcessor) startClaimedRun(ctx context.Context) bool {
+	originLease, err := p.runner.beginOriginRunMutation(ctx, p.task)
+	if err != nil {
+		if errors.Is(err, taskruncoord.ErrOriginUnavailable) {
+			p.settleUnavailableOriginClaim(ctx)
+		}
+		return false
+	}
+	if originLease != nil {
+		defer originLease.Release()
+	}
+
 	now := time.Now().UTC()
 	transition := prepareClaimedRunStartTransition(claimedRunStartTransitionInput{
 		Task:       p.task,
@@ -126,7 +145,14 @@ func (p *claimedRunProcessor) startClaimedRun(ctx context.Context) bool {
 		WaitMS:       transition.QueueWaitMS,
 	})
 
-	if err := persistClaimedRunStartTransition(ctx, p.runner.store, transition); err != nil {
+	applied, err := persistClaimedRunStartTransition(ctx, p.runner.store, transition)
+	if err != nil {
+		return false
+	}
+	if !applied {
+		// A concurrent cancellation or another valid claimant won the
+		// queued-state compare-and-swap. This queue claim is obsolete.
+		p.ackClaim()
 		return false
 	}
 
@@ -137,6 +163,22 @@ func (p *claimedRunProcessor) startClaimedRun(ctx context.Context) bool {
 
 	recordOrchestratorRunStarted(p.trace, p.task.ID, p.run)
 	return true
+}
+
+func (p *claimedRunProcessor) settleUnavailableOriginClaim(ctx context.Context) {
+	message := "run cancelled: task origin is unavailable"
+	result, err := p.runner.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(
+		p.task,
+		p.run,
+		message,
+		p.requestID,
+		p.trace.TraceID,
+		p.trace,
+		time.Now().UTC(),
+	))
+	if err == nil && (result.Skipped || result.Run.Status == "cancelled") {
+		p.ackClaim()
+	}
 }
 
 func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) *ResumeCheckpoint {

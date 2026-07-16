@@ -37,6 +37,7 @@ type Props = {
     payload: ResolveChatApprovalPayload,
   ) => Promise<boolean>;
   onCancel: (sessionID: string, approvalID: string) => Promise<boolean>;
+  disabled?: boolean;
 };
 
 export function AgentApprovalModal({
@@ -46,6 +47,7 @@ export function AgentApprovalModal({
   fetchApproval,
   onResolve,
   onCancel,
+  disabled = false,
 }: Props) {
   const [row, setRow] = useState<ChatApprovalRecord | null>(null);
   const [error, setError] = useState<string>("");
@@ -86,7 +88,7 @@ export function AgentApprovalModal({
   const scopeDescription = agentApprovalScopeDescription(scope, row?.tool_kind);
 
   async function handleSubmit() {
-    if (!row || busy) return;
+    if (!row || busy || disabled) return;
     if (isBroadScope && !confirmingBroadScope) {
       // First click on broad-scope arms confirmation; the next click
       // actually fires the resolve. Operator can change their mind by
@@ -107,7 +109,7 @@ export function AgentApprovalModal({
   }
 
   async function handleCancelApproval() {
-    if (!row || busy) return;
+    if (!row || busy || disabled) return;
     setBusy(true);
     const ok = await onCancel(sessionID, approvalID);
     setBusy(false);
@@ -132,7 +134,7 @@ export function AgentApprovalModal({
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            disabled={busy}
+            disabled={busy || disabled}
             onClick={() => void handleCancelApproval()}
             data-testid="agent-approval-modal-cancel"
           >
@@ -142,7 +144,7 @@ export function AgentApprovalModal({
             <button
               type="button"
               className={decision === "deny" ? "btn btn-danger btn-sm" : "btn btn-primary btn-sm"}
-              disabled={busy || !row}
+              disabled={busy || disabled || !row}
               onClick={() => void handleSubmit()}
               data-testid="agent-approval-modal-submit"
             >
@@ -239,6 +241,7 @@ export function AgentApprovalModal({
                 <button
                   key={kind}
                   type="button"
+                  disabled={disabled}
                   onClick={() => {
                     setDecision(kind);
                     setSelectedOption(defaultOptionForDecision(row.acp_options, kind));
@@ -316,7 +319,7 @@ export function AgentApprovalModal({
                         name="acp-option"
                         value={opt.option_id}
                         checked={selectedOption === opt.option_id}
-                        disabled={!matchesDecision}
+                        disabled={disabled || !matchesDecision}
                         onChange={() => {
                           if (matchesDecision) setSelectedOption(opt.option_id);
                         }}
@@ -356,6 +359,7 @@ export function AgentApprovalModal({
                   <button
                     key={s}
                     type="button"
+                    disabled={disabled}
                     onClick={() => setScope(s)}
                     title={agentApprovalScopeDescription(s, row.tool_kind)}
                     data-testid={`agent-approval-modal-scope-${s}`}
@@ -424,6 +428,7 @@ export function AgentApprovalModal({
             </label>
             <textarea
               value={note}
+              disabled={disabled}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Why this decision? Saved on the approval record."
               data-testid="agent-approval-modal-note"

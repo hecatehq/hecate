@@ -6,9 +6,14 @@ import (
 )
 
 type ChatRequest struct {
-	RequestID     string
-	Model         string
-	Messages      []Message
+	RequestID string
+	Model     string
+	Messages  []Message
+	// Requirements are Hecate-internal route constraints. Provider-compatible
+	// /v1 requests leave this zero-valued so Hecate preserves ordinary upstream
+	// passthrough semantics even when provider discovery cannot prove a model
+	// capability. Hecate-owned runtimes set only the capabilities they require.
+	Requirements  ChatRequestRequirements
 	MaxTokens     int
 	Temperature   float64
 	TopP          float64
@@ -80,6 +85,56 @@ type ChatRequest struct {
 	ParallelToolCalls *bool
 }
 
+// ChatRequestRequirements describes capabilities every route candidate must
+// explicitly support, plus request-scoped routing boundaries. It is
+// intentionally separate from message-content inspection: public
+// compatibility requests may contain provider-native rich content without
+// opting into Hecate's stricter runtime admission policy.
+type ChatRequestRequirements struct {
+	ImageInput bool
+	// NoProviderFailover keeps retries on the selected provider but prevents a
+	// request from crossing into another provider. It also requires the gateway
+	// to revalidate the selected provider instance immediately before every
+	// dispatch, so a same-name configuration replacement cannot silently retarget
+	// bound content. Hecate-owned and compatibility image turns set this because
+	// image bytes must not be disclosed to another upstream implicitly.
+	NoProviderFailover bool
+	// ExactProvider requires ProviderHint to match the configured runtime name
+	// exactly. Hecate-owned turns set this after hydrating provider-bound image
+	// history so a concurrent registry reload cannot reinterpret the canonical
+	// name as another provider's normalized name or alias.
+	ExactProvider bool
+	// ProviderInstance pins provider-bound dispatch to the opaque provider
+	// instance that admission inspected. It is never accepted from or returned
+	// to public API clients. Auto routing may leave this empty until the router
+	// selects an instance; the resulting RouteDecision still carries the fence.
+	ProviderInstance ProviderInstanceIdentity `json:"-"`
+}
+
+// ProviderInstanceIdentity is an opaque, internal execution fence. The ID is
+// either a stable fingerprint of a managed provider's effective configuration
+// generation or a process-scoped token assigned to an otherwise unknown
+// provider object. It contains no raw endpoint, credential, or operator-visible
+// configuration and must never be exposed through API responses or telemetry.
+type ProviderInstanceIdentity struct {
+	ID   string                       `json:"id,omitempty"`
+	Kind ProviderInstanceIdentityKind `json:"kind,omitempty"`
+}
+
+type ProviderInstanceIdentityKind string
+
+const (
+	ProviderInstanceIdentityConfiguration ProviderInstanceIdentityKind = "configuration"
+	ProviderInstanceIdentityRuntime       ProviderInstanceIdentityKind = "runtime"
+)
+
+func (identity ProviderInstanceIdentity) Valid() bool {
+	if identity.ID == "" {
+		return false
+	}
+	return identity.Kind == ProviderInstanceIdentityConfiguration || identity.Kind == ProviderInstanceIdentityRuntime
+}
+
 // RequestScope carries routing hints derived from the inbound request.
 // In single-user mode it's just the provider hint — multi-tenant
 // scoping (Tenant, AllowedProviders/Models, Principal) was removed.
@@ -134,6 +189,12 @@ type ContentImage struct {
 	Data      string `json:"data,omitempty"`
 	MediaType string `json:"media_type,omitempty"`
 	Detail    string `json:"detail,omitempty"`
+	// Width and Height are internal estimation hints. Provider adapters do not
+	// serialize them; Hecate populates them from validated local attachments so
+	// policy and cost preflight can account for visual tokens without decoding
+	// the base64 payload again.
+	Width  int `json:"-"`
+	Height int `json:"-"`
 }
 
 type ToolCall struct {
@@ -197,21 +258,31 @@ type CostBreakdown struct {
 }
 
 type RouteDecision struct {
-	Provider     string
-	ProviderKind string
-	Model        string
-	Reason       string
+	Provider         string
+	ProviderKind     string
+	ProviderInstance ProviderInstanceIdentity `json:"-"`
+	Model            string
+	Reason           string
 }
 
 type ModelInfo struct {
-	ID              string
-	Provider        string
-	Kind            string
-	OwnedBy         string
-	Default         bool
-	DiscoverySource string
-	Capabilities    ModelCapabilities
-	Readiness       ModelReadiness
+	ID       string
+	Provider string
+	// ProviderAliases are internal stable route keys for the configured
+	// provider, such as a control-plane id or preset id.
+	ProviderAliases []string `json:"-"`
+	// ProviderFamily is internal capability-resolution metadata. Provider is
+	// still the configured routing identity exposed to operators and clients.
+	ProviderFamily string `json:"-"`
+	// ProviderInstance is an internal execution fence and is deliberately absent
+	// from model-list API responses.
+	ProviderInstance ProviderInstanceIdentity `json:"-"`
+	Kind             string
+	OwnedBy          string
+	Default          bool
+	DiscoverySource  string
+	Capabilities     ModelCapabilities
+	Readiness        ModelReadiness
 }
 
 // ModelCapabilities is the operator-facing capability snapshot Hecate uses
@@ -219,13 +290,20 @@ type ModelInfo struct {
 // callers where the currently effective value came from.
 type ModelCapabilities struct {
 	ToolCalling string `json:"tool_calling,omitempty"`
-	Streaming   bool   `json:"streaming"`
+	// ImageInput is a tri-state capability (unknown, none, supported).
+	// A string keeps unknown distinct from an explicit provider-reported false,
+	// which lets multimodal routing fail closed instead of guessing.
+	ImageInput string `json:"image_input,omitempty"`
+	Streaming  bool   `json:"streaming"`
 	// StreamingKnown is internal merge metadata: provider discovery can
 	// intentionally override catalog defaults to streaming=false without
 	// exposing another API field.
-	StreamingKnown   bool   `json:"-"`
-	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
-	Source           string `json:"source,omitempty"`
+	StreamingKnown   bool `json:"-"`
+	MaxContextTokens int  `json:"max_context_tokens,omitempty"`
+	// Source is catalog, provider, mixed, or unknown. Mixed means the effective
+	// snapshot combines dimensions from provider-native metadata and Hecate's
+	// catalog inference; it must not be presented as wholly provider-reported.
+	Source string `json:"source,omitempty"`
 }
 
 // ReadinessSummary is the compact operator-facing answer to "can Hecate use

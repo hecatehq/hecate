@@ -17,6 +17,22 @@ func (h *Handler) reconcileProjectAssignmentsForChat(ctx context.Context, sessio
 	if h == nil || strings.TrimSpace(session.ProjectID) == "" || strings.TrimSpace(session.ID) == "" {
 		return
 	}
+	mutationCtx, release, admitted, err := h.projectMutationGate.tryBegin(ctx, session.ProjectID)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.WarnContext(ctx, "project.assignment_chat_reconcile_fence_failed",
+				slog.String("project_id", session.ProjectID),
+				slog.String("chat_session_id", session.ID),
+				slog.Any("error", err),
+			)
+		}
+		return
+	}
+	if !admitted {
+		return
+	}
+	defer release()
+	ctx = mutationCtx
 	if h.projectWork == nil {
 		if h.projectReadRoutesUseCairnlineReadModel() && h.requiresEmbeddedCairnlineProjectReads() {
 			h.reconcileStrictEmbeddedCairnlineProjectAssignmentsForChat(ctx, session)

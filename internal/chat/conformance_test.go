@@ -61,4 +61,20 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreToolsEnabledRoundTrip(t, factory(t))
 	})
+	t.Run(name+"/MessageAttachmentsRoundTrip", func(t *testing.T) {
+		t.Parallel()
+		runStoreMessageAttachmentsRoundTrip(t, factory(t))
+	})
+	t.Run(name+"/ActivityOnlyUpdateDoesNotReprojectSessionStatus", func(t *testing.T) {
+		t.Parallel()
+		runStoreActivityOnlyUpdateDoesNotReprojectSessionStatus(t, factory(t))
+	})
+	t.Run(name+"/MessageRequestIdempotency", func(t *testing.T) {
+		t.Parallel()
+		runStoreMessageRequestIdempotency(t, factory(t))
+	})
+	t.Run(name+"/MessageRequestLeaseRenewal", func(t *testing.T) {
+		t.Parallel()
+		runStoreMessageRequestLeaseRenewal(t, factory(t))
+	})
 }

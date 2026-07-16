@@ -2,6 +2,7 @@ package chat
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -25,7 +26,6 @@ func ParseChangedFiles(diff, diffStat string) []ChangedFile {
 }
 
 func ExtractFileDiff(diff, path string) (ChangedFile, bool) {
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return ChangedFile{}, false
 	}
@@ -64,12 +64,25 @@ func parseUnifiedDiffFiles(diff string) []ChangedFile {
 		case strings.HasPrefix(line, "rename from "):
 			current.Status = "renamed"
 		case strings.HasPrefix(line, "rename to "):
-			if to := strings.TrimSpace(strings.TrimPrefix(line, "rename to ")); to != "" {
+			if to, ok := parseGitPathField(strings.TrimPrefix(line, "rename to "), ""); ok {
+				current.Path = to
+			}
+		case strings.HasPrefix(line, "copy from "):
+			current.Status = "copied"
+		case strings.HasPrefix(line, "copy to "):
+			if to, ok := parseGitPathField(strings.TrimPrefix(line, "copy to "), ""); ok {
 				current.Path = to
 			}
 		case strings.HasPrefix(line, "Binary files "):
 			current.Status = "binary"
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+		case strings.HasPrefix(line, "--- "):
+			if from, ok := parseGitPathField(strings.TrimPrefix(line, "--- "), "a/"); ok {
+				current.Path = from
+			}
+		case strings.HasPrefix(line, "+++ "):
+			if to, ok := parseGitPathField(strings.TrimPrefix(line, "+++ "), "b/"); ok {
+				current.Path = to
+			}
 			continue
 		case strings.HasPrefix(line, "+"):
 			current.Additions++
@@ -90,20 +103,99 @@ func parseUnifiedDiffFiles(diff string) []ChangedFile {
 }
 
 func parseDiffGitPath(line string) string {
-	rest := strings.TrimSpace(strings.TrimPrefix(line, "diff --git "))
-	left, right, ok := strings.Cut(rest, " b/")
-	if ok {
-		_ = left
-		return strings.TrimSpace(right)
+	rest := strings.TrimPrefix(line, "diff --git ")
+	if strings.HasPrefix(rest, "\"") {
+		_, remaining, ok := consumeQuotedGitPath(rest)
+		if ok {
+			if path, ok := parseGitPathField(strings.TrimLeft(remaining, " "), "b/"); ok {
+				return path
+			}
+		}
 	}
-	parts := strings.Fields(rest)
-	if len(parts) >= 2 {
-		return strings.TrimPrefix(parts[1], "b/")
+	// Unquoted Git paths may contain spaces, including the literal delimiter
+	// text " b/". Prefer the split whose a/ and b/ payloads are identical;
+	// rename/copy blocks later replace this fallback from their explicit
+	// extended headers.
+	for offset := 0; offset < len(rest); {
+		relative := strings.Index(rest[offset:], " b/")
+		if relative < 0 {
+			break
+		}
+		split := offset + relative
+		left := rest[:split]
+		right := rest[split+1:]
+		if strings.HasPrefix(left, "a/") && strings.HasPrefix(right, "b/") && left[2:] == right[2:] {
+			return right[2:]
+		}
+		offset = split + 1
 	}
-	if len(parts) == 1 {
-		return strings.TrimPrefix(parts[0], "a/")
+	if quotedRight := strings.LastIndex(rest, " \"b/"); quotedRight >= 0 {
+		if path, ok := parseGitPathField(rest[quotedRight+1:], "b/"); ok {
+			return path
+		}
+	}
+	if split := strings.Index(rest, " b/"); split >= 0 {
+		return strings.TrimPrefix(rest[split+1:], "b/")
+	}
+	if strings.HasPrefix(rest, "a/") {
+		return rest[2:]
 	}
 	return ""
+}
+
+// parseGitPathField decodes one Git path field and removes its synthetic a/
+// or b/ prefix. Git uses C-style quoting for control characters and non-ASCII
+// bytes; strconv.Unquote matches that representation, including octal escapes.
+func parseGitPathField(field, prefix string) (string, bool) {
+	if field == "" || field == "/dev/null" {
+		return "", false
+	}
+	path := field
+	if strings.HasPrefix(field, "\"") {
+		decoded, remaining, ok := consumeQuotedGitPath(field)
+		if !ok || strings.TrimSpace(remaining) != "" {
+			return "", false
+		}
+		path = decoded
+	} else if value, _, found := strings.Cut(field, "\t"); found {
+		// Git terminates an unquoted ---/+++ path containing whitespace
+		// with a tab (the generic unified-diff format may follow it with a
+		// timestamp). Literal tabs in names are C-quoted, so this delimiter
+		// is not part of the path.
+		path = value
+	}
+	if prefix != "" {
+		if !strings.HasPrefix(path, prefix) {
+			return "", false
+		}
+		path = strings.TrimPrefix(path, prefix)
+	}
+	if path == "" {
+		return "", false
+	}
+	return path, true
+}
+
+func consumeQuotedGitPath(value string) (string, string, bool) {
+	if !strings.HasPrefix(value, "\"") {
+		return "", value, false
+	}
+	escaped := false
+	for i := 1; i < len(value); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case value[i] == '\\':
+			escaped = true
+		case value[i] == '"':
+			decoded, err := strconv.Unquote(value[:i+1])
+			if err != nil {
+				return "", value, false
+			}
+			return decoded, value[i+1:], true
+		}
+	}
+	return "", value, false
 }
 
 func parseDiffStatFiles(diffStat string) []ChangedFile {

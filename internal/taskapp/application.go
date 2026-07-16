@@ -3,6 +3,7 @@ package taskapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -30,15 +32,20 @@ var (
 	ErrTaskIDRequired            = errors.New("task id is required")
 	ErrRunIDRequired             = errors.New("run id is required")
 	ErrApprovalIDRequired        = errors.New("approval id is required")
+	ErrOriginKindRequired        = errors.New("task origin kind is required")
+	ErrOriginIDRequired          = errors.New("task origin id is required")
+	ErrOriginRunAdmissionClosed  = taskruncoord.ErrOriginRunAdmissionClosed
+	ErrOriginUnavailable         = taskruncoord.ErrOriginUnavailable
+	ErrOriginValidationFailed    = taskruncoord.ErrOriginValidationFailed
 	ErrTurnRequired              = errors.New("turn must be >= 1")
 	ErrPromptRequired            = errors.New("prompt is required")
-	ErrActiveRun                 = errors.New("task already has an active run")
+	ErrActiveRun                 = orchestrator.ErrActiveRun
 	ErrOtherActiveRun            = errors.New("task already has another active run")
 	ErrDeleteActiveRun           = errors.New("cannot delete a task with an active run; cancel it first")
 	ErrRunNotRetryable           = errors.New("run is not retryable until it reaches a terminal state")
 	ErrRunNotResumable           = errors.New("run is not resumable")
 	ErrRunNotTurnRetryable       = errors.New("run is not retryable from a turn (must be terminal)")
-	ErrBudgetLower               = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
+	ErrBudgetLower               = orchestrator.ErrBudgetLower
 )
 
 type ValidationError = apperrors.ValidationError
@@ -53,7 +60,7 @@ func IsValidationError(err error) bool {
 
 type Runner interface {
 	StartTask(context.Context, types.Task, func(string) string) (*orchestrator.StartTaskResult, error)
-	ResumeTask(context.Context, types.Task, types.TaskRun, string, func(string) string) (*orchestrator.StartTaskResult, error)
+	ResumeTaskWithBudget(context.Context, types.Task, types.TaskRun, string, int64, func(string) string) (*orchestrator.StartTaskResult, error)
 	ContinueAgentTask(context.Context, types.Task, types.TaskRun, string, func(string) string) (*orchestrator.StartTaskResult, error)
 	RetryTaskFromTurn(context.Context, types.Task, types.TaskRun, int, string, func(string) string) (*orchestrator.StartTaskResult, error)
 	CancelRun(context.Context, types.Task, string, string) (types.TaskRun, error)
@@ -72,6 +79,7 @@ type Application struct {
 	maxMCPServers int
 	idgen         func(string) string
 	now           func() time.Time
+	originRunGate *taskruncoord.Gate
 }
 
 type Options struct {
@@ -82,6 +90,7 @@ type Options struct {
 	MaxMCPServers int
 	IDGenerator   func(string) string
 	Now           func() time.Time
+	OriginRunGate *taskruncoord.Gate
 }
 
 type CreateCommand struct {
@@ -140,6 +149,34 @@ type ResolveApprovalCommand struct {
 	RequestID  string
 }
 
+type CancelRunsByOriginCommand struct {
+	OriginKind string
+	OriginID   string
+	Reason     string
+}
+
+type CancelRunsByOriginResult struct {
+	Runs []types.TaskRun
+}
+
+// OriginRunSettlement keeps new runs fenced until the caller either commits a
+// successful owner deletion or releases the fence after a failed deletion.
+type OriginRunSettlement struct {
+	closure *taskruncoord.Closure
+}
+
+func (settlement *OriginRunSettlement) Release() {
+	if settlement != nil && settlement.closure != nil {
+		settlement.closure.Release()
+	}
+}
+
+func (settlement *OriginRunSettlement) Commit() {
+	if settlement != nil && settlement.closure != nil {
+		settlement.closure.Commit()
+	}
+}
+
 func New(opts Options) *Application {
 	app := &Application{
 		store:         opts.Store,
@@ -149,6 +186,10 @@ func New(opts Options) *Application {
 		maxMCPServers: opts.MaxMCPServers,
 		idgen:         opts.IDGenerator,
 		now:           opts.Now,
+		originRunGate: opts.OriginRunGate,
+	}
+	if app.originRunGate == nil {
+		app.originRunGate = taskruncoord.NewOriginGate()
 	}
 	if app.idgen == nil {
 		app.idgen = newOpaqueTaskResourceID
@@ -380,6 +421,67 @@ func (app *Application) CancelTaskRun(ctx context.Context, task types.Task, run 
 	return app.runner.CancelRun(ctx, task, run.ID, reason)
 }
 
+// CancelNonTerminalRunsByOrigin settles every active run whose parent task is
+// owned by one logical source. The tasks and their run history remain durable;
+// the returned settlement keeps that source closed to new runs until the
+// caller commits a successful source deletion or releases a failed attempt.
+func (app *Application) CancelNonTerminalRunsByOrigin(ctx context.Context, cmd CancelRunsByOriginCommand) (CancelRunsByOriginResult, *OriginRunSettlement, error) {
+	var result CancelRunsByOriginResult
+	if app == nil || app.store == nil {
+		return result, nil, ErrStoreNotConfigured
+	}
+	originKind := strings.TrimSpace(cmd.OriginKind)
+	if originKind == "" {
+		return result, nil, Validation(ErrOriginKindRequired)
+	}
+	originID := strings.TrimSpace(cmd.OriginID)
+	if originID == "" {
+		return result, nil, Validation(ErrOriginIDRequired)
+	}
+	closure, err := app.originRunGate.Close(ctx, taskruncoord.Origin{Kind: originKind, ID: originID})
+	if err != nil {
+		return result, nil, err
+	}
+	settlement := &OriginRunSettlement{closure: closure}
+
+	tasks, err := app.store.ListTasks(ctx, taskstate.TaskFilter{})
+	if err != nil {
+		return result, settlement, err
+	}
+	var cancelErrors []error
+	for _, task := range tasks {
+		if strings.TrimSpace(task.OriginKind) != originKind || strings.TrimSpace(task.OriginID) != originID {
+			continue
+		}
+		runs, err := app.store.ListRuns(ctx, task.ID)
+		if err != nil {
+			cancelErrors = append(cancelErrors, fmt.Errorf("list runs for task %q: %w", task.ID, err))
+			continue
+		}
+		for _, run := range runs {
+			if types.IsTerminalTaskRunStatus(run.Status) {
+				if app.runner != nil {
+					if _, err := app.runner.CancelRun(ctx, task, run.ID, strings.TrimSpace(cmd.Reason)); err != nil {
+						cancelErrors = append(cancelErrors, fmt.Errorf("wait for terminal run %q for task %q: %w", run.ID, task.ID, err))
+					}
+				}
+				continue
+			}
+			if app.runner == nil {
+				cancelErrors = append(cancelErrors, fmt.Errorf("cancel run %q for task %q: %w", run.ID, task.ID, ErrRunnerNotConfigured))
+				continue
+			}
+			cancelled, err := app.runner.CancelRun(ctx, task, run.ID, strings.TrimSpace(cmd.Reason))
+			if err != nil {
+				cancelErrors = append(cancelErrors, fmt.Errorf("cancel run %q for task %q: %w", run.ID, task.ID, err))
+				continue
+			}
+			result.Runs = append(result.Runs, cancelled)
+		}
+	}
+	return result, settlement, errors.Join(cancelErrors...)
+}
+
 func (app *Application) RetryTaskRun(ctx context.Context, task types.Task, run types.TaskRun) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, ErrStoreNotConfigured
@@ -397,7 +499,8 @@ func (app *Application) RetryTaskRun(ctx context.Context, task types.Task, run t
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
-	return app.runner.StartTask(ctx, task, app.idgen)
+	result, err := app.runner.StartTask(ctx, task, app.idgen)
+	return result, mapOtherActiveRunError(err)
 }
 
 func (app *Application) ResumeTaskRun(ctx context.Context, task types.Task, run types.TaskRun, cmd ResumeCommand) (*orchestrator.StartTaskResult, error) {
@@ -418,22 +521,12 @@ func (app *Application) ResumeTaskRun(ctx context.Context, task types.Task, run 
 		if cmd.BudgetMicrosUSD < task.BudgetMicrosUSD {
 			return nil, ErrBudgetLower
 		}
-		if app.runner == nil {
-			return nil, ErrRunnerNotConfigured
-		}
-		// Persist the raised ceiling before queueing; the resumed
-		// agent loop reads the task ceiling on its first turn.
-		task.BudgetMicrosUSD = cmd.BudgetMicrosUSD
-		updated, err := app.store.UpdateTask(ctx, task)
-		if err != nil {
-			return nil, err
-		}
-		task = updated
 	}
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
-	return app.runner.ResumeTask(ctx, task, run, strings.TrimSpace(cmd.Reason), app.idgen)
+	result, err := app.runner.ResumeTaskWithBudget(ctx, task, run, strings.TrimSpace(cmd.Reason), cmd.BudgetMicrosUSD, app.idgen)
+	return result, mapOtherActiveRunError(err)
 }
 
 func (app *Application) ContinueTaskRun(ctx context.Context, task types.Task, run types.TaskRun, prompt string) (*orchestrator.StartTaskResult, error) {
@@ -450,7 +543,8 @@ func (app *Application) ContinueTaskRun(ctx context.Context, task types.Task, ru
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
-	return app.runner.ContinueAgentTask(ctx, task, run, prompt, app.idgen)
+	result, err := app.runner.ContinueAgentTask(ctx, task, run, prompt, app.idgen)
+	return result, mapOtherActiveRunError(err)
 }
 
 func (app *Application) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, cmd RetryFromTurnCommand) (*orchestrator.StartTaskResult, error) {
@@ -473,7 +567,15 @@ func (app *Application) RetryTaskRunFromTurn(ctx context.Context, task types.Tas
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
-	return app.runner.RetryTaskFromTurn(ctx, task, run, cmd.Turn, strings.TrimSpace(cmd.Reason), app.idgen)
+	result, err := app.runner.RetryTaskFromTurn(ctx, task, run, cmd.Turn, strings.TrimSpace(cmd.Reason), app.idgen)
+	return result, mapOtherActiveRunError(err)
+}
+
+func mapOtherActiveRunError(err error) error {
+	if errors.Is(err, orchestrator.ErrActiveRun) {
+		return ErrOtherActiveRun
+	}
+	return err
 }
 
 func (app *Application) ListTaskApprovals(ctx context.Context, task types.Task) ([]types.TaskApproval, error) {

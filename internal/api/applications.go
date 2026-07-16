@@ -1,6 +1,9 @@
 package api
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/modelapp"
 	"github.com/hecatehq/hecate/internal/pluginregistryapp"
@@ -9,6 +12,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/providerapp"
 	"github.com/hecatehq/hecate/internal/taskapp"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
 )
 
 func (h *Handler) taskApplication() *taskapp.Application {
@@ -26,7 +30,41 @@ func (h *Handler) taskApplication() *taskapp.Application {
 		SecretCipher:  h.secretCipher,
 		MaxMCPServers: h.config.Server.TaskMaxMCPServersPerTask,
 		IDGenerator:   newOpaqueTaskResourceID,
+		OriginRunGate: h.taskRunOriginGate(),
 	})
+}
+
+func (h *Handler) taskRunOriginGate() *taskruncoord.Gate {
+	if h == nil {
+		return taskruncoord.NewOriginGate()
+	}
+	h.taskOriginRunGateMu.Lock()
+	defer h.taskOriginRunGateMu.Unlock()
+	if h.taskOriginRunGate == nil {
+		h.taskOriginRunGate = taskruncoord.NewOriginGate()
+		h.taskOriginRunGate.SetValidator("chat", h.validateTaskRunOrigin)
+		if h.taskRunner != nil {
+			h.taskRunner.SetOriginRunGate(h.taskOriginRunGate)
+		}
+	}
+	return h.taskOriginRunGate
+}
+
+func (h *Handler) validateTaskRunOrigin(ctx context.Context, origin taskruncoord.Origin) error {
+	if origin.Kind != "chat" {
+		return nil
+	}
+	if h == nil || h.agentChat == nil {
+		return chatapp.ErrStoreNotConfigured
+	}
+	_, found, err := h.agentChat.Get(ctx, origin.ID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("%w: %w", taskruncoord.ErrOriginNotFound, chatapp.ErrSessionNotFound)
+	}
+	return nil
 }
 
 func (h *Handler) chatApplication() *chatapp.Application {
@@ -35,6 +73,8 @@ func (h *Handler) chatApplication() *chatapp.Application {
 	}
 	return chatapp.New(chatapp.Options{
 		Store:               h.agentChat,
+		Messages:            h.agentChat,
+		Attachments:         h.chatAttachments,
 		TaskStore:           h.taskStore,
 		Runner:              h.agentChatRunner,
 		PrepareTimeout:      agentChatPrepareTimeout,
@@ -58,15 +98,16 @@ func (h *Handler) projectApplication() *projectapp.Application {
 		return projectapp.New(projectapp.Options{})
 	}
 	return projectapp.New(projectapp.Options{
-		Projects:                  h.projects,
-		Chats:                     h.agentChat,
-		DeleteChat:                h.deleteProjectChatSession,
-		ProjectWork:               h.projectWork,
-		ProjectRuntime:            h.projectRuntime,
-		ProjectSkills:             h.projectSkills,
-		ProjectAssistantProposals: h.projectAssistantProposals,
-		Memory:                    h.memory,
-		MemoryCandidates:          h.memoryCandidates,
+		Projects:                     h.projects,
+		Chats:                        h.agentChat,
+		DeleteChat:                   h.deleteProjectChatSession,
+		SweepOrphanedChatAttachments: h.chatApplication().SweepOrphanedAttachments,
+		ProjectWork:                  h.projectWork,
+		ProjectRuntime:               h.projectRuntime,
+		ProjectSkills:                h.projectSkills,
+		ProjectAssistantProposals:    h.projectAssistantProposals,
+		Memory:                       h.memory,
+		MemoryCandidates:             h.memoryCandidates,
 	})
 }
 

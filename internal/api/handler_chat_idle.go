@@ -59,8 +59,44 @@ func (h *Handler) closeIdleChatSessions(ctx context.Context, timeout time.Durati
 		if session.UpdatedAt.IsZero() || session.UpdatedAt.After(cutoff) || session.Status == "running" {
 			continue
 		}
+		lifecycleClosure := h.agentChatLive.closeSessionLifecycle(session.ID)
+		releaseLifecycle := true
+		release := func() {
+			if releaseLifecycle {
+				lifecycleClosure.release()
+			}
+		}
+		settleCtx, settleCancel := context.WithTimeout(ctx, 3*time.Second)
+		operationsDrained := lifecycleClosure.waitForOperations(settleCtx)
+		settleCancel()
+		if !operationsDrained || h.agentChatLive.hasRun(session.ID) {
+			release()
+			continue
+		}
+		latest, ok, err := h.agentChat.Get(ctx, session.ID)
+		if err != nil || !ok {
+			if err != nil {
+				h.logger.WarnContext(ctx, "chat.idle_sweep.recheck_failed", slog.String("session_id", session.ID), slog.Any("error", err))
+			}
+			release()
+			continue
+		}
+		if latest.UpdatedAt.IsZero() || latest.UpdatedAt.After(cutoff) || latest.Status == "running" {
+			release()
+			continue
+		}
+		session = latest
+		settlementClaim := h.agentChatSettlements.claimSession(session.ID, lifecycleClosure)
 		if h.agentChatRunner != nil {
 			_ = h.agentChatRunner.CloseSession(ctx, session.ID)
+		}
+		drainCtx, drainCancel := context.WithTimeout(ctx, 3*time.Second)
+		drained := settlementClaim.sealAndDrain(drainCtx)
+		drainCancel()
+		if !drained {
+			settlementClaim.releaseLifecycleAfterDrain(lifecycleClosure)
+			releaseLifecycle = false
+			continue
 		}
 		updated, err := h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
 			item.Status = "cancelled"
@@ -69,6 +105,7 @@ func (h *Handler) closeIdleChatSessions(ctx context.Context, timeout time.Durati
 		})
 		if err != nil {
 			h.logger.WarnContext(ctx, "chat.idle_sweep.update_failed", slog.String("session_id", session.ID), slog.Any("error", err))
+			release()
 			continue
 		}
 		h.annotateChatIdleTimeout(ctx, session.ID, timeout, now)
@@ -77,6 +114,7 @@ func (h *Handler) closeIdleChatSessions(ctx context.Context, timeout time.Durati
 		}
 		h.reconcileProjectAssignmentsForChat(ctx, updated)
 		h.agentChatLive.publishSession(updated)
+		release()
 	}
 }
 

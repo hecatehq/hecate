@@ -31,6 +31,21 @@ func TestStaticGovernorCheckRoutePolicy(t *testing.T) {
 	}
 }
 
+func TestStaticGovernorCheckCountsImageOnlyPrompts(t *testing.T) {
+	t.Parallel()
+
+	gov := NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 1000}, nil, nil)
+	err := gov.Check(context.Background(), types.ChatRequest{Messages: []types.Message{{
+		ContentBlocks: []types.ContentBlock{{
+			Type:  "image_url",
+			Image: &types.ContentImage{URL: "https://example.test/image.png"},
+		}},
+	}}})
+	if err == nil {
+		t.Fatal("Check() error = nil, want image-only prompt limit denial")
+	}
+}
+
 func TestStaticGovernorRecordsUsageEvents(t *testing.T) {
 	t.Parallel()
 

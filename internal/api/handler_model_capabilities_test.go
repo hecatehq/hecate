@@ -27,8 +27,8 @@ func TestModelsExposeCapabilityPayloads(t *testing.T) {
 	if caps["streaming"] != true {
 		t.Fatalf("streaming = %#v, want true", caps["streaming"])
 	}
-	if caps["source"] != modelcaps.SourceProvider {
-		t.Fatalf("source = %#v, want provider", caps["source"])
+	if caps["source"] != modelcaps.SourceCatalog {
+		t.Fatalf("source = %#v, want catalog inference despite provider model discovery", caps["source"])
 	}
 	if readiness["ready"] != true || readiness["status"] != "ok" || readiness["reason"] != "model_available" {
 		t.Fatalf("readiness = %#v, want ready model_available", readiness)
@@ -51,8 +51,8 @@ func TestModelsExposeProviderDiscoveredCapabilityPayloads(t *testing.T) {
 	if caps["tool_calling"] != modelcaps.ToolCallingBasic {
 		t.Fatalf("tool_calling = %#v, want basic", caps["tool_calling"])
 	}
-	if caps["source"] != modelcaps.SourceProvider {
-		t.Fatalf("source = %#v, want provider", caps["source"])
+	if caps["source"] != modelcaps.SourceMixed {
+		t.Fatalf("source = %#v, want mixed provider/catalog capability provenance", caps["source"])
 	}
 }
 

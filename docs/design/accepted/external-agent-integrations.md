@@ -164,7 +164,10 @@ GET  /hecate/v1/chat/sessions/{id}/stream
 POST /hecate/v1/chat/sessions/{id}/messages
 GET  /hecate/v1/chat/sessions/{id}/messages/{message_id}/files
 GET  /hecate/v1/chat/sessions/{id}/messages/{message_id}/files/{path}
-POST /hecate/v1/chat/sessions/{id}/messages/{message_id}/revert
+GET  /hecate/v1/chat/sessions/{id}/workspace-files
+GET  /hecate/v1/chat/sessions/{id}/workspace-diff
+GET  /hecate/v1/chat/sessions/{id}/workspace-diff/files/{path}
+POST /hecate/v1/chat/sessions/{id}/workspace-diff/revert
 POST /hecate/v1/chat/sessions/{id}/cancel
 DELETE /hecate/v1/chat/sessions/{id}
 GET  /hecate/v1/chat/sessions/{id}/approvals
@@ -174,6 +177,13 @@ POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/cancel
 GET  /hecate/v1/chat/grants
 DELETE /hecate/v1/chat/grants/{grant_id}
 ```
+
+Stored message diffs are read-only historical evidence. The current
+`workspace-diff` response carries an opaque revision for the complete scoped
+unstaged tracked patch (index → worktree), and its revision-bound revert
+endpoint is the only chat surface allowed to discard workspace files. Staged
+index changes and untracked files are outside that authority. A message-scoped
+captured diff can be stale and therefore cannot authorize mutation.
 
 Message creation is still a blocking POST for the submitted prompt, but clients
 can subscribe to the session SSE stream first to receive partial output while
@@ -283,7 +293,9 @@ not a drop-in fit.
 - [x] `GET /hecate/v1/agent-adapters` reports built-in adapter definitions and availability.
 - [x] Hecate can run Codex, Claude Code, Cursor Agent, or Grok Build prompts through a supervised ACP session.
 - [x] Output is captured and displayed in the UI.
-- [x] Raw ACP diagnostics are retained when normalized text hides adapter quirks.
+- [x] Raw ACP diagnostics are retained when normalized text hides adapter quirks;
+      private resource-link turns withhold them when present because arbitrary
+      chunking can expose temporary path fragments.
 - [x] Chats show structured activity markers for start/running/output/files-changed/final failure states.
 - [x] Timeout marks the run failed with a stable error.
 - [x] Final response and raw output are replayable after refresh, and durable across gateway restarts when SQLite chat sessions are enabled.
@@ -298,9 +310,10 @@ not a drop-in fit.
 
 ## Future Enhancements
 
-- Fuller patch review UX for captured diffs: side-by-side hunks, batch
-  selection, and richer artifact history. The current Chats UI can inspect and
-  revert already-applied Git paths and is sufficient for alpha stability.
+- Fuller patch review UX: side-by-side hunks, batch selection, and richer
+  artifact history. The current Chats UI keeps captured per-turn diffs as
+  read-only historical evidence and can discard selected paths only from the
+  revision-bound live unstaged tracked workspace patch.
 - Deeper adapter-specific structured mappers for ACP tool output. The current
   generic mapper plus raw diagnostics is sufficient for alpha stability.
 - Decide which task-runtime primitives External Agent chat should reuse without

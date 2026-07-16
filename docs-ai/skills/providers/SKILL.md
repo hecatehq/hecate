@@ -77,6 +77,7 @@ The Anthropic adapter centralizes warn-and-drop in `warnUnsupportedFieldsDropped
 
 - **`translateAnthropicSSE` (`anthropic.go`)** consumes Anthropic SSE and emits OpenAI-format chunks. The `usageSnapshot` accumulator captures input + cache tokens at `message_start` and updates `output_tokens` at every `message_delta`. The final usage chunk uses `anthropicUsageToTypes` to map to OpenAI's flat shape with `prompt_tokens_details.cached_tokens` for cache hits.
 - **`translateOpenAIToAnthropicSSE` (in `internal/api/handler_messages.go`)** is the reverse direction. Both directions need to stay in sync when streaming-related fields are added.
+- **Streaming error frames are failures, not content or EOF success.** OpenAI `data: {"error":...}` and Anthropic `event: error` frames must return a typed `UpstreamError`. Sanitize both the message and constrained type through `internal/safetext`; never copy provider error frames verbatim into client SSE, logs, traces, health, telemetry, or persistence. Do not rewrite ordinary assistant content.
 - **Tool-call streaming** — OpenAI streams `function.arguments` as partial JSON in `delta.tool_calls`; Anthropic streams the same as `input_json_delta`. Both translators handle this — pin tests when modifying.
 
 ## Prompt caching (Anthropic-specific)

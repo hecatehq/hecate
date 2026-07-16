@@ -64,12 +64,24 @@ type AnthropicInboundContentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
+	// image
+	Source *AnthropicInboundImageSource `json:"source,omitempty"`
 	// prompt caching
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 	// extended thinking
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`
 	Data      string `json:"data,omitempty"` // redacted_thinking opaque data
+}
+
+// AnthropicInboundImageSource is the tagged image-source union accepted by
+// the Anthropic Messages API. The normalizer validates the active variant
+// before converting it to the provider-neutral types.ContentImage shape.
+type AnthropicInboundImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 // AnthropicMessagesResponse is the outbound /v1/messages shape.

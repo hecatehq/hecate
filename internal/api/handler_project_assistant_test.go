@@ -81,6 +81,16 @@ func TestProjectAssistantNoSetupInputsUsesTypedRecoveryError(t *testing.T) {
 	}
 }
 
+func TestProjectAssistantProjectDeletionFenceUsesConflictError(t *testing.T) {
+	t.Parallel()
+	for _, err := range []error{errProjectMutationClosed, errProjectMutationFenceOrder} {
+		status, code := projectAssistantErrorStatusCode(err)
+		if status != http.StatusConflict || code != errCodeConflict {
+			t.Fatalf("%v status/code = %d/%q, want %d/%q", err, status, code, http.StatusConflict, errCodeConflict)
+		}
+	}
+}
+
 func newProjectAssistantTestServer() http.Handler {
 	_, server := newProjectAssistantTestHandler()
 	return server
@@ -3195,6 +3205,71 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	root := project.Data.Roots[0]
 	if root.Path != "/tmp/hecate-api-project" || root.Kind != "git" || !root.Active || project.Data.DefaultRootID != root.ID {
 		t.Fatalf("root = %+v default_root_id=%q, want generated default workspace root", root, project.Data.DefaultRootID)
+	}
+}
+
+func TestProjectAssistantAPI_ProposeAndApplyCreateProjectWithOmittedID(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectAssistantTestHandler()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/propose", strings.NewReader(`{
+		"id":"pa_api_generated_project",
+		"title":"Create generated project",
+		"actions":[{
+			"kind":"create_project",
+			"patch":{"name":"Generated API Project","description":"Canonical omitted id"}
+		}]
+	}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("propose status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode propose response: %v", err)
+	}
+	var patch struct {
+		ID string `json:"id"`
+	}
+	if len(proposed.Data.Actions) != 1 || json.Unmarshal(proposed.Data.Actions[0].Patch, &patch) != nil || !strings.HasPrefix(patch.ID, "proj_") {
+		t.Fatalf("canonical proposal actions = %+v, want generated create_project patch id", proposed.Data.Actions)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/project-assistant/proposals/pa_api_generated_project", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get proposal status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var stored projectAssistantProposalRecordResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatalf("decode stored proposal: %v", err)
+	}
+	if stored.Data.ProjectID != patch.ID || len(stored.Data.Proposal.Actions) != 1 ||
+		!bytes.Equal(stored.Data.Proposal.Actions[0].Patch, proposed.Data.Actions[0].Patch) {
+		t.Fatalf("stored proposal = %+v, want exact canonical action scoped to %q", stored.Data, patch.ID)
+	}
+
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposed.Data, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply request: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var applied projectAssistantApplyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("decode apply response: %v", err)
+	}
+	if !applied.Data.Applied || len(applied.Data.Actions) != 1 || applied.Data.Actions[0].ID != patch.ID {
+		t.Fatalf("apply result = %+v, want generated project %q", applied.Data, patch.ID)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+patch.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get generated project status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 }
 

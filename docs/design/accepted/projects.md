@@ -554,9 +554,11 @@ Hecate does not duplicate that graph in its `memory`, `sqlite`, or
 records: Agent Presets, chats, tasks/runs, approvals, context snapshots, and the
 project-runtime overlay that links Cairnline assignments to Hecate executions.
 
-System reset removes both Hecate-owned state and the embedded Cairnline
-database. Workspace files and external-agent private state are never part of
-that reset.
+The live system-reset endpoint fails closed before mutation until Hecate has a
+runtime-wide write-quiescence protocol. An operator may reset a stopped local
+deployment by removing both Hecate-owned data and the embedded Cairnline
+database through the deployment-specific procedure. Workspace files and
+external-agent private state are not part of that data directory cleanup.
 
 ## Implementation Status
 

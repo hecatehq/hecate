@@ -22,6 +22,7 @@ Code: [`internal/sandbox/`](../../internal/sandbox/) · policy reference: [`agen
 
 - [How it works](#how-it-works)
 - [Relationship to WorkspaceFS and runners](#relationship-to-workspacefs-and-runners)
+- [Long-lived terminal ownership](#long-lived-terminal-ownership)
 - [Pre-execution policy validation](#pre-execution-policy-validation)
 - [Isolation layers](#isolation-layers)
 - [Environment variables](#environment-variables)
@@ -75,7 +76,8 @@ only workspace abstraction.
   terminal command sessions for ACP terminal callbacks and opt-in operator
   terminals. It reuses sandbox working-directory resolution, command policy
   validation, sanitized environment construction, and the same OS wrapper path
-  as shell execution where available.
+  as shell execution where available, and adds platform process-tree ownership
+  plus a terminal-specific detachment preflight.
 - **GitRunner** (`internal/gitrunner`) is the Git-specific seam for
   helper-style operations. It validates the workspace, runs Git with a
   sanitised environment, and routes Git through ProcessRunner instead of
@@ -89,6 +91,44 @@ shell, and Git operations inside the selected workspace. Hecate applies
 WorkspaceFS / ProcessRunner / GitRunner to Hecate-mediated calls and ACP
 callbacks, not to arbitrary internal behavior of a trusted external
 agent.
+
+## Long-lived terminal ownership
+
+`LocalWorkspace.OpenTerminal` does not treat the initial command's exit as the
+end of a terminal. On Unix it starts the command in a dedicated process group;
+terminal wait, output drain, and the workspace writer lease remain active until
+that group has no members. Close sends `SIGTERM` to the group, escalates to
+`SIGKILL`, and leaves the watcher holding the lease if a caller's close deadline
+expires before the group and pipes are observed drained. Plain background jobs,
+`nohup`, and shell `disown` remain in that process group and are therefore
+supported. On Windows the command starts suspended, is assigned to a
+kill-on-close Job Object before its primary thread resumes, and is complete only
+after the job reports no active processes.
+
+Unix process groups are not a hard descendant-containment primitive: a process
+can deliberately create another group/session or delegate work to another
+supervisor. Hecate therefore parses literal shell `-c` commands, recursively
+inspects common wrappers, rejects known detachers and job-control/alias/eval
+indirection before spawn, and applies a conservative second pass to stdin when
+the requested program is actually reading interactive shell or interpreter
+code. The same check covers known inline interpreter-code flags. Ordinary stdin
+data for `sh -c`, script files, and interpreter script/inline-code modes is not
+scanned unless a force-interactive option leaves the interpreter reading
+executable stdin. Explicit shell stdin such as `sh -` and `bash -` is always
+scanned as code. Across writes, Hecate retains at most 64 KiB of a syntactically
+incomplete shell command and fails closed if it grows further; complete,
+validated newline-terminated commands leave no cumulative history. Interpreter
+input keeps only fixed-size token tails needed to recognize a detachment form
+split across writes.
+
+This Unix validation is intentionally **best effort**, not a security boundary.
+Startup files, sourced or generated scripts, encoded commands, arbitrary
+execution wrappers, custom binaries/syscalls, and service managers outside the
+known patterns can still move work outside the owned group. Interpreter stdin
+uses conservative identifier scanning and may reject a detachment word even
+when it appears only as string data. Terminal commands are trusted subprocesses;
+use a container, VM, or dedicated OS user when descendant containment must be
+hard.
 
 ## Pre-execution policy validation
 
@@ -124,10 +164,11 @@ approval policy. See
 Every shell command and Hecate-owned Git helper runs as a child process
 spawned by ProcessRunner. Broad `git_exec` also gets its own child
 process through the sandbox command executor. A misbehaving or panicking
-command can't crash the gateway: when the child exits, the kernel
-reclaims its file descriptors, virtual memory, and any descendants. This
-is the basic `os/exec` boundary; it's named here only because it is part
-of the safety story.
+command can't crash the gateway: when the child exits, the kernel reclaims
+that process's file descriptors and virtual memory. Descendants are separate
+processes and can outlive a one-shot command; long-lived terminals add the
+ownership described above. This is the basic `os/exec` boundary; it's named
+here only because it is part of the safety story.
 
 What this layer is **not**: a chroot, a container, or a VM. The
 subprocess runs as the same OS user as the gateway and inherits the
@@ -247,11 +288,11 @@ runtime knobs (`HECATE_TASK_HTTP_*` and `HECATE_TASK_WEB_SEARCH_*`) — see
   but filesystem and network confinement reduce to the best-effort
   string match in pre-execution validation. Install `bubblewrap` to
   upgrade. The gateway tells you in the logs and on `/healthz`.
-- **Windows runs unwrapped.** Job Objects could provide some of what
-  bwrap does (kill-on-close, memory cap, process count) but require
-  elevated privileges the gateway doesn't hold by default. Filesystem
-  and network isolation on Windows would need WFP integration.
-  Tracked separately.
+- **Windows runs without a filesystem/network wrapper.** Long-lived workspace
+  terminals use a Job Object for kill-on-close process ownership, but that does
+  not confine file access or network egress. One-shot commands do not use that
+  terminal lifecycle primitive. Filesystem and network isolation on Windows
+  would need separate platform integration. Tracked separately.
 - **Best-effort policy parsing.** The pre-execution checks are static
   string matching on the command text. A clever command (inline
   Python, `nc` raw sockets, base64-encoded URLs) can bypass them.

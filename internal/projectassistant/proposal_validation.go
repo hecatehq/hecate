@@ -2,12 +2,86 @@ package projectassistant
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
+
+// ValidateProposalActions validates every action before API composition uses
+// its project scope for mutation admission. Durable apply repeats this check at
+// its own boundary.
+func ValidateProposalActions(proposal Proposal) error {
+	for _, action := range proposal.Actions {
+		if err := validateActionShape(action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CanonicalizeProposal assigns stable typed identities needed before callers
+// derive a proposal's mutation scope. An omitted create_project id is derived
+// from the durable proposal id and action position, so a direct Apply retry is
+// stable even if an earlier attempt was rejected before the proposal ledger
+// could be written. Explicit ids and already-canonical action bytes are left
+// unchanged.
+func (s *Service) CanonicalizeProposal(proposal Proposal) (Proposal, error) {
+	if s == nil {
+		return Proposal{}, ErrStoreNotConfigured
+	}
+	proposal.ID = strings.TrimSpace(proposal.ID)
+	if proposal.ID == "" {
+		return Proposal{}, fmt.Errorf("%w: proposal id is required", ErrInvalid)
+	}
+	proposal.Actions = cloneActions(proposal.Actions)
+	proposal.Warnings = append([]string(nil), proposal.Warnings...)
+	if len(proposal.Actions) == 0 {
+		return Proposal{}, fmt.Errorf("%w: actions are required", ErrInvalid)
+	}
+	if err := ValidateProposalActions(proposal); err != nil {
+		return Proposal{}, err
+	}
+	for index := range proposal.Actions {
+		action := proposal.Actions[index]
+		if normalizeKind(action.Kind) != ActionCreateProject {
+			continue
+		}
+		var patch projectPatch
+		if err := decodePatch(action, &patch); err != nil {
+			return Proposal{}, err
+		}
+		if strings.TrimSpace(patch.ID) != "" {
+			continue
+		}
+		patch.ID = targetValue(action, "project_id")
+		if patch.ID == "" {
+			patch.ID = canonicalCreateProjectID(proposal.ID, index)
+		}
+		encoded, err := json.Marshal(patch)
+		if err != nil {
+			return Proposal{}, fmt.Errorf("%w: encode canonical create_project patch: %v", ErrInvalid, err)
+		}
+		proposal.Actions[index].Patch = encoded
+	}
+	return proposal, nil
+}
+
+func canonicalCreateProjectID(proposalID string, actionIndex int) string {
+	seed, _ := json.Marshal(struct {
+		Domain      string `json:"domain"`
+		ProposalID  string `json:"proposal_id"`
+		ActionIndex int    `json:"action_index"`
+	}{
+		Domain:      "hecate.project-assistant.create-project.v1",
+		ProposalID:  strings.TrimSpace(proposalID),
+		ActionIndex: actionIndex,
+	})
+	digest := sha256.Sum256(seed)
+	return fmt.Sprintf("proj_%x", digest[:12])
+}
 
 func validateActionShape(action Action) error {
 	kind := normalizeKind(action.Kind)
@@ -16,6 +90,11 @@ func validateActionShape(action Action) error {
 	}
 	if len(action.Patch) == 0 && kind != ActionRemoveProjectRoot {
 		return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
+	}
+	targetProjectID := strings.TrimSpace(targetValue(action, "project_id"))
+	patchProjectID := actionPatchProjectID(action)
+	if targetProjectID != "" && patchProjectID != "" && targetProjectID != patchProjectID {
+		return fmt.Errorf("%w: action %q has conflicting target and patch project ids", ErrInvalid, kind)
 	}
 	if kind != ActionCreateAssignment {
 		return nil

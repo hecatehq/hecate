@@ -197,6 +197,9 @@ jobs:
       - name: Test
         run: go test ./internal/bootstrap
 
+      - name: Test native ACP prompt staging
+        run: go test ./internal/agentadapters -run 'Test(ACPPromptStage|StagedFileURI|ACPBaselineStagesPortable)'
+
   test-go-macos-bootstrap:
     name: Go tests (macOS bootstrap)
     needs: changes
@@ -212,6 +215,9 @@ jobs:
 
       - name: Test
         run: go test ./internal/bootstrap
+
+      - name: Test native ACP prompt staging
+        run: go test ./internal/agentadapters -run 'Test(ACPPromptStage|StagedFileURI|ACPBaselineStagesPortable)'
 
   build-hecate:
     name: Build hecate

@@ -238,13 +238,24 @@ Enforcement is **best-effort static parsing** of the command string. Tools that 
 Native agent-loop terminal tools (`terminal_open`, `terminal_write`,
 `terminal_read`, `terminal_wait`, `terminal_kill`) use the same workspace
 terminal primitive as ACP terminal callbacks. Static validation happens at
-spawn time for the initial command; subsequent stdin is interactive input, so
-the OS wrapper is the containment layer for what the process does after it is
-opened. These tools are unavailable on read-only tasks because interactive
-stdin cannot be statically proven non-mutating. Terminal handles are scoped to
-the current run. They are kept alive
-when a same-run approval pause returns `awaiting_approval`, and closed when the
-run reaches a terminal state or is cancelled.
+spawn time for the initial command. On Unix, known detachers are also rejected
+from stdin when the requested process is actually reading interactive shell or
+interpreter code. Stdin used as data by a shell/interpreter script or inline
+command is not scanned unless a force-interactive option keeps executable stdin
+active; explicit shell stdin such as `sh -` and `bash -` is scanned. Shell
+writes retain at most 64 KiB of syntactically incomplete input across calls and
+fail closed at that bound, while validated complete commands leave no cumulative
+history. Interpreter input retains only fixed-size token tails. This static
+enforcement is best effort, while Unix process-group and Windows Job Object
+ownership provide the lifecycle backstop. These tools are unavailable on
+read-only tasks because interactive stdin cannot be statically proven
+non-mutating. Terminal handles are scoped to the current run and wait for the
+owned process unit plus output to drain. Each handle holds its own shared
+workspace writer lease for that full lifetime, independently of the execution
+attempt lease. They are kept alive when a same-run approval pause returns
+`awaiting_approval`, without opening a workspace-discard window, and closed when
+the run reaches a terminal state or is cancelled. Runtime shutdown fences new
+handles and closes retained approval-paused handles too.
 
 ## External MCP tools
 
@@ -411,6 +422,12 @@ Three operations land an agent_loop run back on the queue with prior context:
 - **Resume** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`. Creates a new run that hydrates the source run's conversation and continues from where it left off. Used after a `failed` or `cancelled` run.
 - **Continue** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue` with `{ "prompt": "..." }`. Creates the next run in the same agent conversation, hydrates the source conversation, then appends the new user prompt. This is the ACP/editor-session path.
 - **Retry from turn N** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn` with `{ "turn": N, "reason": "..." }`. Creates a new run whose conversation is truncated to right before the Nth assistant message. Lets operators explore an alternate path from a known prior state. Turn must be in `[1, count(assistant messages)]`. The new run's step indices restart at 1; cumulative cost picks up from `source.PriorCost + source.Total`.
+
+These actions share the task runtime's atomic start boundary. Concurrent
+requests cannot create two active runs. A resume may raise
+`budget_micros_usd`, but the store compares against the latest durable task in
+the same transaction that creates the run, so a stale lower request or a
+zero-budget retry cannot erase a higher committed ceiling.
 
 The conversation viewer in the run-replay UI shows a `↻ retry from here` button on each assistant turn (terminal runs only).
 

@@ -56,8 +56,112 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 - **No auth layer.** Every request is processed as the operator, and the gateway binds to `127.0.0.1` by default. Do not add token/tenant assumptions back into new endpoints.
 - **Workspace-bound IO uses shared seams.** Hecate-mediated file/search/write operations go through `internal/workspacefs`. Shell commands go through the sandbox executor and `internal/processrunner`; Hecate-owned Git helpers use `internal/gitrunner` where they do not need the broad `git_exec` shell-shaped interface. Avoid raw `os.Open`, `os.ReadFile`, `os.WriteFile`, `os.Stat`, `filepath.WalkDir`, raw `exec.Command`, or direct `git` subprocesses for workspace-bound behavior. Raw OS/process APIs are fine for config/data-dir/platform plumbing and narrowly scoped tests; say why when the distinction is not obvious.
 - **Sandbox is per-call subprocess, applied inline.** Shell tool calls and broad `git_exec` calls run through the sandbox executor after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for fs+net confinement (auto-detected at startup, exposed on `/healthz` under `sandbox.os_isolation`). No separate sandbox daemon, no per-call rlimits — operators who want CPU/FD/memory caps run the gateway under systemd or in a container with `--cpus` / `--memory` flags. New tools follow WorkspaceFS / ProcessRunner / GitRunner as appropriate.
-- **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the same `TaskApproval` shape.
+- **Approvals are blocking and resolve atomically.** Pre-execution and mid-loop
+  approvals halt the run; the run record persists in `awaiting_approval` until
+  resolved. New gates use the same `TaskApproval` shape. Commit the pending
+  decision, awaiting run/task transition, mandatory lifecycle events, and
+  rejection child cleanup in one taskstate transition across memory, SQLite,
+  and Postgres. Never split approval resolution across a low-level approval
+  update and a later runner or handler mutation.
+- **Task run starts are one storage transition.** Keep the runner's per-task
+  start gate around preflight and workspace provisioning, and commit the
+  authoritative no-active-run check, monotonic budget raise, next run number,
+  task projection, and run insert through
+  `taskstate.ApplyRunStartTransition`. Memory locks, SQLite's immediate write
+  transaction, and Postgres' task-row lock are the cross-backend authority;
+  app-layer active-run checks are only early feedback. Cancellation is
+  two-phase: persist the terminal winner, drain the executor, then replay
+  child cleanup without another terminal event or overwriting a newer run's
+  authoritative task projection. Boot recovery must cursor
+  through every pending-run page rather than treating a page size as a cap.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/runtime/events.md`.
+- **Chat message idempotency is a storage commit boundary.** The optional
+  `client_request_id` on Hecate-native chat message creation is scoped to one
+  session. Reserve and compare its one-way payload fingerprint through
+  `chatapp`, then commit the key in the same store transaction as the user
+  transcript row before the submitted turn's provider, Task, or ACP dispatch.
+  Admission-time semantic compaction is separate provider work and may precede
+  that commit, so `chatapp` owns a pending-reservation heartbeat across all
+  pre-commit work. Renew at intervals no greater than one-third of the store's
+  stale-owner window,
+  stop and join the heartbeat before commit/release, and conditionally renew
+  once more immediately before the atomic commit. Renewal must validate the
+  pending state, owner token, and payload fingerprint; losing ownership fails
+  closed before any backing-turn dispatch. Same-key retries load
+  the current authoritative session; changed payloads fail closed with
+  `chat.client_request_conflict`. Do not keep this guarantee in handler maps,
+  store request bodies or MCP secrets in the ledger, or ship it for only one of
+  memory/SQLite/Postgres. Keyed HTTP responses expose only
+  `message_request.replay` plus the committed user-message id; never render the
+  key, fingerprint, copied payload, or internal lease token. Once admission
+  reaches a keyed commit, give that atomic user-row/key write its own fresh
+  bounded `context.WithoutCancel` window; unkeyed writes remain request-bound.
+  A SQL commit must materialize its return value before `Commit` succeeds, not
+  issue a request-bound post-commit read that can report a false failure. After
+  commit, use fresh bounded persistence windows for the initial assistant row,
+  Hecate task/run ownership links, and terminal assistant/session state; never
+  hold one across a long turn. Direct model and ACP execution stay request-bound.
+  The task-backed Hecate Chat watcher is server-owned after commit and waits on
+  its own bounded context plus the explicit live-run cancel hook, so browser
+  disconnect does not abandon a queued/running task or strand its transcript.
+  The 30-minute chat-run ceiling ends that watcher and terminalizes the chat
+  turn; it does not cancel the orchestrator-owned Task. A Task that remains
+  active, including one awaiting approval, stays visible and independently
+  cancellable through the Task runtime.
+- **Cross-store destructive cleanup has one admission gate.** Every
+  Hecate-owned chat-session creation path reserves the project-existence check
+  through durable creation and ownership linking, including External Agent
+  chats launched from project assignments. Project deletion (native or
+  Cairnline authority) closes that admission before waiting for
+  reserved creates, and advance the mutation epoch at both edges so requests
+  arriving before or during cleanup fail instead of creating afterward. The
+  gate is process-wide and intentionally pauses all chat creates during a
+  project deletion, including project-free and other-project creates. Keep this
+  coordination in the API composition layer; do not duplicate Cairnline
+  project identity or pretend the independent stores share a transaction.
+  Project deletion invokes the `chatapp` orphan-attachment sweep before it
+  lists project chats, so a retry repairs transcript-first partial deletes
+  before the remaining project chat cleanup. That live sweep may only compare
+  attachment session IDs with authoritative transcript rows and delete missing
+  owners; pending-claim reconciliation remains a startup or turn-owner concern.
+  Cairnline-authoritative deletion may remove portable identity first; any
+  rollback import after Hecate cleanup fails must contain only the deleted
+  project's portable graph, never a full snapshot that could overwrite
+  unrelated concurrent edits. All project-scoped facade mutations also share
+  one process-local keyed fence in API composition. Ordinary writes are shared
+  admissions held through the Cairnline write, Hecate cleanup or compatibility
+  shadow, and response decision. Deletion acquires the process-wide
+  destructive-state closure first, closes the project key, waits for admitted
+  writes, and keeps both closures through rollback; new same-project writes
+  fail with a conflict. Multi-project writes declare their complete key set up
+  front; the gate normalizes, deduplicates, sorts, and admits that set
+  atomically. Nested calls may use any leased subset but must not incrementally
+  add another key. Pathless Project Assistant draft/propose/apply requests use
+  `projectassistant.ProposalProjectIDs`, include the current project of a moved
+  chat, and retain the complete lease through proposal ledgers, compatibility
+  mirrors, and the response decision. Different project keys remain
+  independent. Chat terminal/idle assignment reconciliation is best-effort and must use nonblocking project
+  admission: project deletion can own the key while it waits for that active
+  chat handler to clear its run, so blocking reconciliation before `clearRun`
+  would form a lock cycle. A skipped projection is retried by the next terminal
+  or strict read reconciliation.
+  Canonicalize Project Assistant proposals before deriving those keys. An
+  omitted `create_project` patch id uses an explicit target id or, for a
+  pathless action, a deterministic proposal-id/action-index id. Persist, return,
+  and apply that exact typed action set so ledger fingerprints and direct
+  same-proposal retries remain stable; repeated canonicalization is idempotent.
+  Project-scoped manual Task creation also holds the keyed fence across the
+  Cairnline-backed existence check and durable Hecate Task creation; a
+  same-project delete returns the create as `409`. This is runtime admission,
+  not Hecate-owned project storage.
+  Existing project/chat admission gates do not make online system reset safe.
+  The live reset endpoint returns `409 conflict` before mutation until Hecate has one
+  reversible runtime-wide quiescer covering write-capable HTTP reads/writes,
+  task queue/reconcile/finalizer work, retention, ACP callbacks and approval
+  timers, gateway usage/health finalizers, and every Cairnline open. Do not wire
+  the cleanup helper back to HTTP or claim success from partial fencing. A
+  future quiescer must close admission, drain and generation-fence delayed
+  writers, run cleanup, advance its epoch, and reopen.
 - **Cost is in micro-USD when present.** Money fields stay `int64` in micro-USD (`1_000_000` = $1). Never `float64` for money. The gateway records usage events for visibility; it does not enforce global spend controls.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the response header (`X-Trace-Id`) and persisted on the run record. New code paths add spans, not just log lines.
 - **Metric labels are guarded.** Record metrics through `internal/telemetry` helpers and normalizers. Closed-set dimensions collapse unknown values to `other`; free-form dimensions must reject control characters and oversized labels. Put raw commands, paths, stdout/stderr snippets, and adapter diagnostics in spans, logs, or persisted events — never metric labels.
@@ -131,9 +235,11 @@ compatibility glue. Do not reintroduce it as a defensive fallback.
 - Extend `taskapp`, `chatapp`, `providerapp`, `projectworkapp`, or
   `runtimeevents` before adding parallel store/runner/event code in
   `internal/api` or `internal/orchestrator`.
-- New non-terminal run-event writes go through `internal/runtimeevents`.
-  Terminal run transitions stay in `taskstate.ApplyRunTerminalTransition`
-  because the event write must be atomic with state mutation.
+- New non-terminal run-event writes go through `internal/runtimeevents`, except
+  approval resolution events that are committed by the taskstate approval/run
+  transition itself. Terminal run transitions stay in
+  `taskstate.ApplyRunTerminalTransition` because their event writes and any
+  approval decision or child cleanup must be atomic with state mutation.
 - Project assignment runtime links are canonical through `execution_ref` and
   project activity projections. Do not restore raw `task_id` / `run_id` /
   `chat_session_id` fallback contracts.
@@ -181,9 +287,10 @@ confirmed apply semantics. Keep that package split by responsibility:
 `service.go` is the facade/DTO home, `proposal_validation.go` owns action
 shape and fingerprint contracts, `proposal_apply.go` owns the confirmed apply
 loop and dispatch, and `action_handlers.go` owns durable mutation handlers.
-Handlers should parse/render/map errors only; do not rebuild Project Assistant
-stores or call `projectassistant.NewService` directly
-from API code.
+Handlers should parse/render/map errors and perform API-composition admission
+only; typed action-scope extraction and durable primary-scope validation stay
+in `internal/projectassistant`. Do not rebuild Project Assistant stores or call
+`projectassistant.NewService` directly from API code.
 
 ### Change chat-session / ACP adapter behavior
 
@@ -240,28 +347,165 @@ is configured, require `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1` in remote runtime
 mode, and route `terminal/create` through the External Agent approval
 coordinator before spawning anything. Terminal callback lifecycle should remain
 operator-visible through External Agent chat activities (`type="terminal"`):
-record command/cwd/status/exit output previews from the active ACP turn, and
+record command/cwd/status/exit output previews against the exact assistant
+message that created the terminal, and
 reuse retained terminal output for ACP tool-call terminal refs when available,
 instead of adding an operator-facing embedded terminal API/UI. Session shutdown
 cleanup should mark unreleased ACP terminals as cancelled and retain their
 bounded output preview before removing them from the client terminal map. Keep
 terminal spawning on the same safety path as one-shot shell execution:
 `LocalWorkspace.OpenTerminal` must reject policy-invalid commands before spawn
-and apply the sandbox OS wrapper when one is available.
+and apply the sandbox OS wrapper when one is available. It must also own the
+whole process unit: a dedicated Unix process group or a Windows kill-on-close
+Job Object attached before user code runs. Completion means the group/job is
+empty and stdout/stderr have drained, not merely that the command leader exited.
+Every ACP terminal must acquire its own shared `workspacecoord` writer lease
+before spawn and keep it after the creating turn settles until the watcher
+confirms completion. A close deadline may return early after best-effort force
+termination, but it must not release the lease. A turn-scoped writer lease alone
+is insufficient because ACP terminal handles may outlive the turn that created
+them. For the same reason, never resolve terminal completion through
+`currentTurn()` or an `OnActivity` stream coalescer that closes when `Run`
+returns. Capture the turn's durable `OnTerminalActivity` sink on create; that
+sink must remain concurrency-safe through terminal exit or session shutdown and
+must be bound to immutable session/message ownership. The callback itself must
+only enqueue into Hecate's per-session settlement dispatcher and return
+promptly. Stream, turn-final, and detached terminal mutations share that
+serializer so store read/modify/write updates and live snapshots cannot reorder
+or overwrite one another. `OnTerminalClosed` is the exact lifetime boundary:
+it follows the terminal's authoritative final activity and no transcript
+callback may run afterward. Never fall back from `OnTerminalActivity` to the
+ordinary Run-scoped `OnActivity` callback.
+
+Destructive chat close, delete, and idle cleanup must first close
+the chat lifecycle and drain counted operations. Once the destructive token is
+held, install that exact lifecycle closure as settlement-dispatcher owner before
+cancelling an active run. This lets a detached terminal job that lost ordinary
+epoch admission settle without head-of-line blocking the turn's synchronous
+final write. Close the native session while the owner is installed, then seal
+and drain the dispatcher before clearing or deleting transcript state. Every
+abort path must relinquish the owner through an ordered barrier before lifecycle
+admission reopens. A drain deadline returns `stopping` and retains the lifecycle
+fence until the worker actually exits; it must never delete first and allow a
+late full-session publish afterward.
+
+If terminal process/output drain exceeds the ACP session-close deadline, emit
+one authoritative cancelled activity, detach the durable callbacks, and invoke
+`OnTerminalClosed`. The watcher still owns process/output drain and workspace
+lease release, but its later exit must not re-enter transcript persistence.
+
+On Unix, preserve ordinary background jobs, `nohup`, and `disown` because they
+remain in the owned group. Reject known actual session/process-group detachers,
+unsafe wrapper/job-control/alias/eval forms, inline interpreter escapes, and
+matching interactive shell/interpreter input. Keep stdin classification exact:
+script and inline-command stdin is data unless a force-interactive mode remains
+active; explicit shell stdin (`sh`/`bash -`) is code. Preserve up to the bounded
+64 KiB syntactically incomplete shell suffix across writes, then fail closed;
+discard only newline-terminated prefixes that parse and pass policy. Interpreter
+state should retain fixed-size raw-identifier and whitespace-compacted tails,
+not cumulative REPL history. Never truncate away an unfinished logical command
+before validating its later suffix. Parse clustered job-control/background flags
+rather than checking only their first rune. This parser is a best-effort
+supervision guard, not hard containment; user docs must name
+sourced/generated/encoded code, arbitrary wrappers, custom binaries/syscalls,
+and external service managers as residual trusted-subprocess risk.
 
 Operator terminal sessions live in `internal/terminalapp` and are exposed only
 through local-only, opt-in runtime API handlers. Do not put terminal process
 lifecycle in HTTP handlers, and do not enable operator terminals in remote
-runtime mode. New operator-terminal behavior needs app-layer tests, API
+runtime mode. Acquire the shared `workspacecoord` writer lease immediately
+before process spawn and retain it until exit is observed; release and shutdown
+must not open a destructive-mutation race when terminal close fails or races the
+exit watcher. New operator-terminal behavior needs app-layer tests, API
 loopback/forwarded-header tests, shutdown cleanup coverage, and docs in
 `docs/operator/security.md` / `docs/runtime/runtime-api.md`.
+
+Workspace discard is a cross-runtime ownership boundary. API composition must
+create one `workspacecoord.Registry` and share that exact instance with the
+orchestrator runner, External Agent chat dispatch, task-patch handlers, operator
+terminal application, and destructive chat workspace mutations. Registry keys
+are canonical paths with symlinks resolved. Darwin and Windows overlap checks
+conservatively case-fold components so existing and future case aliases cannot
+split one physical coordination domain; accept conservative conflicts for
+case-only paths on a case-sensitive Darwin volume. Treat equal and
+ancestor/descendant roots as overlapping in both directions because a writer at
+the parent can change a child; independent siblings may proceed concurrently.
+Acquire a writer lease before task provisioning creates, clones, copies, or
+truncates any workspace content, retain task start admission through durable run
+creation, and acquire again for the complete execution attempt. After admission,
+provision isolated destinations through stable root-relative handles and a
+private staging directory; use exclusive no-follow creates, verify directory
+identity before commit, and fail closed on every path swap. Also lease an
+External Agent ACP turn before user-message append through final terminal
+persistence, each live ACP terminal from immediately before spawn until exit is
+observed, task-patch apply/revert from its final precondition through
+artifact/event persistence, and an operator terminal from immediately before
+spawn until exit is observed. A task worker may wait behind a short exclusive
+closure; request-bound mutation surfaces should return a conflict instead of
+writing through it.
+
+Generated-workspace provisioning must not turn a path check into later raw
+`os.*` writes. Open and identity-check the nearest existing managed-root
+ancestor before mutation, create missing components and populate a private
+staging directory through stable root-relative handles, then place and verify
+the completed directory. Git clone may use a private `0700` temporary stage,
+but its result must enter the managed root through that same confined copy and
+placement path.
+
+The current-workspace discard handler must preserve this order:
+
+1. Validate the client revision and reviewed path set without mutating files.
+2. Close and drain the owning `agentChatLive` session lifecycle, then acquire an
+   exclusive overlapping-root closure from the shared workspace registry.
+3. Reread the authoritative session and complete the durable active-owner scan
+   for non-terminal task runs and other active chat sessions on overlapping
+   roots. Paginate task runs until exhaustion; a page size is not a safety
+   limit.
+4. Capture a fresh complete raw **unstaged tracked** `DiffSnapshot` (index →
+   worktree) through GitRunner's scoped passive view and compare its revision
+   byte-for-byte with the reviewed token. Before returning a snapshot, inspect
+   the scoped index state and fail closed if any staged change exists.
+5. Reserve Git's conventional real-index lock, recheck scoped staged state,
+   prove that the reviewed patch's old side still applies to the live index
+   baseline, and conditionally reverse-apply selected paths from that exact raw
+   snapshot while the reservation is held. Map index contention, a committed or
+   staged baseline change, or a patch that no longer applies to `409` without
+   changing any selected file, then refresh the live snapshot after success.
+
+Never authorize discard from diff stats, trimmed output, a capped prefix, a
+stored message diff, or a second independently generated patch. The
+conditional reverse apply must preserve unrelated and non-overlapping later
+edits while rejecting overlapping drift atomically. The registry is
+process-local coordination, not a distributed lock. The transient Git index
+reservation coordinates with well-behaved Git index writers only; it does not
+exclude direct filesystem or non-cooperating index writes. The durable-owner
+scan catches persisted queued/recovered Hecate work, and conditional apply
+protects against overlapping edits from another process or an external editor;
+retain every fail-closed layer and document the residual boundary accurately.
+
+The current discard contract intentionally covers only the scoped
+index-to-worktree patch for tracked files. It does not cover staged index
+changes or untracked-file deletion. A staged-only workspace must never produce
+the deterministic empty-patch revision, and mixed staged/unstaged state must
+never issue authority for only the visible layer. Map either case to
+`422 invalid_request` before returning a diff or attempting discard, with an
+operator action to unstage the scoped changes and refresh/review again. Keep the
+staged-state check inside the same hardened, nested-workspace-scoped Git seam;
+staged changes elsewhere in the surrounding checkout must not block a nested
+workspace. Full two-layer staged review/discard requires an explicit typed
+contract and is a separate product slice.
 
 Native `agent_loop` terminal tools (`terminal_open`, `terminal_write`,
 `terminal_read`, `terminal_wait`, `terminal_kill`) live behind the
 agent-loop dispatcher and must use `LocalWorkspace.OpenTerminal`, not raw
 `exec.Command`. Keep their handles run-scoped, preserve open handles across
-same-run `awaiting_approval` requeues, close them on terminal run completion,
-and gate them through the existing `shell_exec` / `all_tools` approval policy.
+same-run `awaiting_approval` requeues, and give every handle its own shared
+`workspacecoord` writer lease through process-unit and output drain; the
+attempt-scoped runner lease is not sufficient because it is released while an
+approval is pending. Close retained handles on terminal run completion and
+global runtime shutdown, gate them through the existing `shell_exec` /
+`all_tools` approval policy, and preserve the same process-unit drain and Unix
+detachment contract described above.
 Add focused orchestrator tests plus an e2e fake-provider run whenever changing
 native terminal tool behavior.
 
@@ -298,6 +542,195 @@ resolution, live publish, and response rendering. Extend that app seam before
 adding more chat store, task-store, or adapter-runner orchestration to
 `handler_chat.go`, and keep dependencies narrow to the methods the command
 needs.
+
+Chat attachment bodies are a separate Hecate-owned storage concern. Keep validated,
+session-scoped bytes in `internal/chatattachments`; persist only immutable
+metadata on `chat.Message`. Upload/content handlers may parse and render HTTP,
+but ownership checks, message admission, draft deletion rules, and session
+cleanup belong behind `chatapp`. Keep the Handler-scoped attachment upload
+admission gate nonblocking and bounded: acquire before multipart body reads or
+mode-specific file/image validation, fail with the stable saturation response
+when full, and defer release immediately after acquisition. Give the upload
+body read its own bounded socket deadline through `http.ResponseController`, retain body-close fallback
+for synthetic/custom bodies, and map expiry to the stable upload-timeout
+response before releasing the permit. Clear the deadline after a successful
+body read, and close an expired-deadline HTTP/1 connection rather than reusing
+it. Do not add a global server read timeout: chat and task streams are
+intentionally long-lived.
+
+Keep attachment content delivery behind its own nonblocking Handler-scoped
+gate. Acquire before the store lookup, hold through integrity validation and
+the full body write, and return the stable typed 429 before hydration when the
+gate is full. Give the body write a route-local `http.ResponseController`
+deadline instead of a global server write timeout. Snapshot the chat lifecycle
+and register the lookup/write as an operation before hydration so destructive
+session cleanup waits for an admitted response and stale snapshots fail closed.
+If the response transport cannot establish that route-local write deadline,
+fail closed before committing the image `200` response and close the
+connection. Do not silently fall back to an unbounded body write while holding
+the content admission permit and session lifecycle operation.
+Enforce both per-session and aggregate retained body quotas atomically across
+memory, SQLite, and Postgres; cross-session Postgres creates require a shared
+quota lock before the session lock. Provider hydration is transient and bounded:
+never place binary/base64 content in transcript JSON, SSE, traces, logs,
+metrics, or the UI's persisted busy-message queue. Image-bearing attachment
+turns on the direct-model path are Tools-off Hecate Chat only and must set an internal capability
+requirement that admits only a currently routable, explicitly supported initial
+route. Guard every turn that may hydrate current or historical image bodies with
+the separate nonblocking, process-wide image-turn gate. Acquire its permit before
+attachment claim, historical `Get`, or base64 expansion; reject saturation with
+the stable typed 429 response before transcript mutation; and hold the permit
+through provider serialization and provider return. Routes that will certainly
+omit every image and ordinary text-only turns must remain outside this gate.
+
+External Agent turns may claim the same Hecate-owned attachment records. Carry
+their text and hydrated files through the typed `agentadapters.PromptInput`
+contract; do not flatten them into prompt prose or disclose attachment bodies to
+probe/status paths. Validate size, digest, filename, and media type again at the
+ACP boundary, then admit rich blocks against the live `InitializeResponse` held
+by that exact `acpSession`: supported raster files use `Image` only when
+`promptCapabilities.image=true`; otherwise files use `Resource` only when
+`embeddedContext=true`. The baseline `ResourceLink` fallback stages an exact
+read-only per-turn file in a private temporary directory and attempts to remove
+the whole directory when `session/prompt` settles. Rich blocks also share a conservative
+768 KiB encoded wire budget below the supported adapters' 1 MiB message cap.
+Measure the actual JSON content-block size cumulatively, including prompt text,
+base64 expansion, and text escaping; stage an overflow file as a `ResourceLink`
+even when its rich capability is advertised. Reject prompt text that alone
+exceeds the budget, and preflight raw payload/base64 size before allocating a
+rich block. Guard file-bearing External turns with their own process-wide
+nonblocking two-slot admission from before claim through synchronous ACP
+return; reject saturation before transcript mutation without blocking text-only
+turns. Check cancellation before prompt normalization/construction and again
+immediately before `session/prompt` so an accepted Stop cannot send a prompt
+that was already cancelled. ACP `fs/read_text_file` may read only the exact
+staged path while that turn is live; never broaden WorkspaceFS or allow writes
+anywhere in the staging namespace. Register a body-free deny namespace before
+dispatch, add every quarantine alias before rename, and retain that fence across
+later callbacks and turns until cleanup proves removal. Compare absolute,
+file-URI, and workspace-relative spellings against lexical and canonical roots.
+Hold one shared namespace fence through the complete WorkspaceFS read/write
+fallback; quarantine alias registration takes its exclusive side before rename
+and reuses one pending candidate across failed attempts. Keep platform handling
+fail closed. Darwin/Linux must retain and verify the canonical temporary parent,
+ancestors, stage, and children; reject untrusted ownership, writable non-sticky
+directories, and extended ACLs; create and remove relative to retained handles;
+remove/read back ACL state before bytes; verify `0700`/`0600`; and seal to
+`0500`/`0400`. Darwin must require `MNT_LOCAL` on every verified handle before
+using mode/native ACL semantics. Linux must `fstatfs` every verified handle,
+allow only ext2/3/4, XFS, Btrfs, tmpfs, overlayfs, ramfs, or F2FS, and accept
+POSIX ACL xattr `ENOTSUP` only on that allowlist; network, FUSE, and unknown
+models fail closed. Other Unix builds reject resource-link staging. Windows must
+reject remote/reparse resolution and untrusted delete/delete-child/DACL/owner
+control on retained parents and ancestors. Supply the current-user owner and
+protected current-user-plus-LocalSystem inheritable DACL in the atomic
+parent-relative directory create, read back that exact shape before children,
+then create children relative to the stage and verify each empty inherited DACL
+before bytes. Replace write-capable construction handles with read/identity-only
+retained handles before dispatch, using share modes compatible with ordinary
+readers that do not grant write sharing. Reacquire mutation access to the exact
+parent-relative directory only for post-settlement cleanup. Because the sealed
+DACL is read-only, first use a share-compatible owner-`WRITE_DAC` identity
+handle to verify that DACL and restore the private full-control DACL. Preserve
+that intermediate state across retries, then acquire the mutation handle; fail
+cleanup if a restrictive live reader prevents that upgrade. Do not introduce a
+create-then-protect window.
+
+At settlement, clear body references first, move the retained stage to a fresh
+random quarantine name relative to its retained parent, and remove children
+relative to retained handles. Retry the complete quarantine/prepare/remove
+transition with bounded backoff; never chmod or replace a DACL through an
+unverified pathname, and preserve retained identity after failure so cleanup is
+retryable. Record successful removal before proving it: once removal is issued,
+use a separate bounded proof-only retry state and never restart pathname-based
+quarantine or permission work. If synchronous cleanup exhausts, transfer the
+exact stage object and its pre-reserved capacity to the single process-owned
+janitor; never return from a production path while dropping the last
+identity/guard reference. Bound failed stages to four per session and all
+file-turn reservations plus failed stages to 16 process-wide. Reject further
+file-bearing turns when either bound is full without blocking text-only work,
+and wake cleanup again after agent-process termination. The process owner must
+outlive retired sessions and use one worker, so repeated session churn cannot
+accumulate goroutines or retained handles.
+Close per-session turn admission before shutdown snapshots the active owner.
+Register that owner before workspace-diff capture or any staging, propagate its
+cancel context through capture, and drain it again after process termination
+before treating the cleanup-backlog snapshot as complete. Cleanup waiters must
+recheck the process owner's authoritative per-session count after every change
+notification. Never report a clean close while a full turn can still add
+cleanup ownership.
+After the final handle-bound staged-file identity audit, recheck the turn
+context immediately before `conn.Prompt`; cancellation must clear prompt files
+and run the same synchronous cleanup-or-retain path without sending
+`session/prompt`. Capture bounded adapter stderr only through initialization,
+initial session creation/load, and selected model/config setup. On success,
+zero the capture under its writer lock and switch subsequent process writes to
+discard before any file-bearing prompt can run.
+A body-free immutable alias redactor must outlive the bytes. Apply it to
+full/split output, activities, stop reasons, errors, typed approval payloads,
+available commands, config-option updates and direct config-write responses,
+and originating late-terminal previews. Retain the alias set for the ACP session
+lifetime so delayed permission requests and typed updates remain covered after
+cleanup proof, and never copy their original wire records into a later turn's
+raw diagnostics. Redact only human-facing command/config fields; drop an entry
+if sanitizing it would change a protocol identifier or value. Reject approval
+sanitization that changes protocol identifiers. Native close/delete failures may
+log only a fixed classification
+and numeric RPC code, never peer-controlled message or data. Complete-alias and
+ordinary accumulated-chunk redaction is accidental-disclosure defense, not DLP
+against a selected agent that deliberately transforms or segments a path into
+unrelated short records.
+Withhold raw ACP diagnostics for staged turns when present because arbitrary
+chunks cannot be reconstructed safely. Document the protected remnant path on
+exhausted cleanup and the explicit limitation: the stage is not isolation from
+another process running as the same OS user, which can alter owner-controlled
+permissions/DACLs or inspect a discovered path.
+Persist the attachment claim with the user message before dispatch and keep
+bytes/base64/private staging paths out of transcript JSON, SSE, traces, logs,
+and error responses.
+When bytes are hydrated, keep retries on that provider and disable cross-provider
+failover. Rehydrate historical images only for the same configured provider
+recorded on the original turn; provider changes and unresolved Auto routing get
+omission markers. Resolve provider identity before model/capability admission
+with one shared precedence: exact canonical runtime name, then a unique
+normalized canonical name, then a unique alias. Ambiguous matches fail closed;
+catalog order must never choose the route. Resolve against every configured
+provider, including disabled or zero-model entries that do not produce model
+rows. Resolve and persist an opaque provider generation with the canonical
+name. Managed-provider generations must be stable across unchanged reloads and
+change on endpoint/account/configuration/credential mutation or
+delete-and-recreate; derive them only from non-secret control-plane generation
+and dispatch configuration. Providers without a durable non-secret generation
+must receive process-scoped registry identities. Never hash credentials into an
+identity, expose an identity through public APIs/telemetry/errors, or treat a
+legacy missing identity as equivalent. Once image bytes are hydrated, pin the
+route decision to both canonical name and generation, then compare both with a
+fresh live-registry lookup immediately before dispatch so same-name replacement,
+removal, normalized-name takeover, or alias takeover cannot retarget them. When
+a provider call fails after receiving bytes, return internal metadata for the
+attempted provider/model/generation and trace so the durable transcript records
+the disclosure boundary. Do not stamp an attachment-bearing user row with a
+provider generation during admission: only attempted-call metadata may make its
+bytes eligible for later history hydration, and pre-call failures must leave the
+generation empty. Durable attachment claims use the intended user-message id
+as a fence: exact transcript metadata links,
+absence releases, deleted owners purge, and conflicts remain fail-closed. Do
+the idempotent linked transition again before returning a same-payload keyed
+replay, so a committed user row repairs a claim left pending by consecutive
+finalization/reconciliation store failures without redispatching the turn. Do
+not infer provider-native capability provenance merely because model discovery
+was provider-backed, and do not impose Hecate's strict attachment requirement
+on ordinary provider-compatible `/v1` rich-content passthrough. That ingress
+must still accept exactly one JSON value only, cap the encoded body at 32 MiB,
+and apply a route-local 60-second body-read deadline with real socket and
+synthetic-body coverage. When normalized compatibility content contains an
+image, set `NoProviderFailover` without setting `ImageInput`: custom-provider
+passthrough remains available, same-provider retries remain possible, and the
+image cannot be disclosed to a second configured provider implicitly. Treat
+that fence as provider-instance-bound and revalidate it immediately before
+streaming and non-streaming dispatch. Provider HTTP/SSE error messages and
+error-type fields are untrusted: route them through `internal/safetext` before
+clients, logs, traces, health, telemetry, or persistence.
 
 Chat turn terminal status/output classification lives in
 `internal/api/handler_chat_turn_execution.go`. Extend that helper and its
@@ -390,7 +823,7 @@ When changing this path:
 ### Add a persisted run-event type
 
 1. Pick an event-protocol name from the existing taxonomy before adding a new dotted name. Prefer generic families such as `tool.*`, `policy.*`, `gap.*`, and `error.*` with specific details in `data` over subsystem-specific names.
-2. Write normal run events through the event recorder path: orchestrator code uses `r.emitRunEvent(...)`, and HTTP/API-owned writes use `internal/runtimeevents.Recorder`. Avoid direct `store.AppendRunEvent` calls outside storage tests and the store-level terminal transition path (`ApplyRunTerminalTransition`), where the event write must remain in the same transaction as the terminal state mutation.
+2. Write normal run events through the event recorder path: orchestrator code uses `r.emitRunEvent(...)`, and HTTP/API-owned writes use `internal/runtimeevents.Recorder`. Avoid direct `store.AppendRunEvent` calls outside storage tests and store-level run transitions, where terminal events or approval-resolution events must remain in the same transaction as their state mutation.
 3. Put shared event names and payload shapes in `internal/runtimeevents`. Event names use `runtimeevents.Event...` constants; payload shapes use small builder functions that return `map[string]any`. Reuse existing builders such as `ApprovalRequested`, `ApprovalResolved`, `TurnCompleted`, `PatchApplied`, and `PatchReverted` instead of recreating key sets inline.
 4. In orchestrator code, call `r.emitRunEvent(ctx, taskID, runID, runtimeevents.EventYourName.String(), ..., extraDataMap)` at the right life-cycle moment. Emit the event **before** handing off to the queue — see the emit-before-enqueue gotcha above.
 5. Document the event and its payload in `docs/runtime/events.md`.

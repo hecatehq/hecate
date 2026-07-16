@@ -34,6 +34,18 @@ func writeAgentChatModelResolutionError(w http.ResponseWriter, err error) {
 		writeAgentChatModelRequired(w, "model")
 		return
 	}
+	if errors.Is(err, modelapp.ErrProviderAmbiguous) {
+		details := ErrorDetails{
+			UserMessage:    "The selected provider alias matches multiple configured providers.",
+			OperatorAction: "Choose the provider by its canonical runtime name, or remove the conflicting alias in Connections.",
+		}
+		var ambiguityErr modelapp.ProviderAmbiguityError
+		if errors.As(err, &ambiguityErr) {
+			details.Fields = map[string]any{"provider": ambiguityErr.Provider}
+		}
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeProviderAmbiguous, message, details)
+		return
+	}
 	if strings.Contains(message, "not available") || strings.Contains(message, "not configured") {
 		details := ErrorDetails{
 			UserMessage:    "The selected model is not available from the selected provider.",

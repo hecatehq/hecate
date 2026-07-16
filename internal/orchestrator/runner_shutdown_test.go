@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,6 +154,25 @@ func TestRunner_Shutdown_DeadlineExceeded(t *testing.T) {
 	}
 }
 
+func TestRunner_ShutdownFencesAgentTerminalsAfterDeadlineIsConsumed(t *testing.T) {
+	t.Parallel()
+
+	runner := newRunnerForShutdownTest(t, 1)
+	agent := &shutdownTerminalExecutor{closed: make(chan struct{})}
+	runner.agent = agent
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := runner.Shutdown(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Shutdown() error = %v, want context.Canceled", err)
+	}
+	select {
+	case <-agent.closed:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown() did not fence retained agent terminals after its context expired")
+	}
+}
+
 // TestRunner_Shutdown_StopsClaimingNewWork: even with no in-flight
 // jobs, the queue workers themselves are goroutines that count against the
 // coordinator wait group. Shutdown's drain wait must include them, otherwise
@@ -195,4 +215,17 @@ func TestRunner_Shutdown_StopsClaimingNewWork(t *testing.T) {
 	if depth == 0 {
 		t.Errorf("queue depth = 0 after post-shutdown enqueue, want 1 (work was claimed by a still-running worker)")
 	}
+}
+
+type shutdownTerminalExecutor struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (*shutdownTerminalExecutor) Execute(context.Context, ExecutionSpec) (*ExecutionResult, error) {
+	return &ExecutionResult{Status: "completed"}, nil
+}
+
+func (executor *shutdownTerminalExecutor) CloseAllTerminals(context.Context) {
+	executor.once.Do(func() { close(executor.closed) })
 }

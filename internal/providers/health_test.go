@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,6 +92,18 @@ func TestMemoryHealthTrackerRateLimitOpensImmediately(t *testing.T) {
 	}
 	if state.Status != HealthStatusHalfOpen {
 		t.Fatalf("state.Status = %q, want %q after cooldown", state.Status, HealthStatusHalfOpen)
+	}
+}
+
+func TestMemoryHealthTrackerRedactsInlineImageErrors(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Repeat("A", 128)
+	tracker := NewMemoryHealthTracker(3, time.Minute)
+	tracker.RecordFailure("openai", errors.New("bad data:image/png;base64,"+payload))
+	lastError := tracker.State("openai").LastError
+	if strings.Contains(lastError, payload) || !strings.Contains(lastError, "[redacted inline image]") {
+		t.Fatalf("LastError = %q", lastError)
 	}
 }
 

@@ -34,6 +34,7 @@ export function ChatSettingsPanel({
   instructionsAvailable,
   isHecateAgentChat,
   instructionsLocked,
+  mutationsDisabled = false,
   systemPrompt,
   onToolsChange,
   onRTKChange,
@@ -62,6 +63,7 @@ export function ChatSettingsPanel({
   instructionsAvailable: boolean;
   isHecateAgentChat: boolean;
   instructionsLocked: boolean;
+  mutationsDisabled?: boolean;
   systemPrompt: string;
   onToolsChange: (enabled: boolean) => void;
   onRTKChange: (enabled: boolean) => void;
@@ -125,6 +127,7 @@ export function ChatSettingsPanel({
                 path={rtkPath}
                 enabled={rtkEnabled}
                 shellArgv={rtkEnabled ? "rtk sh -lc <command>" : "sh -lc <command>"}
+                disabled={mutationsDisabled}
                 onChange={onRTKChange}
               />
             </ChatSettingsSection>
@@ -134,6 +137,7 @@ export function ChatSettingsPanel({
           <ChatSettingsSection title="Agent settings">
             <ExternalAgentSettingsControls
               session={externalSession}
+              disabled={mutationsDisabled}
               onChange={onConfigOptionChange}
             />
           </ChatSettingsSection>
@@ -373,12 +377,14 @@ function ChatSettingsRTKRow({
   path,
   enabled,
   shellArgv,
+  disabled,
   onChange,
 }: {
   available: boolean;
   path: string;
   enabled: boolean;
   shellArgv: string;
+  disabled: boolean;
   onChange: (enabled: boolean) => void;
 }) {
   return (
@@ -439,7 +445,7 @@ function ChatSettingsRTKRow({
         type="button"
         aria-label={`Compact command output ${enabled ? "on" : "off"}`}
         aria-pressed={enabled}
-        disabled={!available && !enabled}
+        disabled={disabled || (!available && !enabled)}
         onClick={() => onChange(!enabled)}
         style={{
           flexShrink: 0,
@@ -448,7 +454,7 @@ function ChatSettingsRTKRow({
           color: enabled ? "var(--teal)" : "var(--t2)",
           borderColor: enabled ? "var(--teal-border)" : "var(--border)",
           background: enabled ? "var(--teal-bg)" : "transparent",
-          opacity: !available && !enabled ? 0.55 : 1,
+          opacity: disabled || (!available && !enabled) ? 0.55 : 1,
         }}
       >
         {enabled ? "on" : "off"}

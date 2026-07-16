@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type {
   ChatActivityRecord,
@@ -29,6 +29,7 @@ export function TranscriptMessageRow({
   model,
   brand,
   content,
+  contentPrefix,
   diffStat,
   diff,
   time,
@@ -59,6 +60,7 @@ export function TranscriptMessageRow({
   model?: string;
   brand?: string;
   content: string;
+  contentPrefix?: ReactNode;
   diffStat?: string;
   diff?: string;
   time: string;
@@ -279,6 +281,7 @@ export function TranscriptMessageRow({
               </button>
             </div>
           </div>
+          {contentPrefix}
           {failed ? (
             <>
               {shouldRenderFailedContent(content, error) ? (

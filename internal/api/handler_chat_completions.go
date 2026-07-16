@@ -2,32 +2,39 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/requestscope"
+	"github.com/hecatehq/hecate/internal/safetext"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	if !h.checkRateLimit(w, "") {
+	bodyRead := h.beginInferenceBodyRead(w, r)
+	if !h.checkInferenceRateLimit(w, "", bodyRead, inferenceErrorOpenAI) {
 		return
 	}
 	ctx := r.Context()
 
 	var wireReq OpenAIChatCompletionRequest
-	if !decodeJSON(w, r, &wireReq) {
+	if !h.decodeInferenceJSON(w, r, &wireReq, bodyRead, inferenceErrorOpenAI) {
 		return
 	}
 
 	internalReq, err := normalizeChatRequest(wireReq, RequestIDFromContext(ctx))
 	if err != nil {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, err.Error())
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -102,21 +109,44 @@ func (h *Handler) handleChatCompletionsStream(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := handle.ExecuteAndCapture(flushWriter{w, flusher}); err != nil {
+		terminalErr := classifyStreamingTerminalError(err)
 		telemetry.Error(h.logger, streamCtx, "gen_ai.gateway.stream.failed",
 			slog.String("event.name", "gen_ai.gateway.stream.failed"),
 			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
-			slog.Any("error", err),
+			slog.String(telemetry.AttrErrorType, terminalErr.OpenAIType),
+			slog.String(telemetry.AttrErrorMessage, terminalErr.Message),
 		)
 		// Headers already sent; write a terminal SSE error event.
-		errMsg := err.Error()
-		var upstreamErr *providers.UpstreamError
-		if errors.As(err, &upstreamErr) {
-			errMsg = upstreamErr.Message
+		payload, marshalErr := json.Marshal(map[string]any{
+			"error": map[string]string{
+				"message": terminalErr.Message,
+				"type":    terminalErr.OpenAIType,
+			},
+		})
+		if marshalErr != nil {
+			payload = []byte(`{"error":{"message":"gateway stream error","type":"gateway_error"}}`)
 		}
-		fmt.Fprintf(w, "data: {\"error\":{\"message\":%q}}\n\ndata: [DONE]\n\n", errMsg)
+		_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", payload)
 		flusher.Flush()
 		return
 	}
+}
+
+// classifyStreamingTerminalError preserves the protocol-specific mapping for
+// typed provider failures while ensuring every generic error crosses the
+// shared privacy boundary before it reaches logs or a terminal SSE event.
+func classifyStreamingTerminalError(err error) gatewayHTTPError {
+	var upstreamErr *providers.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		return classifyUpstreamError(upstreamErr)
+	}
+
+	classified := classifyGatewayError(err)
+	classified.Message = safetext.ErrorMessage(err)
+	if strings.TrimSpace(classified.Message) == "" {
+		classified.Message = "gateway stream error"
+	}
+	return classified
 }
 
 type flushWriter struct {
@@ -129,7 +159,7 @@ func (fw flushWriter) Flush()                      { fw.flusher.Flush() }
 
 func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (types.ChatRequest, error) {
 	messages := make([]types.Message, 0, len(req.Messages))
-	for _, msg := range req.Messages {
+	for messageIndex, msg := range req.Messages {
 		// Content can be a plain string OR an array of content
 		// blocks (multi-modal: text + image_url). The string form
 		// stays in Message.Content for legacy code paths; the array
@@ -143,7 +173,11 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (ty
 			ToolError:  msg.ToolError,
 		}
 		if len(msg.Content.Blocks) > 0 {
-			m.ContentBlocks = openAIInboundBlocksToContentBlocks(msg.Content.Blocks)
+			var err error
+			m.ContentBlocks, err = openAIInboundBlocksToContentBlocks(messageIndex, msg.Content.Blocks)
+			if err != nil {
+				return types.ChatRequest{}, err
+			}
 		}
 		// content_blocks (the Hecate-extension persisted-block shape)
 		// supersedes the OpenAI-spec inline blocks when both are set —
@@ -152,7 +186,11 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (ty
 		// always emit content_blocks; SDK clients hitting the OpenAI
 		// proxy never set it.
 		if len(msg.ContentBlocks) > 0 {
-			m.ContentBlocks = persistedBlocksToContentBlocks(msg.ContentBlocks)
+			var err error
+			m.ContentBlocks, err = persistedBlocksToContentBlocks(messageIndex, msg.ContentBlocks)
+			if err != nil {
+				return types.ChatRequest{}, err
+			}
 		}
 		if len(msg.ToolCalls) > 0 {
 			m.ToolCalls = make([]types.ToolCall, 0, len(msg.ToolCalls))
@@ -184,6 +222,9 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (ty
 	}
 
 	scope := requestscope.Build(req.Provider)
+	requirements := types.ChatRequestRequirements{
+		NoProviderFailover: chatMessagesContainImages(messages),
+	}
 
 	return types.ChatRequest{
 		RequestID:         requestID,
@@ -192,6 +233,7 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (ty
 		Temperature:       req.Temperature,
 		MaxTokens:         req.MaxTokens,
 		Scope:             scope,
+		Requirements:      requirements,
 		Tools:             tools,
 		ToolChoice:        req.ToolChoice,
 		Stream:            req.Stream,
@@ -329,9 +371,9 @@ func contentBlocksToPersistedBlocks(blocks []types.ContentBlock) []OpenAIPersist
 // extension shape back to the canonical types.ContentBlock. Used on
 // the inbound side of normalizeChatRequest when the UI replays history
 // containing rich blocks.
-func persistedBlocksToContentBlocks(blocks []OpenAIPersistedContentBlock) []types.ContentBlock {
+func persistedBlocksToContentBlocks(messageIndex int, blocks []OpenAIPersistedContentBlock) ([]types.ContentBlock, error) {
 	out := make([]types.ContentBlock, 0, len(blocks))
-	for _, b := range blocks {
+	for blockIndex, b := range blocks {
 		cb := types.ContentBlock{
 			Type:         b.Type,
 			Text:         b.Text,
@@ -344,15 +386,19 @@ func persistedBlocksToContentBlocks(blocks []OpenAIPersistedContentBlock) []type
 			Signature:    b.Signature,
 			Data:         b.Data,
 		}
-		if b.ImageURL != nil {
-			cb.Image = &types.ContentImage{
-				URL:    b.ImageURL.URL,
-				Detail: b.ImageURL.Detail,
+		if b.Type == "image" || b.Type == "image_url" {
+			field := fmt.Sprintf("messages[%d].content_blocks[%d].image_url", messageIndex, blockIndex)
+			image, err := validateOpenAIContentImage(field, b.ImageURL)
+			if err != nil {
+				return nil, err
 			}
+			cb.Image = image
+		} else if b.ImageURL != nil {
+			cb.Image = &types.ContentImage{URL: b.ImageURL.URL, Detail: b.ImageURL.Detail}
 		}
 		out = append(out, cb)
 	}
-	return out
+	return out, nil
 }
 
 // openAIInboundBlocksToContentBlocks converts the inbound OpenAI
@@ -361,9 +407,9 @@ func persistedBlocksToContentBlocks(blocks []OpenAIPersistedContentBlock) []type
 // with the URL/Detail packed into ContentImage. Unknown block
 // types pass through with Type set so the outbound adapter can
 // either re-emit or warn-and-drop.
-func openAIInboundBlocksToContentBlocks(blocks []OpenAIContentBlock) []types.ContentBlock {
+func openAIInboundBlocksToContentBlocks(messageIndex int, blocks []OpenAIContentBlock) ([]types.ContentBlock, error) {
 	out := make([]types.ContentBlock, 0, len(blocks))
-	for _, b := range blocks {
+	for blockIndex, b := range blocks {
 		switch b.Type {
 		case "text", "":
 			out = append(out, types.ContentBlock{
@@ -371,14 +417,15 @@ func openAIInboundBlocksToContentBlocks(blocks []OpenAIContentBlock) []types.Con
 				Text: b.Text,
 			})
 		case "image_url":
-			cb := types.ContentBlock{Type: "image_url"}
-			if b.ImageURL != nil {
-				cb.Image = &types.ContentImage{
-					URL:    b.ImageURL.URL,
-					Detail: b.ImageURL.Detail,
-				}
+			field := fmt.Sprintf("messages[%d].content[%d].image_url", messageIndex, blockIndex)
+			image, err := validateOpenAIContentImage(field, b.ImageURL)
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, cb)
+			out = append(out, types.ContentBlock{
+				Type:  "image_url",
+				Image: image,
+			})
 		default:
 			// Forward unknown variants so future block types
 			// (audio, file, video) survive the round-trip; the
@@ -386,7 +433,44 @@ func openAIInboundBlocksToContentBlocks(blocks []OpenAIContentBlock) []types.Con
 			out = append(out, types.ContentBlock{Type: b.Type})
 		}
 	}
-	return out
+	return out, nil
+}
+
+func validateOpenAIContentImage(field string, imageURL *OpenAIContentImageURL) (*types.ContentImage, error) {
+	if imageURL == nil {
+		return nil, fmt.Errorf("%s is required", field)
+	}
+	rawURL := strings.TrimSpace(imageURL.URL)
+	if rawURL == "" {
+		return nil, fmt.Errorf("%s.url is required", field)
+	}
+	if !isSupportedOpenAIImageURL(rawURL) {
+		return nil, fmt.Errorf("%s.url must use http, https, or a valid base64 image data URI", field)
+	}
+	detail := strings.TrimSpace(imageURL.Detail)
+	switch detail {
+	case "", "auto", "low", "high":
+	default:
+		return nil, fmt.Errorf("%s.detail must be one of auto, low, or high", field)
+	}
+	return &types.ContentImage{URL: rawURL, Detail: detail}, nil
+}
+
+func isSupportedOpenAIImageURL(rawURL string) bool {
+	lower := strings.ToLower(rawURL)
+	if strings.HasPrefix(lower, "data:image/") {
+		comma := strings.IndexByte(rawURL, ',')
+		if comma < 0 || !strings.HasSuffix(strings.ToLower(rawURL[:comma]), ";base64") || comma == len(rawURL)-1 {
+			return false
+		}
+		decodedBytes, err := io.Copy(io.Discard, base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(rawURL[comma+1:])))
+		return err == nil && decodedBytes > 0
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")
 }
 
 func contains(items []string, target string) bool {

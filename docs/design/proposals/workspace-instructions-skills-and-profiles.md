@@ -59,7 +59,7 @@ Facts, accessed 2026-06-08 unless noted:
 - VS Code/Copilot custom instructions explicitly recommends `AGENTS.md` when
   multiple AI agents share a workspace, supports nested `AGENTS.md`
   experimentally, and also detects `CLAUDE.md` locations. Source:
-  <https://code.visualstudio.com/docs/agent-customization/custom-instructions>.
+  <https://github.com/microsoft/vscode-docs/blob/main/docs/agent-customization/custom-instructions.md>.
 - Gemini CLI uses `GEMINI.md` as hierarchical memory/instructions and loads
   custom slash commands from user/project `.gemini/commands/*.toml` sources.
   Source:

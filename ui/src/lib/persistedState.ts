@@ -31,7 +31,7 @@
 // are caught and logged but never thrown — the in-memory state
 // remains usable.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { warn as logWarn } from "./log";
 
@@ -49,6 +49,10 @@ export type PersistedStateOptions<T> = {
    *  when the tab closes — right for "dismissed for this session"-
    *  type sentinels. */
   storage?: StorageArea;
+  /** Persist each setter result before returning from the setter. Use this
+   *  only when external work must not begin until its local intent fence is
+   *  durable; the normal effect remains as an idempotent retry. */
+  writeThrough?: boolean;
 };
 
 /** Pass-through parse for raw string storage (the most common case). */
@@ -118,6 +122,7 @@ export function usePersistedState<T>(
   const serialize = options.serialize ?? defaultSerialize;
   const shouldRemove = options.shouldRemove;
   const storageArea = options.storage;
+  const writeThrough = options.writeThrough === true;
   // Mirror callbacks to refs so the write effect doesn't re-bind
   // each render when a caller passes a fresh closure.
   const serializeRef = useRef(serialize);
@@ -126,6 +131,43 @@ export function usePersistedState<T>(
   shouldRemoveRef.current = shouldRemove;
 
   const [value, setValue] = useState<T>(() => readInitial(key, parse, fallback, storageArea));
+  const valueRef = useRef(value);
+  useLayoutEffect(() => {
+    // Only committed renders may replace the write-through updater's base.
+    // Updating this ref during render lets an abandoned concurrent render
+    // regress it after a newer synchronous setter already advanced the value.
+    valueRef.current = value;
+  }, [value]);
+
+  const persistValue = useCallback(
+    (next: T) => {
+      const storage = resolveStorage(storageArea);
+      if (!storage) return;
+      try {
+        if (shouldRemoveRef.current?.(next)) {
+          storage.removeItem(key);
+          return;
+        }
+        storage.setItem(key, serializeRef.current(next));
+      } catch (err) {
+        // Quota, private mode, browser policy — keep state usable even when
+        // persistence fails. The normal effect retries after the render.
+        logWarn(`usePersistedState: write failed for ${key}:`, err);
+      }
+    },
+    [key, storageArea],
+  );
+
+  const setWriteThroughValue = useCallback<React.Dispatch<React.SetStateAction<T>>>(
+    (next) => {
+      const resolved =
+        typeof next === "function" ? (next as (current: T) => T)(valueRef.current) : next;
+      valueRef.current = resolved;
+      persistValue(resolved);
+      setValue(resolved);
+    },
+    [persistValue],
+  );
 
   // Skip the very first effect run — `useState`'s init function
   // already reflected what was in storage (or wiped + fell back).
@@ -134,26 +176,14 @@ export function usePersistedState<T>(
   // setValue() should propagate to storage.
   const hasMountedRef = useRef(false);
   useEffect(() => {
-    const storage = resolveStorage(storageArea);
-    if (!storage) return;
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
       return;
     }
-    try {
-      if (shouldRemoveRef.current?.(value)) {
-        storage.removeItem(key);
-        return;
-      }
-      storage.setItem(key, serializeRef.current(value));
-    } catch (err) {
-      // Quota, private mode, browser policy — keep state usable
-      // even when persistence isn't.
-      logWarn(`usePersistedState: write failed for ${key}:`, err);
-    }
-  }, [key, value, storageArea]);
+    persistValue(value);
+  }, [persistValue, value]);
 
-  return [value, setValue];
+  return [value, writeThrough ? setWriteThroughValue : setValue];
 }
 
 function defaultSerialize<T>(value: T): string {

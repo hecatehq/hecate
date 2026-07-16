@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -245,6 +247,201 @@ func TestOpenAIProviderChatUpstreamError(t *testing.T) {
 	}
 }
 
+func TestDecodeUpstreamErrorRedactsInlineImagePayload(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Repeat("A", 128)
+	body := `{"error":{"message":"invalid data:image/png;base64,` + payload + `","type":"invalid_request_error"}}`
+	err := decodeUpstreamError(&http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	})
+	upstreamErr, ok := err.(*UpstreamError)
+	if !ok {
+		t.Fatalf("error type = %T, want *UpstreamError", err)
+	}
+	if strings.Contains(upstreamErr.Message, payload) || !strings.Contains(upstreamErr.Message, "[redacted inline image]") {
+		t.Fatalf("upstream message = %q", upstreamErr.Message)
+	}
+}
+
+func TestDecodeUpstreamErrorRedactsRemoteImageURLCredentials(t *testing.T) {
+	t.Parallel()
+
+	const echoedURL = "https://operator:password@images.example.test/cat.png?X-Amz-Signature=private#access-token"
+	body, err := json.Marshal(openAIErrorEnvelope{Error: openAIErrorDetail{
+		Message: "image fetch failed: " + echoedURL,
+		Type:    "invalid_request_error",
+	}})
+	if err != nil {
+		t.Fatalf("marshal error envelope: %v", err)
+	}
+	decoded := decodeUpstreamError(&http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	})
+	upstreamErr, ok := decoded.(*UpstreamError)
+	if !ok {
+		t.Fatalf("error type = %T, want *UpstreamError", decoded)
+	}
+	want := "image fetch failed: https://[redacted]@images.example.test/cat.png?[redacted]#[redacted]"
+	if upstreamErr.Message != want {
+		t.Fatalf("upstream message = %q, want %q", upstreamErr.Message, want)
+	}
+}
+
+func TestDecodeUpstreamErrorSanitizesUntrustedErrorType(t *testing.T) {
+	t.Parallel()
+
+	const secretType = "https://operator:password@errors.example.test/type?token=secret"
+	body, err := json.Marshal(openAIErrorEnvelope{Error: openAIErrorDetail{
+		Message: "request rejected",
+		Type:    secretType,
+	}})
+	if err != nil {
+		t.Fatalf("marshal error envelope: %v", err)
+	}
+	decoded := decodeUpstreamError(&http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	})
+	upstreamErr, ok := decoded.(*UpstreamError)
+	if !ok {
+		t.Fatalf("error type = %T, want *UpstreamError", decoded)
+	}
+	if upstreamErr.Type != "upstream_error" {
+		t.Fatalf("upstream type = %q, want upstream_error", upstreamErr.Type)
+	}
+	if strings.Contains(upstreamErr.Error(), "password") || strings.Contains(upstreamErr.Error(), "secret") {
+		t.Fatalf("UpstreamError.Error() leaked untrusted type: %q", upstreamErr.Error())
+	}
+}
+
+func TestOpenAIProviderChatStreamReturnsSanitizedErrorFrame(t *testing.T) {
+	t.Parallel()
+
+	const (
+		assistantURL = "https://assistant.example/image.png?visible=true"
+		errorURL     = "https://operator:password@images.example/image.png?signature=secret"
+	)
+	transport := testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		stream := "data: {\"choices\":[{\"delta\":{\"content\":" + strconv.Quote(assistantURL) + "}}]}\n\n" +
+			"data: {\"error\":{\"message\":" + strconv.Quote("image fetch failed: "+errorURL) + ",\"type\":" + strconv.Quote(errorURL) + "}}\n\n"
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(stream)),
+		}, nil
+	})
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name: "custom", Kind: "cloud", BaseURL: "https://api.example.test", APIKey: "test-key", Timeout: time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	var output strings.Builder
+	err := provider.ChatStream(context.Background(), types.ChatRequest{
+		Model: "model-a", Messages: []types.Message{{Role: "user", Content: "describe"}},
+	}, &output)
+	var upstreamErr *UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("ChatStream() error = %v, want *UpstreamError", err)
+	}
+	if !strings.Contains(output.String(), assistantURL) {
+		t.Fatalf("ordinary assistant content was altered: %q", output.String())
+	}
+	if strings.Contains(output.String(), "password") || strings.Contains(output.String(), "signature=secret") {
+		t.Fatalf("stream output leaked provider error frame: %q", output.String())
+	}
+	if upstreamErr.Type != "upstream_error" || strings.Contains(upstreamErr.Message, "password") || strings.Contains(upstreamErr.Message, "signature=secret") {
+		t.Fatalf("sanitized stream error = %+v", upstreamErr)
+	}
+}
+
+func TestProxySSEAcceptsProtocolValidOpenAITerminatorSpacing(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		terminal string
+	}{
+		{name: "no optional space", terminal: "data:[DONE]"},
+		{name: "optional space", terminal: "data: [DONE]"},
+		{name: "surrounding whitespace", terminal: "data: \t[DONE] \t"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var output strings.Builder
+			if err := proxySSE(context.Background(), strings.NewReader(test.terminal+"\r\n"), &output); err != nil {
+				t.Fatalf("proxySSE() error = %v", err)
+			}
+			if !strings.Contains(output.String(), test.terminal) {
+				t.Fatalf("proxySSE() output = %q, want original terminal frame", output.String())
+			}
+		})
+	}
+}
+
+func TestOpenAIProviderChatStreamRejectsCleanEOFMissingTerminator(t *testing.T) {
+	t.Parallel()
+
+	transport := testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		stream := `data: {"id":"chatcmpl-partial","choices":[{"delta":{"content":"partial"},"finish_reason":null}]}` + "\n\n"
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(stream)),
+		}, nil
+	})
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name: "custom", Kind: "cloud", BaseURL: "https://api.example.test", APIKey: "test-key", Timeout: time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	var output strings.Builder
+	err := provider.ChatStream(context.Background(), types.ChatRequest{
+		Model: "model-a", Messages: []types.Message{{Role: "user", Content: "describe"}},
+	}, &output)
+	var upstreamErr *UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("ChatStream() error = %v, want *UpstreamError", err)
+	}
+	if upstreamErr.StatusCode != http.StatusBadGateway || upstreamErr.Type != "upstream_error" ||
+		upstreamErr.Message != "OpenAI-compatible stream ended before [DONE]" {
+		t.Fatalf("ChatStream() error = %+v, want sanitized premature-EOF contract", upstreamErr)
+	}
+	if !strings.Contains(output.String(), "partial") {
+		t.Fatalf("ChatStream() output = %q, want already-delivered partial frame preserved", output.String())
+	}
+}
+
+func TestDecodeOpenAIStreamErrorFailsClosedForNoncanonicalVariants(t *testing.T) {
+	t.Parallel()
+
+	const secretURL = "https://operator:password@images.example/image.png?signature=secret"
+	tests := []struct {
+		name      string
+		line      string
+		wantError bool
+	}{
+		{name: "string", line: `data: {"error":"fetch failed: ` + secretURL + `"}`, wantError: true},
+		{name: "malformed object", line: `data: {"error":{"message":42,"debug":"` + secretURL + `"}}`, wantError: true},
+		{name: "array", line: `data: {"error":["` + secretURL + `"]}`, wantError: true},
+		{name: "null", line: `data: {"error":null}`, wantError: false},
+		{name: "ordinary chunk", line: `data: {"choices":[{"delta":{"content":"ok"}}]}`, wantError: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstreamErr := decodeOpenAIStreamError(test.line)
+			if (upstreamErr != nil) != test.wantError {
+				t.Fatalf("decodeOpenAIStreamError() = %v, wantError=%v", upstreamErr, test.wantError)
+			}
+			if upstreamErr != nil && (strings.Contains(upstreamErr.Error(), "password") || strings.Contains(upstreamErr.Error(), "signature=secret")) {
+				t.Fatalf("stream error leaked noncanonical payload: %q", upstreamErr.Error())
+			}
+		})
+	}
+}
+
 func TestOpenAIProviderChatStreamUsesPortableOpenAICompatiblePayload(t *testing.T) {
 	t.Parallel()
 
@@ -375,7 +572,7 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 		if r.Method != http.MethodGet {
 			return nil, fmt.Errorf("method = %s, want GET", r.Method)
 		}
-		if got := r.URL.Scheme + "://" + r.URL.Host + r.URL.Path; got != "https://api.fireworks.ai/v1/accounts/fireworks/models" {
+		if got := r.URL.Scheme + "://" + r.URL.Host + r.URL.Path; got != "https://models.proxy.example/v1/accounts/fireworks/models" {
 			return nil, fmt.Errorf("url path = %s, want Fireworks models endpoint", got)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer fireworks-key" {
@@ -392,9 +589,10 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 			return jsonHTTPResponse(fireworksModelsResponse{
 				Models: []fireworksModel{
 					{
-						Name:          "accounts/fireworks/models/deepseek-v3p1",
-						SupportsTools: true,
-						ContextLength: 131072,
+						Name:               "accounts/fireworks/models/deepseek-v3p1",
+						SupportsTools:      true,
+						SupportsImageInput: true,
+						ContextLength:      131072,
 					},
 				},
 				NextPageToken: "next-page",
@@ -409,13 +607,14 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 	})
 
 	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
-		Name:         "fireworks",
-		Kind:         "cloud",
-		BaseURL:      "https://api.fireworks.ai/inference/v1",
-		ModelsPath:   "https://api.fireworks.ai/v1/accounts/fireworks/models",
-		APIKey:       "fireworks-key",
-		Timeout:      time.Second,
-		DefaultModel: "accounts/fireworks/models/deepseek-v3p1",
+		Name:           "Fireworks Production",
+		ProviderFamily: "fireworks",
+		Kind:           "cloud",
+		BaseURL:        "https://inference.proxy.example/v1",
+		ModelsPath:     "https://models.proxy.example/v1/accounts/fireworks/models",
+		APIKey:         "fireworks-key",
+		Timeout:        time.Second,
+		DefaultModel:   "accounts/fireworks/models/deepseek-v3p1",
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	provider.httpClient.Transport = transport
 
@@ -436,8 +635,8 @@ func TestOpenAIProviderFireworksDiscoveryUsesModelsEndpoint(t *testing.T) {
 		t.Fatalf("discovery source = %q, want fireworks_models", caps.DiscoverySource)
 	}
 	capability := caps.ModelCapabilities["accounts/fireworks/models/deepseek-v3p1"]
-	if capability.ToolCalling != "basic" || capability.MaxContextTokens != 131072 {
-		t.Fatalf("model capability = %+v, want tools and context length", capability)
+	if capability.ToolCalling != "basic" || capability.ImageInput != "supported" || capability.MaxContextTokens != 131072 {
+		t.Fatalf("model capability = %+v, want tools, images, and context length", capability)
 	}
 }
 
@@ -515,10 +714,11 @@ func TestOpenAIProviderLMStudioDiscoveryUsesNativeModelsEndpoint(t *testing.T) {
 	})
 
 	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
-		Name:    "lmstudio",
-		Kind:    "local",
-		BaseURL: "http://127.0.0.1:1234/v1",
-		Timeout: time.Second,
+		Name:           "LM Studio Production",
+		ProviderFamily: "lmstudio",
+		Kind:           "local",
+		BaseURL:        "http://127.0.0.1:1234/v1",
+		Timeout:        time.Second,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	provider.httpClient.Transport = transport
 
@@ -610,7 +810,7 @@ func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) 
 			}
 			switch body.Model {
 			case "qwen2.5-coder:7b":
-				return jsonHTTPResponse(ollamaShowResponse{Capabilities: []string{"completion", "tools"}})
+				return jsonHTTPResponse(ollamaShowResponse{Capabilities: []string{"completion", "tools", "vision"}})
 			case "smollm2:135m":
 				return jsonHTTPResponse(ollamaShowResponse{Capabilities: []string{"completion"}})
 			default:
@@ -622,11 +822,12 @@ func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) 
 	})
 
 	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
-		Name:         "ollama",
-		Kind:         "local",
-		BaseURL:      "http://127.0.0.1:11434/v1",
-		Timeout:      time.Second,
-		DefaultModel: "qwen2.5-coder:7b",
+		Name:           "Team Ollama",
+		ProviderFamily: "ollama",
+		Kind:           "local",
+		BaseURL:        "http://127.0.0.1:11434/v1",
+		Timeout:        time.Second,
+		DefaultModel:   "qwen2.5-coder:7b",
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	provider.httpClient.Transport = transport
 
@@ -642,6 +843,12 @@ func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) 
 	}
 	if got := caps.ModelCapabilities["smollm2:135m"].ToolCalling; got != "none" {
 		t.Fatalf("smollm2 tool calling = %q, want none", got)
+	}
+	if got := caps.ModelCapabilities["qwen2.5-coder:7b"].ImageInput; got != "supported" {
+		t.Fatalf("qwen image input = %q, want supported", got)
+	}
+	if got := caps.ModelCapabilities["smollm2:135m"].ImageInput; got != "none" {
+		t.Fatalf("smollm2 image input = %q, want none", got)
 	}
 	if got := caps.ModelCapabilities["qwen2.5-coder:7b"].Source; got != "provider" {
 		t.Fatalf("capability source = %q, want provider", got)
@@ -678,11 +885,12 @@ func TestOpenAIProviderOllamaDiscoveryRunsShowRequestsConcurrently(t *testing.T)
 	})
 
 	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
-		Name:         "ollama",
-		Kind:         "local",
-		BaseURL:      "http://127.0.0.1:11434/v1",
-		Timeout:      time.Second,
-		DefaultModel: "model-0",
+		Name:           "ollama",
+		ProviderFamily: "ollama",
+		Kind:           "local",
+		BaseURL:        "http://127.0.0.1:11434/v1",
+		Timeout:        time.Second,
+		DefaultModel:   "model-0",
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	provider.httpClient.Transport = transport
 
@@ -718,11 +926,12 @@ func TestOpenAIProviderOllamaDiscoveryCapsShowRequestVolume(t *testing.T) {
 	})
 
 	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
-		Name:         "ollama",
-		Kind:         "local",
-		BaseURL:      "http://127.0.0.1:11434/v1",
-		Timeout:      time.Second,
-		DefaultModel: "model-0",
+		Name:           "ollama",
+		ProviderFamily: "ollama",
+		Kind:           "local",
+		BaseURL:        "http://127.0.0.1:11434/v1",
+		Timeout:        time.Second,
+		DefaultModel:   "model-0",
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	provider.httpClient.Transport = transport
 
@@ -942,6 +1151,52 @@ func TestOpenAIProviderForwardsImageBlocks(t *testing.T) {
 	}
 	if imgURL, _ := imgBlock["image_url"].(map[string]any); imgURL["url"] != "https://example.com/x.png" || imgURL["detail"] != "low" {
 		t.Errorf("blocks[1].image_url = %+v, want URL+detail", imgBlock["image_url"])
+	}
+}
+
+func TestBuildOpenAIWireContentAcceptsCanonicalImageShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		block   types.ContentBlock
+		wantURL string
+		detail  string
+	}{
+		{
+			name: "image_url with URL",
+			block: types.ContentBlock{
+				Type:  "image_url",
+				Image: &types.ContentImage{URL: "https://example.com/cat.png", Detail: "high"},
+			},
+			wantURL: "https://example.com/cat.png",
+			detail:  "high",
+		},
+		{
+			name: "image with inline data",
+			block: types.ContentBlock{
+				Type: "image",
+				Image: &types.ContentImage{
+					Data:      "iVBORw0KGgo=",
+					MediaType: "image/png",
+				},
+			},
+			wantURL: "data:image/png;base64,iVBORw0KGgo=",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildOpenAIWireContent(types.Message{
+				Role:          "user",
+				ContentBlocks: []types.ContentBlock{tt.block},
+			})
+			if len(got.Blocks) != 1 || got.Blocks[0].Type != "image_url" || got.Blocks[0].ImageURL == nil {
+				t.Fatalf("wire content = %+v, want one OpenAI image_url block", got)
+			}
+			if got.Blocks[0].ImageURL.URL != tt.wantURL || got.Blocks[0].ImageURL.Detail != tt.detail {
+				t.Fatalf("image_url = %+v, want URL %q detail %q", got.Blocks[0].ImageURL, tt.wantURL, tt.detail)
+			}
+		})
 	}
 }
 

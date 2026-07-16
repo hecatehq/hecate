@@ -170,30 +170,7 @@ func (p executionResultPersister) persistPendingApprovals(ctx context.Context, a
 }
 
 func (p executionResultPersister) applyFinalResult(ctx context.Context, execution *ExecutionResult, persistedSteps []types.TaskStep, persistedArtifacts []types.TaskArtifact) (*StartTaskResult, error) {
-	resultKind := telemetry.ResultSuccess
-	if execution.Status == "failed" || execution.Status == "cancelled" {
-		resultKind = telemetry.ResultError
-	}
 	finishedAt := time.Now().UTC()
-	var runDurationMS int64
-	if !p.run.StartedAt.IsZero() {
-		runDurationMS = finishedAt.Sub(p.run.StartedAt).Milliseconds()
-	}
-	runFinishedAttrs := map[string]any{
-		telemetry.AttrHecatePhase:  "orchestration",
-		telemetry.AttrHecateResult: resultKind,
-		telemetry.AttrHecateTaskID: p.task.ID,
-		telemetry.AttrHecateRunID:  p.run.ID,
-	}
-	if runDurationMS > 0 {
-		runFinishedAttrs[telemetry.AttrHecateRunDurationMS] = runDurationMS
-	}
-	p.trace.Record(telemetry.EventOrchestratorRunFinished, runFinishedAttrs)
-	p.trace.Record(telemetry.EventOrchestratorTaskFinished, map[string]any{
-		telemetry.AttrHecatePhase:  "orchestration",
-		telemetry.AttrHecateResult: resultKind,
-		telemetry.AttrHecateTaskID: p.task.ID,
-	})
 	transitionInput := executionResultTerminalTransitionInput{
 		Task:               p.task,
 		Run:                p.run,
@@ -205,19 +182,46 @@ func (p executionResultPersister) applyFinalResult(ctx context.Context, executio
 		FinishedAt:         finishedAt,
 	}
 	terminalTransition := executionResultTerminalTransition(transitionInput)
-	p.runner.metrics.RecordRun(ctx, telemetry.RunMetricsRecord{
-		TaskID:        p.task.ID,
-		RunID:         p.run.ID,
-		Status:        terminalTransition.Run.Status,
-		ExecutionKind: p.task.ExecutionKind,
-		Model:         terminalTransition.Run.Model,
-		DurationMS:    runDurationMS,
-	})
-
 	transition, err := p.runner.applyTerminalRunTransition(ctx, terminalTransition)
 	if err != nil {
 		return nil, err
 	}
+
+	resultKind := telemetry.ResultSuccess
+	if transition.Run.Status == "failed" || transition.Run.Status == "cancelled" {
+		resultKind = telemetry.ResultError
+	}
+	durationEnd := transition.Run.FinishedAt
+	if durationEnd.IsZero() {
+		durationEnd = finishedAt
+	}
+	runDurationMS := int64(0)
+	if !transition.Run.StartedAt.IsZero() && durationEnd.After(transition.Run.StartedAt) {
+		runDurationMS = durationEnd.Sub(transition.Run.StartedAt).Milliseconds()
+	}
+	runFinishedAttrs := map[string]any{
+		telemetry.AttrHecatePhase:  "orchestration",
+		telemetry.AttrHecateResult: resultKind,
+		telemetry.AttrHecateTaskID: transition.Task.ID,
+		telemetry.AttrHecateRunID:  transition.Run.ID,
+	}
+	if runDurationMS > 0 {
+		runFinishedAttrs[telemetry.AttrHecateRunDurationMS] = runDurationMS
+	}
+	p.trace.Record(telemetry.EventOrchestratorRunFinished, runFinishedAttrs)
+	p.trace.Record(telemetry.EventOrchestratorTaskFinished, map[string]any{
+		telemetry.AttrHecatePhase:  "orchestration",
+		telemetry.AttrHecateResult: resultKind,
+		telemetry.AttrHecateTaskID: transition.Task.ID,
+	})
+	p.runner.metrics.RecordRun(ctx, telemetry.RunMetricsRecord{
+		TaskID:        transition.Task.ID,
+		RunID:         transition.Run.ID,
+		Status:        transition.Run.Status,
+		ExecutionKind: p.task.ExecutionKind,
+		Model:         transition.Run.Model,
+		DurationMS:    runDurationMS,
+	})
 
 	return &StartTaskResult{
 		Task:      transition.Task,

@@ -378,6 +378,7 @@ type e2eModel struct {
 		ProviderKind string `json:"provider_kind"`
 		Capabilities struct {
 			ToolCalling string `json:"tool_calling"`
+			ImageInput  string `json:"image_input"`
 			Streaming   bool   `json:"streaming"`
 			Source      string `json:"source"`
 		} `json:"capabilities"`
@@ -788,8 +789,8 @@ func TestGatewayModelsEndpointIncludesReadinessMetadataE2E(t *testing.T) {
 	if model.Metadata.Provider != "fake" || model.Metadata.ProviderKind != "local" {
 		t.Fatalf("model metadata provider = %q/%q, want fake/local", model.Metadata.Provider, model.Metadata.ProviderKind)
 	}
-	if !model.Metadata.Capabilities.Streaming || model.Metadata.Capabilities.ToolCalling != "unknown" || model.Metadata.Capabilities.Source != "provider" {
-		t.Fatalf("capabilities = %+v, want provider-resolved local streaming metadata", model.Metadata.Capabilities)
+	if !model.Metadata.Capabilities.Streaming || model.Metadata.Capabilities.ToolCalling != "unknown" || model.Metadata.Capabilities.ImageInput != "unknown" || model.Metadata.Capabilities.Source != "catalog" {
+		t.Fatalf("capabilities = %+v, want catalog-derived local defaults despite provider model discovery", model.Metadata.Capabilities)
 	}
 	if !model.Metadata.Readiness.Ready || model.Metadata.Readiness.Status != "ok" || model.Metadata.Readiness.Reason != "model_available" {
 		t.Fatalf("readiness = %+v, want ready model_available", model.Metadata.Readiness)

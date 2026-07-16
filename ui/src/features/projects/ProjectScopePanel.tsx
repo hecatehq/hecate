@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import { useProjects } from "../../app/state/projects";
 import { chooseWorkspaceDirectory } from "../../lib/api";
@@ -12,8 +20,14 @@ type ProjectScopePanelProps = {
   noProjectDetail: string;
   emptyHint: string;
   deleteMessage: (project: ProjectRecord) => ReactNode;
+  canChangeProjectScope?: () => boolean;
+  beginProjectDelete: () => number | null;
+  finishProjectDelete: (token: number) => void;
   onProjectDeleted?: (projectID: string, result: ProjectDeleteRecord) => void;
-  onProjectSelected?: (projectID: string, project: ProjectRecord | null) => void;
+  onProjectSelected?: (
+    projectID: string,
+    project: ProjectRecord | null,
+  ) => boolean | void | Promise<boolean | void>;
 };
 
 const sidebarSectionActionStyle: CSSProperties = {
@@ -45,6 +59,9 @@ export function ProjectScopePanel({
   noProjectDetail,
   emptyHint,
   deleteMessage,
+  canChangeProjectScope,
+  beginProjectDelete,
+  finishProjectDelete,
   onProjectDeleted,
   onProjectSelected,
 }: ProjectScopePanelProps) {
@@ -54,11 +71,14 @@ export function ProjectScopePanel({
   const [projectRenameValue, setProjectRenameValue] = useState("");
   const [hoveredProjectID, setHoveredProjectID] = useState<string | null>(null);
   const [deleteProjectID, setDeleteProjectID] = useState<string | null>(null);
+  const [deleteProjectPending, setDeleteProjectPending] = useState(false);
+  const deleteProjectPendingRef = useRef(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
   const createProjectInFlightRef = useRef(false);
   const createProjectRequestSequenceRef = useRef(0);
+  const projectSelectionSequenceRef = useRef(0);
   const [catalogRetryPending, setCatalogRetryPending] = useState(false);
   const [catalogRetryAnnouncement, setCatalogRetryAnnouncement] = useState({
     key: "0",
@@ -67,7 +87,12 @@ export function ProjectScopePanel({
   const catalogRetryAnnouncementSequenceRef = useRef(0);
   const catalogRetryButtonRef = useRef<HTMLButtonElement>(null);
   const catalogRetryInFlightRef = useRef(false);
+  const catalogRetryFocusOwnedRef = useRef(false);
+  const catalogRetryFocusedElementRef = useRef<HTMLButtonElement | null>(null);
+  const catalogRecoveryWasPendingRef = useRef(false);
   const projectsToggleButtonRef = useRef<HTMLButtonElement>(null);
+  const canChangeProjectScopeRef = useRef(canChangeProjectScope);
+  canChangeProjectScopeRef.current = canChangeProjectScope;
   const activeProject =
     projects.activeProjectID === ""
       ? null
@@ -75,13 +100,51 @@ export function ProjectScopePanel({
         null);
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
+  const catalogRecoveryPending =
+    catalogRetryPending || (projects.state.loading && Boolean(projects.state.catalogError));
+
+  function projectScopeChangeAllowed(): boolean {
+    return !canChangeProjectScopeRef.current || canChangeProjectScopeRef.current();
+  }
 
   useEffect(
     () => () => {
       createProjectRequestSequenceRef.current += 1;
+      projectSelectionSequenceRef.current += 1;
     },
     [],
   );
+
+  useEffect(() => {
+    if (!projects.state.catalogError || !catalogRetryAnnouncement.message) return;
+    catalogRetryAnnouncementSequenceRef.current += 1;
+    setCatalogRetryAnnouncement({
+      key: String(catalogRetryAnnouncementSequenceRef.current),
+      message: "",
+    });
+  }, [catalogRetryAnnouncement.message, projects.state.catalogError]);
+
+  useLayoutEffect(() => {
+    const wasPending = catalogRecoveryWasPendingRef.current;
+    catalogRecoveryWasPendingRef.current = catalogRecoveryPending;
+    if (!wasPending && catalogRecoveryPending) {
+      catalogRetryFocusOwnedRef.current = document.activeElement === catalogRetryButtonRef.current;
+      catalogRetryFocusedElementRef.current = catalogRetryButtonRef.current;
+      return;
+    }
+    if (!wasPending || catalogRecoveryPending) return;
+    const activeElement = document.activeElement;
+    const focusedElement = catalogRetryFocusedElementRef.current;
+    if (
+      !projects.state.catalogError &&
+      catalogRetryFocusOwnedRef.current &&
+      (activeElement === focusedElement || activeElement === document.body)
+    ) {
+      projectsToggleButtonRef.current?.focus();
+    }
+    catalogRetryFocusOwnedRef.current = false;
+    catalogRetryFocusedElementRef.current = null;
+  }, [catalogRecoveryPending, projects.state.catalogError]);
 
   function startProjectRename(project: ProjectRecord) {
     setRenamingProjectID(project.id);
@@ -96,13 +159,25 @@ export function ProjectScopePanel({
     }
   }
 
-  function selectProjectScope(projectID: string) {
+  async function selectProjectScope(
+    projectID: string,
+    projectOverride?: ProjectRecord | null,
+  ): Promise<boolean> {
+    const selectionSequence = ++projectSelectionSequenceRef.current;
+    if (!projectScopeChangeAllowed()) return false;
     const project =
-      projectID === ""
-        ? null
-        : (projects.state.projects.find((item) => item.id === projectID) ?? null);
+      projectOverride !== undefined
+        ? projectOverride
+        : projectID === ""
+          ? null
+          : (projects.state.projects.find((item) => item.id === projectID) ?? null);
+    const accepted = await onProjectSelected?.(projectID, project);
+    if (projectSelectionSequenceRef.current !== selectionSequence || accepted === false) {
+      return false;
+    }
+    if (!projectScopeChangeAllowed()) return false;
     void projects.actions.selectProject(projectID);
-    onProjectSelected?.(projectID, project);
+    return true;
   }
 
   async function handleCreateProject(form: CreateProjectForm) {
@@ -112,6 +187,7 @@ export function ProjectScopePanel({
       setCreateProjectError("Project name is required.");
       return;
     }
+    if (!projectScopeChangeAllowed()) return;
     createProjectInFlightRef.current = true;
     const requestSequence = ++createProjectRequestSequenceRef.current;
     setCreateProjectPending(true);
@@ -120,9 +196,9 @@ export function ProjectScopePanel({
       const created = await projects.actions.createProject(payload);
       if (createProjectRequestSequenceRef.current !== requestSequence || !created) return;
       setCreateProjectOpen(false);
+      if (!projectScopeChangeAllowed()) return;
       setProjectsExpanded(false);
-      void projects.actions.selectProject(created.id);
-      onProjectSelected?.(created.id, created);
+      await selectProjectScope(created.id, created);
     } catch (error) {
       if (createProjectRequestSequenceRef.current !== requestSequence) return;
       setCreateProjectError(error instanceof Error ? error.message : "Failed to create project.");
@@ -143,28 +219,34 @@ export function ProjectScopePanel({
   }
 
   async function retryProjectCatalog() {
-    if (catalogRetryInFlightRef.current) return;
+    if (catalogRetryInFlightRef.current || projects.state.loading) return;
+    if (!projectScopeChangeAllowed()) return;
     const retryOwnedFocusAtStart = document.activeElement === catalogRetryButtonRef.current;
     catalogRetryInFlightRef.current = true;
     setCatalogRetryPending(true);
+    catalogRetryAnnouncementSequenceRef.current += 1;
+    setCatalogRetryAnnouncement({
+      key: String(catalogRetryAnnouncementSequenceRef.current),
+      message: "",
+    });
     try {
-      await projects.actions.loadProjects();
-    } finally {
+      const result = await projects.actions.loadProjects({
+        shouldApply: projectScopeChangeAllowed,
+      });
+      if (result.status !== "applied") return;
       const retryStillOwnsFocus =
         retryOwnedFocusAtStart && document.activeElement === catalogRetryButtonRef.current;
+      catalogRetryAnnouncementSequenceRef.current += 1;
+      setCatalogRetryAnnouncement({
+        key: String(catalogRetryAnnouncementSequenceRef.current),
+        message: "Projects loaded.",
+      });
+      if (retryStillOwnsFocus) {
+        projectsToggleButtonRef.current?.focus();
+      }
+    } finally {
       catalogRetryInFlightRef.current = false;
       setCatalogRetryPending(false);
-      window.requestAnimationFrame(() => {
-        if (catalogRetryButtonRef.current) return;
-        catalogRetryAnnouncementSequenceRef.current += 1;
-        setCatalogRetryAnnouncement({
-          key: String(catalogRetryAnnouncementSequenceRef.current),
-          message: "Projects loaded.",
-        });
-        if (retryStillOwnsFocus) {
-          projectsToggleButtonRef.current?.focus();
-        }
-      });
     }
   }
 
@@ -179,6 +261,7 @@ export function ProjectScopePanel({
           expanded={projectsExpanded}
           label="Projects"
           onAction={() => {
+            if (!projectScopeChangeAllowed()) return;
             setCreateProjectError("");
             projects.actions.setError("");
             setCreateProjectOpen(true);
@@ -193,7 +276,7 @@ export function ProjectScopePanel({
               detail={noProjectDetail}
               label="No project"
               onSelect={() => {
-                selectProjectScope("");
+                void selectProjectScope("");
               }}
             />
             {projects.state.projects.map((project) => (
@@ -205,7 +288,7 @@ export function ProjectScopePanel({
                 editable
                 label={project.name}
                 onSelect={() => {
-                  selectProjectScope(project.id);
+                  void selectProjectScope(project.id);
                 }}
                 onDelete={() => {
                   setDeleteProjectID(project.id);
@@ -240,7 +323,7 @@ export function ProjectScopePanel({
             {projects.state.error}
           </div>
         )}
-        {(projects.state.catalogError || catalogRetryPending) && (
+        {(projects.state.catalogError || catalogRecoveryPending) && (
           <div
             style={{
               alignItems: "center",
@@ -253,16 +336,25 @@ export function ProjectScopePanel({
             }}
           >
             <span aria-atomic="true" aria-live="polite" role="status">
-              {catalogRetryPending ? "Retrying projects…" : "Projects could not be loaded."}
+              {catalogRecoveryPending ? "Retrying projects…" : "Projects could not be loaded."}
             </span>
             <button
-              aria-disabled={catalogRetryPending || undefined}
+              aria-disabled={catalogRecoveryPending || undefined}
               className="btn btn-primary btn-sm"
+              onBlur={(event) => {
+                if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.isConnected) {
+                  catalogRetryFocusOwnedRef.current = false;
+                }
+              }}
               onClick={() => void retryProjectCatalog()}
+              onFocus={(event) => {
+                catalogRetryFocusOwnedRef.current = true;
+                catalogRetryFocusedElementRef.current = event.currentTarget;
+              }}
               ref={catalogRetryButtonRef}
               type="button"
             >
-              {catalogRetryPending ? "Retrying…" : "Retry"}
+              {catalogRecoveryPending ? "Retrying…" : "Retry"}
             </button>
           </div>
         )}
@@ -285,13 +377,29 @@ export function ProjectScopePanel({
           title="Delete project"
           confirmLabel="Delete project"
           message={deleteMessage(pendingDeleteProject)}
-          onClose={() => setDeleteProjectID(null)}
+          pending={deleteProjectPending}
+          returnFocusRef={projectsToggleButtonRef}
+          onClose={() => {
+            if (!deleteProjectPendingRef.current) setDeleteProjectID(null);
+          }}
           onConfirm={async () => {
+            if (deleteProjectPendingRef.current) return;
+            if (!projectScopeChangeAllowed()) return;
+            const ownershipMutationToken = beginProjectDelete();
+            if (ownershipMutationToken === null) return;
+            deleteProjectPendingRef.current = true;
+            setDeleteProjectPending(true);
             const projectID = pendingDeleteProject.id;
-            const deleted = await projects.actions.deleteProject(projectID);
-            if (!deleted) return;
-            onProjectDeleted?.(projectID, deleted);
-            setDeleteProjectID(null);
+            try {
+              const deleted = await projects.actions.deleteProject(projectID);
+              if (!deleted) return;
+              onProjectDeleted?.(projectID, deleted);
+              setDeleteProjectID(null);
+            } finally {
+              finishProjectDelete(ownershipMutationToken);
+              deleteProjectPendingRef.current = false;
+              setDeleteProjectPending(false);
+            }
           }}
         />
       )}

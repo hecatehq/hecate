@@ -11,6 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -80,6 +81,10 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 	chatStore, err := chat.NewPostgresStore(ctx, client)
 	if err != nil {
 		t.Fatalf("chat.NewPostgresStore: %v", err)
+	}
+	chatAttachmentStore, err := chatattachments.NewPostgresStore(ctx, client)
+	if err != nil {
+		t.Fatalf("chatattachments.NewPostgresStore: %v", err)
 	}
 	approvalStore, err := agentadapters.NewPostgresApprovalStore(ctx, client)
 	if err != nil {
@@ -261,6 +266,22 @@ func TestPostgresStoresMigrateWhenDatabaseURLProvided(t *testing.T) {
 		RTKEnabled: true,
 	}); err != nil {
 		t.Fatalf("chat session create: %v", err)
+	}
+	if _, err := chatAttachmentStore.Create(ctx, chatattachments.StoredAttachment{
+		Attachment: chatattachments.Attachment{
+			ID:        "attachment_smoke",
+			SessionID: sessionID,
+			Filename:  "smoke.png",
+			MediaType: "image/png",
+			SizeBytes: 3,
+			SHA256:    "smoke-digest",
+		},
+		Data: []byte("png"),
+	}); err != nil {
+		t.Fatalf("chatAttachmentStore.Create: %v", err)
+	}
+	if got, ok, err := chatAttachmentStore.Get(ctx, sessionID, "attachment_smoke"); err != nil || !ok || string(got.Data) != "png" {
+		t.Fatalf("chatAttachmentStore.Get: ok=%v data=%q err=%v", ok, got.Data, err)
 	}
 	if _, err := chatStore.AppendMessage(ctx, sessionID, chat.Message{
 		ID:           "message-" + suffix,

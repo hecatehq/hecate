@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { composerDraftScope, composerDraftScopesMatch, useChat } from "../../app/state/chat";
+import { queuedChatSessionDeletionFenceStatus } from "../../app/state/queuedChatStorage";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useProjects } from "../../app/state/projects";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
@@ -34,6 +35,7 @@ export type SidebarSession = {
   status_label?: string;
   created_at?: string;
   updated_at?: string;
+  cleanup_required?: boolean;
 };
 
 type Props = {
@@ -42,7 +44,7 @@ type Props = {
   // textarea and dispatch selectChatSession. Keeping the
   // coordination on the parent side avoids the sidebar reaching across
   // the canvas for the composer ref.
-  onSelectSession: (sessionID: string) => void;
+  onSelectSession: (sessionID: string) => Promise<boolean>;
   // New-chat creation. Gated on agent readiness inside the sidebar.
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
   onOpenAgentSetup: (adapterID: string) => void;
@@ -74,6 +76,7 @@ export function ChatSidebar({
   const recoverableComposerDraft = chat.state.recoverableComposerDraft;
   const activeRecoverableComposerDraftID = chat.state.activeRecoverableComposerDraftID;
   const activeChatSessionID = chat.state.activeChatSessionID;
+  const cancellingSessionID = chat.state.chatCancelling ? chat.state.chatCancellingSessionID : "";
   const agentAdapters = providersAndModels.state.agentAdapters;
   const agentAdapterHealthByID = providersAndModels.state.agentAdapterHealthByID;
   const agentAdapterHealthLoadingByID = providersAndModels.state.agentAdapterHealthLoadingByID;
@@ -83,8 +86,11 @@ export function ChatSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   const [deleteChatID, setDeleteChatID] = useState<string | null>(null);
+  const [deleteChatPending, setDeleteChatPending] = useState(false);
+  const deleteChatPendingRef = useRef(false);
+  const chatSearchInputRef = useRef<HTMLInputElement>(null);
 
-  const sessions: SidebarSession[] = (chatSessions ?? []).map((s) => ({
+  const serverSessions: SidebarSession[] = (chatSessions ?? []).map((s) => ({
     id: s.id,
     title: s.title,
     project_id: s.project_id ?? "",
@@ -98,6 +104,35 @@ export function ChatSidebar({
     created_at: s.created_at,
     updated_at: s.updated_at,
   }));
+  const serverSessionIDs = new Set(serverSessions.map((session) => session.id));
+  // An unreadable deletion fence must keep the recovery path visible; otherwise
+  // the vanished server session leaves no operator action to clear its queued prompt.
+  const cleanupRecoverySessions: SidebarSession[] = Array.from(
+    new Map(
+      chat.state.queuedChatMessages
+        .filter(
+          (message) =>
+            !serverSessionIDs.has(message.session_id) &&
+            message.delivery_storage_failed === true &&
+            queuedChatSessionDeletionFenceStatus(message.session_id) !== "absent",
+        )
+        .map((message) => [
+          message.session_id,
+          {
+            id: message.session_id,
+            title: "Deleted chat cleanup required",
+            project_id: message.project_id ?? "",
+            message_count: 0,
+            provider_call_count: 0,
+            status_label: "cleanup required",
+            created_at: message.created_at,
+            updated_at: message.created_at,
+            cleanup_required: true,
+          } satisfies SidebarSession,
+        ]),
+    ).values(),
+  );
+  const sessions = [...cleanupRecoverySessions, ...serverSessions];
   const projectSessions = filterSidebarSessionsByProject(sessions, projects.activeProjectID);
   const filteredSessions = filterSidebarSessions(projectSessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
@@ -115,6 +150,9 @@ export function ChatSidebar({
   const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate";
   const workspaceRequiredForNewChat =
     isAgentChat && selectedNewChatUsesWorkspace && !workspaceForNewChat;
+  const chatSessionCreateInFlight = chat.actions.isChatSessionCreateInFlight();
+  const attachmentTurnInFlight = chat.actions.hasChatAttachmentTurn();
+  const ownershipMutationInFlight = chat.state.chatOwnershipMutationInFlight;
   const recoverableDraftForCurrentScope =
     recoverableComposerDraft &&
     composerDraftScopesMatch(
@@ -166,19 +204,28 @@ export function ChatSidebar({
     runtime.state.sessionInfo,
   ]);
 
-  function selectProjectScope(projectID: string) {
+  async function selectProjectScope(projectID: string): Promise<boolean> {
     const scopedSessions = filterSidebarSessionsByProject(sessions, projectID);
     const project =
       projectID === ""
         ? null
         : (projects.state.projects.find((item) => item.id === projectID) ?? null);
+    const activeSessionAlreadyScoped = Boolean(
+      activeSessionID && scopedSessions.some((session) => session.id === activeSessionID),
+    );
+    if (!activeSessionAlreadyScoped) {
+      const nextSession = scopedSessions[0];
+      const selected = await onSelectSession(nextSession?.id ?? "");
+      if (!selected) return false;
+    }
+    const ownershipBlockReason = chat.actions.chatOwnershipMutationBlockReason();
+    if (ownershipBlockReason) {
+      settingsActions.setNoticeMessage("error", ownershipBlockReason);
+      return false;
+    }
     chat.actions.setAgentWorkspace(projectID ? projectDefaultWorkspace(project) : "");
     chat.actions.setAgentWorkspaceBranch("");
-    if (activeSessionID && scopedSessions.some((session) => session.id === activeSessionID)) {
-      return;
-    }
-    const nextSession = scopedSessions[0];
-    onSelectSession(nextSession?.id ?? "");
+    return true;
   }
 
   return (
@@ -196,25 +243,38 @@ export function ChatSidebar({
         <ProjectScopePanel
           noProjectDetail="Chats and tasks stay ungrouped."
           emptyHint="Add a folder when you want a project context."
+          canChangeProjectScope={() => {
+            const reason = chat.actions.chatOwnershipMutationBlockReason();
+            if (!reason) return true;
+            settingsActions.setNoticeMessage("error", reason);
+            return false;
+          }}
+          beginProjectDelete={() => {
+            const token = chat.actions.beginChatOwnershipMutation();
+            if (token !== null) return token;
+            settingsActions.setNoticeMessage(
+              "error",
+              chat.actions.chatOwnershipMutationBlockReason() ||
+                "Wait for the current chat ownership change to finish.",
+            );
+            return null;
+          }}
+          finishProjectDelete={chat.actions.finishChatOwnershipMutation}
           deleteMessage={(project) => (
             <>
               Delete <strong>{project.name}</strong>? This also deletes chats in this project.
               Unprojected chats and other projects stay untouched.
             </>
           )}
-          onProjectSelected={(projectID) => selectProjectScope(projectID)}
+          onProjectSelected={selectProjectScope}
           onProjectDeleted={(projectID, result) => {
-            const activeDeletedSession = chat.state.chatSessions.some(
-              (session) =>
-                session.id === chat.state.activeChatSessionID && session.project_id === projectID,
+            const browserQueueCleared = chat.actions.fenceDeletedChatProject(projectID);
+            settingsActions.setNoticeMessage(
+              browserQueueCleared ? "success" : "error",
+              browserQueueCleared
+                ? formatProjectDeleteSummary(result)
+                : `${formatProjectDeleteSummary(result)} Hecate could not clear every browser-local queued prompt for this project. Clear this site's browser data before closing or reloading.`,
             );
-            chat.actions.setChatSessions((current) =>
-              current.filter((session) => session.project_id !== projectID),
-            );
-            if (activeDeletedSession || chat.state.activeChatSession?.project_id === projectID) {
-              chatActions.startNewChat();
-            }
-            settingsActions.setNoticeMessage("success", formatProjectDeleteSummary(result));
           }}
         />
         <div
@@ -238,23 +298,47 @@ export function ChatSidebar({
             adapters={agentAdapters}
             healthByID={agentAdapterHealthByID}
             disableUnavailable
-            createDisabled={workspaceRequiredForNewChat || chatCreating}
-            selectionDisabled={chatCreating}
+            selectionDisabled={chatCreating || chatSessionCreateInFlight}
+            createDisabled={
+              workspaceRequiredForNewChat ||
+              chatCreating ||
+              chatSessionCreateInFlight ||
+              attachmentTurnInFlight ||
+              ownershipMutationInFlight
+            }
             createTitle={
-              chatCreating
-                ? "Starting the current chat"
-                : workspaceRequiredForNewChat
-                  ? "Choose a workspace before starting this chat"
-                  : undefined
+              workspaceRequiredForNewChat
+                ? "Choose a workspace before starting this chat"
+                : chatCreating || chatSessionCreateInFlight
+                  ? "A new chat is already being created"
+                  : attachmentTurnInFlight
+                    ? "Wait for the attachment response before starting a new chat"
+                    : ownershipMutationInFlight
+                      ? "Wait for the current chat ownership change to finish"
+                      : undefined
             }
             onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
             onSetupAgent={onOpenAgentSetup}
             onCreate={(agentID) => {
               if (chatCreating || chat.actions.isChatCreationActive()) return;
               if (workspaceRequiredForNewChat) return;
+              if (
+                chatSessionCreateInFlight ||
+                attachmentTurnInFlight ||
+                ownershipMutationInFlight
+              ) {
+                return;
+              }
               if (!statusForAgent(agentID).ready) return;
+              if (chat.state.pendingChatAttachments.length > 0) {
+                settingsActions.setNoticeMessage(
+                  "error",
+                  "Remove attached files before starting a new chat.",
+                );
+                return;
+              }
               if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
-              onSelectSession("");
+              void onSelectSession("");
               onCreateChat(agentID, projects.activeProjectID);
             }}
           />
@@ -292,6 +376,7 @@ export function ChatSidebar({
             className="input"
             onChange={(e) => setSidebarQuery(e.target.value)}
             placeholder="Search chats"
+            ref={chatSearchInputRef}
             style={{ height: 28, fontSize: 12, padding: "0 8px" }}
             value={sidebarQuery}
           />
@@ -345,17 +430,28 @@ export function ChatSidebar({
                   role="button"
                   tabIndex={renamingId === s.id ? -1 : 0}
                   aria-current={activeSessionID === s.id ? "true" : undefined}
+                  aria-disabled={cancellingSessionID === s.id || undefined}
                   aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
                   onClick={() => {
                     if (renamingId === s.id) return;
-                    onSelectSession(s.id);
+                    if (cancellingSessionID === s.id) return;
+                    if (s.cleanup_required) {
+                      setDeleteChatID(s.id);
+                      return;
+                    }
+                    void onSelectSession(s.id);
                   }}
                   onKeyDown={(e) => {
                     if (e.target !== e.currentTarget) return;
                     if (renamingId === s.id) return;
+                    if (cancellingSessionID === s.id) return;
                     if (e.key !== "Enter" && e.key !== " ") return;
                     e.preventDefault();
-                    onSelectSession(s.id);
+                    if (s.cleanup_required) {
+                      setDeleteChatID(s.id);
+                      return;
+                    }
+                    void onSelectSession(s.id);
                   }}
                   onFocus={() => setHoveredChatId(s.id)}
                   onBlur={(e) => {
@@ -368,7 +464,7 @@ export function ChatSidebar({
                   onMouseLeave={() => setHoveredChatId(null)}
                   style={{
                     padding: "8px 12px",
-                    cursor: "pointer",
+                    cursor: cancellingSessionID === s.id ? "wait" : "pointer",
                     background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
                     borderLeft:
                       activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
@@ -379,18 +475,22 @@ export function ChatSidebar({
                     {renamingId === s.id ? (
                       <input
                         autoFocus
+                        disabled={cancellingSessionID === s.id}
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
+                            if (cancellingSessionID === s.id) return;
                             void chatActions.renameChatSession(s.id, renameValue);
                             setRenamingId(null);
                           }
                           if (e.key === "Escape") setRenamingId(null);
                         }}
                         onBlur={() => {
-                          void chatActions.renameChatSession(s.id, renameValue);
+                          if (cancellingSessionID !== s.id) {
+                            void chatActions.renameChatSession(s.id, renameValue);
+                          }
                           setRenamingId(null);
                         }}
                         style={{
@@ -449,26 +549,31 @@ export function ChatSidebar({
                             flexShrink: 0,
                           }}
                         >
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            aria-label={`Rename chat ${s.title || "Untitled"}`}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setRenamingId(s.id);
-                              setRenameValue(s.title || "");
-                            }}
-                            style={{ padding: "1px 3px" }}
-                            title="Rename"
-                          >
-                            <Icon d={Icons.edit} size={10} />
-                          </button>
+                          {!s.cleanup_required && (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              aria-label={`Rename chat ${s.title || "Untitled"}`}
+                              disabled={cancellingSessionID === s.id}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingId(s.id);
+                                setRenameValue(s.title || "");
+                              }}
+                              style={{ padding: "1px 3px" }}
+                              title="Rename"
+                            >
+                              <Icon d={Icons.edit} size={10} />
+                            </button>
+                          )}
                           <button
                             className="btn btn-ghost btn-sm"
                             aria-label={`Delete chat ${s.title || "Untitled"}`}
+                            disabled={cancellingSessionID === s.id}
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (cancellingSessionID === s.id) return;
                               setDeleteChatID(s.id);
                             }}
                             style={{ padding: "1px 3px", color: "var(--red)" }}
@@ -533,15 +638,36 @@ export function ChatSidebar({
           title="Delete chat"
           confirmLabel="Delete chat"
           message={
-            <>
-              Delete <strong>{pendingDeleteChat.title || "Untitled"}</strong>? This removes the chat
-              transcript from Hecate.
-            </>
+            pendingDeleteChat.cleanup_required ? (
+              <>
+                Retry browser cleanup for this already-deleted chat? This removes its remaining
+                queued prompts and recovery marker from this browser.
+              </>
+            ) : (
+              <>
+                Delete <strong>{pendingDeleteChat.title || "Untitled"}</strong>? This removes the
+                chat transcript from Hecate.
+              </>
+            )
           }
-          onClose={() => setDeleteChatID(null)}
+          pending={deleteChatPending}
+          confirmDisabled={cancellingSessionID === pendingDeleteChat.id}
+          returnFocusRef={chatSearchInputRef}
+          onClose={() => {
+            if (!deleteChatPendingRef.current) setDeleteChatID(null);
+          }}
           onConfirm={async () => {
-            await chatActions.deleteChatSession(pendingDeleteChat.id);
-            setDeleteChatID(null);
+            if (cancellingSessionID === pendingDeleteChat.id) return;
+            if (deleteChatPendingRef.current) return;
+            deleteChatPendingRef.current = true;
+            setDeleteChatPending(true);
+            try {
+              const deleted = await chatActions.deleteChatSession(pendingDeleteChat.id);
+              if (deleted) setDeleteChatID(null);
+            } finally {
+              deleteChatPendingRef.current = false;
+              setDeleteChatPending(false);
+            }
           }}
         />
       )}

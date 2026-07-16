@@ -181,17 +181,31 @@ func projectRoot(t *testing.T) string {
 	return moduleRootDir()
 }
 
-// portFree returns nil when the host port is bindable. We use this as a
-// pre-flight so a developer's already-running stack on :8765 produces a
-// clean skip rather than an opaque "address already in use" docker error.
+// portFree returns nil when the IPv4 loopback target used by the smoke test is
+// bindable. Probing ":port" is insufficient on dual-stack hosts: it can bind
+// IPv6 while another process already owns 127.0.0.1, causing the health probe
+// to reach that unrelated process instead of the published container port.
 func portFree(port int) error {
-	addr := fmt.Sprintf(":%d", port)
-	ln, err := net.Listen("tcp", addr)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp4", addr)
 	if err != nil {
 		return err
 	}
 	_ = ln.Close()
 	return nil
+}
+
+func TestPortFreeDetectsIPv4LoopbackListener(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on IPv4 loopback: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := portFree(port); err == nil {
+		t.Fatalf("portFree(%d) = nil, want occupied IPv4 loopback error", port)
+	}
 }
 
 // waitHealthyDocker polls the published port until /healthz returns 200 or

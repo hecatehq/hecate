@@ -89,7 +89,7 @@ func TestSessionManagerRunsThroughBuiltInACPAdapters(t *testing.T) {
 				SessionID:      "chat_" + tt.adapterID,
 				AdapterID:      tt.adapterID,
 				Workspace:      workspace,
-				Prompt:         "hello " + tt.adapterID,
+				Prompt:         PromptInput{Text: "hello " + tt.adapterID},
 				Timeout:        5 * time.Second,
 				MaxOutputBytes: 64 * 1024,
 			})

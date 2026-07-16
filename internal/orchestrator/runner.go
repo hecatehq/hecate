@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -14,10 +15,12 @@ import (
 
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -25,7 +28,11 @@ import (
 // task cannot be started due to missing configuration detectable before
 // the run is created. Callers should surface this as a client error
 // (HTTP 422) rather than a gateway error (500).
-var ErrAgentLoopMisconfigured = errors.New("agent_loop misconfigured")
+var (
+	ErrAgentLoopMisconfigured = errors.New("agent_loop misconfigured")
+	ErrActiveRun              = taskstate.ErrActiveRun
+	ErrBudgetLower            = taskstate.ErrBudgetLower
+)
 
 var resourceIDCounter atomic.Uint64
 
@@ -59,6 +66,10 @@ type Config struct {
 	QueueBuffer            int
 	QueueLeaseSeconds      int
 	MaxConcurrentPerTenant int
+	// DeferQueueStart lets composition wire durable origin validators and
+	// owner stores before any worker can claim or reconcile persisted work.
+	// Standalone runner callers retain the historical auto-start default.
+	DeferQueueStart bool
 	// AgentLoopMaxTurns caps how many LLM round-trips a single
 	// agent_loop run can make. Default 8 (set in NewAgentLoopExecutor
 	// when zero or negative). Acts as a runaway-cost safety net.
@@ -149,10 +160,26 @@ type Runner struct {
 	// executor rebuilds. The API layer owns the actual drafting
 	// boundary; the runner just forwards the seam.
 	projectAssistantDraftTool ProjectAssistantDraftTool
+	// originRunGate is process-scoped coordination shared with taskapp's
+	// destructive origin cleanup. Keeping admission at this single run-create
+	// choke point covers API, Chat, and Project launch callers alike.
+	originRunGate atomic.Pointer[taskruncoord.Gate]
+	// workspaceCoordinator is shared with every process-local destructive
+	// workspace mutation. Execution acquires a writer lease before reading the
+	// workspace or dispatching an executor, then holds it through result
+	// collection so revert cannot race an active run.
+	workspaceCoordinator atomic.Pointer[workspacecoord.Registry]
+	// taskStarts serializes the full preflight/provision/commit path per task in
+	// this process. ApplyRunStartTransition remains the cross-process authority.
+	taskStarts taskStartGate
 }
 
 type agentTerminalRunCloser interface {
 	CloseTerminalsForRun(ctx context.Context, runID string)
+}
+
+type agentTerminalShutdownCloser interface {
+	CloseAllTerminals(ctx context.Context)
 }
 
 type StartTaskResult struct {
@@ -176,6 +203,9 @@ type startTaskOptions struct {
 	// `run.created` event so the worker that later claims the run can
 	// rebuild the truncated checkpoint without keeping in-memory state.
 	RetryFromTurn int
+	// BudgetMicrosUSD raises the durable task ceiling while the same origin
+	// lease that creates the resumed run is held.
+	BudgetMicrosUSD int64
 }
 
 type RuntimeStats struct {
@@ -254,7 +284,9 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	if workers <= 0 {
 		workers = 1
 	}
-	runner.queueCoordinator.StartWorkers(workers)
+	if !cfg.DeferQueueStart {
+		runner.queueCoordinator.StartWorkers(workers)
+	}
 	return runner
 }
 
@@ -307,6 +339,7 @@ func (r *Runner) SetAgentLLMClient(llm AgentLLMClient) {
 		factory = DefaultMCPHostFactory
 	}
 	agent.SetMCPHostFactory(factory)
+	agent.SetWorkspaceCoordinator(r.workspaceCoordinator.Load())
 	if r.projectAssistantDraftTool != nil {
 		agent.SetProjectAssistantDraftTool(r.projectAssistantDraftTool)
 	}
@@ -456,17 +489,75 @@ func (r *Runner) StartTask(ctx context.Context, task types.Task, idgen func(pref
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{})
 }
 
+func (r *Runner) SetOriginRunGate(gate *taskruncoord.Gate) {
+	if r == nil {
+		return
+	}
+	r.originRunGate.Store(gate)
+}
+
+// SetWorkspaceCoordinator wires the process-scoped registry shared with
+// destructive workspace mutations. Composition must call this before queue
+// workers start so every workspace-backed run uses the same registry.
+func (r *Runner) SetWorkspaceCoordinator(registry *workspacecoord.Registry) {
+	if r == nil {
+		return
+	}
+	r.workspaceCoordinator.Store(registry)
+	if agent, ok := r.agent.(*AgentLoopExecutor); ok {
+		agent.SetWorkspaceCoordinator(registry)
+	}
+}
+
+func (r *Runner) beginWorkspaceWrite(ctx context.Context, workspacePath string) (*workspacecoord.WriterLease, error) {
+	if r == nil || strings.TrimSpace(workspacePath) == "" {
+		return nil, nil
+	}
+	registry := r.workspaceCoordinator.Load()
+	if registry == nil {
+		return nil, nil
+	}
+	return registry.WaitWriter(ctx, workspacePath)
+}
+
+func (r *Runner) beginWorkspaceProvisioningWrite(ctx context.Context, workspacePath string) (*workspacecoord.WriterLease, error) {
+	if r == nil || strings.TrimSpace(workspacePath) == "" {
+		return nil, nil
+	}
+	registry := r.workspaceCoordinator.Load()
+	if registry == nil {
+		return nil, nil
+	}
+	return registry.WaitWriterForCreation(ctx, workspacePath)
+}
+
+func (r *Runner) beginOriginRunMutation(ctx context.Context, task types.Task) (*taskruncoord.Lease, error) {
+	if r == nil {
+		return nil, nil
+	}
+	gate := r.originRunGate.Load()
+	if gate == nil {
+		return nil, nil
+	}
+	return gate.Begin(ctx, taskruncoord.Origin{Kind: task.OriginKind, ID: task.OriginID})
+}
+
 func (r *Runner) StartTaskWithRunInitializer(ctx context.Context, task types.Task, idgen func(prefix string) string, init func(*types.TaskRun)) (*StartTaskResult, error) {
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{RunInitializer: init})
 }
 
 func (r *Runner) ResumeTask(ctx context.Context, task types.Task, run types.TaskRun, reason string, idgen func(prefix string) string) (*StartTaskResult, error) {
+	return r.ResumeTaskWithBudget(ctx, task, run, reason, 0, idgen)
+}
+
+func (r *Runner) ResumeTaskWithBudget(ctx context.Context, task types.Task, run types.TaskRun, reason string, budgetMicrosUSD int64, idgen func(prefix string) string) (*StartTaskResult, error) {
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, fmt.Errorf("task run %q is not resumable", run.ID)
 	}
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{
-		ResumeFromRun: &run,
-		ResumeReason:  strings.TrimSpace(reason),
+		ResumeFromRun:   &run,
+		ResumeReason:    strings.TrimSpace(reason),
+		BudgetMicrosUSD: budgetMicrosUSD,
 	})
 }
 
@@ -572,6 +663,23 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	if idgen == nil {
 		return nil, fmt.Errorf("resource id generator is required")
 	}
+	releaseTaskStart := r.taskStarts.lock(task.ID)
+	defer releaseTaskStart()
+	currentTask, found, err := r.store.GetTask(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("task %q not found", task.ID)
+	}
+	task = currentTask
+	lease, err := r.beginOriginRunMutation(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if lease != nil {
+		defer lease.Release()
+	}
 	if r.exec == nil {
 		return nil, fmt.Errorf("executor is not configured")
 	}
@@ -587,6 +695,12 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		if strings.TrimSpace(task.RequestedModel) == "" {
 			return nil, fmt.Errorf("%w: no model configured; set task.RequestedModel", ErrAgentLoopMisconfigured)
 		}
+	}
+	if options.BudgetMicrosUSD > 0 {
+		if options.BudgetMicrosUSD < task.BudgetMicrosUSD {
+			return nil, ErrBudgetLower
+		}
+		task.BudgetMicrosUSD = options.BudgetMicrosUSD
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
@@ -613,6 +727,11 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, "", "run_list_failed", err)
 		return nil, err
+	}
+	for _, existingRun := range runs {
+		if !types.IsTerminalTaskRunStatus(existingRun.Status) {
+			return nil, ErrActiveRun
+		}
 	}
 
 	run := types.TaskRun{
@@ -650,8 +769,32 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		// own spend) gives the new run its accurate prior accumulator.
 		run.PriorCostMicrosUSD = prior.PriorCostMicrosUSD + prior.TotalCostMicrosUSD
 	}
+	var provisionPlan workspaceProvisionPlan
 	if strings.TrimSpace(run.WorkspacePath) == "" {
-		run.WorkspacePath, err = r.workspaces.Provision(ctx, task, run)
+		provisionPlan, err = r.workspaces.planProvision(task, run)
+		if err != nil {
+			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_provision_failed", err)
+			return nil, err
+		}
+		run.WorkspacePath = provisionPlan.workspacePath
+	}
+	var workspaceStartLease *workspacecoord.WriterLease
+	if provisionPlan.requiresWrite {
+		workspaceStartLease, err = r.beginWorkspaceProvisioningWrite(ctx, run.WorkspacePath)
+	} else {
+		workspaceStartLease, err = r.beginWorkspaceWrite(ctx, run.WorkspacePath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if workspaceStartLease != nil {
+		defer workspaceStartLease.Release()
+	}
+	if provisionPlan.requiresWrite {
+		if workspaceStartLease != nil && workspaceStartLease.Workspace() != filepath.Clean(run.WorkspacePath) {
+			return nil, fmt.Errorf("workspace destination changed during provisioning admission")
+		}
+		run.WorkspacePath, err = r.workspaces.provisionPlanned(ctx, provisionPlan)
 		if err != nil {
 			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_provision_failed", err)
 			return nil, err
@@ -663,11 +806,28 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	if options.RunInitializer != nil {
 		options.RunInitializer(&run)
 	}
-	run, err = r.store.CreateRun(ctx, run)
+	task.LatestRunID = run.ID
+	task.Status = run.Status
+	if task.StartedAt.IsZero() {
+		task.StartedAt = now
+	}
+	task.FinishedAt = time.Time{}
+	task.UpdatedAt = now
+	task.RootTraceID = trace.TraceID
+	task.LatestTraceID = trace.TraceID
+	task.LatestRequestID = requestID
+
+	started, err := r.store.ApplyRunStartTransition(ctx, taskstate.RunStartTransition{
+		Task:            task,
+		Run:             run,
+		BudgetMicrosUSD: options.BudgetMicrosUSD,
+	})
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, run.ID, "run_create_failed", err)
 		return nil, err
 	}
+	task = started.Task
+	run = started.Run
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunCreated.String(), requestID, trace.TraceID, nil)
 	if options.ResumeFromRun != nil {
 		resumedData := map[string]any{
@@ -684,17 +844,6 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	}
 
 	recordOrchestratorRunStarted(trace, task.ID, run)
-
-	task.LatestRunID = run.ID
-	task.Status = run.Status
-	if task.StartedAt.IsZero() {
-		task.StartedAt = now
-	}
-	task.FinishedAt = time.Time{}
-	task.UpdatedAt = now
-	task.RootTraceID = trace.TraceID
-	task.LatestTraceID = trace.TraceID
-	task.LatestRequestID = requestID
 
 	if r.approvalRequiredForTask(task) {
 		if _, err := r.createApprovalForTask(ctx, trace, task, run, requestID, now, idgen); err != nil {
@@ -716,10 +865,6 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		if err := r.emitRunQueuedAndEnqueue(ctx, task.ID, run.ID, requestID, trace.TraceID, nil); err != nil {
 			return nil, err
 		}
-	}
-
-	if _, err := r.store.UpdateTask(ctx, task); err != nil {
-		return nil, err
 	}
 
 	return &StartTaskResult{
@@ -767,7 +912,10 @@ func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string, r
 		return types.TaskRun{}, fmt.Errorf("task run %q not found", runID)
 	}
 	if types.IsTerminalTaskRunStatus(run.Status) {
-		return run, nil
+		if err := r.WaitRunExit(ctx, run.ID); err != nil {
+			return types.TaskRun{}, fmt.Errorf("wait for terminal run %q executor exit: %w", run.ID, err)
+		}
+		return r.cleanupCancelledRunAfterDrain(ctx, task, run, nil)
 	}
 
 	message := "run cancelled"
@@ -777,6 +925,18 @@ func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string, r
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
 	traceIDs := telemetry.TraceIDsFromContext(ctx)
 	return r.cancelRunWithMessage(ctx, task, run, message, requestID, traceIDs.TraceID)
+}
+
+// WaitRunExit cancels and drains any process-local executor still registered
+// for a durable terminal run. Owner-deletion retries use this after an earlier
+// cancellation timed out: terminal persistence alone is not proof that the
+// executor goroutine has exited.
+func (r *Runner) WaitRunExit(ctx context.Context, runID string) error {
+	r.cancelInFlightJob(runID)
+	if closer, ok := r.agent.(agentTerminalRunCloser); ok {
+		closer.CloseTerminalsForRun(ctx, runID)
+	}
+	return r.cancelAndWaitForInFlightJob(ctx, runID)
 }
 
 func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run types.TaskRun, message, requestID, traceID string) (types.TaskRun, error) {
@@ -794,13 +954,64 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		}
 	}
 
+	now := time.Now().UTC()
+	result, err := r.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(task, run, message, requestID, traceID, trace, now))
+	if err != nil {
+		return types.TaskRun{}, err
+	}
+
+	// Make the operator's terminal decision durable before waking the
+	// executor's cancellation finalizer. Otherwise both paths can observe a
+	// running row and race to append the same terminal event.
 	r.cancelInFlightJob(run.ID)
 	if closer, ok := r.agent.(agentTerminalRunCloser); ok {
 		closer.CloseTerminalsForRun(ctx, run.ID)
 	}
+	drainErr := r.cancelAndWaitForInFlightJob(ctx, run.ID)
+	if drainErr != nil {
+		return types.TaskRun{}, fmt.Errorf("wait for cancelled run %q executor exit: %w", run.ID, drainErr)
+	}
+	return r.cleanupCancelledRunAfterDrain(ctx, result.Task, result.Run, trace)
+}
 
-	now := time.Now().UTC()
-	result, err := r.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(task, run, message, requestID, traceID, trace, now))
+func (r *Runner) cleanupCancelledRunAfterDrain(ctx context.Context, task types.Task, run types.TaskRun, trace *profiler.Trace) (types.TaskRun, error) {
+	if run.Status != "cancelled" {
+		return run, nil
+	}
+	currentTask, found, err := r.store.GetTask(ctx, task.ID)
+	if err != nil {
+		return types.TaskRun{}, err
+	}
+	if !found {
+		return types.TaskRun{}, fmt.Errorf("task %q not found", task.ID)
+	}
+	currentRun, found, err := r.store.GetRun(ctx, task.ID, run.ID)
+	if err != nil {
+		return types.TaskRun{}, err
+	}
+	if !found {
+		return types.TaskRun{}, fmt.Errorf("task run %q not found", run.ID)
+	}
+	if currentRun.Status != "cancelled" {
+		return currentRun, nil
+	}
+	// Children can be persisted while the cancelled executor drains. Settle
+	// those late arrivals at cleanup time; the task-state transition preserves
+	// the original run/task terminal timestamps for a same-status replay.
+	cleanupAt := time.Now().UTC()
+	cleanup := cancelRunTerminalTransition(
+		currentTask,
+		currentRun,
+		currentRun.LastError,
+		currentRun.RequestID,
+		currentRun.TraceID,
+		trace,
+		cleanupAt,
+	)
+	cleanup.SuppressDuplicateEvent = true
+	cleanup.EmitTaskUpdated = false
+	cleanup.PreserveTaskProjection = true
+	result, err := r.applyTerminalRunTransition(ctx, cleanup)
 	if err != nil {
 		return types.TaskRun{}, err
 	}
@@ -828,6 +1039,14 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 // re-waited). Safe to call from multiple goroutines.
 
 func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, requestID string, resumeCheckpoint *ResumeCheckpoint) (*StartTaskResult, error) {
+	workspaceLease, err := r.beginWorkspaceWrite(ctx, run.WorkspacePath)
+	if err != nil {
+		return nil, err
+	}
+	if workspaceLease != nil {
+		defer workspaceLease.Release()
+	}
+
 	executor := r.executorForTask(task)
 	systemPrompt := ""
 	if r.resolveSysPrompt != nil {

@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -34,6 +35,20 @@ func (r *Runner) StartReconcileLoop() {
 	r.requireQueueCoordinator().StartReconcileLoop()
 }
 
+// StartQueueRuntime performs boot reconciliation before enabling claimers,
+// then starts periodic recovery. API composition calls this only after all
+// durable origin validators and owner stores have been installed.
+func (r *Runner) StartQueueRuntime(ctx context.Context) error {
+	err := r.ReconcilePendingRuns(ctx)
+	workers := r.config.QueueWorkers
+	if workers <= 0 {
+		workers = 1
+	}
+	r.requireQueueCoordinator().StartWorkers(workers)
+	r.StartReconcileLoop()
+	return err
+}
+
 func (r *Runner) reconcileStaleRuns(ctx context.Context, staleThreshold time.Duration) error {
 	return r.requireQueueCoordinator().reconcileStaleRuns(ctx, staleThreshold)
 }
@@ -43,15 +58,22 @@ func (r *Runner) enqueueRun(taskID, runID string) error {
 }
 
 func (r *Runner) Shutdown(ctx context.Context) error {
-	return r.requireQueueCoordinator().Shutdown(ctx)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	queueErr := r.requireQueueCoordinator().Shutdown(ctx)
+	if closer, ok := r.agent.(agentTerminalShutdownCloser); ok {
+		closer.CloseAllTerminals(ctx)
+	}
+	return errors.Join(queueErr, ctx.Err())
 }
 
-func (r *Runner) registerJob(runID string, cancel context.CancelFunc) {
-	r.requireQueueCoordinator().registerJob(runID, cancel)
+func (r *Runner) registerJob(runID string, cancel context.CancelFunc) *inFlightJob {
+	return r.requireQueueCoordinator().registerJob(runID, cancel)
 }
 
-func (r *Runner) unregisterJob(runID string) {
-	r.requireQueueCoordinator().unregisterJob(runID)
+func (r *Runner) unregisterJob(runID string, job ...*inFlightJob) {
+	r.requireQueueCoordinator().unregisterJob(runID, job...)
 }
 
 func (r *Runner) hasInFlightJob(runID string) bool {
@@ -69,6 +91,13 @@ func (r *Runner) cancelInFlightJob(runID string) {
 	if r.queueCoordinator != nil {
 		r.queueCoordinator.cancelJob(runID)
 	}
+}
+
+func (r *Runner) cancelAndWaitForInFlightJob(ctx context.Context, runID string) error {
+	if r.queueCoordinator == nil {
+		return nil
+	}
+	return r.queueCoordinator.cancelAndWaitForJob(ctx, runID)
 }
 
 func (r *Runner) executorForTask(task types.Task) Executor {

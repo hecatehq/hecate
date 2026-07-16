@@ -2,8 +2,11 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -232,13 +235,250 @@ func TestWorkspaceManagerCanonicalizesConfiguredRootSymlink(t *testing.T) {
 	}
 
 	mgr := NewWorkspaceManager(rootLink)
-	got, err := mgr.workspacePath("task-1", "run-1")
+	_, got, _, err := mgr.plannedWorkspacePath("task-1", "run-1")
 	if err != nil {
-		t.Fatalf("workspacePath: %v", err)
+		t.Fatalf("plannedWorkspacePath: %v", err)
 	}
 	want := filepath.Join(canonicalTestPath(t, actualRoot), "task-1", "run-1")
 	if got != want {
 		t.Errorf("workspace path = %q, want resolved root path %q", got, want)
+	}
+}
+
+func TestWorkspaceManagerProvisionPlannedRejectsFutureRootSymlinkBeforeMutation(t *testing.T) {
+	parent := t.TempDir()
+	outside := t.TempDir()
+	root := filepath.Join(parent, "missing", "workspaces")
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1"}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	mgr.beforeProvisionRootOpen = func() {
+		if err := os.Symlink(outside, filepath.Join(parent, "missing")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+	}
+
+	if _, err := mgr.provisionPlanned(t.Context(), plan); err == nil {
+		t.Fatal("provisionPlanned succeeded after future root became a symlink")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "workspaces")); !os.IsNotExist(err) {
+		t.Fatalf("provisioning mutated outside the admitted root: %v", err)
+	}
+}
+
+func TestWorkspaceManagerProvisionPlannedDoesNotFollowRootSwapAfterOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("renaming an open directory is not portable on Windows")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "managed")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatalf("Mkdir(root): %v", err)
+	}
+	outside := t.TempDir()
+	movedRoot := filepath.Join(parent, "managed-original")
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1"}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	mgr.afterProvisionRootOpen = func() {
+		if err := os.Rename(root, movedRoot); err != nil {
+			t.Fatalf("Rename(open root): %v", err)
+		}
+		if err := os.Symlink(outside, root); err != nil {
+			t.Fatalf("Symlink(swapped root): %v", err)
+		}
+	}
+
+	if _, err := mgr.provisionPlanned(t.Context(), plan); err == nil {
+		t.Fatal("provisionPlanned succeeded after the opened root path was swapped")
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatalf("ReadDir(outside): %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("provisioning wrote through swapped root symlink: %+v", entries)
+	}
+}
+
+func TestWorkspaceManagerProvisionPlannedDoesNotReplaceRacingDestination(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1"}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	var injectedInfo os.FileInfo
+	mgr.beforeProvisionCommit = func() {
+		if err := os.Mkdir(plan.workspacePath, 0o755); err != nil {
+			t.Fatalf("Mkdir(racing destination): %v", err)
+		}
+		injectedInfo, err = os.Stat(plan.workspacePath)
+		if err != nil {
+			t.Fatalf("Stat(racing destination): %v", err)
+		}
+	}
+
+	if _, err := mgr.provisionPlanned(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "place generated workspace") {
+		t.Fatalf("provisionPlanned error = %v, want placement conflict", err)
+	}
+	actualInfo, err := os.Stat(plan.workspacePath)
+	if err != nil {
+		t.Fatalf("Stat(preserved racing destination): %v", err)
+	}
+	if !os.SameFile(injectedInfo, actualInfo) {
+		t.Fatal("provisioning replaced the racing destination")
+	}
+	assertNoProvisionStages(t, filepath.Dir(plan.workspacePath))
+}
+
+func TestWorkspaceManagerProvisionPlannedRejectsDestinationSwapBeforeReturn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit renaming the open workspace root")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "workspaces")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatalf("Mkdir(workspace root): %v", err)
+	}
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1"}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	displacedRoot := filepath.Join(parent, "displaced-workspaces")
+	mgr.beforeProvisionReturn = func() {
+		if err := os.Rename(root, displacedRoot); err != nil {
+			t.Fatalf("Rename(workspace root): %v", err)
+		}
+		if err := os.MkdirAll(plan.workspacePath, 0o755); err != nil {
+			t.Fatalf("MkdirAll(replacement destination): %v", err)
+		}
+	}
+
+	if _, err := mgr.provisionPlanned(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "workspace destination changed during provisioning") {
+		t.Fatalf("provisionPlanned error = %v, want destination identity failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(displacedRoot, "task-1", "run-1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed provisioning left the placed workspace behind: %v", err)
+	}
+}
+
+func TestWorkspaceManagerProvisionPlannedCleansRestoredOwnerReadOnlyStaging(t *testing.T) {
+	source := t.TempDir()
+	readOnlyDirectory := filepath.Join(source, "read-only")
+	if err := os.Mkdir(readOnlyDirectory, 0o755); err != nil {
+		t.Fatalf("Mkdir(read-only source): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(readOnlyDirectory, "copied.txt"), []byte("private staged data"), 0o644); err != nil {
+		t.Fatalf("WriteFile(source): %v", err)
+	}
+	if err := os.Chmod(filepath.Join(readOnlyDirectory, "copied.txt"), 0o444); err != nil {
+		t.Fatalf("Chmod(read-only source file): %v", err)
+	}
+	if err := os.Chmod(readOnlyDirectory, 0o555); err != nil {
+		t.Fatalf("Chmod(read-only source): %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyDirectory, 0o755) })
+
+	root := t.TempDir()
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1", WorkingDirectory: source}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	mgr.beforeProvisionCommit = func() {
+		entries, readErr := os.ReadDir(filepath.Dir(plan.workspacePath))
+		if readErr != nil {
+			t.Fatalf("ReadDir(task staging root): %v", readErr)
+		}
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.Name(), ".hecate-provision-") {
+				continue
+			}
+			info, statErr := os.Stat(filepath.Join(filepath.Dir(plan.workspacePath), entry.Name(), "read-only"))
+			if statErr != nil {
+				t.Fatalf("Stat(staged read-only directory): %v", statErr)
+			}
+			if runtime.GOOS != "windows" && info.Mode().Perm() != 0o555 {
+				t.Fatalf("staged directory mode = %o, want restored source mode 555 before commit", info.Mode().Perm())
+			}
+			cancel()
+			return
+		}
+		t.Fatal("workspace staging directory not found")
+	}
+
+	if _, err := mgr.provisionPlanned(ctx, plan); !errors.Is(err, context.Canceled) {
+		t.Fatalf("provisionPlanned error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(plan.workspacePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cancelled provisioning left final workspace: %v", err)
+	}
+	assertNoProvisionStages(t, filepath.Dir(plan.workspacePath))
+}
+
+func TestWorkspaceManagerProvisionPlannedPublishesRestoredDirectoryModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows directory mode bits do not preserve Unix permissions")
+	}
+	source := t.TempDir()
+	readOnlyDirectory := filepath.Join(source, "read-only")
+	if err := os.Mkdir(readOnlyDirectory, 0o555); err != nil {
+		t.Fatalf("Mkdir(read-only source): %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyDirectory, 0o755) })
+
+	root := t.TempDir()
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1", WorkingDirectory: source}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	workspacePath, err := mgr.provisionPlanned(t.Context(), plan)
+	if err != nil {
+		t.Fatalf("provisionPlanned: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(workspacePath, "read-only"))
+	if err != nil {
+		t.Fatalf("Stat(published read-only directory): %v", err)
+	}
+	if info.Mode().Perm() != 0o555 {
+		t.Fatalf("published directory mode = %o, want 555", info.Mode().Perm())
+	}
+}
+
+func TestWorkspaceManagerProvisionPlannedReportsCleanupFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows directory mode bits do not provide this failure seam")
+	}
+	if currentUser, err := user.Current(); err == nil && currentUser.Uid == "0" {
+		t.Skip("root bypasses the directory permissions used to force cleanup failure")
+	}
+	root := t.TempDir()
+	mgr := NewWorkspaceManager(root)
+	plan, err := mgr.planProvision(types.Task{ID: "task-1"}, types.TaskRun{ID: "run-1"})
+	if err != nil {
+		t.Fatalf("planProvision: %v", err)
+	}
+	taskPath := filepath.Dir(plan.workspacePath)
+	ctx, cancel := context.WithCancel(t.Context())
+	mgr.beforeProvisionCommit = func() {
+		if err := os.Chmod(taskPath, 0o555); err != nil {
+			t.Fatalf("Chmod(task root): %v", err)
+		}
+		cancel()
+	}
+	t.Cleanup(func() { _ = os.Chmod(taskPath, 0o755) })
+
+	_, err = mgr.provisionPlanned(ctx, plan)
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "clean incomplete workspace provisioning") {
+		t.Fatalf("provisionPlanned error = %v, want cancellation plus observable cleanup failure", err)
 	}
 }
 
@@ -326,4 +566,17 @@ func canonicalTestPath(t *testing.T, path string) string {
 		t.Fatalf("resolve %q: %v", path, err)
 	}
 	return resolved
+}
+
+func assertNoProvisionStages(t *testing.T, taskPath string) {
+	t.Helper()
+	entries, err := os.ReadDir(taskPath)
+	if err != nil {
+		t.Fatalf("ReadDir(%q): %v", taskPath, err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".hecate-provision-") {
+			t.Fatalf("incomplete provisioning stage leaked at %q", filepath.Join(taskPath, entry.Name()))
+		}
+	}
 }

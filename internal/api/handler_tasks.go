@@ -39,6 +39,13 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	mutationCtx, releaseProjectMutation, err := h.projectMutationGate.begin(ctx, req.ProjectID)
+	if err != nil {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
+	defer releaseProjectMutation()
+	ctx = mutationCtx
 	created, err := h.taskApplication().CreateTask(ctx, taskCreateCommandFromRequest(req))
 	if err != nil {
 		h.writeCreateTaskError(w, r, err)

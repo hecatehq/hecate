@@ -14,10 +14,10 @@ import { useContext } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import { resolveDashboardSnapshot } from "../../runtimeConsoleDashboard";
-import { useChat } from "../chat";
+import { useChat, type ChatSessionSnapshotSource } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
-import type { ChatSessionRecord } from "../../../types/chat";
+import type { ChatSessionRecord, ChatSessionSummaryRecord } from "../../../types/chat";
 import type { ConfiguredStateResponse } from "../../../types/provider";
 import type { ChatActions } from "./chat";
 
@@ -48,28 +48,51 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
   const { providers, agentAdapters } = providersAndModels.state;
   const { setProviders, setModels, setAgentAdapters, setAgentAdapterApprovalMode } =
     providersAndModels.actions;
-  const { activeChatSessionID, activeChatSession, chatSessions } = chat.state;
+  const { activeChatSession, chatSessions } = chat.state;
   const {
     captureActiveChatTransition,
     isCurrentActiveChatTransition,
     setChatSessions,
     setActiveChatSessionID,
     setActiveChatSession,
-    pruneQueuedChatMessagesForSessions,
+    fenceChatSessionsMissingFromAuthoritativeSnapshot,
+    currentChatSessionIntent,
+    isCurrentChatSessionIntent,
+    hasChatAttachmentTurn,
+    currentActiveChatSessionID,
+    isChatSessionDeleted,
+    stopReadTokenAtRequestStart,
+    chatStopFenceAllowsSnapshot,
+    chatStopFenceAllowsOmission,
+    chatStopFenceProtectsSession,
   } = chat.actions;
 
   async function loadDashboard() {
+    const chatSessionIntent = currentChatSessionIntent();
+    const dashboardActiveChatSessionID = currentActiveChatSessionID();
     // Dashboard hydration is passive: it may publish the active chat only if
     // no newer operator selection, creation, or new-chat transition began
     // while its two request waves were resolving.
     const activeChatTransition = captureActiveChatTransition();
+    let chatSessionsReadStopTokens = new Map<string, number>();
+    let activeChatSessionReadStopToken: { sessionID: string; stopToken: number } | null = null;
+    const captureChatSessionsReadStopTokens = () => {
+      const sessionIDs = new Set(chatSessions.map((session) => session.id));
+      if (dashboardActiveChatSessionID) sessionIDs.add(dashboardActiveChatSessionID);
+      const captured = new Map<string, number>();
+      for (const sessionID of sessionIDs) {
+        const stopToken = stopReadTokenAtRequestStart(sessionID);
+        if (stopToken !== null) captured.set(sessionID, stopToken);
+      }
+      chatSessionsReadStopTokens = captured;
+    };
     setLoading(true);
     setError("");
     params.setSettingsError("");
 
     try {
       const snapshot = await resolveDashboardSnapshot({
-        activeChatSessionID,
+        activeChatSessionID: dashboardActiveChatSessionID,
         previous: {
           providers,
           agentAdapters,
@@ -88,6 +111,11 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
           setSessionInfo(essentials.sessionInfo);
           params.setSettingsConfig(essentials.settingsConfig);
         },
+        onChatSessionsReadStart: captureChatSessionsReadStopTokens,
+        onActiveChatSessionReadStart: (sessionID) => {
+          const stopToken = stopReadTokenAtRequestStart(sessionID);
+          activeChatSessionReadStopToken = stopToken === null ? null : { sessionID, stopToken };
+        },
       });
 
       setHealth(snapshot.health);
@@ -95,22 +123,139 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       setModels(snapshot.models);
       setProviders(snapshot.providers);
       setAgentAdapters(snapshot.agentAdapters);
-      if (activeChatTransition !== null && isCurrentActiveChatTransition(activeChatTransition)) {
-        setChatSessions(snapshot.chatSessions);
-        pruneQueuedChatMessagesForSessions(
-          snapshot.chatSessions.map((session: ChatSessionRecord) => session.id),
+      const liveChatSessions = snapshot.chatSessions.filter(
+        (session: ChatSessionRecord) => !isChatSessionDeleted(session.id, session.project_id),
+      );
+      if (
+        activeChatTransition !== null &&
+        isCurrentActiveChatTransition(activeChatTransition) &&
+        isCurrentChatSessionIntent(chatSessionIntent) &&
+        currentActiveChatSessionID() === dashboardActiveChatSessionID &&
+        !hasChatAttachmentTurn()
+      ) {
+        const activeReadStopToken = activeChatSessionReadStopToken as {
+          sessionID: string;
+          stopToken: number;
+        } | null;
+        const unscopedSource: ChatSessionSnapshotSource = { kind: "unscoped" };
+        const chatSessionsReadSource = (sessionID: string): ChatSessionSnapshotSource => {
+          const stopToken = snapshot.chatSessionsFresh
+            ? (chatSessionsReadStopTokens.get(sessionID) ?? null)
+            : null;
+          return stopToken === null ? unscopedSource : { kind: "stop_read", stopToken };
+        };
+        const activeChatSessionReadSource = (): ChatSessionSnapshotSource => {
+          if (
+            !snapshot.activeChatSessionFresh ||
+            !activeReadStopToken ||
+            activeReadStopToken.sessionID !== snapshot.activeChatSession?.id
+          ) {
+            return unscopedSource;
+          }
+          return { kind: "stop_read", stopToken: activeReadStopToken.stopToken };
+        };
+        const nextActiveSnapshot = snapshot.activeChatSession;
+        const activeSnapshotAllowedBeforeDeletion = nextActiveSnapshot
+          ? chatStopFenceAllowsSnapshot(nextActiveSnapshot, activeChatSessionReadSource())
+          : false;
+        const allowedChatSessionSummaries = new Map<string, boolean>();
+        for (const session of liveChatSessions) {
+          const activeDetailRejected =
+            snapshot.activeChatSessionFresh &&
+            nextActiveSnapshot?.id === session.id &&
+            !activeSnapshotAllowedBeforeDeletion;
+          allowedChatSessionSummaries.set(
+            session.id,
+            activeDetailRejected
+              ? false
+              : chatStopFenceAllowsSnapshot(session, chatSessionsReadSource(session.id)),
+          );
+        }
+
+        const authoritativeSessionIDs = new Set(liveChatSessions.map((session) => session.id));
+        const authoritativeOmissionStopTokens = snapshot.chatSessionsFresh
+          ? new Map(chatSessionsReadStopTokens)
+          : new Map<string, number>();
+        if (
+          snapshot.activeChatSessionMissing &&
+          activeReadStopToken?.sessionID === dashboardActiveChatSessionID &&
+          chatStopFenceAllowsOmission(dashboardActiveChatSessionID, activeReadStopToken.stopToken)
+        ) {
+          authoritativeSessionIDs.delete(dashboardActiveChatSessionID);
+          authoritativeOmissionStopTokens.set(
+            dashboardActiveChatSessionID,
+            activeReadStopToken.stopToken,
+          );
+        }
+        const queueCleanupSucceeded = snapshot.chatSessionsFresh
+          ? fenceChatSessionsMissingFromAuthoritativeSnapshot(
+              authoritativeSessionIDs,
+              authoritativeOmissionStopTokens,
+            )
+          : true;
+        const snapshotActiveDeleted = Boolean(
+          (dashboardActiveChatSessionID &&
+            isChatSessionDeleted(
+              dashboardActiveChatSessionID,
+              snapshot.activeChatSession?.project_id ?? activeChatSession?.project_id,
+            )) ||
+          (snapshot.activeChatSession?.id &&
+            isChatSessionDeleted(
+              snapshot.activeChatSession.id,
+              snapshot.activeChatSession.project_id,
+            )),
         );
-        setActiveChatSessionID(snapshot.activeChatSessionID);
-        setActiveChatSession(snapshot.activeChatSession);
-        params.syncHecateSelectionFromSession(snapshot.activeChatSession);
+        const committableChatSessions = liveChatSessions.filter(
+          (session) => !isChatSessionDeleted(session.id, session.project_id),
+        );
+        setChatSessions((current) => {
+          const currentByID = new Map(current.map((session) => [session.id, session]));
+          const next = committableChatSessions.flatMap((session: ChatSessionSummaryRecord) => {
+            if (allowedChatSessionSummaries.get(session.id)) return [session];
+            const retained = currentByID.get(session.id);
+            return retained ? [retained] : [];
+          });
+          const nextIDs = new Set(next.map((session) => session.id));
+          for (const session of current) {
+            if (!nextIDs.has(session.id) && chatStopFenceProtectsSession(session.id)) {
+              next.push(session);
+            }
+          }
+          return next;
+        });
+        const nextActiveSession = snapshotActiveDeleted ? null : snapshot.activeChatSession;
+        const activeSnapshotAllowed =
+          snapshotActiveDeleted ||
+          (nextActiveSession
+            ? activeSnapshotAllowedBeforeDeletion
+            : !chatStopFenceProtectsSession(dashboardActiveChatSessionID));
+        if (activeSnapshotAllowed) {
+          setActiveChatSessionID(snapshotActiveDeleted ? "" : snapshot.activeChatSessionID);
+          setActiveChatSession(nextActiveSession);
+          params.syncHecateSelectionFromSession(nextActiveSession);
+        }
+        if (!queueCleanupSucceeded) {
+          setError(
+            "The dashboard removed a deleted chat, but browser queue cleanup needs attention before queued work can continue.",
+          );
+        }
       } else {
         // The snapshot predates a newer operator transition. Keep every newer
         // local summary authoritative, but still add non-conflicting sessions
         // discovered by the dashboard so the rest of the sidebar does not
         // remain empty until another refresh.
+        const allowedAdditions = liveChatSessions.filter((session) => {
+          const stopToken = snapshot.chatSessionsFresh
+            ? (chatSessionsReadStopTokens.get(session.id) ?? null)
+            : null;
+          return chatStopFenceAllowsSnapshot(
+            session,
+            stopToken === null ? { kind: "unscoped" } : { kind: "stop_read", stopToken },
+          );
+        });
         setChatSessions((current) => {
           const currentIDs = new Set(current.map((session) => session.id));
-          const additions = snapshot.chatSessions.filter((session) => !currentIDs.has(session.id));
+          const additions = allowedAdditions.filter((session) => !currentIDs.has(session.id));
           return additions.length > 0 ? [...current, ...additions] : current;
         });
       }

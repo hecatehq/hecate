@@ -41,6 +41,14 @@ func TestStatusRecorderForwardsHijacker(t *testing.T) {
 	}
 }
 
+func TestStatusRecorderUnwrapsForResponseController(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	wrapper := &statusRecorder{ResponseWriter: recorder, status: http.StatusOK}
+	if got := wrapper.Unwrap(); got != recorder {
+		t.Fatalf("Unwrap() = %T, want original response writer", got)
+	}
+}
+
 type hijackableResponseWriter struct {
 	header   http.Header
 	hijacked bool

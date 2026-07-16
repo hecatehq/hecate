@@ -27,11 +27,36 @@ type Provider interface {
 	Supports(model string) bool
 }
 
+// ProviderInstanceIdentityReporter is implemented by provider adapters that
+// can derive a stable, non-secret identity for their effective configuration
+// generation. Registries assign a process-scoped identity to providers that do
+// not implement it, which still fences a current request but changes whenever
+// that provider object is recreated.
+type ProviderInstanceIdentityReporter interface {
+	ProviderInstanceIdentity() types.ProviderInstanceIdentity
+}
+
+// ProviderInstance binds a provider object to the opaque identity assigned by
+// its registry. Callers that admit sensitive request bodies must carry this
+// identity through routing and compare it with the instance fetched for the
+// actual call.
+type ProviderInstance struct {
+	Provider Provider
+	Identity types.ProviderInstanceIdentity
+}
+
 // AliasReporter lets provider-management surfaces expose stable identifiers
 // that differ from the runtime routing name, such as a control-plane provider
 // ID for an operator-named custom provider.
 type AliasReporter interface {
 	Aliases() []string
+}
+
+// CapabilityFamilyReporter exposes the canonical provider family used for
+// provider-specific discovery and static model capability inference. It is
+// deliberately separate from Name, which remains the configured routing key.
+type CapabilityFamilyReporter interface {
+	CapabilityFamily() string
 }
 
 // CapabilityRefresher is implemented by providers that can bypass their
@@ -90,33 +115,51 @@ type Enabler interface {
 type Registry interface {
 	Get(name string) (Provider, bool)
 	All() []Provider
+	GetInstance(name string) (ProviderInstance, bool)
+	AllInstances() []ProviderInstance
 }
 
 type InMemoryRegistry struct {
-	providers []Provider
-	byName    map[string]Provider
+	instances []ProviderInstance
+	byName    map[string]ProviderInstance
 }
 
 func NewRegistry(items ...Provider) *InMemoryRegistry {
-	byName := make(map[string]Provider, len(items))
+	instances := make([]ProviderInstance, 0, len(items))
+	byName := make(map[string]ProviderInstance, len(items))
 	for _, provider := range items {
-		byName[provider.Name()] = provider
+		instance := newProviderInstance(provider)
+		instances = append(instances, instance)
+		byName[provider.Name()] = instance
 	}
 
 	return &InMemoryRegistry{
-		providers: items,
+		instances: instances,
 		byName:    byName,
 	}
 }
 
 func (r *InMemoryRegistry) Get(name string) (Provider, bool) {
-	provider, ok := r.byName[name]
-	return provider, ok
+	instance, ok := r.byName[name]
+	return instance.Provider, ok
 }
 
 func (r *InMemoryRegistry) All() []Provider {
-	out := make([]Provider, len(r.providers))
-	copy(out, r.providers)
+	out := make([]Provider, 0, len(r.instances))
+	for _, instance := range r.instances {
+		out = append(out, instance.Provider)
+	}
+	return out
+}
+
+func (r *InMemoryRegistry) GetInstance(name string) (ProviderInstance, bool) {
+	instance, ok := r.byName[name]
+	return instance, ok
+}
+
+func (r *InMemoryRegistry) AllInstances() []ProviderInstance {
+	out := make([]ProviderInstance, len(r.instances))
+	copy(out, r.instances)
 	return out
 }
 

@@ -24,6 +24,7 @@ type RoutePreflightErrorKind string
 
 const (
 	RoutePreflightProviderNotFound RoutePreflightErrorKind = "provider_not_found"
+	RoutePreflightProviderChanged  RoutePreflightErrorKind = "provider_instance_changed"
 	RoutePreflightRouteDenied      RoutePreflightErrorKind = "route_denied"
 )
 
@@ -71,13 +72,23 @@ func NewDefaultRoutePreflight(governor governor.Governor, providers providers.Re
 }
 
 func (p *DefaultRoutePreflight) Evaluate(ctx context.Context, req types.ChatRequest, decision types.RouteDecision) (*RoutePreflightResult, error) {
-	provider, ok := p.providers.Get(decision.Provider)
+	instance, ok := p.providers.GetInstance(decision.Provider)
 	if !ok {
 		return nil, &RoutePreflightError{
 			Kind:     RoutePreflightProviderNotFound,
 			Provider: decision.Provider,
 			Model:    decision.Model,
 			Err:      fmt.Errorf("provider %q not found", decision.Provider),
+		}
+	}
+	provider := instance.Provider
+	if err := validateProviderInstanceFence(req, decision, instance.Identity); err != nil {
+		return nil, &RoutePreflightError{
+			Kind:         RoutePreflightProviderChanged,
+			Provider:     decision.Provider,
+			Model:        decision.Model,
+			ProviderKind: string(provider.Kind()),
+			Err:          err,
 		}
 	}
 
@@ -97,4 +108,55 @@ func (p *DefaultRoutePreflight) Evaluate(ctx context.Context, req types.ChatRequ
 		EstimatedUsage: estimatedUsage,
 		EstimatedCost:  types.CostBreakdown{Currency: "USD"},
 	}, nil
+}
+
+func validateProviderInstanceFence(req types.ChatRequest, decision types.RouteDecision, actual types.ProviderInstanceIdentity) error {
+	if !requiresProviderInstanceFence(req) {
+		return nil
+	}
+	if !decision.ProviderInstance.Valid() {
+		return fmt.Errorf("provider %q bound route is missing an execution identity", decision.Provider)
+	}
+	if req.Requirements.ProviderInstance.Valid() && decision.ProviderInstance != req.Requirements.ProviderInstance {
+		return fmt.Errorf("provider %q changed during bound route admission", decision.Provider)
+	}
+	if !actual.Valid() || decision.ProviderInstance != actual {
+		return fmt.Errorf("provider %q changed after bound route admission", decision.Provider)
+	}
+	return nil
+}
+
+func requiresProviderInstanceFence(req types.ChatRequest) bool {
+	return req.Requirements.ImageInput || req.Requirements.NoProviderFailover || req.Requirements.ProviderInstance.Valid()
+}
+
+func providerInstanceForDispatch(registry providers.Registry, req types.ChatRequest, decision types.RouteDecision) (providers.ProviderInstance, error) {
+	if registry == nil {
+		return providers.ProviderInstance{}, &RoutePreflightError{
+			Kind:     RoutePreflightProviderNotFound,
+			Provider: decision.Provider,
+			Model:    decision.Model,
+			Err:      fmt.Errorf("provider %q not found", decision.Provider),
+		}
+	}
+
+	instance, ok := registry.GetInstance(decision.Provider)
+	if !ok || instance.Provider == nil {
+		return providers.ProviderInstance{}, &RoutePreflightError{
+			Kind:     RoutePreflightProviderNotFound,
+			Provider: decision.Provider,
+			Model:    decision.Model,
+			Err:      fmt.Errorf("provider %q not found", decision.Provider),
+		}
+	}
+	if err := validateProviderInstanceFence(req, decision, instance.Identity); err != nil {
+		return providers.ProviderInstance{}, &RoutePreflightError{
+			Kind:         RoutePreflightProviderChanged,
+			Provider:     decision.Provider,
+			Model:        decision.Model,
+			ProviderKind: string(instance.Provider.Kind()),
+			Err:          err,
+		}
+	}
+	return instance, nil
 }

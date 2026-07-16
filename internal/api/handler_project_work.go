@@ -1374,6 +1374,7 @@ var projectWorkErrorMappings = []appErrorMapping{
 	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, cairnline.ErrNotFound),
 	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, projectwork.ErrInvalid, cairnline.ErrInvalid),
 	sentinelAppErrorMapping(http.StatusConflict, errCodeConflict,
+		errProjectMutationClosed,
 		projectwork.ErrBuiltInRole,
 		projectwork.ErrDuplicateRole,
 		projectwork.ErrDuplicate,

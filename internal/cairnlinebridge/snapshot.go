@@ -105,6 +105,39 @@ func CairnlineSnapshot(snapshots []Snapshot) cairnline.Snapshot {
 	return out
 }
 
+// CairnlineSnapshotForProject narrows an exported portable snapshot to one
+// project graph. Cairnline imports are upserts, so rollback callers must not
+// carry unrelated rows that may have changed after the export.
+func CairnlineSnapshotForProject(snapshot cairnline.Snapshot, projectID string) cairnline.Snapshot {
+	projectID = strings.TrimSpace(projectID)
+	return cairnline.Snapshot{
+		Version:            snapshot.Version,
+		ExportedAt:         snapshot.ExportedAt,
+		Projects:           snapshotRowsForProject(snapshot.Projects, projectID, func(item cairnline.Project) string { return item.ID }),
+		ProjectSkills:      snapshotRowsForProject(snapshot.ProjectSkills, projectID, func(item cairnline.ProjectSkill) string { return item.ProjectID }),
+		Roles:              snapshotRowsForProject(snapshot.Roles, projectID, func(item cairnline.Role) string { return item.ProjectID }),
+		WorkItems:          snapshotRowsForProject(snapshot.WorkItems, projectID, func(item cairnline.WorkItem) string { return item.ProjectID }),
+		Assignments:        snapshotRowsForProject(snapshot.Assignments, projectID, func(item cairnline.Assignment) string { return item.ProjectID }),
+		Artifacts:          snapshotRowsForProject(snapshot.Artifacts, projectID, func(item cairnline.Artifact) string { return item.ProjectID }),
+		Evidence:           snapshotRowsForProject(snapshot.Evidence, projectID, func(item cairnline.Evidence) string { return item.ProjectID }),
+		Reviews:            snapshotRowsForProject(snapshot.Reviews, projectID, func(item cairnline.Review) string { return item.ProjectID }),
+		Handoffs:           snapshotRowsForProject(snapshot.Handoffs, projectID, func(item cairnline.Handoff) string { return item.ProjectID }),
+		MemoryEntries:      snapshotRowsForProject(snapshot.MemoryEntries, projectID, func(item cairnline.MemoryEntry) string { return item.ProjectID }),
+		MemoryCandidates:   snapshotRowsForProject(snapshot.MemoryCandidates, projectID, func(item cairnline.MemoryCandidate) string { return item.ProjectID }),
+		AssistantProposals: snapshotRowsForProject(snapshot.AssistantProposals, projectID, func(item cairnline.AssistantProposalRecord) string { return item.ProjectID }),
+	}
+}
+
+func snapshotRowsForProject[T any](items []T, projectID string, projectIDFor func(T) string) []T {
+	var filtered []T
+	for _, item := range items {
+		if projectIDFor(item) == projectID {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
 func SeedProjectFromStores(ctx context.Context, service *cairnline.Service, sources SnapshotSources, projectID string) (Snapshot, error) {
 	if service == nil {
 		return Snapshot{}, errors.Join(ErrSourceNotConfigured, errors.New("cairnline service is required"))

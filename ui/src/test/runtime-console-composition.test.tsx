@@ -3,7 +3,20 @@ import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalsProvider } from "../app/state/approvals";
-import { ChatProvider, composerDraftScope, type ChatState } from "../app/state/chat";
+import {
+  ChatProvider,
+  composerDraftScope,
+  useChat,
+  type ChatCancellationOwner,
+  type ChatState,
+} from "../app/state/chat";
+import {
+  queuedChatDeletedProjectStorageKey,
+  queuedChatDeletedSessionStorageKey,
+  queuedChatMessageStorageKey,
+  queuedChatMessageStorageKeyPrefix,
+  readQueuedChatMessagesFromStorage,
+} from "../app/state/queuedChatStorage";
 import { ProvidersAndModelsProvider } from "../app/state/providersAndModels";
 import { ProjectsProvider } from "../app/state/projects";
 import { RetentionProvider } from "../app/state/retention";
@@ -12,6 +25,14 @@ import { SettingsProvider } from "../app/state/settings";
 import { UsageProvider } from "../app/state/usage";
 import { useRuntimeConsole } from "./runtime-console-test-composer";
 import type { ProjectRecord } from "../types/project";
+
+function isQueuedItemStorageKey(key: string, id: string): boolean {
+  const encodedID = encodeURIComponent(id);
+  return (
+    key.startsWith(queuedChatMessageStorageKeyPrefix) &&
+    (key === `${queuedChatMessageStorageKeyPrefix}${encodedID}` || key.endsWith(`:${encodedID}`))
+  );
+}
 
 // This suite is the canonical regression net for the composed
 // slice + coordinator viewmodel — historically owned by
@@ -62,6 +83,31 @@ function renderRuntimeConsoleHook(options?: RuntimeConsoleHookOptions) {
     );
   }
   return renderHook(() => useRuntimeConsole(), { ...renderOptions, wrapper: Wrapper });
+}
+
+function renderRuntimeConsoleWithChatHook(options?: RuntimeConsoleHookOptions) {
+  const { chatInitialState, projects, ...renderOptions } = options ?? {};
+  function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <SliceProviders chatInitialState={chatInitialState} projects={projects}>
+        {children}
+      </SliceProviders>
+    );
+  }
+  return renderHook(
+    () => {
+      const runtimeConsole = useRuntimeConsole();
+      return {
+        runtimeConsole,
+        chat: useChat(),
+        // Flat aliases let an existing facade regression opt into direct
+        // slice assertions without mechanically rewriting the whole test.
+        state: runtimeConsole.state,
+        actions: runtimeConsole.actions,
+      };
+    },
+    { ...renderOptions, wrapper: Wrapper },
+  );
 }
 
 // Single-user mode: every endpoint is unauthenticated and the gateway
@@ -191,6 +237,72 @@ describe("useRuntimeConsole", () => {
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.chatTarget).toBe("agent");
+  });
+
+  it("carries image drafts into External Agent mode but still blocks Tools on", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    const file = new File(["image"], "map.png", { type: "image/png" });
+
+    act(() => {
+      result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+    });
+    await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
+
+    act(() => result.current.actions.setChatToolsEnabled(true));
+    expect(result.current.state.defaultChatToolsEnabled).toBe(false);
+    expect(result.current.state.notice?.message).toBe(
+      "Remove attached files before turning Tools on.",
+    );
+
+    act(() => result.current.actions.setChatTarget("external_agent"));
+    expect(result.current.state.chatTarget).toBe("external_agent");
+    expect(result.current.state.pendingChatAttachments).toHaveLength(1);
+  });
+
+  it.each([
+    { label: "a declared non-image file", name: "report.pdf", type: "application/pdf" },
+    { label: "a file with no declared type", name: "unknown.bin", type: "" },
+  ])("blocks carrying $label into Hecate image mode", async ({ name, type }) => {
+    const file = new File(["content"], name, { type });
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    act(() => {
+      result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+    });
+    await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
+    act(() => result.current.actions.setChatTarget("agent"));
+
+    expect(result.current.state.chatTarget).toBe("external_agent");
+    expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+    expect(result.current.state.notice?.message).toBe(
+      "Remove files without a declared PNG, JPEG, or WebP type before switching to Hecate Chat.",
+    );
+  });
+
+  it("blocks switching away from an External Agent while its file turn owns attachments", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    const { result } = renderRuntimeConsoleWithChatHook();
+    await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+
+    let token: number | null = null;
+    act(() => {
+      token = result.current.chat.actions.beginChatAttachmentTurn("external-session", 1);
+    });
+    expect(token).not.toBeNull();
+
+    act(() => result.current.runtimeConsole.actions.setChatTarget("agent"));
+
+    expect(result.current.runtimeConsole.state.chatTarget).toBe("external_agent");
+    expect(result.current.runtimeConsole.state.notice?.message).toBe(
+      "Wait for the attachment response before switching agents.",
+    );
+    act(() => result.current.chat.actions.finishChatAttachmentTurn(token!));
   });
 
   it("preserves the saved tools-enabled preference", async () => {
@@ -1681,14 +1793,26 @@ describe("useRuntimeConsole", () => {
       provider: "",
       model: "gpt-4o-mini",
     };
-    const completedSession = (content: string) => ({
-      object: "chat_session",
-      data: {
-        ...createdSession,
-        status: "completed",
-        messages: [{ id: `sent_${messageBodies.length}`, role: "user", content }],
-      },
-    });
+    const completedSession = (content: string) => {
+      const committedMessageID = `sent_${messageBodies.length}`;
+      return {
+        object: "chat_session",
+        data: {
+          ...createdSession,
+          status: "completed",
+          messages: [
+            { id: committedMessageID, role: "user", content },
+            {
+              id: `assistant_${messageBodies.length}`,
+              role: "assistant",
+              content: "Done.",
+              status: "completed",
+            },
+          ],
+        },
+        message_request: { committed_message_id: committedMessageID },
+      };
+    };
     fetchMock.mockImplementation(
       defaultBackendMock({
         "/hecate/v1/chat/sessions": (init) =>
@@ -1921,6 +2045,198 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.message).toBe("Draft in selected chat B");
   });
 
+  it.each(["before", "during"] as const)(
+    "does not let dashboard hydration started %s an image turn replace its active snapshot",
+    async (timing) => {
+      window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+      let delaySessionList = false;
+      let delayedListRequested = 0;
+      let releaseSessionList: (() => void) | undefined;
+      let sessionListGate = Promise.resolve();
+      const staleSession = {
+        id: "chat_a",
+        title: "A",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        workspace: "/workspace/chat_a",
+        messages: [],
+        created_at: "2026-07-13T10:00:00Z",
+        updated_at: "2026-07-13T10:00:00Z",
+      };
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": async () => {
+            if (delaySessionList) {
+              delayedListRequested += 1;
+              await sessionListGate;
+            }
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ ...staleSession, message_count: 0 }],
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            jsonResponse({ object: "chat_session", data: staleSession }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("chat_a"),
+      );
+
+      const optimisticSession = {
+        ...staleSession,
+        messages: [
+          {
+            id: "pending-image-message",
+            role: "user" as const,
+            content: "inspect this map",
+            created_at: "2026-07-13T10:00:01Z",
+          },
+        ],
+      };
+      sessionListGate = new Promise<void>((resolve) => {
+        releaseSessionList = resolve;
+      });
+      delaySessionList = true;
+
+      let dashboardLoad!: Promise<void>;
+      let attachmentTurnStarted = false;
+      let attachmentTurnToken: number | null = null;
+      const beginAttachmentTurn = () => {
+        act(() => {
+          attachmentTurnToken = result.current.chat.actions.beginChatAttachmentTurn("chat_a", 1);
+          attachmentTurnStarted = attachmentTurnToken !== null;
+          result.current.chat.actions.setActiveChatSession(optimisticSession);
+        });
+      };
+      if (timing === "during") beginAttachmentTurn();
+      act(() => {
+        dashboardLoad = result.current.runtimeConsole.actions.loadDashboard();
+      });
+      await waitFor(() => expect(delayedListRequested).toBe(1));
+      if (timing === "before") beginAttachmentTurn();
+      expect(attachmentTurnStarted).toBe(true);
+      if (timing === "during") {
+        act(() => {
+          if (attachmentTurnToken !== null) {
+            result.current.chat.actions.finishChatAttachmentTurn(attachmentTurnToken);
+          }
+        });
+      }
+
+      await act(async () => {
+        releaseSessionList?.();
+        await dashboardLoad;
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSession?.messages).toEqual([
+        expect.objectContaining({ id: "pending-image-message" }),
+      ]);
+      if (timing === "before") {
+        act(() => {
+          if (attachmentTurnToken !== null) {
+            result.current.chat.actions.finishChatAttachmentTurn(attachmentTurnToken);
+          }
+        });
+      }
+    },
+  );
+
+  it("does not let dashboard hydration started during session creation replace the created session", async () => {
+    window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+    let createCount = 0;
+    let delaySessionList = false;
+    let delayedListRequested = 0;
+    let releaseCreate: ((response: Response) => void) | undefined;
+    let releaseSessionList: (() => void) | undefined;
+    const deferredCreate = new Promise<Response>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const sessionListGate = new Promise<void>((resolve) => {
+      releaseSessionList = resolve;
+    });
+    const staleSession = {
+      id: "chat_a",
+      title: "A",
+      agent_id: "hecate",
+      status: "completed",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      messages: [],
+      created_at: "2026-07-13T10:00:00Z",
+      updated_at: "2026-07-13T10:00:00Z",
+    };
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+        createCount += 1;
+        return deferredCreate;
+      }
+      if (url === "/hecate/v1/chat/sessions") {
+        if (delaySessionList) {
+          delayedListRequested += 1;
+          await sessionListGate;
+        }
+        return jsonResponse({
+          object: "chat_sessions",
+          data: [{ ...staleSession, message_count: 0 }],
+        });
+      }
+      if (url === "/hecate/v1/chat/sessions/chat_a") {
+        return jsonResponse({ object: "chat_session", data: staleSession });
+      }
+      return defaultBackendMock()(input, init);
+    });
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
+
+    let create!: Promise<void>;
+    act(() => {
+      create = result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+    await waitFor(() => expect(createCount).toBe(1));
+
+    delaySessionList = true;
+    let dashboardLoad!: Promise<void>;
+    act(() => {
+      dashboardLoad = result.current.actions.loadDashboard();
+    });
+    await waitFor(() => expect(delayedListRequested).toBe(1));
+
+    await act(async () => {
+      releaseCreate?.(
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            ...staleSession,
+            id: "chat_new",
+            title: "New chat",
+            created_at: "2026-07-13T10:00:01Z",
+            updated_at: "2026-07-13T10:00:01Z",
+          },
+        }),
+      );
+      await create;
+    });
+    expect(result.current.state.activeChatSessionID).toBe("chat_new");
+    expect(result.current.state.activeChatSession?.id).toBe("chat_new");
+
+    await act(async () => {
+      releaseSessionList?.();
+      await dashboardLoad;
+    });
+
+    expect(result.current.state.activeChatSessionID).toBe("chat_new");
+    expect(result.current.state.activeChatSession?.id).toBe("chat_new");
+  });
+
   it.each(["Later draft B", "Submitted prompt A"])(
     "keeps a failed submitted prompt separate from a newer draft (%s)",
     async (laterDraft) => {
@@ -2076,8 +2392,17 @@ describe("useRuntimeConsole", () => {
               ...activeSession,
               status: "completed",
               message_count: 1,
-              messages: [{ id: "queued_retry_sent", role: "user", content: "Retry saved A" }],
+              messages: [
+                { id: "queued_retry_sent", role: "user", content: "Retry saved A" },
+                {
+                  id: "queued_retry_answer",
+                  role: "assistant",
+                  content: "Done.",
+                  status: "completed",
+                },
+              ],
             },
+            message_request: { committed_message_id: "queued_retry_sent" },
           });
         },
       }),
@@ -3667,7 +3992,7 @@ describe("useRuntimeConsole", () => {
   describe("Hecate Chat session actions", () => {
     function withSessions(
       sessions: Array<{ id: string; title: string }>,
-      routes: Record<string, () => Response | Promise<Response>> = {},
+      routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {},
     ) {
       return defaultBackendMock({
         "/hecate/v1/chat/sessions": () => {
@@ -4355,6 +4680,305 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.activeChatSessionID).toBe("chat_reusable");
       expect(result.current.state.message).toBe("");
     });
+  });
+
+  // ─── Hecate Chat session actions ───────────────────────────────────────────
+  describe("Hecate Chat session actions", () => {
+    function persistQueuedPrompt(content = "after this") {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([
+          {
+            id: "queued_retry",
+            session_id: "a1",
+            content,
+            execution_mode: "hecate_task",
+            tools_enabled: false,
+            provider_filter: "openai",
+            model: "gpt-4o-mini",
+            workspace: "",
+            system_prompt: "",
+            agent_id: "hecate",
+            created_at: "2026-04-20T00:00:01Z",
+          },
+        ]),
+      );
+    }
+
+    function queuedPromptSession(messages: Array<Record<string, unknown>> = []) {
+      return {
+        object: "chat_session",
+        data: {
+          id: "a1",
+          title: "Vision chat",
+          agent_id: "hecate",
+          status: "completed",
+          workspace: "",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic", image_input: "supported" },
+          messages,
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:02Z",
+        },
+      };
+    }
+
+    function queuedPromptSessionList() {
+      return {
+        object: "chat_sessions",
+        data: [
+          {
+            id: "a1",
+            title: "Vision chat",
+            agent_id: "hecate",
+            status: "completed",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            message_count: 0,
+          },
+        ],
+      };
+    }
+
+    function withSessions(
+      sessions: Array<{ id: string; title: string }>,
+      routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {},
+    ) {
+      return defaultBackendMock({
+        "/hecate/v1/chat/sessions": () => {
+          const data = sessions.map((s) => ({
+            ...s,
+            agent_id: "hecate",
+            status: "completed",
+            message_count: 0,
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          }));
+          return jsonResponse({ object: "chat_sessions", data });
+        },
+        ...routes,
+      });
+    }
+
+    function mockImageSubmissionFailure({
+      ambiguousUpload,
+      ambiguousUploadAt = 1,
+      codedError = true,
+      committed,
+      deleteFails = false,
+      errorCode,
+      reconciliationFails = false,
+      reconciledAssistantStatus,
+      status,
+      uploadFailureDeferred = false,
+    }: {
+      ambiguousUpload?: "network" | "proxy_502" | "hecate_500";
+      ambiguousUploadAt?: number;
+      codedError?: boolean;
+      committed: boolean;
+      deleteFails?: boolean;
+      errorCode?: string;
+      reconciliationFails?: boolean;
+      reconciledAssistantStatus?: "running" | "completed" | "failed" | "cancelled";
+      status: "network" | 409 | 422 | 429 | 500 | 502;
+      uploadFailureDeferred?: boolean;
+    }) {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      const storedAttachment = {
+        id: "attachment-stable-id",
+        session_id: "a1",
+        filename: "map.png",
+        media_type: "image/png",
+        size_bytes: 5,
+        sha256: "abc",
+        created_at: "2026-07-13T10:00:00Z",
+        content_url: "/hecate/v1/chat/sessions/a1/attachments/attachment-stable-id/content",
+      };
+      let messagePostStarted = false;
+      let deleteCount = 0;
+      let uploadCount = 0;
+      let releaseUploadFailure: ((response: Response) => void) | undefined;
+      let rejectUploadFailure: ((reason: Error) => void) | undefined;
+      const deferredUploadFailure = new Promise<Response>((resolve, reject) => {
+        releaseUploadFailure = resolve;
+        rejectUploadFailure = reject;
+      });
+
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: {
+                  provider: "openai",
+                  provider_kind: "cloud",
+                  capabilities: { tool_calling: "basic", image_input: "supported" },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Vision chat",
+                agent_id: "hecate",
+                status: "completed",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                message_count: 0,
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          if (messagePostStarted && reconciliationFails) {
+            throw new TypeError("reconciliation unavailable");
+          }
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Vision chat",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              capabilities: { tool_calling: "basic", image_input: "supported" },
+              messages:
+                messagePostStarted && committed
+                  ? [
+                      {
+                        id: "user-committed",
+                        role: "user",
+                        content: "inspect the map",
+                        attachments: [storedAttachment],
+                        created_at: "2026-07-13T10:00:01Z",
+                      },
+                      ...(reconciledAssistantStatus
+                        ? [
+                            {
+                              id: "assistant-reconciled",
+                              role: "assistant",
+                              content:
+                                reconciledAssistantStatus === "running"
+                                  ? "Model is responding"
+                                  : "Model response",
+                              status: reconciledAssistantStatus,
+                              created_at: "2026-07-13T10:00:02Z",
+                            },
+                          ]
+                        : []),
+                    ]
+                  : [],
+            },
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/attachments") {
+          uploadCount += 1;
+          if (ambiguousUpload && uploadCount === ambiguousUploadAt) {
+            if (uploadFailureDeferred) return deferredUploadFailure;
+            if (ambiguousUpload === "network") {
+              throw new TypeError("connection reset after upload commit");
+            }
+            if (ambiguousUpload === "hecate_500") {
+              return jsonResponse(
+                {
+                  error: {
+                    type: "gateway_error",
+                    message: "attachment commit result was lost",
+                  },
+                },
+                500,
+              );
+            }
+            return new Response(
+              "<html>proxy lost attachment-stable-id with internal-secret-42</html>",
+              {
+                status: 502,
+                headers: {
+                  "Content-Type": "text/html",
+                  "X-Request-Id": "request-upload-502",
+                  "X-Trace-Id": "trace-upload-502",
+                },
+              },
+            );
+          }
+          if (uploadFailureDeferred) return deferredUploadFailure;
+          return jsonResponse({ object: "chat_attachment", data: storedAttachment });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostStarted = true;
+          if (status === "network") throw new TypeError("connection reset");
+          if (!codedError) {
+            return new Response("<html>upstream unavailable</html>", {
+              status,
+              headers: { "Content-Type": "text/html" },
+            });
+          }
+          return jsonResponse(
+            {
+              error: {
+                type: errorCode ?? (status === 500 ? "gateway_error" : "chat.attachment_rejected"),
+                message: "attachment rejected",
+              },
+            },
+            status,
+          );
+        }
+        if (
+          url === "/hecate/v1/chat/sessions/a1/attachments/attachment-stable-id" &&
+          init?.method === "DELETE"
+        ) {
+          deleteCount += 1;
+          if (deleteFails) {
+            return jsonResponse(
+              {
+                error: {
+                  type: "internal_error",
+                  message: "attachment cleanup unavailable",
+                },
+              },
+              503,
+            );
+          }
+          return new Response(null, { status: 204 });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      return {
+        file,
+        rejectUploadFailure,
+        releaseUploadFailure,
+        get deleteCount() {
+          return deleteCount;
+        },
+        get uploadCount() {
+          return uploadCount;
+        },
+      };
+    }
 
     it("retains an initial linked-chat draft when selection fails and is retried", async () => {
       let attempts = 0;
@@ -4407,6 +5031,3076 @@ describe("useRuntimeConsole", () => {
       expect(selected).toBe(true);
       expect(result.current.state.message).toBe("One-time launch context");
     });
+
+    it("retains a newer same-chat edit when a deferred refresh fails", async () => {
+      let loads = 0;
+      let releaseRefresh: ((response: Response) => void) | undefined;
+      const deferredRefresh = new Promise<Response>((resolve) => {
+        releaseRefresh = resolve;
+      });
+      const session = () =>
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            id: "chat_same",
+            title: "Same chat",
+            agent_id: "hecate",
+            status: "completed",
+            messages: [],
+            provider: "openai",
+            model: "gpt-4o-mini",
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        });
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_same", title: "Same chat" }], {
+          "/hecate/v1/chat/sessions/chat_same": () => {
+            loads += 1;
+            return loads === 2 ? deferredRefresh : session();
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_same");
+      });
+      act(() => {
+        result.current.actions.setMessage("draft before refresh");
+      });
+
+      let refresh!: Promise<boolean>;
+      act(() => {
+        refresh = result.current.actions.selectChatSession("chat_same");
+      });
+      await waitFor(() => expect(loads).toBe(2));
+      act(() => {
+        result.current.actions.setMessage("newer edit while refreshing");
+      });
+
+      let refreshed = true;
+      await act(async () => {
+        releaseRefresh?.(jsonResponse({ error: { message: "temporarily unavailable" } }, 503));
+        refreshed = await refresh;
+      });
+      expect(refreshed).toBe(false);
+      expect(result.current.state.message).toBe("");
+
+      await act(async () => {
+        refreshed = await result.current.actions.selectChatSession("chat_same");
+      });
+      expect(refreshed).toBe(true);
+      expect(result.current.state.message).toBe("newer edit while refreshing");
+    });
+
+    it("keeps image drafts scoped to the active chat when new-session creation is requested", async () => {
+      let createCount = 0;
+      const backend = withSessions([{ id: "chat_a", title: "A" }], {
+        "/hecate/v1/chat/sessions/chat_a": () =>
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "chat_a",
+              title: "A",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          }),
+      });
+      fetchMock.mockImplementation((input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          createCount += 1;
+        }
+        return backend(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+
+      await act(async () => {
+        await result.current.actions.createChatSession({
+          agentID: "hecate",
+          projectID: "project_b",
+        });
+      });
+
+      expect(createCount).toBe(0);
+      expect(result.current.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+      expect(result.current.state.notice?.message).toBe(
+        "Remove attached files before starting a new chat.",
+      );
+    });
+
+    it("blocks session changes with image drafts and preserves them across a failed refresh", async () => {
+      let activeLoads = 0;
+      let destinationLoads = 0;
+      let failActiveReload = false;
+      const session = (id: string) => ({
+        object: "chat_session",
+        data: {
+          id,
+          title: id,
+          agent_id: "hecate",
+          status: "completed",
+          workspace: "",
+          message_count: 0,
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "A" },
+            { id: "chat_b", title: "B" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => {
+              activeLoads += 1;
+              if (failActiveReload) {
+                return jsonResponse({ error: { message: "session refresh failed" } }, 503);
+              }
+              return jsonResponse(session("chat_a"));
+            },
+            "/hecate/v1/chat/sessions/chat_b": () => {
+              destinationLoads += 1;
+              return jsonResponse({ error: { message: "destination unavailable" } }, 503);
+            },
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.actions.setMessage("inspect this map");
+        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+
+      let changed = true;
+      await act(async () => {
+        changed = await result.current.actions.selectChatSession("chat_b");
+      });
+
+      expect(changed).toBe(false);
+      expect(destinationLoads).toBe(0);
+      expect(result.current.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+      expect(result.current.state.message).toBe("inspect this map");
+      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+      expect(result.current.state.notice?.message).toBe(
+        "Remove attached files before switching chats.",
+      );
+
+      const loadsBeforeRefresh = activeLoads;
+      failActiveReload = true;
+      await act(async () => {
+        changed = await result.current.actions.selectChatSession("chat_a");
+      });
+
+      expect(changed).toBe(false);
+      expect(activeLoads).toBe(loadsBeforeRefresh + 1);
+      expect(result.current.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+      expect(result.current.state.message).toBe("inspect this map");
+      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+    });
+
+    it.each(["success", "failure"] as const)(
+      "keeps deferred session selection %s scoped to the previous composer when an image draft appears",
+      async (outcome) => {
+        let destinationLoads = 0;
+        let releaseSelection: ((response: Response) => void) | undefined;
+        const deferredSelection = new Promise<Response>((resolve) => {
+          releaseSelection = resolve;
+        });
+        const session = (id: string) =>
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id,
+              title: id,
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          });
+        fetchMock.mockImplementation(
+          withSessions(
+            [
+              { id: "chat_a", title: "A" },
+              { id: "chat_b", title: "B" },
+            ],
+            {
+              "/hecate/v1/chat/sessions/chat_a": () => session("chat_a"),
+              "/hecate/v1/chat/sessions/chat_b": () => {
+                destinationLoads += 1;
+                return deferredSelection;
+              },
+            },
+          ),
+        );
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.actions.selectChatSession("chat_a");
+        });
+
+        let selection!: Promise<boolean>;
+        act(() => {
+          selection = result.current.actions.selectChatSession("chat_b");
+        });
+        await waitFor(() => expect(destinationLoads).toBe(1));
+        expect(result.current.state.activeChatSessionID).toBe("chat_b");
+        expect(result.current.state.activeChatSession).toBeNull();
+
+        const file = new File(["image"], "map.png", { type: "image/png" });
+        act(() => {
+          result.current.actions.setMessage("inspect this map");
+          result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+        });
+
+        let changed = true;
+        await act(async () => {
+          releaseSelection?.(
+            outcome === "success"
+              ? session("chat_b")
+              : jsonResponse({ error: { message: "destination unavailable" } }, 503),
+          );
+          changed = await selection;
+        });
+
+        expect(changed).toBe(false);
+        expect(result.current.state.activeChatSessionID).toBe("chat_a");
+        expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+        expect(result.current.state.message).toBe("inspect this map");
+        expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+      },
+    );
+
+    it("restores the source composer when a File appears during deferred selection", async () => {
+      let releaseSelection: ((response: Response) => void) | undefined;
+      const deferredSelection = new Promise<Response>((resolve) => {
+        releaseSelection = resolve;
+      });
+      const session = (id: string) =>
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: "hecate",
+            status: "completed",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            messages: [],
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "A" },
+            { id: "chat_b", title: "B" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => session("chat_a"),
+            "/hecate/v1/chat/sessions/chat_b": () => deferredSelection,
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+      act(() => {
+        result.current.actions.setMessage("source composer draft");
+      });
+
+      let selection!: Promise<boolean>;
+      act(() => {
+        selection = result.current.actions.selectChatSession("chat_b");
+      });
+      await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("chat_b"));
+      expect(result.current.state.message).toBe("");
+
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+
+      let selected = true;
+      await act(async () => {
+        releaseSelection?.(session("chat_b"));
+        selected = await selection;
+      });
+
+      expect(selected).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+      expect(result.current.state.message).toBe("source composer draft");
+      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+    });
+
+    it("ignores an older session selection that succeeds after the latest selection", async () => {
+      let releaseSlowSelection: ((response: Response) => void) | undefined;
+      const slowSelection = new Promise<Response>((resolve) => {
+        releaseSlowSelection = resolve;
+      });
+      const session = (id: string) =>
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: "hecate",
+            status: "completed",
+            provider: "openai",
+            model: `model-${id}`,
+            workspace: `/workspace/${id}`,
+            messages: [],
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_b", title: "B" },
+            { id: "chat_c", title: "C" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_b": () => slowSelection,
+            "/hecate/v1/chat/sessions/chat_c": () => session("chat_c"),
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      let slowResult!: Promise<boolean>;
+      act(() => {
+        slowResult = result.current.actions.selectChatSession("chat_b");
+      });
+      expect(result.current.state.activeChatSessionID).toBe("chat_b");
+      expect(result.current.state.activeChatSession).toBeNull();
+
+      let latestSelected = false;
+      await act(async () => {
+        latestSelected = await result.current.actions.selectChatSession("chat_c");
+      });
+      expect(latestSelected).toBe(true);
+      expect(result.current.state.activeChatSessionID).toBe("chat_c");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_c");
+
+      let staleSelected = true;
+      await act(async () => {
+        releaseSlowSelection?.(session("chat_b"));
+        staleSelected = await slowResult;
+      });
+
+      expect(staleSelected).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("chat_c");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_c");
+      expect(result.current.state.model).toBe("model-chat_c");
+      expect(result.current.state.agentWorkspace).toBe("/workspace/chat_c");
+    });
+
+    it("ignores an older session selection that fails after the latest selection", async () => {
+      let releaseSlowSelection: ((response: Response) => void) | undefined;
+      const slowSelection = new Promise<Response>((resolve) => {
+        releaseSlowSelection = resolve;
+      });
+      const latestSession = jsonResponse({
+        object: "chat_session",
+        data: {
+          id: "chat_c",
+          title: "C",
+          agent_id: "hecate",
+          status: "completed",
+          provider: "openai",
+          model: "model-chat_c",
+          workspace: "/workspace/chat_c",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_b", title: "B" },
+            { id: "chat_c", title: "C" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_b": () => slowSelection,
+            "/hecate/v1/chat/sessions/chat_c": () => latestSession,
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      let slowResult!: Promise<boolean>;
+      act(() => {
+        slowResult = result.current.actions.selectChatSession("chat_b");
+      });
+      expect(result.current.state.activeChatSessionID).toBe("chat_b");
+      expect(result.current.state.activeChatSession).toBeNull();
+      await act(async () => {
+        expect(await result.current.actions.selectChatSession("chat_c")).toBe(true);
+      });
+
+      let staleSelected = true;
+      await act(async () => {
+        releaseSlowSelection?.(jsonResponse({ error: { message: "late selection failure" } }, 503));
+        staleSelected = await slowResult;
+      });
+
+      expect(staleSelected).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("chat_c");
+      expect(result.current.state.activeChatSession?.id).toBe("chat_c");
+      expect(result.current.state.chatError).toBe("");
+      expect(result.current.state.notice).toBeNull();
+    });
+
+    it("does not let a slow selection repopulate a session cleared by a target switch", async () => {
+      let releaseSlowSelection: ((response: Response) => void) | undefined;
+      const slowSelection = new Promise<Response>((resolve) => {
+        releaseSlowSelection = resolve;
+      });
+      const session = (id: string) =>
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: "hecate",
+            status: "completed",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            workspace: `/workspace/${id}`,
+            messages: [],
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "A" },
+            { id: "chat_b", title: "B" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => session("chat_a"),
+            "/hecate/v1/chat/sessions/chat_b": () => slowSelection,
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+
+      let slowResult!: Promise<boolean>;
+      act(() => {
+        slowResult = result.current.actions.selectChatSession("chat_b");
+      });
+      expect(result.current.state.activeChatSessionID).toBe("chat_b");
+      expect(result.current.state.activeChatSession).toBeNull();
+      act(() => {
+        result.current.actions.setChatTarget("external_agent");
+      });
+      expect(result.current.state.activeChatSessionID).toBe("");
+      expect(result.current.state.activeChatSession).toBeNull();
+
+      let staleSelected = true;
+      await act(async () => {
+        releaseSlowSelection?.(session("chat_b"));
+        staleSelected = await slowResult;
+      });
+
+      expect(staleSelected).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("");
+      expect(result.current.state.activeChatSession).toBeNull();
+      expect(result.current.state.chatTarget).toBe("external_agent");
+    });
+
+    it("deduplicates overlapping session creation and never carries a new image draft", async () => {
+      let createCount = 0;
+      let releaseCreate: ((response: Response) => void) | undefined;
+      const deferredCreate = new Promise<Response>((resolve) => {
+        releaseCreate = resolve;
+      });
+      const activeSession = {
+        object: "chat_session",
+        data: {
+          id: "chat_a",
+          title: "A",
+          agent_id: "hecate",
+          status: "completed",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          workspace: "/workspace/a",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      };
+      const backend = withSessions([{ id: "chat_a", title: "A" }], {
+        "/hecate/v1/chat/sessions/chat_a": () => jsonResponse(activeSession),
+      });
+      fetchMock.mockImplementation((input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          createCount += 1;
+          return deferredCreate;
+        }
+        return backend(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+      act(() => {
+        result.current.runtimeConsole.actions.setMessage("source composer draft");
+      });
+
+      let firstCreate!: Promise<void>;
+      act(() => {
+        firstCreate = result.current.runtimeConsole.actions.createChatSession({
+          agentID: "hecate",
+          draft: "created shell draft",
+        });
+      });
+      await waitFor(() => expect(createCount).toBe(1));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.createChatSession({ agentID: "hecate" });
+      });
+      expect(createCount).toBe(1);
+
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.runtimeConsole.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.pendingChatAttachments).toHaveLength(1),
+      );
+
+      await act(async () => {
+        releaseCreate?.(
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "chat_new",
+              title: "New chat",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              messages: [],
+              created_at: "2026-04-20T00:00:01Z",
+              updated_at: "2026-04-20T00:00:01Z",
+            },
+          }),
+        );
+        await firstCreate;
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("chat_a");
+      expect(result.current.runtimeConsole.state.message).toBe("source composer draft");
+      expect(result.current.runtimeConsole.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file },
+      ]);
+      expect(
+        result.current.runtimeConsole.state.chatSessions.map((session) => session.id),
+      ).toContain("chat_new");
+      expect(result.current.chat.state.composerDraftsBySessionID.get("chat_new")).toBe(
+        "created shell draft",
+      );
+      expect(result.current.runtimeConsole.state.notice?.message).toContain(
+        "attached files belong",
+      );
+      expect(result.current.runtimeConsole.state.chatLoading).toBe(false);
+    });
+
+    it("suppresses a deferred cancel failure after the operator switches chats", async () => {
+      let releaseCancel: ((response: Response) => void) | undefined;
+      const deferredCancel = new Promise<Response>((resolve) => {
+        releaseCancel = resolve;
+      });
+      const session = (id: string, status = "completed") =>
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: id === "chat_a" ? "codex" : "hecate",
+            status,
+            workspace: "/workspace",
+            messages: [],
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "A" },
+            { id: "chat_b", title: "B" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => session("chat_a", "running"),
+            "/hecate/v1/chat/sessions/chat_b": () => session("chat_b"),
+            "/hecate/v1/chat/sessions/chat_a/cancel": () => deferredCancel,
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+
+      let cancellation!: Promise<void>;
+      act(() => {
+        cancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => expect(result.current.chat.state.chatCancelling).toBe(true));
+      expect(result.current.chat.state.chatCancellingSessionID).toBe("chat_a");
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_b");
+      });
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_b");
+
+      await act(async () => {
+        releaseCancel?.(jsonResponse({ error: { message: "cancel unavailable" } }, 503));
+        await cancellation;
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_b");
+      expect(result.current.runtimeConsole.state.chatError).toBe("");
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+      expect(result.current.chat.state.chatCancellingSessionID).toBe("");
+    });
+
+    it("keeps deferred cancellation ownership until the exact request settles", async () => {
+      let releaseCancel: ((response: Response) => void) | undefined;
+      const deferredCancel = new Promise<Response>((resolve) => {
+        releaseCancel = resolve;
+      });
+      let cancelRequestCount = 0;
+      let messagePostCount = 0;
+      let sessionGetCount = 0;
+      const blockedRequestCounts = {
+        cancelApproval: 0,
+        compact: 0,
+        config: 0,
+        rename: 0,
+        resolveApproval: 0,
+        workspaceRevert: 0,
+      };
+      const session = (status: "running" | "completed") => ({
+        id: "chat_a",
+        title: "External Agent chat",
+        agent_id: "codex",
+        status,
+        workspace: "/workspace",
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      });
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_a", title: "A" }], {
+          "/hecate/v1/chat/sessions/chat_a": (init) => {
+            if (init?.method === "PATCH") blockedRequestCounts.rename += 1;
+            else sessionGetCount += 1;
+            return jsonResponse({ object: "chat_session", data: session("running") });
+          },
+          "/hecate/v1/chat/sessions/chat_a/cancel": () => {
+            cancelRequestCount += 1;
+            return deferredCancel;
+          },
+          "/hecate/v1/chat/sessions/chat_a/messages": () => {
+            messagePostCount += 1;
+            return jsonResponse({ object: "chat_session", data: session("completed") });
+          },
+          "/hecate/v1/chat/sessions/chat_a/compact": () => {
+            blockedRequestCounts.compact += 1;
+            return jsonResponse({ object: "chat_session", data: session("completed") });
+          },
+          "/hecate/v1/chat/sessions/chat_a/config-options/model": () => {
+            blockedRequestCounts.config += 1;
+            return jsonResponse({ object: "chat_session", data: session("completed") });
+          },
+          "/hecate/v1/chat/sessions/chat_a/workspace-diff/revert": () => {
+            blockedRequestCounts.workspaceRevert += 1;
+            return jsonResponse({
+              object: "chat_workspace_diff",
+              data: { revision: "sha256:after-revert", has_changes: false, files: [] },
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_a/approvals/approval_1/resolve": () => {
+            blockedRequestCounts.resolveApproval += 1;
+            return jsonResponse({ object: "chat_approval", data: {} });
+          },
+          "/hecate/v1/chat/sessions/chat_a/approvals/approval_1/cancel": () => {
+            blockedRequestCounts.cancelApproval += 1;
+            return jsonResponse({ object: "chat_approval", data: {} });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+      act(() => result.current.chat.actions.setChatLoading(true));
+
+      let cancellation!: Promise<void>;
+      act(() => {
+        cancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => expect(cancelRequestCount).toBe(1));
+      expect(result.current.chat.state.chatCancelling).toBe(true);
+
+      act(() => {
+        result.current.chat.actions.setActiveChatSession(session("completed"));
+        result.current.chat.actions.setChatLoading(false);
+      });
+
+      expect(result.current.chat.state.chatCancelling).toBe(true);
+      expect(result.current.chat.state.chatCancellingSessionID).toBe("chat_a");
+      const selectedModel = result.current.runtimeConsole.state.model;
+      const selectedProvider = result.current.runtimeConsole.state.providerFilter;
+      const sessionReadsBeforeBlockedActions = sessionGetCount;
+      act(() => {
+        result.current.chat.actions.setQueuedChatMessages([
+          {
+            id: "queued_check",
+            session_id: "chat_a",
+            content: "queued",
+            created_at: "2026-04-20T00:00:01Z",
+            delivery_state: "reconcile_required",
+          } as any,
+        ]);
+        result.current.runtimeConsole.actions.setProviderFilter("openai");
+        result.current.runtimeConsole.actions.setModel("different-model");
+      });
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        await result.current.runtimeConsole.actions.reconcileQueuedChatMessage("queued_check");
+        await result.current.runtimeConsole.actions.compactChatSession("chat_a");
+        await result.current.runtimeConsole.actions.setChatConfigOption("chat_a", "model", "fast");
+        await result.current.runtimeConsole.actions.revertChatWorkspaceFiles(
+          "chat_a",
+          [],
+          "sha256:reviewed",
+        );
+        await result.current.runtimeConsole.actions.resolveChatApproval("chat_a", "approval_1", {
+          decision: "approve",
+          scope: "once",
+        });
+        await result.current.runtimeConsole.actions.cancelChatApproval("chat_a", "approval_1");
+        await result.current.runtimeConsole.actions.renameChatSession("chat_a", "Renamed");
+      });
+      expect(sessionGetCount).toBe(sessionReadsBeforeBlockedActions);
+      expect(blockedRequestCounts).toEqual({
+        cancelApproval: 0,
+        compact: 0,
+        config: 0,
+        rename: 0,
+        resolveApproval: 0,
+        workspaceRevert: 0,
+      });
+      expect(result.current.runtimeConsole.state.model).toBe(selectedModel);
+      expect(result.current.runtimeConsole.state.providerFilter).toBe(selectedProvider);
+      await act(async () => {
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      expect(cancelRequestCount).toBe(1);
+
+      act(() => result.current.runtimeConsole.actions.setMessage("start another response"));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(messagePostCount).toBe(0);
+      expect(result.current.runtimeConsole.state.message).toBe("start another response");
+      expect(result.current.runtimeConsole.state.chatErrorCode).toBe("chat.cancellation_in_flight");
+      expect(result.current.chat.state.chatCancelling).toBe(true);
+
+      await act(async () => {
+        releaseCancel?.(jsonResponse({ object: "chat_session", data: session("completed") }));
+        await cancellation;
+      });
+
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+      expect(result.current.chat.state.chatCancellingSessionID).toBe("");
+    });
+
+    it("projects a successful Stop summary after the operator switches chats", async () => {
+      let releaseCancel: ((response: Response) => void) | undefined;
+      const deferredCancel = new Promise<Response>((resolve) => {
+        releaseCancel = resolve;
+      });
+      let stopAccepted = false;
+      const session = (id: string, status: "running" | "completed" | "cancelled", title: string) =>
+        jsonResponse({
+          object: "chat_session",
+          data: {
+            id,
+            title,
+            agent_id: id === "chat_a" ? "codex" : "hecate",
+            status,
+            workspace: "/workspace",
+            messages: [],
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:01Z",
+          },
+        });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "A" },
+            { id: "chat_b", title: "B" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () =>
+              stopAccepted
+                ? session("chat_a", "cancelled", "A stopped")
+                : session("chat_a", "running", "A"),
+            "/hecate/v1/chat/sessions/chat_b": () => session("chat_b", "completed", "B"),
+            "/hecate/v1/chat/sessions/chat_a/cancel": () => deferredCancel,
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+
+      let cancellation!: Promise<void>;
+      act(() => {
+        cancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => expect(result.current.chat.state.chatCancelling).toBe(true));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_b");
+      });
+
+      await act(async () => {
+        stopAccepted = true;
+        releaseCancel?.(session("chat_a", "running", "stale acknowledgement"));
+        await cancellation;
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_b");
+      expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("chat_b");
+      expect(
+        result.current.runtimeConsole.state.chatSessions.find((entry) => entry.id === "chat_a"),
+      ).toMatchObject({ title: "A stopped", status: "cancelled" });
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+    });
+
+    it("accepts post-Stop dashboard terminal proof and authoritative omission", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+      let stoppedDashboard = false;
+      let dashboardOmitsSession = false;
+      const session = (title: string, status: "running" | "cancelled") => ({
+        id: "chat_a",
+        title,
+        agent_id: "codex",
+        status,
+        workspace: "/workspace",
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant" as const,
+            content: status === "running" ? "Working" : "Stopped",
+            status,
+          },
+        ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      });
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () => {
+            if (dashboardOmitsSession) {
+              return jsonResponse({ object: "chat_sessions", data: [] });
+            }
+            const current = stoppedDashboard
+              ? session("Stopped by dashboard", "cancelled")
+              : session("Live turn", "running");
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ ...current, messages: undefined, message_count: 1 }],
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: stoppedDashboard
+                ? session("Stopped by dashboard", "cancelled")
+                : session("Live turn", "running"),
+            }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+          id: "chat_a",
+          title: "Live turn",
+        }),
+      );
+
+      let fence!: ReturnType<typeof result.current.chat.actions.beginChatStopFence>;
+      act(() => {
+        fence = result.current.chat.actions.beginChatStopFence({
+          token: 17,
+          sessionID: "chat_a",
+          turnGeneration: 23,
+        });
+        result.current.chat.actions.acceptChatStopFence(fence);
+      });
+      stoppedDashboard = true;
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.loadDashboard();
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        title: "Stopped by dashboard",
+        status: "cancelled",
+      });
+      expect(
+        result.current.runtimeConsole.state.chatSessions.find((entry) => entry.id === "chat_a"),
+      ).toMatchObject({ title: "Stopped by dashboard", status: "cancelled" });
+      expect(fence.phase).toBe("settled");
+
+      let omissionFence!: ReturnType<typeof result.current.chat.actions.beginChatStopFence>;
+      act(() => {
+        omissionFence = result.current.chat.actions.beginChatStopFence({
+          token: 18,
+          sessionID: "chat_a",
+          turnGeneration: 24,
+        });
+        result.current.chat.actions.acceptChatStopFence(omissionFence);
+      });
+      dashboardOmitsSession = true;
+      await act(async () => {
+        await result.current.runtimeConsole.actions.loadDashboard();
+      });
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("");
+      expect(result.current.runtimeConsole.state.activeChatSession).toBeNull();
+      expect(
+        result.current.runtimeConsole.state.chatSessions.some((entry) => entry.id === "chat_a"),
+      ).toBe(false);
+      expect(result.current.chat.actions.getChatStopFence("chat_a")).toBeNull();
+      expect(result.current.chat.actions.isChatSessionDeleted("chat_a")).toBe(true);
+    });
+
+    it("keeps a dashboard omission that began before Stop acceptance fenced", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+      const session = {
+        id: "chat_a",
+        title: "Live turn",
+        agent_id: "codex",
+        status: "running",
+        workspace: "/workspace",
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant" as const,
+            content: "Working",
+            status: "running",
+          },
+        ],
+      };
+      let listReadCount = 0;
+      let secondListReadStarted = false;
+      let releaseSecondListRead: ((response: Response) => void) | undefined;
+      const secondListRead = new Promise<Response>((resolve) => {
+        releaseSecondListRead = resolve;
+      });
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () => {
+            listReadCount += 1;
+            if (listReadCount > 1) {
+              secondListReadStarted = true;
+              return secondListRead;
+            }
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ ...session, messages: undefined, message_count: 1 }],
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            jsonResponse({ object: "chat_session", data: session }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a"),
+      );
+
+      let dashboardLoad!: Promise<void>;
+      act(() => {
+        dashboardLoad = result.current.runtimeConsole.actions.loadDashboard();
+      });
+      await waitFor(() => expect(secondListReadStarted).toBe(true));
+      let fence!: ReturnType<typeof result.current.chat.actions.beginChatStopFence>;
+      act(() => {
+        fence = result.current.chat.actions.beginChatStopFence({
+          token: 27,
+          sessionID: "chat_a",
+          turnGeneration: 29,
+        });
+        result.current.chat.actions.acceptChatStopFence(fence);
+      });
+
+      await act(async () => {
+        releaseSecondListRead?.(
+          jsonResponse({
+            object: "chat_sessions",
+            data: [],
+          }),
+        );
+        await dashboardLoad;
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        id: "chat_a",
+        title: "Live turn",
+      });
+      expect(
+        result.current.runtimeConsole.state.chatSessions.find((entry) => entry.id === "chat_a"),
+      ).toMatchObject({ title: "Live turn", status: "running" });
+      expect(result.current.chat.actions.getChatStopFence("chat_a")).toBe(fence);
+      expect(fence.phase).toBe("accepted");
+
+      act(() => {
+        result.current.chat.actions.clearChatStopFence(fence);
+      });
+    });
+
+    it.each(["session list", "active detail"] as const)(
+      "does not authorize Stop tokens for failed dashboard %s fallbacks",
+      async (failedRead) => {
+        window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+        const session = (status: "running" | "cancelled") => ({
+          id: "chat_a",
+          title: status === "running" ? "Live turn" : "Stale terminal fallback",
+          agent_id: "codex",
+          status,
+          workspace: "/workspace",
+          messages: [
+            {
+              id: "assistant_1",
+              role: "assistant" as const,
+              content: status === "running" ? "Working" : "Stopped",
+              status,
+            },
+          ],
+        });
+        let failDashboardRead = false;
+        fetchMock.mockImplementation(
+          defaultBackendMock({
+            "/hecate/v1/chat/sessions": () => {
+              if (failDashboardRead && failedRead === "session list") {
+                throw new TypeError("chat-session list unavailable");
+              }
+              return jsonResponse({
+                object: "chat_sessions",
+                data: [{ ...session("running"), messages: undefined, message_count: 1 }],
+              });
+            },
+            "/hecate/v1/chat/sessions/chat_a": () => {
+              if (failDashboardRead && failedRead === "active detail") {
+                throw new TypeError("active chat unavailable");
+              }
+              return jsonResponse({ object: "chat_session", data: session("running") });
+            },
+          }),
+        );
+
+        const { result } = renderRuntimeConsoleWithChatHook();
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await waitFor(() =>
+          expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a"),
+        );
+        let fence!: ReturnType<typeof result.current.chat.actions.beginChatStopFence>;
+        act(() => {
+          fence = result.current.chat.actions.beginChatStopFence({
+            token: 37,
+            sessionID: "chat_a",
+            turnGeneration: 39,
+          });
+          result.current.chat.actions.acceptChatStopFence(fence);
+          if (failedRead === "session list") {
+            const { messages: _messages, ...terminalSummary } = session("cancelled");
+            result.current.chat.actions.setChatSessions([{ ...terminalSummary, message_count: 1 }]);
+          }
+          result.current.chat.actions.setActiveChatSession(session("cancelled"));
+        });
+        failDashboardRead = true;
+
+        await act(async () => {
+          await result.current.runtimeConsole.actions.loadDashboard();
+        });
+
+        expect(result.current.chat.actions.getChatStopFence("chat_a")).toBe(fence);
+        expect(fence.phase).toBe("accepted");
+        expect(result.current.chat.actions.isChatSessionDeleted("chat_a")).toBe(false);
+        act(() => {
+          result.current.chat.actions.clearChatStopFence(fence);
+        });
+      },
+    );
+
+    it("treats a post-Stop active-detail 404 as authoritative absence", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+      const session = {
+        id: "chat_a",
+        title: "Live turn",
+        agent_id: "codex",
+        status: "running",
+        workspace: "/workspace",
+        messages: [
+          {
+            id: "assistant_1",
+            role: "assistant" as const,
+            content: "Working",
+            status: "running",
+          },
+        ],
+      };
+      let activeMissing = false;
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  ...session,
+                  title: activeMissing ? "Terminal summary before 404" : session.title,
+                  status: activeMissing ? "cancelled" : session.status,
+                  messages: undefined,
+                  message_count: 1,
+                },
+              ],
+            }),
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            activeMissing
+              ? jsonResponse(
+                  { error: { type: "not_found", message: "chat session not found" } },
+                  404,
+                )
+              : jsonResponse({ object: "chat_session", data: session }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a"),
+      );
+      let fence!: ReturnType<typeof result.current.chat.actions.beginChatStopFence>;
+      act(() => {
+        fence = result.current.chat.actions.beginChatStopFence({
+          token: 47,
+          sessionID: "chat_a",
+          turnGeneration: 49,
+        });
+        result.current.chat.actions.acceptChatStopFence(fence);
+      });
+      activeMissing = true;
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.loadDashboard();
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("");
+      expect(result.current.runtimeConsole.state.activeChatSession).toBeNull();
+      expect(
+        result.current.runtimeConsole.state.chatSessions.some((entry) => entry.id === "chat_a"),
+      ).toBe(false);
+      expect(result.current.chat.actions.getChatStopFence("chat_a")).toBeNull();
+      expect(result.current.chat.actions.isChatSessionDeleted("chat_a")).toBe(true);
+    });
+
+    it("does not run composition approval catch-up when selecting a Stop-fenced chat", async () => {
+      let approvalReadCount = 0;
+      const session = {
+        id: "chat_a",
+        title: "Stop-fenced chat",
+        agent_id: "codex",
+        status: "running",
+        workspace: "/workspace",
+        messages: [],
+      };
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [{ ...session, message_count: 1 }],
+            }),
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            jsonResponse({ object: "chat_session", data: session }),
+          "/hecate/v1/chat/sessions/chat_a/approvals?status=pending": () => {
+            approvalReadCount += 1;
+            return jsonResponse({ object: "chat_approvals", data: [] });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      let fence!: ReturnType<typeof result.current.chat.actions.beginChatStopFence>;
+      act(() => {
+        fence = result.current.chat.actions.beginChatStopFence({
+          token: 57,
+          sessionID: "chat_a",
+          turnGeneration: 59,
+        });
+        result.current.chat.actions.acceptChatStopFence(fence);
+      });
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        await Promise.resolve();
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a");
+      expect(approvalReadCount).toBe(0);
+      expect(result.current.chat.actions.getChatStopFence("chat_a")).toBe(fence);
+      act(() => {
+        result.current.chat.actions.clearChatStopFence(fence);
+      });
+    });
+
+    it("keeps an accepted Stop fenced through stale acknowledgements and exact-turn updates", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem("hecate.agentAdapterID", "codex");
+      let streamController!: ReadableStreamDefaultController<Uint8Array>;
+      const streamResponse = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+      const encoder = new TextEncoder();
+      const emitStreamEvent = (event: string, payload: unknown) => {
+        streamController.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`),
+        );
+      };
+      let releaseMessagePost: ((response: Response) => void) | undefined;
+      const deferredMessagePost = new Promise<Response>((resolve) => {
+        releaseMessagePost = resolve;
+      });
+      const hangingSessionRead = new Promise<Response>(() => undefined);
+      let stopAccepted = false;
+      let messagePostStarted = false;
+      const session = (status: "completed" | "running" | "cancelled", title: string) => ({
+        id: "chat_a",
+        title,
+        agent_id: "codex",
+        workspace: "/workspace",
+        status,
+        messages:
+          status === "completed"
+            ? []
+            : [
+                { id: "user_1", role: "user", content: "run until stopped", status: "completed" },
+                {
+                  id: "assistant_1",
+                  role: "assistant",
+                  content: status === "running" ? "working" : "stopped",
+                  status,
+                },
+              ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: status === "completed" ? "2026-04-20T00:00:00Z" : "2026-04-20T00:00:01Z",
+      });
+      const pendingApproval = {
+        approval_id: "approval_1",
+        session_id: "chat_a",
+        adapter_id: "codex",
+        tool_kind: "fs",
+        tool_name: "write_file",
+        scope_choices: ["once"],
+        created_at: "2026-04-20T00:00:00Z",
+        expires_at: "2026-04-20T00:05:00Z",
+      };
+
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_a", title: "Before" }], {
+          "/hecate/v1/agent-adapters": () =>
+            jsonResponse({
+              object: "agent_adapters",
+              data: [{ id: "codex", name: "Codex", kind: "acp", available: true }],
+            }),
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            stopAccepted
+              ? hangingSessionRead
+              : jsonResponse({ object: "chat_session", data: session("completed", "Before") }),
+          "/hecate/v1/chat/sessions/chat_a/stream": () => streamResponse,
+          "/hecate/v1/chat/sessions/chat_a/messages": () => {
+            messagePostStarted = true;
+            return deferredMessagePost;
+          },
+          "/hecate/v1/chat/sessions/chat_a/cancel": () => {
+            stopAccepted = true;
+            return jsonResponse({
+              object: "chat_session",
+              data: session("running", "stale 202 acknowledgement"),
+            });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+      act(() => {
+        result.current.runtimeConsole.actions.setMessage("run until stopped");
+      });
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(messagePostStarted).toBe(true));
+
+      act(() => {
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("running", "Live turn"),
+        });
+        emitStreamEvent("approval.requested", pendingApproval);
+      });
+      await waitFor(() => {
+        expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+          status: "running",
+          title: "Live turn",
+        });
+        expect(
+          result.current.runtimeConsole.state.pendingApprovalsBySessionID.get("chat_a"),
+        ).toHaveLength(1);
+      });
+
+      let cancellation!: Promise<void>;
+      act(() => {
+        cancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => {
+        expect(stopAccepted).toBe(true);
+        expect(result.current.chat.state.chatCancelling).toBe(true);
+        expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+          false,
+        );
+      });
+
+      act(() => {
+        emitStreamEvent("approval.requested", {
+          ...pendingApproval,
+          approval_id: "approval_stale",
+        });
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("running", "stale running SSE"),
+        });
+        releaseMessagePost?.(
+          jsonResponse({
+            object: "chat_session",
+            data: session("running", "stale running POST"),
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "running",
+        title: "Live turn",
+      });
+      expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+        false,
+      );
+      expect(result.current.chat.state.chatCancelling).toBe(true);
+
+      act(() => {
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("cancelled", "Stopped authoritatively"),
+        });
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("running", "late running SSE"),
+        });
+        emitStreamEvent("approval.requested", {
+          ...pendingApproval,
+          approval_id: "approval_late",
+        });
+        streamController.close();
+      });
+      await act(async () => {
+        await Promise.all([submission, cancellation]);
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "cancelled",
+        title: "Stopped authoritatively",
+      });
+      expect(
+        result.current.runtimeConsole.state.chatSessions.find((entry) => entry.id === "chat_a"),
+      ).toMatchObject({ status: "cancelled", title: "Stopped authoritatively" });
+      expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+        false,
+      );
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+    });
+
+    it("preserves an accepted terminal fence while a retrying Stop is unresolved or fails", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem("hecate.agentAdapterID", "codex");
+      let streamController!: ReadableStreamDefaultController<Uint8Array>;
+      const streamResponse = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+      const encoder = new TextEncoder();
+      const emitStreamEvent = (event: string, payload: unknown) => {
+        streamController.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`),
+        );
+      };
+      let releaseMessagePost: ((response: Response) => void) | undefined;
+      const deferredMessagePost = new Promise<Response>((resolve) => {
+        releaseMessagePost = resolve;
+      });
+      let releaseRetry: ((response: Response) => void) | undefined;
+      const deferredRetry = new Promise<Response>((resolve) => {
+        releaseRetry = resolve;
+      });
+      const hangingSessionRead = new Promise<Response>(() => undefined);
+      let cancelRequests = 0;
+      let messagePostStarted = false;
+      const session = (status: "completed" | "running" | "cancelled", title: string) => ({
+        id: "chat_a",
+        title,
+        agent_id: "codex",
+        workspace: "/workspace",
+        status,
+        messages:
+          status === "completed"
+            ? []
+            : [
+                { id: "user_1", role: "user", content: "keep working", status: "completed" },
+                {
+                  id: "assistant_1",
+                  role: "assistant",
+                  content: status === "running" ? "working" : "stopped",
+                  status,
+                },
+              ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      });
+      const staleApproval = {
+        approval_id: "approval_stale",
+        session_id: "chat_a",
+        adapter_id: "codex",
+        tool_kind: "fs",
+        tool_name: "write_file",
+        scope_choices: ["once"],
+        created_at: "2026-04-20T00:00:00Z",
+        expires_at: "2026-04-20T00:05:00Z",
+      };
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_a", title: "Before" }], {
+          "/hecate/v1/agent-adapters": () =>
+            jsonResponse({
+              object: "agent_adapters",
+              data: [{ id: "codex", name: "Codex", kind: "acp", available: true }],
+            }),
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            cancelRequests > 0
+              ? hangingSessionRead
+              : jsonResponse({ object: "chat_session", data: session("completed", "Before") }),
+          "/hecate/v1/chat/sessions/chat_a/stream": () => streamResponse,
+          "/hecate/v1/chat/sessions/chat_a/messages": () => {
+            messagePostStarted = true;
+            return deferredMessagePost;
+          },
+          "/hecate/v1/chat/sessions/chat_a/cancel": () => {
+            cancelRequests += 1;
+            return cancelRequests === 1
+              ? jsonResponse({
+                  object: "chat_session",
+                  data: session("running", "stale first acknowledgement"),
+                })
+              : deferredRetry;
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+      act(() => {
+        result.current.runtimeConsole.actions.setMessage("keep working");
+      });
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(messagePostStarted).toBe(true));
+      act(() => {
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("running", "Live turn"),
+        });
+      });
+      await waitFor(() =>
+        expect(result.current.chat.state.chatTurnCancellationAvailable).toBe(true),
+      );
+
+      vi.useFakeTimers();
+      try {
+        let firstCancellation!: Promise<void>;
+        await act(async () => {
+          firstCancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(cancelRequests).toBe(1);
+        expect(result.current.chat.state.chatCancelling).toBe(true);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+          await firstCancellation;
+        });
+        expect(result.current.chat.state.chatCancelling).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      let retryCancellation!: Promise<void>;
+      act(() => {
+        retryCancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => {
+        expect(cancelRequests).toBe(2);
+        expect(result.current.chat.state.chatCancelling).toBe(true);
+      });
+      act(() => {
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("running", "stale retry SSE"),
+        });
+        emitStreamEvent("approval.requested", staleApproval);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "running",
+        title: "Live turn",
+      });
+      expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+        false,
+      );
+
+      let submissionSettled = false;
+      void submission.then(
+        () => {
+          submissionSettled = true;
+        },
+        () => {
+          submissionSettled = true;
+        },
+      );
+      act(() => {
+        releaseMessagePost?.(
+          jsonResponse({
+            object: "chat_session",
+            data: session("running", "stale retry POST"),
+          }),
+        );
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(submissionSettled).toBe(false);
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "running",
+        title: "Live turn",
+      });
+
+      await act(async () => {
+        releaseRetry?.(jsonResponse({ error: { message: "retry unavailable" } }, 503));
+        await retryCancellation;
+      });
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+      expect(result.current.runtimeConsole.state.chatError).toContain("retry unavailable");
+      expect(submissionSettled).toBe(false);
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "running",
+        title: "Live turn",
+      });
+
+      act(() => {
+        emitStreamEvent("session_update", {
+          object: "chat_session",
+          data: session("cancelled", "Stopped after retry failure"),
+        });
+        streamController.close();
+      });
+      await act(async () => {
+        await submission;
+      });
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "cancelled",
+        title: "Stopped after retry failure",
+      });
+      expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+        false,
+      );
+    });
+
+    it.each(["rejects", "never settles"] as const)(
+      "releases failed Stop ownership when independent approval catch-up %s",
+      async (approvalReadOutcome) => {
+        let approvalMode: "seed" | "reject" | "hang" = "seed";
+        let catchUpReads = 0;
+        let sessionCatchUpReads = 0;
+        let stopFailed = false;
+        const hangingSessionRead = new Promise<Response>(() => undefined);
+        const pendingApproval = {
+          id: "approval_1",
+          session_id: "chat_a",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          tool_name: "write_file",
+          status: "pending",
+          acp_options: [],
+          scope_choices: ["once"],
+          created_at: "2026-04-20T00:00:00Z",
+          expires_at: "2026-04-20T00:05:00Z",
+        };
+        const session = (id: string, status: "running" | "completed") => ({
+          id,
+          title: id === "chat_a" ? "External Agent chat" : "Unrelated chat",
+          agent_id: id === "chat_a" ? "codex" : "hecate",
+          status,
+          workspace: "/workspace",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:01Z",
+        });
+        fetchMock.mockImplementation(
+          withSessions(
+            [
+              { id: "chat_a", title: "A" },
+              { id: "chat_b", title: "B" },
+            ],
+            {
+              "/hecate/v1/chat/sessions/chat_a": () => {
+                if (stopFailed) {
+                  sessionCatchUpReads += 1;
+                  return hangingSessionRead;
+                }
+                return jsonResponse({ object: "chat_session", data: session("chat_a", "running") });
+              },
+              "/hecate/v1/chat/sessions/chat_b": () =>
+                jsonResponse({ object: "chat_session", data: session("chat_b", "completed") }),
+              "/hecate/v1/chat/sessions/chat_a/cancel": () => {
+                stopFailed = true;
+                return jsonResponse({ error: { message: "cancel unavailable" } }, 503);
+              },
+              "/hecate/v1/chat/sessions/chat_a/approvals?status=pending": () => {
+                if (approvalMode === "seed") {
+                  return jsonResponse({ object: "list", data: [pendingApproval] });
+                }
+                catchUpReads += 1;
+                if (approvalMode === "reject") return Promise.reject(new Error("read failed"));
+                return new Promise<Response>(() => undefined);
+              },
+            },
+          ),
+        );
+
+        const { result } = renderRuntimeConsoleWithChatHook();
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        });
+        await waitFor(() =>
+          expect(
+            result.current.runtimeConsole.state.pendingApprovalsBySessionID.get("chat_a"),
+          ).toHaveLength(1),
+        );
+        approvalMode = approvalReadOutcome === "rejects" ? "reject" : "hang";
+
+        await act(async () => {
+          await result.current.runtimeConsole.actions.cancelAgentChat();
+        });
+
+        expect(result.current.chat.state.chatCancelling).toBe(false);
+        expect(result.current.chat.state.chatCancellingSessionID).toBe("");
+        expect(result.current.runtimeConsole.state.chatError).toContain("cancel unavailable");
+        expect(
+          result.current.runtimeConsole.state.pendingApprovalsBySessionID.get("chat_a"),
+        ).toHaveLength(1);
+        await waitFor(() => expect(catchUpReads).toBe(1));
+        expect(sessionCatchUpReads).toBe(1);
+
+        await act(async () => {
+          expect(await result.current.runtimeConsole.actions.selectChatSession("chat_b")).toBe(
+            true,
+          );
+        });
+        expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_b");
+      },
+    );
+
+    it("discards a failed-Stop approval catch-up after a newer Stop is accepted", async () => {
+      let approvalMode: "seed" | "catch-up" = "seed";
+      let catchUpReads = 0;
+      let releaseStaleRead: ((response: Response) => void) | undefined;
+      const staleRead = new Promise<Response>((resolve) => {
+        releaseStaleRead = resolve;
+      });
+      let cancelRequests = 0;
+      const pendingApproval = {
+        id: "approval_1",
+        session_id: "chat_a",
+        adapter_id: "codex",
+        tool_kind: "fs",
+        tool_name: "write_file",
+        status: "pending",
+        acp_options: [],
+        scope_choices: ["once"],
+        created_at: "2026-04-20T00:00:00Z",
+        expires_at: "2026-04-20T00:05:00Z",
+      };
+      const session = (status: "running" | "cancelled") => ({
+        id: "chat_a",
+        title: status === "cancelled" ? "Stopped" : "External Agent chat",
+        agent_id: "codex",
+        status,
+        workspace: "/workspace",
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      });
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_a", title: "A" }], {
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: session(cancelRequests >= 2 ? "cancelled" : "running"),
+            }),
+          "/hecate/v1/chat/sessions/chat_a/cancel": () => {
+            cancelRequests += 1;
+            return cancelRequests === 1
+              ? jsonResponse({ error: { message: "first Stop failed" } }, 503)
+              : jsonResponse({ object: "chat_session", data: session("running") });
+          },
+          "/hecate/v1/chat/sessions/chat_a/approvals?status=pending": () => {
+            if (approvalMode === "seed") {
+              return jsonResponse({ object: "list", data: [pendingApproval] });
+            }
+            catchUpReads += 1;
+            return staleRead;
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+      await waitFor(() =>
+        expect(
+          result.current.runtimeConsole.state.pendingApprovalsBySessionID.get("chat_a"),
+        ).toHaveLength(1),
+      );
+      approvalMode = "catch-up";
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => expect(catchUpReads).toBe(1));
+      expect(
+        result.current.runtimeConsole.state.pendingApprovalsBySessionID.get("chat_a"),
+      ).toHaveLength(1);
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      expect(cancelRequests).toBe(2);
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "cancelled",
+        title: "Stopped",
+      });
+      expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+        false,
+      );
+
+      await act(async () => {
+        releaseStaleRead?.(jsonResponse({ object: "list", data: [pendingApproval] }));
+        await Promise.resolve();
+      });
+      expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+        false,
+      );
+    });
+
+    it("blocks matching Hecate settings and task approval while Stop owns the session", async () => {
+      let releaseCancel: ((response: Response) => void) | undefined;
+      const deferredCancel = new Promise<Response>((resolve) => {
+        releaseCancel = resolve;
+      });
+      let settingsRequestCount = 0;
+      let taskApprovalRequestCount = 0;
+      const session = (status: "running" | "cancelled") => ({
+        id: "chat_hecate",
+        title: "Hecate chat",
+        agent_id: "hecate",
+        task_id: "task_1",
+        latest_run_id: "run_1",
+        status,
+        rtk_enabled: false,
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      });
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_hecate", title: "Hecate chat" }], {
+          "/hecate/v1/chat/sessions/chat_hecate": () =>
+            jsonResponse({ object: "chat_session", data: session("running") }),
+          "/hecate/v1/chat/sessions/chat_hecate/cancel": () => deferredCancel,
+          "/hecate/v1/chat/sessions/chat_hecate/settings": () => {
+            settingsRequestCount += 1;
+            return jsonResponse({ object: "chat_session", data: session("running") });
+          },
+          "/hecate/v1/tasks/task_1/approvals/approval_1/resolve": () => {
+            taskApprovalRequestCount += 1;
+            return jsonResponse({ object: "ok" });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_hecate");
+      });
+
+      let cancellation!: Promise<void>;
+      act(() => {
+        cancellation = result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      await waitFor(() => expect(result.current.chat.state.chatCancelling).toBe(true));
+      await act(async () => {
+        expect(await result.current.runtimeConsole.actions.setHecateRTKEnabled(true)).toBe(false);
+        expect(
+          await result.current.runtimeConsole.actions.resolveTaskApproval("task_1", "approval_1", {
+            decision: "approve",
+          }),
+        ).toBe(false);
+      });
+
+      expect(settingsRequestCount).toBe(0);
+      expect(taskApprovalRequestCount).toBe(0);
+      expect(result.current.runtimeConsole.state.hecateRTKEnabled).toBe(false);
+
+      await act(async () => {
+        releaseCancel?.(jsonResponse({ object: "chat_session", data: session("cancelled") }));
+        await cancellation;
+      });
+    });
+
+    it("allows a Tasks approval when Stop owns an unrelated chat session", async () => {
+      let taskApprovalRequestCount = 0;
+      const taskSession = {
+        id: "chat_task",
+        title: "Task-backed chat",
+        agent_id: "hecate",
+        task_id: "task_1",
+        workspace: "/workspace",
+        status: "awaiting_approval",
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      };
+      const stoppingSession = {
+        id: "chat_stopping",
+        title: "Stopping chat",
+        agent_id: "hecate",
+        workspace: "/workspace",
+        status: "running",
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      };
+      fetchMock.mockImplementation(
+        withSessions([taskSession, stoppingSession], {
+          "/hecate/v1/chat/sessions/chat_task": () =>
+            jsonResponse({ object: "chat_session", data: taskSession }),
+          "/hecate/v1/chat/sessions/chat_stopping": () =>
+            jsonResponse({ object: "chat_session", data: stoppingSession }),
+          "/hecate/v1/tasks/task_1/approvals/approval_1/resolve": () => {
+            taskApprovalRequestCount += 1;
+            return new Response(null, { status: 204 });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_stopping");
+      });
+
+      let owner: ChatCancellationOwner | null = null;
+      act(() => {
+        owner = result.current.chat.actions.beginChatCancellation("chat_stopping");
+      });
+      expect(owner).not.toBeNull();
+      if (!owner) throw new Error("expected cancellation ownership");
+      const cancellationOwner = owner;
+
+      let resolved = false;
+      await act(async () => {
+        resolved = await result.current.runtimeConsole.actions.resolveTaskApproval(
+          "task_1",
+          "approval_1",
+          { decision: "approve" },
+        );
+      });
+
+      expect(resolved).toBe(true);
+      expect(taskApprovalRequestCount).toBe(1);
+      expect(result.current.chat.state.chatCancellingSessionID).toBe("chat_stopping");
+
+      act(() => {
+        result.current.chat.actions.finishChatCancellation(cancellationOwner);
+      });
+    });
+
+    it("refreshes authoritative session state when a pre-Stop rename response arrives last", async () => {
+      let releaseRename: ((response: Response) => void) | undefined;
+      const deferredRename = new Promise<Response>((resolve) => {
+        releaseRename = resolve;
+      });
+      let serverTitle = "Original";
+      let renameRequestCount = 0;
+      let sessionGetCount = 0;
+      const session = (status: "running" | "cancelled", title = serverTitle) => ({
+        id: "chat_a",
+        title,
+        agent_id: "codex",
+        status,
+        workspace: "/workspace",
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      });
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_a", title: "Original" }], {
+          "/hecate/v1/chat/sessions/chat_a": (init) => {
+            if (init?.method === "PATCH") {
+              renameRequestCount += 1;
+              return deferredRename;
+            }
+            sessionGetCount += 1;
+            return jsonResponse({ object: "chat_session", data: session("cancelled") });
+          },
+          "/hecate/v1/chat/sessions/chat_a/cancel": () =>
+            jsonResponse({ object: "chat_session", data: session("cancelled", "Original") }),
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+      });
+      act(() => {
+        result.current.chat.actions.setActiveChatSession(session("running"));
+      });
+
+      let rename!: Promise<void>;
+      act(() => {
+        rename = result.current.runtimeConsole.actions.renameChatSession("chat_a", "Renamed");
+      });
+      await waitFor(() => expect(renameRequestCount).toBe(1));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      expect(result.current.runtimeConsole.state.activeChatSession?.title).toBe("Original");
+
+      serverTitle = "Renamed";
+      await act(async () => {
+        releaseRename?.(
+          jsonResponse({ object: "chat_session", data: session("running", "Renamed") }),
+        );
+        await rename;
+      });
+
+      expect(sessionGetCount).toBe(3);
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "cancelled",
+        title: "Renamed",
+      });
+      expect(result.current.runtimeConsole.state.chatSessions[0]?.title).toBe("Renamed");
+    });
+
+    it("applies a known-new config response after a Stop fence settles", async () => {
+      let stopAccepted = false;
+      let configRequests = 0;
+      const session = (title: string, configValue: string) => ({
+        id: "chat_a",
+        title,
+        agent_id: "codex",
+        status: stopAccepted ? "cancelled" : "running",
+        workspace: "/workspace",
+        config_options: [
+          { id: "model", name: "Model", type: "select", current_value: configValue },
+        ],
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      });
+      fetchMock.mockImplementation(
+        withSessions([{ id: "chat_a", title: "Original" }], {
+          "/hecate/v1/chat/sessions/chat_a": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: session(stopAccepted ? "Stopped" : "Original", "standard"),
+            }),
+          "/hecate/v1/chat/sessions/chat_a/cancel": () => {
+            stopAccepted = true;
+            return jsonResponse({
+              object: "chat_session",
+              data: { ...session("stale acknowledgement", "standard"), status: "running" },
+            });
+          },
+          "/hecate/v1/chat/sessions/chat_a/config-options/model": () => {
+            configRequests += 1;
+            return jsonResponse({
+              object: "chat_session",
+              data: session("Configured after Stop", "fast"),
+            });
+          },
+        }),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "cancelled",
+        title: "Stopped",
+      });
+
+      await act(async () => {
+        expect(
+          await result.current.runtimeConsole.actions.setChatConfigOption(
+            "chat_a",
+            "model",
+            "fast",
+          ),
+        ).toBe(true);
+      });
+
+      expect(configRequests).toBe(1);
+      expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+        status: "cancelled",
+        title: "Configured after Stop",
+        config_options: [expect.objectContaining({ id: "model", current_value: "fast" })],
+      });
+    });
+
+    it.each(["success", "failure"] as const)(
+      "suppresses a deferred compact %s after the operator switches chats",
+      async (outcome) => {
+        let releaseCompact: ((response: Response) => void) | undefined;
+        const deferredCompact = new Promise<Response>((resolve) => {
+          releaseCompact = resolve;
+        });
+        const session = (id: string) =>
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id,
+              title: id,
+              agent_id: "hecate",
+              status: "completed",
+              messages: [],
+              context_summary: { message_count: 3, summary: "summary" },
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          });
+        fetchMock.mockImplementation(
+          withSessions(
+            [
+              { id: "chat_a", title: "A" },
+              { id: "chat_b", title: "B" },
+            ],
+            {
+              "/hecate/v1/chat/sessions/chat_a": () => session("chat_a"),
+              "/hecate/v1/chat/sessions/chat_b": () => session("chat_b"),
+              "/hecate/v1/chat/sessions/chat_a/compact": () => deferredCompact,
+            },
+          ),
+        );
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.actions.selectChatSession("chat_a");
+        });
+
+        let compact!: Promise<boolean>;
+        act(() => {
+          compact = result.current.actions.compactChatSession("chat_a");
+        });
+        await waitFor(() => expect(result.current.state.chatLoading).toBe(true));
+        await act(async () => {
+          await result.current.actions.selectChatSession("chat_b");
+        });
+
+        let compacted = true;
+        await act(async () => {
+          releaseCompact?.(
+            outcome === "success"
+              ? session("chat_a")
+              : jsonResponse({ error: { message: "compact unavailable" } }, 503),
+          );
+          compacted = await compact;
+        });
+
+        expect(compacted).toBe(false);
+        expect(result.current.state.activeChatSessionID).toBe("chat_b");
+        expect(result.current.state.activeChatSession?.id).toBe("chat_b");
+        expect(result.current.state.chatError).toBe("");
+        expect(result.current.state.chatLoading).toBe(false);
+        expect(result.current.state.notice?.message ?? "").not.toMatch(/^Compacted/);
+      },
+    );
+
+    it.each(["ownership", "reset"] as const)(
+      "fences a deferred compact result after a chat %s invalidation",
+      async (invalidation) => {
+        let releaseCompact: ((response: Response) => void) | undefined;
+        const deferredCompact = new Promise<Response>((resolve) => {
+          releaseCompact = resolve;
+        });
+        const session = () =>
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "chat_a",
+              title: "A",
+              agent_id: "hecate",
+              status: "completed",
+              messages: [],
+              context_summary: { message_count: 3, summary: "summary" },
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          });
+        fetchMock.mockImplementation(
+          withSessions([{ id: "chat_a", title: "A" }], {
+            "/hecate/v1/chat/sessions/chat_a": session,
+            "/hecate/v1/chat/sessions/chat_a/compact": () => deferredCompact,
+          }),
+        );
+
+        const { result } = renderRuntimeConsoleWithChatHook();
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        });
+
+        let compact!: Promise<boolean>;
+        act(() => {
+          compact = result.current.runtimeConsole.actions.compactChatSession("chat_a");
+        });
+        await waitFor(() => expect(result.current.runtimeConsole.state.chatLoading).toBe(true));
+
+        let ownershipToken: number | null = null;
+        act(() => {
+          if (invalidation === "ownership") {
+            ownershipToken = result.current.chat.actions.beginChatOwnershipMutation();
+          } else {
+            result.current.chat.actions.fenceAllChatSessionsDeleted();
+          }
+        });
+        expect(ownershipToken === null).toBe(invalidation === "reset");
+
+        let compacted = true;
+        await act(async () => {
+          releaseCompact?.(session());
+          compacted = await compact;
+        });
+
+        expect(compacted).toBe(false);
+        expect(result.current.runtimeConsole.state.chatLoading).toBe(false);
+        expect(result.current.runtimeConsole.state.notice?.message ?? "").not.toMatch(/^Compacted/);
+        if (ownershipToken !== null) {
+          act(() => {
+            result.current.chat.actions.finishChatOwnershipMutation(ownershipToken!);
+          });
+        }
+      },
+    );
+
+    it("rejects an unprojected Hecate chat created after a global reset fence", async () => {
+      let createCount = 0;
+      let releaseCreate: ((response: Response) => void) | undefined;
+      const deferredCreate = new Promise<Response>((resolve) => {
+        releaseCreate = resolve;
+      });
+      fetchMock.mockImplementation((input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          createCount += 1;
+          return deferredCreate;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+
+      let create!: Promise<void>;
+      act(() => {
+        create = result.current.runtimeConsole.actions.createChatSession({ agentID: "hecate" });
+      });
+      await waitFor(() => expect(createCount).toBe(1));
+      expect(result.current.chat.actions.isChatSessionCreateInFlight()).toBe(true);
+      expect(result.current.chat.actions.beginChatOwnershipMutation()).toBeNull();
+      expect(result.current.chat.actions.chatOwnershipMutationBlockReason()).toContain(
+        "new chat to finish creating",
+      );
+      act(() => {
+        result.current.chat.actions.fenceAllChatSessionsDeleted();
+      });
+
+      const created = {
+        id: "chat_after_reset",
+        title: "Late Hecate chat",
+        agent_id: "hecate",
+        status: "completed",
+        workspace: "",
+        message_count: 0,
+        messages: [],
+      };
+      await act(async () => {
+        releaseCreate?.(jsonResponse({ object: "chat_session", data: created }));
+        await create;
+      });
+
+      expect(result.current.chat.state.activeChatSessionID).toBe("");
+      expect(result.current.chat.state.activeChatSession).toBeNull();
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+      expect(result.current.chat.state.chatTargetBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.state.chatToolsEnabledBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.actions.isChatSessionDeleted(created.id)).toBe(true);
+
+      act(() => result.current.chat.actions.setChatSessions([created]));
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+    });
+
+    it("rejects a project-scoped Hecate chat created after its project deletion fence", async () => {
+      const project: ProjectRecord = {
+        id: "project_deleted",
+        name: "Deleted project",
+        roots: [],
+        created_at: "2026-07-13T10:00:00Z",
+        updated_at: "2026-07-13T10:00:00Z",
+      };
+      let createCount = 0;
+      let releaseCreate: ((response: Response) => void) | undefined;
+      const deferredCreate = new Promise<Response>((resolve) => {
+        releaseCreate = resolve;
+      });
+      fetchMock.mockImplementation((input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          createCount += 1;
+          return deferredCreate;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook({ projects: [project] });
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+
+      let create!: Promise<void>;
+      act(() => {
+        create = result.current.runtimeConsole.actions.createChatSession({
+          agentID: "hecate",
+          projectID: project.id,
+        });
+      });
+      await waitFor(() => expect(createCount).toBe(1));
+      expect(result.current.chat.actions.isChatSessionCreateInFlight()).toBe(true);
+      expect(result.current.chat.actions.beginChatOwnershipMutation()).toBeNull();
+      expect(result.current.chat.actions.chatOwnershipMutationBlockReason()).toContain(
+        "new chat to finish creating",
+      );
+      act(() => {
+        result.current.chat.actions.fenceDeletedChatProject(project.id);
+      });
+
+      const created = {
+        id: "chat_after_project_delete",
+        title: "Late project chat",
+        project_id: project.id,
+        agent_id: "hecate",
+        status: "completed",
+        workspace: "",
+        message_count: 0,
+        messages: [],
+      };
+      await act(async () => {
+        releaseCreate?.(jsonResponse({ object: "chat_session", data: created }));
+        await create;
+      });
+
+      expect(result.current.chat.state.activeChatSessionID).toBe("");
+      expect(result.current.chat.state.activeChatSession).toBeNull();
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+      expect(result.current.chat.state.chatTargetBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.state.chatToolsEnabledBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.actions.isChatSessionDeleted(created.id)).toBe(true);
+
+      act(() => result.current.chat.actions.setChatSessions([created]));
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+    });
+
+    it("rejects an external-agent chat created after a global reset fence", async () => {
+      let createCount = 0;
+      let releaseCreate: ((response: Response) => void) | undefined;
+      const deferredCreate = new Promise<Response>((resolve) => {
+        releaseCreate = resolve;
+      });
+      fetchMock.mockImplementation((input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          createCount += 1;
+          return deferredCreate;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook({
+        chatInitialState: { agentWorkspace: "/workspace" },
+      });
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+
+      let create!: Promise<void>;
+      act(() => {
+        create = result.current.runtimeConsole.actions.createChatSession({ agentID: "codex" });
+      });
+      await waitFor(() => expect(createCount).toBe(1));
+      expect(result.current.chat.actions.beginChatOwnershipMutation()).toBeNull();
+      expect(result.current.chat.actions.chatOwnershipMutationBlockReason()).toContain(
+        "new chat to finish creating",
+      );
+      act(() => {
+        result.current.chat.actions.fenceAllChatSessionsDeleted();
+      });
+
+      const created = {
+        id: "external_after_reset",
+        title: "Late external chat",
+        agent_id: "codex",
+        status: "completed",
+        workspace: "/workspace",
+        message_count: 0,
+        messages: [],
+      };
+      await act(async () => {
+        releaseCreate?.(jsonResponse({ object: "chat_session", data: created }));
+        await create;
+      });
+
+      expect(result.current.chat.state.activeChatSessionID).toBe("");
+      expect(result.current.chat.state.activeChatSession).toBeNull();
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+      expect(result.current.chat.state.chatTargetBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.state.chatToolsEnabledBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.actions.isChatSessionDeleted(created.id)).toBe(true);
+
+      act(() => result.current.chat.actions.setChatSessions([created]));
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+    });
+
+    it("rejects an implicit submit-created chat after a global reset fence", async () => {
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      let createCount = 0;
+      let messagePostCount = 0;
+      let releaseCreate: ((response: Response) => void) | undefined;
+      const deferredCreate = new Promise<Response>((resolve) => {
+        releaseCreate = resolve;
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: {
+                  provider: "openai",
+                  provider_kind: "cloud",
+                  default: true,
+                  capabilities: { tool_calling: "basic", image_input: "supported" },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          createCount += 1;
+          return deferredCreate;
+        }
+        if (url.endsWith("/messages") && init?.method === "POST") {
+          messagePostCount += 1;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.runtimeConsole.state.model).toBe("gpt-4o-mini"));
+      act(() => result.current.runtimeConsole.actions.setMessage("Create and send"));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.message).toBe("Create and send"),
+      );
+
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(createCount).toBe(1));
+      expect(result.current.chat.actions.isChatSessionCreateInFlight()).toBe(true);
+      expect(result.current.chat.actions.beginChatOwnershipMutation()).toBeNull();
+      expect(result.current.chat.actions.chatOwnershipMutationBlockReason()).toContain(
+        "new chat to finish creating",
+      );
+      act(() => {
+        result.current.chat.actions.fenceAllChatSessionsDeleted();
+      });
+
+      const created = {
+        id: "implicit_after_reset",
+        title: "Late implicit chat",
+        agent_id: "hecate",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        status: "completed",
+        workspace: "",
+        message_count: 0,
+        messages: [],
+      };
+      await act(async () => {
+        releaseCreate?.(jsonResponse({ object: "chat_session", data: created }));
+        await submission;
+      });
+
+      expect(messagePostCount).toBe(0);
+      expect(result.current.chat.state.activeChatSessionID).toBe("");
+      expect(result.current.chat.state.activeChatSession).toBeNull();
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+      expect(result.current.chat.state.chatTargetBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.state.chatToolsEnabledBySessionID.has(created.id)).toBe(false);
+      expect(result.current.chat.actions.isChatSessionDeleted(created.id)).toBe(true);
+
+      act(() => result.current.chat.actions.setChatSessions([created]));
+      expect(result.current.chat.state.chatSessions).toEqual([]);
+    });
+
+    it.each(["reset", "project"] as const)(
+      "pauses a queued send during ownership reservation and fences its deferred response on %s",
+      async (fence) => {
+        persistQueuedPrompt();
+        const projectID = fence === "project" ? "project_queue_fence" : "";
+        const project: ProjectRecord | undefined = projectID
+          ? {
+              id: projectID,
+              name: "Queue fence",
+              roots: [],
+              created_at: "2026-07-13T10:00:00Z",
+              updated_at: "2026-07-13T10:00:00Z",
+            }
+          : undefined;
+        const session = (status: string, messages: Array<Record<string, unknown>> = []) => ({
+          object: "chat_session",
+          data: {
+            ...queuedPromptSession(messages).data,
+            ...(projectID ? { project_id: projectID } : {}),
+            status,
+          },
+        });
+        let releaseMessage: ((response: Response) => void) | undefined;
+        const deferredMessage = new Promise<Response>((resolve) => {
+          releaseMessage = resolve;
+        });
+        let messagePostCount = 0;
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  ...queuedPromptSessionList().data[0],
+                  ...(projectID ? { project_id: projectID } : {}),
+                  status: "running",
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/a1") return jsonResponse(session("running"));
+          if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+          if (url === "/hecate/v1/chat/sessions/a1/messages") {
+            messagePostCount += 1;
+            void init;
+            return deferredMessage;
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleWithChatHook({
+          projects: project ? [project] : undefined,
+        });
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await waitFor(() => expect(result.current.chat.state.activeChatSession?.id).toBe("a1"));
+        expect(result.current.chat.state.activeChatSession?.status).toBe("running");
+
+        let pauseToken: number | null = null;
+        act(() => {
+          pauseToken = result.current.chat.actions.beginChatOwnershipMutation();
+          result.current.chat.actions.setActiveChatSession((current) =>
+            current ? { ...current, status: "completed" } : current,
+          );
+        });
+        expect(pauseToken).not.toBeNull();
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        expect(messagePostCount).toBe(0);
+
+        act(() => {
+          if (pauseToken !== null)
+            result.current.chat.actions.finishChatOwnershipMutation(pauseToken);
+        });
+        await waitFor(() => expect(messagePostCount).toBe(1));
+
+        let fenceToken: number | null = null;
+        act(() => {
+          fenceToken = result.current.chat.actions.beginChatOwnershipMutation();
+          if (fence === "reset") result.current.chat.actions.fenceAllChatSessionsDeleted();
+          else result.current.chat.actions.fenceDeletedChatProject(projectID);
+          if (fenceToken !== null)
+            result.current.chat.actions.finishChatOwnershipMutation(fenceToken);
+        });
+        const lateMessages = [
+          { id: "u-late", role: "user", content: "after this" },
+          { id: "a-late", role: "assistant", content: "late", status: "completed" },
+        ];
+        await act(async () => {
+          releaseMessage?.(
+            jsonResponse({
+              ...session("completed", lateMessages),
+              message_request: { replay: false, committed_message_id: "u-late" },
+            }),
+          );
+          await Promise.resolve();
+        });
+
+        await waitFor(() => expect(result.current.chat.state.chatLoading).toBe(false));
+        expect(result.current.chat.state.activeChatSessionID).toBe("");
+        expect(result.current.chat.state.activeChatSession).toBeNull();
+        expect(result.current.chat.state.queuedChatMessages).toEqual([]);
+        expect(result.current.chat.state.chatError).toBe("");
+        expect(messagePostCount).toBe(1);
+      },
+    );
+
+    it("lets an active text submit finish after an unrelated project deletion fence", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.chatSessionID", "chat_active");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      const projectsForTest: ProjectRecord[] = [
+        {
+          id: "project_active",
+          name: "Active",
+          roots: [],
+          created_at: "2026-07-13T10:00:00Z",
+          updated_at: "2026-07-13T10:00:00Z",
+        },
+        {
+          id: "project_unrelated",
+          name: "Unrelated",
+          roots: [],
+          created_at: "2026-07-13T10:00:00Z",
+          updated_at: "2026-07-13T10:00:00Z",
+        },
+      ];
+      const activeSession = (messages: Array<Record<string, unknown>> = []) => ({
+        object: "chat_session",
+        data: {
+          id: "chat_active",
+          title: "Active chat",
+          project_id: "project_active",
+          agent_id: "hecate",
+          status: "completed",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages,
+        },
+      });
+      let releaseMessage: ((response: Response) => void) | undefined;
+      const deferredMessage = new Promise<Response>((resolve) => {
+        releaseMessage = resolve;
+      });
+      let messagePostCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                ...activeSession().data,
+                message_count: 0,
+                messages: undefined,
+              },
+              {
+                id: "chat_unrelated",
+                title: "Other chat",
+                project_id: "project_unrelated",
+                agent_id: "hecate",
+                status: "completed",
+                message_count: 0,
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/chat_active") {
+          return jsonResponse(activeSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/chat_active/stream") return emptyStreamResponse();
+        if (url === "/hecate/v1/chat/sessions/chat_active/messages") {
+          messagePostCount += 1;
+          void init;
+          return deferredMessage;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook({ projects: projectsForTest });
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.chat.state.activeChatSession?.id).toBe("chat_active"),
+      );
+      act(() => result.current.runtimeConsole.actions.setMessage("keep working"));
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(messagePostCount).toBe(1));
+
+      act(() => {
+        result.current.chat.actions.fenceDeletedChatProject("project_unrelated");
+      });
+      await act(async () => {
+        releaseMessage?.(
+          jsonResponse(
+            activeSession([
+              { id: "u-active", role: "user", content: "keep working" },
+              { id: "a-active", role: "assistant", content: "Done.", status: "completed" },
+            ]),
+          ),
+        );
+        await submission;
+      });
+
+      expect(result.current.chat.state.activeChatSession?.id).toBe("chat_active");
+      expect(
+        result.current.chat.state.activeChatSession?.messages?.map((message) => message.id),
+      ).toEqual(["u-active", "a-active"]);
+      expect(result.current.chat.state.chatLoading).toBe(false);
+      expect(result.current.chat.state.chatError).toBe("");
+    });
+
+    it.each(["reset", "project"] as const)(
+      "prevents a deferred ordinary submit from mutating a newer request after a %s fence",
+      async (fence) => {
+        window.localStorage.setItem("hecate.chatTarget", "agent");
+        window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+        window.localStorage.setItem("hecate.chatSessionID", "chat_old");
+        window.localStorage.setItem("hecate.providerFilter", "openai");
+        window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+        const projectID = fence === "project" ? "project_old" : "";
+        const oldSession = {
+          id: "chat_old",
+          title: "Old chat",
+          ...(projectID ? { project_id: projectID } : {}),
+          agent_id: "hecate",
+          status: "completed",
+          workspace: "",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages: [],
+        };
+        const newSession = {
+          id: "chat_newer",
+          title: "Newer chat",
+          agent_id: "hecate",
+          status: "completed",
+          workspace: "",
+          message_count: 0,
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages: [],
+        };
+        let releaseOld: ((response: Response) => void) | undefined;
+        let releaseNew: ((response: Response) => void) | undefined;
+        const oldResponse = new Promise<Response>((resolve) => {
+          releaseOld = resolve;
+        });
+        const newResponse = new Promise<Response>((resolve) => {
+          releaseNew = resolve;
+        });
+        let oldPosts = 0;
+        let newPosts = 0;
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ ...oldSession, messages: undefined, message_count: 0 }],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_old") {
+            return jsonResponse({ object: "chat_session", data: oldSession });
+          }
+          if (url.endsWith("/stream")) return emptyStreamResponse();
+          if (url === "/hecate/v1/chat/sessions/chat_old/messages") {
+            oldPosts += 1;
+            void init;
+            return oldResponse;
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_newer/messages") {
+            newPosts += 1;
+            void init;
+            return newResponse;
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const project: ProjectRecord | undefined = projectID
+          ? {
+              id: projectID,
+              name: "Old project",
+              roots: [],
+              created_at: "2026-07-13T10:00:00Z",
+              updated_at: "2026-07-13T10:00:00Z",
+            }
+          : undefined;
+        const { result } = renderRuntimeConsoleWithChatHook({
+          projects: project ? [project] : undefined,
+        });
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await waitFor(() =>
+          expect(result.current.chat.state.activeChatSession?.id).toBe("chat_old"),
+        );
+        act(() => result.current.runtimeConsole.actions.setMessage("old request"));
+        let oldSubmission!: Promise<void>;
+        act(() => {
+          oldSubmission = result.current.runtimeConsole.actions.submitChat({
+            preventDefault: vi.fn(),
+          } as any);
+        });
+        await waitFor(() => expect(oldPosts).toBe(1));
+
+        act(() => {
+          const token = result.current.chat.actions.beginChatOwnershipMutation();
+          expect(token).not.toBeNull();
+          if (fence === "reset") result.current.chat.actions.fenceAllChatSessionsDeleted();
+          else result.current.chat.actions.fenceDeletedChatProject(projectID);
+          if (token !== null) result.current.chat.actions.finishChatOwnershipMutation(token);
+          result.current.chat.actions.setChatSessions([newSession]);
+          result.current.chat.actions.setActiveChatSessionID(newSession.id);
+          result.current.chat.actions.setActiveChatSession(newSession);
+          result.current.runtimeConsole.actions.setMessage("new request");
+        });
+        await waitFor(() =>
+          expect(result.current.chat.state.activeChatSession?.id).toBe("chat_newer"),
+        );
+        let newSubmission!: Promise<void>;
+        act(() => {
+          newSubmission = result.current.runtimeConsole.actions.submitChat({
+            preventDefault: vi.fn(),
+          } as any);
+        });
+        await waitFor(() => expect(newPosts).toBe(1));
+
+        await act(async () => {
+          releaseOld?.(jsonResponse({ error: { message: "late old failure" } }, 500));
+          await oldSubmission;
+        });
+        expect(result.current.chat.state.activeChatSession?.id).toBe("chat_newer");
+        expect(result.current.chat.state.chatLoading).toBe(true);
+        expect(result.current.chat.state.chatError).toBe("");
+
+        await act(async () => {
+          releaseNew?.(
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                ...newSession,
+                messages: [
+                  { id: "u-new", role: "user", content: "new request" },
+                  { id: "a-new", role: "assistant", content: "Done.", status: "completed" },
+                ],
+              },
+            }),
+          );
+          await newSubmission;
+        });
+        expect(result.current.chat.state.chatLoading).toBe(false);
+        expect(result.current.chat.state.chatError).toBe("");
+        expect(
+          result.current.chat.state.activeChatSession?.messages?.map((message) => message.id),
+        ).toEqual(["u-new", "a-new"]);
+      },
+    );
+
+    it.each([
+      { fence: "reset" as const, finishReason: "tool_calls" },
+      { fence: "project" as const, finishReason: "stop" },
+    ])(
+      "discards a deferred tool-result continuation after a $fence fence",
+      async ({ fence, finishReason }) => {
+        const projectID = fence === "project" ? "project_tool_fence" : "";
+        const project: ProjectRecord | undefined = projectID
+          ? {
+              id: projectID,
+              name: "Tool fence",
+              roots: [],
+              created_at: "2026-07-13T10:00:00Z",
+              updated_at: "2026-07-13T10:00:00Z",
+            }
+          : undefined;
+        const activeSession = {
+          id: "chat_tool_fence",
+          title: "Tool continuation",
+          ...(projectID ? { project_id: projectID } : {}),
+          agent_id: "hecate",
+          status: "completed",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages: [],
+          created_at: "2026-07-13T10:00:00Z",
+          updated_at: "2026-07-13T10:00:00Z",
+        };
+        let streamController!: ReadableStreamDefaultController<Uint8Array>;
+        const deferredStream = new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              streamController = controller;
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+        const completions = vi.fn(() => deferredStream);
+        fetchMock.mockImplementation(
+          withSessions([{ id: activeSession.id, title: activeSession.title }], {
+            [`/hecate/v1/chat/sessions/${activeSession.id}`]: () =>
+              jsonResponse({ object: "chat_session", data: activeSession }),
+            "/v1/chat/completions": completions,
+          }),
+        );
+
+        const { result } = renderRuntimeConsoleWithChatHook({
+          projects: project ? [project] : undefined,
+        });
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.runtimeConsole.actions.selectChatSession(activeSession.id);
+        });
+        act(() => {
+          result.current.chat.actions.setModel("gpt-4o-mini");
+          result.current.chat.actions.setProviderFilter("openai");
+          result.current.chat.actions.setPendingThread([
+            { role: "assistant", content: "Call the tool." },
+          ]);
+          result.current.chat.actions.setPendingToolCalls([
+            { id: "call_1", name: "lookup", arguments: "{}", result: "done" },
+          ]);
+        });
+
+        let reservationBlockedSubmission = true;
+        if (fence === "reset") {
+          let reservationToken: number | null = null;
+          act(() => {
+            reservationToken = result.current.chat.actions.beginChatOwnershipMutation();
+          });
+          await act(async () => {
+            await result.current.runtimeConsole.actions.submitToolResults();
+          });
+          reservationBlockedSubmission =
+            completions.mock.calls.length === 0 &&
+            Boolean(
+              result.current.runtimeConsole.state.notice?.message.includes(
+                "before submitting tool results",
+              ),
+            );
+          act(() => {
+            if (reservationToken !== null) {
+              result.current.chat.actions.finishChatOwnershipMutation(reservationToken);
+            }
+          });
+        }
+        expect(reservationBlockedSubmission).toBe(true);
+
+        let continuation!: Promise<void>;
+        act(() => {
+          continuation = result.current.runtimeConsole.actions.submitToolResults();
+        });
+        await waitFor(() => expect(completions).toHaveBeenCalledTimes(1));
+
+        act(() => {
+          if (fence === "reset") {
+            result.current.chat.actions.fenceAllChatSessionsDeleted();
+          } else {
+            result.current.chat.actions.fenceDeletedChatProject(projectID);
+          }
+        });
+
+        const chunk =
+          finishReason === "tool_calls"
+            ? {
+                choices: [
+                  {
+                    delta: {
+                      content: "late tool output",
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_late",
+                          function: { name: "late_lookup", arguments: "{}" },
+                        },
+                      ],
+                    },
+                    finish_reason: "tool_calls",
+                  },
+                ],
+              }
+            : {
+                choices: [{ delta: { content: "late completion" }, finish_reason: "stop" }],
+              };
+        await act(async () => {
+          const encoder = new TextEncoder();
+          streamController.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+          streamController.enqueue(encoder.encode("data: [DONE]\n\n"));
+          streamController.close();
+          await continuation;
+        });
+
+        expect(result.current.chat.state.activeChatSessionID).toBe("");
+        expect(result.current.chat.state.activeChatSession).toBeNull();
+        expect(result.current.chat.state.streamingContent).toBeNull();
+        expect(result.current.chat.state.pendingThread).toBeNull();
+        expect(result.current.chat.state.pendingToolCalls).toEqual([]);
+        expect(result.current.chat.state.chatResult).toBeNull();
+        expect(result.current.chat.state.chatLoading).toBe(false);
+      },
+    );
 
     it("sends Hecate Chat instructions to task-backed turns", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -4622,11 +8316,1768 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.chatError).toBe("");
     });
 
-    it("queues a prompt while the active agent run is busy and sends it after completion", async () => {
+    it("withholds server cancellation while message admission is unconfirmed", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      let releaseMessage: ((response: Response) => void) | undefined;
+      const deferredMessage = new Promise<Response>((resolve) => {
+        releaseMessage = resolve;
+      });
+      let messagePostCount = 0;
+      let cancelRequestCount = 0;
+      const session = {
+        id: "a1",
+        title: "Direct model chat",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic", image_input: "supported" },
+        messages: [],
+      };
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: {
+                  provider: "openai",
+                  provider_kind: "cloud",
+                  capabilities: { tool_calling: "basic", image_input: "supported" },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [{ ...session, message_count: 0 }],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse({ object: "chat_session", data: session });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          return deferredMessage;
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/cancel") {
+          cancelRequestCount += 1;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("a1"),
+      );
+      act(() => result.current.runtimeConsole.actions.setMessage("describe the map"));
+
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(messagePostCount).toBe(1));
+      expect(result.current.chat.state.chatTurnCancellationAvailable).toBe(false);
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      expect(cancelRequestCount).toBe(0);
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+
+      await act(async () => {
+        releaseMessage?.(jsonResponse({ object: "chat_session", data: session }));
+        await submission;
+      });
+      expect(cancelRequestCount).toBe(0);
+      expect(result.current.chat.state.chatTurnActive).toBe(false);
+    });
+
+    it("stops a delayed image upload locally before any message dispatch", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      let releaseUpload: ((response: Response) => void) | undefined;
+      const deferredUpload = new Promise<Response>((resolve) => {
+        releaseUpload = resolve;
+      });
+      const uploadRequest = { signal: null as AbortSignal | null };
+      let messagePostCount = 0;
+      let cancelRequestCount = 0;
+      let attachmentCleanupCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: {
+                  provider: "openai",
+                  provider_kind: "cloud",
+                  capabilities: { tool_calling: "basic", image_input: "supported" },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Vision chat",
+                agent_id: "hecate",
+                status: "completed",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                message_count: 0,
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Vision chat",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              capabilities: { tool_calling: "basic", image_input: "supported" },
+              messages: [],
+            },
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/attachments" && init?.method === "POST") {
+          uploadRequest.signal = init.signal ?? null;
+          // Intentionally ignore AbortSignal and return an acknowledgement
+          // later so the post-upload generation fence is exercised too.
+          return deferredUpload;
+        }
+        if (
+          url === "/hecate/v1/chat/sessions/a1/attachments/attachment-stable-id" &&
+          init?.method === "DELETE"
+        ) {
+          attachmentCleanupCount += 1;
+          return new Response(null, { status: 204 });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/cancel") {
+          cancelRequestCount += 1;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      await waitFor(() => expect(uploadRequest.signal).not.toBeNull());
+
+      await act(async () => {
+        await result.current.actions.cancelAgentChat();
+      });
+      expect(uploadRequest.signal?.aborted).toBe(true);
+      expect(result.current.state.chatCancelling).toBe(true);
+      expect(messagePostCount).toBe(0);
+      expect(cancelRequestCount).toBe(0);
+
+      await act(async () => {
+        releaseUpload?.(
+          jsonResponse({
+            object: "chat_attachment",
+            data: {
+              id: "attachment-stable-id",
+              session_id: "a1",
+              filename: "map.png",
+              media_type: "image/png",
+              size_bytes: 5,
+              sha256: "abc",
+              created_at: "2026-07-13T10:00:00Z",
+              content_url: "/hecate/v1/chat/sessions/a1/attachments/attachment-stable-id/content",
+            },
+          }),
+        );
+        await submission;
+      });
+
+      expect(messagePostCount).toBe(0);
+      expect(cancelRequestCount).toBe(0);
+      expect(attachmentCleanupCount).toBe(1);
+      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+      expect(result.current.state.message).toBe("inspect the map");
+      expect(result.current.state.chatLoading).toBe(false);
+      expect(result.current.state.chatCancelling).toBe(false);
+      expect(result.current.state.chatError).toBe("");
+    });
+
+    it.each(["honors abort", "ignores abort"] as const)(
+      "stops detached first-turn session creation when the backend %s",
+      async (createBehavior) => {
+        window.localStorage.setItem("hecate.chatTarget", "agent");
+        window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+        window.localStorage.setItem("hecate.providerFilter", "openai");
+        window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+        let createSignal!: AbortSignal;
+        let releaseCreate: ((response: Response) => void) | undefined;
+        const deferredCreate = new Promise<Response>((resolve) => {
+          releaseCreate = resolve;
+        });
+        let uploadCount = 0;
+        let messagePostCount = 0;
+        let streamCount = 0;
+        let cancelRequestCount = 0;
+        const createdSession = {
+          id: "created_after_stop",
+          title: "Stopped first turn",
+          agent_id: "hecate",
+          status: "completed",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic", image_input: "supported" },
+          messages: [],
+          created_at: "2026-07-14T10:00:00Z",
+          updated_at: "2026-07-14T10:00:00Z",
+        };
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/v1/models") {
+            return jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "gpt-4o-mini",
+                  owned_by: "openai",
+                  metadata: {
+                    provider: "openai",
+                    provider_kind: "cloud",
+                    capabilities: { tool_calling: "basic", image_input: "supported" },
+                  },
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+            if (!init.signal) throw new Error("expected session creation to carry AbortSignal");
+            createSignal = init.signal;
+            if (createBehavior === "ignores abort") return deferredCreate;
+            return new Promise<Response>((_resolve, reject) => {
+              const abort = () => reject(new DOMException("aborted", "AbortError"));
+              if (createSignal?.aborted) abort();
+              else createSignal?.addEventListener("abort", abort, { once: true });
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({ object: "chat_sessions", data: [] });
+          }
+          if (url.includes("/attachments") && init?.method === "POST") uploadCount += 1;
+          if (url.endsWith("/messages") && init?.method === "POST") messagePostCount += 1;
+          if (url.endsWith("/stream")) streamCount += 1;
+          if (url.endsWith("/cancel") && init?.method === "POST") cancelRequestCount += 1;
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleWithChatHook();
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await waitFor(() => expect(result.current.runtimeConsole.state.model).toBe("gpt-4o-mini"));
+        const file = new File(["image"], "map.png", { type: "image/png" });
+        act(() => {
+          result.current.runtimeConsole.actions.setMessage("inspect the map");
+          result.current.runtimeConsole.actions.setPendingChatAttachments([
+            { id: "draft-1", file },
+          ]);
+        });
+
+        let submission!: Promise<void>;
+        act(() => {
+          submission = result.current.runtimeConsole.actions.submitChat({
+            preventDefault: vi.fn(),
+          } as any);
+        });
+        await waitFor(() => expect(createSignal).toBeDefined());
+        expect(result.current.chat.state.chatTurnActive).toBe(true);
+        expect(result.current.chat.state.chatTurnSessionID).toBe("");
+        expect(result.current.chat.state.chatTurnCancellationAvailable).toBe(true);
+        expect(result.current.chat.state.chatLoading).toBe(true);
+
+        await act(async () => {
+          await result.current.runtimeConsole.actions.cancelAgentChat();
+        });
+        expect(createSignal?.aborted).toBe(true);
+        expect(uploadCount).toBe(0);
+        expect(messagePostCount).toBe(0);
+        expect(streamCount).toBe(0);
+        expect(cancelRequestCount).toBe(0);
+
+        const cancellationWhileCreatePending =
+          createBehavior === "ignores abort" ? result.current.chat.state.chatCancelling : null;
+        if (createBehavior === "ignores abort") {
+          await act(async () => {
+            releaseCreate?.(jsonResponse({ object: "chat_session", data: createdSession }));
+            await submission;
+          });
+        } else {
+          await act(async () => submission);
+        }
+
+        expect(cancellationWhileCreatePending).toBe(
+          createBehavior === "ignores abort" ? true : null,
+        );
+        expect(result.current.runtimeConsole.state.activeChatSessionID).toBe(
+          createBehavior === "ignores abort" ? "created_after_stop" : "",
+        );
+        expect(
+          result.current.runtimeConsole.state.chatSessions
+            .map((session) => session.id)
+            .includes("created_after_stop"),
+        ).toBe(createBehavior === "ignores abort");
+        expect(uploadCount).toBe(0);
+        expect(messagePostCount).toBe(0);
+        expect(streamCount).toBe(0);
+        expect(cancelRequestCount).toBe(0);
+        expect(result.current.runtimeConsole.state.pendingChatAttachments).toEqual([
+          { id: "draft-1", file },
+        ]);
+        expect(result.current.runtimeConsole.state.message).toBe("inspect the map");
+        expect(result.current.chat.state.chatLoading).toBe(false);
+        expect(result.current.chat.state.chatCancelling).toBe(false);
+        expect(result.current.runtimeConsole.state.chatError).toBe("");
+      },
+    );
+
+    it("stops detached External Agent creation before message dispatch", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+      let createSignal!: AbortSignal;
+      let releaseCreate: ((response: Response) => void) | undefined;
+      const deferredCreate = new Promise<Response>((resolve) => {
+        releaseCreate = resolve;
+      });
+      let messagePostCount = 0;
+      let streamCount = 0;
+      let cancelRequestCount = 0;
+      const createdSession = {
+        id: "external_created_after_stop",
+        title: "Stopped External Agent turn",
+        agent_id: "claude_code",
+        driver_kind: "acp",
+        native_session_id: "native_after_stop",
+        status: "completed",
+        workspace: "/workspace",
+        messages: [],
+        created_at: "2026-07-14T10:00:00Z",
+        updated_at: "2026-07-14T10:00:00Z",
+      };
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-adapters") {
+          return jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "claude_code", name: "Claude Code", kind: "acp", available: true }],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          if (!init.signal) throw new Error("expected session creation to carry AbortSignal");
+          createSignal = init.signal;
+          // Exercise the generation fence after a proxy has ignored abort
+          // and acknowledged the external session shell.
+          return deferredCreate;
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        }
+        if (url.endsWith("/messages") && init?.method === "POST") messagePostCount += 1;
+        if (url.endsWith("/stream")) streamCount += 1;
+        if (url.endsWith("/cancel") && init?.method === "POST") cancelRequestCount += 1;
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.agentAdapters).toEqual([
+          expect.objectContaining({ id: "claude_code", available: true }),
+        ]),
+      );
+      act(() => {
+        result.current.runtimeConsole.actions.setAgentWorkspace("/workspace");
+        result.current.runtimeConsole.actions.setMessage("inspect the repository");
+      });
+
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(createSignal).toBeDefined());
+      expect(result.current.chat.state.chatTurnActive).toBe(true);
+      expect(result.current.chat.state.chatTurnSessionID).toBe("");
+      expect(result.current.chat.state.chatTurnCancellationAvailable).toBe(true);
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.cancelAgentChat();
+      });
+      expect(createSignal.aborted).toBe(true);
+      expect(result.current.chat.state.chatCancelling).toBe(true);
+      expect(messagePostCount).toBe(0);
+      expect(streamCount).toBe(0);
+      expect(cancelRequestCount).toBe(0);
+
+      await act(async () => {
+        releaseCreate?.(jsonResponse({ object: "chat_session", data: createdSession }));
+        await submission;
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe(
+        "external_created_after_stop",
+      );
+      expect(result.current.runtimeConsole.state.activeChatSession?.native_session_id).toBe(
+        "native_after_stop",
+      );
+      expect(
+        result.current.runtimeConsole.state.chatSessions.map((session) => session.id),
+      ).toContain("external_created_after_stop");
+      expect(messagePostCount).toBe(0);
+      expect(streamCount).toBe(0);
+      expect(cancelRequestCount).toBe(0);
+      expect(result.current.runtimeConsole.state.message).toBe("inspect the repository");
+      expect(result.current.chat.state.chatLoading).toBe(false);
+      expect(result.current.chat.state.chatCancelling).toBe(false);
+      expect(result.current.runtimeConsole.state.chatError).toBe("");
+    });
+
+    it("uploads arbitrary files and references them on an External Agent turn", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+      window.localStorage.setItem("hecate.chatSessionID", "external-files");
+      let uploadedFile: File | null = null;
+      let messagePayload: Record<string, unknown> | null = null;
+      const attachment = {
+        id: "attachment-report",
+        session_id: "external-files",
+        filename: "report.pdf",
+        media_type: "application/pdf",
+        size_bytes: 6,
+        sha256: "def",
+        created_at: "2026-07-15T10:00:00Z",
+        content_url:
+          "/hecate/v1/chat/sessions/external-files/attachments/attachment-report/content",
+      };
+      const session = (messages: unknown[] = []) => ({
+        id: "external-files",
+        title: "External files",
+        agent_id: "claude_code",
+        driver_kind: "acp",
+        native_session_id: "native-files",
+        status: "completed",
+        workspace: "/workspace",
+        messages,
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-adapters") {
+          return jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "claude_code", name: "Claude Code", kind: "acp", available: true }],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [{ ...session(), message_count: 0 }],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/external-files") {
+          return jsonResponse({ object: "chat_session", data: session() });
+        }
+        if (
+          url === "/hecate/v1/chat/sessions/external-files/attachments" &&
+          init?.method === "POST"
+        ) {
+          uploadedFile = (init.body as FormData).get("file") as File;
+          return jsonResponse({ object: "chat_attachment", data: attachment });
+        }
+        if (url === "/hecate/v1/chat/sessions/external-files/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/external-files/messages" && init?.method === "POST") {
+          messagePayload = JSON.parse(String(init.body));
+          return jsonResponse({
+            object: "chat_session",
+            data: session([
+              {
+                id: "user-file",
+                execution_mode: "external_agent",
+                role: "user",
+                content: "Review this report",
+                attachments: [attachment],
+              },
+              {
+                id: "assistant-file",
+                execution_mode: "external_agent",
+                role: "assistant",
+                content: "Reviewed.",
+                status: "completed",
+              },
+            ]),
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() =>
+        expect(result.current.state.activeChatSession?.id).toBe("external-files"),
+      );
+      const file = new File(["report"], "report.pdf", { type: "application/pdf" });
+      act(() => {
+        result.current.actions.setMessage("Review this report");
+        result.current.actions.setPendingChatAttachments([{ id: "draft-report", file }]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(uploadedFile).toMatchObject({ name: "report.pdf", type: "application/pdf" });
+      expect(messagePayload).toMatchObject({
+        content: "Review this report",
+        execution_mode: "external_agent",
+        attachment_ids: ["attachment-report"],
+      });
+      expect(messagePayload).not.toHaveProperty("tools_enabled");
+      expect(result.current.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.state.chatAttachmentTurnDraftCount).toBe(0);
+      expect(result.current.state.activeChatSession?.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "user-file", attachments: [attachment] }),
+        ]),
+      );
+    });
+
+    it("atomically consumes image drafts and leaves an unresolved session owner unbound", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      let uploadedFilename = "";
+      let postedBody: Record<string, unknown> | null = null;
+      let uploadStarted = false;
+      let releaseUpload: ((response: Response) => void) | undefined;
+      const deferredUpload = new Promise<Response>((resolve) => {
+        releaseUpload = resolve;
+      });
+      let deferSessionRefresh = false;
+      let sessionRefreshStarted = false;
+      let releaseSessionRefresh: (() => void) | undefined;
+      const sessionRefreshGate = new Promise<void>((resolve) => {
+        releaseSessionRefresh = resolve;
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: {
+                  provider: "openai",
+                  provider_kind: "cloud",
+                  capabilities: { tool_calling: "basic", image_input: "supported" },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Vision chat",
+                agent_id: "hecate",
+                status: "completed",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                message_count: 0,
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          if (deferSessionRefresh) {
+            sessionRefreshStarted = true;
+            await sessionRefreshGate;
+          }
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Vision chat",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              capabilities: { tool_calling: "basic", image_input: "supported" },
+              messages: [],
+            },
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/attachments") {
+          const uploadBody = init?.body;
+          if (!(uploadBody instanceof FormData)) throw new Error("expected multipart upload");
+          uploadedFilename = (uploadBody.get("file") as File).name;
+          uploadStarted = true;
+          return deferredUpload;
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          postedBody = JSON.parse(String(init?.body ?? "{}"));
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Vision chat",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "openai",
+              model: "gpt-4o-mini",
+              messages: [],
+            },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      deferSessionRefresh = true;
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.chat.actions.setActiveChatSession(null);
+        result.current.runtimeConsole.actions.setMessage("inspect the map");
+        result.current.runtimeConsole.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.runtimeConsole.actions.submitChat({
+          preventDefault: vi.fn(),
+        } as any);
+      });
+      await waitFor(() => expect(sessionRefreshStarted).toBe(true));
+      expect(result.current.chat.actions.hasChatAttachmentTurn()).toBe(true);
+      expect(result.current.chat.actions.chatAttachmentTurnSessionID()).toBe("");
+      expect(result.current.runtimeConsole.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.runtimeConsole.state.chatAttachmentTurnDraftCount).toBe(1);
+      act(() => {
+        result.current.runtimeConsole.actions.setMessage("prepare the follow-up");
+      });
+      await act(async () => {
+        await result.current.runtimeConsole.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      expect(result.current.runtimeConsole.state.queuedChatMessages).toEqual([]);
+      expect(result.current.runtimeConsole.state.message).toBe("prepare the follow-up");
+      act(() => releaseSessionRefresh?.());
+      await waitFor(() => expect(uploadStarted).toBe(true));
+      await act(async () => {
+        releaseUpload?.(
+          jsonResponse({
+            object: "chat_attachment",
+            data: {
+              id: "attachment-stable-id",
+              session_id: "a1",
+              filename: "map.png",
+              media_type: "image/png",
+              size_bytes: 5,
+              sha256: "abc",
+              created_at: "2026-07-13T10:00:00Z",
+              content_url: "/hecate/v1/chat/sessions/a1/attachments/attachment-stable-id/content",
+            },
+          }),
+        );
+        await submission;
+      });
+
+      expect(uploadedFilename).toBe("map.png");
+      expect(postedBody).toMatchObject({
+        content: "inspect the map",
+        tools_enabled: false,
+        provider: "openai",
+        model: "gpt-4o-mini",
+        attachment_ids: ["attachment-stable-id"],
+      });
+      expect(result.current.runtimeConsole.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.runtimeConsole.state.chatAttachmentTurnDraftCount).toBe(0);
+      expect(result.current.runtimeConsole.state.message).toBe("prepare the follow-up");
+    });
+
+    it.each(["success", "failure"] as const)(
+      "keeps an attachment turn on its owning session through %s",
+      async (outcome) => {
+        window.localStorage.setItem("hecate.chatTarget", "agent");
+        window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+        window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+        window.localStorage.setItem("hecate.providerFilter", "openai");
+        window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+        let releaseMessage: ((response: Response) => void) | undefined;
+        const deferredMessage = new Promise<Response>((resolve) => {
+          releaseMessage = resolve;
+        });
+        let messageStarted = false;
+        const session = (id: string) => ({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: "hecate",
+            status: "completed",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            capabilities: { tool_calling: "basic", image_input: "supported" },
+            messages: [],
+            created_at: "2026-07-13T10:00:00Z",
+            updated_at: "2026-07-13T10:00:00Z",
+          },
+        });
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/v1/models") {
+            return jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "gpt-4o-mini",
+                  owned_by: "openai",
+                  metadata: {
+                    provider: "openai",
+                    provider_kind: "cloud",
+                    capabilities: { tool_calling: "basic", image_input: "supported" },
+                  },
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [
+                { id: "chat_a", title: "A", agent_id: "hecate", message_count: 0 },
+                { id: "chat_b", title: "B", agent_id: "hecate", message_count: 0 },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_a") return jsonResponse(session("chat_a"));
+          if (url === "/hecate/v1/chat/sessions/chat_b") return jsonResponse(session("chat_b"));
+          if (url === "/hecate/v1/chat/sessions/chat_a/attachments") {
+            if (init?.method === "POST") {
+              return jsonResponse({
+                object: "chat_attachment",
+                data: {
+                  id: "attachment-stable-id",
+                  session_id: "chat_a",
+                  filename: "map.png",
+                  media_type: "image/png",
+                  size_bytes: 5,
+                  sha256: "abc",
+                  created_at: "2026-07-13T10:00:00Z",
+                  content_url:
+                    "/hecate/v1/chat/sessions/chat_a/attachments/attachment-stable-id/content",
+                },
+              });
+            }
+          }
+          if (
+            url === "/hecate/v1/chat/sessions/chat_a/attachments/attachment-stable-id" &&
+            init?.method === "DELETE"
+          ) {
+            return new Response(null, { status: 204 });
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_a/stream") return emptyStreamResponse();
+          if (url === "/hecate/v1/chat/sessions/chat_a/messages") {
+            messageStarted = true;
+            return deferredMessage;
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
+        const file = new File(["image"], "map.png", { type: "image/png" });
+        act(() => {
+          result.current.actions.setMessage("inspect the map");
+          result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+        });
+
+        let submission!: Promise<void>;
+        act(() => {
+          submission = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+        await waitFor(() => expect(messageStarted).toBe(true));
+        await waitFor(() => expect(result.current.state.pendingChatAttachments).toEqual([]));
+
+        let switched = true;
+        await act(async () => {
+          switched = await result.current.actions.selectChatSession("chat_b");
+        });
+        expect(switched).toBe(false);
+        expect(result.current.state.activeChatSessionID).toBe("chat_a");
+        expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+
+        act(() => {
+          result.current.actions.setChatTarget("external_agent");
+        });
+        expect(result.current.state.chatTarget).toBe("agent");
+
+        await act(async () => {
+          if (outcome === "failure") {
+            result.current.actions.setMessage("draft the follow-up");
+          }
+          releaseMessage?.(
+            outcome === "success"
+              ? jsonResponse(session("chat_a"))
+              : jsonResponse({ error: { message: "message rejected" } }, 422),
+          );
+          await submission;
+        });
+
+        expect(result.current.state.activeChatSessionID).toBe("chat_a");
+        expect(result.current.state.activeChatSession?.id).toBe("chat_a");
+        const expectedAttachments = outcome === "success" ? [] : [{ id: "draft-1", file }];
+        const expectedMessage =
+          outcome === "success" ? "" : "inspect the map\n\ndraft the follow-up";
+        expect(result.current.state.pendingChatAttachments).toEqual(expectedAttachments);
+        expect(result.current.state.message).toBe(expectedMessage);
+        expect(result.current.state.queuedChatMessages).toEqual([]);
+      },
+    );
+
+    it.each(["success", "failure", "ambiguous"] as const)(
+      "retains an explicitly submitted follow-up during its live attachment turn through %s",
+      async (outcome) => {
+        window.localStorage.setItem("hecate.chatTarget", "agent");
+        window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+        window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+        window.localStorage.setItem("hecate.providerFilter", "openai");
+        window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+        let releaseFirstMessage: ((response: Response) => void) | undefined;
+        let rejectFirstMessage: ((reason: Error) => void) | undefined;
+        const deferredFirstMessage = new Promise<Response>((resolve, reject) => {
+          releaseFirstMessage = resolve;
+          rejectFirstMessage = reject;
+        });
+        let firstMessageSettled = false;
+        let messagePostCount = 0;
+        let compactRequestCount = 0;
+        let secondMessageStartedBeforeFirstSettled = false;
+        const session = (messages: Array<Record<string, unknown>> = []) => ({
+          object: "chat_session",
+          data: {
+            id: "chat_a",
+            title: "A",
+            agent_id: "hecate",
+            status: "completed",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            capabilities: { tool_calling: "basic", image_input: "supported" },
+            messages,
+            created_at: "2026-07-13T10:00:00Z",
+            updated_at: "2026-07-13T10:00:00Z",
+          },
+        });
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/v1/models") {
+            return jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "gpt-4o-mini",
+                  owned_by: "openai",
+                  metadata: {
+                    provider: "openai",
+                    provider_kind: "cloud",
+                    capabilities: { tool_calling: "basic", image_input: "supported" },
+                  },
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [{ id: "chat_a", title: "A", agent_id: "hecate", message_count: 0 }],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_a") return jsonResponse(session());
+          if (url === "/hecate/v1/chat/sessions/chat_a/attachments" && init?.method === "POST") {
+            return jsonResponse({
+              object: "chat_attachment",
+              data: {
+                id: "attachment-stable-id",
+                session_id: "chat_a",
+                filename: "map.png",
+                media_type: "image/png",
+                size_bytes: 5,
+                sha256: "abc",
+                created_at: "2026-07-13T10:00:00Z",
+                content_url:
+                  "/hecate/v1/chat/sessions/chat_a/attachments/attachment-stable-id/content",
+              },
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_a/stream") return emptyStreamResponse();
+          if (url === "/hecate/v1/chat/sessions/chat_a/compact") {
+            compactRequestCount += 1;
+            return jsonResponse(session());
+          }
+          if (
+            url === "/hecate/v1/chat/sessions/chat_a/attachments/attachment-stable-id" &&
+            init?.method === "DELETE"
+          ) {
+            return new Response(null, { status: 204 });
+          }
+          if (url === "/hecate/v1/chat/sessions/chat_a/messages") {
+            messagePostCount += 1;
+            if (messagePostCount === 1) {
+              const response = await deferredFirstMessage;
+              firstMessageSettled = true;
+              return response;
+            }
+            secondMessageStartedBeforeFirstSettled = !firstMessageSettled;
+            return jsonResponse({
+              ...session([
+                {
+                  id: "follow-up",
+                  role: "user",
+                  content: "follow up",
+                  created_at: "2026-07-13T10:00:01Z",
+                },
+                {
+                  id: "follow-up-assistant",
+                  role: "assistant",
+                  content: "Done.",
+                  status: "completed",
+                  created_at: "2026-07-13T10:00:02Z",
+                },
+              ]),
+              message_request: { replay: false, committed_message_id: "follow-up" },
+            });
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
+        const file = new File(["image"], "map.png", { type: "image/png" });
+        act(() => {
+          result.current.actions.setMessage("inspect the map");
+          result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+        });
+
+        let firstSubmission!: Promise<void>;
+        act(() => {
+          firstSubmission = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+        await waitFor(() => expect(messagePostCount).toBe(1));
+        await waitFor(() => expect(result.current.state.pendingChatAttachments).toEqual([]));
+
+        act(() => {
+          result.current.actions.setMessage("follow up");
+        });
+        await act(async () => {
+          await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+
+        expect(messagePostCount).toBe(1);
+        expect(result.current.state.message).toBe("follow up");
+        expect(result.current.state.queuedChatMessages).toEqual([]);
+        expect(
+          readQueuedChatMessagesFromStorage(window.localStorage, { preserveSubmitting: true }),
+        ).toEqual([]);
+        expect(result.current.state.chatError).toBe(
+          "Wait for the attachment response before sending this follow-up. It remains in the composer.",
+        );
+        expect(result.current.state.chatErrorAction).toBe(
+          "Send the retained text after the attachment response reaches a known outcome.",
+        );
+        let compacted = true;
+        await act(async () => {
+          compacted = await result.current.actions.compactChatSession();
+        });
+        expect(compacted).toBe(false);
+        expect(compactRequestCount).toBe(0);
+        expect(result.current.state.queuedChatMessages).toEqual([]);
+
+        await act(async () => {
+          if (outcome === "ambiguous") rejectFirstMessage?.(new TypeError("connection reset"));
+          else {
+            releaseFirstMessage?.(
+              outcome === "success"
+                ? jsonResponse(session())
+                : jsonResponse({ error: { message: "message rejected" } }, 422),
+            );
+          }
+          await firstSubmission;
+        });
+
+        await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+        expect(secondMessageStartedBeforeFirstSettled).toBe(false);
+        expect(messagePostCount).toBe(1);
+        expect(result.current.state.queuedChatMessages).toEqual([]);
+        expect(result.current.state.pendingChatAttachments).toEqual(
+          outcome === "failure" ? [{ id: "draft-1", file }] : [],
+        );
+        expect(result.current.state.message).toBe(
+          outcome === "failure" ? "inspect the map\n\nfollow up" : "follow up",
+        );
+      },
+    );
+
+    it("restores the consumed prompt and files around later edits when upload is rejected", async () => {
+      const mocked = mockImageSubmissionFailure({
+        committed: false,
+        status: 422,
+        uploadFailureDeferred: true,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      const originalPrompt = "  inspect\n  the map  \n";
+      act(() => {
+        result.current.actions.setMessage(originalPrompt);
+        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file: mocked.file }]);
+      });
+
+      let submission!: Promise<void>;
+      act(() => {
+        submission = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      await waitFor(() => expect(result.current.state.pendingChatAttachments).toEqual([]));
+      expect(result.current.state.chatAttachmentTurnDraftCount).toBe(1);
+      act(() => {
+        result.current.actions.setMessage("draft the follow-up");
+      });
+
+      await act(async () => {
+        mocked.releaseUploadFailure?.(
+          jsonResponse(
+            {
+              error: {
+                type: "chat.attachment_rejected",
+                message: "upload rejected",
+              },
+            },
+            422,
+          ),
+        );
+        await submission;
+      });
+
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: mocked.file },
+      ]);
+      expect(result.current.state.message).toBe(`${originalPrompt}\n\ndraft the follow-up`);
+      expect(result.current.state.chatAttachmentTurnDraftCount).toBe(0);
+      expect(result.current.state.chatError).toBe("upload rejected");
+    });
+
+    it("restores local input and warns when an upload response is ambiguous", async () => {
+      const submission = mockImageSubmissionFailure({
+        ambiguousUpload: "network",
+        committed: false,
+        status: "network",
+        uploadFailureDeferred: true,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      const whitespaceOnlyPrompt = " \n  ";
+      act(() => {
+        result.current.actions.setMessage(whitespaceOnlyPrompt);
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+
+      let pendingSubmission!: Promise<void>;
+      act(() => {
+        pendingSubmission = result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      await waitFor(() => expect(result.current.state.pendingChatAttachments).toEqual([]));
+      expect(result.current.state.chatAttachmentTurnDraftCount).toBe(1);
+      act(() => {
+        result.current.actions.setMessage("draft the follow-up");
+      });
+
+      await act(async () => {
+        submission.rejectUploadFailure?.(new TypeError("connection reset after upload commit"));
+        await pendingSubmission;
+      });
+
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: submission.file },
+      ]);
+      expect(result.current.state.message).toBe(`${whitespaceOnlyPrompt}\n\ndraft the follow-up`);
+      expect(result.current.state.chatAttachmentTurnDraftCount).toBe(0);
+      expect(result.current.state.chatError).toContain(
+        "The file upload response could not be confirmed.",
+      );
+      expect(result.current.state.chatError).toContain("one unlinked server copy may remain");
+      expect(result.current.state.chatError).toContain(
+        "later upload reclaims stale drafts after 24 hours",
+      );
+      expect(result.current.state.chatError).toContain("will not be retried automatically");
+      expect(result.current.state.chatErrorStatus).toBeNull();
+    });
+
+    it("treats a Hecate-shaped upload 500 as ambiguous after a possible commit", async () => {
+      const submission = mockImageSubmissionFailure({
+        ambiguousUpload: "hecate_500",
+        committed: false,
+        status: 500,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.uploadCount).toBe(1);
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: submission.file },
+      ]);
+      expect(result.current.state.message).toBe("inspect the map");
+      expect(result.current.state.chatError).toContain(
+        "The file upload response could not be confirmed.",
+      );
+      expect(result.current.state.chatErrorStatus).toBe(500);
+      expect(result.current.state.chatErrorCode).toBe("gateway_error");
+      expect(result.current.state.chatError).not.toContain("attachment commit result was lost");
+      expect(result.current.state.chatErrorAction).toContain("will not be retried automatically");
+    });
+
+    it("cleans acknowledged drafts and preserves typed ambiguity after a partial upload", async () => {
+      const submission = mockImageSubmissionFailure({
+        ambiguousUpload: "proxy_502",
+        ambiguousUploadAt: 2,
+        committed: false,
+        deleteFails: true,
+        status: 502,
+      });
+      const secondFile = new File(["second"], "detail.png", { type: "image/png" });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      act(() => {
+        result.current.actions.setMessage("compare these images");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+          { id: "draft-2", file: secondFile },
+        ]);
+      });
+
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(2);
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: submission.file },
+        { id: "draft-2", file: secondFile },
+      ]);
+      expect(result.current.state.message).toBe("compare these images");
+      expect(result.current.state.chatError).toContain(
+        "The file upload response could not be confirmed.",
+      );
+      expect(result.current.state.chatError).toContain(
+        "could not delete 1 acknowledged file draft after retrying cleanup",
+      );
+      expect(result.current.state.chatErrorStatus).toBe(502);
+      expect(result.current.state.chatErrorCode).toBe("");
+      expect(result.current.state.chatErrorRequestID).toBe("request-upload-502");
+      expect(result.current.state.chatErrorTraceID).toBe("trace-upload-502");
+      expect(result.current.state.chatError).not.toContain("proxy lost");
+      expect(result.current.state.chatError).not.toContain("attachment-stable-id");
+      expect(result.current.state.chatError).not.toContain("internal-secret-42");
+      expect(result.current.state.chatErrorAction).not.toContain("attachment-stable-id");
+      expect(result.current.state.chatErrorAction).not.toContain("internal-secret-42");
+      expect(result.current.state.chatErrorAction).toContain(
+        "delete this chat before uploading the files again",
+      );
+    });
+
+    it("keeps a committed image message and warns when a 500 response has no visible model response", async () => {
+      const submission = mockImageSubmissionFailure({ committed: true, status: 500 });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.state.message).toBe("");
+      expect(result.current.state.activeChatSession?.messages).toEqual([
+        expect.objectContaining({
+          id: "user-committed",
+          attachments: [expect.objectContaining({ id: "attachment-stable-id" })],
+        }),
+      ]);
+      expect(result.current.state.chatError).toBe(
+        "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the model run.",
+      );
+    });
+
+    it("clears implicit-create recovery artifacts when reconciliation proves the image commit", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+      window.localStorage.setItem("hecate.providerFilter", "openai");
+      window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+      const prompt = "inspect the map";
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      const attachment = {
+        id: "attachment-created-chat",
+        session_id: "created_image_chat",
+        filename: "map.png",
+        media_type: "image/png",
+        size_bytes: 5,
+        sha256: "abc",
+        created_at: "2026-07-13T10:00:00Z",
+        content_url:
+          "/hecate/v1/chat/sessions/created_image_chat/attachments/attachment-created-chat/content",
+      };
+      const createdSession = (messages: Array<Record<string, unknown>> = []) => ({
+        id: "created_image_chat",
+        title: "Inspect the map",
+        agent_id: "hecate",
+        status: "completed",
+        workspace: "",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic", image_input: "supported" },
+        messages,
+        created_at: "2026-07-13T10:00:00Z",
+        updated_at: "2026-07-13T10:00:01Z",
+      });
+      let messagePostStarted = false;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: {
+                  provider: "openai",
+                  provider_kind: "cloud",
+                  capabilities: { tool_calling: "basic", image_input: "supported" },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions" && init?.method === "POST") {
+          return jsonResponse({ object: "chat_session", data: createdSession() });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        }
+        if (url === "/hecate/v1/chat/sessions/created_image_chat") {
+          return jsonResponse({
+            object: "chat_session",
+            data: createdSession(
+              messagePostStarted
+                ? [
+                    {
+                      id: "user-committed",
+                      role: "user",
+                      content: prompt,
+                      attachments: [attachment],
+                      created_at: "2026-07-13T10:00:01Z",
+                    },
+                  ]
+                : [],
+            ),
+          });
+        }
+        if (
+          url === "/hecate/v1/chat/sessions/created_image_chat/attachments" &&
+          init?.method === "POST"
+        ) {
+          return jsonResponse({ object: "chat_attachment", data: attachment });
+        }
+        if (url === "/hecate/v1/chat/sessions/created_image_chat/stream") {
+          return emptyStreamResponse();
+        }
+        if (
+          url === "/hecate/v1/chat/sessions/created_image_chat/messages" &&
+          init?.method === "POST"
+        ) {
+          messagePostStarted = true;
+          throw new TypeError("connection reset after commit");
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook({
+        chatInitialState: {
+          composerDraftsBySessionID: new Map([["created_image_chat", prompt]]),
+          savedComposerDraftsBySessionID: new Map([["created_image_chat", [prompt]]]),
+        },
+      });
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.runtimeConsole.state.model).toBe("gpt-4o-mini"));
+      act(() => {
+        result.current.runtimeConsole.actions.setMessage(prompt);
+        result.current.runtimeConsole.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(messagePostStarted).toBe(true);
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("created_image_chat");
+      expect(result.current.runtimeConsole.state.activeChatSession?.messages).toEqual([
+        expect.objectContaining({
+          id: "user-committed",
+          attachments: [expect.objectContaining({ id: attachment.id })],
+        }),
+      ]);
+      expect(result.current.runtimeConsole.state.message).toBe("");
+      expect(result.current.runtimeConsole.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.chat.state.recoverableComposerDraft).toBeNull();
+      expect(result.current.chat.state.activeRecoverableComposerDraftID).toBeNull();
+      expect(result.current.chat.state.composerDraftsBySessionID.has("created_image_chat")).toBe(
+        false,
+      );
+      expect(
+        result.current.chat.state.savedComposerDraftsBySessionID.has("created_image_chat"),
+      ).toBe(false);
+    });
+
+    it("warns when reconciliation finds the committed image message with a running assistant", async () => {
+      const submission = mockImageSubmissionFailure({
+        committed: true,
+        reconciledAssistantStatus: "running",
+        status: "network",
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.state.message).toBe("");
+      expect(result.current.state.activeChatSession?.messages).toEqual([
+        expect.objectContaining({ id: "user-committed" }),
+        expect.objectContaining({ id: "assistant-reconciled", status: "running" }),
+      ]);
+      expect(result.current.state.chatError).toBe(
+        "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the model run.",
+      );
+    });
+
+    it("keeps a network exception ambiguous when reconciliation sees no committed message", async () => {
+      const submission = mockImageSubmissionFailure({ committed: false, status: "network" });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.state.message).toBe("");
+      expect(result.current.state.activeChatSession?.messages).toEqual([]);
+      expect(result.current.state.chatError).toBe(
+        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+      );
+    });
+
+    it.each([409, 429, 500] as const)(
+      "deletes uploaded drafts and restores local input after HTTP %i when reconciliation proves no commit",
+      async (status) => {
+        const submission = mockImageSubmissionFailure({ committed: false, status });
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+        act(() => {
+          result.current.actions.setMessage("inspect the map");
+          result.current.actions.setPendingChatAttachments([
+            { id: "draft-1", file: submission.file },
+          ]);
+        });
+        await act(async () => {
+          await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+
+        expect(submission.deleteCount).toBe(1);
+        expect(result.current.state.pendingChatAttachments).toEqual([
+          { id: "draft-1", file: submission.file },
+        ]);
+        expect(result.current.state.message).toBe("inspect the map");
+        expect(result.current.state.activeChatSession?.messages).toEqual([]);
+        expect(result.current.state.chatError).toBe("attachment rejected");
+        expect(result.current.state.chatErrorStatus).toBe(status);
+      },
+    );
+
+    it("deletes uploaded drafts and restores local files after a definite rejection", async () => {
+      const submission = mockImageSubmissionFailure({ committed: false, status: 422 });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(1);
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: submission.file },
+      ]);
+      expect(result.current.state.message).toBe("inspect the map");
+      expect(result.current.state.activeChatSession?.messages).toEqual([]);
+      expect(result.current.state.chatError).toBe("attachment rejected");
+      expect(result.current.state.chatErrorStatus).toBe(422);
+    });
+
+    it("retries failed draft cleanup and warns about retained server data", async () => {
+      const submission = mockImageSubmissionFailure({
+        committed: false,
+        deleteFails: true,
+        status: 422,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(2);
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: submission.file },
+      ]);
+      expect(result.current.state.message).toBe("inspect the map");
+      expect(result.current.state.activeChatSession?.messages).toEqual([]);
+      expect(result.current.state.chatError).toContain("attachment rejected");
+      expect(result.current.state.chatError).toContain(
+        "could not delete 1 uploaded file draft after retrying cleanup",
+      );
+      expect(result.current.state.chatError).toContain(
+        "later upload reclaims stale drafts after 24 hours",
+      );
+      expect(result.current.state.chatErrorStatus).toBe(422);
+      expect(result.current.state.chatErrorCode).toBe("chat.attachment_rejected");
+      expect(result.current.state.chatErrorAction).toContain(
+        "wait until after 24 hours before a later upload triggers stale-draft reclamation",
+      );
+      expect(result.current.state.chatErrorAction).toContain("Delete this chat");
+    });
+
+    it("preserves a known 422 precommit rejection when reconciliation GET fails", async () => {
+      const submission = mockImageSubmissionFailure({
+        committed: false,
+        reconciliationFails: true,
+        status: 422,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(1);
+      expect(result.current.state.pendingChatAttachments).toEqual([
+        { id: "draft-1", file: submission.file },
+      ]);
+      expect(result.current.state.message).toBe("inspect the map");
+      expect(result.current.state.chatError).toBe("attachment rejected");
+      expect(result.current.state.chatErrorStatus).toBe(422);
+    });
+
+    it("keeps a code-empty proxy 502 ambiguous even when reconciliation GET is empty", async () => {
+      const submission = mockImageSubmissionFailure({
+        codedError: false,
+        committed: false,
+        status: 502,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.state.message).toBe("");
+      expect(result.current.state.chatError).toBe(
+        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+      );
+      expect(result.current.state.chatErrorStatus).toBeNull();
+    });
+
+    it("keeps a coded proxy 502 ambiguous even when reconciliation GET is empty", async () => {
+      const submission = mockImageSubmissionFailure({
+        committed: false,
+        errorCode: "proxy.upstream_timeout",
+        status: 502,
+      });
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the map");
+        result.current.actions.setPendingChatAttachments([
+          { id: "draft-1", file: submission.file },
+        ]);
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(submission.deleteCount).toBe(0);
+      expect(result.current.state.pendingChatAttachments).toEqual([]);
+      expect(result.current.state.message).toBe("");
+      expect(result.current.state.chatError).toBe(
+        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+      );
+      expect(result.current.state.chatErrorStatus).toBeNull();
+    });
+
+    it.each([
+      ["project-owned", "project_1"],
+      ["project-free", ""],
+    ])(
+      "queues a %s prompt while the active agent run is busy and sends it after completion",
+      async (_label, projectID) => {
+        window.localStorage.setItem("hecate.chatTarget", "agent");
+        window.localStorage.setItem("hecate.chatSessionID", "a1");
+        window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+        if (projectID === "") {
+          window.localStorage.setItem(
+            queuedChatDeletedProjectStorageKey("unrelated-project"),
+            "deleted:v2:0:integration-test",
+          );
+        }
+        let sessionStatus = "running";
+        let messagePostCount = 0;
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  id: "a1",
+                  title: "Agent",
+                  ...(projectID ? { project_id: projectID } : {}),
+                  agent_id: "hecate",
+                  status: sessionStatus,
+                  workspace: "/workspace",
+                  provider: "openai",
+                  model: "gpt-4o-mini",
+                  message_count: 0,
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/a1") {
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "Agent",
+                ...(projectID ? { project_id: projectID } : {}),
+                agent_id: "hecate",
+                status: sessionStatus,
+                workspace: "/workspace",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: new Date().toISOString(),
+              },
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/a1/stream") {
+            return emptyStreamResponse();
+          }
+          if (url === "/hecate/v1/chat/sessions/a1/messages") {
+            messagePostCount += 1;
+            void init;
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "Agent",
+                agent_id: "hecate",
+                status: "completed",
+                workspace: "/workspace",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                messages: [
+                  {
+                    id: "u1",
+                    agent_id: "hecate",
+                    role: "user",
+                    content: "after this",
+                    created_at: "2026-04-20T00:00:01Z",
+                  },
+                  {
+                    id: "a1",
+                    agent_id: "hecate",
+                    role: "assistant",
+                    content: "Done.",
+                    status: "completed",
+                    created_at: "2026-04-20T00:00:02Z",
+                  },
+                ],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: new Date().toISOString(),
+              },
+              message_request: { replay: false, committed_message_id: "u1" },
+            });
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await waitFor(() => expect(result.current.state.activeChatSession?.status).toBe("running"));
+        await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+
+        act(() => {
+          result.current.actions.setMessage("after this");
+        });
+        await act(async () => {
+          await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+
+        expect(result.current.state.chatError).toBe("");
+        expect(messagePostCount).toBe(0);
+        expect(result.current.state.message).toBe("");
+        expect(result.current.state.queuedChatMessages).toHaveLength(1);
+        expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
+        expect(result.current.state.queuedChatMessages[0].project_id).toBe(projectID);
+        expect(result.current.state.queuedChatMessages[0].content).toBe("after this");
+        expect(result.current.state.queuedChatMessages[0].agent_id).toBe("hecate");
+        expect(
+          readQueuedChatMessagesFromStorage(window.localStorage).find(
+            (queued) => queued.id === result.current.state.queuedChatMessages[0].id,
+          )?.project_id,
+        ).toBe(projectID);
+
+        sessionStatus = "completed";
+        await act(async () => {
+          await result.current.actions.selectChatSession("a1");
+        });
+
+        await waitFor(() => expect(messagePostCount).toBe(1));
+        await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
+      },
+    );
+
+    it("preserves the composer when browser storage refuses initial queue admission", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
-      let sessionStatus = "running";
       let messagePostCount = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
@@ -4638,7 +10089,7 @@ describe("useRuntimeConsole", () => {
                 id: "a1",
                 title: "Agent",
                 agent_id: "hecate",
-                status: sessionStatus,
+                status: "running",
                 workspace: "/workspace",
                 provider: "openai",
                 model: "gpt-4o-mini",
@@ -4654,45 +10105,20 @@ describe("useRuntimeConsole", () => {
               id: "a1",
               title: "Agent",
               agent_id: "hecate",
-              status: sessionStatus,
+              status: "running",
               workspace: "/workspace",
               provider: "openai",
               model: "gpt-4o-mini",
               messages: [],
               created_at: "2026-04-20T00:00:00Z",
-              updated_at: new Date().toISOString(),
+              updated_at: "2026-04-20T00:00:00Z",
             },
           });
         }
-        if (url === "/hecate/v1/chat/sessions/a1/stream") {
-          return emptyStreamResponse();
-        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
         if (url === "/hecate/v1/chat/sessions/a1/messages") {
           messagePostCount += 1;
-          void init;
-          return jsonResponse({
-            object: "chat_session",
-            data: {
-              id: "a1",
-              title: "Agent",
-              agent_id: "hecate",
-              status: "completed",
-              workspace: "/workspace",
-              provider: "openai",
-              model: "gpt-4o-mini",
-              messages: [
-                {
-                  id: "u1",
-                  agent_id: "hecate",
-                  role: "user",
-                  content: "after this",
-                  created_at: "2026-04-20T00:00:01Z",
-                },
-              ],
-              created_at: "2026-04-20T00:00:00Z",
-              updated_at: new Date().toISOString(),
-            },
-          });
+          return jsonResponse({ object: "chat_session", data: {} });
         }
         return defaultBackendMock()(input, init);
       });
@@ -4700,29 +10126,1081 @@ describe("useRuntimeConsole", () => {
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeChatSession?.status).toBe("running"));
-      await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
+      const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+      const storageSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
+        if (key.startsWith("hecate.queuedChatMessages.item.")) {
+          throw new DOMException("quota exceeded", "QuotaExceededError");
+        }
+        return originalSetItem(key, value);
+      });
+
+      try {
+        act(() => result.current.actions.setMessage("do not lose this prompt"));
+        await act(async () => {
+          await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+        });
+
+        expect(messagePostCount).toBe(0);
+        expect(result.current.state.message).toBe("do not lose this prompt");
+        expect(result.current.state.queuedChatMessages).toEqual([]);
+        expect(result.current.state.chatErrorCode).toBe("chat.queue_storage_unavailable");
+        expect(result.current.state.chatErrorAction).toMatch(/still in the composer/i);
+      } finally {
+        storageSpy.mockRestore();
+      }
+    });
+
+    it("never retargets a queued message when its original session has a different runtime owner", async () => {
+      persistQueuedPrompt();
+      let createPostCount = 0;
+      let messagePostCount = 0;
+      const externalSession = {
+        object: "chat_session",
+        data: {
+          id: "a1",
+          title: "External chat",
+          agent_id: "codex",
+          status: "completed",
+          workspace: "/workspace",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      };
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          if (init?.method === "POST") createPostCount += 1;
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "External chat",
+                agent_id: "codex",
+                status: "completed",
+                workspace: "/workspace",
+                message_count: 0,
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") return jsonResponse(externalSession);
+        if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+        if (url.endsWith("/messages")) {
+          messagePostCount += 1;
+          throw new Error(`unexpected queued retarget: ${url}`);
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.state.chatError).toContain(
+          "permanently scoped to a chat with a different runtime owner",
+        ),
+      );
+      expect(createPostCount).toBe(0);
+      expect(messagePostCount).toBe(0);
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          session_id: "a1",
+          delivery_state: "retryable",
+        }),
+      ]);
+    });
+
+    it("blocks FIFO when a keyed success omits exact committed-message metadata", async () => {
+      persistQueuedPrompt();
+      const legacy = JSON.parse(
+        window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+      ) as Array<Record<string, unknown>>;
+      legacy.push({
+        ...legacy[0],
+        id: "queued_second",
+        content: "later work",
+        created_at: "2026-04-20T00:00:02Z",
+      });
+      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify(legacy));
+      let messagePostCount = 0;
+      const postedContents: string[] = [];
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse(queuedPromptSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          const payload = JSON.parse(String(init?.body ?? "{}"));
+          postedContents.push(payload.content);
+          return jsonResponse(
+            queuedPromptSession([
+              {
+                id: "u-no-metadata",
+                role: "user",
+                content: payload.content,
+                created_at: "2026-04-20T00:00:03Z",
+              },
+              {
+                id: "a-no-metadata",
+                role: "assistant",
+                content: "Done.",
+                status: "completed",
+                created_at: "2026-04-20T00:00:04Z",
+              },
+            ]),
+          );
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(messagePostCount).toBe(1));
+      await waitFor(() =>
+        expect(result.current.state.chatError).toContain(
+          "without exact committed-message metadata",
+        ),
+      );
+      expect(postedContents).toEqual(["after this"]);
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+        }),
+        expect.objectContaining({ id: "queued_second" }),
+      ]);
+    });
+
+    it("retains a queued prompt after a definite rejection and retries only on request", async () => {
+      persistQueuedPrompt();
+      let messagePostCount = 0;
+      const postedContents: string[] = [];
+      const postedClientRequestIDs: string[] = [];
+      let storedAtFirstPost: Array<Record<string, unknown>> = [];
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse(queuedPromptSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          if (messagePostCount === 1) {
+            storedAtFirstPost = readQueuedChatMessagesFromStorage(window.localStorage);
+          }
+          const payload = JSON.parse(String(init?.body ?? "{}"));
+          postedContents.push(payload.content);
+          postedClientRequestIDs.push(payload.client_request_id);
+          if (messagePostCount === 1) {
+            return jsonResponse({ error: { message: "message rejected" } }, 422);
+          }
+          return jsonResponse({
+            ...queuedPromptSession([
+              {
+                id: "u2",
+                role: "user",
+                content: payload.content,
+                created_at: "2026-04-20T00:00:02Z",
+              },
+              {
+                id: "a2",
+                role: "assistant",
+                content: "Done.",
+                status: "completed",
+                created_at: "2026-04-20T00:00:03Z",
+              },
+            ]),
+            message_request: { replay: false, committed_message_id: "u2" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(messagePostCount).toBe(1));
+      await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+      await waitFor(() => expect(result.current.state.chatError).toContain("message rejected"));
+
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          content: "after this",
+          delivery_state: "retryable",
+          delivery_baseline_message_ids: [],
+        }),
+      ]);
+      expect(storedAtFirstPost).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "submitting",
+          delivery_baseline_message_ids: [],
+        }),
+      ]);
+      expect(
+        result.current.state.activeChatSession?.messages?.some((message) =>
+          message.id.startsWith("pending-agent-user-"),
+        ),
+      ).toBe(false);
+      expect(messagePostCount).toBe(1);
 
       act(() => {
-        result.current.actions.setMessage("after this");
+        result.current.actions.updateQueuedChatMessage("queued_retry", "after this, corrected");
       });
-      await act(async () => {
-        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      await waitFor(() =>
+        expect(result.current.state.queuedChatMessages[0]).toEqual(
+          expect.objectContaining({
+            content: "after this, corrected",
+            delivery_state: "retryable",
+          }),
+        ),
+      );
+      expect(messagePostCount).toBe(1);
+
+      act(() => {
+        result.current.actions.retryQueuedChatMessage("queued_retry");
       });
 
+      await waitFor(() => expect(messagePostCount).toBe(2));
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toEqual([]));
+      expect(postedContents).toEqual(["after this", "after this, corrected"]);
+      expect(postedClientRequestIDs).toEqual(["queued_retry", "queued_retry"]);
+    });
+
+    it.each(["basic", "none"] as const)(
+      "sends the stored queued tools snapshot when current model capability is %s",
+      async (toolCalling) => {
+        persistQueuedPrompt();
+        const stored = JSON.parse(
+          window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+        ) as Array<Record<string, unknown>>;
+        stored[0] = { ...stored[0], tools_enabled: true, workspace: "/workspace" };
+        window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify(stored));
+        const postedToolsEnabled: boolean[] = [];
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/v1/models") {
+            return jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "gpt-4o-mini",
+                  owned_by: "openai",
+                  metadata: {
+                    provider: "openai",
+                    provider_kind: "cloud",
+                    capabilities: { tool_calling: toolCalling },
+                  },
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse(queuedPromptSessionList());
+          }
+          if (url === "/hecate/v1/chat/sessions/a1") {
+            return jsonResponse(queuedPromptSession());
+          }
+          if (url === "/hecate/v1/chat/sessions/a1/stream") {
+            return emptyStreamResponse();
+          }
+          if (url === "/hecate/v1/chat/sessions/a1/messages") {
+            const payload = JSON.parse(String(init?.body ?? "{}"));
+            postedToolsEnabled.push(payload.tools_enabled);
+            const messages = [
+              {
+                id: "u-tools",
+                role: "user",
+                content: "after this",
+                created_at: "2026-04-20T00:00:02Z",
+              },
+              {
+                id: "a-tools",
+                role: "assistant",
+                content: "Done.",
+                status: "completed",
+                created_at: "2026-04-20T00:00:03Z",
+              },
+            ];
+            return jsonResponse({
+              ...queuedPromptSession(messages),
+              message_request: { replay: false, committed_message_id: "u-tools" },
+            });
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.queuedChatMessages).toEqual([]));
+        expect(postedToolsEnabled).toEqual([true]);
+      },
+    );
+
+    it("does not dispatch when browser storage cannot persist the submitting fence", async () => {
+      persistQueuedPrompt();
+      const [queued] = JSON.parse(
+        window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+      ) as Array<Record<string, unknown>>;
+      const readyRevision = "revision-ready";
+      const readyKey = queuedChatMessageStorageKey("queued_retry", "0", readyRevision);
+      window.localStorage.setItem(
+        readyKey,
+        JSON.stringify({
+          ...queued,
+          delivery_storage_epoch: "0",
+          delivery_storage_revision: readyRevision,
+        }),
+      );
+      window.localStorage.setItem("hecate.queuedChatMessages.v2", "1");
+      window.localStorage.removeItem("hecate.queuedChatMessages");
+      const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+      const storageSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
+        if (isQueuedItemStorageKey(key, "queued_retry") && key !== readyKey) {
+          throw new DOMException("quota exceeded", "QuotaExceededError");
+        }
+        return originalSetItem(key, value);
+      });
+      let messagePostCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse(queuedPromptSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          void init;
+          return jsonResponse(queuedPromptSession());
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      try {
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() =>
+          expect(result.current.state.notice?.message).toContain(
+            "browser storage could not persist its submission fence",
+          ),
+        );
+
+        expect(messagePostCount).toBe(0);
+        expect(result.current.state.queuedChatMessages).toEqual([
+          expect.objectContaining({
+            id: "queued_retry",
+            delivery_state: "retryable",
+          }),
+        ]);
+        const stored = readQueuedChatMessagesFromStorage(window.localStorage);
+        expect(stored).toEqual([]);
+      } finally {
+        storageSpy.mockRestore();
+      }
+    });
+
+    it("keeps a conflicted queued request blocked even when another tab committed the same text", async () => {
+      persistQueuedPrompt();
+      let conflictSeen = false;
+      let messagePostCount = 0;
+      let sessionGetCount = 0;
+      let postedClientRequestID = "";
+      const otherTabMessage = {
+        id: "u-other-tab",
+        role: "user",
+        content: "after this",
+        created_at: "2026-04-20T00:00:02Z",
+      };
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          sessionGetCount += 1;
+          return jsonResponse(queuedPromptSession(conflictSeen ? [otherTabMessage] : []));
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          const payload = JSON.parse(String(init?.body ?? "{}"));
+          postedClientRequestID = payload.client_request_id;
+          conflictSeen = true;
+          return jsonResponse(
+            {
+              error: {
+                type: "chat.client_request_conflict",
+                message: "client_request_id already has a different payload",
+              },
+            },
+            409,
+          );
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() =>
+        expect(result.current.state.chatError).toContain("committed to a different payload"),
+      );
+      expect(messagePostCount).toBe(1);
+      expect(postedClientRequestID).toBe("queued_retry");
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+          delivery_error_code: "chat.client_request_conflict",
+        }),
+      ]);
+      const sessionGetsBeforeCheck = sessionGetCount;
+
+      await act(async () => {
+        await result.current.actions.reconcileQueuedChatMessage("queued_retry");
+      });
+      expect(messagePostCount).toBe(1);
+      expect(sessionGetCount).toBe(sessionGetsBeforeCheck);
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+          delivery_error_code: "chat.client_request_conflict",
+        }),
+      ]);
+      expect(result.current.state.chatError).toContain(
+        "Matching transcript text cannot prove this queued request was delivered",
+      );
+    });
+
+    it("replays the exact queued key after an ambiguous transport failure", async () => {
+      persistQueuedPrompt();
+      let messagePostCount = 0;
+      let sessionGetCount = 0;
+      let postReachedServer = false;
+      const committedMessages = [
+        {
+          id: "u1",
+          role: "user",
+          content: "after this",
+          created_at: "2026-04-20T00:00:02Z",
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "Done.",
+          status: "completed",
+          created_at: "2026-04-20T00:00:03Z",
+        },
+      ];
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          sessionGetCount += 1;
+          return jsonResponse(queuedPromptSession(postReachedServer ? committedMessages : []));
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          void init;
+          postReachedServer = true;
+          if (messagePostCount === 1) throw new Error("connection dropped after commit");
+          return jsonResponse({
+            ...queuedPromptSession(committedMessages),
+            message_request: { replay: true, committed_message_id: "u1" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() =>
+        expect(result.current.state.queuedChatMessages).toEqual([
+          expect.objectContaining({
+            id: "queued_retry",
+            delivery_state: "reconcile_required",
+            delivery_idempotency_keyed: true,
+          }),
+        ]),
+      );
+      await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+
+      expect(messagePostCount).toBe(1);
+      await act(async () => {
+        await result.current.actions.reconcileQueuedChatMessage("queued_retry");
+      });
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toEqual([]));
+
+      expect(messagePostCount).toBe(2);
+      expect(sessionGetCount).toBeGreaterThanOrEqual(1);
+      expect(
+        result.current.state.activeChatSession?.messages?.map((message) => message.id),
+      ).toEqual(["u1", "assistant-1"]);
+      expect(result.current.state.chatError).toBe("");
+    });
+
+    it("keeps an in-flight keyed replay as the FIFO barrier until its exact turn is terminal", async () => {
+      persistQueuedPrompt();
+      const [storedFirst] = JSON.parse(
+        window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+      ) as Array<Record<string, unknown>>;
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([
+          storedFirst,
+          {
+            ...storedFirst,
+            id: "queued_second",
+            content: "after that",
+            created_at: "2026-04-20T00:00:02Z",
+          },
+        ]),
+      );
+
+      const firstRunningMessages = [
+        {
+          id: "u-first",
+          role: "user",
+          content: "after this",
+          created_at: "2026-04-20T00:00:03Z",
+        },
+        {
+          id: "a-first",
+          role: "assistant",
+          content: "Working…",
+          status: "running",
+          created_at: "2026-04-20T00:00:04Z",
+        },
+      ];
+      const firstTerminalMessages = [
+        firstRunningMessages[0],
+        {
+          ...firstRunningMessages[1],
+          content: "Done.",
+          status: "completed",
+          created_at: "2026-04-20T00:00:05Z",
+        },
+      ];
+      let firstStreamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+      let firstStreamClosed = false;
+      let streamCount = 0;
+      const posted: Array<{ content: string; client_request_id: string }> = [];
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse(queuedPromptSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          streamCount += 1;
+          if (streamCount > 1) return emptyStreamResponse();
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              firstStreamController = controller;
+              init?.signal?.addEventListener(
+                "abort",
+                () => {
+                  if (firstStreamClosed) return;
+                  firstStreamClosed = true;
+                  controller.close();
+                },
+                { once: true },
+              );
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          const payload = JSON.parse(String(init?.body ?? "{}"));
+          posted.push({
+            content: payload.content,
+            client_request_id: payload.client_request_id,
+          });
+          if (posted.length === 1) {
+            return jsonResponse({
+              ...queuedPromptSession(firstRunningMessages),
+              data: { ...queuedPromptSession(firstRunningMessages).data, status: "running" },
+              message_request: { replay: true, committed_message_id: "u-first" },
+            });
+          }
+          const secondMessages = [
+            ...firstTerminalMessages,
+            {
+              id: "u-second",
+              role: "user",
+              content: "after that",
+              created_at: "2026-04-20T00:00:06Z",
+            },
+            {
+              id: "a-second",
+              role: "assistant",
+              content: "Also done.",
+              status: "completed",
+              created_at: "2026-04-20T00:00:07Z",
+            },
+          ];
+          return jsonResponse({
+            ...queuedPromptSession(secondMessages),
+            message_request: { replay: false, committed_message_id: "u-second" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(posted).toHaveLength(1));
+      await waitFor(() => {
+        expect(result.current.state.queuedChatMessages).toEqual([
+          expect.objectContaining({ id: "queued_retry", delivery_state: "submitting" }),
+          expect.objectContaining({ id: "queued_second" }),
+        ]);
+        expect(result.current.state.chatLoading).toBe(true);
+      });
+
+      await act(async () => {
+        firstStreamController?.enqueue(
+          new TextEncoder().encode(
+            `event: session_update\ndata: ${JSON.stringify({
+              ...queuedPromptSession(firstTerminalMessages),
+            })}\n\n`,
+          ),
+        );
+      });
+
+      await waitFor(() => expect(posted).toHaveLength(2));
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toEqual([]));
+      expect(posted).toEqual([
+        { content: "after this", client_request_id: "queued_retry" },
+        { content: "after that", client_request_id: "queued_second" },
+      ]);
+      expect(firstStreamClosed).toBe(true);
+    });
+
+    it("polls keyed replay state when a never-closing stream misses the terminal publish", async () => {
+      persistQueuedPrompt();
+      const runningMessages = [
+        { id: "u-replay", role: "user", content: "after this" },
+        {
+          id: "a-replay",
+          role: "assistant",
+          content: "Working…",
+          status: "running",
+        },
+      ];
+      const terminalMessages = [
+        runningMessages[0],
+        { ...runningMessages[1], content: "Done.", status: "completed" },
+      ];
+      let sessionGetCount = 0;
+      let messagePostCount = 0;
+      let streamClosed = false;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          sessionGetCount += 1;
+          return jsonResponse(queuedPromptSession(sessionGetCount === 1 ? [] : terminalMessages));
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                init?.signal?.addEventListener(
+                  "abort",
+                  () => {
+                    streamClosed = true;
+                    controller.close();
+                  },
+                  { once: true },
+                );
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          void init;
+          return jsonResponse({
+            ...queuedPromptSession(runningMessages),
+            data: { ...queuedPromptSession(runningMessages).data, status: "running" },
+            message_request: { replay: true, committed_message_id: "u-replay" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toEqual([]));
+      expect(messagePostCount).toBe(1);
+      expect(sessionGetCount).toBeGreaterThanOrEqual(2);
+      expect(streamClosed).toBe(true);
+      expect(result.current.state.chatError).toBe("");
+    });
+
+    it("preserves a queued prompt when transport reconciliation cannot confirm commit", async () => {
+      persistQueuedPrompt();
+      let messagePostCount = 0;
+      let sessionGetCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          sessionGetCount += 1;
+          return jsonResponse(queuedPromptSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          void init;
+          throw new Error("connection dropped before response");
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() =>
+        expect(result.current.state.chatError).toBe(
+          "The queued message submission could not be confirmed. It remains queued and will not be retried automatically. Check its delivery status before taking another action.",
+        ),
+      );
+      await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+
+      expect(messagePostCount).toBe(1);
+      expect(sessionGetCount).toBeGreaterThanOrEqual(1);
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          content: "after this",
+          delivery_state: "reconcile_required",
+          delivery_baseline_message_ids: [],
+        }),
+      ]);
+      expect(
+        result.current.state.activeChatSession?.messages?.some((message) =>
+          message.id.startsWith("pending-agent-user-"),
+        ),
+      ).toBe(false);
+
+      await waitFor(() => {
+        const stored = readQueuedChatMessagesFromStorage(window.localStorage);
+        expect(stored).toEqual([
+          expect.objectContaining({
+            id: "queued_retry",
+            delivery_state: "reconcile_required",
+            delivery_baseline_message_ids: [],
+          }),
+        ]);
+      });
+
+      await act(async () => {
+        await result.current.actions.reconcileQueuedChatMessage("queued_retry");
+      });
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+          delivery_idempotency_keyed: true,
+        }),
+      ]);
+      expect(messagePostCount).toBe(2);
+    });
+
+    it.each([
+      {
+        outcome: "finds no committed message",
+        messages: [] as Array<Record<string, unknown>>,
+        expectedDeliveryState: "retryable",
+        expectedReconciled: false,
+      },
+      {
+        outcome: "finds the committed message",
+        messages: [
+          {
+            id: "u-committed-elsewhere",
+            role: "user",
+            content: "after this",
+            created_at: "2026-04-20T00:00:03Z",
+          },
+        ],
+        expectedDeliveryState: "",
+        expectedReconciled: true,
+      },
+    ])(
+      "keeps $outcome feedback scoped to its source after selecting another chat",
+      async ({ messages, expectedDeliveryState, expectedReconciled }) => {
+        persistQueuedPrompt();
+        const [stored] = JSON.parse(
+          window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+        ) as Array<Record<string, unknown>>;
+        window.localStorage.setItem(
+          "hecate.queuedChatMessages",
+          JSON.stringify([
+            {
+              ...stored,
+              delivery_state: "reconcile_required",
+              delivery_baseline_message_ids: [],
+            },
+          ]),
+        );
+
+        let deferNextSourceGet = false;
+        let sourceGetStarted = false;
+        let releaseSourceGet: ((response: Response) => void) | undefined;
+        const deferredSourceGet = new Promise<Response>((resolve) => {
+          releaseSourceGet = resolve;
+        });
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [
+                ...queuedPromptSessionList().data,
+                {
+                  id: "b1",
+                  title: "Selected chat",
+                  agent_id: "hecate",
+                  status: "completed",
+                  provider: "openai",
+                  model: "gpt-4o-mini",
+                  message_count: 0,
+                },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/a1") {
+            if (deferNextSourceGet) {
+              deferNextSourceGet = false;
+              sourceGetStarted = true;
+              return deferredSourceGet;
+            }
+            return jsonResponse(queuedPromptSession());
+          }
+          if (url === "/hecate/v1/chat/sessions/b1") {
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                ...queuedPromptSession().data,
+                id: "b1",
+                title: "Selected chat",
+              },
+            });
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
+        await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+
+        deferNextSourceGet = true;
+        let reconciliation!: Promise<boolean>;
+        act(() => {
+          reconciliation = result.current.actions.reconcileQueuedChatMessage("queued_retry");
+        });
+        await waitFor(() => expect(sourceGetStarted).toBe(true));
+        await act(async () => {
+          expect(await result.current.actions.selectChatSession("b1")).toBe(true);
+        });
+        expect(result.current.state.activeChatSession?.id).toBe("b1");
+
+        let reconciled = !expectedReconciled;
+        await act(async () => {
+          releaseSourceGet?.(jsonResponse(queuedPromptSession(messages)));
+          reconciled = await reconciliation;
+        });
+
+        expect(reconciled).toBe(expectedReconciled);
+        expect(result.current.state.activeChatSession?.id).toBe("b1");
+        expect(result.current.state.chatError).toBe("");
+        expect(result.current.state.notice?.message ?? "").not.toContain(
+          "already in the transcript",
+        );
+        const expectedQueuedState = expectedDeliveryState
+          ? [{ id: "queued_retry", delivery_state: expectedDeliveryState }]
+          : [];
+        expect(
+          result.current.state.queuedChatMessages.map((item) => ({
+            id: item.id,
+            delivery_state: item.delivery_state,
+          })),
+        ).toEqual(expectedQueuedState);
+        await waitFor(() =>
+          expect(
+            readQueuedChatMessagesFromStorage(window.localStorage).map((item) => ({
+              id: item.id,
+              delivery_state: item.delivery_state,
+            })),
+          ).toEqual(expectedQueuedState),
+        );
+      },
+    );
+
+    it("loads submitting work as reconciliation-required, preserves FIFO, and advances after proof", async () => {
+      persistQueuedPrompt();
+      const [storedFirst] = JSON.parse(
+        window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+      ) as Array<Record<string, unknown>>;
+      const storedSubmitting = {
+        ...storedFirst,
+        delivery_state: "submitting",
+        delivery_baseline_message_ids: [],
+      };
+      const storedSecond: Record<string, unknown> = {
+        ...storedFirst,
+        id: "queued_second",
+        content: "after that",
+      };
+      delete storedSecond.delivery_state;
+      delete storedSecond.delivery_baseline_message_ids;
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([storedSubmitting, storedSecond]),
+      );
+
+      const committedFirst = {
+        id: "u1",
+        role: "user",
+        content: "after this",
+        created_at: "2026-04-20T00:00:02Z",
+      };
+      let messagePostCount = 0;
+      const postedContents: string[] = [];
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse(queuedPromptSession([committedFirst]));
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          const payload = JSON.parse(String(init?.body ?? "{}"));
+          postedContents.push(payload.content);
+          return jsonResponse({
+            ...queuedPromptSession([
+              committedFirst,
+              {
+                id: "u2",
+                role: "user",
+                content: payload.content,
+                created_at: "2026-04-20T00:00:03Z",
+              },
+              {
+                id: "a2",
+                role: "assistant",
+                content: "Done.",
+                status: "completed",
+                created_at: "2026-04-20T00:00:04Z",
+              },
+            ]),
+            message_request: { replay: false, committed_message_id: "u2" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+        }),
+        expect.objectContaining({ id: "queued_second" }),
+      ]);
       expect(messagePostCount).toBe(0);
-      expect(result.current.state.message).toBe("");
-      expect(result.current.state.queuedChatMessages).toHaveLength(1);
-      expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
-      expect(result.current.state.queuedChatMessages[0].content).toBe("after this");
-      expect(result.current.state.queuedChatMessages[0].agent_id).toBe("hecate");
 
-      sessionStatus = "completed";
       await act(async () => {
-        await result.current.actions.selectChatSession("a1");
+        await result.current.actions.reconcileQueuedChatMessage("queued_retry");
       });
 
       await waitFor(() => expect(messagePostCount).toBe(1));
-      await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toEqual([]));
+      expect(postedContents).toEqual(["after that"]);
+    });
+
+    it("retains legacy ambiguous work when a safe delivery baseline is unavailable", async () => {
+      persistQueuedPrompt();
+      const stored = JSON.parse(
+        window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]",
+      ) as Array<Record<string, unknown>>;
+      stored[0].retry_required = true;
+      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify(stored));
+      let messagePostCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse(queuedPromptSessionList());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse(queuedPromptSession());
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+        }),
+      ]);
+
+      await act(async () => {
+        await result.current.actions.reconcileQueuedChatMessage("queued_retry");
+      });
+
+      expect(result.current.state.queuedChatMessages).toEqual([
+        expect.objectContaining({
+          id: "queued_retry",
+          delivery_state: "reconcile_required",
+        }),
+      ]);
+      expect(result.current.state.chatError).toContain("predates safe delivery reconciliation");
+      expect(messagePostCount).toBe(0);
     });
 
     it("submits into the selected external session after a transient hydrate failure", async () => {
@@ -4889,35 +11367,40 @@ describe("useRuntimeConsole", () => {
       });
 
       await waitFor(() => {
-        const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
+        const stored = readQueuedChatMessagesFromStorage(window.localStorage);
         expect(stored[0].content).toBe("edited after refresh");
       });
     });
 
-    it("keeps queued prompt edits usable when browser storage writes fail", async () => {
+    it("blocks a failed queued edit and prevents stale content from draining after reload", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      window.localStorage.setItem("hecate.queuedChatMessages.v2", "1");
+      const readyRevision = "revision-ready";
+      const readyKey = queuedChatMessageStorageKey("queued_restore", "0", readyRevision);
       window.localStorage.setItem(
-        "hecate.queuedChatMessages",
-        JSON.stringify([
-          {
-            id: "queued_restore",
-            session_id: "a1",
-            content: "keep this after refresh",
-            execution_mode: "hecate_task",
-            provider_filter: "auto",
-            model: "ministral-3:latest",
-            workspace: "/workspace",
-            system_prompt: "",
-            agent_id: "hecate",
-            created_at: "2026-04-20T00:00:01Z",
-          },
-        ]),
+        readyKey,
+        JSON.stringify({
+          id: "queued_restore",
+          session_id: "a1",
+          content: "keep this after refresh",
+          delivery_storage_epoch: "0",
+          delivery_storage_revision: readyRevision,
+          execution_mode: "hecate_task",
+          tools_enabled: false,
+          provider_filter: "auto",
+          model: "ministral-3:latest",
+          workspace: "/workspace",
+          system_prompt: "",
+          agent_id: "hecate",
+          created_at: "2026-04-20T00:00:01Z",
+        }),
       );
+      let messagePostCount = 0;
       const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
       const storageSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
-        if (key === "hecate.queuedChatMessages") {
+        if (isQueuedItemStorageKey(key, "queued_restore") && key !== readyKey) {
           throw new DOMException("quota exceeded", "QuotaExceededError");
         }
         return originalSetItem(key, value);
@@ -4952,11 +11435,16 @@ describe("useRuntimeConsole", () => {
                 updated_at: "2026-04-20T00:00:00Z",
               },
             }),
+          "/hecate/v1/chat/sessions/a1/messages": () => {
+            messagePostCount += 1;
+            return jsonResponse({ object: "chat_session", data: {} });
+          },
         }),
       );
 
       try {
-        const { result } = renderRuntimeConsoleHook();
+        const first = renderRuntimeConsoleHook();
+        const { result } = first;
         await waitFor(() => expect(result.current.state.loading).toBe(false));
 
         act(() => {
@@ -4964,9 +11452,31 @@ describe("useRuntimeConsole", () => {
         });
 
         await waitFor(() =>
-          expect(storageSpy).toHaveBeenCalledWith("hecate.queuedChatMessages", expect.any(String)),
+          expect(
+            storageSpy.mock.calls.some(
+              ([key]) =>
+                typeof key === "string" &&
+                isQueuedItemStorageKey(key, "queued_restore") &&
+                key !== readyKey,
+            ),
+          ).toBe(true),
         );
-        expect(result.current.state.queuedChatMessages[0].content).toBe("edited in memory");
+        expect(result.current.state.queuedChatMessages[0]).toEqual(
+          expect.objectContaining({
+            content: "edited in memory",
+            delivery_state: "retryable",
+            delivery_storage_failed: true,
+          }),
+        );
+        expect(window.localStorage.getItem(readyKey)).toBeNull();
+
+        first.unmount();
+        storageSpy.mockRestore();
+        const reloaded = renderRuntimeConsoleHook();
+        await waitFor(() => expect(reloaded.result.current.state.loading).toBe(false));
+        expect(reloaded.result.current.state.queuedChatMessages).toEqual([]);
+        expect(messagePostCount).toBe(0);
+        reloaded.unmount();
       } finally {
         storageSpy.mockRestore();
       }
@@ -5021,19 +11531,418 @@ describe("useRuntimeConsole", () => {
         }),
       );
 
-      const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
 
       await waitFor(() =>
-        expect(result.current.state.queuedChatMessages.map((item) => item.id)).toEqual([
-          "queued_keep",
-        ]),
+        expect(
+          result.current.runtimeConsole.state.queuedChatMessages.map((item) => item.id),
+        ).toEqual(["queued_keep"]),
       );
       await waitFor(() => {
-        const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
+        const stored = readQueuedChatMessagesFromStorage(window.localStorage);
         expect(stored.map((item: { id: string }) => item.id)).toEqual(["queued_keep"]);
       });
+      expect(window.localStorage.getItem(queuedChatDeletedSessionStorageKey("missing"))).toMatch(
+        /^deleted:v1:/,
+      );
+
+      let admission = "admitted" as ReturnType<
+        typeof result.current.chat.actions.enqueueQueuedChatMessage
+      >;
+      act(() => {
+        admission = result.current.chat.actions.enqueueQueuedChatMessage({
+          id: "queued_cross_tab_replacement",
+          session_id: "missing",
+          content: "different prompt from another tab",
+          execution_mode: "hecate_task",
+          tools_enabled: false,
+          provider_filter: "auto",
+          model: "ministral-3:latest",
+          workspace: "/workspace",
+          system_prompt: "",
+          agent_id: "hecate",
+          created_at: "2026-04-20T00:00:03Z",
+        });
+      });
+      expect(admission).toBe("session_deleted");
+      expect(result.current.runtimeConsole.state.queuedChatMessages.map((item) => item.id)).toEqual(
+        ["queued_keep"],
+      );
     });
+
+    it("fences an authoritative dashboard removal before any queued row exists", async () => {
+      let includeRemovedSession = true;
+      fetchMock.mockImplementation(async (input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: includeRemovedSession
+              ? [{ id: "dashboard_removed", title: "Removed elsewhere", message_count: 0 }]
+              : [],
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() =>
+        expect(result.current.state.chatSessions.map((session) => session.id)).toContain(
+          "dashboard_removed",
+        ),
+      );
+      includeRemovedSession = false;
+      await act(async () => {
+        await result.current.actions.loadDashboard();
+      });
+
+      expect(result.current.chat.actions.isChatSessionDeleted("dashboard_removed")).toBe(true);
+      expect(
+        window.localStorage.getItem(queuedChatDeletedSessionStorageKey("dashboard_removed")),
+      ).toMatch(/^deleted:v1:/);
+      let admission = "admitted" as ReturnType<
+        typeof result.current.chat.actions.enqueueQueuedChatMessage
+      >;
+      act(() => {
+        admission = result.current.chat.actions.enqueueQueuedChatMessage({
+          id: "stale_enqueue_after_dashboard",
+          session_id: "dashboard_removed",
+          content: "must remain fenced",
+          execution_mode: "hecate_task",
+          tools_enabled: false,
+          provider_filter: "auto",
+          model: "gpt-4o-mini",
+          workspace: "",
+          system_prompt: "",
+          agent_id: "hecate",
+          created_at: "2026-07-14T12:00:00Z",
+        });
+      });
+      expect(admission).toBe("session_deleted");
+      expect(result.current.state.queuedChatMessages).toEqual([]);
+    });
+
+    it("releases a selected valid chat before a removed chat's late compact payload settles", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "dashboard_late");
+      let includeRemovedSession = true;
+      let compactStarted = false;
+      let releaseCompact: ((response: Response) => void) | undefined;
+      const deferredCompact = new Promise<Response>((resolve) => {
+        releaseCompact = resolve;
+      });
+      const session = (id = "dashboard_late", title = "Late payload") => ({
+        object: "chat_session",
+        data: {
+          id,
+          title,
+          agent_id: "hecate",
+          status: "completed",
+          messages: [],
+          context_summary: { message_count: 2, summary: "stale" },
+          created_at: "2026-07-14T12:00:00Z",
+          updated_at: "2026-07-14T12:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: includeRemovedSession
+              ? [
+                  { id: "dashboard_late", title: "Late payload", message_count: 0 },
+                  { id: "dashboard_valid", title: "Valid payload", message_count: 0 },
+                ]
+              : [{ id: "dashboard_valid", title: "Valid payload", message_count: 0 }],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/dashboard_late/compact") {
+          compactStarted = true;
+          return deferredCompact;
+        }
+        if (url === "/hecate/v1/chat/sessions/dashboard_late") return jsonResponse(session());
+        if (url === "/hecate/v1/chat/sessions/dashboard_valid") {
+          return jsonResponse(session("dashboard_valid", "Valid payload"));
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() =>
+        expect(result.current.state.activeChatSession?.id).toBe("dashboard_late"),
+      );
+      let compact!: Promise<boolean>;
+      act(() => {
+        compact = result.current.actions.compactChatSession("dashboard_late");
+      });
+      await waitFor(() => expect(compactStarted).toBe(true));
+      await act(async () => {
+        expect(await result.current.actions.selectChatSession("dashboard_valid")).toBe(true);
+      });
+      expect(result.current.state.activeChatSession?.id).toBe("dashboard_valid");
+      expect(result.current.state.chatLoading).toBe(true);
+      includeRemovedSession = false;
+      await act(async () => {
+        await result.current.actions.loadDashboard();
+      });
+      expect(result.current.state.activeChatSession?.id).toBe("dashboard_valid");
+      expect(result.current.state.chatLoading).toBe(false);
+
+      let compacted = true;
+      await act(async () => {
+        releaseCompact?.(jsonResponse(session()));
+        compacted = await compact;
+      });
+      expect(compacted).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("dashboard_valid");
+      expect(result.current.state.chatSessions.map((entry) => entry.id)).toEqual([
+        "dashboard_valid",
+      ]);
+      expect(result.current.chat.actions.isChatSessionDeleted("dashboard_late")).toBe(true);
+    });
+
+    it("keeps a valid compact current when the dashboard removes an unrelated chat", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "compact_valid");
+      let includeUnrelatedSession = true;
+      let compactStarted = false;
+      let releaseCompact: ((response: Response) => void) | undefined;
+      const deferredCompact = new Promise<Response>((resolve) => {
+        releaseCompact = resolve;
+      });
+      const session = (summary: string, messageCount: number) => ({
+        object: "chat_session",
+        data: {
+          id: "compact_valid",
+          title: "Valid compact",
+          agent_id: "hecate",
+          status: "completed",
+          messages: [],
+          context_summary: { message_count: messageCount, summary },
+          created_at: "2026-07-14T12:00:00Z",
+          updated_at: "2026-07-14T12:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              ...(includeUnrelatedSession
+                ? [{ id: "compact_removed", title: "Removed", message_count: 0 }]
+                : []),
+              { id: "compact_valid", title: "Valid compact", message_count: 0 },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/compact_valid") {
+          return jsonResponse(session("before compact", 1));
+        }
+        if (url === "/hecate/v1/chat/sessions/compact_valid/compact") {
+          compactStarted = true;
+          return deferredCompact;
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("compact_valid"));
+      let compact!: Promise<boolean>;
+      act(() => {
+        compact = result.current.actions.compactChatSession("compact_valid");
+      });
+      await waitFor(() => expect(compactStarted).toBe(true));
+
+      includeUnrelatedSession = false;
+      await act(async () => {
+        await result.current.actions.loadDashboard();
+      });
+      expect(result.current.chat.actions.isChatSessionDeleted("compact_removed")).toBe(true);
+      expect(result.current.state.activeChatSession?.id).toBe("compact_valid");
+      expect(result.current.state.chatLoading).toBe(true);
+
+      let compacted = false;
+      await act(async () => {
+        releaseCompact?.(jsonResponse(session("fresh compact", 3)));
+        compacted = await compact;
+      });
+      expect(compacted).toBe(true);
+      expect(result.current.state.chatLoading).toBe(false);
+      expect(result.current.state.activeChatSession?.context_summary).toEqual({
+        message_count: 3,
+        summary: "fresh compact",
+      });
+      expect(result.current.state.notice).toEqual({
+        kind: "success",
+        message: "Compacted 3 transcript messages.",
+      });
+      expect(result.current.state.chatSessions.map((entry) => entry.id)).toEqual(["compact_valid"]);
+    });
+
+    it("surfaces authoritative dashboard queue cleanup failure", async () => {
+      let includeRemovedSession = true;
+      fetchMock.mockImplementation(async (input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: includeRemovedSession
+              ? [{ id: "dashboard_cleanup", title: "Cleanup", message_count: 0 }]
+              : [],
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() =>
+        expect(result.current.state.chatSessions.map((session) => session.id)).toContain(
+          "dashboard_cleanup",
+        ),
+      );
+      let admission = "storage_failed" as ReturnType<
+        typeof result.current.chat.actions.enqueueQueuedChatMessage
+      >;
+      act(() => {
+        admission = result.current.chat.actions.enqueueQueuedChatMessage({
+          id: "dashboard_cleanup_queue",
+          session_id: "dashboard_cleanup",
+          content: "cleanup me",
+          execution_mode: "hecate_task",
+          tools_enabled: false,
+          provider_filter: "auto",
+          model: "gpt-4o-mini",
+          workspace: "",
+          system_prompt: "",
+          agent_id: "hecate",
+          created_at: "2026-07-14T12:00:00Z",
+        });
+      });
+      expect(admission).toBe("admitted");
+      const queued = result.current.state.queuedChatMessages[0];
+      const queuedKey = queuedChatMessageStorageKey(
+        queued.id,
+        queued.delivery_storage_epoch ?? "0",
+        queued.delivery_storage_revision,
+      );
+      const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
+      const removeSpy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation((key) => {
+        if (key === queuedKey) return;
+        originalRemoveItem(key);
+      });
+      try {
+        includeRemovedSession = false;
+        await act(async () => {
+          await result.current.actions.loadDashboard();
+        });
+        expect(result.current.state.error).toBe(
+          "The dashboard removed a deleted chat, but browser queue cleanup needs attention before queued work can continue.",
+        );
+        expect(result.current.chat.actions.isChatSessionDeleted("dashboard_cleanup")).toBe(true);
+        expect(result.current.state.queuedChatMessages[0]).toMatchObject({
+          delivery_state: "reconcile_required",
+          delivery_storage_failed: true,
+        });
+      } finally {
+        removeSpy.mockRestore();
+      }
+    });
+
+    it.each(["failure", "bad_metadata"] as const)(
+      "keeps queued A %s state without projecting its error into selected B",
+      async (outcome) => {
+        persistQueuedPrompt("queued from A");
+        let messageStarted = false;
+        let releaseMessage: ((response: Response) => void) | undefined;
+        const deferredMessage = new Promise<Response>((resolve) => {
+          releaseMessage = resolve;
+        });
+        const session = (id: string) => ({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: "hecate",
+            status: "completed",
+            workspace: "/workspace",
+            provider: "openai",
+            model: "gpt-4o-mini",
+            messages: [],
+            created_at: "2026-07-14T12:00:00Z",
+            updated_at: "2026-07-14T12:00:00Z",
+          },
+        });
+        fetchMock.mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url === "/hecate/v1/chat/sessions") {
+            return jsonResponse({
+              object: "chat_sessions",
+              data: [
+                { id: "a1", title: "A", status: "completed", message_count: 0 },
+                { id: "b1", title: "B", status: "completed", message_count: 0 },
+              ],
+            });
+          }
+          if (url === "/hecate/v1/chat/sessions/a1") return jsonResponse(session("a1"));
+          if (url === "/hecate/v1/chat/sessions/b1") return jsonResponse(session("b1"));
+          if (url === "/hecate/v1/chat/sessions/a1/stream") return emptyStreamResponse();
+          if (url === "/hecate/v1/chat/sessions/a1/messages" && init?.method === "POST") {
+            messageStarted = true;
+            return deferredMessage;
+          }
+          return defaultBackendMock()(input, init);
+        });
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(messageStarted).toBe(true));
+        await act(async () => {
+          await result.current.actions.selectChatSession("b1");
+        });
+        expect(result.current.state.activeChatSessionID).toBe("b1");
+
+        await act(async () => {
+          releaseMessage?.(
+            outcome === "failure"
+              ? jsonResponse(
+                  { error: { type: "chat.queued_rejected", message: "queued rejected" } },
+                  422,
+                )
+              : jsonResponse({
+                  ...session("a1"),
+                  data: {
+                    ...session("a1").data,
+                    messages: [
+                      {
+                        id: "queued-user",
+                        role: "user",
+                        content: "queued from A",
+                        created_at: "2026-07-14T12:00:01Z",
+                      },
+                    ],
+                  },
+                }),
+          );
+        });
+
+        await waitFor(() => expect(result.current.state.chatLoading).toBe(false));
+        expect(result.current.state.activeChatSessionID).toBe("b1");
+        expect(result.current.state.chatError).toBe("");
+        expect(result.current.state.queuedChatMessages).toHaveLength(1);
+        expect(result.current.state.queuedChatMessages[0]).toMatchObject({
+          session_id: "a1",
+          delivery_state: outcome === "failure" ? "retryable" : "reconcile_required",
+        });
+        await waitFor(() =>
+          expect(
+            readQueuedChatMessagesFromStorage(window.localStorage, {
+              preserveSubmitting: true,
+            })[0],
+          ).toMatchObject({
+            session_id: "a1",
+            delivery_state: outcome === "failure" ? "retryable" : "reconcile_required",
+          }),
+        );
+      },
+    );
 
     it("does not drain a queued prompt into a different selected chat", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -5204,7 +12113,29 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/a2/messages") {
           messagePostCount += 1;
           void init;
-          return jsonResponse(session("a2", "completed"));
+          const accepted = session("a2", "completed");
+          return jsonResponse({
+            ...accepted,
+            data: {
+              ...accepted.data,
+              messages: [
+                {
+                  id: "u-a2",
+                  role: "user",
+                  content: "drain only after a2 loads",
+                  created_at: "2026-04-20T00:00:01Z",
+                },
+                {
+                  id: "a-a2",
+                  role: "assistant",
+                  content: "Done.",
+                  status: "completed",
+                  created_at: "2026-04-20T00:00:02Z",
+                },
+              ],
+            },
+            message_request: { replay: false, committed_message_id: "u-a2" },
+          });
         }
         if (url.endsWith("/messages")) {
           throw new Error(`unexpected message post: ${url}`);
@@ -5423,10 +12354,12 @@ describe("useRuntimeConsole", () => {
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(2));
 
+      let deleted = false;
       await act(async () => {
-        await result.current.actions.deleteChatSession("sess_b");
+        deleted = await result.current.actions.deleteChatSession("sess_b");
       });
 
+      expect(deleted).toBe(true);
       expect(deleteCalls).toBe(1);
       await waitFor(() =>
         expect(result.current.state.chatSessions.map((s) => s.id)).toEqual(["sess_a"]),
@@ -5435,7 +12368,424 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.notice?.message).toBe("Agent chat deleted.");
     });
 
-    it("deleteChatSession removes queued prompts for the deleted session", async () => {
+    it("blocks Delete for the session owned by Stop but permits another chat", async () => {
+      const deleteCalls: string[] = [];
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (init?.method === "DELETE") {
+          deleteCalls.push(url);
+          return new Response(null, { status: 204 });
+        }
+        return withSessions([
+          { id: "sess_a", title: "Delete another" },
+          { id: "sess_b", title: "Stopping" },
+        ])(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.chatSessions).toHaveLength(2));
+      let owner: ChatCancellationOwner | null = null;
+      act(() => {
+        owner = result.current.chat.actions.beginChatCancellation("sess_b");
+      });
+      if (!owner) throw new Error("expected cancellation ownership");
+
+      let deleted = true;
+      await act(async () => {
+        deleted = await result.current.runtimeConsole.actions.deleteChatSession("sess_b");
+      });
+      expect(deleted).toBe(false);
+      expect(deleteCalls).toEqual([]);
+      expect(result.current.runtimeConsole.state.notice).toEqual({
+        kind: "error",
+        message: "Wait for Stop to finish before deleting this chat.",
+      });
+
+      await act(async () => {
+        deleted = await result.current.runtimeConsole.actions.deleteChatSession("sess_a");
+      });
+      expect(deleted).toBe(true);
+      expect(deleteCalls).toEqual(["/hecate/v1/chat/sessions/sess_a"]);
+      expect(result.current.chat.state.chatCancellingSessionID).toBe("sess_b");
+
+      act(() => {
+        result.current.chat.actions.finishChatCancellation(owner!);
+      });
+    });
+
+    it("keeps chat state after a failed delete and releases ownership for retry", async () => {
+      let deleteCalls = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          deleteCalls += 1;
+          if (deleteCalls === 1) {
+            return jsonResponse({ error: { message: "delete unavailable" } }, 503);
+          }
+          return new Response(null, { status: 204 });
+        }
+        return withSessions([
+          { id: "sess_a", title: "Keep" },
+          { id: "sess_b", title: "Delete me" },
+        ])(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(2));
+
+      let deleted = true;
+      await act(async () => {
+        deleted = await result.current.actions.deleteChatSession("sess_b");
+      });
+      expect(deleted).toBe(false);
+      expect(result.current.state.chatSessions.map((session) => session.id)).toEqual([
+        "sess_a",
+        "sess_b",
+      ]);
+      expect(result.current.state.notice).toEqual({
+        kind: "error",
+        message: "delete unavailable",
+      });
+
+      await act(async () => {
+        deleted = await result.current.actions.deleteChatSession("sess_b");
+      });
+      expect(deleted).toBe(true);
+      expect(deleteCalls).toBe(2);
+      expect(result.current.state.chatSessions.map((session) => session.id)).toEqual(["sess_a"]);
+      expect(result.current.state.notice).toEqual({
+        kind: "success",
+        message: "Agent chat deleted.",
+      });
+    });
+
+    it("does not reintroduce a deleted non-active chat from stale dashboard hydration", async () => {
+      let delaySessionList = false;
+      let delayedListRequested = false;
+      let releaseSessionList: (() => void) | undefined;
+      const sessionListGate = new Promise<void>((resolve) => {
+        releaseSessionList = resolve;
+      });
+      const backend = withSessions([
+        { id: "sess_a", title: "Keep" },
+        { id: "sess_b", title: "Delete me" },
+      ]);
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          return new Response(null, { status: 204 });
+        }
+        if (url === "/hecate/v1/chat/sessions" && delaySessionList) {
+          delayedListRequested = true;
+          await sessionListGate;
+        }
+        return backend(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(2));
+      delaySessionList = true;
+      let dashboardLoad!: Promise<void>;
+      act(() => {
+        dashboardLoad = result.current.actions.loadDashboard();
+      });
+      await waitFor(() => expect(delayedListRequested).toBe(true));
+
+      await act(async () => {
+        await result.current.actions.deleteChatSession("sess_b");
+      });
+      expect(result.current.state.chatSessions.map((session) => session.id)).toEqual(["sess_a"]);
+
+      await act(async () => {
+        releaseSessionList?.();
+        await dashboardLoad;
+      });
+      expect(result.current.state.chatSessions.map((session) => session.id)).toEqual(["sess_a"]);
+    });
+
+    it("does not reactivate a deleted chat when an earlier selection finishes late", async () => {
+      let releaseSelection: ((response: Response) => void) | undefined;
+      const deferredSelection = new Promise<Response>((resolve) => {
+        releaseSelection = resolve;
+      });
+      let selectionStarted = false;
+      const backend = withSessions(
+        [
+          { id: "sess_a", title: "Keep" },
+          { id: "sess_b", title: "Delete me" },
+        ],
+        {
+          "/hecate/v1/chat/sessions/sess_b": async () => {
+            selectionStarted = true;
+            return deferredSelection;
+          },
+        },
+      );
+      fetchMock.mockImplementation(async (input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          return new Response(null, { status: 204 });
+        }
+        return backend(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(2));
+
+      let selection!: Promise<boolean>;
+      act(() => {
+        selection = result.current.actions.selectChatSession("sess_b");
+      });
+      await waitFor(() => expect(selectionStarted).toBe(true));
+
+      await act(async () => {
+        await result.current.actions.deleteChatSession("sess_b");
+      });
+      expect(result.current.state.chatSessions.map((session) => session.id)).toEqual(["sess_a"]);
+
+      let selected = true;
+      await act(async () => {
+        releaseSelection?.(
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "sess_b",
+              title: "Delete me",
+              agent_id: "hecate",
+              status: "completed",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          }),
+        );
+        selected = await selection;
+      });
+
+      expect(selected).toBe(false);
+      expect(result.current.state.activeChatSessionID).toBe("");
+      expect(result.current.state.activeChatSession).toBeNull();
+      expect(result.current.state.chatSessions.map((session) => session.id)).toEqual(["sess_a"]);
+    });
+
+    it("does not delete the active chat while it owns image drafts", async () => {
+      let deleteCalls = 0;
+      const activeSession = {
+        id: "sess_b",
+        title: "Keep draft",
+        agent_id: "hecate",
+        status: "completed",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        messages: [],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:00Z",
+      };
+      const backend = withSessions([{ id: "sess_b", title: "Keep draft" }], {
+        "/hecate/v1/chat/sessions/sess_b": () =>
+          jsonResponse({ object: "chat_session", data: activeSession }),
+      });
+      fetchMock.mockImplementation(async (input, init) => {
+        if (String(input) === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          deleteCalls += 1;
+          return new Response(null, { status: 204 });
+        }
+        return backend(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.actions.selectChatSession("sess_b");
+      });
+      const file = new File(["image"], "map.png", { type: "image/png" });
+      act(() => {
+        result.current.actions.setMessage("inspect this map");
+        result.current.actions.setPendingChatAttachments([{ id: "draft-1", file }]);
+      });
+
+      let deleted = true;
+      await act(async () => {
+        deleted = await result.current.actions.deleteChatSession("sess_b");
+      });
+
+      expect(deleted).toBe(false);
+      expect(deleteCalls).toBe(0);
+      expect(result.current.state.activeChatSessionID).toBe("sess_b");
+      expect(result.current.state.activeChatSession?.id).toBe("sess_b");
+      expect(result.current.state.message).toBe("inspect this map");
+      expect(result.current.state.pendingChatAttachments).toEqual([{ id: "draft-1", file }]);
+      expect(result.current.state.notice).toEqual({
+        kind: "error",
+        message: "Remove attached files before deleting a chat.",
+      });
+    });
+
+    it("reserves chat ownership across a deferred single-chat DELETE", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "sess_b");
+      let releaseDelete: ((response: Response) => void) | undefined;
+      const deferredDelete = new Promise<Response>((resolve) => {
+        releaseDelete = resolve;
+      });
+      let deleteStarted = false;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          deleteStarted = true;
+          return deferredDelete;
+        }
+        return withSessions([{ id: "sess_b", title: "Delete me" }], {
+          "/hecate/v1/chat/sessions/sess_b": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "sess_b",
+                title: "Delete me",
+                agent_id: "hecate",
+                status: "completed",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
+        })(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("sess_b"),
+      );
+      let deletion!: Promise<boolean>;
+      act(() => {
+        deletion = result.current.runtimeConsole.actions.deleteChatSession("sess_b");
+      });
+      await waitFor(() => expect(deleteStarted).toBe(true));
+      expect(result.current.chat.state.chatOwnershipMutationInFlight).toBe(true);
+
+      const lateFile = new File(["image"], "late.png", { type: "image/png" });
+      let lateTurnToken: number | null = -1;
+      act(() => {
+        result.current.chat.actions.setPendingChatAttachments([
+          { id: "late-delete-draft", file: lateFile },
+        ]);
+        lateTurnToken = result.current.chat.actions.beginChatAttachmentTurn("sess_b", 1);
+      });
+      expect(result.current.chat.state.pendingChatAttachments).toEqual([]);
+      expect(lateTurnToken).toBeNull();
+
+      await act(async () => {
+        releaseDelete?.(new Response(null, { status: 204 }));
+        await expect(deletion).resolves.toBe(true);
+      });
+      expect(result.current.chat.state.chatOwnershipMutationInFlight).toBe(false);
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("");
+      expect(result.current.chat.state.pendingChatAttachments).toEqual([]);
+    });
+
+    it("releases single-chat ownership when DELETE fails", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "sess_b");
+      let deleteCalls = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          deleteCalls += 1;
+          return jsonResponse({ error: { message: "delete failed" } }, 503);
+        }
+        return withSessions([{ id: "sess_b", title: "Keep" }], {
+          "/hecate/v1/chat/sessions/sess_b": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "sess_b",
+                title: "Keep",
+                agent_id: "hecate",
+                status: "completed",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
+        })(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("sess_b"),
+      );
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.deleteChatSession("sess_b");
+      });
+
+      expect(deleteCalls).toBe(1);
+      expect(result.current.chat.state.chatOwnershipMutationInFlight).toBe(false);
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("sess_b");
+      expect(result.current.runtimeConsole.state.notice).toEqual({
+        kind: "error",
+        message: "delete failed",
+      });
+
+      const file = new File(["image"], "after-failure.png", { type: "image/png" });
+      act(() => {
+        result.current.chat.actions.setPendingChatAttachments([
+          { id: "after-delete-failure", file },
+        ]);
+      });
+      expect(result.current.chat.state.pendingChatAttachments).toEqual([
+        { id: "after-delete-failure", file },
+      ]);
+    });
+
+    it("does not start single-chat DELETE after an image turn acquires ownership", async () => {
+      window.localStorage.setItem("hecate.chatSessionID", "sess_b");
+      let deleteCalls = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+          deleteCalls += 1;
+          return new Response(null, { status: 204 });
+        }
+        return withSessions([{ id: "sess_b", title: "Keep" }], {
+          "/hecate/v1/chat/sessions/sess_b": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "sess_b",
+                title: "Keep",
+                agent_id: "hecate",
+                status: "completed",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
+        })(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() =>
+        expect(result.current.runtimeConsole.state.activeChatSession?.id).toBe("sess_b"),
+      );
+      let turnToken: number | null = null;
+      act(() => {
+        turnToken = result.current.chat.actions.beginChatAttachmentTurn("sess_b", 1);
+      });
+      expect(turnToken).not.toBeNull();
+
+      await act(async () => {
+        await result.current.runtimeConsole.actions.deleteChatSession("sess_b");
+      });
+      expect(deleteCalls).toBe(0);
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("sess_b");
+      expect(result.current.runtimeConsole.state.notice).toEqual({
+        kind: "error",
+        message: "Wait for the attachment response before deleting a chat.",
+      });
+      act(() => {
+        if (turnToken !== null) result.current.chat.actions.finishChatAttachmentTurn(turnToken);
+      });
+    });
+
+    it("keeps durable queued prompts recoverable when delete cleanup fails, then retries", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "sess_b");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
@@ -5487,7 +12837,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderRuntimeConsoleHook();
+      const { result } = renderRuntimeConsoleWithChatHook();
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("sess_b"));
 
       act(() => {
@@ -5497,13 +12847,83 @@ describe("useRuntimeConsole", () => {
         await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
       });
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      const queued = result.current.state.queuedChatMessages[0];
+      const storageRevision = queued.delivery_storage_revision;
+      expect(storageRevision).toBeTruthy();
+      const queuedKey = queuedChatMessageStorageKey(
+        queued.id,
+        queued.delivery_storage_epoch ?? "0",
+        storageRevision,
+      );
+      expect(window.localStorage.getItem(queuedKey)).not.toBeNull();
+      const otherTabRevision = "other-tab-delete-revision";
+      const otherTabKey = queuedChatMessageStorageKey(
+        "queued_other_tab_delete",
+        queued.delivery_storage_epoch ?? "0",
+        otherTabRevision,
+      );
+      window.localStorage.setItem(
+        otherTabKey,
+        JSON.stringify({
+          ...queued,
+          id: "queued_other_tab_delete",
+          content: "queued by another tab",
+          created_at: "2026-04-20T00:00:02Z",
+          delivery_storage_revision: otherTabRevision,
+        }),
+      );
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(readQueuedChatMessagesFromStorage(window.localStorage)).toHaveLength(2);
 
+      const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
+      const removeSpy = vi
+        .spyOn(Storage.prototype, "removeItem")
+        .mockImplementation((key: string) => {
+          if (key === queuedKey) return;
+          originalRemoveItem(key);
+        });
+
+      let deleted = true;
       await act(async () => {
-        await result.current.actions.deleteChatSession("sess_b");
+        deleted = await result.current.actions.deleteChatSession("sess_b");
       });
 
       expect(deleteCalls).toBe(1);
+      expect(deleted).toBe(false);
+      expect(result.current.chat.actions.isChatSessionDeleted("sess_b")).toBe(true);
+      expect(result.current.state.activeChatSessionID).toBe("sess_b");
+      expect(result.current.state.chatSessions.map((session) => session.id)).toContain("sess_b");
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(result.current.state.queuedChatMessages[0]).toMatchObject({
+        delivery_state: "reconcile_required",
+        delivery_storage_failed: true,
+      });
+      expect(window.localStorage.getItem(queuedKey)).not.toBeNull();
+      expect(window.localStorage.getItem(otherTabKey)).toBeNull();
+      expect(window.localStorage.getItem(queuedChatDeletedSessionStorageKey("sess_b"))).toMatch(
+        /^deleted:v1:0:/,
+      );
+      expect(
+        window.localStorage.getItem(queuedChatDeletedSessionStorageKey("sess_b")),
+      ).not.toContain("do this later");
+      expect(result.current.state.notice).toEqual({
+        kind: "error",
+        message:
+          "The chat was deleted on the server, but Hecate could not safely fence and remove its queued prompts from browser storage. Free browser storage or clear Hecate site data, then retry Delete.",
+      });
+
+      removeSpy.mockRestore();
+      await act(async () => {
+        deleted = await result.current.actions.deleteChatSession("sess_b");
+      });
+
+      expect(deleted).toBe(true);
+      expect(deleteCalls).toBe(2);
       expect(result.current.state.queuedChatMessages).toHaveLength(0);
+      expect(window.localStorage.getItem(queuedKey)).toBeNull();
+      expect(window.localStorage.getItem(queuedChatDeletedSessionStorageKey("sess_b"))).toMatch(
+        /^deleted:v1:0:/,
+      );
       expect(result.current.state.activeChatSessionID).toBe("");
     });
 

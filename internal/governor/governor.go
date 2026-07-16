@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/policy"
+	"github.com/hecatehq/hecate/internal/prompttokens"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -67,10 +68,7 @@ func (g *StaticGovernor) Check(_ context.Context, req types.ChatRequest) error {
 		return denyPolicyError("requests are disabled by policy")
 	}
 
-	promptEstimate := 0
-	for _, msg := range req.Messages {
-		promptEstimate += len(msg.Content) / 4
-	}
+	promptEstimate := prompttokens.EstimateMessages(req.Messages)
 	if promptEstimate > g.config.MaxPromptTokens {
 		return denyPolicyError(fmt.Sprintf("estimated prompt tokens %d exceed limit %d", promptEstimate, g.config.MaxPromptTokens))
 	}

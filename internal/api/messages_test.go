@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -237,6 +238,43 @@ func TestTranslateOpenAIToAnthropicSSE(t *testing.T) {
 	}
 }
 
+func TestTranslateOpenAIToAnthropicSSEAcceptsNoSpaceDataFields(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		`data:{"id":"chatcmpl-no-space","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"visible"},"finish_reason":null}]}`,
+		``,
+		`data:{"id":"chatcmpl-no-space","model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		``,
+		`data:[DONE]`,
+		``,
+	}, "\n")
+
+	var output bytes.Buffer
+	if err := translateOpenAIToAnthropicSSE(context.Background(), "gpt-4o-mini", "gpt-4o-mini", strings.NewReader(input), &output); err != nil {
+		t.Fatalf("translateOpenAIToAnthropicSSE() error = %v", err)
+	}
+	for _, want := range []string{`"text":"visible"`, "event: message_delta", "event: message_stop"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("translated no-space stream missing %q: %q", want, output.String())
+		}
+	}
+}
+
+func TestTranslateOpenAIToAnthropicSSERejectsPrematureEOF(t *testing.T) {
+	t.Parallel()
+
+	input := `data:{"id":"chatcmpl-partial","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}` + "\n\n"
+	var output bytes.Buffer
+	err := translateOpenAIToAnthropicSSE(context.Background(), "gpt-4o-mini", "gpt-4o-mini", strings.NewReader(input), &output)
+	if err == nil || !strings.Contains(err.Error(), "before [DONE]") {
+		t.Fatalf("translateOpenAIToAnthropicSSE() error = %v, want premature-stream failure", err)
+	}
+	if strings.Contains(output.String(), "event: message_stop") {
+		t.Fatalf("premature stream was marked complete: %q", output.String())
+	}
+}
+
 func TestMessagesCacheControlPreservedInContentBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -314,6 +352,188 @@ func TestMessagesCacheControlPreservedInContentBlocks(t *testing.T) {
 	// Content string must also be populated (used by OpenAI provider).
 	if !strings.Contains(userMsg.Content, "2+2") {
 		t.Fatalf("user.Content = %q, want text of the block", userMsg.Content)
+	}
+}
+
+func TestNormalizeAnthropicRequestPreservesImageSources(t *testing.T) {
+	t.Parallel()
+
+	req := AnthropicMessagesRequest{
+		Model:     "claude-sonnet-4-20250514",
+		MaxTokens: 128,
+		Messages: []AnthropicInboundMessage{{
+			Role: "user",
+			Content: json.RawMessage(`[
+				{"type":"text","text":"Compare these images."},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AQID"},"cache_control":{"type":"ephemeral"}},
+				{"type":"image","source":{"type":"url","url":"https://images.example.test/reference.webp"},"cache_control":{"type":"ephemeral","ttl":"5m"}}
+			]`),
+		}},
+	}
+
+	internal, err := normalizeAnthropicRequest(req, "req-images")
+	if err != nil {
+		t.Fatalf("normalizeAnthropicRequest() error = %v", err)
+	}
+	if internal.Requirements.ImageInput {
+		t.Fatal("provider-compatible /v1/messages request unexpectedly enabled Hecate image admission")
+	}
+	if !internal.Requirements.NoProviderFailover {
+		t.Fatal("provider-compatible /v1/messages image request did not prevent cross-provider failover")
+	}
+	if len(internal.Messages) != 1 || len(internal.Messages[0].ContentBlocks) != 3 {
+		t.Fatalf("messages = %+v, want one message with three content blocks", internal.Messages)
+	}
+
+	base64Block := internal.Messages[0].ContentBlocks[1]
+	if base64Block.Type != "image" || base64Block.Image == nil {
+		t.Fatalf("base64 block = %+v, want typed image", base64Block)
+	}
+	if base64Block.Image.Data != "AQID" || base64Block.Image.MediaType != "image/png" || base64Block.Image.URL != "" {
+		t.Fatalf("base64 image = %+v, want preserved base64 source", base64Block.Image)
+	}
+	assertAnthropicCacheControl(t, base64Block.CacheControl, "ephemeral", "")
+
+	urlBlock := internal.Messages[0].ContentBlocks[2]
+	if urlBlock.Type != "image" || urlBlock.Image == nil {
+		t.Fatalf("url block = %+v, want typed image", urlBlock)
+	}
+	if urlBlock.Image.URL != "https://images.example.test/reference.webp" || urlBlock.Image.Data != "" {
+		t.Fatalf("url image = %+v, want preserved URL source", urlBlock.Image)
+	}
+	assertAnthropicCacheControl(t, urlBlock.CacheControl, "ephemeral", "5m")
+}
+
+func TestNormalizeAnthropicRequestPreservesToolResultImageSource(t *testing.T) {
+	t.Parallel()
+
+	req := AnthropicMessagesRequest{
+		Model:     "claude-sonnet-4-20250514",
+		MaxTokens: 128,
+		Messages: []AnthropicInboundMessage{{
+			Role: "user",
+			Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_image","content":[
+				{"type":"text","text":"Captured frame"},
+				{"type":"image","source":{"type":"url","url":"https://images.example.test/tool-output.png"},"cache_control":{"type":"ephemeral"}}
+			]}]`),
+		}},
+	}
+
+	internal, err := normalizeAnthropicRequest(req, "req-tool-image")
+	if err != nil {
+		t.Fatalf("normalizeAnthropicRequest() error = %v", err)
+	}
+	if len(internal.Messages) != 1 {
+		t.Fatalf("messages = %+v, want one tool message", internal.Messages)
+	}
+	toolMessage := internal.Messages[0]
+	if toolMessage.Role != "tool" || toolMessage.ToolCallID != "toolu_image" {
+		t.Fatalf("tool message = %+v, want toolu_image result", toolMessage)
+	}
+	if len(toolMessage.ContentBlocks) != 2 {
+		t.Fatalf("tool result blocks = %+v, want text and image", toolMessage.ContentBlocks)
+	}
+	imageBlock := toolMessage.ContentBlocks[1]
+	if imageBlock.Type != "image" || imageBlock.Image == nil || imageBlock.Image.URL != "https://images.example.test/tool-output.png" {
+		t.Fatalf("tool result image = %+v, want typed URL image", imageBlock)
+	}
+	assertAnthropicCacheControl(t, imageBlock.CacheControl, "ephemeral", "")
+}
+
+func TestNormalizeAnthropicRequestToleratesUnknownToolResultContentBlocks(t *testing.T) {
+	t.Parallel()
+
+	internal, err := normalizeAnthropicRequest(AnthropicMessagesRequest{
+		Model:     "claude-sonnet-4-20250514",
+		MaxTokens: 128,
+		Messages: []AnthropicInboundMessage{{
+			Role: "user",
+			Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_future","content":[
+				{"type":"text","text":"compatibility text"},
+				{"type":"future_result","payload":{"shape":"not understood"}}
+			]}]`),
+		}},
+	}, "req-tool-future")
+	if err != nil {
+		t.Fatalf("normalizeAnthropicRequest() error = %v", err)
+	}
+	if len(internal.Messages) != 1 {
+		t.Fatalf("messages = %+v, want one tool message", internal.Messages)
+	}
+	toolMessage := internal.Messages[0]
+	if toolMessage.Role != "tool" || toolMessage.Content != "compatibility text" {
+		t.Fatalf("tool message = %+v, want preserved text fallback", toolMessage)
+	}
+	if len(toolMessage.ContentBlocks) != 1 || toolMessage.ContentBlocks[0].Type != "text" {
+		t.Fatalf("tool result blocks = %+v, want unknown nested block ignored", toolMessage.ContentBlocks)
+	}
+}
+
+func TestDecodeToolResultBlocksWithFallbackPreservesCompatibility(t *testing.T) {
+	t.Parallel()
+
+	blocks, err := decodeToolResultBlocksWithFallback(
+		json.RawMessage(`{"unexpected":"non-array content"}`),
+		"compatibility text",
+	)
+	if err != nil {
+		t.Fatalf("decodeToolResultBlocksWithFallback() error = %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].Type != "text" || blocks[0].Text != "compatibility text" {
+		t.Fatalf("blocks = %+v, want text-only compatibility fallback", blocks)
+	}
+}
+
+func TestNormalizeAnthropicRequestRejectsInvalidImageSources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "missing source", content: `[{"type":"image"}]`},
+		{name: "missing source type", content: `[{"type":"image","source":{"url":"https://images.example.test/a.png"}}]`},
+		{name: "unsupported source type", content: `[{"type":"image","source":{"type":"file","url":"https://images.example.test/a.png"}}]`},
+		{name: "base64 missing media type", content: `[{"type":"image","source":{"type":"base64","data":"AQID"}}]`},
+		{name: "base64 non image media type", content: `[{"type":"image","source":{"type":"base64","media_type":"text/plain","data":"AQID"}}]`},
+		{name: "base64 invalid data", content: `[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"secret-image-data"}}]`},
+		{name: "base64 conflicting URL", content: `[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AQID","url":"https://private.example.test/a.png"}}]`},
+		{name: "URL missing absolute scheme", content: `[{"type":"image","source":{"type":"url","url":"/private/a.png"}}]`},
+		{name: "URL conflicting data", content: `[{"type":"image","source":{"type":"url","url":"https://private.example.test/a.png","data":"AQID"}}]`},
+		{name: "tool result image", content: `[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"secret-image-data"}}]}]`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := normalizeAnthropicRequest(AnthropicMessagesRequest{
+				Model:     "claude-sonnet-4-20250514",
+				MaxTokens: 128,
+				Messages: []AnthropicInboundMessage{{
+					Role:    "user",
+					Content: json.RawMessage(test.content),
+				}},
+			}, "req-invalid-image")
+			if err == nil {
+				t.Fatal("normalizeAnthropicRequest() error = nil, want image-source validation error")
+			}
+			for _, secret := range []string{"secret-image-data", "private.example.test"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("validation error leaked image source data: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func assertAnthropicCacheControl(t *testing.T, raw json.RawMessage, wantType, wantTTL string) {
+	t.Helper()
+	var cacheControl map[string]string
+	if err := json.Unmarshal(raw, &cacheControl); err != nil {
+		t.Fatalf("cache_control = %s, want JSON object: %v", raw, err)
+	}
+	if cacheControl["type"] != wantType || cacheControl["ttl"] != wantTTL {
+		t.Fatalf("cache_control = %v, want type=%q ttl=%q", cacheControl, wantType, wantTTL)
 	}
 }
 
@@ -538,13 +758,8 @@ func TestMessagesReturns429OnRateLimit(t *testing.T) {
 	if second.Code != http.StatusTooManyRequests {
 		t.Fatalf("second request status = %d, want 429; body=%s", second.Code, second.Body.String())
 	}
-	// 429 from the rate limiter is written by checkRateLimit, which uses the
-	// shared OpenAI-shaped WriteError. Anthropic clients see the same body
-	// shape used by /v1/chat/completions for this one path — documented here
-	// rather than diverged-and-forgotten. If the handler is later refactored
-	// to emit the Anthropic envelope from checkRateLimit, this test should
-	// flip to assert that contract.
 	var payload struct {
+		Type  string `json:"type"`
 		Error struct {
 			Type string `json:"type"`
 		} `json:"error"`
@@ -552,8 +767,8 @@ func TestMessagesReturns429OnRateLimit(t *testing.T) {
 	if err := json.NewDecoder(second.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if payload.Error.Type != "rate_limit_exceeded" {
-		t.Errorf("error.type = %q, want rate_limit_exceeded", payload.Error.Type)
+	if payload.Type != "error" || payload.Error.Type != "rate_limit_error" {
+		t.Errorf("error envelope = %+v, want Anthropic error/rate_limit_error", payload)
 	}
 }
 
@@ -656,6 +871,46 @@ var (
 	_ providers.Provider = (*failingMessagesStreamProvider)(nil)
 )
 
+type incompleteMessagesStreamProvider struct {
+	fakeProvider
+}
+
+func (p *incompleteMessagesStreamProvider) ChatStream(_ context.Context, _ types.ChatRequest, dst io.Writer) error {
+	_, err := io.WriteString(dst, `data:{"id":"chatcmpl-partial","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}`+"\n\n")
+	return err
+}
+
+var (
+	_ providers.Streamer = (*incompleteMessagesStreamProvider)(nil)
+	_ providers.Provider = (*incompleteMessagesStreamProvider)(nil)
+)
+
+func TestMessagesStreamPrematureEOFTerminatesWithAnthropicError(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &incompleteMessagesStreamProvider{
+		fakeProvider: fakeProvider{name: "openai", defaultModel: "gpt-4o-mini"},
+	}
+	handler := newTestHTTPHandler(logger, provider)
+
+	body := `{"model":"gpt-4o-mini","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	rec := performRequest(t, handler, http.MethodPost, "/v1/messages", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 after stream headers; body=%s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, `"text":"partial"`) {
+		t.Fatalf("body lost content observed before premature EOF: %q", out)
+	}
+	if !strings.Contains(out, "event: error") || !strings.Contains(out, "before [DONE]") {
+		t.Fatalf("body missing terminal premature-stream error: %q", out)
+	}
+	if strings.Contains(out, "event: message_stop") {
+		t.Fatalf("premature stream was marked complete: %q", out)
+	}
+}
+
 // TestMessagesStreamMidStreamErrorEventBodyIsValidJSON pins the
 // Anthropic error-event JSON across special characters. Same hazard
 // as the OpenAI SSE counterpart — a regression to naive concat would
@@ -714,6 +969,38 @@ func TestMessagesStreamMidStreamErrorEventBodyIsValidJSON(t *testing.T) {
 	want := `failed: "bad" model` + "\n" + `path=\x`
 	if payload.Error.Message != want {
 		t.Errorf("parsed message = %q, want %q", payload.Error.Message, want)
+	}
+	if payload.Type != "error" || payload.Error.Type != "api_error" {
+		t.Errorf("parsed envelope = type %q error.type %q, want error/api_error", payload.Type, payload.Error.Type)
+	}
+}
+
+func TestMessagesStreamGenericErrorRedactsInlineImageFromSSEAndLogs(t *testing.T) {
+	t.Parallel()
+	const secretPayload = "cHJpdmF0ZS1pbWFnZS1ieXRlcw=="
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	provider := &failingMessagesStreamProvider{
+		fakeProvider: fakeProvider{name: "openai", defaultModel: "gpt-4o-mini"},
+		streamErr:    errors.New("stream failed for DATA:image/png;base64," + secretPayload),
+	}
+	handler := newTestHTTPHandler(logger, provider)
+
+	body := `{"model":"gpt-4o-mini","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	rec := performRequest(t, handler, http.MethodPost, "/v1/messages", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	for surface, value := range map[string]string{
+		"SSE":  rec.Body.String(),
+		"logs": logs.String(),
+	} {
+		if strings.Contains(value, secretPayload) || strings.Contains(strings.ToLower(value), "data:image") {
+			t.Fatalf("%s leaked inline image data: %q", surface, value)
+		}
+		if !strings.Contains(value, "[redacted inline image]") {
+			t.Fatalf("%s = %q, want redaction marker", surface, value)
+		}
 	}
 }
 

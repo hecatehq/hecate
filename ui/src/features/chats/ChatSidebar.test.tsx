@@ -1,7 +1,12 @@
-import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChat } from "../../app/state/chat";
+import {
+  queuedChatDeletedSessionStorageKey,
+  queuedChatMessageStorageKey,
+  queuedChatMessagesV2MarkerStorageKey,
+} from "../../app/state/queuedChatStorage";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
@@ -16,7 +21,7 @@ function AtomicCreationHarness({
   onSelectSession,
 }: {
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
-  onSelectSession: (sessionID: string) => void;
+  onSelectSession: (sessionID: string) => Promise<boolean>;
 }) {
   const chat = useChat();
   return (
@@ -33,6 +38,11 @@ function AtomicCreationHarness({
 }
 
 describe("ChatSidebar new-chat creation", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
   it("atomically ignores a second same-tick creation intent before deselecting", () => {
     const onCreateChat = vi.fn();
     const onSelectSession = vi.fn();
@@ -88,7 +98,7 @@ describe("ChatSidebar new-chat creation", () => {
       withRuntimeConsole(
         <ChatSidebar
           isAgentChat
-          onSelectSession={() => undefined}
+          onSelectSession={async () => true}
           onCreateChat={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
@@ -126,7 +136,7 @@ describe("ChatSidebar new-chat creation", () => {
       withRuntimeConsole(
         <ChatSidebar
           isAgentChat
-          onSelectSession={() => undefined}
+          onSelectSession={async () => true}
           onCreateChat={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
@@ -144,7 +154,7 @@ describe("ChatSidebar new-chat creation", () => {
       withRuntimeConsole(
         <ChatSidebar
           isAgentChat
-          onSelectSession={() => undefined}
+          onSelectSession={async () => true}
           onCreateChat={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
@@ -154,5 +164,136 @@ describe("ChatSidebar new-chat creation", () => {
 
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Choose agent for new chat" })).toBeDisabled();
+  });
+
+  it("reconstructs an already-deleted chat cleanup surface after remount", () => {
+    const queued = {
+      id: "queued-cleanup",
+      session_id: "chat-deleted",
+      project_id: "",
+      content: "recover this queued prompt",
+      execution_mode: "hecate_task" as const,
+      tools_enabled: false,
+      provider_filter: "openai" as const,
+      model: "gpt-4o-mini",
+      workspace: "",
+      system_prompt: "",
+      agent_id: "hecate",
+      created_at: "2026-07-14T10:00:00Z",
+      delivery_state: "reconcile_required" as const,
+      delivery_storage_epoch: "0",
+      delivery_storage_revision: "cleanup-revision",
+      delivery_storage_failed: true,
+    };
+    const queueKey = queuedChatMessageStorageKey(
+      queued.id,
+      queued.delivery_storage_epoch,
+      queued.delivery_storage_revision,
+    );
+    window.localStorage.setItem(queuedChatMessagesV2MarkerStorageKey, "1");
+    window.localStorage.setItem(queueKey, JSON.stringify(queued));
+    window.localStorage.setItem(
+      queuedChatDeletedSessionStorageKey(queued.session_id),
+      "deleted:v1:0:cleanup-required",
+    );
+    const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation((key) => {
+      if (key === queueKey) return;
+      originalRemoveItem(key);
+    });
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatSessions: [],
+      queuedChatMessages: [queued],
+    });
+    const renderSidebar = () =>
+      render(
+        withRuntimeConsole(
+          <ChatSidebar
+            isAgentChat
+            onSelectSession={async () => true}
+            onCreateChat={() => undefined}
+            onOpenAgentSetup={() => undefined}
+          />,
+          { state, actions: createRuntimeConsoleActions() },
+        ),
+      );
+
+    const first = renderSidebar();
+    expect(screen.getByRole("button", { name: "Chat Deleted chat cleanup required" })).toBeTruthy();
+    first.unmount();
+
+    renderSidebar();
+    act(() => {
+      screen.getByRole("button", { name: "Chat Deleted chat cleanup required" }).click();
+    });
+    expect(screen.getByText(/Retry browser cleanup for this already-deleted chat/)).toBeTruthy();
+  });
+
+  it("keeps the cleanup recovery surface when local storage becomes unavailable", () => {
+    const queued = {
+      id: "queued-storage-unavailable",
+      session_id: "chat-storage-unavailable",
+      project_id: "",
+      content: "preserve this queued prompt",
+      execution_mode: "hecate_task" as const,
+      tools_enabled: false,
+      provider_filter: "openai" as const,
+      model: "gpt-4o-mini",
+      workspace: "",
+      system_prompt: "",
+      agent_id: "hecate",
+      created_at: "2026-07-14T10:00:00Z",
+      delivery_state: "reconcile_required" as const,
+      delivery_storage_epoch: "0",
+      delivery_storage_revision: "storage-unavailable-revision",
+      delivery_storage_failed: true,
+    };
+    window.localStorage.setItem(queuedChatMessagesV2MarkerStorageKey, "1");
+    window.localStorage.setItem(
+      queuedChatDeletedSessionStorageKey(queued.session_id),
+      "deleted:v1:0:storage-unavailable",
+    );
+    const queueKey = queuedChatMessageStorageKey(
+      queued.id,
+      queued.delivery_storage_epoch,
+      queued.delivery_storage_revision,
+    );
+    window.localStorage.setItem(queueKey, JSON.stringify(queued));
+    const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation((key) => {
+      if (key === queueKey) return;
+      originalRemoveItem(key);
+    });
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatSessions: [],
+      queuedChatMessages: [queued],
+    });
+
+    render(
+      withRuntimeConsole(
+        <ChatSidebar
+          isAgentChat
+          onSelectSession={async () => true}
+          onCreateChat={() => undefined}
+          onOpenAgentSetup={() => undefined}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Chat Deleted chat cleanup required" })).toBeTruthy();
+
+    const storageGetter = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("storage denied", "SecurityError");
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search chats" }), {
+      target: { value: "cleanup" },
+    });
+
+    expect(screen.getByRole("button", { name: "Chat Deleted chat cleanup required" })).toBeTruthy();
+    storageGetter.mockRestore();
   });
 });

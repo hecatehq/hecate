@@ -70,27 +70,40 @@ func (f *DefaultResponseFinalizer) FinalizeExecution(ctx context.Context, trace 
 		telemetry.AttrHecateModelResolvedCanonical:  identity.CanonicalResolved,
 	})
 
-	metadata := ResponseMetadata{
+	metadata := buildResponseMetadata(plan, callResult, trace, identity, resp.Usage, cost.TotalMicrosUSD)
+
+	return f.completeResult(ctx, trace, resp, metadata), nil
+}
+
+func buildResponseMetadata(
+	plan *ExecutionPlan,
+	callResult *providerCallResult,
+	trace *profiler.Trace,
+	identity models.Identity,
+	usage types.Usage,
+	costMicrosUSD int64,
+) ResponseMetadata {
+	decision := callResult.Decision
+	return ResponseMetadata{
 		RequestID:               plan.OriginalRequest.RequestID,
 		Provider:                decision.Provider,
 		ProviderKind:            callResult.ProviderKind,
+		ProviderInstance:        decision.ProviderInstance,
 		RouteReason:             decision.Reason,
 		RequestedModel:          identity.Requested,
 		CanonicalRequestedModel: identity.CanonicalRequested,
 		Model:                   identity.Resolved,
 		CanonicalResolvedModel:  identity.CanonicalResolved,
-		PromptTokens:            resp.Usage.PromptTokens,
-		CompletionTokens:        resp.Usage.CompletionTokens,
-		TotalTokens:             resp.Usage.TotalTokens,
-		CostMicrosUSD:           cost.TotalMicrosUSD,
+		PromptTokens:            usage.PromptTokens,
+		CompletionTokens:        usage.CompletionTokens,
+		TotalTokens:             usage.TotalTokens,
+		CostMicrosUSD:           costMicrosUSD,
 		AttemptCount:            callResult.AttemptCount,
 		RetryCount:              callResult.RetryCount,
 		FallbackFromProvider:    callResult.FallbackFromProvider,
 		TraceID:                 trace.TraceID,
 		SpanID:                  trace.RootSpanID(),
 	}
-
-	return f.completeResult(ctx, trace, resp, metadata), nil
 }
 
 func (f *DefaultResponseFinalizer) completeResult(ctx context.Context, trace *profiler.Trace, resp *types.ChatResponse, metadata ResponseMetadata) *ChatResult {

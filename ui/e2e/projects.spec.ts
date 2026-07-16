@@ -1331,6 +1331,163 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
   );
 });
 
+test("Projects retries one atomic handoff follow-up without launching it", async ({ page }) => {
+  const state = await mockProjectJourneyAPIs(page);
+  const followUpAt = "2026-06-14T10:12:00Z";
+  state.projects = [
+    {
+      id: "proj_atomic_follow_up",
+      name: "Release follow-up",
+      description: "Keep operator handoff intent separate from execution.",
+      roots: [],
+      context_sources: [],
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.roles = [
+    {
+      id: "role_reviewer",
+      project_id: "proj_atomic_follow_up",
+      name: "Reviewer",
+      description: "Review the release before it is launched.",
+      default_driver_kind: "hecate_task",
+      skill_ids: [],
+      built_in: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.workItems = [
+    {
+      id: "work_atomic_follow_up",
+      project_id: "proj_atomic_follow_up",
+      title: "Prepare release review",
+      brief: "Create the queued follow-up without starting agent work.",
+      status: "ready",
+      priority: "high",
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  state.handoffs = [
+    {
+      id: "handoff_atomic_follow_up",
+      project_id: "proj_atomic_follow_up",
+      work_item_id: "work_atomic_follow_up",
+      target_role_id: "role_reviewer",
+      title: "Release review",
+      summary: "The release is ready for an independent review.",
+      recommended_next_action: "Queue the reviewer without launching the assignment.",
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: NOW,
+      updated_at: NOW,
+      status_changed_at: NOW,
+    },
+  ];
+
+  const requestBodies: Array<Record<string, unknown>> = [];
+  let startRequestCount = 0;
+  let separateAssignmentCreateCount = 0;
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    const pathname = new URL(request.url()).pathname;
+    if (/\/assignments\/[^/]+\/start$/.test(pathname)) startRequestCount += 1;
+    if (pathname.endsWith("/work-items/work_atomic_follow_up/assignments")) {
+      separateAssignmentCreateCount += 1;
+    }
+  });
+  await page.route(
+    "**/hecate/v1/projects/proj_atomic_follow_up/work-items/work_atomic_follow_up/handoffs/handoff_atomic_follow_up/accept-with-follow-up",
+    async (route) => {
+      requestBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (requestBodies.length === 1) {
+        await route.abort("connectionfailed");
+        return;
+      }
+      const handoff = state.handoffs[0];
+      if (!handoff) throw new Error("Atomic follow-up fixture lost its handoff.");
+      Object.assign(handoff, {
+        status: "accepted",
+        status_changed_at: followUpAt,
+        target_assignment_id: "assign_atomic_follow_up",
+        updated_at: followUpAt,
+      });
+      const assignment: ProjectAssignmentRecord = {
+        id: "assign_atomic_follow_up",
+        project_id: "proj_atomic_follow_up",
+        work_item_id: "work_atomic_follow_up",
+        role_id: "role_reviewer",
+        driver_kind: "hecate_task",
+        status: "queued",
+        created_at: followUpAt,
+        updated_at: followUpAt,
+      };
+      state.assignments = [assignment];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          object: "project_handoff_follow_up",
+          data: {
+            handoff,
+            assignment,
+            outcome: "created",
+            replayed: true,
+          },
+        }),
+      });
+    },
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+    window.localStorage.setItem("hecate.project", "proj_atomic_follow_up");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  const operations = page.getByRole("region", { name: "Project operations" });
+  await expect(
+    operations.getByText("Review pending handoff: Release review", { exact: true }),
+  ).toBeVisible();
+  await operations.getByRole("button", { name: /Open handoff/ }).click();
+  const detail = page.getByRole("region", { name: "Selected work item" });
+  const acceptFollowUp = detail.getByRole("button", { name: "Accept and create follow-up" });
+
+  await acceptFollowUp.click();
+  await expect.poll(() => requestBodies).toHaveLength(1);
+  await expect(acceptFollowUp).toBeEnabled();
+  await acceptFollowUp.click();
+  await expect.poll(() => requestBodies).toHaveLength(2);
+
+  const idempotencyKey = requestBodies[0]?.idempotency_key;
+  expect(requestBodies[0]).toEqual({
+    expected_updated_at: NOW,
+    idempotency_key: expect.stringMatching(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    ),
+    intent: "accept_and_ensure_follow_up",
+  });
+  expect(requestBodies[1]).toEqual({
+    expected_updated_at: NOW,
+    idempotency_key: idempotencyKey,
+    intent: "accept_and_ensure_follow_up",
+  });
+  const handoff = detail.getByRole("group", { name: "Release review handoff" });
+  await expect(handoff.getByText("Accepted", { exact: true })).toBeVisible();
+  const assignment = detail.getByRole("article", {
+    name: "Reviewer assignment execution assign_atomic_follow_up",
+  });
+  await expect(assignment).toBeVisible();
+  await expect(assignment.getByText("queued", { exact: true })).toBeVisible();
+  expect(state.assignments).toHaveLength(1);
+  expect(state.assignments[0]?.status).toBe("queued");
+  expect(startRequestCount).toBe(0);
+  expect(separateAssignmentCreateCount).toBe(0);
+});
+
 test("Projects follow-through journey: review, handoff, evidence, and durable closeout", async ({
   page,
 }) => {
@@ -2181,6 +2338,7 @@ test("Projects catalog retry preserves deliberate browser focus", async ({ page 
   const chatsLink = page.getByRole("link", { name: "Chats" });
   await chatsLink.focus();
   await expect(chatsLink).toBeFocused();
+  await expect.poll(() => state.projectCatalogRequestCount).toBe(2);
   releaseSuccessfulRetry();
 
   await expect(page.getByRole("status").filter({ hasText: "Projects loaded." })).toHaveText(
@@ -2208,6 +2366,7 @@ test("Project scope recovers the catalog outside the Projects workspace", async 
   const retryingButton = page.getByRole("button", { name: "Retrying…" });
   await expect(retryingButton).toBeFocused();
   await expect(retryingButton).toHaveAttribute("aria-disabled", "true");
+  await expect.poll(() => state.projectCatalogRequestCount).toBe(2);
   releaseRetry();
 
   await expect(page.getByRole("status").filter({ hasText: "Projects loaded." })).toHaveText(

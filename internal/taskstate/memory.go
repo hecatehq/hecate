@@ -184,6 +184,9 @@ func (s *MemoryStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 		return nil, err
 	}
 	if len(filter.Statuses) == 0 {
+		if filter.OrderByID {
+			runs = filterRunsByIDCursor(runs, filter.AfterID)
+		}
 		if filter.Limit > 0 && len(runs) > filter.Limit {
 			return runs[:filter.Limit], nil
 		}
@@ -200,10 +203,22 @@ func (s *MemoryStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 		}
 		filtered = append(filtered, run)
 	}
+	if filter.OrderByID {
+		filtered = filterRunsByIDCursor(filtered, filter.AfterID)
+	}
 	if filter.Limit > 0 && len(filtered) > filter.Limit {
 		filtered = filtered[:filter.Limit]
 	}
 	return filtered, nil
+}
+
+func filterRunsByIDCursor(runs []types.TaskRun, afterID string) []types.TaskRun {
+	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
+	if afterID == "" {
+		return runs
+	}
+	first := sort.Search(len(runs), func(i int) bool { return runs[i].ID > afterID })
+	return runs[first:]
 }
 
 func (s *MemoryStore) UpdateRun(_ context.Context, run types.TaskRun) (types.TaskRun, error) {
@@ -337,31 +352,6 @@ func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.Ta
 	return approval, true, nil
 }
 
-func (s *MemoryStore) UpdatePendingApprovalForAwaitingRun(_ context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
-	if strings.TrimSpace(approval.ID) == "" {
-		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
-	}
-	if strings.TrimSpace(approval.TaskID) == "" {
-		return types.TaskApproval{}, false, fmt.Errorf("approval task id is required")
-	}
-	if strings.TrimSpace(approval.RunID) == "" {
-		return types.TaskApproval{}, false, fmt.Errorf("approval run id is required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, ok := s.approvals[approval.ID]
-	if !ok || current.Status != "pending" || current.TaskID != approval.TaskID || current.RunID != approval.RunID {
-		return types.TaskApproval{}, false, nil
-	}
-	run, ok := s.runs[approval.RunID]
-	if !ok || run.TaskID != approval.TaskID || run.Status != "awaiting_approval" {
-		return types.TaskApproval{}, false, nil
-	}
-	s.approvals[approval.ID] = approval
-	s.signalRun(approval.RunID)
-	return approval, true, nil
-}
-
 func (s *MemoryStore) CreateArtifact(_ context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -447,7 +437,8 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.tasks[tr.Task.ID]; !ok {
+	storedTask, ok := s.tasks[tr.Task.ID]
+	if !ok {
 		return TerminalRunTransitionResult{}, fmt.Errorf("task %q not found", tr.Task.ID)
 	}
 	storedRun, ok := s.runs[tr.Run.ID]
@@ -457,27 +448,119 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	if storedRun.TaskID != tr.Task.ID {
 		return TerminalRunTransitionResult{}, fmt.Errorf("run %q does not belong to task %q", tr.Run.ID, tr.Task.ID)
 	}
+	storedResolutionApproval := types.TaskApproval{}
+	if tr.ApprovalResolution != nil {
+		var found bool
+		storedResolutionApproval, found = s.approvals[tr.ApprovalResolution.ApprovalID]
+		if !found || storedResolutionApproval.TaskID != tr.Task.ID || storedResolutionApproval.RunID != tr.Run.ID {
+			return TerminalRunTransitionResult{}, fmt.Errorf("approval %q not found", tr.ApprovalResolution.ApprovalID)
+		}
+		if storedRun.Status != "awaiting_approval" || storedResolutionApproval.Status != "pending" {
+			return TerminalRunTransitionResult{
+				Task:      cloneTask(storedTask),
+				Run:       storedRun,
+				Approval:  storedResolutionApproval,
+				Steps:     s.listStepsLocked(storedRun.ID),
+				Artifacts: s.listArtifactsLocked(ArtifactFilter{TaskID: tr.Task.ID, RunID: storedRun.ID}),
+			}, nil
+		}
+	}
+	storedRunTerminal := types.IsTerminalTaskRunStatus(storedRun.Status)
+	trustedDifferentTerminalReplay := storedRunTerminal && storedRun.Status != tr.Run.Status && tr.TrustedSupplementalRunMetadata != nil
+	if storedRunTerminal && storedRun.Status != tr.Run.Status && !trustedDifferentTerminalReplay {
+		return TerminalRunTransitionResult{
+			Task:      cloneTask(s.tasks[tr.Task.ID]),
+			Run:       storedRun,
+			Steps:     s.listStepsLocked(storedRun.ID),
+			Artifacts: s.listArtifactsLocked(ArtifactFilter{TaskID: tr.Task.ID, RunID: storedRun.ID}),
+		}, nil
+	}
 
 	finishedAt := terminalTransitionFinishedAt(tr)
 	task := tr.Task
 	run := tr.Run
-	if task.UpdatedAt.IsZero() {
-		task.UpdatedAt = finishedAt
+	terminalEvent := tr.TerminalEvent
+	taskUpdatedEvent := tr.TaskUpdatedEvent
+	activeStepError := tr.ActiveStepError
+	activeStepResult := tr.ActiveStepResult
+	activeStepErrorKind := tr.ActiveStepErrorKind
+	pendingApprovalResolutionNote := tr.PendingApprovalResolutionNote
+	cancelActiveSteps := tr.CancelActiveSteps
+	cancelStreamingArtifacts := tr.CancelStreamingArtifacts
+	cancelPendingApprovals := tr.CancelPendingApprovals
+	pendingApprovalStatus := tr.PendingApprovalStatus
+	pendingApprovalResolvedBy := tr.PendingApprovalResolvedBy
+	if tr.ApprovalResolution != nil {
+		terminalEvent = nil
+		taskUpdatedEvent = nil
+		cancelActiveSteps = true
+		cancelStreamingArtifacts = true
+		cancelPendingApprovals = true
+		activeStepError = run.LastError
+		activeStepResult = "error"
+		activeStepErrorKind = "run_cancelled"
+		pendingApprovalStatus = "cancelled"
+		pendingApprovalResolvedBy = "system"
+		pendingApprovalResolutionNote = run.LastError
 	}
-	if task.FinishedAt.IsZero() {
-		task.FinishedAt = finishedAt
+	sameTerminalReplay := storedRunTerminal && storedRun.Status == tr.Run.Status
+	terminalReplay := sameTerminalReplay || trustedDifferentTerminalReplay
+	if trustedDifferentTerminalReplay {
+		// Execution-result finalization can arrive after another terminal
+		// status won. Preserve that winner completely and merge only the
+		// explicitly trusted route/accounting fields; loser cleanup and events
+		// must not run under the winner's identity.
+		task = cloneTask(storedTask)
+		run = mergeTrustedTerminalRunMetadata(storedRun, tr.TrustedSupplementalRunMetadata)
+		terminalEvent = nil
+		taskUpdatedEvent = nil
+	} else if sameTerminalReplay {
+		// Same-status terminal calls are cleanup replays. The first terminal
+		// transition owns the run, task projection, and terminal events; a
+		// replay may only settle children that arrived while the executor was
+		// draining.
+		task = cloneTask(storedTask)
+		run = mergeTrustedTerminalRunMetadata(storedRun, tr.TrustedSupplementalRunMetadata)
+		terminalEvent = nil
+		taskUpdatedEvent = nil
+		activeStepError = run.LastError
+		pendingApprovalResolutionNote = run.LastError
+	} else if tr.PreserveTaskProjection {
+		task = cloneTask(storedTask)
+	} else {
+		if task.UpdatedAt.IsZero() {
+			task.UpdatedAt = finishedAt
+		}
+		if task.FinishedAt.IsZero() {
+			task.FinishedAt = finishedAt
+		}
 	}
-	if run.FinishedAt.IsZero() {
+	if !terminalReplay && run.FinishedAt.IsZero() {
 		run.FinishedAt = finishedAt
 	}
-	s.tasks[task.ID] = cloneTask(task)
-	s.runs[run.ID] = run
+	resolvedApproval := storedResolutionApproval
+	if tr.ApprovalResolution != nil {
+		var err error
+		resolvedApproval, err = mergeApprovalResolution(storedResolutionApproval, *tr.ApprovalResolution)
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+	}
+	if terminalReplay {
+		s.runs[run.ID] = run
+	} else {
+		s.tasks[task.ID] = cloneTask(task)
+		s.runs[run.ID] = run
+	}
+	if tr.ApprovalResolution != nil {
+		s.approvals[resolvedApproval.ID] = resolvedApproval
+	}
 
 	cancelledApprovals := make([]types.TaskApproval, 0)
-	if tr.CancelPendingApprovals {
-		status := firstNonEmptyString(tr.PendingApprovalStatus, "cancelled")
-		resolvedBy := firstNonEmptyString(tr.PendingApprovalResolvedBy, "system")
-		note := firstNonEmptyString(tr.PendingApprovalResolutionNote, run.LastError)
+	if cancelPendingApprovals && !trustedDifferentTerminalReplay {
+		status := firstNonEmptyString(pendingApprovalStatus, "cancelled")
+		resolvedBy := firstNonEmptyString(pendingApprovalResolvedBy, "system")
+		note := firstNonEmptyString(pendingApprovalResolutionNote, run.LastError)
 		for id, approval := range s.approvals {
 			if approval.TaskID != task.ID || approval.RunID != run.ID || approval.Status != "pending" {
 				continue
@@ -485,7 +568,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			approval.Status = status
 			approval.ResolvedBy = resolvedBy
 			approval.ResolutionNote = note
-			approval.ResolvedAt = finishedAt
+			approval.ResolvedAt = terminalChildSettlementTime(finishedAt, approval.CreatedAt)
 			s.approvals[id] = approval
 			cancelledApprovals = append(cancelledApprovals, approval)
 		}
@@ -494,10 +577,10 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 		})
 	}
 
-	if tr.CancelActiveSteps {
-		result := firstNonEmptyString(tr.ActiveStepResult, "error")
-		errorKind := firstNonEmptyString(tr.ActiveStepErrorKind, "run_cancelled")
-		stepError := firstNonEmptyString(tr.ActiveStepError, run.LastError)
+	if cancelActiveSteps && !trustedDifferentTerminalReplay {
+		result := firstNonEmptyString(activeStepResult, "error")
+		errorKind := firstNonEmptyString(activeStepErrorKind, "run_cancelled")
+		stepError := firstNonEmptyString(activeStepError, run.LastError)
 		for id, step := range s.steps {
 			if step.RunID != run.ID || (step.Status != "running" && step.Status != "awaiting_approval") {
 				continue
@@ -506,12 +589,12 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			step.Result = result
 			step.Error = stepError
 			step.ErrorKind = errorKind
-			step.FinishedAt = finishedAt
+			step.FinishedAt = terminalChildSettlementTime(finishedAt, step.StartedAt)
 			s.steps[id] = step
 		}
 	}
 
-	if tr.CancelStreamingArtifacts {
+	if cancelStreamingArtifacts && !trustedDifferentTerminalReplay {
 		for id, artifact := range s.artifacts {
 			if artifact.TaskID != task.ID || artifact.RunID != run.ID || artifact.Status != "streaming" {
 				continue
@@ -523,26 +606,36 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 
 	steps := s.listStepsLocked(run.ID)
 	artifacts := s.listArtifactsLocked(ArtifactFilter{TaskID: task.ID, RunID: run.ID})
-	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+2)
+	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+3)
 	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, runtimeevents.EventApprovalResolved.String())
+	if tr.ApprovalResolution != nil {
+		approvalEventType = runtimeevents.EventApprovalResolved.String()
+	}
 	for _, approval := range cancelledApprovals {
 		event := types.TaskRunEvent{
 			TaskID:    task.ID,
 			RunID:     run.ID,
 			EventType: approvalEventType,
 			Data:      runtimeevents.ApprovalResolved(approval),
-			RequestID: tr.Run.RequestID,
-			TraceID:   tr.Run.TraceID,
-			CreatedAt: finishedAt,
+			RequestID: run.RequestID,
+			TraceID:   run.TraceID,
+			CreatedAt: approval.ResolvedAt,
 		}
 		events = append(events, s.appendRunEventLocked(event))
 	}
-	if tr.TerminalEvent != nil {
-		event := terminalEventFromSpec(*tr.TerminalEvent, task.ID, run.ID, finishedAt)
+	if tr.ApprovalResolution != nil {
+		events = append(events, s.appendRunEventLocked(rejectedApprovalTerminalEvent(task.ID, *tr.ApprovalResolution, run, finishedAt)))
+		events = append(events, s.appendRunEventLocked(rejectedApprovalTaskUpdatedEvent(task.ID, *tr.ApprovalResolution, run.ID, finishedAt)))
+	} else if terminalEvent != nil {
+		event := runStateEventFromSpec(*terminalEvent, task.ID, run, steps, artifacts, finishedAt)
 		events = append(events, s.appendRunEventLocked(event))
 	}
-	if tr.TaskUpdatedEvent != nil {
-		event := terminalEventFromSpec(*tr.TaskUpdatedEvent, task.ID, run.ID, finishedAt)
+	if tr.ApprovalResolution == nil && taskUpdatedEvent != nil {
+		event := runStateEventFromSpec(*taskUpdatedEvent, task.ID, run, steps, artifacts, finishedAt)
+		events = append(events, s.appendRunEventLocked(event))
+	}
+	if tr.ApprovalResolution != nil {
+		event := approvalResolutionEvent(task.ID, *tr.ApprovalResolution, resolvedApproval, run, steps, artifacts)
 		events = append(events, s.appendRunEventLocked(event))
 	}
 
@@ -553,10 +646,12 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	return TerminalRunTransitionResult{
 		Task:               cloneTask(task),
 		Run:                run,
+		Approval:           resolvedApproval,
 		Steps:              steps,
 		Artifacts:          artifacts,
 		CancelledApprovals: cancelledApprovals,
 		Events:             events,
+		Applied:            true,
 	}, nil
 }
 

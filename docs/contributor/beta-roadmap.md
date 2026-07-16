@@ -22,18 +22,49 @@ is released in alpha tags only after it merges.
 | OpenTelemetry            | Route choice/skip, provider failure, cache hit/miss, task lifecycle, approval lifecycle, chat segment lifecycle, external adapter behavior, retention, rate limits, and readiness probes emit useful spans, metrics, or logs.                                         |
 | Endpoint stability       | Hecate-native endpoints stay under `/hecate/v1/*`; provider-compatible endpoints stay under `/v1/*`; tests and docs checks prevent old `/admin/*` and accidental Hecate-native `/v1/*` routes from returning.                                                         |
 
+## Runtime-wide reset quiescence (open)
+
+The live `POST /hecate/v1/system/reset-data` endpoint returns a stable
+`409 conflict` before mutation. Online reset stays disabled until one
+top-level, reversible quiescence protocol can prove that every durable writer
+has stopped, run the cleanup under an explicit reset context, advance its
+generation, and reopen normal admission.
+
+That protocol must cover all of the following, not only HTTP mutation routes or
+project/chat gates:
+
+- write-capable HTTP requests, including provider-health and project reads with
+  reconciliation or open-time migration side effects;
+- task queue claims, boot/periodic reconciliation, heartbeats, enqueue/ack, run
+  execution, approvals, artifacts, events, and terminal finalizers;
+- retention passes, pruning, and retention-history appends;
+- External Agent ACP callbacks, stream/final settlement, approval and grant
+  timers, available-command updates, terminal callbacks, and idle sweeping;
+- every embedded Cairnline service open plus assignment/project reconciliation,
+  runtime overlays, and compatibility projections;
+- gateway usage, provider-health recovery, route/failover history, and response
+  finalizers.
+
+The quiescer must use reversible admission plus drain/join and epoch fencing so
+delayed work from the old generation cannot write after reopen. It must not hold
+full ACP turns, model calls, SSE streams, or ordinary request leases while
+waiting on external work. Deterministic memory/SQLite/Postgres race tests must
+cover pause, cancellation, cleanup failure, generation advance, and reopen.
+Existing runner/session shutdown hooks are irreversible process-shutdown tools,
+and the current project/chat gates cover only their own ownership boundaries.
+
 ## UX By View
 
-| View          | Beta bar                                                                                                                                                                                                                                                                                           |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chats         | Hecate Chat, External Agent, and direct model chat have clear segment boundaries, queued prompts, busy state, task/trace/run links, approvals, markdown/code rendering, run activity grouping, changed-files review, model/tool capability state, stale-model repair, and refresh/resume accuracy. |
-| Connections   | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe.                                     |
-| Projects      | Projects is the orchestration cockpit: project identity, defaults, roles, work items, assignments, handoffs, activity inbox, needs-attention triage, timeline/decision log, and memory/context inspection are compact, responsive, and connected to launch/review actions.                         |
-| Tasks         | Task Detail is the canonical deep-debug view: clear run timeline, grouped advanced activity, approval cards, stdout/stderr/artifacts, retry/resume/cancel explanations, patch review, and chat-origin links.                                                                                       |
-| Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome.                                                                                                   |
-| Settings      | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness and External Agent setup/grants live in Connections.                                                                                                                                                     |
-| Usage         | Usage clearly separates Hecate-measured cloud-provider tokens and known/reported cost from adapter-reported external-agent usage. There are no global spend controls.                                                                                                                              |
-| Desktop app   | Before beta, decide whether the desktop surface enters beta with the rest of Hecate or stays alpha-labelled per platform. macOS Apple Silicon is signed, notarized, and launch-tested; Linux and Windows bundles are CI-built but not yet manually exercised on real machines.                     |
+| View          | Beta bar                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chats         | Hecate Chat, External Agent, and direct model chat have clear segment boundaries, queued prompts, busy state, task/trace/run links, approvals, markdown/code rendering, run activity grouping, changed-files review, bounded image/file inputs with explicit disclosure and download behavior, model/tool capability state, stale-model repair, and refresh/resume accuracy. |
+| Connections   | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe.                                                                                                               |
+| Projects      | Projects is the orchestration cockpit: project identity, defaults, roles, work items, assignments, handoffs, activity inbox, needs-attention triage, timeline/decision log, and memory/context inspection are compact, responsive, and connected to launch/review actions.                                                                                                   |
+| Tasks         | Task Detail is the canonical deep-debug view: clear run timeline, grouped advanced activity, approval cards, stdout/stderr/artifacts, retry/resume/cancel explanations, patch review, and chat-origin links.                                                                                                                                                                 |
+| Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome.                                                                                                                                                                             |
+| Settings      | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness and External Agent setup/grants live in Connections.                                                                                                                                                                                                                               |
+| Usage         | Usage clearly separates Hecate-measured cloud-provider tokens and known/reported cost from adapter-reported external-agent usage. There are no global spend controls.                                                                                                                                                                                                        |
+| Desktop app   | Before beta, decide whether the desktop surface enters beta with the rest of Hecate or stays alpha-labelled per platform. macOS Apple Silicon is signed, notarized, and launch-tested; Linux and Windows bundles are CI-built but not yet manually exercised on real machines.                                                                                               |
 
 ## Cleanup And Refactoring
 
@@ -105,13 +136,13 @@ true:
 
 ## Test Plan
 
-| Layer             | Coverage                                                                                                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Go unit/API tests | Error contracts, provider readiness, route reports, task lifecycle, storage parity, retention, observed model capabilities, approvals, endpoint namespace checks.                                                                                      |
-| Go e2e tests      | Docker startup, OTLP smoke, ACP smoke, approval persistence/reconcile, provider readiness scenarios, task retry/resume/cancel, release-critical startup paths.                                                                                         |
-| UI unit tests     | Shared transcript components, friendly errors, readiness cards, chat segment state, queued prompts, approvals, task links, provider repair states.                                                                                                     |
-| Playwright e2e    | First-run provider onboarding, stale selected model repair, Hecate Chat tools on/off/on, task approval in Chats, refresh during running/awaiting approval, External Agent approval + diff inspect/revert, provider readiness repair, trace/task links. |
-| Release checks    | `just verify`, links, screenshots, Docker image pull/run, release asset presence, Tauri matrix, README release links.                                                                                                                                  |
+| Layer             | Coverage                                                                                                                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Go unit/API tests | Error contracts, provider readiness, route reports, task lifecycle, storage parity, retention, observed model capabilities, approvals, endpoint namespace checks.                                                                                                   |
+| Go e2e tests      | Docker startup, OTLP smoke, ACP smoke, approval persistence/reconcile, provider readiness scenarios, task retry/resume/cancel, release-critical startup paths.                                                                                                      |
+| UI unit tests     | Shared transcript components, friendly errors, readiness cards, chat segment state, queued prompts, approvals, task links, provider repair states.                                                                                                                  |
+| Playwright e2e    | First-run provider onboarding, stale selected model repair, Hecate Chat tools on/off/on, task approval in Chats, refresh during running/awaiting approval, External Agent file input + approval + diff inspect/revert, provider readiness repair, trace/task links. |
+| Release checks    | `just verify`, links, screenshots, Docker image pull/run, release asset presence, Tauri matrix, README release links.                                                                                                                                               |
 
 ## Assumptions
 

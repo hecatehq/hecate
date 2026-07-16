@@ -6,11 +6,34 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/secrets"
 )
+
+func TestControlPlaneProviderInstanceGenerationTracksPersistedMutation(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	provider := controlplane.Provider{
+		ID:        "provider-prod",
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt.Add(time.Minute),
+	}
+	first := controlPlaneProviderInstanceGeneration(provider)
+	if first == "" {
+		t.Fatal("control-plane generation is empty")
+	}
+	if got := controlPlaneProviderInstanceGeneration(provider); got != first {
+		t.Fatalf("stable generation = %q, want %q", got, first)
+	}
+	provider.UpdatedAt = provider.UpdatedAt.Add(time.Second)
+	if got := controlPlaneProviderInstanceGeneration(provider); got == first {
+		t.Fatal("control-plane generation did not change with UpdatedAt")
+	}
+}
 
 func TestControlPlaneRuntimeManagerUpsertReloadsRegistryAndEncryptsSecrets(t *testing.T) {
 	t.Parallel()
@@ -433,8 +456,16 @@ func TestControlPlaneRuntimeManagerNormalizesPresetNameCasing(t *testing.T) {
 	}
 
 	registry := manager.Registry()
-	if _, ok := registry.Get("ollama"); !ok {
+	provider, ok := registry.Get("ollama")
+	if !ok {
 		t.Fatal(`registry should expose the provider under its canonical lowercase id ("ollama")`)
+	}
+	familyReporter, ok := provider.(CapabilityFamilyReporter)
+	if !ok {
+		t.Fatalf("provider type = %T, want CapabilityFamilyReporter", provider)
+	}
+	if family := familyReporter.CapabilityFamily(); family != "ollama" {
+		t.Fatalf("provider capability family = %q, want ollama", family)
 	}
 	if _, ok := registry.Get("Ollama"); ok {
 		t.Fatal(`registry should NOT expose the provider under the display name ("Ollama"); it is the operator-facing label, not a catalog key`)
