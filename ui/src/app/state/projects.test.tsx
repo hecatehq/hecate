@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ProjectsProvider, useProjects } from "./projects";
+import { ProjectsProvider, type ProjectCatalogLoadResult, useProjects } from "./projects";
 import { createProject, deleteProject, getProjects, updateProject } from "../../lib/api";
 import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
 
@@ -62,31 +62,147 @@ describe("ProjectsProvider", () => {
 
     expect(result.current.state.loaded).toBe(false);
 
+    let outcome!: ProjectCatalogLoadResult;
     await act(async () => {
-      await result.current.actions.loadProjects();
+      outcome = await result.current.actions.loadProjects();
     });
 
+    expect(outcome).toEqual({ status: "applied" });
     expect(result.current.state.projects).toEqual([project]);
     expect(result.current.state.loaded).toBe(true);
     expect(result.current.activeProjectID).toBe("");
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
 
+  it("accepts Cairnline-only roots without native kind or timestamp metadata", async () => {
+    const portableProject: ProjectRecord = {
+      ...project,
+      roots: [
+        {
+          ...project.roots[0],
+          kind: "",
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+    };
+    vi.mocked(getProjects).mockResolvedValue({ object: "projects", data: [portableProject] });
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await result.current.actions.loadProjects();
+    });
+
+    expect(outcome).toEqual({ status: "applied" });
+    expect(result.current.state.projects).toEqual([portableProject]);
+    expect(result.current.state.catalogError).toBe("");
+  });
+
   it("keeps the catalog unresolved when its initial load fails", async () => {
     vi.mocked(getProjects).mockRejectedValue(new Error("catalog unavailable"));
     const { result } = renderHook(() => useProjects(), { wrapper });
 
+    let outcome!: ProjectCatalogLoadResult;
     await act(async () => {
-      await result.current.actions.loadProjects();
+      outcome = await result.current.actions.loadProjects();
     });
 
+    expect(outcome).toEqual({ status: "failed", message: "catalog unavailable" });
     expect(result.current.state.loaded).toBe(false);
     expect(result.current.state.projects).toEqual([]);
     expect(result.current.state.catalogError).toBe("catalog unavailable");
     expect(result.current.state.error).toBe("");
   });
 
-  it("clears the prior error while a catalog retry is pending", async () => {
+  it("fails closed when the catalog rejects with a falsy non-error value", async () => {
+    vi.mocked(getProjects).mockRejectedValue(undefined);
+    window.localStorage.setItem("hecate.project", project.id);
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await result.current.actions.loadProjects();
+    });
+
+    expect(outcome).toEqual({ status: "failed", message: "Failed to load projects." });
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.state.catalogError).toBe("Failed to load projects.");
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+  });
+
+  it("normalizes an empty catalog error into actionable recovery state", async () => {
+    vi.mocked(getProjects).mockRejectedValue(new Error("   "));
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await result.current.actions.loadProjects();
+    });
+
+    expect(outcome).toEqual({ status: "failed", message: "Failed to load projects." });
+    expect(result.current.state.catalogError).toBe("Failed to load projects.");
+  });
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["object without data", {}],
+    [
+      "catalog with mixed valid and invalid members",
+      { object: "projects", data: [{ ...project, id: "proj_other" }, null] },
+    ],
+    [
+      "catalog with a blank required project id",
+      { object: "projects", data: [{ ...project, id: "   " }] },
+    ],
+    [
+      "catalog with a project missing a required field",
+      { object: "projects", data: [{ ...project, name: undefined }] },
+    ],
+    [
+      "catalog with a malformed project root",
+      {
+        object: "projects",
+        data: [{ ...project, roots: [{ ...project.roots[0], active: "yes" }] }],
+      },
+    ],
+  ])("rejects a %s catalog payload without clearing active scope", async (_label, payload) => {
+    vi.mocked(getProjects).mockResolvedValue(payload as never);
+    window.localStorage.setItem("hecate.project", project.id);
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await result.current.actions.loadProjects();
+    });
+
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "Project catalog response was invalid.",
+    });
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.state.loading).toBe(false);
+    expect(result.current.state.loaded).toBe(true);
+    expect(result.current.state.catalogError).toBe("Project catalog response was invalid.");
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+  });
+
+  it("keeps the prior error authoritative while a catalog retry is pending", async () => {
     let resolveRetry!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
     const retryRequest = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
       resolveRetry = resolve;
@@ -101,8 +217,8 @@ describe("ProjectsProvider", () => {
     });
     expect(result.current.state.catalogError).toBe("catalog unavailable");
 
-    let retryPromise!: Promise<void>;
-    let duplicateRetryPromise!: Promise<void>;
+    let retryPromise!: Promise<ProjectCatalogLoadResult>;
+    let duplicateRetryPromise!: Promise<ProjectCatalogLoadResult>;
     act(() => {
       retryPromise = result.current.actions.loadProjects();
       duplicateRetryPromise = result.current.actions.loadProjects();
@@ -110,13 +226,15 @@ describe("ProjectsProvider", () => {
     expect(duplicateRetryPromise).toBe(retryPromise);
     await waitFor(() => {
       expect(result.current.state.loading).toBe(true);
-      expect(result.current.state.catalogError).toBe("");
+      expect(result.current.state.catalogError).toBe("catalog unavailable");
     });
 
     resolveRetry({ object: "projects", data: [] });
+    let outcome!: ProjectCatalogLoadResult;
     await act(async () => {
-      await retryPromise;
+      outcome = await retryPromise;
     });
+    expect(outcome).toEqual({ status: "applied" });
     expect(result.current.state.loading).toBe(false);
     expect(result.current.state.loaded).toBe(true);
     expect(getProjects).toHaveBeenCalledTimes(2);
@@ -162,7 +280,7 @@ describe("ProjectsProvider", () => {
       ),
     });
 
-    let loadPromise!: Promise<void>;
+    let loadPromise!: Promise<ProjectCatalogLoadResult>;
     act(() => {
       loadPromise = result.current.actions.loadProjects({
         background: true,
@@ -171,11 +289,152 @@ describe("ProjectsProvider", () => {
     });
     shouldApply = false;
     resolveCatalog({ object: "projects", data: [renamed] });
+    let outcome!: ProjectCatalogLoadResult;
     await act(async () => {
-      await loadPromise;
+      outcome = await loadPromise;
     });
 
+    expect(outcome).toEqual({ status: "superseded" });
     expect(result.current.state.projects).toEqual([project]);
+  });
+
+  it("preserves foreground catalog state when its apply authority is superseded", async () => {
+    let resolveCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    let shouldApply = true;
+    vi.mocked(getProjects).mockReturnValue(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveCatalog = resolve;
+      }),
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider
+          initialState={{ projects: [project], loaded: true, catalogError: "prior outage" }}
+        >
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let loadPromise!: Promise<ProjectCatalogLoadResult>;
+    act(() => {
+      loadPromise = result.current.actions.loadProjects({ shouldApply: () => shouldApply });
+    });
+    await waitFor(() => expect(result.current.state.loading).toBe(true));
+    shouldApply = false;
+    resolveCatalog({ object: "projects", data: [] });
+
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await loadPromise;
+    });
+
+    expect(outcome).toEqual({ status: "superseded" });
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.state.catalogError).toBe("prior outage");
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+  });
+
+  it("combines late apply authority from coalesced foreground catalog callers", async () => {
+    const refreshed = { ...project, name: "Late catalog" };
+    let resolveCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects).mockReturnValue(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveCatalog = resolve;
+      }),
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let firstLoad!: Promise<ProjectCatalogLoadResult>;
+    let coalescedLoad!: Promise<ProjectCatalogLoadResult>;
+    const firstShouldApply = vi.fn(() => false);
+    let coalescedCallerCanApply = true;
+    const coalescedShouldApply = vi.fn(() => coalescedCallerCanApply);
+    act(() => {
+      firstLoad = result.current.actions.loadProjects({ shouldApply: firstShouldApply });
+      coalescedLoad = result.current.actions.loadProjects({
+        shouldApply: coalescedShouldApply,
+      });
+    });
+    expect(coalescedLoad).toBe(firstLoad);
+    coalescedCallerCanApply = false;
+    resolveCatalog({ object: "projects", data: [refreshed] });
+
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await firstLoad;
+    });
+
+    expect(outcome).toEqual({ status: "superseded" });
+    expect(firstShouldApply).toHaveBeenCalledTimes(1);
+    expect(coalescedShouldApply).toHaveBeenCalledTimes(1);
+    expect(getProjects).toHaveBeenCalledTimes(1);
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+  });
+
+  it("isolates coalesced failure observers from the typed catalog result", async () => {
+    const secondObserver = vi.fn();
+    vi.mocked(getProjects).mockRejectedValue(new Error("catalog unavailable"));
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    let firstLoad!: Promise<ProjectCatalogLoadResult>;
+    let coalescedLoad!: Promise<ProjectCatalogLoadResult>;
+    act(() => {
+      firstLoad = result.current.actions.loadProjects({
+        onError: () => {
+          throw new Error("observer failed");
+        },
+      });
+      coalescedLoad = result.current.actions.loadProjects({ onError: secondObserver });
+    });
+
+    expect(coalescedLoad).toBe(firstLoad);
+    let outcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      outcome = await firstLoad;
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message: "catalog unavailable",
+    });
+    expect(secondObserver).toHaveBeenCalledWith("catalog unavailable");
+    expect(result.current.state.loading).toBe(false);
+    expect(result.current.state.catalogError).toBe("catalog unavailable");
+  });
+
+  it("admits a retry started from terminal failure feedback", async () => {
+    vi.mocked(getProjects)
+      .mockRejectedValueOnce(new Error("catalog unavailable"))
+      .mockResolvedValueOnce({ object: "projects", data: [project] });
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    let retryPromise: Promise<ProjectCatalogLoadResult> | undefined;
+
+    let firstOutcome!: ProjectCatalogLoadResult;
+    await act(async () => {
+      firstOutcome = await result.current.actions.loadProjects({
+        onError: () => {
+          retryPromise = result.current.actions.loadProjects();
+        },
+      });
+      await retryPromise;
+    });
+
+    expect(firstOutcome).toEqual({ status: "failed", message: "catalog unavailable" });
+    expect(await retryPromise).toEqual({ status: "applied" });
+    expect(getProjects).toHaveBeenCalledTimes(2);
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.state.catalogError).toBe("");
   });
 
   it("queues a fresh foreground catalog load behind an invalidated background read", async () => {
@@ -198,8 +457,8 @@ describe("ProjectsProvider", () => {
       ),
     });
 
-    let backgroundPromise!: Promise<void>;
-    let foregroundPromise!: Promise<void>;
+    let backgroundPromise!: Promise<ProjectCatalogLoadResult>;
+    let foregroundPromise!: Promise<ProjectCatalogLoadResult>;
     act(() => {
       backgroundPromise = result.current.actions.loadProjects({
         background: true,
@@ -228,7 +487,7 @@ describe("ProjectsProvider", () => {
     vi.mocked(createProject).mockRejectedValue(new Error("create failed"));
     const { result } = renderHook(() => useProjects(), { wrapper });
 
-    let loadPromise!: Promise<void>;
+    let loadPromise!: Promise<ProjectCatalogLoadResult>;
     act(() => {
       loadPromise = result.current.actions.loadProjects();
     });
@@ -262,6 +521,48 @@ describe("ProjectsProvider", () => {
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
 
+  it("refetches an in-flight snapshot invalidated by a server-side mutation", async () => {
+    const staleProject = { ...project, name: "Before Assistant apply" };
+    const reconciledProject = { ...project, name: "After Assistant apply" };
+    let resolveStaleLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects)
+      .mockReturnValueOnce(
+        new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+          resolveStaleLoad = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({ object: "projects", data: [reconciledProject] });
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [staleProject], loaded: true }}>
+          {children}
+        </ProjectsProvider>
+      ),
+    });
+
+    let olderLoad!: Promise<ProjectCatalogLoadResult>;
+    let postMutationLoad!: Promise<ProjectCatalogLoadResult>;
+    act(() => {
+      olderLoad = result.current.actions.loadProjects();
+    });
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+    act(() => {
+      postMutationLoad = result.current.actions.loadProjects({
+        invalidateInFlightSnapshot: true,
+      });
+    });
+    expect(postMutationLoad).toBe(olderLoad);
+
+    resolveStaleLoad({ object: "projects", data: [staleProject] });
+    await act(async () => {
+      await olderLoad;
+      await postMutationLoad;
+    });
+
+    expect(getProjects).toHaveBeenCalledTimes(2);
+    expect(result.current.state.projects).toEqual([reconciledProject]);
+  });
+
   it("refetches a catalog snapshot that races with creating and selecting a project", async () => {
     const createdProject = { ...project, id: "proj_created", name: "Created while loading" };
     let resolveInitialLoad!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
@@ -279,7 +580,7 @@ describe("ProjectsProvider", () => {
       ),
     });
 
-    let loadPromise!: Promise<void>;
+    let loadPromise!: Promise<ProjectCatalogLoadResult>;
     act(() => {
       loadPromise = result.current.actions.loadProjects();
     });
@@ -316,7 +617,7 @@ describe("ProjectsProvider", () => {
       ),
     });
 
-    let loadPromise!: Promise<void>;
+    let loadPromise!: Promise<ProjectCatalogLoadResult>;
     act(() => {
       loadPromise = result.current.actions.loadProjects();
       result.current.actions.setActiveProjectID(project.id);

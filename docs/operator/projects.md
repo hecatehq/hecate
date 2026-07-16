@@ -309,17 +309,22 @@ latest draft only for the same project and chat setup; changing project, agent,
 workspace, provider, or model cannot pull that text into the new chat. While a
 chat is being prepared, **Send** and **New chat** stay unavailable, but Hecate
 does not label preparation as active agent work or offer **Stop** before a real
-turn begins. Once submitted, a turn stays attached to its chat even if you open
-another one: late responses do not replace the newer selection. You can queue a
-message for another selected chat, but a detached new-chat draft waits until
-the current local turn finishes rather than being attached to the wrong chat.
-After you send the first prompt, its empty composer stays locked only while
-Hecate allocates the chat ID. The read-only composer keeps keyboard focus, and
-its provider, model, agent configuration, and MCP controls stay fixed to the
-captured request. Selecting an existing chat releases those controls for that
-chat. An explicitly prepared launch draft remains editable while its chat is
-being prepared, but its captured route and configuration stay fixed. If a
-message fails after the chat exists, Hecate keeps it as an
+turn begins. After you send the first prompt, the exact detached turn is shown
+as working and offers **Stop** even while Hecate is still allocating its chat
+ID. Stop aborts that create where possible and guarantees that, after
+cancellation wins, the exact turn does not send a message or start model, task,
+or External Agent work. If the create completes despite the abort, the
+acknowledged message-empty chat shell and its create-time title metadata remain
+available; Stop is a dispatch fence, not metadata rollback. Once submitted, a
+turn stays attached to its chat even if you open another one: late responses do
+not replace the newer selection. You can queue a message for another selected
+chat, but a detached new-chat draft waits until the current local turn finishes
+rather than being attached to the wrong chat. During allocation the submitted
+composer stays locked, keeps keyboard focus, and fixes its provider, model,
+agent configuration, and MCP controls to the captured request. Selecting an
+existing chat releases those controls for that chat. An explicitly prepared
+launch draft remains editable while its chat is being prepared, but its captured
+route and configuration stay fixed. If a message fails after the chat exists, Hecate keeps it as an
 unsent message in that source chat. **Restore saved message** swaps it into the
 composer without discarding a newer draft.
 While a linked chat is loading, Hecate announces **Loading chat…** and withholds
@@ -522,7 +527,7 @@ Hecate's Projects API and cockpit use the embedded [Cairnline](https://github.co
 
 Hecate owns the host-specific layer around that graph: Agent Presets, provider and model selection, task and External Agent launch, workspace and Git side effects, approvals, sandboxing, chats, execution references, context snapshots, traces, and the operator UI. Starting an assignment resolves Cairnline coordination intent into Hecate runtime behavior; Cairnline records never bypass Hecate policy.
 
-The Hecate facade remains at `/hecate/v1/projects*`, so the Projects UI does not depend on Cairnline's transport. Hecate stores embedded Cairnline state under its local data directory. There is no Hecate-native coordination backend, backend selector, mirror, migration endpoint, or rollback gate. Alpha dogfood records created by the removed native store are intentionally not migrated.
+The Hecate facade remains at `/hecate/v1/projects*`, so the Projects UI does not depend on Cairnline's transport. Hecate stores embedded Cairnline state under its local data directory. There is no Hecate-native coordination backend, backend selector, mirror, or migration endpoint. A process-local project mutation fence only prevents Hecate cleanup rollback from interleaving with an acknowledged facade write to the same Cairnline graph; it does not store or duplicate coordination records. Multi-project Project Assistant operations, including chat moves, admit their complete project set together. Alpha dogfood records created by the removed native store are intentionally not migrated.
 
 Cairnline itself remains agent-neutral and can also be used directly over MCP by other agent hosts. A separately installed Cairnline connector is future work; Hecate currently uses the embedded Go package.
 

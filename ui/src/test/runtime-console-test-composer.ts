@@ -106,6 +106,7 @@ export function useRuntimeConsole() {
     chatSessions,
     activeChatSessionID,
     activeChatSession,
+    pendingChatAttachments,
     savedComposerDraftsBySessionID,
     recoverableComposerDraft,
     activeRecoverableComposerDraftID,
@@ -117,6 +118,8 @@ export function useRuntimeConsole() {
     chatTurnActive,
     chatLoading,
     chatCancelling,
+    chatOwnershipMutationInFlight,
+    chatAttachmentTurnDraftCount,
     streamingContent,
     chatResult,
     pendingToolCalls,
@@ -132,13 +135,24 @@ export function useRuntimeConsole() {
   const {
     setAgentAdapterID,
     setChatCancelling,
+    setChatCancellingSessionID,
+    setChatCancellingTurnKind,
+    hasChatCancellationOwner,
     setModel,
     setModelFilter,
     setProviderFilter,
     setSystemPrompt,
+    setPendingChatAttachments,
     setQueuedChatMessages,
     removeQueuedChatMessage,
+    retryQueuedChatMessage,
     updateQueuedChatMessage,
+    hasChatAttachmentTurn,
+    hasDurableQueuedChatSubmittingFence,
+    setChatErrorState,
+    chatCancellationOwnsSession,
+    currentChatCancellationEpoch,
+    chatStopFenceProtectsSession,
   } = chat.actions;
   const setHecateRTKEnabledState = runtime.actions.setHecateRTKEnabled;
 
@@ -223,6 +237,7 @@ export function useRuntimeConsole() {
     chatTarget,
     setNoticeMessage,
   });
+  const queuedMessageAttemptSignatureRef = useRef("");
 
   // Dashboard coordinator: loadDashboard fans the resolved
   // snapshot across the slices. refreshProviders + refreshRuntimeState
@@ -303,10 +318,17 @@ export function useRuntimeConsole() {
   }, []);
 
   useEffect(() => {
-    if (!chatLoading) {
-      setChatCancelling(false);
-    }
-  }, [chatLoading]);
+    if (!chatCancelling || hasChatCancellationOwner()) return;
+    setChatCancelling(false);
+    setChatCancellingSessionID("");
+    setChatCancellingTurnKind("");
+  }, [
+    chatCancelling,
+    hasChatCancellationOwner,
+    setChatCancelling,
+    setChatCancellingSessionID,
+    setChatCancellingTurnKind,
+  ]);
 
   // Reconnect catch-up: whenever the active agent-chat session
   // changes (initial mount with a persisted id, user-driven switch,
@@ -315,7 +337,14 @@ export function useRuntimeConsole() {
   // reconciled. Subsequent SSE events mutate this same map.
   useEffect(() => {
     if (!activeChatSessionID) return;
-    void approvals.actions.refetchPending(activeChatSessionID);
+    const sessionID = activeChatSessionID;
+    const cancellationEpoch = currentChatCancellationEpoch(sessionID);
+    const isCurrent = () =>
+      currentChatCancellationEpoch(sessionID) === cancellationEpoch &&
+      !chatCancellationOwnsSession(sessionID) &&
+      !chatStopFenceProtectsSession(sessionID);
+    if (!isCurrent()) return;
+    void approvals.actions.refetchPending(sessionID, isCurrent);
     // refetchPending is a stable callback from the slice; no need
     // to include it in deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -445,7 +474,17 @@ export function useRuntimeConsole() {
   }, [model, models, providerFilter]);
 
   useEffect(() => {
-    if (queuedChatMessages.length === 0 || chatCreating || chatLoading || chatCancelling) {
+    if (queuedChatMessages.length === 0) {
+      queuedMessageAttemptSignatureRef.current = "";
+      return;
+    }
+    if (chatCreating || chatLoading || chatCancelling) {
+      return;
+    }
+    if (chatOwnershipMutationInFlight) {
+      return;
+    }
+    if (hasChatAttachmentTurn() || pendingChatAttachments.length > 0) {
       return;
     }
     if (chatSessionIsBusy(activeChatSession)) {
@@ -465,8 +504,51 @@ export function useRuntimeConsole() {
       setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
       return;
     }
-    setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
-    void chatActions.submitAgentChat(next);
+    if (next.delivery_state) {
+      queuedMessageAttemptSignatureRef.current = "";
+      return;
+    }
+    const attemptSignature = `${next.id}\u0000${next.content}`;
+    if (queuedMessageAttemptSignatureRef.current === attemptSignature) {
+      return;
+    }
+    queuedMessageAttemptSignatureRef.current = attemptSignature;
+    const submitting = {
+      ...next,
+      delivery_state: "submitting" as const,
+      delivery_idempotency_keyed: true,
+      delivery_baseline_message_ids: (activeChatSession.messages ?? []).map(
+        (message) => message.id,
+      ),
+    };
+    let marked = false;
+    setQueuedChatMessages((current) =>
+      current.map((item) => {
+        if (item.id !== next.id || item.content !== next.content) return item;
+        marked = true;
+        return submitting;
+      }),
+    );
+    if (!marked) {
+      queuedMessageAttemptSignatureRef.current = "";
+      return;
+    }
+    if (!hasDurableQueuedChatSubmittingFence(submitting)) {
+      setQueuedChatMessages((current) =>
+        current.map((item) =>
+          item.id === next.id && item.content === next.content
+            ? { ...item, delivery_state: "retryable" }
+            : item,
+        ),
+      );
+      queuedMessageAttemptSignatureRef.current = "";
+      const persistenceError =
+        "Queued delivery is paused because browser storage could not persist its submission fence. Free browser storage, then choose Retry or remove the queued message.";
+      setChatErrorState(new Error(persistenceError));
+      setNoticeMessage("error", persistenceError);
+      return;
+    }
+    void chatActions.submitAgentChat(submitting);
     // submitAgentChat deliberately stays out of the dependency list: it
     // reads the queued snapshot passed above, not the live composer state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -477,9 +559,15 @@ export function useRuntimeConsole() {
     activeChatSession?.updated_at,
     activeChatSessionID,
     chatCancelling,
+    chatOwnershipMutationInFlight,
+    chatAttachmentTurnDraftCount,
     chatCreating,
     chatLoading,
+    hasDurableQueuedChatSubmittingFence,
+    pendingChatAttachments.length,
     queuedChatMessages,
+    setChatErrorState,
+    setNoticeMessage,
   ]);
 
   return {
@@ -508,6 +596,7 @@ export function useRuntimeConsole() {
       chatErrorStatus,
       chatErrorTraceID,
       chatLoading,
+      chatAttachmentTurnDraftCount,
       chatCreating,
       chatTurnSessionID,
       chatTurnActive,
@@ -518,6 +607,7 @@ export function useRuntimeConsole() {
       defaultChatToolsEnabled,
       chatToolsEnabledBySessionID,
       pendingToolCalls,
+      pendingChatAttachments,
       queuedChatMessages,
       cloudModels,
       cloudProviders,
@@ -576,10 +666,13 @@ export function useRuntimeConsole() {
       setChatTarget: chatActions.setChatTarget,
       setChatToolsEnabled: chatActions.setChatToolsEnabled,
       setMessage,
+      setPendingChatAttachments,
       removeQueuedChatMessage,
+      reconcileQueuedChatMessage: chatActions.reconcileQueuedChatMessage,
+      retryQueuedChatMessage,
       updateQueuedChatMessage,
       setSystemPrompt,
-      setModel,
+      setModel: chatActions.selectChatModel,
       setModelFilter,
       setProviderFilter: chatActions.selectProviderRoute,
       refreshProviders: dashboardActions.refreshProviders,
@@ -605,7 +698,6 @@ export function useRuntimeConsole() {
       getChatWorkspaceFileDiff: chatActions.getChatWorkspaceFileDiff,
       revertChatWorkspaceFiles: chatActions.revertChatWorkspaceFiles,
       getChatMessageFileDiff: chatActions.getChatMessageFileDiff,
-      revertChatMessageFiles: chatActions.revertChatMessageFiles,
       resolveTaskApproval: chatActions.resolveTaskApproval,
       resolveChatApproval: chatActions.resolveChatApproval,
       cancelChatApproval: chatActions.cancelChatApproval,

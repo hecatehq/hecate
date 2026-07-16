@@ -66,7 +66,7 @@ func TestMultiWorkspaceConcurrency(t *testing.T) {
 				SessionID:      args.sessionID,
 				AdapterID:      "codex",
 				Workspace:      args.workspace,
-				Prompt:         args.prompt,
+				Prompt:         PromptInput{Text: args.prompt},
 				Timeout:        5 * time.Second,
 				MaxOutputBytes: 64 * 1024,
 			})
@@ -153,7 +153,7 @@ func TestMultiWorkspaceConcurrency(t *testing.T) {
 		SessionID:      sessionB,
 		AdapterID:      "codex",
 		Workspace:      workspaceB,
-		Prompt:         "third turn after A closed",
+		Prompt:         PromptInput{Text: "third turn after A closed"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})
@@ -203,7 +203,7 @@ func TestMidTurnCancel(t *testing.T) {
 			SessionID:      sessionID,
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "wait",
+			Prompt:         PromptInput{Text: "wait"},
 			Timeout:        30 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 			OnOutput: func(chunk string) {
@@ -293,7 +293,7 @@ func TestFreshPromptAfterCancel(t *testing.T) {
 			SessionID:      sessionID,
 			AdapterID:      "codex",
 			Workspace:      workspace,
-			Prompt:         "wait",
+			Prompt:         PromptInput{Text: "wait"},
 			Timeout:        30 * time.Second,
 			MaxOutputBytes: 64 * 1024,
 			OnOutput: func(chunk string) {
@@ -335,7 +335,7 @@ func TestFreshPromptAfterCancel(t *testing.T) {
 		SessionID:      sessionID,
 		AdapterID:      "codex",
 		Workspace:      workspace,
-		Prompt:         "fresh prompt body",
+		Prompt:         PromptInput{Text: "fresh prompt body"},
 		Timeout:        5 * time.Second,
 		MaxOutputBytes: 64 * 1024,
 	})

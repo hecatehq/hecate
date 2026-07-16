@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getPlugins, resetSystemData } from "../../lib/api";
+import { getPlugins } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -14,7 +14,6 @@ import { withRuntimeConsole } from "../../test/runtime-console-render";
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   getPlugins: vi.fn(),
-  resetSystemData: vi.fn(),
 }));
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -36,7 +35,6 @@ function capability(id: string, name: string, status = "supported") {
 beforeEach(() => {
   vi.mocked(getPlugins).mockReset();
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
-  vi.mocked(resetSystemData).mockReset();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
 });
@@ -179,64 +177,45 @@ describe("SettingsView maintenance cleanup", () => {
     expect(screen.getByText("0 removed")).toBeTruthy();
   });
 
-  it("labels the reset affordance as runtime-only on memory backend", async () => {
-    const { state, actions, user } = setup({
+  it("disables in-process reset on the memory backend", () => {
+    const { state, actions } = setup({
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
-    expect(screen.getByText("Reset runtime state")).toBeTruthy();
-    expect(screen.getByText(/current in-memory state/i)).toBeTruthy();
-    await user.click(await screen.findByRole("button", { name: /Reset/i }));
-
-    expect(screen.getByText(/memory storage/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
+    expect(screen.getByText("Reset runtime state unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(/Restart the runtime to clear Hecate-owned in-memory state/i),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Unavailable" })).toBeDisabled();
   });
 
-  it("labels the reset affordance as local data cleanup on sqlite backend", async () => {
+  it("disables in-process reset on the sqlite backend", () => {
     const { state, actions } = setup({
       settingsConfig: { backend: "sqlite", providers: [], policy_rules: [], events: [] },
     });
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
-    expect(screen.getByText("Reset local data")).toBeTruthy();
-    expect(screen.getByText(/remaining Hecate database rows/i)).toBeTruthy();
+    expect(screen.getByText("Reset local data unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(/Stop the runtime before removing its configured data directory/i),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Unavailable" })).toBeDisabled();
   });
 
-  it("resets local data after typed confirmation and refreshes dashboard state", async () => {
-    vi.mocked(resetSystemData).mockResolvedValue({
-      object: "system_reset",
-      data: {
-        projects_deleted: 1,
-        project_runtime_rows_deleted: 1,
-        plugins_deleted: 1,
-        agent_presets_deleted: 1,
-        chat_sessions_deleted: 2,
-        tasks_deleted: 1,
-        providers_deleted: 1,
-        policy_rules_deleted: 1,
-        agent_approval_grants_deleted: 1,
-        database_rows_deleted: 3,
-        cairnline_files_deleted: 1,
-      },
+  it("does not describe postgres state as in-memory", () => {
+    const { state, actions } = setup({
+      settingsConfig: { backend: "postgres", providers: [], policy_rules: [], events: [] },
     });
-    const loadDashboard = vi.fn(async () => undefined);
-    const { state, actions, user } = setup(
-      { settingsConfig: { backend: "sqlite", providers: [], policy_rules: [], events: [] } },
-      { loadDashboard },
-    );
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
-    await user.click(await screen.findByRole("button", { name: /Reset/i }));
-    const confirm = screen.getByRole("button", { name: "Reset local data" });
-    expect(confirm).toBeDisabled();
-
-    await user.type(screen.getByLabelText(/Type RESET/i), "RESET");
-    expect(confirm).toBeEnabled();
-    await user.click(confirm);
-
-    await waitFor(() => expect(resetSystemData).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(loadDashboard).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Reset persisted data unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(/clearing its configured Postgres state and any local Cairnline/i),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/Restart the runtime to clear Hecate-owned in-memory state/i),
+    ).toBeNull();
   });
 });
 

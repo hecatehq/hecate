@@ -11,27 +11,86 @@ import (
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/apperrors"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
 var (
-	ErrStoreNotConfigured      = errors.New("agent chat store is not configured")
-	ErrRunnerNotConfigured     = errors.New("agent chat runner is not configured")
-	ErrExternalSessionOnly     = errors.New("agent chat config options are only available for external-agent sessions")
-	ErrHecateSessionOnly       = errors.New("Hecate Chat settings are not available for external-agent sessions")
-	ErrNoSettingsProvided      = errors.New("no settings provided")
-	ErrContentRequired         = errors.New("content is required")
-	ErrExecutionModeInvalid    = errors.New("execution_mode must be hecate_task or external_agent")
-	ErrExternalCannotRunHecate = errors.New("external agent sessions cannot run Hecate Chat turns")
-	ErrHecateCannotRunExternal = errors.New("Hecate Chat sessions cannot run external-agent turns")
-	ErrSessionNotFound         = errors.New("agent chat session not found")
-	ErrSessionIDRequired       = errors.New("session id is required")
-	ErrTitleRequired           = errors.New("request must include title")
-	ErrTitleEmpty              = errors.New("title cannot be set to an empty string")
-	ErrNothingToCompact        = errors.New("chat transcript has no older context to compact")
+	ErrStoreNotConfigured       = errors.New("agent chat store is not configured")
+	ErrRunnerNotConfigured      = errors.New("agent chat runner is not configured")
+	ErrExternalSessionOnly      = errors.New("agent chat config options are only available for external-agent sessions")
+	ErrHecateSessionOnly        = errors.New("Hecate Chat settings are not available for external-agent sessions")
+	ErrNoSettingsProvided       = errors.New("no settings provided")
+	ErrContentRequired          = errors.New("content is required")
+	ErrExecutionModeInvalid     = errors.New("execution_mode must be hecate_task or external_agent")
+	ErrExternalCannotRunHecate  = errors.New("external agent sessions cannot run Hecate Chat turns")
+	ErrHecateCannotRunExternal  = errors.New("Hecate Chat sessions cannot run external-agent turns")
+	ErrSessionNotFound          = errors.New("agent chat session not found")
+	ErrSessionIDRequired        = errors.New("session id is required")
+	ErrTitleRequired            = errors.New("request must include title")
+	ErrTitleEmpty               = errors.New("title cannot be set to an empty string")
+	ErrNothingToCompact         = errors.New("chat transcript has no older context to compact")
+	ErrAttachmentStoreMissing   = errors.New("chat attachment store is not configured")
+	ErrAttachmentNotFound       = errors.New("chat attachment not found")
+	ErrAttachmentInUse          = errors.New("chat attachment is already used by a message")
+	ErrAttachmentDraftQuota     = errors.New("chat attachment draft quota exceeded")
+	ErrAttachmentSessionQuota   = errors.New("chat attachment session storage quota exceeded")
+	ErrAttachmentTotalQuota     = errors.New("chat attachment total storage quota exceeded")
+	ErrAttachmentMessageBytes   = errors.New("combined chat attachment size exceeds the per-message limit")
+	ErrAttachmentMessageID      = errors.New("attachment claim message id is required")
+	ErrAttachmentIDRequired     = errors.New("attachment id is required")
+	ErrAttachmentRollback       = errors.New("chat attachment cleanup failed")
+	ErrAttachmentSessionCleanup = errors.New("chat attachment session cleanup failed")
+	ErrDuplicateAttachmentID    = errors.New("duplicate attachment id")
+	ErrTooManyAttachments       = errors.New("a chat message supports at most 4 attachments")
+	ErrAttachmentsDirectOnly    = errors.New("attachments are available in External Agent chats or Hecate Chat with Tools Off")
+	ErrClientRequestIDInvalid   = errors.New("client_request_id must be 1-128 ASCII letters, digits, dots, underscores, colons, or hyphens")
+	ErrUserMessageRequired      = errors.New("message role must be user")
+)
+
+const (
+	MaxMessageAttachments = agentadapters.MaxPromptFiles
+	// MaxMessageAttachmentBytes leaves headroom for base64 expansion, prompt
+	// text, and JSON framing under providers with 20 MiB inline envelopes.
+	MaxMessageAttachmentBytes       = agentadapters.MaxPromptFilesBytes
+	defaultAttachmentCleanupTimeout = 3 * time.Second
+	minimumMessageRequestLeaseTTL   = 3 * time.Millisecond
 )
 
 type ValidationError = apperrors.ValidationError
+
+type AttachmentTotalQuotaError struct {
+	LimitBytes int64
+}
+
+func (e AttachmentTotalQuotaError) Error() string { return ErrAttachmentTotalQuota.Error() }
+
+func (e AttachmentTotalQuotaError) Unwrap() error { return ErrAttachmentTotalQuota }
+
+// AttachmentRollbackError keeps the storage and ownership causes available to
+// callers without making their potentially sensitive details safe to render in
+// an HTTP response.
+type AttachmentRollbackError struct {
+	cause error
+}
+
+func (e *AttachmentRollbackError) Error() string { return ErrAttachmentRollback.Error() }
+
+func (e *AttachmentRollbackError) Unwrap() []error {
+	return []error{ErrAttachmentRollback, e.cause}
+}
+
+// AttachmentSessionCleanupError preserves the durable-store cause for internal
+// retry and diagnostics without making storage details safe for an HTTP body.
+type AttachmentSessionCleanupError struct {
+	cause error
+}
+
+func (e *AttachmentSessionCleanupError) Error() string { return ErrAttachmentSessionCleanup.Error() }
+
+func (e *AttachmentSessionCleanupError) Unwrap() []error {
+	return []error{ErrAttachmentSessionCleanup, e.cause}
+}
 
 func Validation(err error) error {
 	return apperrors.Validation(err)
@@ -49,6 +108,26 @@ type SessionStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
+type MessageStore interface {
+	AppendMessage(ctx context.Context, sessionID string, message chat.Message) (chat.Session, error)
+	MessageRequestLeaseTTL() time.Duration
+	ClaimMessageRequest(ctx context.Context, sessionID, clientRequestID string, fingerprint chat.MessageRequestFingerprint) (chat.MessageRequestClaim, error)
+	RenewMessageRequest(ctx context.Context, req chat.RenewMessageRequestRequest) error
+	CommitMessageRequest(ctx context.Context, lease chat.MessageRequestLease, message chat.Message) (chat.Session, error)
+	ReleaseMessageRequest(ctx context.Context, lease chat.MessageRequestLease) error
+}
+
+type AttachmentStore interface {
+	Create(context.Context, chatattachments.StoredAttachment) (chatattachments.StoredAttachment, error)
+	Get(context.Context, string, string) (chatattachments.StoredAttachment, bool, error)
+	Claim(context.Context, chatattachments.ClaimRef) ([]chatattachments.StoredAttachment, error)
+	ResolveClaim(context.Context, chatattachments.ClaimRef, chatattachments.ClaimResolution) error
+	ListPendingClaims(context.Context) ([]chatattachments.PendingClaim, error)
+	ListSessionIDs(context.Context) ([]string, error)
+	DeleteDraft(context.Context, string, string) error
+	DeleteBySessionID(context.Context, string) error
+}
+
 type TaskStore interface {
 	GetTask(ctx context.Context, id string) (types.Task, bool, error)
 	UpdateTask(ctx context.Context, task types.Task) (types.Task, error)
@@ -62,19 +141,26 @@ type AgentRunner interface {
 }
 
 type Application struct {
-	store               SessionStore
-	taskStore           TaskStore
-	runner              AgentRunner
-	prepareTimeout      time.Duration
-	configOptionTimeout time.Duration
+	store                    SessionStore
+	messages                 MessageStore
+	taskStore                TaskStore
+	runner                   AgentRunner
+	attachments              AttachmentStore
+	prepareTimeout           time.Duration
+	configOptionTimeout      time.Duration
+	attachmentCleanupTimeout time.Duration
+	messageRequestRenewEvery time.Duration
 }
 
 type Options struct {
-	Store               SessionStore
-	TaskStore           TaskStore
-	Runner              AgentRunner
-	PrepareTimeout      time.Duration
-	ConfigOptionTimeout time.Duration
+	Store                    SessionStore
+	Messages                 MessageStore
+	TaskStore                TaskStore
+	Runner                   AgentRunner
+	Attachments              AttachmentStore
+	PrepareTimeout           time.Duration
+	ConfigOptionTimeout      time.Duration
+	AttachmentCleanupTimeout time.Duration
 }
 
 type CreateSessionCommand struct {
@@ -87,12 +173,13 @@ type CreateSessionResult struct {
 }
 
 type DeleteSessionCommand struct {
-	Session      chat.Session
+	SessionID    string
 	DeleteNative bool
 }
 
 type CloseNativeSessionCommand struct {
-	Session chat.Session
+	Session             chat.Session
+	NativeAlreadyClosed bool
 }
 
 type CloseNativeSessionResult struct {
@@ -149,12 +236,22 @@ type MessageLimits struct {
 }
 
 type AdmitMessageCommand struct {
-	Session       chat.Session
-	Content       string
-	ExecutionMode string
-	ToolsEnabled  *bool
-	Limits        MessageLimits
-	Now           time.Time
+	Session         chat.Session
+	Content         string
+	ExecutionMode   string
+	ToolsEnabled    *bool
+	AttachmentCount int
+	Limits          MessageLimits
+	Now             time.Time
+}
+
+type CreateAttachmentCommand struct {
+	Attachment chatattachments.StoredAttachment
+}
+
+type AttachmentCommand struct {
+	SessionID    string
+	AttachmentID string
 }
 
 type AdmitMessageResult struct {
@@ -176,6 +273,28 @@ type MessageDispatchPlan struct {
 	ExecutionMode string
 	ToolsEnabled  bool
 	Route         MessageDispatchRoute
+}
+
+// BuildExternalPromptInput converts already-admitted Hecate attachment bodies
+// into the short-lived provider-neutral contract used by the selected ACP
+// session. Claim ownership and integrity validation must complete before this
+// function is called; the adapter boundary validates the snapshot again.
+func BuildExternalPromptInput(text string, attachments []chatattachments.StoredAttachment) agentadapters.PromptInput {
+	input := agentadapters.PromptInput{Text: text}
+	if len(attachments) == 0 {
+		return input
+	}
+	input.Files = make([]agentadapters.PromptFile, 0, len(attachments))
+	for _, attachment := range attachments {
+		input.Files = append(input.Files, agentadapters.PromptFile{
+			Filename:  attachment.Filename,
+			MediaType: attachment.MediaType,
+			SizeBytes: attachment.SizeBytes,
+			SHA256:    attachment.SHA256,
+			Data:      attachment.Data,
+		})
+	}
+	return input
 }
 
 type MessageLimitError struct {
@@ -208,12 +327,34 @@ func (e ExternalPrepareError) Unwrap() error {
 }
 
 func New(opts Options) *Application {
+	attachmentCleanupTimeout := opts.AttachmentCleanupTimeout
+	if attachmentCleanupTimeout <= 0 {
+		attachmentCleanupTimeout = defaultAttachmentCleanupTimeout
+	}
+	messages := opts.Messages
+	if messages == nil {
+		messages, _ = opts.Store.(MessageStore)
+	}
+	messageRequestLeaseTTL := chat.MessageRequestLeaseStaleAfter
+	if messages != nil {
+		if ttl := messages.MessageRequestLeaseTTL(); ttl > 0 {
+			messageRequestLeaseTTL = ttl
+		}
+	}
+	if messageRequestLeaseTTL < minimumMessageRequestLeaseTTL {
+		messageRequestLeaseTTL = minimumMessageRequestLeaseTTL
+	}
+	messageRequestRenewEvery := messageRequestLeaseTTL / 3
 	return &Application{
-		store:               opts.Store,
-		taskStore:           opts.TaskStore,
-		runner:              opts.Runner,
-		prepareTimeout:      opts.PrepareTimeout,
-		configOptionTimeout: opts.ConfigOptionTimeout,
+		store:                    opts.Store,
+		messages:                 messages,
+		taskStore:                opts.TaskStore,
+		runner:                   opts.Runner,
+		attachments:              opts.Attachments,
+		prepareTimeout:           opts.PrepareTimeout,
+		configOptionTimeout:      opts.ConfigOptionTimeout,
+		attachmentCleanupTimeout: attachmentCleanupTimeout,
+		messageRequestRenewEvery: messageRequestRenewEvery,
 	}
 }
 
@@ -380,17 +521,278 @@ func (app *Application) DeleteSession(ctx context.Context, cmd DeleteSessionComm
 	if app == nil || app.store == nil {
 		return ErrStoreNotConfigured
 	}
-	if cmd.DeleteNative && app.runner != nil {
-		_ = app.runner.DeleteSession(ctx, cmd.Session.ID)
+	sessionID := strings.TrimSpace(cmd.SessionID)
+	if sessionID == "" {
+		return Validation(ErrSessionIDRequired)
 	}
-	return app.store.Delete(ctx, cmd.Session.ID)
+	if cmd.DeleteNative && app.runner != nil {
+		_ = app.runner.DeleteSession(ctx, sessionID)
+	}
+	// Session stores delete idempotently. Keeping the transcript boundary first
+	// prevents a failed transcript commit from leaving live messages that refer
+	// to bodies already removed from the independent attachment store. Direct
+	// delete retries and the project-delete orphan sweep finish partial cleanup.
+	if err := app.store.Delete(ctx, sessionID); err != nil {
+		return err
+	}
+	if app.attachments == nil {
+		return nil
+	}
+	cleanupCtx, cancel := app.attachmentCleanupContext(ctx)
+	defer cancel()
+	if err := app.attachments.DeleteBySessionID(cleanupCtx, sessionID); err != nil {
+		return &AttachmentSessionCleanupError{cause: err}
+	}
+	return nil
+}
+
+// SweepOrphanedAttachments removes bodies whose authoritative transcript is
+// already gone without touching pending claims owned by live sessions. Project
+// deletion calls this before listing project chats so a retry can repair a
+// partial cross-store session delete.
+func (app *Application) SweepOrphanedAttachments(ctx context.Context) error {
+	if app == nil || app.store == nil {
+		return ErrStoreNotConfigured
+	}
+	if app.attachments == nil {
+		return nil
+	}
+	_, err := SweepOrphanedChatAttachments(ctx, app.store, app.attachments)
+	return err
+}
+
+func (app *Application) CreateAttachment(ctx context.Context, cmd CreateAttachmentCommand) (chatattachments.StoredAttachment, error) {
+	if app == nil || app.attachments == nil {
+		return chatattachments.StoredAttachment{}, ErrAttachmentStoreMissing
+	}
+	cmd.Attachment.SessionID = strings.TrimSpace(cmd.Attachment.SessionID)
+	cmd.Attachment.ID = strings.TrimSpace(cmd.Attachment.ID)
+	if cmd.Attachment.SessionID == "" {
+		return chatattachments.StoredAttachment{}, Validation(ErrSessionIDRequired)
+	}
+	if cmd.Attachment.ID == "" {
+		return chatattachments.StoredAttachment{}, Validation(ErrAttachmentIDRequired)
+	}
+	_, err := app.GetSession(ctx, cmd.Attachment.SessionID)
+	if err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	created, err := app.attachments.Create(ctx, cmd.Attachment)
+	if errors.Is(err, chatattachments.ErrDraftQuota) {
+		return chatattachments.StoredAttachment{}, ErrAttachmentDraftQuota
+	}
+	if errors.Is(err, chatattachments.ErrSessionQuota) {
+		return chatattachments.StoredAttachment{}, ErrAttachmentSessionQuota
+	}
+	if errors.Is(err, chatattachments.ErrTotalQuota) {
+		var quota chatattachments.TotalQuotaError
+		if errors.As(err, &quota) {
+			return chatattachments.StoredAttachment{}, AttachmentTotalQuotaError{LimitBytes: quota.LimitBytes}
+		}
+		return chatattachments.StoredAttachment{}, ErrAttachmentTotalQuota
+	}
+	if err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	_, ownerErr := app.GetSession(ctx, cmd.Attachment.SessionID)
+	if ownerErr == nil {
+		return created, nil
+	}
+	cleanupCtx, cancel := app.attachmentCleanupContext(ctx)
+	cleanupErr := app.attachments.DeleteDraft(cleanupCtx, cmd.Attachment.SessionID, cmd.Attachment.ID)
+	cancel()
+	if errors.Is(cleanupErr, chatattachments.ErrNotFound) {
+		cleanupErr = nil
+	}
+	if cleanupErr != nil {
+		var cause error = ErrAttachmentNotFound
+		if ownerErr != nil {
+			cause = ownerErr
+		}
+		return chatattachments.StoredAttachment{}, &AttachmentRollbackError{cause: errors.Join(cause, cleanupErr)}
+	}
+	if ownerErr != nil {
+		return chatattachments.StoredAttachment{}, ownerErr
+	}
+	return chatattachments.StoredAttachment{}, ErrAttachmentNotFound
+}
+
+func (app *Application) GetAttachment(ctx context.Context, cmd AttachmentCommand) (chatattachments.StoredAttachment, error) {
+	if app == nil || app.attachments == nil {
+		return chatattachments.StoredAttachment{}, ErrAttachmentStoreMissing
+	}
+	sessionID := strings.TrimSpace(cmd.SessionID)
+	attachmentID := strings.TrimSpace(cmd.AttachmentID)
+	if sessionID == "" {
+		return chatattachments.StoredAttachment{}, Validation(ErrSessionIDRequired)
+	}
+	if attachmentID == "" {
+		return chatattachments.StoredAttachment{}, Validation(ErrAttachmentIDRequired)
+	}
+	if err := app.requireLiveAttachmentOwner(ctx, sessionID); err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	attachment, ok, err := app.attachments.Get(ctx, sessionID, attachmentID)
+	if err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	if !ok {
+		return chatattachments.StoredAttachment{}, ErrAttachmentNotFound
+	}
+	if err := app.requireLiveAttachmentOwner(ctx, sessionID); err != nil {
+		return chatattachments.StoredAttachment{}, err
+	}
+	return attachment, nil
+}
+
+func (app *Application) ClaimAttachments(ctx context.Context, ref chatattachments.ClaimRef) ([]chatattachments.StoredAttachment, error) {
+	if len(ref.AttachmentIDs) == 0 {
+		return nil, nil
+	}
+	if app == nil || app.attachments == nil {
+		return nil, ErrAttachmentStoreMissing
+	}
+	if len(ref.AttachmentIDs) > MaxMessageAttachments {
+		return nil, Validation(ErrTooManyAttachments)
+	}
+	ref.SessionID = strings.TrimSpace(ref.SessionID)
+	ref.MessageID = strings.TrimSpace(ref.MessageID)
+	if ref.MessageID == "" {
+		return nil, Validation(ErrAttachmentMessageID)
+	}
+	_, err := app.GetSession(ctx, ref.SessionID)
+	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			return nil, ErrAttachmentNotFound
+		}
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(ref.AttachmentIDs))
+	normalizedIDs := make([]string, 0, len(ref.AttachmentIDs))
+	for _, rawID := range ref.AttachmentIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			return nil, Validation(ErrAttachmentIDRequired)
+		}
+		if _, ok := seen[id]; ok {
+			return nil, Validation(ErrDuplicateAttachmentID)
+		}
+		seen[id] = struct{}{}
+		normalizedIDs = append(normalizedIDs, id)
+	}
+	ref.AttachmentIDs = normalizedIDs
+	attachments, err := app.attachments.Claim(ctx, ref)
+	switch {
+	case errors.Is(err, chatattachments.ErrNotFound):
+		return nil, ErrAttachmentNotFound
+	case errors.Is(err, chatattachments.ErrNotDraft):
+		return nil, ErrAttachmentInUse
+	case err != nil:
+		return nil, err
+	}
+	if err := app.requireLiveAttachmentOwner(ctx, ref.SessionID); err != nil {
+		app.releaseAttachmentClaim(ctx, ref)
+		return nil, err
+	}
+	remaining := MaxMessageAttachmentBytes
+	for _, attachment := range attachments {
+		size := int64(len(attachment.Data))
+		if size > remaining {
+			app.releaseAttachmentClaim(ctx, ref)
+			return nil, Validation(ErrAttachmentMessageBytes)
+		}
+		remaining -= size
+	}
+	return attachments, nil
+}
+
+func (app *Application) releaseAttachmentClaim(ctx context.Context, ref chatattachments.ClaimRef) {
+	cleanupCtx, cancel := app.attachmentCleanupContext(ctx)
+	defer cancel()
+	// A timeout leaves the token-fenced claim intact for startup reconciliation.
+	// The admission error remains authoritative for the caller.
+	_ = app.attachments.ResolveClaim(cleanupCtx, ref, chatattachments.ClaimReleased)
+}
+
+func (app *Application) attachmentCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := app.attachmentCleanupTimeout
+	if timeout <= 0 {
+		timeout = defaultAttachmentCleanupTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+}
+
+func (app *Application) ResolveAttachmentClaim(ctx context.Context, ref chatattachments.ClaimRef, resolution chatattachments.ClaimResolution) error {
+	if len(ref.AttachmentIDs) == 0 {
+		return nil
+	}
+	if app == nil || app.attachments == nil {
+		return ErrAttachmentStoreMissing
+	}
+	ref.SessionID = strings.TrimSpace(ref.SessionID)
+	ref.MessageID = strings.TrimSpace(ref.MessageID)
+	ref.AttachmentIDs = normalizedAttachmentIDs(ref.AttachmentIDs)
+	err := app.attachments.ResolveClaim(ctx, ref, resolution)
+	switch {
+	case errors.Is(err, chatattachments.ErrNotFound):
+		return ErrAttachmentNotFound
+	case errors.Is(err, chatattachments.ErrNotClaimed), errors.Is(err, chatattachments.ErrClaimLost):
+		return ErrAttachmentInUse
+	default:
+		return err
+	}
+}
+
+func normalizedAttachmentIDs(ids []string) []string {
+	normalized := make([]string, 0, len(ids))
+	for _, id := range ids {
+		normalized = append(normalized, strings.TrimSpace(id))
+	}
+	return normalized
+}
+
+func (app *Application) DeleteAttachment(ctx context.Context, cmd AttachmentCommand) error {
+	if app == nil || app.attachments == nil {
+		return ErrAttachmentStoreMissing
+	}
+	sessionID := strings.TrimSpace(cmd.SessionID)
+	attachmentID := strings.TrimSpace(cmd.AttachmentID)
+	if sessionID == "" {
+		return Validation(ErrSessionIDRequired)
+	}
+	if attachmentID == "" {
+		return Validation(ErrAttachmentIDRequired)
+	}
+	if err := app.requireLiveAttachmentOwner(ctx, sessionID); err != nil {
+		return err
+	}
+	err := app.attachments.DeleteDraft(ctx, sessionID, attachmentID)
+	switch {
+	case errors.Is(err, chatattachments.ErrNotFound):
+		return ErrAttachmentNotFound
+	case errors.Is(err, chatattachments.ErrNotDraft):
+		return ErrAttachmentInUse
+	default:
+		return err
+	}
+}
+
+func (app *Application) requireLiveAttachmentOwner(ctx context.Context, sessionID string) error {
+	_, err := app.GetSession(ctx, sessionID)
+	if errors.Is(err, ErrSessionNotFound) {
+		return ErrAttachmentNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (app *Application) CloseNativeSession(ctx context.Context, cmd CloseNativeSessionCommand) (*CloseNativeSessionResult, error) {
 	if app == nil || app.store == nil {
 		return nil, ErrStoreNotConfigured
 	}
-	if app.runner != nil {
+	if app.runner != nil && !cmd.NativeAlreadyClosed {
 		_ = app.runner.CloseSession(ctx, cmd.Session.ID)
 	}
 	session, err := app.store.UpdateSession(ctx, cmd.Session.ID, func(item *chat.Session) {
@@ -497,7 +899,7 @@ func (app *Application) SetHecateSettings(ctx context.Context, cmd SetHecateSett
 
 func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResult, error) {
 	content := strings.TrimSpace(cmd.Content)
-	if content == "" {
+	if content == "" && cmd.AttachmentCount == 0 {
 		return nil, Validation(ErrContentRequired)
 	}
 	now := cmd.Now
@@ -549,6 +951,12 @@ func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResu
 	toolsEnabled := true
 	if cmd.ToolsEnabled != nil {
 		toolsEnabled = *cmd.ToolsEnabled
+	}
+	if cmd.AttachmentCount < 0 || cmd.AttachmentCount > MaxMessageAttachments {
+		return nil, Validation(ErrTooManyAttachments)
+	}
+	if cmd.AttachmentCount > 0 && executionMode == chat.ExecutionModeHecateTask && toolsEnabled {
+		return nil, Validation(ErrAttachmentsDirectOnly)
 	}
 	return &AdmitMessageResult{
 		Content:       content,

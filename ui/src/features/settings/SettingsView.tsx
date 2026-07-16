@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
-import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
-import { getPlugins, resetSystemData } from "../../lib/api";
+import { getPlugins } from "../../lib/api";
 import type { PluginRecord } from "../../types/plugin";
-import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
+import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
 
 export function SettingsView() {
@@ -14,14 +13,8 @@ export function SettingsView() {
   // shim used to wire success/failure banner toggles through.
   const settings = useSettings();
   const { runRetention } = useRetentionActions({ setNotice: settings.actions.setNotice });
-  const dashboardActions = useWiredDashboardActions();
   const loadRetentionRuns = retention.actions.loadRuns;
   const storageBackend = settings.state.config?.backend ?? "memory";
-  const durableBackend = storageBackend === "sqlite";
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetConfirmation, setResetConfirmation] = useState("");
-  const [resetPending, setResetPending] = useState(false);
-  const [resetError, setResetError] = useState("");
   const [plugins, setPlugins] = useState<PluginRecord[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
@@ -55,29 +48,6 @@ export function SettingsView() {
     }
   }
 
-  async function handleResetData() {
-    if (resetConfirmation !== "RESET") return;
-    setResetPending(true);
-    setResetError("");
-    settings.actions.setNotice(null);
-    try {
-      const response = await resetSystemData();
-      await dashboardActions.loadDashboard();
-      setResetOpen(false);
-      setResetConfirmation("");
-      settings.actions.setNotice({
-        kind: "success",
-        message: resetSummary(response.data),
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to reset local data.";
-      setResetError(message);
-      settings.actions.setNotice({ kind: "error", message });
-    } finally {
-      setResetPending(false);
-    }
-  }
-
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
@@ -92,85 +62,10 @@ export function SettingsView() {
           state={retention.state}
           setRetentionSubsystems={retention.actions.setSubsystems}
           runRetention={runRetention}
-          onOpenReset={() => {
-            setResetError("");
-            setResetConfirmation("");
-            setResetOpen(true);
-          }}
         />
       </div>
-      {resetOpen && (
-        <ConfirmModal
-          title={durableBackend ? "Reset local data" : "Reset runtime state"}
-          danger
-          pending={resetPending}
-          confirmDisabled={resetConfirmation !== "RESET"}
-          confirmLabel={durableBackend ? "Reset local data" : "Reset runtime state"}
-          onClose={() => {
-            if (!resetPending) setResetOpen(false);
-          }}
-          onConfirm={handleResetData}
-          message={
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                This deletes projects, chats, task history, provider setup, policy rules, and saved
-                external-agent grants from Hecate. Running external-agent sessions are closed first.
-              </div>
-              {!durableBackend && (
-                <div style={{ color: "var(--t3)" }}>
-                  This server is using memory storage, so the reset clears the current dev runtime
-                  state only.
-                </div>
-              )}
-              <div style={{ color: "var(--t3)" }}>
-                Workspace files and external CLI auth files stay on disk.
-              </div>
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontSize: 11, color: "var(--t3)" }}>Type RESET to continue</span>
-                <input
-                  className="input"
-                  autoFocus
-                  value={resetConfirmation}
-                  disabled={resetPending}
-                  onChange={(event) => setResetConfirmation(event.target.value)}
-                />
-              </label>
-              {resetError && <InlineError message={resetError} />}
-            </div>
-          }
-        />
-      )}
     </div>
   );
-}
-
-function resetSummary(data: {
-  projects_deleted: number;
-  project_runtime_rows_deleted?: number;
-  plugins_deleted?: number;
-  agent_presets_deleted?: number;
-  chat_sessions_deleted: number;
-  tasks_deleted: number;
-  providers_deleted: number;
-  policy_rules_deleted: number;
-  agent_approval_grants_deleted: number;
-  database_rows_deleted: number;
-  cairnline_files_deleted?: number;
-}): string {
-  const total =
-    data.projects_deleted +
-    (data.project_runtime_rows_deleted ?? 0) +
-    (data.plugins_deleted ?? 0) +
-    (data.agent_presets_deleted ?? 0) +
-    data.chat_sessions_deleted +
-    data.tasks_deleted +
-    data.providers_deleted +
-    data.policy_rules_deleted +
-    data.agent_approval_grants_deleted +
-    data.database_rows_deleted +
-    (data.cairnline_files_deleted ?? 0);
-  if (total === 0) return "Local data was already clean.";
-  return `Reset local data. Removed ${total} item${total === 1 ? "" : "s"}.`;
 }
 
 const RETENTION_SUBSYSTEMS = [
@@ -407,15 +302,24 @@ function RetentionSettings({
   state,
   setRetentionSubsystems,
   runRetention,
-  onOpenReset,
 }: {
   storageBackend: string;
   state: RetentionState;
   setRetentionSubsystems: (value: string) => void;
   runRetention: () => Promise<void>;
-  onOpenReset: () => void;
 }) {
-  const durableBackend = storageBackend === "sqlite";
+  const resetTitle =
+    storageBackend === "memory"
+      ? "Reset runtime state unavailable"
+      : storageBackend === "postgres"
+        ? "Reset persisted data unavailable"
+        : "Reset local data unavailable";
+  const resetDescription =
+    storageBackend === "memory"
+      ? "Restart the runtime to clear Hecate-owned in-memory state. Stop the runtime and use the deployment procedure to clear persistent Cairnline project coordination."
+      : storageBackend === "postgres"
+        ? "Stop the runtime before clearing its configured Postgres state and any local Cairnline or bootstrap files with the deployment-specific procedure."
+        : "Stop the runtime before removing its configured data directory. The running process will not report a partial reset as successful.";
   const runs = state.runs ?? [];
   const lastRun = state.lastRun;
   const lastRunResults = lastRun?.results ?? [];
@@ -697,11 +601,7 @@ function RetentionSettings({
 
       <SectionHeader
         title="Danger zone"
-        description={
-          durableBackend
-            ? "Start over without relaunching the app. External-agent sessions are closed before their chat rows are removed."
-            : "Clear this dev server's current in-memory state without relaunching it."
-        }
+        description="In-process data reset is disabled until every runtime writer can be quiesced safely."
       />
       <div
         className="card"
@@ -714,21 +614,20 @@ function RetentionSettings({
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>
-            {durableBackend ? "Reset local data" : "Reset runtime state"}
+            {resetTitle}
           </div>
           <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-            {durableBackend
-              ? "Delete projects, chats, tasks, provider setup, policy rules, saved external-agent grants, and remaining Hecate database rows. Workspace files and external CLI auth files are not touched."
-              : "Delete projects, chats, tasks, provider setup, policy rules, and saved external-agent grants from this in-memory process. Workspace files and external CLI auth files are not touched."}
+            {resetDescription}
           </div>
         </div>
         <button
           type="button"
           className="btn btn-danger btn-sm"
           style={{ marginLeft: "auto", flexShrink: 0 }}
-          onClick={onOpenReset}
+          disabled
+          title="Runtime-wide write quiescence is not available yet"
         >
-          <Icon d={Icons.trash} size={13} /> Reset…
+          <Icon d={Icons.trash} size={13} /> Unavailable
         </button>
       </div>
     </>

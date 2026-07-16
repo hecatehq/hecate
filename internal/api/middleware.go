@@ -385,6 +385,10 @@ type statusRecorder struct {
 	status int
 }
 
+func (w *statusRecorder) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *statusRecorder) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)

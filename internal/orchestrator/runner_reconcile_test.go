@@ -2,13 +2,17 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -40,6 +44,23 @@ type eventBeforeEnqueueQueue struct {
 	store     taskstate.Store
 	wantEvent string
 	missing   []QueueJob
+}
+
+type blockingReconcileStateStore struct {
+	taskstate.Store
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingReconcileStateStore) ApplyRunStateTransition(ctx context.Context, transition taskstate.RunStateTransition) (taskstate.RunStateTransitionResult, error) {
+	s.once.Do(func() { close(s.started) })
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return taskstate.RunStateTransitionResult{}, ctx.Err()
+	}
+	return s.Store.ApplyRunStateTransition(ctx, transition)
 }
 
 func (q *eventBeforeEnqueueQueue) Enqueue(ctx context.Context, job QueueJob) error {
@@ -134,6 +155,169 @@ func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	if !foundEvent {
 		t.Fatal("missing gap.run_disconnected event")
 	}
+}
+
+func TestReconcilePendingRunsPaginatesEveryQueuedRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	queue := &recordingQueue{}
+	runner := &Runner{
+		logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), store: store, policies: make(map[string]struct{}),
+	}
+	attachTestQueueCoordinator(runner, queue)
+	want := pendingRunReconcilePageSize + 1
+	for index := 0; index < want; index++ {
+		taskID := fmt.Sprintf("task-reconcile-page-%04d", index)
+		runID := fmt.Sprintf("run-reconcile-page-%04d", index)
+		if _, err := store.CreateTask(ctx, types.Task{
+			ID: taskID, Status: "queued", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("CreateTask(%d): %v", index, err)
+		}
+		if _, err := store.CreateRun(ctx, types.TaskRun{
+			ID: runID, TaskID: taskID, Number: 1, Status: "queued", StartedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("CreateRun(%d): %v", index, err)
+		}
+	}
+
+	if err := runner.ReconcilePendingRuns(ctx); err != nil {
+		t.Fatalf("ReconcilePendingRuns: %v", err)
+	}
+	if len(queue.enqueued) != want {
+		t.Fatalf("enqueued jobs = %d, want %d", len(queue.enqueued), want)
+	}
+	seen := make(map[QueueJob]struct{}, want)
+	for _, job := range queue.enqueued {
+		seen[job] = struct{}{}
+	}
+	if len(seen) != want {
+		t.Fatalf("unique enqueued jobs = %d, want %d", len(seen), want)
+	}
+	last := QueueJob{TaskID: fmt.Sprintf("task-reconcile-page-%04d", want-1), RunID: fmt.Sprintf("run-reconcile-page-%04d", want-1)}
+	if _, ok := seen[last]; !ok {
+		t.Fatalf("last paginated queued run was not recovered: %+v", last)
+	}
+}
+
+func TestReconcilePendingRuns_OriginValidationControlsRecovery(t *testing.T) {
+	t.Parallel()
+
+	t.Run("confirmed missing owner settles stale run", func(t *testing.T) {
+		ctx := t.Context()
+		store := taskstate.NewMemoryStore()
+		queue := &recordingQueue{}
+		runner := &Runner{logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), store: store, policies: make(map[string]struct{})}
+		attachTestQueueCoordinator(runner, queue)
+		gate := taskruncoord.NewOriginGate()
+		gate.SetValidator("chat", func(context.Context, taskruncoord.Origin) error { return taskruncoord.ErrOriginNotFound })
+		runner.SetOriginRunGate(gate)
+		task, run := seedRecoverableOriginRun(t, ctx, store, "missing", "running")
+
+		if err := runner.ReconcilePendingRuns(ctx); err != nil {
+			t.Fatalf("ReconcilePendingRuns: %v", err)
+		}
+		stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+		if err != nil || !found || stored.Status != "cancelled" {
+			t.Fatalf("run = %+v found=%t err=%v, want cancelled", stored, found, err)
+		}
+		if len(queue.enqueued) != 0 {
+			t.Fatalf("enqueued jobs = %+v, want none", queue.enqueued)
+		}
+	})
+
+	t.Run("transient validation retries after recovery", func(t *testing.T) {
+		ctx := t.Context()
+		store := taskstate.NewMemoryStore()
+		queue := &recordingQueue{}
+		runner := &Runner{logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), store: store, policies: make(map[string]struct{})}
+		attachTestQueueCoordinator(runner, queue)
+		gate := taskruncoord.NewOriginGate()
+		available := false
+		gate.SetValidator("chat", func(context.Context, taskruncoord.Origin) error {
+			if !available {
+				return errors.New("owner store temporarily unavailable")
+			}
+			return nil
+		})
+		runner.SetOriginRunGate(gate)
+		task, run := seedRecoverableOriginRun(t, ctx, store, "transient", "running")
+
+		if err := runner.ReconcilePendingRuns(ctx); !errors.Is(err, taskruncoord.ErrOriginValidationFailed) {
+			t.Fatalf("first ReconcilePendingRuns error = %v, want validation failure", err)
+		}
+		stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+		if err != nil || !found || stored.Status != "running" {
+			t.Fatalf("run after transient failure = %+v found=%t err=%v", stored, found, err)
+		}
+		available = true
+		if err := runner.queueCoordinator.retryPendingReconciles(ctx); err != nil {
+			t.Fatalf("retryPendingReconciles: %v", err)
+		}
+		stored, found, err = store.GetRun(ctx, task.ID, run.ID)
+		if err != nil || !found || stored.Status != "queued" || len(queue.enqueued) != 1 {
+			t.Fatalf("recovered run = %+v found=%t err=%v enqueued=%+v", stored, found, err, queue.enqueued)
+		}
+	})
+}
+
+func TestReconcilePendingRuns_CASPreservesConcurrentTerminalWinner(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	base := taskstate.NewMemoryStore()
+	store := &blockingReconcileStateStore{Store: base, started: make(chan struct{}), release: make(chan struct{})}
+	queue := &recordingQueue{}
+	runner := &Runner{logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), store: store, policies: make(map[string]struct{})}
+	attachTestQueueCoordinator(runner, queue)
+	task, run := seedRecoverableOriginRun(t, ctx, base, "cas", "running")
+	reconcileDone := make(chan error, 1)
+	go func() { reconcileDone <- runner.ReconcilePendingRuns(ctx) }()
+	select {
+	case <-store.started:
+	case <-time.After(time.Second):
+		t.Fatal("reconcile state transition did not begin")
+	}
+	cancelledTask := task
+	cancelledTask.Status = "cancelled"
+	cancelledRun := run
+	cancelledRun.Status = "cancelled"
+	cancelledRun.FinishedAt = time.Now().UTC()
+	if result, err := base.ApplyRunTerminalTransition(ctx, taskstate.TerminalRunTransition{
+		Task: cancelledTask, Run: cancelledRun, FinishedAt: cancelledRun.FinishedAt,
+	}); err != nil || !result.Applied {
+		t.Fatalf("concurrent terminal transition applied=%t err=%v", result.Applied, err)
+	}
+	close(store.release)
+	if err := <-reconcileDone; err != nil {
+		t.Fatalf("ReconcilePendingRuns: %v", err)
+	}
+	stored, found, err := base.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found || stored.Status != "cancelled" {
+		t.Fatalf("run after reconcile race = %+v found=%t err=%v", stored, found, err)
+	}
+	if len(queue.enqueued) != 0 {
+		t.Fatalf("stale reconcile enqueued terminal run: %+v", queue.enqueued)
+	}
+}
+
+func seedRecoverableOriginRun(t *testing.T, ctx context.Context, store taskstate.Store, suffix, status string) (types.Task, types.TaskRun) {
+	t.Helper()
+	now := time.Now().UTC().Add(-time.Minute)
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-reconcile-origin-" + suffix, OriginKind: "chat", OriginID: "chat-reconcile-origin-" + suffix,
+		Status: status, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := store.CreateRun(ctx, types.TaskRun{ID: "run-reconcile-origin-" + suffix, TaskID: task.ID, Status: status, StartedAt: now})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	return task, run
 }
 
 func TestStartTaskEmitsRunQueuedBeforeEnqueue(t *testing.T) {

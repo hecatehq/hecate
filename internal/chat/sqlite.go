@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
@@ -15,10 +16,14 @@ import (
 )
 
 type SQLiteStore struct {
-	client        storage.SQLClient
-	backend       string
-	sessionsTable string
-	messagesTable string
+	client                 storage.SQLClient
+	backend                string
+	sessionsTable          string
+	messagesTable          string
+	messageRequestsTable   string
+	messageRequestInstance string
+	messageRequestNow      func() time.Time
+	messageUpdateMu        sync.Mutex
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
@@ -33,11 +38,18 @@ func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, e
 	if client == nil || client.DB() == nil {
 		return nil, fmt.Errorf("sql client is required")
 	}
+	instanceID, err := newMessageRequestToken()
+	if err != nil {
+		return nil, err
+	}
 	store := &SQLiteStore{
-		client:        client,
-		backend:       client.Backend(),
-		sessionsTable: client.QualifiedTable("chat_sessions"),
-		messagesTable: client.QualifiedTable("chat_messages"),
+		client:                 client,
+		backend:                client.Backend(),
+		sessionsTable:          client.QualifiedTable("chat_sessions"),
+		messagesTable:          client.QualifiedTable("chat_messages"),
+		messageRequestsTable:   client.QualifiedTable("chat_message_requests"),
+		messageRequestInstance: instanceID,
+		messageRequestNow:      time.Now,
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -47,6 +59,21 @@ func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, e
 
 func (s *SQLiteStore) Backend() string {
 	return s.backend
+}
+
+func (s *SQLiteStore) MessageRequestLeaseTTL() time.Duration {
+	return MessageRequestLeaseStaleAfter
+}
+
+func (s *SQLiteStore) messageRequestNowUTC() time.Time {
+	if s.messageRequestNow == nil {
+		return time.Now().UTC()
+	}
+	return s.messageRequestNow().UTC()
+}
+
+func (s *SQLiteStore) setMessageRequestNow(now func() time.Time) {
+	s.messageRequestNow = now
 }
 
 func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, error) {
@@ -216,11 +243,22 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
-	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE session_id = ?`, s.messagesTable), id); err != nil {
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sqlite agent chat delete tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE session_id = ?`, s.messageRequestsTable), id); err != nil {
+		return fmt.Errorf("delete sqlite agent chat message requests: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE session_id = ?`, s.messagesTable), id); err != nil {
 		return fmt.Errorf("delete sqlite agent chat messages: %w", err)
 	}
-	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.sessionsTable), id); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.sessionsTable), id); err != nil {
 		return fmt.Errorf("delete sqlite agent chat session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sqlite agent chat delete tx: %w", err)
 	}
 	return nil
 }
@@ -231,6 +269,19 @@ func (s *SQLiteStore) DeleteByProjectID(ctx context.Context, projectID string) e
 		return fmt.Errorf("begin sqlite agent chat project delete tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(
+		ctx,
+		fmt.Sprintf(
+			`DELETE FROM %s
+			 WHERE session_id IN (SELECT id FROM %s WHERE project_id = ?)`,
+			s.messageRequestsTable,
+			s.sessionsTable,
+		),
+		projectID,
+	); err != nil {
+		return fmt.Errorf("delete sqlite agent chat project message requests: %w", err)
+	}
 
 	if _, err := tx.ExecContext(
 		ctx,
@@ -319,14 +370,23 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		return Session{}, fmt.Errorf("begin sqlite agent chat tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := s.appendMessageTx(ctx, tx, sessionID, message); err != nil {
+		return Session{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, fmt.Errorf("commit sqlite agent chat tx: %w", err)
+	}
+	return s.loadSession(ctx, sessionID)
+}
 
+func (s *SQLiteStore) appendMessageTx(ctx context.Context, tx storage.Tx, sessionID string, message Message) error {
 	var nextSeq int
 	if err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(`SELECT COALESCE(MAX(sequence), -1) + 1 FROM %s WHERE session_id = ?`, s.messagesTable),
 		sessionID,
 	).Scan(&nextSeq); err != nil {
-		return Session{}, fmt.Errorf("read sqlite agent chat next sequence: %w", err)
+		return fmt.Errorf("read sqlite agent chat next sequence: %w", err)
 	}
 
 	if _, err := tx.ExecContext(
@@ -334,10 +394,10 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		fmt.Sprintf(
 			`INSERT INTO %s (
 				id, session_id, sequence, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id,
-				role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code,
-				cost_mode, provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
+				role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code,
+				cost_mode, provider, provider_instance, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
 				error, activities, usage, timing, context_packet
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
@@ -353,6 +413,7 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.SpanID,
 		message.Role,
 		message.Content,
+		marshalMessageAttachments(message.Attachments),
 		message.RawOutput,
 		message.AgentID,
 		message.AgentName,
@@ -363,6 +424,7 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.ExitCode,
 		message.CostMode,
 		message.Provider,
+		marshalProviderInstanceIdentity(message.ProviderInstance),
 		message.Model,
 		marshalModelCapabilities(message.Capabilities),
 		message.Workspace,
@@ -377,37 +439,42 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		marshalTiming(message.Timing),
 		marshalContextPacket(message.Context),
 	); err != nil {
-		return Session{}, fmt.Errorf("insert sqlite agent chat message: %w", err)
+		return fmt.Errorf("insert sqlite agent chat message: %w", err)
 	}
 
-	if err := updateSessionAfterMessage(ctx, tx, s.sessionsTable, sessionID, message); err != nil {
-		return Session{}, err
+	if err := updateSessionAfterMessage(ctx, tx, s.sessionsTable, sessionID, message, true); err != nil {
+		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return Session{}, fmt.Errorf("commit sqlite agent chat tx: %w", err)
-	}
-	return s.loadSession(ctx, sessionID)
+	return nil
 }
 
 func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messageID string, update func(*Message)) (Session, error) {
+	// SQLite has no SELECT ... FOR UPDATE and begins deferred transactions.
+	// Serialize in-process message RMWs so two callbacks cannot both read the
+	// same row and then overwrite each other's independent fields. PostgreSQL
+	// additionally takes a row lock below for cross-instance safety.
+	s.messageUpdateMu.Lock()
+	defer s.messageUpdateMu.Unlock()
+
 	tx, err := s.client.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, fmt.Errorf("begin sqlite agent chat tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	message, err := loadMessage(ctx, tx, s.messagesTable, sessionID, messageID)
+	message, err := loadMessage(ctx, tx, s.messagesTable, sessionID, messageID, s.client.Dialect() == storage.DialectPostgres)
 	if err != nil {
 		return Session{}, err
 	}
+	previousStatus := message.Status
 	update(&message)
 	if _, err := tx.ExecContext(
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   execution_mode = ?, tools_enabled = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, agent_id = ?, agent_name = ?,
+			   execution_mode = ?, tools_enabled = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, attachments = ?, raw_output = ?, agent_id = ?, agent_name = ?,
 			   driver_kind = ?, native_session_id = ?, agent_info = ?, status = ?, exit_code = ?,
-			   cost_mode = ?, provider = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
+			   cost_mode = ?, provider = ?, provider_instance = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?, timing = ?, context_packet = ?
 			 WHERE id = ? AND session_id = ?`,
 			s.messagesTable,
@@ -422,6 +489,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.SpanID,
 		message.Role,
 		message.Content,
+		marshalMessageAttachments(message.Attachments),
 		message.RawOutput,
 		message.AgentID,
 		message.AgentName,
@@ -432,6 +500,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.ExitCode,
 		message.CostMode,
 		message.Provider,
+		marshalProviderInstanceIdentity(message.ProviderInstance),
 		message.Model,
 		marshalModelCapabilities(message.Capabilities),
 		message.Workspace,
@@ -450,7 +519,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 	); err != nil {
 		return Session{}, fmt.Errorf("update sqlite agent chat message: %w", err)
 	}
-	if err := updateSessionAfterMessage(ctx, tx, s.sessionsTable, sessionID, message); err != nil {
+	if err := updateSessionAfterMessage(ctx, tx, s.sessionsTable, sessionID, message, message.Status != previousStatus); err != nil {
 		return Session{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -505,6 +574,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				task_id TEXT NOT NULL DEFAULT '',
 				role TEXT NOT NULL,
 				content TEXT NOT NULL,
+				attachments TEXT NOT NULL DEFAULT '[]',
 				raw_output TEXT NOT NULL DEFAULT '',
 				agent_id TEXT NOT NULL,
 				agent_name TEXT NOT NULL,
@@ -519,6 +589,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				span_id TEXT NOT NULL DEFAULT '',
 				cost_mode TEXT NOT NULL,
 				provider TEXT NOT NULL DEFAULT '',
+				provider_instance TEXT NOT NULL DEFAULT '{}',
 				model TEXT NOT NULL DEFAULT '',
 				capabilities TEXT NOT NULL DEFAULT '{}',
 				workspace TEXT NOT NULL,
@@ -539,6 +610,27 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		),
 	); err != nil {
 		return fmt.Errorf("migrate sqlite agent chat messages: %w", err)
+	}
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(
+			`CREATE TABLE IF NOT EXISTS %s (
+				session_id TEXT NOT NULL REFERENCES %s (id) ON DELETE CASCADE,
+				client_request_id TEXT NOT NULL,
+				payload_fingerprint TEXT NOT NULL,
+				state TEXT NOT NULL,
+				owner_instance TEXT NOT NULL,
+				owner_token TEXT NOT NULL,
+				message_id TEXT NOT NULL DEFAULT '',
+				created_at TIMESTAMP NOT NULL,
+				updated_at TIMESTAMP NOT NULL,
+				PRIMARY KEY (session_id, client_request_id)
+			)`,
+			s.messageRequestsTable,
+			s.sessionsTable,
+		),
+	); err != nil {
+		return fmt.Errorf("migrate sqlite agent chat message requests: %w", err)
 	}
 	if err := s.ensureSessionColumn(ctx, "workspace_branch", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
@@ -601,7 +693,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "completed_at", definition: "TIMESTAMP"},
 		{name: "error", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "raw_output", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "attachments", definition: "TEXT NOT NULL DEFAULT '[]'"},
 		{name: "provider", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "provider_instance", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "model", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "capabilities", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "activities", definition: "TEXT NOT NULL DEFAULT '[]'"},
@@ -632,6 +726,10 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 }
 
 func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, error) {
+	return s.loadSessionFrom(ctx, s.client.DB(), id)
+}
+
+func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, id string) (Session, error) {
 	var session Session
 	var capabilities string
 	var configOptions string
@@ -640,7 +738,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var mcpServers string
 	var contextSummary string
 	var rtkEnabled int
-	err := s.client.DB().QueryRowContext(
+	err := runner.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
 			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_branch,
@@ -690,7 +788,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	session.MCPServers = unmarshalMCPServers(mcpServers)
 	session.ContextSummary = unmarshalContextSummary(contextSummary)
 	session.RTKEnabled = rtkEnabled != 0
-	messages, err := s.loadMessages(ctx, id)
+	messages, err := s.loadMessagesFrom(ctx, runner, id)
 	if err != nil {
 		return Session{}, err
 	}
@@ -702,11 +800,15 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 }
 
 func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Message, error) {
-	rows, err := s.client.DB().QueryContext(
+	return s.loadMessagesFrom(ctx, s.client.DB(), sessionID)
+}
+
+func (s *SQLiteStore) loadMessagesFrom(ctx context.Context, runner queryRunner, sessionID string) ([]Message, error) {
+	rows, err := runner.QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
-			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
+			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
+				        provider, provider_instance, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE session_id = ?
 			 ORDER BY sequence ASC`,
@@ -729,6 +831,8 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		var capabilities string
 		var contextPacket string
 		var agentInfo string
+		var attachments string
+		var providerInstance string
 		var toolsEnabledInt int64
 		if err := rows.Scan(
 			&message.ID,
@@ -742,6 +846,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.SpanID,
 			&message.Role,
 			&message.Content,
+			&attachments,
 			&message.RawOutput,
 			&message.AgentID,
 			&message.AgentName,
@@ -752,6 +857,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.ExitCode,
 			&message.CostMode,
 			&message.Provider,
+			&providerInstance,
 			&message.Model,
 			&capabilities,
 			&message.Workspace,
@@ -775,9 +881,11 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			message.CompletedAt = completedAt.Time
 		}
 		message.Activities = unmarshalActivities(activities)
+		message.Attachments = unmarshalMessageAttachments(attachments)
 		message.Usage = unmarshalUsage(usage)
 		message.Timing = unmarshalTiming(timing)
 		message.Capabilities = unmarshalModelCapabilities(capabilities)
+		message.ProviderInstance = unmarshalProviderInstanceIdentity(providerInstance)
 		message.Context = unmarshalContextPacket(contextPacket)
 		message.AgentInfo = unmarshalImplementationInfo(agentInfo)
 		message.ToolsEnabled = toolsEnabledInt != 0
@@ -832,12 +940,17 @@ func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column stri
 	return storage.ColumnExists(ctx, s.client, strings.Trim(quotedTable, `"`), column)
 }
 
+type queryRunner interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 type txRunner interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func loadMessage(ctx context.Context, tx txRunner, table string, sessionID string, messageID string) (Message, error) {
+func loadMessage(ctx context.Context, tx txRunner, table string, sessionID string, messageID string, forUpdate bool) (Message, error) {
 	var message Message
 	var startedAt, completedAt sql.NullTime
 	var activities string
@@ -846,15 +959,22 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	var capabilities string
 	var contextPacket string
 	var agentInfo string
+	var attachments string
+	var providerInstance string
 	var toolsEnabledInt int64
+	lockClause := ""
+	if forUpdate {
+		lockClause = " FOR UPDATE"
+	}
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
-			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
+			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
+			        provider, provider_instance, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
-			 WHERE id = ? AND session_id = ?`,
+			 WHERE id = ? AND session_id = ?%s`,
 			table,
+			lockClause,
 		),
 		messageID,
 		sessionID,
@@ -870,6 +990,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.SpanID,
 		&message.Role,
 		&message.Content,
+		&attachments,
 		&message.RawOutput,
 		&message.AgentID,
 		&message.AgentName,
@@ -880,6 +1001,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.ExitCode,
 		&message.CostMode,
 		&message.Provider,
+		&providerInstance,
 		&message.Model,
 		&capabilities,
 		&message.Workspace,
@@ -907,9 +1029,11 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		message.CompletedAt = completedAt.Time
 	}
 	message.Activities = unmarshalActivities(activities)
+	message.Attachments = unmarshalMessageAttachments(attachments)
 	message.Usage = unmarshalUsage(usage)
 	message.Timing = unmarshalTiming(timing)
 	message.Capabilities = unmarshalModelCapabilities(capabilities)
+	message.ProviderInstance = unmarshalProviderInstanceIdentity(providerInstance)
 	message.Context = unmarshalContextPacket(contextPacket)
 	message.AgentInfo = unmarshalImplementationInfo(agentInfo)
 	message.ToolsEnabled = toolsEnabledInt != 0
@@ -940,6 +1064,29 @@ func unmarshalActivities(raw string) []Activity {
 		return nil
 	}
 	var items []Activity
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+func marshalMessageAttachments(items []MessageAttachment) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
+func unmarshalMessageAttachments(raw string) []MessageAttachment {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []MessageAttachment
 	if err := json.Unmarshal([]byte(raw), &items); err != nil {
 		return nil
 	}
@@ -1046,7 +1193,7 @@ func normalizeAgentID(session Session) string {
 }
 
 func marshalModelCapabilities(capabilities types.ModelCapabilities) string {
-	if capabilities.ToolCalling == "" && !capabilities.Streaming && capabilities.MaxContextTokens == 0 && capabilities.Source == "" {
+	if capabilities.ToolCalling == "" && capabilities.ImageInput == "" && !capabilities.Streaming && capabilities.MaxContextTokens == 0 && capabilities.Source == "" {
 		return "{}"
 	}
 	data, err := json.Marshal(capabilities)
@@ -1066,6 +1213,29 @@ func unmarshalModelCapabilities(raw string) types.ModelCapabilities {
 		return types.ModelCapabilities{}
 	}
 	return capabilities
+}
+
+func marshalProviderInstanceIdentity(identity types.ProviderInstanceIdentity) string {
+	if !identity.Valid() {
+		return "{}"
+	}
+	data, err := json.Marshal(identity)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func unmarshalProviderInstanceIdentity(raw string) types.ProviderInstanceIdentity {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return types.ProviderInstanceIdentity{}
+	}
+	var identity types.ProviderInstanceIdentity
+	if err := json.Unmarshal([]byte(raw), &identity); err != nil || !identity.Valid() {
+		return types.ProviderInstanceIdentity{}
+	}
+	return identity
 }
 
 func marshalConfigOptions(options []agentcontrols.ConfigOption) string {
@@ -1160,9 +1330,9 @@ func unmarshalMCPServers(raw string) []types.MCPServerConfig {
 	return configs
 }
 
-func updateSessionAfterMessage(ctx context.Context, tx txRunner, table string, sessionID string, message Message) error {
+func updateSessionAfterMessage(ctx context.Context, tx txRunner, table string, sessionID string, message Message, projectStatus bool) error {
 	status := ""
-	if message.Role == "assistant" {
+	if projectStatus && message.Role == "assistant" {
 		status = message.Status
 	}
 	if status != "" {

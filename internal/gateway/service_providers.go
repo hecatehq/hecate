@@ -22,8 +22,13 @@ func (s *Service) RefreshModels(ctx context.Context) (*ModelsResult, error) {
 func (s *Service) listModels(ctx context.Context, refresh bool) (*ModelsResult, error) {
 	seen := make(map[string]struct{})
 	modelsOut := make([]types.ModelInfo, 0, 16)
+	entries := s.catalogSnapshot(ctx, refresh)
+	providerIdentities := make([]catalog.ProviderIdentity, 0, len(entries))
 
-	for _, entry := range s.catalogSnapshot(ctx, refresh) {
+	for _, entry := range entries {
+		identity := catalog.EntryProviderIdentity(entry)
+		identity.Aliases = append([]string(nil), identity.Aliases...)
+		providerIdentities = append(providerIdentities, identity)
 		for _, modelID := range entry.Models {
 			key := entry.Name + "/" + modelID
 			if _, ok := seen[key]; ok {
@@ -32,19 +37,22 @@ func (s *Service) listModels(ctx context.Context, refresh bool) (*ModelsResult, 
 			seen[key] = struct{}{}
 
 			modelsOut = append(modelsOut, types.ModelInfo{
-				ID:              modelID,
-				Provider:        entry.Name,
-				Kind:            string(entry.Kind),
-				OwnedBy:         entry.Name,
-				Default:         modelID == entry.DefaultModel,
-				DiscoverySource: entry.DiscoverySource,
-				Capabilities:    entry.ModelCapabilities[modelID],
-				Readiness:       providerModelReadinessForEntry(entry, entry.Name, modelID).ToModelReadiness(),
+				ID:               modelID,
+				Provider:         entry.Name,
+				ProviderAliases:  append([]string(nil), entry.ProviderAliases...),
+				ProviderFamily:   entry.ProviderFamily,
+				ProviderInstance: entry.ProviderInstance,
+				Kind:             string(entry.Kind),
+				OwnedBy:          entry.Name,
+				Default:          modelID == entry.DefaultModel,
+				DiscoverySource:  entry.DiscoverySource,
+				Capabilities:     entry.ModelCapabilities[modelID],
+				Readiness:        providerModelReadinessForEntry(entry, entry.Name, modelID).ToModelReadiness(),
 			})
 		}
 	}
 
-	return &ModelsResult{Models: modelsOut}, nil
+	return &ModelsResult{Models: modelsOut, ProviderIdentities: providerIdentities}, nil
 }
 
 func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, error) {

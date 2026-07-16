@@ -34,6 +34,12 @@ func (h *Handler) DraftProjectProposal(ctx context.Context, input orchestrator.P
 			return orchestrator.ProjectAssistantDraftResult{}, fmt.Errorf("%w: chat session project %q does not match task project %q", projectassistant.ErrInvalid, got, projectID)
 		}
 	}
+	mutationCtx, release, _, err := h.beginProjectAssistantMutation(ctx, projectassistant.Proposal{}, projectID)
+	if err != nil {
+		return orchestrator.ProjectAssistantDraftResult{}, err
+	}
+	defer release()
+	ctx = mutationCtx
 
 	proposal, err := h.projectAssistantDraft(ctx, projectassistantapp.DraftCommand{
 		ProjectID:  projectID,

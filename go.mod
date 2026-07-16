@@ -1,6 +1,6 @@
 module github.com/hecatehq/hecate
 
-go 1.26.2
+go 1.26.5
 
 require (
 	github.com/coder/acp-go-sdk v0.13.5
@@ -22,9 +22,11 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.opentelemetry.io/proto/otlp v1.10.0
+	golang.org/x/image v0.41.0
 	golang.org/x/sys v0.47.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.53.0
+	mvdan.cc/sh/v3 v3.12.0
 )
 
 require (
@@ -49,7 +51,6 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
-	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.37.0 // indirect

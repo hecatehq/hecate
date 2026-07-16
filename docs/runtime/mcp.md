@@ -428,11 +428,11 @@ adding servers to Chat.
 
 On `SIGTERM`/`SIGINT` the gateway runs a 10-second graceful shutdown:
 
-1. The runner cancels every in-flight agent loop. Each loop's `defer host.Close()` releases its cached clients back to the cache.
-2. The cache closes every cached `Client`, which tears down stdio subprocesses (cooperative on EOF) and HTTP connections.
+1. The task runner, External Agent session manager, and operator-terminal owner begin draining concurrently so each receives the full shared deadline. The runner cancels every in-flight agent loop; each loop's `defer host.Close()` releases its cached clients back to the cache.
+2. After the runner returns, the cache closes every cached `Client`, which tears down stdio subprocesses (cooperative on EOF) and HTTP connections.
 3. The HTTP server drains pending requests and exits.
 
-Order matters and is enforced by the handler: runner first, cache second. Closing the cache before the runner drained would yank live subprocesses out from under in-flight runs.
+Order still matters between the runner and cache and is enforced by the handler: closing the cache before the runner drained would yank live subprocesses out from under in-flight runs. The other process owners do not depend on that cache and therefore start their cleanup without waiting for the runner.
 
 ### Error handling
 

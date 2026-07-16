@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -137,6 +138,52 @@ func TestLocalTerminal_CloseKillsRunningProcess(t *testing.T) {
 	}
 	if elapsed := time.Since(closeStart); elapsed > 6*time.Second {
 		t.Fatalf("Close took %v; want < 6s (escalation deadline)", elapsed)
+	}
+}
+
+func TestLocalTerminal_CloseCanRetryAfterCancelledContext(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix signal semantics")
+	}
+	t.Parallel()
+
+	ws := NewLocalWorkspace()
+	dir := t.TempDir()
+	term, err := ws.OpenTerminal(context.Background(), TerminalOptions{
+		Command:          "sh",
+		Args:             []string{"-c", "trap '' TERM; printf 'ready\\n'; sleep 1"},
+		WorkingDirectory: dir,
+		Policy:           Policy{AllowedRoot: dir},
+	})
+	if err != nil {
+		t.Fatalf("OpenTerminal: %v", err)
+	}
+	t.Cleanup(func() { _ = term.Close(context.Background()) })
+
+	select {
+	case chunk := <-term.Output():
+		if !strings.Contains(chunk.Text, "ready") {
+			t.Fatalf("first output = %q, want ready", chunk.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("terminal did not report readiness")
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := term.Close(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("first Close error = %v, want context.Canceled", err)
+	}
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer retryCancel()
+	if err := term.Close(retryCtx); err != nil {
+		t.Fatalf("second Close after forced cancellation cleanup: %v", err)
+	}
+	if _, err := term.WaitForExit(context.Background()); err != nil {
+		t.Fatalf("WaitForExit: %v", err)
+	}
+	if err := term.Close(context.Background()); err != nil {
+		t.Fatalf("Close after exit: %v", err)
 	}
 }
 

@@ -660,6 +660,7 @@ func (h *Handler) projectExternalAgentAssignmentPreflightContext(ctx context.Con
 }
 
 func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
+	requestMutationEpoch := h.stateMutationGate.snapshot()
 	ctx := r.Context()
 	projectID := r.PathValue("id")
 	workItemID := r.PathValue("work_item_id")
@@ -728,7 +729,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
-		h.startProjectExternalAgentAssignment(w, r, inputs, strictEmbeddedRead, strictEmbeddedRuntime)
+		h.startProjectExternalAgentAssignment(w, r, inputs, strictEmbeddedRead, strictEmbeddedRuntime, requestMutationEpoch)
 		return
 	}
 	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
@@ -1215,7 +1216,7 @@ func (h *Handler) projectExternalAgentAssignmentContextPacket(ctx context.Contex
 	return packet
 }
 
-func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *http.Request, inputs projectAssignmentLaunchInputs, strictEmbeddedRead, strictEmbeddedRuntime bool) {
+func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *http.Request, inputs projectAssignmentLaunchInputs, strictEmbeddedRead, strictEmbeddedRuntime bool, requestMutationEpoch uint64) {
 	ctx := r.Context()
 	project, workItem, assignment, role := inputs.Project, inputs.WorkItem, inputs.Assignment, inputs.Role
 	if h.agentChat == nil {
@@ -1235,6 +1236,12 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
+	releaseChatCreate, err := h.stateMutationGate.beginChatCreate(requestMutationEpoch)
+	if err != nil {
+		WriteError(w, http.StatusConflict, errCodeSessionCreateConflict, "assignment chat session creation conflicts with project deletion")
+		return
+	}
+	defer releaseChatCreate()
 	plan, err := h.projectWorkApplication().ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
 	if err != nil {
 		var launchErr projectworkapp.LaunchPlanError

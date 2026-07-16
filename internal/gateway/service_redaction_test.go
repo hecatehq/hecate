@@ -102,6 +102,40 @@ func TestCaptureRequestBodyMetadataModeDoesNotRecordContent(t *testing.T) {
 	}
 }
 
+func TestCaptureRequestBodyDoesNotRecordImageBlockBodies(t *testing.T) {
+	t.Parallel()
+
+	const encodedImage = "aGVjYXRlLWltYWdlLWJvZHk="
+	trace := profiler.NewTrace("req-image", nil)
+	service := &Service{
+		traceBodyMode:     traceBodyModeRedactedText,
+		traceBodyMaxBytes: 4096,
+	}
+	service.captureRequestBody(trace, types.ChatRequest{
+		Model: "vision-model",
+		Messages: []types.Message{{
+			Role:    "user",
+			Content: "Describe this image.",
+			ContentBlocks: []types.ContentBlock{
+				{Type: "text", Text: "Describe this image."},
+				{Type: "image_url", Image: &types.ContentImage{URL: "data:image/png;base64," + encodedImage}},
+			},
+		}},
+	})
+
+	attrs := trace.Events()[0].Attributes
+	rawMessages, ok := attrs["messages"].(string)
+	if !ok {
+		t.Fatalf("messages attr = %#v, want string", attrs["messages"])
+	}
+	if strings.Contains(rawMessages, encodedImage) || strings.Contains(rawMessages, "data:image/") {
+		t.Fatalf("trace capture leaked image body: %s", rawMessages)
+	}
+	if !strings.Contains(rawMessages, `"blocks":2`) {
+		t.Fatalf("trace capture = %s, want image-safe block count", rawMessages)
+	}
+}
+
 func TestCaptureResponseBodyRedactedTextModeMasksContent(t *testing.T) {
 	t.Parallel()
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,9 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/terminalapp"
+	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -52,6 +56,64 @@ func (e *blockingShutdownExecutor) Execute(context.Context, orchestrator.Executi
 	close(e.started)
 	<-e.release
 	return &orchestrator.ExecutionResult{Status: "cancelled"}, nil
+}
+
+type shutdownTerminalWorkspace struct {
+	workspace.Workspace
+	terminal workspace.Terminal
+}
+
+func (w shutdownTerminalWorkspace) OpenTerminal(context.Context, workspace.TerminalOptions) (workspace.Terminal, error) {
+	return w.terminal, nil
+}
+
+type shutdownProbeTerminal struct {
+	output      chan workspace.OutputChunk
+	exited      chan struct{}
+	closeCalled chan struct{}
+	closeOnce   sync.Once
+	exitOnce    sync.Once
+}
+
+func newShutdownProbeTerminal() *shutdownProbeTerminal {
+	return &shutdownProbeTerminal{
+		output:      make(chan workspace.OutputChunk),
+		exited:      make(chan struct{}),
+		closeCalled: make(chan struct{}),
+	}
+}
+
+func (t *shutdownProbeTerminal) ID() string { return "shutdown-probe-terminal" }
+
+func (t *shutdownProbeTerminal) Output() <-chan workspace.OutputChunk { return t.output }
+
+func (t *shutdownProbeTerminal) Write(context.Context, string) error { return nil }
+
+func (t *shutdownProbeTerminal) WaitForExit(ctx context.Context) (workspace.Result, error) {
+	select {
+	case <-t.exited:
+		return workspace.Result{}, nil
+	case <-ctx.Done():
+		return workspace.Result{}, ctx.Err()
+	}
+}
+
+func (t *shutdownProbeTerminal) Kill(context.Context) error {
+	t.exit()
+	return nil
+}
+
+func (t *shutdownProbeTerminal) Close(context.Context) error {
+	t.closeOnce.Do(func() { close(t.closeCalled) })
+	t.exit()
+	return nil
+}
+
+func (t *shutdownProbeTerminal) exit() {
+	t.exitOnce.Do(func() {
+		close(t.output)
+		close(t.exited)
+	})
 }
 
 type failingShutdownAgentChatRunner struct {
@@ -288,6 +350,97 @@ func TestHandler_Shutdown_RunnerErrorPropagated(t *testing.T) {
 	// signal: Stats.Entries should be 0 (Close clears the map).
 	if got := cache.Stats().Entries; got != 0 {
 		t.Errorf("cache.Stats.Entries = %d after Shutdown with runner error, want 0 (cache should still close)", got)
+	}
+}
+
+func TestHandler_Shutdown_SharesBudgetWithOperatorTerminals(t *testing.T) {
+	t.Parallel()
+
+	store := taskstate.NewMemoryStore()
+	runner := orchestrator.NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		profiler.NewInMemoryTracer(nil),
+		orchestrator.Config{QueueWorkers: 1},
+	)
+	blocker := &blockingShutdownExecutor{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	released := false
+	defer func() {
+		if !released {
+			close(blocker.release)
+		}
+	}()
+	runner.SetExecutor(blocker)
+
+	task, err := store.CreateTask(context.Background(), types.Task{
+		ID:     "task_shutdown_terminal_budget",
+		Status: "created",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := runner.StartTask(context.Background(), task, func(prefix string) string { return prefix + "_terminal_budget" }); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	select {
+	case <-blocker.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("executor did not start")
+	}
+
+	terminal := newShutdownProbeTerminal()
+	operatorTerminals := terminalapp.New(terminalapp.Options{
+		Enabled:              true,
+		WorkspaceCoordinator: workspacecoord.NewRegistry(),
+		NewWorkspace: func() workspace.Workspace {
+			return shutdownTerminalWorkspace{terminal: terminal}
+		},
+	})
+	workspacePath := t.TempDir()
+	if _, err := operatorTerminals.Start(t.Context(), terminalapp.StartCommand{
+		Workspace: workspacePath,
+		Command:   "test",
+	}); err != nil {
+		t.Fatalf("Start operator terminal: %v", err)
+	}
+
+	h := &Handler{taskRunner: runner, operatorTerminals: operatorTerminals}
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- h.Shutdown(ctx) }()
+
+	select {
+	case <-terminal.closeCalled:
+	case <-time.After(100 * time.Millisecond):
+		t.Error("operator terminal was not signalled while the runner still owned the shutdown wait")
+	}
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned before the blocked runner exhausted its budget: %v", err)
+	default:
+	}
+
+	err = <-shutdownDone
+	if !errors.Is(err, context.DeadlineExceeded) && (err == nil || !strings.Contains(err.Error(), "deadline")) {
+		t.Fatalf("Shutdown error = %v, want runner deadline", err)
+	}
+	if _, err := operatorTerminals.Start(t.Context(), terminalapp.StartCommand{
+		Workspace: workspacePath,
+		Command:   "test",
+	}); !errors.Is(err, terminalapp.ErrShuttingDown) {
+		t.Fatalf("Start after Handler shutdown error = %v, want ErrShuttingDown", err)
+	}
+
+	close(blocker.release)
+	released = true
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer drainCancel()
+	if err := runner.Shutdown(drainCtx); err != nil {
+		t.Fatalf("second runner shutdown after release: %v", err)
 	}
 }
 

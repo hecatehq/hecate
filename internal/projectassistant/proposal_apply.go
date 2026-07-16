@@ -14,6 +14,11 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 	if proposal.ID == "" {
 		return ApplyResult{}, fmt.Errorf("%w: proposal id is required", ErrInvalid)
 	}
+	var err error
+	proposal, err = s.CanonicalizeProposal(proposal)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 	if proposal.RequiresConfirmation && !confirmed {
 		return ApplyResult{}, ErrConfirmationRequired
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -84,6 +85,8 @@ type AgentLoopExecutor struct {
 	toolDispatcher *agentLoopToolDispatcher
 	terminalMu     sync.Mutex
 	terminalRuns   map[string]*agentLoopTerminals
+	terminalClosed bool
+	workspaceCoord *workspacecoord.Registry
 	// mcpFactory builds a per-run MCP host from the task's
 	// MCPServers config. nil = no MCP support; tasks that configure
 	// MCPServers will fail with a clear error.
@@ -169,6 +172,19 @@ func (e *AgentLoopExecutor) SetMetrics(m *telemetry.OrchestratorMetrics) {
 	if e.toolDispatcher != nil {
 		e.toolDispatcher.SetMetrics(m)
 	}
+}
+
+// SetWorkspaceCoordinator installs the process-scoped workspace registry used
+// by native terminal handles. Each terminal keeps its own writer lease because
+// handles intentionally survive an awaiting-approval Execute return after the
+// runner's attempt-scoped lease is released.
+func (e *AgentLoopExecutor) SetWorkspaceCoordinator(registry *workspacecoord.Registry) {
+	if e == nil {
+		return
+	}
+	e.terminalMu.Lock()
+	e.workspaceCoord = registry
+	e.terminalMu.Unlock()
 }
 
 // SetMCPHostFactory wires the factory used to bring up per-task MCP
@@ -1816,7 +1832,7 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 		return "", false, "", err
 	}
 	defer view.Close()
-	if err := rejectGitReadConversionAttributes(cmdCtx, view); err != nil {
+	if err := view.RejectContentConversionAttributes(cmdCtx); err != nil {
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			return "", false, "", fmt.Errorf("git command timed out")
 		}
@@ -1859,52 +1875,6 @@ func gitReadRunner() *gitrunner.LocalRunner {
 		"GIT_TERMINAL_PROMPT=0",
 	)
 	return runner
-}
-
-func rejectGitReadConversionAttributes(ctx context.Context, view *gitrunner.ReadOnlyView) error {
-	const trackedPathOutputLimit = 8 * 1024 * 1024
-	result, err := view.RunLimited(ctx, trackedPathOutputLimit, "--no-pager", "ls-files", "-z", "--", ".")
-	if err != nil {
-		return fmt.Errorf("inspect tracked paths for passive Git attributes: %w", err)
-	}
-	if result.StdoutTruncated || result.StderrTruncated {
-		return fmt.Errorf("passive Git inspection refused: tracked path metadata exceeded %d bytes", trackedPathOutputLimit)
-	}
-	if result.Stdout == "" {
-		return nil
-	}
-	const attributeOutputLimit = trackedPathOutputLimit * 3
-	attributes, err := view.RunLimitedInput(ctx, attributeOutputLimit, result.Stdout,
-		"--no-pager", "-c", "core.attributesFile="+os.DevNull,
-		"check-attr", "-z", "--stdin", "--all",
-	)
-	if err != nil {
-		return fmt.Errorf("resolve passive Git attributes: %w", err)
-	}
-	if attributes.StdoutTruncated || attributes.StderrTruncated {
-		return fmt.Errorf("passive Git inspection refused: effective attribute metadata exceeded %d bytes", attributeOutputLimit)
-	}
-	return rejectEffectiveGitConversionFilters(ctx, attributes.Stdout)
-}
-
-func rejectEffectiveGitConversionFilters(ctx context.Context, output string) error {
-	records := strings.Split(output, "\x00")
-	if len(records) == 0 || records[len(records)-1] != "" || (len(records)-1)%3 != 0 {
-		return fmt.Errorf("passive Git inspection refused malformed effective attribute metadata")
-	}
-	for i := 0; i < len(records)-1; i += 3 {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("resolve passive Git attributes: %w", err)
-		}
-		path, attribute := records[i], records[i+1]
-		if path == "" || attribute == "" {
-			return fmt.Errorf("passive Git inspection refused malformed effective attribute metadata")
-		}
-		if attribute == "filter" {
-			return fmt.Errorf("passive Git inspection refused: a scoped path has an effective or ambiguous content-conversion filter")
-		}
-	}
-	return nil
 }
 
 func combineGitReadOutput(stdout, stderr string) string {

@@ -46,6 +46,20 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) Backend() string {
 }
 
 func (s cairnlineProjectAssistantProposalAuthorityStore) UpsertProposal(ctx context.Context, record projectassistant.ProposalRecord) (projectassistant.ProposalRecord, error) {
+	if s.handler == nil {
+		return projectassistant.ProposalRecord{}, projectassistant.ErrStoreNotConfigured
+	}
+	projectID, err := projectassistant.ProposalRecordProjectID(record.Proposal, record.ProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	record.ProjectID = projectID
+	mutationCtx, release, _, err := s.handler.beginProjectAssistantMutation(ctx, record.Proposal, projectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	defer release()
+	ctx = mutationCtx
 	written, err := s.writeRecord(ctx, record)
 	if err != nil {
 		return projectassistant.ProposalRecord{}, projectAssistantCairnlineAuthorityError(err)
@@ -93,6 +107,39 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) GetProposal(ctx context
 	if err != nil || !ok {
 		return projectassistant.ProposalRecord{}, ok, err
 	}
+	projectID, err := projectassistant.ProposalRecordProjectID(record.Proposal, record.ProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	record.ProjectID = projectID
+	projectIDs, err := s.handler.projectAssistantMutationProjectIDs(ctx, record.Proposal, projectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	mutationCtx, release, err := s.handler.projectMutationGate.beginMany(ctx, projectIDs)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	defer release()
+	ctx = mutationCtx
+	// The first read discovers the coordination key. Re-read after admission so
+	// a delete that won in between cannot be followed by a stale shadow write.
+	record, ok, err = s.getRecord(ctx, id)
+	if err != nil || !ok {
+		return projectassistant.ProposalRecord{}, ok, err
+	}
+	latestProjectID, err := projectassistant.ProposalRecordProjectID(record.Proposal, record.ProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	latestProjectIDs, err := s.handler.projectAssistantMutationProjectIDs(ctx, record.Proposal, latestProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, false, err
+	}
+	if !sameProjectMutationIDs(latestProjectIDs, projectIDs) {
+		return projectassistant.ProposalRecord{}, false, fmt.Errorf("%w: project assistant proposal changed project scope", projectassistant.ErrConflict)
+	}
+	record.ProjectID = latestProjectID
 	shadowed, shadowOK := s.shadowProposalRecord(ctx, "project_assistant_proposal_cairnline_authority_get", record)
 	if shadowOK {
 		return shadowed, true, nil
@@ -112,6 +159,13 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) UpdateProposalApplyStat
 	if !ok {
 		return projectassistant.ProposalRecord{}, projectassistant.ErrNotFound
 	}
+	mutationCtx, release, projectID, err := s.handler.beginProjectAssistantMutation(ctx, record.Proposal, record.ProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	defer release()
+	ctx = mutationCtx
+	record.ProjectID = projectID
 	record = projectAssistantProposalRecordWithApplyResult(record, result)
 	written, err := s.writeRecord(ctx, record)
 	if err != nil {
@@ -143,6 +197,13 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) RecordApplyAttempt(ctx 
 	if !ok {
 		return projectassistant.ProposalRecord{}, projectassistant.ErrNotFound
 	}
+	mutationCtx, release, projectID, err := s.handler.beginProjectAssistantMutation(ctx, record.Proposal, record.ProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	defer release()
+	ctx = mutationCtx
+	record.ProjectID = projectID
 	record = projectAssistantProposalRecordWithApplyResult(record, attempt.Result)
 	record.ApplyAttempts = append(record.ApplyAttempts, attempt)
 	written, err := s.writeRecord(ctx, record)
@@ -210,8 +271,19 @@ func (s cairnlineProjectAssistantProposalAuthorityStore) writeRecord(ctx context
 	if s.handler == nil {
 		return projectassistant.ProposalRecord{}, projectassistant.ErrStoreNotConfigured
 	}
+	projectID, err := projectassistant.ProposalRecordProjectID(record.Proposal, record.ProjectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	record.ProjectID = projectID
+	mutationCtx, release, _, err := s.handler.beginProjectAssistantMutation(ctx, record.Proposal, projectID)
+	if err != nil {
+		return projectassistant.ProposalRecord{}, err
+	}
+	defer release()
+	ctx = mutationCtx
 	var written projectassistant.ProposalRecord
-	err := s.handler.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
+	err = s.handler.withCairnlineEmbeddedService(ctx, func(service *cairnline.Service) error {
 		if err := s.handler.seedProjectMetadataForAssistantProposalRecord(ctx, service, record.ProjectID); err != nil {
 			return err
 		}

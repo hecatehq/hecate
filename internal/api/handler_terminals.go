@@ -148,6 +148,13 @@ func writeTerminalError(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 	case errors.Is(err, terminalapp.ErrNotFound):
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "terminal not found")
+	case errors.Is(err, terminalapp.ErrWorkspaceBusy):
+		writeWorkspaceMutationConflict(w)
+	case errors.Is(err, terminalapp.ErrShuttingDown):
+		WriteErrorDetails(w, http.StatusConflict, errCodeConflict, "operator terminals are shutting down", ErrorDetails{
+			UserMessage:    "The local runtime is shutting down.",
+			OperatorAction: "Wait for the runtime to restart before opening another terminal.",
+		})
 	default:
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 	}

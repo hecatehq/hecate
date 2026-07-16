@@ -15,6 +15,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -31,6 +32,8 @@ const (
 	acpSessionShutdownDelete acpSessionShutdownMode = "delete"
 )
 
+var errACPSessionClosing = errors.New("ACP session is closing")
+
 type acpSession struct {
 	sessionID           string
 	adapter             Adapter
@@ -41,6 +44,7 @@ type acpSession struct {
 	client              *acpChatClient
 	nativeID            string
 	agentInfo           *agentcontrols.ImplementationInfo
+	promptCapabilities  acp.PromptCapabilities
 	logger              *slog.Logger
 	envCleanup          func()
 	onAvailableCommands func(AvailableCommandsUpdate)
@@ -59,9 +63,19 @@ type acpSession struct {
 	activeMu     sync.Mutex
 	activeCancel context.CancelFunc
 	activeDone   chan struct{}
+	closing      bool
+
+	promptStageKeyOnce sync.Once
+	promptStageKey     uint64
+	promptStageOwner   *acpPromptStageCleanupOwner
+	captureDiff        func(context.Context, string, int64) (string, string)
+	verifyPromptStage  func(*acpPromptStage) error
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate), terminalSupport bool) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate), workspaceCoordinator *workspacecoord.Registry, terminalSupport bool) (*acpSession, bool, string, error) {
+	if terminalSupport && workspaceCoordinator == nil {
+		return nil, false, "", fmt.Errorf("workspace coordination is required when ACP terminal support is enabled")
+	}
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -117,11 +131,12 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	}
 
 	client := &acpChatClient{
-		sessionID:   sessionID,
-		adapterID:   adapter.ID,
-		workspace:   workspace,
-		coordinator: coordinator,
-		metrics:     metrics,
+		sessionID:            sessionID,
+		adapterID:            adapter.ID,
+		workspace:            workspace,
+		coordinator:          coordinator,
+		metrics:              metrics,
+		workspaceCoordinator: workspaceCoordinator,
 	}
 	client.terminalsEnabled = terminalSupport
 	session := &acpSession{
@@ -135,19 +150,21 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		envCleanup:          processEnv.cleanup,
 		onAvailableCommands: onAvailableCommands,
 		commandUpdate:       make(chan struct{}),
+		promptStageOwner:    processACPPromptStageCleanupOwner,
 	}
 	client.onAvailableCommands = session.setAvailableCommands
 	client.onConfigOptions = session.applyConfigOptionsUpdate
-	conn := acp.NewClientSideConnection(client, stdin, stdout)
-	session.conn = conn
+	protocolLogger := logger
 	if logger != nil {
-		conn.SetLogger(logger.With(
+		protocolLogger = logger.With(
 			slog.String("component", "agent_adapters.acp"),
 			slog.String("adapter_id", adapter.ID),
 			slog.String("session_id", sessionID),
 			slog.String("workspace", workspace),
-		))
+		)
 	}
+	conn := newGuardedACPClientSideConnection(client, stdin, stdout, protocolLogger)
+	session.conn = conn
 	initCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if sessionLogger != nil {
@@ -180,6 +197,10 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		)
 	}
 	session.agentInfo = agentcontrols.FromACPImplementation(initResp.AgentInfo)
+	// Prompt blocks are admitted against this live Initialize response at the
+	// final dispatch boundary. Probe data and persisted session metadata are not
+	// authoritative for content disclosure.
+	session.promptCapabilities = initResp.AgentCapabilities.PromptCapabilities
 
 	nativeID := ""
 	resumed := false
@@ -298,6 +319,11 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	session.nativeID = nativeID
 	session.configOptions = configOptions
 	session.managedConfig = managedConfig
+	// Startup stderr is useful only while initialization and session/config
+	// selection can still fail. Wipe the bounded capture and turn its live
+	// process sink into a discard writer before any prompt content can reach the
+	// long-lived adapter.
+	stderr.disableAndClear()
 	session.waitForInitialAvailableCommands(ctx)
 	cleanupEnvOnError = false
 	return session, resumed, recovery, nil
@@ -306,30 +332,97 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, error) {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-
-	started := time.Now().UTC()
-	maxOutput := maxTurnOutputBytes(req)
-	initialDiffStat, initialDiff := captureGitDiff(ctx, req.Workspace, maxOutput)
-	turn := newACPTurn(req.MaxOutputBytes, req.OnOutput)
-	turn.setActivityCallback(req.OnActivity)
-	s.client.setTurn(turn)
-	defer s.client.clearTurn(turn)
-
+	if err := ctx.Err(); err != nil {
+		return RunResult{}, err
+	}
+	promptStageAdmission, err := s.admitPromptFiles(len(req.Prompt.Files))
+	if err != nil {
+		return RunResult{}, err
+	}
+	if promptStageAdmission != nil {
+		defer promptStageAdmission.release()
+	}
 	promptBaseCtx, timeoutCancel := context.WithTimeout(ctx, req.Timeout)
 	promptCtx, activeCancel := context.WithCancel(promptBaseCtx)
 	activeDone := make(chan struct{})
-	s.setActiveTurn(activeCancel, activeDone)
+	if err := s.beginActiveTurn(activeCancel, activeDone); err != nil {
+		activeCancel()
+		timeoutCancel()
+		return RunResult{}, err
+	}
 	defer func() {
 		activeCancel()
 		timeoutCancel()
 		close(activeDone)
 		s.clearActiveTurn(activeDone)
 	}()
+	if err := promptCtx.Err(); err != nil {
+		return RunResult{}, err
+	}
+
+	started := time.Now().UTC()
+	maxOutput := maxTurnOutputBytes(req)
+	initialDiffStat, initialDiff := s.captureGitDiff(promptCtx, req.Workspace, maxOutput)
+	if err := promptCtx.Err(); err != nil {
+		return RunResult{}, err
+	}
+	turn := newACPTurn(req.MaxOutputBytes, req.OnOutput)
+	turn.setActivityCallback(req.OnActivity)
+	turn.setTerminalActivityCallback(req.OnTerminalActivity)
+	turn.setTerminalClosedCallback(req.OnTerminalClosed)
+	s.client.setTurn(turn)
+	defer s.client.clearTurn(turn)
+
+	blocks, stage, promptErr := buildACPPrompt(req.Prompt, s.promptCapabilities)
+	if promptErr != nil {
+		if stage != nil {
+			s.client.registerPromptStageNamespace(stage, nil)
+			s.retainPromptStage(stage, promptStageAdmission)
+		}
+		return RunResult{}, promptErr
+	}
+	if stage != nil {
+		if err := turn.setPromptFiles(stage.files); err != nil {
+			s.client.registerPromptStageNamespace(stage, nil)
+			if cleanupErr := s.cleanupPromptStage(stage, promptStageAdmission); cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
+			return RunResult{}, err
+		}
+		s.client.registerPromptStageNamespace(stage, turn.redactor())
+	}
+	failBeforePrompt := func(err error) (RunResult, error) {
+		turn.clearPromptFiles()
+		if cleanupErr := s.cleanupPromptStage(stage, promptStageAdmission); cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
+		return RunResult{}, turn.redactor().redactError(err)
+	}
+	if err := promptCtx.Err(); err != nil {
+		return failBeforePrompt(err)
+	}
+	if stage != nil {
+		verifyPromptStage := s.verifyPromptStage
+		if verifyPromptStage == nil {
+			verifyPromptStage = (*acpPromptStage).verifyIdentity
+		}
+		if err := verifyPromptStage(stage); err != nil {
+			return failBeforePrompt(err)
+		}
+	}
+	// The identity audit can span multiple filesystem calls. ACP SDK v0.13.x
+	// writes a request before its response wait observes cancellation, so close
+	// that audit window locally before disclosing a staged resource link.
+	if err := promptCtx.Err(); err != nil {
+		return failBeforePrompt(err)
+	}
 	resp, runErr := s.conn.Prompt(promptCtx, acp.PromptRequest{
 		SessionId: acp.SessionId(s.nativeID),
-		Prompt:    []acp.ContentBlock{acp.TextBlock(req.Prompt)},
+		Prompt:    blocks,
 	})
-	stopReason := string(resp.StopReason)
+	turn.clearPromptFiles()
+	cleanupErr := s.cleanupPromptStage(stage, promptStageAdmission)
+	stopReason := turn.redactor().redact(string(resp.StopReason))
 	if runErr == nil && resp.StopReason == acp.StopReasonCancelled {
 		runErr = context.Canceled
 	}
@@ -343,6 +436,13 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 			runErr = context.Canceled
 		}
 	}
+	if cleanupErr != nil {
+		if runErr == nil {
+			runErr = cleanupErr
+		} else {
+			runErr = errors.Join(runErr, cleanupErr)
+		}
+	}
 	if turn.truncated() {
 		if runErr == nil {
 			runErr = fmt.Errorf("agent adapter output exceeded %d bytes", req.MaxOutputBytes)
@@ -350,8 +450,9 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 			runErr = fmt.Errorf("%w; output exceeded %d bytes", runErr, req.MaxOutputBytes)
 		}
 	}
+	runErr = turn.redactor().redactError(runErr)
 	output, raw, usage := turn.snapshot()
-	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, stopReason, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
+	result, err := captureACPTurnResultWith(promptCtx, s.captureGitDiff, s.adapter, req, s.nativeID, stopReason, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
 	result.AgentInfo = s.agentInfoSnapshot()
 	result.ConfigOptions = s.configOptionsSnapshot()
 	result.AvailableCommands, result.AvailableCommandsKnown = s.availableCommandsSnapshot()
@@ -496,13 +597,14 @@ func (s *acpSession) SetACPModel(ctx context.Context, req SetSessionConfigOption
 	}
 	resp, err := s.conn.SetSessionConfigOption(ctx, acpReq)
 	if err != nil {
+		err = s.client.redactPromptStageError(err)
 		return SetSessionConfigOptionResult{}, fmt.Errorf("select ACP model for %q: %w", s.adapter.ID, err)
 	}
 
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	options = cloneConfigOptions(s.configOptions)
-	updated := agentcontrols.FromACPOptions(resp.ConfigOptions)
+	updated := s.client.redactPromptStageConfigOptions(agentcontrols.FromACPOptions(resp.ConfigOptions))
 	if resp.ConfigOptions != nil {
 		updated = preserveACPModelConfigOption(updated, options)
 		s.configOptions = updated
@@ -531,12 +633,13 @@ func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOp
 	previousOptions := s.configOptionsSnapshot()
 	resp, err := s.conn.SetSessionConfigOption(ctx, acpReq)
 	if err != nil {
-		return SetSessionConfigOptionResult{}, err
+		return SetSessionConfigOptionResult{}, s.client.redactPromptStageError(err)
 	}
 	options := agentcontrols.FromACPOptions(resp.ConfigOptions)
 	if resp.ConfigOptions != nil && options == nil {
 		options = []agentcontrols.ConfigOption{}
 	}
+	options = s.client.redactPromptStageConfigOptions(options)
 	options = preserveACPModelConfigOption(options, previousOptions)
 	s.setConfigOptions(options)
 	return s.setSessionConfigOptionResult(options), nil
@@ -868,6 +971,7 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 	if s == nil {
 		return nil
 	}
+	s.closeTurnAdmission()
 	if s.logger != nil {
 		pid := 0
 		if s.cmd != nil && s.cmd.Process != nil {
@@ -907,11 +1011,25 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 			)
 		}
 	}
+	// The first cancellation wait is deliberately short so process termination
+	// can release a provider stuck in I/O. After termination, wait once more for
+	// the full RunTurn owner to drain before treating the stage backlog snapshot
+	// as complete.
+	turnCtx, turnCancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
+	turnErr := s.waitForActiveTurn(turnCtx)
+	turnCancel()
+	// A provider process may have kept a restrictive read handle briefly after
+	// Prompt returned. Process termination releases it; wake the process-owned
+	// janitor so this session's quarantined private inputs retry immediately.
+	s.wakePromptStageCleanup()
+	cleanupCtx, cleanupCancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
+	cleanupErr := s.waitForPromptStageCleanup(cleanupCtx)
+	cleanupCancel()
 	if s.envCleanup != nil {
 		s.envCleanup()
 		s.envCleanup = nil
 	}
-	return nil
+	return errors.Join(turnErr, cleanupErr)
 }
 
 func closeNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, logger *slog.Logger) {
@@ -924,7 +1042,7 @@ func closeNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection, 
 		if isACPMethodNotFound(err, acp.AgentMethodSessionClose) {
 			logger.Debug("ACP session close RPC unsupported", slog.String("native_session_id", nativeID))
 		} else {
-			logger.Warn("close ACP session RPC failed", slog.String("native_session_id", nativeID), slog.Any("error", err))
+			logACPControlRPCFailure(logger, "close ACP session RPC failed", nativeID, err)
 		}
 	}
 }
@@ -940,7 +1058,7 @@ func deleteNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection,
 			if isACPMethodNotFound(err, acp.AgentMethodSessionDelete) {
 				logger.Debug("ACP session delete RPC unsupported", slog.String("native_session_id", nativeID))
 			} else {
-				logger.Warn("delete ACP session RPC failed", slog.String("native_session_id", nativeID), slog.Any("error", err))
+				logACPControlRPCFailure(logger, "delete ACP session RPC failed", nativeID, err)
 			}
 		}
 		return false
@@ -974,11 +1092,24 @@ func isACPMethodNotFound(err error, method string) bool {
 	return strings.Contains(rpcErr.Error(), method)
 }
 
-func (s *acpSession) setActiveTurn(cancel context.CancelFunc, done chan struct{}) {
+func (s *acpSession) beginActiveTurn(cancel context.CancelFunc, done chan struct{}) error {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
+	if s.closing {
+		return errACPSessionClosing
+	}
+	if s.activeDone != nil {
+		return errors.New("ACP session already has an active turn")
+	}
 	s.activeCancel = cancel
 	s.activeDone = done
+	return nil
+}
+
+func (s *acpSession) closeTurnAdmission() {
+	s.activeMu.Lock()
+	s.closing = true
+	s.activeMu.Unlock()
 }
 
 func (s *acpSession) clearActiveTurn(done chan struct{}) {
@@ -1014,9 +1145,45 @@ func (s *acpSession) cancelActiveTurn(ctx context.Context) error {
 	}
 }
 
+func (s *acpSession) waitForActiveTurn(ctx context.Context) error {
+	s.activeMu.Lock()
+	done := s.activeDone
+	s.activeMu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *acpSession) captureGitDiff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
+	if s != nil && s.captureDiff != nil {
+		return s.captureDiff(ctx, workspace, maxBytes)
+	}
+	return captureGitDiff(ctx, workspace, maxBytes)
+}
+
 func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, stopReason, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, initialDiffStat, initialDiff string, runErr error) (RunResult, error) {
+	return captureACPTurnResultWith(ctx, captureGitDiff, adapter, req, nativeSessionID, stopReason, output, rawOutput, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
+}
+
+func captureACPTurnResultWith(ctx context.Context, capture func(context.Context, string, int64) (string, string), adapter Adapter, req RunRequest, nativeSessionID, stopReason, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, initialDiffStat, initialDiff string, runErr error) (RunResult, error) {
 	maxOutput := maxTurnOutputBytes(req)
-	diffStat, diff := captureGitDiff(ctx, req.Workspace, maxOutput)
+	diffStat, diff := capture(ctx, req.Workspace, maxOutput)
+	if runErr == nil {
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			runErr = fmt.Errorf("agent adapter timed out after %s", req.Timeout)
+			exitCode = 1
+		case errors.Is(ctx.Err(), context.Canceled):
+			runErr = context.Canceled
+			exitCode = 1
+		}
+	}
 	if sameCapturedDiff(initialDiffStat, initialDiff, diffStat, diff) {
 		diffStat = ""
 		diff = ""

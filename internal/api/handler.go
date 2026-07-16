@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
@@ -34,40 +35,60 @@ import (
 	"github.com/hecatehq/hecate/internal/remoteruntime"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/terminalapp"
 	"github.com/hecatehq/hecate/internal/version"
 	"github.com/hecatehq/hecate/internal/websearch"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Handler struct {
-	config                    config.Config
-	logger                    *slog.Logger
-	service                   *gateway.Service
-	controlPlane              controlplane.Store
-	providerRuntime           ProviderRuntime
-	taskStore                 taskstate.Store
-	taskRunner                *orchestrator.Runner
-	tracer                    profiler.Tracer
-	agentChat                 chat.Store
-	projects                  projects.Store
-	memory                    memory.Store
-	memoryCandidates          memory.CandidateStore
-	projectWork               projectwork.Store
-	projectRuntime            projectruntime.Store
-	projectSkills             projectskills.Store
-	projectAssistantProposals projectassistant.ProposalStore
-	pluginRegistry            pluginregistry.Store
-	projectAssistantMu        sync.Mutex
-	projectAssistant          *projectassistantapp.Application
-	agentProfiles             agentprofiles.Store
-	agentChatRunner           agentadapters.Runner
-	agentChatLive             *agentChatLive
-	agentChatIdleSweepCancel  context.CancelFunc
-	operatorTerminals         *terminalapp.Application
-	rateLimiter               *ratelimit.Store
+	config                            config.Config
+	logger                            *slog.Logger
+	service                           *gateway.Service
+	controlPlane                      controlplane.Store
+	providerRuntime                   ProviderRuntime
+	taskStore                         taskstate.Store
+	taskRunner                        *orchestrator.Runner
+	taskOriginRunGateMu               sync.Mutex
+	taskOriginRunGate                 *taskruncoord.Gate
+	workspaceCoordinator              *workspacecoord.Registry
+	taskRuntimeStartOnce              sync.Once
+	taskRuntimeStartErr               error
+	tracer                            profiler.Tracer
+	agentChat                         chat.Store
+	chatAttachments                   chatattachments.Store
+	inferenceRequestBodyReadTimeout   time.Duration
+	chatImageUploadAdmission          chatImageUploadAdmission
+	chatImageUploadReadTimeout        time.Duration
+	chatAttachmentContentAdmission    chatAttachmentContentAdmission
+	chatAttachmentContentWriteTimeout time.Duration
+	chatImageTurnAdmission            chatImageTurnAdmission
+	chatExternalFileTurnAdmission     chatAttachmentTurnAdmission
+	stateMutationGate                 stateMutationGate
+	projectMutationGate               projectMutationGate
+	projects                          projects.Store
+	memory                            memory.Store
+	memoryCandidates                  memory.CandidateStore
+	projectWork                       projectwork.Store
+	projectRuntime                    projectruntime.Store
+	projectSkills                     projectskills.Store
+	projectAssistantProposals         projectassistant.ProposalStore
+	pluginRegistry                    pluginregistry.Store
+	projectAssistantMu                sync.Mutex
+	projectAssistantApplyMu           sync.Mutex
+	projectAssistant                  *projectassistantapp.Application
+	agentProfiles                     agentprofiles.Store
+	agentChatRunner                   agentadapters.Runner
+	agentChatLive                     *agentChatLive
+	agentChatSettlements              agentChatSettlementRegistry
+	chatWorkspaceGit                  chatWorkspaceGitRunner
+	agentChatIdleSweepCancel          context.CancelFunc
+	operatorTerminals                 *terminalapp.Application
+	rateLimiter                       *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
 	// when no settings key is configured — values are stored as-is
@@ -194,6 +215,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		tracer = profiler.NewInMemoryTracer(nil)
 	}
 
+	taskOriginRunGate := taskruncoord.NewOriginGate()
+	workspaceCoordinator := workspacecoord.NewRegistry()
 	runner := orchestrator.NewRunner(logger, taskStore, tracer, orchestrator.Config{
 		DefaultModel:           cfg.Router.DefaultModel,
 		ApprovalPolicies:       cfg.Server.TaskApprovalPolicies,
@@ -203,6 +226,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		QueueLeaseSeconds:      cfg.Server.TaskQueueLeaseSeconds,
 		ReconcileInterval:      cfg.Server.TaskReconcileInterval,
 		MaxConcurrentPerTenant: cfg.Server.TaskMaxConcurrentPerTenant,
+		DeferQueueStart:        true,
 		AgentLoopMaxTurns:      cfg.Server.TaskAgentLoopMaxTurns,
 		HTTPPolicy: orchestrator.HTTPRequestPolicy{
 			Timeout:          cfg.Server.TaskHTTPTimeout,
@@ -216,6 +240,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			AllowedHosts:    cfg.Server.TaskShellAllowedHosts,
 		},
 	})
+	runner.SetOriginRunGate(taskOriginRunGate)
+	runner.SetWorkspaceCoordinator(workspaceCoordinator)
 	if taskQueue != nil {
 		runner.SetQueue(taskQueue)
 	}
@@ -268,12 +294,6 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// configured surface a clean error to the operator rather than
 	// silently doing nothing.
 	runner.SetAgentLLMClient(gatewayAgentLLMClient{service: service})
-	reconcileCtx := context.Background()
-	if err := runner.ReconcilePendingRuns(reconcileCtx); err != nil {
-		telemetry.Warn(logger, reconcileCtx, "task runner reconciliation failed", slog.Any("error", err))
-	}
-	runner.StartReconcileLoop()
-
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
 	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
@@ -333,36 +353,64 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		projectAssistantProposalStore = projectassistant.NewMemoryProposalStore()
 	}
 	h := &Handler{
-		config:                    cfg,
-		logger:                    logger,
-		service:                   service,
-		controlPlane:              cpStore,
-		providerRuntime:           providerRuntime,
-		taskStore:                 taskStore,
-		taskRunner:                runner,
-		tracer:                    tracer,
-		rateLimiter:               rl,
-		agentChat:                 chat.NewMemoryStore(),
-		projects:                  projectStore,
-		memory:                    memoryStore,
-		memoryCandidates:          memoryCandidateStore,
-		projectWork:               projectWorkStore,
-		projectRuntime:            projectruntime.NewMemoryStore(),
-		projectSkills:             projectSkillStore,
-		projectAssistantProposals: projectAssistantProposalStore,
-		pluginRegistry:            pluginregistry.NewMemoryStore(),
-		agentProfiles:             agentprofiles.NewMemoryStore(),
-		agentChatRunner:           agentChatRunner,
-		agentChatLive:             agentChatLive,
-		operatorTerminals:         terminalapp.New(terminalapp.Options{Enabled: cfg.Server.OperatorTerminals}),
-		orchestratorMetrics:       orchestratorMetrics,
-		agentChatMetrics:          agentChatMetrics,
-		approvalConfig:            approvalCfg,
+		config:                            cfg,
+		logger:                            logger,
+		service:                           service,
+		controlPlane:                      cpStore,
+		providerRuntime:                   providerRuntime,
+		taskStore:                         taskStore,
+		taskRunner:                        runner,
+		taskOriginRunGate:                 taskOriginRunGate,
+		workspaceCoordinator:              workspaceCoordinator,
+		tracer:                            tracer,
+		rateLimiter:                       rl,
+		agentChat:                         chat.NewMemoryStore(),
+		chatAttachments:                   chatattachments.NewMemoryStore(),
+		inferenceRequestBodyReadTimeout:   defaultInferenceRequestBodyReadTimeout,
+		chatImageUploadAdmission:          newChatImageUploadAdmission(maxConcurrentChatImageUploads),
+		chatImageUploadReadTimeout:        defaultChatImageUploadReadTimeout,
+		chatAttachmentContentAdmission:    newChatAttachmentContentAdmission(maxConcurrentChatAttachmentContentReads),
+		chatAttachmentContentWriteTimeout: defaultChatAttachmentContentWriteTimeout,
+		chatImageTurnAdmission:            newChatImageTurnAdmission(maxConcurrentChatImageTurns),
+		chatExternalFileTurnAdmission:     newChatExternalFileTurnAdmission(maxConcurrentExternalFileTurns),
+		projects:                          projectStore,
+		memory:                            memoryStore,
+		memoryCandidates:                  memoryCandidateStore,
+		projectWork:                       projectWorkStore,
+		projectRuntime:                    projectruntime.NewMemoryStore(),
+		projectSkills:                     projectSkillStore,
+		projectAssistantProposals:         projectAssistantProposalStore,
+		pluginRegistry:                    pluginregistry.NewMemoryStore(),
+		agentProfiles:                     agentprofiles.NewMemoryStore(),
+		agentChatRunner:                   agentChatRunner,
+		agentChatLive:                     agentChatLive,
+		operatorTerminals: terminalapp.New(terminalapp.Options{
+			Enabled:              cfg.Server.OperatorTerminals,
+			WorkspaceCoordinator: workspaceCoordinator,
+		}),
+		orchestratorMetrics: orchestratorMetrics,
+		agentChatMetrics:    agentChatMetrics,
+		approvalConfig:      approvalCfg,
 	}
+	taskOriginRunGate.SetValidator("chat", h.validateTaskRunOrigin)
 	h.wireAgentChatRunnerHooks(agentChatRunner)
 	runner.SetProjectAssistantDraftTool(h)
 	h.startAgentChatIdleSweeper()
 	return h
+}
+
+// StartTaskRuntime starts persisted-run recovery only after composition has
+// replaced the bootstrap chat store with the configured durable owner store.
+// It is idempotent because tests and embedders may build more than one HTTP
+// wrapper around the same handler.
+func (h *Handler) StartTaskRuntime(ctx context.Context) error {
+	if h == nil || h.taskRunner == nil {
+		return nil
+	}
+	h.taskRuntimeStartOnce.Do(func() {
+		h.taskRuntimeStartErr = h.taskRunner.StartQueueRuntime(ctx)
+	})
+	return h.taskRuntimeStartErr
 }
 
 func webSearchClientFromConfig(cfg config.Config, logger *slog.Logger) websearch.Client {
@@ -441,6 +489,12 @@ func (h *Handler) SetAgentChatStore(store chat.Store) {
 	h.projectAssistant = nil
 	h.projectAssistantMu.Unlock()
 	h.reconcileAgentChatStore(context.Background())
+}
+
+func (h *Handler) SetChatAttachmentStore(store chatattachments.Store) {
+	if store != nil {
+		h.chatAttachments = store
+	}
 }
 
 func (h *Handler) SetProjectStore(store projects.Store) {
@@ -530,7 +584,14 @@ func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
 	h.wireAgentChatRunnerHooks(runner)
 }
 
+type agentChatWorkspaceCoordinatorSetter interface {
+	SetWorkspaceCoordinator(*workspacecoord.Registry)
+}
+
 func (h *Handler) wireAgentChatRunnerHooks(runner agentadapters.Runner) {
+	if coordinated, ok := runner.(agentChatWorkspaceCoordinatorSetter); ok {
+		coordinated.SetWorkspaceCoordinator(h.workspaceCoordinator)
+	}
 	mgr, ok := runner.(*agentadapters.SessionManager)
 	if !ok {
 		return
@@ -615,34 +676,64 @@ func (h *Handler) rebuildMCPHostFactory() {
 // SIGTERM so in-flight agent loops cancel cleanly and any spawned MCP
 // subprocesses don't orphan when the gateway exits.
 //
-// Order matters: the runner is shut down FIRST so in-flight runs unwind
-// (their pools release cached clients back to the cache), THEN the
-// cache is closed so all cached subprocesses are torn down. Closing
-// the cache before the runner drains would tear down clients that
-// in-flight runs are still calling.
+// Independent process owners begin draining together so one cannot consume
+// the shared shutdown budget before the others are signalled. Order still
+// matters between the runner and MCP cache: the runner must finish first so
+// in-flight runs release cached clients before the cache tears them down.
 //
 // If the runner shutdown fails (deadline exceeded, etc.), the cache
 // is still closed — orphaning subprocesses on top of a wedged runner
 // is the worst-of-both-worlds outcome we explicitly avoid.
 func (h *Handler) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	if h.agentChatIdleSweepCancel != nil {
 		h.agentChatIdleSweepCancel()
 	}
-	var runnerErr error
+
+	var runnerDone <-chan error
 	if h.taskRunner != nil {
-		runnerErr = h.taskRunner.Shutdown(ctx)
+		done := make(chan error, 1)
+		runnerDone = done
+		go func() {
+			done <- h.taskRunner.Shutdown(ctx)
+		}()
+	}
+	var agentChatDone <-chan error
+	if h.agentChatRunner != nil {
+		done := make(chan error, 1)
+		agentChatDone = done
+		go func() {
+			done <- h.agentChatRunner.Shutdown(ctx)
+		}()
+	}
+	var terminalDone <-chan error
+	if h.operatorTerminals != nil {
+		done := make(chan error, 1)
+		terminalDone = done
+		go func() {
+			done <- h.operatorTerminals.Shutdown(ctx)
+		}()
+	}
+
+	var runnerErr error
+	if runnerDone != nil {
+		runnerErr = <-runnerDone
 	}
 	var cacheErr error
 	if h.mcpClientCache != nil {
 		cacheErr = h.mcpClientCache.Close()
 	}
 	var agentChatErr error
-	if h.agentChatRunner != nil {
-		agentChatErr = h.agentChatRunner.Shutdown(ctx)
+	if agentChatDone != nil {
+		agentChatErr = <-agentChatDone
 	}
+	settlementErr := h.agentChatSettlements.shutdown(ctx)
 	var terminalErr error
-	if h.operatorTerminals != nil {
-		terminalErr = h.operatorTerminals.Shutdown(ctx)
+	if terminalDone != nil {
+		terminalErr = <-terminalDone
 	}
 	var shutdownErrs []error
 	if runnerErr != nil {
@@ -653,6 +744,9 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	}
 	if agentChatErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("agent chat shutdown: %w", agentChatErr))
+	}
+	if settlementErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("agent chat terminal settlement shutdown: %w", settlementErr))
 	}
 	if terminalErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("operator terminals shutdown: %w", terminalErr))
@@ -795,8 +889,20 @@ func formatUSD(micros int64) string {
 // checkRateLimit checks the per-key token bucket and sets X-RateLimit-* headers.
 // Returns false (and writes a 429) when the key is out of tokens.
 func (h *Handler) checkRateLimit(w http.ResponseWriter, keyID string) bool {
+	err := h.consumeRateLimit(w, keyID)
+	if err != nil {
+		WriteError(w, http.StatusTooManyRequests, errCodeRateLimitExceeded, err.Error())
+		return false
+	}
+	return true
+}
+
+// consumeRateLimit applies the shared token bucket and headers without
+// choosing an API-specific error envelope. Compatibility handlers use this so
+// OpenAI and Anthropic clients receive their native wire contracts.
+func (h *Handler) consumeRateLimit(w http.ResponseWriter, keyID string) error {
 	if h.rateLimiter == nil {
-		return true
+		return nil
 	}
 	if keyID == "" {
 		keyID = "anonymous"
@@ -805,11 +911,7 @@ func (h *Handler) checkRateLimit(w http.ResponseWriter, keyID string) bool {
 	w.Header().Set("X-RateLimit-Limit", strconv.FormatInt(limit, 10))
 	w.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
 	w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
-	if err != nil {
-		WriteError(w, http.StatusTooManyRequests, errCodeRateLimitExceeded, err.Error())
-		return false
-	}
-	return true
+	return err
 }
 
 // buildApprovalCoordinatorHooks returns the OnRequested / OnResolved /

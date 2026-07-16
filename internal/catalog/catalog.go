@@ -9,7 +9,10 @@ import (
 
 type Entry struct {
 	Provider             providers.Provider
+	ProviderInstance     types.ProviderInstanceIdentity
 	Name                 string
+	ProviderAliases      []string
+	ProviderFamily       string
 	Kind                 providers.Kind
 	BaseURL              string
 	CredentialState      string

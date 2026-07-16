@@ -20,7 +20,7 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testing.T) {
+func TestQuiescedSystemResetCleanupMemoryBackendDeletesStateAndClosesAgentSessions(t *testing.T) {
 	t.Parallel()
 	logger := quietLogger()
 	cpStore := controlplane.NewMemoryStore()
@@ -113,17 +113,11 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 		t.Fatalf("create policy rule: %v", err)
 	}
 
-	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
-	req.RemoteAddr = "127.0.0.1:1234"
-	server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	resetData, err := handler.resetSystemData(ctx)
+	if err != nil {
+		t.Fatalf("reset quiesced state: %v", err)
 	}
-	var reset SystemResetDataResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
-		t.Fatalf("decode reset response: %v", err)
-	}
+	reset := SystemResetDataResponse{Object: "system_reset", Data: resetData}
 	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectRuntimeRowsDeleted != 1 || reset.Data.PluginsDeleted != 1 || reset.Data.AgentPresetsDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 || reset.Data.CairnlineFilesDeleted == 0 {
 		t.Fatalf("reset stats = %+v, want one Cairnline project, one runtime row, one plugin, one preset, one task, provider, rule and two chats", reset.Data)
 	}
@@ -184,6 +178,57 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}
 }
 
+func TestSystemResetDataEndpointFailsClosedWithoutDeletingState(t *testing.T) {
+	t.Parallel()
+	taskStore := taskstate.NewMemoryStore()
+	if _, err := taskStore.CreateTask(t.Context(), types.Task{ID: "task_reset_preserved", Title: "Preserve me", Status: "queued"}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	handler := NewHandler(
+		config.Config{Server: config.ServerConfig{DataDir: t.TempDir()}},
+		quietLogger(),
+		nil,
+		controlplane.NewMemoryStore(),
+		taskStore,
+		nil,
+	)
+	beforeEpoch := handler.stateMutationGate.snapshot()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	NewServer(quietLogger(), handler).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("reset status = %d body=%s, want 409", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Error struct {
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode reset conflict: %v", err)
+	}
+	if response.Error.Type != errCodeConflict || response.Error.Message != errSystemResetUnavailable.Error() {
+		t.Fatalf("reset conflict = type %q message %q, want stable unavailable conflict", response.Error.Type, response.Error.Message)
+	}
+	if response.Error.UserMessage != systemResetUnavailableUserMessage || response.Error.OperatorAction != systemResetUnavailableOperatorAction {
+		t.Fatalf("reset guidance = user %q action %q, want stable stop-runtime guidance", response.Error.UserMessage, response.Error.OperatorAction)
+	}
+	if got := handler.stateMutationGate.snapshot(); got != beforeEpoch {
+		t.Fatalf("state mutation epoch = %d after rejected reset, want unchanged %d", got, beforeEpoch)
+	}
+	items, err := taskStore.ListTasks(t.Context(), taskstate.TaskFilter{})
+	if err != nil {
+		t.Fatalf("list preserved tasks: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "task_reset_preserved" {
+		t.Fatalf("tasks after rejected reset = %#v, want seeded task preserved", items)
+	}
+}
+
 func TestSystemResetDataRejectsNonLoopbackClients(t *testing.T) {
 	t.Parallel()
 
@@ -200,7 +245,7 @@ func TestSystemResetDataRejectsNonLoopbackClients(t *testing.T) {
 	}
 }
 
-func TestSystemResetDataRemovesEmbeddedCairnlineDatabase(t *testing.T) {
+func TestQuiescedSystemResetCleanupRemovesEmbeddedCairnlineDatabase(t *testing.T) {
 	t.Parallel()
 	logger := quietLogger()
 	handler := NewHandler(config.Config{
@@ -223,17 +268,11 @@ func TestSystemResetDataRemovesEmbeddedCairnlineDatabase(t *testing.T) {
 		t.Fatalf("stat Cairnline database before reset: %v", err)
 	}
 
-	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
-	req.RemoteAddr = "127.0.0.1:1234"
-	server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	resetData, err := handler.resetSystemData(t.Context())
+	if err != nil {
+		t.Fatalf("reset quiesced state: %v", err)
 	}
-	var reset SystemResetDataResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
-		t.Fatalf("decode reset response: %v", err)
-	}
+	reset := SystemResetDataResponse{Object: "system_reset", Data: resetData}
 	if reset.Data.CairnlineFilesDeleted == 0 {
 		t.Fatalf("cairnline database files deleted = 0, want embedded files removed; stats=%+v", reset.Data)
 	}
@@ -247,7 +286,7 @@ func TestSystemResetDataRemovesEmbeddedCairnlineDatabase(t *testing.T) {
 	}
 }
 
-func TestSystemResetDataRemovesUnreadableEmbeddedCairnlineDatabase(t *testing.T) {
+func TestQuiescedSystemResetCleanupRemovesUnreadableEmbeddedCairnlineDatabase(t *testing.T) {
 	t.Parallel()
 	handler := NewHandler(config.Config{
 		Server: config.ServerConfig{DataDir: t.TempDir()},
@@ -266,17 +305,11 @@ func TestSystemResetDataRemovesUnreadableEmbeddedCairnlineDatabase(t *testing.T)
 		t.Fatalf("write unreadable Cairnline database: %v", err)
 	}
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
-	req.RemoteAddr = "127.0.0.1:1234"
-	NewServer(quietLogger(), handler).ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	resetData, err := handler.resetSystemData(t.Context())
+	if err != nil {
+		t.Fatalf("reset quiesced state: %v", err)
 	}
-	var reset SystemResetDataResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
-		t.Fatalf("decode reset response: %v", err)
-	}
+	reset := SystemResetDataResponse{Object: "system_reset", Data: resetData}
 	if reset.Data.ProjectsDeleted != 0 || reset.Data.CairnlineFilesDeleted == 0 {
 		t.Fatalf("reset stats = %+v, want unreadable Cairnline file removed without a project count", reset.Data)
 	}
@@ -285,7 +318,7 @@ func TestSystemResetDataRemovesUnreadableEmbeddedCairnlineDatabase(t *testing.T)
 	}
 }
 
-func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
+func TestQuiescedSystemResetCleanupSQLiteBackendClearsRemainingRows(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
@@ -389,17 +422,11 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 		t.Fatalf("create provider: %v", err)
 	}
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
-	req.RemoteAddr = "127.0.0.1:1234"
-	server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	resetData, err := handler.resetSystemData(ctx)
+	if err != nil {
+		t.Fatalf("reset quiesced state: %v", err)
 	}
-	var reset SystemResetDataResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
-		t.Fatalf("decode reset response: %v", err)
-	}
+	reset := SystemResetDataResponse{Object: "system_reset", Data: resetData}
 	if reset.Data.DatabaseRowsDeleted == 0 {
 		t.Fatalf("database rows deleted = 0, want remaining sqlite rows cleared; stats=%+v", reset.Data)
 	}

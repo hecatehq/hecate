@@ -13,6 +13,7 @@ import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 
 import { ApprovalsProvider, useApprovals } from "../app/state/approvals";
 import { ChatProvider, useChat } from "../app/state/chat";
+import { queuedChatMessagesResetEpochStorageKey } from "../app/state/queuedChatStorage";
 import {
   CoordinatorOverridesProvider,
   type CoordinatorOverrides,
@@ -97,17 +98,25 @@ function chatInitialState(fixture: RuntimeConsoleFixtureState) {
     chatSessions: fixture.chatSessions,
     activeChatSessionID: fixture.activeChatSessionID,
     activeChatSession: fixture.activeChatSession,
+    pendingChatAttachments: fixture.pendingChatAttachments,
+    chatAttachmentTurnDraftCount: fixture.chatAttachmentTurnDraftCount,
     savedComposerDraftsBySessionID: fixture.savedComposerDraftsBySessionID,
-    queuedChatMessages: fixture.queuedChatMessages,
+    queuedChatMessages: fixtureQueuedChatMessages(fixture),
     model: fixture.model,
     systemPrompt: fixture.systemPrompt,
     chatLoading: fixture.chatLoading,
     chatCreating: fixture.chatCreating,
     chatTurnSessionID: fixture.chatTurnSessionID,
     chatTurnActive: fixture.chatTurnActive,
+    chatTurnKind: fixture.chatTurnKind,
+    chatTurnCancellationAvailable: fixture.chatTurnCancellationAvailable,
     recoverableComposerDraft: fixture.recoverableComposerDraft,
     activeRecoverableComposerDraftID: fixture.activeRecoverableComposerDraftID,
     chatCancelling: fixture.chatCancelling,
+    chatCancellingSessionID:
+      fixture.chatCancellingSessionID ||
+      (fixture.chatCancelling ? fixture.activeChatSessionID : ""),
+    chatCancellingTurnKind: fixture.chatCancellingTurnKind,
     streamingContent: fixture.streamingContent,
     chatResult: fixture.chatResult,
     pendingToolCalls: fixture.pendingToolCalls,
@@ -121,6 +130,18 @@ function chatInitialState(fixture: RuntimeConsoleFixtureState) {
     modelFilter: fixture.modelFilter,
     providerFilter: fixture.providerFilter,
   };
+}
+
+function fixtureQueuedChatMessages(fixture: RuntimeConsoleFixtureState) {
+  const storageEpoch =
+    typeof window === "undefined"
+      ? "0"
+      : (window.localStorage.getItem(queuedChatMessagesResetEpochStorageKey) ?? "0");
+  return fixture.queuedChatMessages.map((message) =>
+    message.delivery_storage_epoch === undefined
+      ? { ...message, delivery_storage_epoch: storageEpoch }
+      : message,
+  );
 }
 
 function projectsInitialState(fixture: RuntimeConsoleFixtureState) {
@@ -234,7 +255,6 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       getChatWorkspaceFileDiff: actions.getChatWorkspaceFileDiff,
       revertChatWorkspaceFiles: actions.revertChatWorkspaceFiles,
       getChatMessageFileDiff: actions.getChatMessageFileDiff,
-      revertChatMessageFiles: actions.revertChatMessageFiles,
       setChatConfigOption: actions.setChatConfigOption,
       setHecateRTKEnabled: actions.setHecateRTKEnabled,
     },
@@ -358,11 +378,15 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
     chatActionsRef.current.setAgentWorkspace(state.agentWorkspace);
     chatActionsRef.current.setAgentWorkspaceBranch(state.agentWorkspaceBranch);
     chatActionsRef.current.setChatSessions(state.chatSessions);
-    chatActionsRef.current.setQueuedChatMessages(state.queuedChatMessages);
+    chatActionsRef.current.setPendingChatAttachments(state.pendingChatAttachments);
+    chatActionsRef.current.setQueuedChatMessages(fixtureQueuedChatMessages(state));
     chatActionsRef.current.setModel(state.model);
     chatActionsRef.current.setSystemPrompt(state.systemPrompt);
     chatActionsRef.current.setChatLoading(state.chatLoading);
     chatActionsRef.current.setChatCancelling(state.chatCancelling);
+    chatActionsRef.current.setChatCancellingSessionID(
+      state.chatCancellingSessionID || (state.chatCancelling ? state.activeChatSessionID : ""),
+    );
     chatActionsRef.current.setStreamingContent(state.streamingContent);
     chatActionsRef.current.setChatResult(state.chatResult);
     chatActionsRef.current.setPendingToolCalls(state.pendingToolCalls);

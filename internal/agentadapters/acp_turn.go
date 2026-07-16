@@ -104,9 +104,74 @@ type acpTurn struct {
 	postToolText   bool
 	onOutput       func(string)
 	onActivity     func(Activity)
-	terminalOutput acpTerminalOutputLookup
+	// onTerminalActivity is a durable, turn-owned sink captured by every ACP
+	// terminal created during this turn. Unlike onActivity, it may be invoked
+	// after Run returns when a long-lived terminal finally exits.
+	onTerminalActivity func(Activity)
+	onTerminalClosed   func(string)
+	terminalOutput     acpTerminalOutputLookup
+	promptFiles        map[string][]byte
+	// promptRedactor intentionally outlives promptFiles. It contains only
+	// immutable path aliases, never prompt bodies, so originating terminal
+	// callbacks can safely retain it after RunTurn clears staged bytes.
+	promptRedactor *acpPromptRedactor
 
 	mu sync.Mutex
+}
+
+func (t *acpTurn) setPromptFiles(files map[string][]byte) error {
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	redactor, err := newACPPromptRedactor(paths)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(files) == 0 {
+		t.promptFiles = nil
+		t.promptRedactor = nil
+		return nil
+	}
+	t.promptFiles = make(map[string][]byte, len(files))
+	for path, data := range files {
+		t.promptFiles[acpPromptPathKey(path)] = data
+	}
+	t.promptRedactor = redactor
+	return nil
+}
+
+func (t *acpTurn) clearPromptFiles() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.promptFiles = nil
+}
+
+func (t *acpTurn) redactor() *acpPromptRedactor {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.promptRedactor
+}
+
+func (t *acpTurn) containsPromptStagePath(path string) bool {
+	redactor := t.redactor()
+	return redactor.containsStagePath(path)
+}
+
+func (t *acpTurn) promptFile(path string) ([]byte, bool) {
+	path = cleanACPReadPath(path)
+	if path == "" {
+		return nil, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	data, ok := t.promptFiles[acpPromptPathKey(path)]
+	if !ok {
+		return nil, false
+	}
+	return append([]byte(nil), data...), true
 }
 
 func newACPTurn(maxOutput int64, onOutput func(string)) *acpTurn {
@@ -123,6 +188,46 @@ func (t *acpTurn) setActivityCallback(onActivity func(Activity)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onActivity = onActivity
+}
+
+func (t *acpTurn) setTerminalActivityCallback(onActivity func(Activity)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onTerminalActivity = onActivity
+}
+
+func (t *acpTurn) setTerminalClosedCallback(onClosed func(string)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onTerminalClosed = onClosed
+}
+
+// terminalCallbacks snapshots the immutable callbacks a terminal owns for its
+// lifetime. Terminal activity intentionally has no fallback to the ordinary
+// Run-scoped callback: retaining that callback beyond Run would violate its
+// ownership boundary and can attach a late exit to mutable turn state.
+func (t *acpTurn) terminalCallbacks() (func(Activity), func(string), *acpPromptRedactor) {
+	t.mu.Lock()
+	activitySink := t.onTerminalActivity
+	closedSink := t.onTerminalClosed
+	redactor := t.promptRedactor
+	t.mu.Unlock()
+
+	// These closures capture only the durable callback and immutable alias set,
+	// not the turn or its staged file bodies.
+	if activitySink != nil && redactor != nil {
+		base := activitySink
+		activitySink = func(activity Activity) {
+			base(redactor.redactActivity(activity))
+		}
+	}
+	if closedSink != nil && redactor != nil {
+		base := closedSink
+		closedSink = func(terminalID string) {
+			base(redactor.redactFragment(terminalID))
+		}
+	}
+	return activitySink, closedSink, redactor
 }
 
 func (t *acpTurn) setTerminalOutputLookup(lookup acpTerminalOutputLookup) {
@@ -173,6 +278,7 @@ func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageC
 	}
 
 	var snapshot string
+	var onOutput func(string)
 	t.mu.Lock()
 	if t.toolSeen && !t.postToolText && isLikelyProgressNarration(t.output.String()) {
 		t.output.Buffer.Reset()
@@ -193,10 +299,14 @@ func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageC
 	}
 	_, _ = t.output.Write([]byte(text))
 	snapshot = t.output.String()
+	onOutput = t.onOutput
+	if t.promptRedactor != nil {
+		snapshot = t.promptRedactor.redactStream(snapshot)
+	}
 	t.mu.Unlock()
 
-	if t.onOutput != nil {
-		t.onOutput(snapshot)
+	if onOutput != nil {
+		onOutput(snapshot)
 	}
 }
 
@@ -603,8 +713,10 @@ func (t *acpTurn) emitActivity(activity Activity) {
 	}
 	t.mu.Lock()
 	onActivity := t.onActivity
+	redactor := t.promptRedactor
 	t.mu.Unlock()
 	if onActivity != nil {
+		activity = redactor.redactActivity(activity)
 		onActivity(activity)
 	}
 }
@@ -886,8 +998,16 @@ func (t *acpTurn) appendRaw(data []byte) {
 
 func (t *acpTurn) snapshot() (string, string, Usage) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.output.String(), t.raw.String(), t.usage
+	output := t.output.String()
+	raw := t.raw.String()
+	usage := t.usage
+	redactor := t.promptRedactor
+	t.mu.Unlock()
+	if redactor != nil {
+		output = redactor.redactFragment(output)
+		raw = redactor.redactRaw(raw)
+	}
+	return output, raw, usage
 }
 
 func (t *acpTurn) truncated() bool {

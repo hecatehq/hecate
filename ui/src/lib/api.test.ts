@@ -16,6 +16,7 @@ import {
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
+  deleteChatAttachment,
   deleteChatGrant,
   deletePolicyRule,
   deleteProjectAssignment,
@@ -29,6 +30,7 @@ import {
   discoverProjectRoots,
   dispatchChatStreamEvent,
   getChatMessageContext,
+  getChatAttachmentContentBlob,
   getChatMessageFileDiff,
   getChatWorkspaceDiff,
   getChatWorkspaceFileDiff,
@@ -64,7 +66,6 @@ import {
   probeAgentAdapter,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
-  revertChatMessageFiles,
   revertChatWorkspaceFiles,
   resolveChatApproval,
   setChatSettings,
@@ -83,6 +84,7 @@ import {
   updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
+  uploadChatAttachment,
   type ApiError,
 } from "./api";
 
@@ -109,6 +111,71 @@ describe("api client", () => {
     expect(options.method).toBe("POST");
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(options.body).toBe(JSON.stringify({ hello: "world" }));
+  });
+
+  it("uploads, reads, and deletes chat attachments with encoded ids", async () => {
+    const metadata = {
+      id: "att/1",
+      session_id: "chat/1",
+      filename: "map.png",
+      media_type: "image/png",
+      size_bytes: 5,
+      sha256: "abc",
+      created_at: "2026-07-13T10:00:00Z",
+      content_url: "/hecate/v1/chat/sessions/chat%2F1/attachments/att%2F1/content",
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "chat_attachment", data: metadata }))
+      .mockResolvedValueOnce(new Response("image", { headers: { "Content-Type": "image/png" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const file = new File(["image"], "map.png", { type: "image/png" });
+    await expect(uploadChatAttachment("chat/1", file)).resolves.toEqual(metadata);
+    const uploadOptions = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(fetchMock.mock.calls[0][0]).toBe("/hecate/v1/chat/sessions/chat%2F1/attachments");
+    expect(new Headers(uploadOptions.headers).has("Content-Type")).toBe(false);
+    expect((uploadOptions.body as FormData).get("file")).toMatchObject({
+      name: "map.png",
+      type: "image/png",
+    });
+
+    const controller = new AbortController();
+    const content = await getChatAttachmentContentBlob("chat/1", "att/1", controller.signal);
+    expect(content.size).toBe(5);
+    expect(content.type).toBe("image/png");
+    await expect(content.text()).resolves.toBe("image");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/hecate/v1/chat/sessions/chat%2F1/attachments/att%2F1/content",
+    );
+    expect((fetchMock.mock.calls[1][1] as RequestInit).signal).toBe(controller.signal);
+
+    await deleteChatAttachment("chat/1", "att/1");
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "/hecate/v1/chat/sessions/chat%2F1/attachments/att%2F1",
+      expect.objectContaining({ method: "DELETE" }),
+    ]);
+  });
+
+  it("preserves arbitrary file metadata in chat attachment uploads", async () => {
+    const metadata = {
+      id: "att-file",
+      session_id: "external-chat",
+      filename: "report.pdf",
+      media_type: "application/pdf",
+      size_bytes: 6,
+      sha256: "def",
+      created_at: "2026-07-15T10:00:00Z",
+      content_url: "/hecate/v1/chat/sessions/external-chat/attachments/att-file/content",
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ object: "chat_attachment", data: metadata }));
+    const file = new File(["report"], "report.pdf", { type: "application/pdf" });
+
+    await expect(uploadChatAttachment("external-chat", file)).resolves.toEqual(metadata);
+
+    const options = fetchMock.mock.calls.at(-1)?.[1] as RequestInit;
+    const uploadedFile = (options.body as FormData).get("file") as File;
+    expect(uploadedFile.name).toBe("report.pdf");
+    expect(uploadedFile.type).toBe("application/pdf");
   });
 
   it("builds usage summary requests with query strings intact", async () => {
@@ -1805,6 +1872,7 @@ describe("api client", () => {
           object: "chat_workspace_diff",
           data: {
             workspace: "/tmp/hecate",
+            revision: "sha256:reviewed",
             diff_stat: "README.md | 1 +",
             diff: "diff --git a/README.md b/README.md",
             has_changes: true,
@@ -1820,6 +1888,7 @@ describe("api client", () => {
         expect.anything(),
       );
       expect(result.data.files[0]?.path).toBe("README.md");
+      expect(result.data.revision).toBe("sha256:reviewed");
     });
 
     it("fetches the current workspace file tree for a chat session", async () => {
@@ -1880,6 +1949,7 @@ describe("api client", () => {
           object: "chat_workspace_diff",
           data: {
             workspace: "/tmp/hecate",
+            revision: "sha256:after-revert",
             diff_stat: "",
             diff: "",
             has_changes: false,
@@ -1888,42 +1958,20 @@ describe("api client", () => {
         }),
       );
 
-      const result = await revertChatWorkspaceFiles("s1", ["src/app.go"]);
+      const result = await revertChatWorkspaceFiles("s1", ["src/app.go"], "sha256:reviewed");
 
       expect(fetchMock).toHaveBeenCalledWith(
         "/hecate/v1/chat/sessions/s1/workspace-diff/revert",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ paths: ["src/app.go"] }),
+          body: JSON.stringify({
+            paths: ["src/app.go"],
+            expected_revision: "sha256:reviewed",
+          }),
         }),
       );
       expect(result.data.has_changes).toBe(false);
-    });
-
-    it("reverts selected changed files", async () => {
-      fetchMock.mockResolvedValue(
-        jsonResponse({
-          object: "chat_revert",
-          data: {
-            reverted: true,
-            paths: ["src/app.go"],
-            diff_stat: "README.md | 1 +",
-            files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
-          },
-        }),
-      );
-
-      const result = await revertChatMessageFiles("s1", "m1", ["src/app.go"]);
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/chat/sessions/s1/messages/m1/revert",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ paths: ["src/app.go"] }),
-        }),
-      );
-      expect(result.data.reverted).toBe(true);
-      expect(result.data.files[0]?.path).toBe("README.md");
+      expect(result.data.revision).toBe("sha256:after-revert");
     });
   });
 

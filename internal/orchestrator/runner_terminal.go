@@ -21,12 +21,15 @@ type terminalRunTransition struct {
 	Trace     *profiler.Trace
 	Now       time.Time
 
-	CancelActiveSteps          bool
-	CancelStreamingArtifacts   bool
-	CancelPendingApprovals     bool
-	EmitTaskUpdated            bool
-	SuppressDuplicateEvent     bool
-	SkipIfStoredTerminalStatus bool
+	CancelActiveSteps              bool
+	CancelStreamingArtifacts       bool
+	CancelPendingApprovals         bool
+	EmitTaskUpdated                bool
+	PreserveTaskProjection         bool
+	SuppressDuplicateEvent         bool
+	SkipIfStoredTerminalStatus     bool
+	TrustedSupplementalRunMetadata *taskstate.TerminalRunSupplementalMetadata
+	ApprovalResolution             *taskstate.PendingApprovalResolution
 
 	UpdateRun  func(*types.TaskRun)
 	UpdateTask func(*types.Task)
@@ -35,9 +38,10 @@ type terminalRunTransition struct {
 }
 
 type terminalRunTransitionResult struct {
-	Task    types.Task
-	Run     types.TaskRun
-	Skipped bool
+	Task     types.Task
+	Run      types.TaskRun
+	Approval types.TaskApproval
+	Skipped  bool
 }
 
 func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunTransition) (terminalRunTransitionResult, error) {
@@ -46,11 +50,25 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 	}
 	emitTerminalEvent := true
 	if currentRun, found, err := r.store.GetRun(ctx, tr.Task.ID, tr.Run.ID); err == nil && found {
-		if types.IsTerminalTaskRunStatus(currentRun.Status) && currentRun.Status == tr.Status {
-			if tr.SkipIfStoredTerminalStatus {
+		if types.IsTerminalTaskRunStatus(currentRun.Status) {
+			if currentRun.Status != tr.Status {
+				if tr.TrustedSupplementalRunMetadata == nil {
+					currentTask := tr.Task
+					if storedTask, taskFound, taskErr := r.store.GetTask(ctx, tr.Task.ID); taskErr == nil && taskFound {
+						currentTask = storedTask
+					}
+					return terminalRunTransitionResult{Task: currentTask, Run: currentRun, Skipped: true}, nil
+				}
+				// Execution finalization still needs to account for the route and
+				// cost it observed after another terminal status won. Let the store
+				// atomically merge only that trusted metadata and suppress the
+				// loser's terminal event.
+				emitTerminalEvent = false
+			}
+			if currentRun.Status == tr.Status && tr.SkipIfStoredTerminalStatus {
 				return terminalRunTransitionResult{Task: tr.Task, Run: currentRun, Skipped: true}, nil
 			}
-			if tr.SuppressDuplicateEvent {
+			if currentRun.Status == tr.Status && tr.SuppressDuplicateEvent {
 				emitTerminalEvent = false
 			}
 		}
@@ -95,7 +113,7 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 	}
 
 	var terminalEvent *taskstate.RunEventSpec
-	if emitTerminalEvent {
+	if emitTerminalEvent && tr.ApprovalResolution == nil {
 		data := tr.EventData
 		if data == nil {
 			data = map[string]any{"error": tr.Message, "status": tr.Status}
@@ -109,7 +127,7 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 		}
 	}
 	var taskUpdatedEvent *taskstate.RunEventSpec
-	if tr.EmitTaskUpdated {
+	if tr.EmitTaskUpdated && tr.ApprovalResolution == nil {
 		taskUpdatedEvent = &taskstate.RunEventSpec{
 			EventType: runtimeevents.EventTaskUpdated.String(),
 			RequestID: tr.RequestID,
@@ -118,35 +136,39 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 		}
 	}
 	result, err := r.store.ApplyRunTerminalTransition(ctx, taskstate.TerminalRunTransition{
-		Task:                          task,
-		Run:                           run,
-		FinishedAt:                    tr.Now,
-		CancelActiveSteps:             tr.CancelActiveSteps,
-		ActiveStepError:               tr.Message,
-		ActiveStepErrorKind:           "run_cancelled",
-		ActiveStepResult:              telemetry.ResultError,
-		CancelStreamingArtifacts:      tr.CancelStreamingArtifacts,
-		CancelPendingApprovals:        tr.CancelPendingApprovals,
-		PendingApprovalStatus:         "cancelled",
-		PendingApprovalResolvedBy:     "system",
-		PendingApprovalResolutionNote: tr.Message,
-		ApprovalResolvedEventType:     runtimeevents.EventApprovalResolved.String(),
-		TerminalEvent:                 terminalEvent,
-		TaskUpdatedEvent:              taskUpdatedEvent,
+		Task:                           task,
+		Run:                            run,
+		FinishedAt:                     tr.Now,
+		ApprovalResolution:             tr.ApprovalResolution,
+		TrustedSupplementalRunMetadata: tr.TrustedSupplementalRunMetadata,
+		PreserveTaskProjection:         tr.PreserveTaskProjection,
+		CancelActiveSteps:              tr.CancelActiveSteps,
+		ActiveStepError:                tr.Message,
+		ActiveStepErrorKind:            "run_cancelled",
+		ActiveStepResult:               telemetry.ResultError,
+		CancelStreamingArtifacts:       tr.CancelStreamingArtifacts,
+		CancelPendingApprovals:         tr.CancelPendingApprovals,
+		PendingApprovalStatus:          "cancelled",
+		PendingApprovalResolvedBy:      "system",
+		PendingApprovalResolutionNote:  tr.Message,
+		ApprovalResolvedEventType:      runtimeevents.EventApprovalResolved.String(),
+		TerminalEvent:                  terminalEvent,
+		TaskUpdatedEvent:               taskUpdatedEvent,
 	})
 	if err != nil {
 		return terminalRunTransitionResult{}, err
 	}
+	if !result.Applied {
+		return terminalRunTransitionResult{Task: result.Task, Run: result.Run, Approval: result.Approval, Skipped: true}, nil
+	}
 	for _, approval := range result.CancelledApprovals {
-		waitMS := int64(0)
-		if !approval.CreatedAt.IsZero() {
-			waitMS = approval.ResolvedAt.Sub(approval.CreatedAt).Milliseconds()
-		}
+		waitMS := approvalWaitMilliseconds(approval.CreatedAt, approval.ResolvedAt)
 		r.recordApprovalResolved(ctx, tr.Trace, result.Task.ID, result.Run.ID, approval, "cancelled", waitMS)
 	}
 
 	return terminalRunTransitionResult{
-		Task: result.Task,
-		Run:  result.Run,
+		Task:     result.Task,
+		Run:      result.Run,
+		Approval: result.Approval,
 	}, nil
 }

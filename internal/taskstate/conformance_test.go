@@ -2,6 +2,10 @@ package taskstate
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,9 +61,57 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreApplyRunTerminalTransitionPreservesChildrenWithoutCancelFlags(t, factory(t))
 	})
+	t.Run(name+"/ApplyRunTerminalTransitionPreservesTaskProjection", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionPreservesTaskProjection(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunTerminalTransitionSameStatusReplay", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionSameStatusReplay(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunTerminalTransitionConcurrentSameStatus", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionConcurrentSameStatus(t, factory(t))
+	})
 	t.Run(name+"/ApplyRunTerminalTransitionRequiresStoredRunTaskMatch", func(t *testing.T) {
 		t.Parallel()
 		runStoreApplyRunTerminalTransitionRequiresStoredRunTaskMatch(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunStateTransitionCompareAndSwap", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunStateTransitionCompareAndSwap(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunStateTransitionResolvesApprovalAtomically", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunStateTransitionResolvesApprovalAtomically(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunTerminalTransitionRejectsApprovalAtomically", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionRejectsApprovalAtomically(t, factory(t))
+	})
+	t.Run(name+"/ApproveResolutionConcurrentWithCancellation", func(t *testing.T) {
+		t.Parallel()
+		runStoreApprovalResolutionConcurrentWithCancellation(t, factory(t), "approved")
+	})
+	t.Run(name+"/RejectResolutionConcurrentWithCancellation", func(t *testing.T) {
+		t.Parallel()
+		runStoreApprovalResolutionConcurrentWithCancellation(t, factory(t), "rejected")
+	})
+	t.Run(name+"/ApplyRunStartTransition", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunStartTransition(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunStartTransitionConcurrent", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunStartTransitionConcurrent(t, factory(t))
+	})
+	t.Run(name+"/TerminalTransitionPreservesDifferentTerminalWinner", func(t *testing.T) {
+		t.Parallel()
+		runStoreTerminalTransitionPreservesDifferentTerminalWinner(t, factory(t))
 	})
 	t.Run(name+"/ListRunsByFilterStatusSet", func(t *testing.T) {
 		t.Parallel()
@@ -77,6 +129,871 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreWakesOnRunScopedMutations(t, factory(t))
 	})
+}
+
+func runStoreApplyRunStartTransition(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	storedTask, err := store.CreateTask(ctx, types.Task{
+		ID: "task-run-start", Title: "authoritative title", Status: "failed", BudgetMicrosUSD: 100,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID: "run-start-source", TaskID: storedTask.ID, Number: 4, Status: "failed", StartedAt: now, FinishedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun(source): %v", err)
+	}
+	candidateTask := storedTask
+	candidateTask.Title = "stale caller title"
+	candidateTask.Status = "queued"
+	candidateTask.LatestRunID = "run-start-new"
+	candidateTask.FinishedAt = time.Time{}
+	candidateTask.UpdatedAt = now.Add(time.Second)
+	candidateTask.LatestRequestID = "request-run-start"
+	result, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task: candidateTask,
+		Run: types.TaskRun{
+			ID: "run-start-new", TaskID: storedTask.ID, Status: "queued", StartedAt: now.Add(time.Second),
+		},
+		BudgetMicrosUSD: 250,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunStartTransition: %v", err)
+	}
+	if result.Task.Title != "authoritative title" || result.Task.BudgetMicrosUSD != 250 || result.Task.LatestRunID != result.Run.ID {
+		t.Fatalf("started task = %+v", result.Task)
+	}
+	if result.Run.Number != 5 || result.Run.Status != "queued" {
+		t.Fatalf("started run = %+v, want number 5 queued", result.Run)
+	}
+	conflictTask := result.Task
+	conflictTask.LatestRunID = "run-start-conflict"
+	if _, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task: conflictTask,
+		Run:  types.TaskRun{ID: "run-start-conflict", TaskID: storedTask.ID, Status: "queued"},
+	}); !errors.Is(err, ErrActiveRun) {
+		t.Fatalf("active run error = %v, want ErrActiveRun", err)
+	}
+	completed := result.Run
+	completed.Status = "completed"
+	completed.FinishedAt = now.Add(2 * time.Second)
+	if _, err := store.UpdateRun(ctx, completed); err != nil {
+		t.Fatalf("UpdateRun(completed): %v", err)
+	}
+	lowerTask := result.Task
+	lowerTask.LatestRunID = "run-start-lower"
+	if _, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task:            lowerTask,
+		Run:             types.TaskRun{ID: "run-start-lower", TaskID: storedTask.ID, Status: "queued"},
+		BudgetMicrosUSD: 200,
+	}); !errors.Is(err, ErrBudgetLower) {
+		t.Fatalf("lower budget error = %v, want ErrBudgetLower", err)
+	}
+}
+
+func runStoreApplyRunStartTransitionConcurrent(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-run-start-concurrent", Status: "failed", BudgetMicrosUSD: 100, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID: "run-start-concurrent-source", TaskID: task.ID, Number: 1, Status: "failed", StartedAt: now, FinishedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun(source): %v", err)
+	}
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for index, budget := range []int64{200, 250} {
+		index, budget := index, budget
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			candidate := task
+			candidate.Status = "queued"
+			candidate.LatestRunID = fmt.Sprintf("run-start-concurrent-%d", index)
+			_, errs[index] = store.ApplyRunStartTransition(ctx, RunStartTransition{
+				Task: candidate,
+				Run: types.TaskRun{
+					ID: candidate.LatestRunID, TaskID: task.ID, Status: "queued", StartedAt: now.Add(time.Second),
+				},
+				BudgetMicrosUSD: budget,
+			})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	successes, conflicts := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrActiveRun):
+			conflicts++
+		default:
+			t.Fatalf("concurrent start error = %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("concurrent start errors = %v, want one success and one active conflict", errs)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	active := 0
+	for _, run := range runs {
+		if !types.IsTerminalTaskRunStatus(run.Status) {
+			active++
+		}
+	}
+	if len(runs) != 2 || active != 1 {
+		t.Fatalf("runs = %+v, want source plus exactly one active run", runs)
+	}
+}
+
+func runStoreApplyRunStateTransitionCompareAndSwap(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{ID: "task-state-cas", Status: "queued", CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := store.CreateRun(ctx, types.TaskRun{ID: "run-state-cas", TaskID: task.ID, Status: "queued", StartedAt: now})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	runningTask := task
+	runningTask.Status = "running"
+	runningRun := run
+	runningRun.Status = "running"
+	started, err := store.ApplyRunStateTransition(ctx, RunStateTransition{
+		Task:                runningTask,
+		Run:                 runningRun,
+		ExpectedRunStatuses: []string{"queued"},
+		Events:              []RunEventSpec{{EventType: "run.test_started", CreatedAt: now}},
+	})
+	if err != nil || !started.Applied {
+		t.Fatalf("ApplyRunStateTransition(start) applied=%t err=%v", started.Applied, err)
+	}
+
+	cancelledTask := runningTask
+	cancelledTask.Status = "cancelled"
+	cancelledRun := runningRun
+	cancelledRun.Status = "cancelled"
+	cancelledRun.FinishedAt = now.Add(time.Second)
+	cancelled, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: cancelledTask, Run: cancelledRun, FinishedAt: cancelledRun.FinishedAt,
+	})
+	if err != nil || !cancelled.Applied {
+		t.Fatalf("ApplyRunTerminalTransition(cancel) applied=%t err=%v", cancelled.Applied, err)
+	}
+
+	staleRun := runningRun
+	staleRun.Status = "queued"
+	staleTask := runningTask
+	staleTask.Status = "queued"
+	stale, err := store.ApplyRunStateTransition(ctx, RunStateTransition{
+		Task:                staleTask,
+		Run:                 staleRun,
+		ExpectedRunStatuses: []string{"running"},
+		Events:              []RunEventSpec{{EventType: "gap.should_not_exist", CreatedAt: now}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunStateTransition(stale): %v", err)
+	}
+	if stale.Applied || stale.Run.Status != "cancelled" || stale.Task.Status != "cancelled" {
+		t.Fatalf("stale result = %+v, want unapplied cancelled winner", stale)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	for _, event := range events {
+		if event.EventType == "gap.should_not_exist" {
+			t.Fatalf("stale transition appended event: %+v", event)
+		}
+	}
+}
+
+func runStoreApplyRunStateTransitionResolvesApprovalAtomically(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC().Add(-time.Minute)
+	task := types.Task{
+		ID: "task-approval-approve-atomic", Status: "awaiting_approval",
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	}
+	run := types.TaskRun{
+		ID: "run-approval-approve-atomic", TaskID: task.ID, Number: 1,
+		Status: "awaiting_approval", StartedAt: now, RequestID: "request-approval-before",
+		TraceID: "trace-approval-before",
+	}
+	approval := types.TaskApproval{
+		ID: "approval-approve-atomic", TaskID: task.ID, RunID: run.ID, StepID: "step-approval-approve-atomic",
+		Kind: "tool_call", Status: "pending", Reason: "immutable reason", RequestedBy: "agent", CreatedAt: now,
+		RequestID: "request-approval-before", TraceID: "trace-approval-before", SpanID: "span-approval-before",
+	}
+	step := types.TaskStep{
+		ID: "step-approval-approve-atomic", TaskID: task.ID, RunID: run.ID,
+		Index: 1, Status: "awaiting_approval", StartedAt: now,
+	}
+	artifact := types.TaskArtifact{
+		ID: "artifact-approval-approve-atomic", TaskID: task.ID, RunID: run.ID,
+		StepID: step.ID, Status: "ready", CreatedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := store.AppendStep(ctx, step); err != nil {
+		t.Fatalf("AppendStep: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, artifact); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+
+	queuedTask := task
+	queuedTask.Status = "queued"
+	queuedTask.UpdatedAt = now.Add(time.Second)
+	queuedTask.LatestRunID = run.ID
+	queuedTask.LatestRequestID = "request-approval-approved"
+	queuedTask.LatestTraceID = "trace-approval-approved"
+	queuedRun := run
+	queuedRun.Status = "queued"
+	queuedRun.RequestID = queuedTask.LatestRequestID
+	queuedRun.TraceID = queuedTask.LatestTraceID
+	resolution := PendingApprovalResolution{
+		ApprovalID: approval.ID, Status: "approved", ResolvedBy: "operator", ResolutionNote: "ship it",
+		ResolvedAt: queuedTask.UpdatedAt, RequestID: queuedRun.RequestID, TraceID: queuedRun.TraceID,
+	}
+	transition := RunStateTransition{
+		Task: queuedTask, Run: queuedRun, ExpectedRunStatuses: []string{"awaiting_approval"},
+		ApprovalResolution: &resolution,
+	}
+	contradictory := transition
+	contradictory.Events = []RunEventSpec{{
+		EventType: "approval.resolved",
+		Data: map[string]any{
+			"approval_id": "wrong-approval", "decision": "rejected", "status": "rejected",
+			"run": types.TaskRun{Status: "failed"}, "steps": []types.TaskStep{{Status: "failed"}},
+			"artifacts": []types.TaskArtifact{{Status: "failed"}},
+		},
+		CreatedAt: now.Add(-time.Hour), IncludeRunSnapshot: true,
+	}}
+	if _, err := store.ApplyRunStateTransition(ctx, contradictory); err == nil {
+		t.Fatal("ApplyRunStateTransition accepted caller-supplied approval audit payload")
+	}
+	invalidTime := transition
+	invalidResolution := resolution
+	invalidResolution.ResolvedAt = now.Add(-time.Nanosecond)
+	invalidTime.ApprovalResolution = &invalidResolution
+	if _, err := store.ApplyRunStateTransition(ctx, invalidTime); err == nil {
+		t.Fatal("ApplyRunStateTransition accepted resolution before locked approval creation")
+	}
+	unchanged, found, err := store.GetApproval(ctx, task.ID, approval.ID)
+	if err != nil || !found || unchanged.Status != "pending" {
+		t.Fatalf("approval after invalid timestamp = %+v found=%t err=%v, want pending", unchanged, found, err)
+	}
+	result, err := store.ApplyRunStateTransition(ctx, transition)
+	if err != nil || !result.Applied {
+		t.Fatalf("ApplyRunStateTransition applied=%t err=%v", result.Applied, err)
+	}
+	if result.Task.Status != "queued" || result.Run.Status != "queued" || result.Approval.Status != "approved" {
+		t.Fatalf("atomic approve result = task:%+v run:%+v approval:%+v", result.Task, result.Run, result.Approval)
+	}
+	if result.Approval.StepID != approval.StepID || result.Approval.Kind != approval.Kind || result.Approval.Reason != approval.Reason ||
+		result.Approval.RequestedBy != approval.RequestedBy || !result.Approval.CreatedAt.Equal(approval.CreatedAt) ||
+		result.Approval.RequestID != approval.RequestID || result.Approval.TraceID != approval.TraceID || result.Approval.SpanID != approval.SpanID {
+		t.Fatalf("atomic approve changed immutable approval provenance: got %+v want %+v", result.Approval, approval)
+	}
+	if len(result.Events) != 2 || result.Events[0].EventType != "approval.resolved" || result.Events[1].EventType != "run.queued" {
+		t.Fatalf("atomic approve events = %+v, want approval.resolved then run.queued", result.Events)
+	}
+	assertRunEventSnapshotState(t, result.Events[0], "queued", "awaiting_approval", "ready")
+	assertRunEventSnapshotState(t, result.Events[1], "queued", "awaiting_approval", "ready")
+	if result.Events[0].Data["decision"] != "approved" || result.Events[1].Data["resume"] != true {
+		t.Fatalf("atomic approve event data = resolved:%+v queued:%+v", result.Events[0].Data, result.Events[1].Data)
+	}
+	for _, event := range result.Events {
+		if !event.CreatedAt.Equal(resolution.ResolvedAt) || event.RequestID != resolution.RequestID || event.TraceID != resolution.TraceID {
+			t.Fatalf("derived approve event correlation/time = %+v, want command %+v", event, resolution)
+		}
+	}
+
+	replay, err := store.ApplyRunStateTransition(ctx, transition)
+	if err != nil {
+		t.Fatalf("ApplyRunStateTransition replay: %v", err)
+	}
+	if replay.Applied || replay.Run.Status != "queued" || replay.Approval.Status != "approved" || len(replay.Events) != 0 {
+		t.Fatalf("atomic approve replay = %+v, want authoritative unapplied result", replay)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("events after approve replay = %+v err=%v, want two", events, err)
+	}
+
+	loserTask := types.Task{
+		ID: "task-approval-approve-loser", Status: "awaiting_approval",
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	}
+	loserRun := types.TaskRun{
+		ID: "run-approval-approve-loser", TaskID: loserTask.ID,
+		Status: "awaiting_approval", StartedAt: now,
+	}
+	loserApproval := types.TaskApproval{
+		ID: "approval-approve-loser", TaskID: loserTask.ID, RunID: loserRun.ID,
+		Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, loserTask); err != nil {
+		t.Fatalf("CreateTask(loser): %v", err)
+	}
+	if _, err := store.CreateRun(ctx, loserRun); err != nil {
+		t.Fatalf("CreateRun(loser): %v", err)
+	}
+	if _, err := store.CreateApproval(ctx, loserApproval); err != nil {
+		t.Fatalf("CreateApproval(loser): %v", err)
+	}
+	cancelledTask := loserTask
+	cancelledTask.Status = "cancelled"
+	cancelledTask.FinishedAt = now.Add(2 * time.Second)
+	cancelledTask.UpdatedAt = cancelledTask.FinishedAt
+	cancelledRun := loserRun
+	cancelledRun.Status = "cancelled"
+	cancelledRun.LastError = "run cancelled: winner"
+	cancelledRun.FinishedAt = cancelledTask.FinishedAt
+	if _, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: cancelledTask, Run: cancelledRun, FinishedAt: cancelledRun.FinishedAt,
+		CancelPendingApprovals: true, PendingApprovalStatus: "cancelled",
+		PendingApprovalResolvedBy: "system", PendingApprovalResolutionNote: cancelledRun.LastError,
+		ApprovalResolvedEventType: "approval.resolved",
+	}); err != nil {
+		t.Fatalf("ApplyRunTerminalTransition(loser winner): %v", err)
+	}
+	loserResolution := PendingApprovalResolution{
+		ApprovalID: loserApproval.ID, Status: "approved", ResolvedBy: "operator",
+		ResolvedAt: now.Add(3 * time.Second), RequestID: "request-approve-loser", TraceID: "trace-approve-loser",
+	}
+	loserQueuedTask := loserTask
+	loserQueuedTask.Status = "queued"
+	loserQueuedTask.LatestRequestID = loserResolution.RequestID
+	loserQueuedTask.LatestTraceID = loserResolution.TraceID
+	loserQueuedRun := loserRun
+	loserQueuedRun.Status = "queued"
+	loserQueuedRun.RequestID = loserResolution.RequestID
+	loserQueuedRun.TraceID = loserResolution.TraceID
+	loserResult, err := store.ApplyRunStateTransition(ctx, RunStateTransition{
+		Task: loserQueuedTask, Run: loserQueuedRun, ExpectedRunStatuses: []string{"awaiting_approval"},
+		ApprovalResolution: &loserResolution,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunStateTransition(loser): %v", err)
+	}
+	if loserResult.Applied || loserResult.Run.Status != "cancelled" || loserResult.Approval.Status != "cancelled" {
+		t.Fatalf("atomic approve loser = %+v, want cancelled winner", loserResult)
+	}
+	loserEvents, err := store.ListRunEvents(ctx, loserTask.ID, loserRun.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents(loser): %v", err)
+	}
+	for _, event := range loserEvents {
+		if event.EventType == "run.queued" || (event.EventType == "approval.resolved" && event.Data["decision"] == "approved") {
+			t.Fatalf("approve loser persisted event: %+v", event)
+		}
+	}
+}
+
+func runStoreApplyRunTerminalTransitionRejectsApprovalAtomically(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC().Add(-time.Minute)
+	task := types.Task{
+		ID: "task-approval-reject-atomic", Status: "awaiting_approval",
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	}
+	run := types.TaskRun{
+		ID: "run-approval-reject-atomic", TaskID: task.ID, Number: 1,
+		Status: "awaiting_approval", StartedAt: now, RequestID: "request-reject-before", TraceID: "trace-reject-before",
+	}
+	step := types.TaskStep{
+		ID: "step-approval-reject-atomic", TaskID: task.ID, RunID: run.ID,
+		Index: 1, Status: "awaiting_approval", StartedAt: now,
+	}
+	artifact := types.TaskArtifact{
+		ID: "artifact-approval-reject-atomic", TaskID: task.ID, RunID: run.ID,
+		StepID: step.ID, Status: "streaming", CreatedAt: now,
+	}
+	target := types.TaskApproval{
+		ID: "approval-reject-atomic", TaskID: task.ID, RunID: run.ID, StepID: step.ID,
+		Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now,
+	}
+	other := types.TaskApproval{
+		ID: "approval-reject-other", TaskID: task.ID, RunID: run.ID,
+		Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now.Add(time.Millisecond),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := store.AppendStep(ctx, step); err != nil {
+		t.Fatalf("AppendStep: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, artifact); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	if _, err := store.CreateApproval(ctx, target); err != nil {
+		t.Fatalf("CreateApproval(target): %v", err)
+	}
+	if _, err := store.CreateApproval(ctx, other); err != nil {
+		t.Fatalf("CreateApproval(other): %v", err)
+	}
+
+	finishedAt := now.Add(time.Second)
+	reason := "approval rejected"
+	cancelledTask := task
+	cancelledTask.Status = "cancelled"
+	cancelledTask.LatestRunID = run.ID
+	cancelledTask.LastError = reason
+	cancelledTask.FinishedAt = finishedAt
+	cancelledTask.UpdatedAt = finishedAt
+	cancelledTask.LatestRequestID = "request-reject-winner"
+	cancelledTask.LatestTraceID = "trace-reject-winner"
+	cancelledRun := run
+	cancelledRun.Status = "cancelled"
+	cancelledRun.LastError = reason
+	cancelledRun.FinishedAt = finishedAt
+	cancelledRun.RequestID = cancelledTask.LatestRequestID
+	cancelledRun.TraceID = cancelledTask.LatestTraceID
+	resolution := PendingApprovalResolution{
+		ApprovalID: target.ID, Status: "rejected", ResolvedBy: "operator", ResolutionNote: "not safe",
+		ResolvedAt: finishedAt, RequestID: cancelledRun.RequestID, TraceID: cancelledRun.TraceID,
+	}
+	transition := TerminalRunTransition{
+		Task: cancelledTask, Run: cancelledRun, FinishedAt: finishedAt,
+		ApprovalResolution: &resolution,
+	}
+	contradictory := transition
+	contradictory.TerminalEvent = &RunEventSpec{
+		EventType: "approval.resolved",
+		Data: map[string]any{
+			"approval_id": "wrong-approval", "decision": "approved", "status": "approved",
+			"run": types.TaskRun{Status: "completed"}, "steps": []types.TaskStep{{Status: "completed"}},
+			"artifacts": []types.TaskArtifact{{Status: "ready"}},
+		},
+		CreatedAt: now.Add(-time.Hour), IncludeRunSnapshot: true,
+	}
+	if _, err := store.ApplyRunTerminalTransition(ctx, contradictory); err == nil {
+		t.Fatal("ApplyRunTerminalTransition accepted caller-supplied approval audit payload")
+	}
+	invalidTime := transition
+	invalidResolution := resolution
+	invalidResolution.ResolvedAt = now.Add(-time.Nanosecond)
+	invalidTime.ApprovalResolution = &invalidResolution
+	if _, err := store.ApplyRunTerminalTransition(ctx, invalidTime); err == nil {
+		t.Fatal("ApplyRunTerminalTransition accepted resolution before locked approval creation")
+	}
+	unchanged, found, err := store.GetApproval(ctx, task.ID, target.ID)
+	if err != nil || !found || unchanged.Status != "pending" {
+		t.Fatalf("target after invalid timestamp = %+v found=%t err=%v, want pending", unchanged, found, err)
+	}
+	result, err := store.ApplyRunTerminalTransition(ctx, transition)
+	if err != nil || !result.Applied {
+		t.Fatalf("ApplyRunTerminalTransition applied=%t err=%v", result.Applied, err)
+	}
+	if result.Task.Status != "cancelled" || result.Run.Status != "cancelled" || result.Approval.Status != "rejected" {
+		t.Fatalf("atomic reject result = task:%+v run:%+v approval:%+v", result.Task, result.Run, result.Approval)
+	}
+	if result.Approval.StepID != target.StepID || result.Approval.Kind != target.Kind || result.Approval.RequestedBy != target.RequestedBy ||
+		!result.Approval.CreatedAt.Equal(target.CreatedAt) {
+		t.Fatalf("atomic reject changed immutable approval provenance: got %+v want %+v", result.Approval, target)
+	}
+	otherStored, found, err := store.GetApproval(ctx, task.ID, other.ID)
+	if err != nil || !found || otherStored.Status != "cancelled" {
+		t.Fatalf("other approval = %+v found=%t err=%v, want cancelled", otherStored, found, err)
+	}
+	storedStep, found, err := store.GetStep(ctx, run.ID, step.ID)
+	if err != nil || !found || storedStep.Status != "cancelled" {
+		t.Fatalf("step = %+v found=%t err=%v, want cancelled", storedStep, found, err)
+	}
+	storedArtifact, found, err := store.GetArtifact(ctx, task.ID, artifact.ID)
+	if err != nil || !found || storedArtifact.Status != "cancelled" {
+		t.Fatalf("artifact = %+v found=%t err=%v, want cancelled", storedArtifact, found, err)
+	}
+	if len(result.Events) != 4 {
+		t.Fatalf("atomic reject events = %+v, want four", result.Events)
+	}
+	if result.Events[0].EventType != "approval.resolved" || result.Events[0].Data["approval_id"] != other.ID ||
+		result.Events[1].EventType != "run.cancelled" || result.Events[2].EventType != "task.updated" ||
+		result.Events[3].EventType != "approval.resolved" || result.Events[3].Data["approval_id"] != target.ID {
+		t.Fatalf("atomic reject event order/data = %+v", result.Events)
+	}
+	assertNoTerminalEventSnapshot(t, result.Events[1])
+	assertNoTerminalEventSnapshot(t, result.Events[2])
+	assertRunEventSnapshotState(t, result.Events[3], "cancelled", "cancelled", "cancelled")
+	if result.Events[3].Data["decision"] != "rejected" {
+		t.Fatalf("target approval event = %+v, want rejected", result.Events[3].Data)
+	}
+	if !result.Events[3].CreatedAt.Equal(resolution.ResolvedAt) || result.Events[3].RequestID != resolution.RequestID || result.Events[3].TraceID != resolution.TraceID {
+		t.Fatalf("derived reject approval event correlation/time = %+v, want command %+v", result.Events[3], resolution)
+	}
+
+	replay, err := store.ApplyRunTerminalTransition(ctx, transition)
+	if err != nil {
+		t.Fatalf("ApplyRunTerminalTransition replay: %v", err)
+	}
+	if replay.Applied || replay.Run.Status != "cancelled" || replay.Approval.Status != "rejected" || len(replay.Events) != 0 {
+		t.Fatalf("atomic reject replay = %+v, want authoritative unapplied result", replay)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil || len(events) != 4 {
+		t.Fatalf("events after reject replay = %+v err=%v, want four", events, err)
+	}
+
+	loserTask := types.Task{
+		ID: "task-approval-reject-loser", Status: "awaiting_approval",
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	}
+	loserRun := types.TaskRun{
+		ID: "run-approval-reject-loser", TaskID: loserTask.ID,
+		Status: "awaiting_approval", StartedAt: now,
+	}
+	loserApproval := types.TaskApproval{
+		ID: "approval-reject-loser", TaskID: loserTask.ID, RunID: loserRun.ID,
+		Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, loserTask); err != nil {
+		t.Fatalf("CreateTask(loser): %v", err)
+	}
+	if _, err := store.CreateRun(ctx, loserRun); err != nil {
+		t.Fatalf("CreateRun(loser): %v", err)
+	}
+	if _, err := store.CreateApproval(ctx, loserApproval); err != nil {
+		t.Fatalf("CreateApproval(loser): %v", err)
+	}
+	loserCancelledTask := loserTask
+	loserCancelledTask.Status = "cancelled"
+	loserCancelledTask.FinishedAt = now.Add(2 * time.Second)
+	loserCancelledTask.UpdatedAt = loserCancelledTask.FinishedAt
+	loserCancelledRun := loserRun
+	loserCancelledRun.Status = "cancelled"
+	loserCancelledRun.LastError = "run cancelled: winner"
+	loserCancelledRun.FinishedAt = loserCancelledTask.FinishedAt
+	if _, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: loserCancelledTask, Run: loserCancelledRun, FinishedAt: loserCancelledRun.FinishedAt,
+		CancelPendingApprovals: true, PendingApprovalStatus: "cancelled",
+		PendingApprovalResolvedBy: "system", PendingApprovalResolutionNote: loserCancelledRun.LastError,
+		ApprovalResolvedEventType: "approval.resolved",
+	}); err != nil {
+		t.Fatalf("ApplyRunTerminalTransition(loser winner): %v", err)
+	}
+	loserResolution := PendingApprovalResolution{
+		ApprovalID: loserApproval.ID, Status: "rejected", ResolvedBy: "operator",
+		ResolvedAt: now.Add(3 * time.Second), RequestID: "request-reject-loser", TraceID: "trace-reject-loser",
+	}
+	loserCancelledTask.LatestRequestID = loserResolution.RequestID
+	loserCancelledTask.LatestTraceID = loserResolution.TraceID
+	loserCancelledRun.RequestID = loserResolution.RequestID
+	loserCancelledRun.TraceID = loserResolution.TraceID
+	loserTransition := TerminalRunTransition{
+		Task: loserCancelledTask, Run: loserCancelledRun, FinishedAt: loserCancelledRun.FinishedAt,
+		ApprovalResolution: &loserResolution,
+	}
+	loserResult, err := store.ApplyRunTerminalTransition(ctx, loserTransition)
+	if err != nil {
+		t.Fatalf("ApplyRunTerminalTransition(loser): %v", err)
+	}
+	if loserResult.Applied || loserResult.Run.Status != "cancelled" || loserResult.Approval.Status != "cancelled" {
+		t.Fatalf("atomic reject loser = %+v, want cancelled winner", loserResult)
+	}
+	loserEvents, err := store.ListRunEvents(ctx, loserTask.ID, loserRun.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents(loser): %v", err)
+	}
+	for _, event := range loserEvents {
+		if event.EventType == "approval.resolved" && event.Data["decision"] == "rejected" {
+			t.Fatalf("reject loser persisted event: %+v", event)
+		}
+	}
+}
+
+func runStoreApprovalResolutionConcurrentWithCancellation(t *testing.T, store Store, decision string) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC().Add(-time.Minute)
+	suffix := "approval-race-" + decision
+	task := types.Task{
+		ID: "task-" + suffix, Status: "awaiting_approval", CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	}
+	run := types.TaskRun{
+		ID: "run-" + suffix, TaskID: task.ID, Number: 1, Status: "awaiting_approval", StartedAt: now,
+		RequestID: "request-before-" + decision, TraceID: "trace-before-" + decision,
+	}
+	step := types.TaskStep{
+		ID: "step-" + suffix, TaskID: task.ID, RunID: run.ID, Index: 1,
+		Status: "awaiting_approval", StartedAt: now,
+	}
+	artifact := types.TaskArtifact{
+		ID: "artifact-" + suffix, TaskID: task.ID, RunID: run.ID, StepID: step.ID,
+		Status: "streaming", CreatedAt: now,
+	}
+	approval := types.TaskApproval{
+		ID: "approval-" + suffix, TaskID: task.ID, RunID: run.ID, StepID: step.ID,
+		Kind: "tool_call", Status: "pending", Reason: "immutable reason", RequestedBy: "agent",
+		CreatedAt: now, RequestID: run.RequestID, TraceID: run.TraceID, SpanID: "span-before-" + decision,
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := store.AppendStep(ctx, step); err != nil {
+		t.Fatalf("AppendStep: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, artifact); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+
+	resolutionAt := now.Add(10 * time.Second)
+	resolution := PendingApprovalResolution{
+		ApprovalID: approval.ID, Status: decision, ResolvedBy: "operator", ResolutionNote: "operator decision",
+		ResolvedAt: resolutionAt, RequestID: "request-resolve-" + decision, TraceID: "trace-resolve-" + decision,
+	}
+	resolutionTask := task
+	resolutionTask.LatestRunID = run.ID
+	resolutionTask.LatestRequestID = resolution.RequestID
+	resolutionTask.LatestTraceID = resolution.TraceID
+	resolutionTask.UpdatedAt = resolutionAt
+	resolutionRun := run
+	resolutionRun.RequestID = resolution.RequestID
+	resolutionRun.TraceID = resolution.TraceID
+	if decision == "approved" {
+		resolutionTask.Status = "queued"
+		resolutionRun.Status = "queued"
+	} else {
+		resolutionTask.Status = "cancelled"
+		resolutionTask.LastError = "approval rejected"
+		resolutionTask.FinishedAt = resolutionAt
+		resolutionRun.Status = "cancelled"
+		resolutionRun.LastError = resolutionTask.LastError
+		resolutionRun.FinishedAt = resolutionAt
+	}
+
+	cancelledAt := now.Add(20 * time.Second)
+	cancelReason := "run cancelled: concurrent operator"
+	cancelTask := task
+	cancelTask.Status = "cancelled"
+	cancelTask.LatestRunID = run.ID
+	cancelTask.LastError = cancelReason
+	cancelTask.UpdatedAt = cancelledAt
+	cancelTask.FinishedAt = cancelledAt
+	cancelTask.LatestRequestID = "request-cancel-" + decision
+	cancelTask.LatestTraceID = "trace-cancel-" + decision
+	cancelRun := run
+	cancelRun.Status = "cancelled"
+	cancelRun.LastError = cancelReason
+	cancelRun.FinishedAt = cancelledAt
+	cancelRun.RequestID = cancelTask.LatestRequestID
+	cancelRun.TraceID = cancelTask.LatestTraceID
+	cancellation := TerminalRunTransition{
+		Task: cancelTask, Run: cancelRun, FinishedAt: cancelledAt,
+		CancelActiveSteps: true, ActiveStepResult: "error", ActiveStepError: cancelReason,
+		ActiveStepErrorKind: "run_cancelled", CancelStreamingArtifacts: true,
+		CancelPendingApprovals: true, PendingApprovalStatus: "cancelled",
+		PendingApprovalResolvedBy: "system", PendingApprovalResolutionNote: cancelReason,
+		ApprovalResolvedEventType: "approval.resolved",
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled", Data: map[string]any{"reason": cancelReason},
+			RequestID: cancelRun.RequestID, TraceID: cancelRun.TraceID, CreatedAt: cancelledAt,
+		},
+		TaskUpdatedEvent: &RunEventSpec{
+			EventType: "task.updated", RequestID: cancelRun.RequestID,
+			TraceID: cancelRun.TraceID, CreatedAt: cancelledAt,
+		},
+	}
+
+	type outcome struct {
+		name    string
+		applied bool
+		err     error
+	}
+	start := make(chan struct{})
+	done := make(chan outcome, 2)
+	go func() {
+		<-start
+		if decision == "approved" {
+			result, err := store.ApplyRunStateTransition(ctx, RunStateTransition{
+				Task: resolutionTask, Run: resolutionRun, ExpectedRunStatuses: []string{"awaiting_approval"},
+				ApprovalResolution: &resolution,
+			})
+			done <- outcome{name: "resolution", applied: result.Applied, err: err}
+			return
+		}
+		result, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+			Task: resolutionTask, Run: resolutionRun, FinishedAt: resolutionAt,
+			ApprovalResolution: &resolution,
+		})
+		done <- outcome{name: "resolution", applied: result.Applied, err: err}
+	}()
+	go func() {
+		<-start
+		result, err := store.ApplyRunTerminalTransition(ctx, cancellation)
+		done <- outcome{name: "cancellation", applied: result.Applied, err: err}
+	}()
+	close(start)
+
+	outcomes := make(map[string]outcome, 2)
+	for range 2 {
+		select {
+		case result := <-done:
+			if result.err != nil {
+				t.Fatalf("%s contender: %v", result.name, result.err)
+			}
+			outcomes[result.name] = result
+		case <-time.After(10 * time.Second):
+			t.Fatal("approval resolution/cancellation contenders deadlocked")
+		}
+	}
+	if !outcomes["cancellation"].applied {
+		t.Fatalf("cancellation contender = %+v, want applied initial transition or same-status cleanup replay", outcomes["cancellation"])
+	}
+
+	storedApproval, found, err := store.GetApproval(ctx, task.ID, approval.ID)
+	if err != nil || !found {
+		t.Fatalf("GetApproval: found=%t err=%v", found, err)
+	}
+	if storedApproval.Status != decision && storedApproval.Status != "cancelled" {
+		t.Fatalf("approval status = %q, want %q or cancelled", storedApproval.Status, decision)
+	}
+	if outcomes["resolution"].applied != (storedApproval.Status == decision) {
+		t.Fatalf("resolution applied=%t approval=%q, want matching winner", outcomes["resolution"].applied, storedApproval.Status)
+	}
+	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found || storedRun.Status != "cancelled" {
+		t.Fatalf("run = %+v found=%t err=%v, want cancelled", storedRun, found, err)
+	}
+	storedTask, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found || storedTask.Status != "cancelled" {
+		t.Fatalf("task = %+v found=%t err=%v, want cancelled", storedTask, found, err)
+	}
+	storedStep, found, err := store.GetStep(ctx, run.ID, step.ID)
+	if err != nil || !found || storedStep.Status != "cancelled" {
+		t.Fatalf("step = %+v found=%t err=%v, want cancelled", storedStep, found, err)
+	}
+	storedArtifact, found, err := store.GetArtifact(ctx, task.ID, artifact.ID)
+	if err != nil || !found || storedArtifact.Status != "cancelled" {
+		t.Fatalf("artifact = %+v found=%t err=%v, want cancelled", storedArtifact, found, err)
+	}
+
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	counts := make(map[string]int)
+	decisions := make(map[string]int)
+	for _, event := range events {
+		counts[event.EventType]++
+		if event.EventType == "approval.resolved" && event.Data["approval_id"] == approval.ID {
+			if value, ok := event.Data["decision"].(string); ok {
+				decisions[value]++
+			}
+		}
+	}
+	if counts["run.cancelled"] != 1 || counts["task.updated"] != 1 || counts["approval.resolved"] != 1 {
+		t.Fatalf("event counts = %+v events=%+v, want one approval/terminal/task audit", counts, events)
+	}
+	queuedWant := 0
+	if storedApproval.Status == "approved" {
+		queuedWant = 1
+	}
+	if counts["run.queued"] != queuedWant || decisions[storedApproval.Status] != 1 || len(decisions) != 1 {
+		t.Fatalf("winner audit = counts:%+v decisions:%+v approval:%+v", counts, decisions, storedApproval)
+	}
+}
+
+func assertRunEventSnapshotState(t *testing.T, event types.TaskRunEvent, runStatus, stepStatus, artifactStatus string) {
+	t.Helper()
+	decode := func(value any, target any) {
+		t.Helper()
+		payload, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("marshal event snapshot: %v", err)
+		}
+		if err := json.Unmarshal(payload, target); err != nil {
+			t.Fatalf("decode event snapshot: %v", err)
+		}
+	}
+	var run types.TaskRun
+	decode(event.Data["run"], &run)
+	if run.Status != runStatus {
+		t.Fatalf("event %q run status = %q, want %q", event.EventType, run.Status, runStatus)
+	}
+	var steps []types.TaskStep
+	decode(event.Data["steps"], &steps)
+	if len(steps) != 1 || steps[0].Status != stepStatus {
+		t.Fatalf("event %q steps = %+v, want one %q", event.EventType, steps, stepStatus)
+	}
+	var artifacts []types.TaskArtifact
+	decode(event.Data["artifacts"], &artifacts)
+	if len(artifacts) != 1 || artifacts[0].Status != artifactStatus {
+		t.Fatalf("event %q artifacts = %+v, want one %q", event.EventType, artifacts, artifactStatus)
+	}
+}
+
+func runStoreTerminalTransitionPreservesDifferentTerminalWinner(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{ID: "task-terminal-cas", Status: "running", CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := store.CreateRun(ctx, types.TaskRun{ID: "run-terminal-cas", TaskID: task.ID, Status: "running", StartedAt: now})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	cancelledTask := task
+	cancelledTask.Status = "cancelled"
+	cancelledRun := run
+	cancelledRun.Status = "cancelled"
+	cancelledRun.FinishedAt = now.Add(time.Second)
+	winner, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{Task: cancelledTask, Run: cancelledRun, FinishedAt: cancelledRun.FinishedAt})
+	if err != nil || !winner.Applied {
+		t.Fatalf("winner transition applied=%t err=%v", winner.Applied, err)
+	}
+	completedTask := task
+	completedTask.Status = "completed"
+	completedRun := run
+	completedRun.Status = "completed"
+	completedRun.FinishedAt = now.Add(2 * time.Second)
+	stale, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{Task: completedTask, Run: completedRun, FinishedAt: completedRun.FinishedAt})
+	if err != nil {
+		t.Fatalf("stale terminal transition: %v", err)
+	}
+	if stale.Applied || stale.Run.Status != "cancelled" || stale.Task.Status != "cancelled" {
+		t.Fatalf("stale terminal result = %+v, want unapplied cancelled winner", stale)
+	}
 }
 
 // runStoreWakesOnRunScopedMutations is the contract the task-run SSE
@@ -838,6 +1755,554 @@ func assertNoTerminalEventSnapshot(t *testing.T, event types.TaskRunEvent) {
 	}
 }
 
+func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC().Add(-time.Minute)
+	winnerFinishedAt := now.Add(30 * time.Second)
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-terminal-same-replay", Title: "authoritative title", Status: "running",
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := store.CreateRun(ctx, types.TaskRun{
+		ID: "run-terminal-same-replay", TaskID: task.ID, Number: 1, Status: "running",
+		StartedAt: now, RequestID: "request-terminal-winner", TraceID: "trace-terminal-winner",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	winnerReason := "run cancelled: first winner"
+	winnerRun := run
+	winnerRun.Status = "cancelled"
+	winnerRun.LastError = winnerReason
+	winnerRun.FinishedAt = winnerFinishedAt
+	winnerRun.OtelStatusCode = "error"
+	winnerRun.OtelStatusMessage = winnerReason
+	winnerRun.StepCount = 2
+	winnerRun.ArtifactCount = 5
+	winnerRun.TotalCostMicrosUSD = 100
+	winnerTask := task
+	winnerTask.Status = "cancelled"
+	winnerTask.LatestRunID = winnerRun.ID
+	winnerTask.LastError = winnerReason
+	winnerTask.FinishedAt = winnerFinishedAt
+	winnerTask.UpdatedAt = winnerFinishedAt
+	winnerTask.LatestRequestID = winnerRun.RequestID
+	winnerTask.LatestTraceID = winnerRun.TraceID
+	first, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: winnerTask, Run: winnerRun, FinishedAt: winnerFinishedAt,
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled", Data: map[string]any{"reason": winnerReason},
+			RequestID: winnerRun.RequestID, TraceID: winnerRun.TraceID, CreatedAt: winnerFinishedAt,
+		},
+		TaskUpdatedEvent: &RunEventSpec{
+			EventType: "task.updated", RequestID: winnerRun.RequestID,
+			TraceID: winnerRun.TraceID, CreatedAt: winnerFinishedAt,
+		},
+	})
+	if err != nil || !first.Applied {
+		t.Fatalf("winner transition applied=%t err=%v", first.Applied, err)
+	}
+
+	replayFinishedAt := winnerFinishedAt.Add(time.Second)
+	lateChildAt := replayFinishedAt.Add(time.Second)
+	lateStep := types.TaskStep{
+		ID: "step-terminal-same-replay", TaskID: task.ID, RunID: run.ID,
+		Index: 1, Status: "running", StartedAt: lateChildAt,
+	}
+	if _, err := store.AppendStep(ctx, lateStep); err != nil {
+		t.Fatalf("AppendStep(late): %v", err)
+	}
+	lateArtifact := types.TaskArtifact{
+		ID: "artifact-terminal-same-replay", TaskID: task.ID, RunID: run.ID,
+		Status: "streaming", CreatedAt: lateChildAt,
+	}
+	if _, err := store.CreateArtifact(ctx, lateArtifact); err != nil {
+		t.Fatalf("CreateArtifact(late): %v", err)
+	}
+	lateApproval := types.TaskApproval{
+		ID: "approval-terminal-same-replay", TaskID: task.ID, RunID: run.ID,
+		StepID: lateStep.ID, Kind: "tool_call", Status: "pending", RequestedBy: "agent",
+		CreatedAt: lateChildAt,
+	}
+	if _, err := store.CreateApproval(ctx, lateApproval); err != nil {
+		t.Fatalf("CreateApproval(late): %v", err)
+	}
+
+	replayReason := "run cancelled: stale replay"
+	replayRun := run
+	replayRun.Status = "cancelled"
+	replayRun.LastError = replayReason
+	replayRun.FinishedAt = replayFinishedAt
+	replayRun.RequestID = "request-terminal-replay"
+	replayRun.TraceID = "trace-terminal-replay"
+	replayRun.Provider = "provider-terminal-replay"
+	replayRun.ProviderKind = "openai"
+	replayRun.Model = "model-terminal-replay"
+	replayRun.StepCount = 4
+	replayRun.ArtifactCount = 3
+	replayRun.TotalCostMicrosUSD = 250
+	replayTask := task
+	replayTask.Title = "stale title"
+	replayTask.Status = "cancelled"
+	replayTask.LatestRunID = replayRun.ID
+	replayTask.LastError = replayReason
+	replayTask.FinishedAt = replayFinishedAt
+	replayTask.UpdatedAt = replayFinishedAt
+	replay, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: replayTask, Run: replayRun, FinishedAt: replayFinishedAt,
+		TrustedSupplementalRunMetadata: &TerminalRunSupplementalMetadata{
+			Provider:           replayRun.Provider,
+			ProviderKind:       replayRun.ProviderKind,
+			Model:              replayRun.Model,
+			StepCount:          replayRun.StepCount,
+			ArtifactCount:      replayRun.ArtifactCount,
+			TotalCostMicrosUSD: replayRun.TotalCostMicrosUSD,
+		},
+		CancelActiveSteps:             true,
+		ActiveStepResult:              "error",
+		ActiveStepError:               replayReason,
+		ActiveStepErrorKind:           "run_cancelled",
+		CancelStreamingArtifacts:      true,
+		CancelPendingApprovals:        true,
+		PendingApprovalStatus:         "cancelled",
+		PendingApprovalResolvedBy:     "system",
+		PendingApprovalResolutionNote: replayReason,
+		ApprovalResolvedEventType:     "approval.resolved",
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled", Data: map[string]any{"reason": replayReason},
+			RequestID: replayRun.RequestID, TraceID: replayRun.TraceID, CreatedAt: replayFinishedAt,
+		},
+		TaskUpdatedEvent: &RunEventSpec{
+			EventType: "task.updated", RequestID: replayRun.RequestID,
+			TraceID: replayRun.TraceID, CreatedAt: replayFinishedAt,
+		},
+	})
+	if err != nil || !replay.Applied {
+		t.Fatalf("same-status replay applied=%t err=%v", replay.Applied, err)
+	}
+	if replay.Run.LastError != winnerReason || !replay.Run.FinishedAt.Equal(winnerFinishedAt) ||
+		replay.Run.RequestID != winnerRun.RequestID || replay.Run.TraceID != winnerRun.TraceID {
+		t.Fatalf("replay run = %+v, want first terminal winner", replay.Run)
+	}
+	if replay.Run.Provider != replayRun.Provider || replay.Run.ProviderKind != replayRun.ProviderKind ||
+		replay.Run.Model != replayRun.Model || replay.Run.StepCount != 4 ||
+		replay.Run.ArtifactCount != 5 || replay.Run.TotalCostMicrosUSD != 250 {
+		t.Fatalf("replay run metadata = %+v, want safe supplemental fields with monotonic counts/cost", replay.Run)
+	}
+	if replay.Task.Title != winnerTask.Title || replay.Task.LastError != winnerReason ||
+		replay.Task.LatestRequestID != winnerRun.RequestID || replay.Task.LatestTraceID != winnerRun.TraceID ||
+		!replay.Task.FinishedAt.Equal(winnerFinishedAt) {
+		t.Fatalf("replay task = %+v, want first terminal winner projection", replay.Task)
+	}
+	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found || storedRun.LastError != winnerReason ||
+		storedRun.Provider != replayRun.Provider || storedRun.StepCount != 4 ||
+		storedRun.ArtifactCount != 5 || storedRun.TotalCostMicrosUSD != 250 {
+		t.Fatalf("stored replay run = %+v found=%t err=%v, want winner plus supplemental metadata", storedRun, found, err)
+	}
+	if len(replay.CancelledApprovals) != 1 || replay.CancelledApprovals[0].ID != lateApproval.ID {
+		t.Fatalf("replay cancelled approvals = %+v, want late approval", replay.CancelledApprovals)
+	}
+
+	storedStep, found, err := store.GetStep(ctx, run.ID, lateStep.ID)
+	if err != nil || !found || storedStep.Status != "cancelled" || storedStep.Error != winnerReason ||
+		storedStep.FinishedAt.Before(storedStep.StartedAt) {
+		t.Fatalf("late step = %+v found=%t err=%v, want winner cancellation", storedStep, found, err)
+	}
+	storedArtifact, found, err := store.GetArtifact(ctx, task.ID, lateArtifact.ID)
+	if err != nil || !found || storedArtifact.Status != "cancelled" {
+		t.Fatalf("late artifact = %+v found=%t err=%v, want cancelled", storedArtifact, found, err)
+	}
+	storedApproval, found, err := store.GetApproval(ctx, task.ID, lateApproval.ID)
+	if err != nil || !found || storedApproval.Status != "cancelled" ||
+		storedApproval.ResolutionNote != winnerReason || storedApproval.ResolvedBy != "system" ||
+		storedApproval.ResolvedAt.Before(storedApproval.CreatedAt) {
+		t.Fatalf("late approval = %+v found=%t err=%v, want winner cancellation", storedApproval, found, err)
+	}
+
+	staleCancelRun := replayRun
+	staleCancelRun.Provider = "stale-cancel-provider"
+	staleCancelRun.ProviderKind = "stale-cancel-kind"
+	staleCancelRun.Model = "stale-cancel-model"
+	staleCancelRun.StepCount = 99
+	staleCancelRun.ArtifactCount = 99
+	staleCancelRun.TotalCostMicrosUSD = 999
+	staleCancel, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: replayTask, Run: staleCancelRun, FinishedAt: replayFinishedAt.Add(time.Second),
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled", Data: map[string]any{"reason": replayReason},
+		},
+		TaskUpdatedEvent: &RunEventSpec{EventType: "task.updated"},
+	})
+	if err != nil || !staleCancel.Applied {
+		t.Fatalf("stale cancellation replay applied=%t err=%v", staleCancel.Applied, err)
+	}
+	if staleCancel.Run.Provider != replayRun.Provider || staleCancel.Run.ProviderKind != replayRun.ProviderKind ||
+		staleCancel.Run.Model != replayRun.Model || staleCancel.Run.StepCount != 4 ||
+		staleCancel.Run.ArtifactCount != 5 || staleCancel.Run.TotalCostMicrosUSD != 250 {
+		t.Fatalf("stale cancellation replay replaced trusted execution metadata: %+v", staleCancel.Run)
+	}
+
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	counts := make(map[string]int)
+	for _, event := range events {
+		counts[event.EventType]++
+	}
+	if counts["run.cancelled"] != 1 || counts["task.updated"] != 1 || counts["approval.resolved"] != 1 || len(events) != 3 {
+		t.Fatalf("events/counts = %+v/%v, want one terminal, task, and late approval event", events, counts)
+	}
+	if events[2].RequestID != winnerRun.RequestID || events[2].TraceID != winnerRun.TraceID {
+		t.Fatalf("late approval event trace = request:%q trace:%q, want winner request/trace", events[2].RequestID, events[2].TraceID)
+	}
+	if events[2].CreatedAt.Before(lateApproval.CreatedAt) {
+		t.Fatalf("late approval event predates approval: event=%s approval=%s", events[2].CreatedAt, lateApproval.CreatedAt)
+	}
+}
+
+func runStoreApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC().Add(-time.Minute)
+	winnerFinishedAt := now.Add(10 * time.Second)
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-terminal-different-replay", Title: "authoritative task", Status: "running",
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := store.CreateRun(ctx, types.TaskRun{
+		ID: "run-terminal-different-replay", TaskID: task.ID, Number: 1, Status: "running",
+		StartedAt: now, RequestID: "request-terminal-different-winner", TraceID: "trace-terminal-different-winner",
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	step := types.TaskStep{
+		ID: "step-terminal-different-replay", TaskID: task.ID, RunID: run.ID,
+		Index: 1, Status: "running", StartedAt: now,
+	}
+	if _, err := store.AppendStep(ctx, step); err != nil {
+		t.Fatalf("AppendStep: %v", err)
+	}
+	artifact := types.TaskArtifact{
+		ID: "artifact-terminal-different-replay", TaskID: task.ID, RunID: run.ID,
+		Status: "streaming", CreatedAt: now,
+	}
+	if _, err := store.CreateArtifact(ctx, artifact); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	approval := types.TaskApproval{
+		ID: "approval-terminal-different-replay", TaskID: task.ID, RunID: run.ID,
+		StepID: step.ID, Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now,
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+
+	winnerReason := "run cancelled: operator winner"
+	winnerRun := run
+	winnerRun.Status = "cancelled"
+	winnerRun.LastError = winnerReason
+	winnerRun.FinishedAt = winnerFinishedAt
+	winnerRun.OtelStatusCode = "error"
+	winnerRun.OtelStatusMessage = winnerReason
+	winnerRun.StepCount = 1
+	winnerRun.ArtifactCount = 4
+	winnerRun.TotalCostMicrosUSD = 50
+	winnerTask := task
+	winnerTask.Status = "cancelled"
+	winnerTask.LatestRunID = run.ID
+	winnerTask.LastError = winnerReason
+	winnerTask.FinishedAt = winnerFinishedAt
+	winnerTask.UpdatedAt = winnerFinishedAt
+	winnerTask.LatestRequestID = winnerRun.RequestID
+	winnerTask.LatestTraceID = winnerRun.TraceID
+	first, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: winnerTask, Run: winnerRun, FinishedAt: winnerFinishedAt,
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled", Data: map[string]any{"reason": winnerReason},
+			RequestID: winnerRun.RequestID, TraceID: winnerRun.TraceID, CreatedAt: winnerFinishedAt,
+		},
+		TaskUpdatedEvent: &RunEventSpec{
+			EventType: "task.updated", RequestID: winnerRun.RequestID,
+			TraceID: winnerRun.TraceID, CreatedAt: winnerFinishedAt,
+		},
+	})
+	if err != nil || !first.Applied {
+		t.Fatalf("winner transition applied=%t err=%v", first.Applied, err)
+	}
+
+	loserFinishedAt := winnerFinishedAt.Add(20 * time.Second)
+	loserRun := run
+	loserRun.Status = "completed"
+	loserRun.FinishedAt = loserFinishedAt
+	loserRun.RequestID = "request-terminal-different-loser"
+	loserRun.TraceID = "trace-terminal-different-loser"
+	loserRun.Provider = "actual-provider"
+	loserRun.ProviderKind = "openai"
+	loserRun.Model = "actual-model"
+	loserRun.StepCount = 3
+	loserRun.ArtifactCount = 2
+	loserRun.TotalCostMicrosUSD = 250
+	loserRun.OtelStatusCode = "ok"
+	loserTask := task
+	loserTask.Title = "stale loser task"
+	loserTask.Status = "completed"
+	loserTask.LatestRunID = run.ID
+	loserTask.FinishedAt = loserFinishedAt
+	loserTask.UpdatedAt = loserFinishedAt
+	loser, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: loserTask, Run: loserRun, FinishedAt: loserFinishedAt,
+		TrustedSupplementalRunMetadata: &TerminalRunSupplementalMetadata{
+			Provider:           loserRun.Provider,
+			ProviderKind:       loserRun.ProviderKind,
+			Model:              loserRun.Model,
+			StepCount:          loserRun.StepCount,
+			ArtifactCount:      loserRun.ArtifactCount,
+			TotalCostMicrosUSD: loserRun.TotalCostMicrosUSD,
+		},
+		// Deliberately request every loser-side effect. A different-status
+		// trusted replay may enrich accounting only; it cannot clean up the
+		// winner's children or emit loser events.
+		CancelActiveSteps:        true,
+		CancelStreamingArtifacts: true,
+		CancelPendingApprovals:   true,
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.finished", RequestID: loserRun.RequestID,
+			TraceID: loserRun.TraceID, CreatedAt: loserFinishedAt,
+		},
+		TaskUpdatedEvent: &RunEventSpec{
+			EventType: "task.updated", RequestID: loserRun.RequestID,
+			TraceID: loserRun.TraceID, CreatedAt: loserFinishedAt,
+		},
+	})
+	if err != nil || !loser.Applied {
+		t.Fatalf("trusted loser transition applied=%t err=%v", loser.Applied, err)
+	}
+	if loser.Run.Status != "cancelled" || loser.Run.LastError != winnerReason ||
+		!loser.Run.FinishedAt.Equal(winnerFinishedAt) || loser.Run.RequestID != winnerRun.RequestID ||
+		loser.Run.TraceID != winnerRun.TraceID || loser.Run.OtelStatusCode != "error" ||
+		loser.Run.OtelStatusMessage != winnerReason {
+		t.Fatalf("trusted loser run = %+v, want cancellation winner", loser.Run)
+	}
+	if loser.Run.Provider != loserRun.Provider || loser.Run.ProviderKind != loserRun.ProviderKind ||
+		loser.Run.Model != loserRun.Model || loser.Run.StepCount != 3 ||
+		loser.Run.ArtifactCount != 4 || loser.Run.TotalCostMicrosUSD != 250 {
+		t.Fatalf("trusted loser metadata = %+v, want safe route and monotonic accounting", loser.Run)
+	}
+	if loser.Task.Title != winnerTask.Title || loser.Task.Status != "cancelled" ||
+		loser.Task.LastError != winnerReason || !loser.Task.FinishedAt.Equal(winnerFinishedAt) {
+		t.Fatalf("trusted loser task = %+v, want cancellation winner projection", loser.Task)
+	}
+	if len(loser.CancelledApprovals) != 0 || len(loser.Events) != 0 {
+		t.Fatalf("trusted loser side effects = approvals:%+v events:%+v, want none", loser.CancelledApprovals, loser.Events)
+	}
+
+	storedStep, found, err := store.GetStep(ctx, run.ID, step.ID)
+	if err != nil || !found || storedStep.Status != "running" || !storedStep.FinishedAt.IsZero() {
+		t.Fatalf("winner step changed by trusted loser: step=%+v found=%t err=%v", storedStep, found, err)
+	}
+	storedArtifact, found, err := store.GetArtifact(ctx, task.ID, artifact.ID)
+	if err != nil || !found || storedArtifact.Status != "streaming" {
+		t.Fatalf("winner artifact changed by trusted loser: artifact=%+v found=%t err=%v", storedArtifact, found, err)
+	}
+	storedApproval, found, err := store.GetApproval(ctx, task.ID, approval.ID)
+	if err != nil || !found || storedApproval.Status != "pending" || !storedApproval.ResolvedAt.IsZero() {
+		t.Fatalf("winner approval changed by trusted loser: approval=%+v found=%t err=%v", storedApproval, found, err)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(events) != 2 || events[0].EventType != "run.cancelled" || events[1].EventType != "task.updated" {
+		t.Fatalf("events = %+v, want only winner terminal/task events", events)
+	}
+}
+
+func runStoreApplyRunTerminalTransitionConcurrentSameStatus(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC().Add(-time.Minute)
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-terminal-concurrent-same", Status: "running", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := store.CreateRun(ctx, types.TaskRun{
+		ID: "run-terminal-concurrent-same", TaskID: task.ID, Status: "running", StartedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	reasons := []string{"run cancelled: contender zero", "run cancelled: contender one"}
+	finished := []time.Time{now.Add(10 * time.Second), now.Add(20 * time.Second)}
+	var wg sync.WaitGroup
+	for index := range reasons {
+		index := index
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			candidateRun := run
+			candidateRun.Status = "cancelled"
+			candidateRun.LastError = reasons[index]
+			candidateRun.FinishedAt = finished[index]
+			candidateRun.RequestID = fmt.Sprintf("request-terminal-contender-%d", index)
+			candidateRun.TraceID = fmt.Sprintf("trace-terminal-contender-%d", index)
+			candidateTask := task
+			candidateTask.Status = "cancelled"
+			candidateTask.LatestRunID = candidateRun.ID
+			candidateTask.LastError = candidateRun.LastError
+			candidateTask.FinishedAt = candidateRun.FinishedAt
+			candidateTask.UpdatedAt = candidateRun.FinishedAt
+			_, errs[index] = store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+				Task: candidateTask, Run: candidateRun, FinishedAt: candidateRun.FinishedAt,
+				TerminalEvent: &RunEventSpec{
+					EventType: "run.cancelled", Data: map[string]any{"reason": candidateRun.LastError},
+					RequestID: candidateRun.RequestID, TraceID: candidateRun.TraceID,
+					CreatedAt: candidateRun.FinishedAt,
+				},
+				TaskUpdatedEvent: &RunEventSpec{
+					EventType: "task.updated", RequestID: candidateRun.RequestID,
+					TraceID: candidateRun.TraceID, CreatedAt: candidateRun.FinishedAt,
+				},
+			})
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for index, err := range errs {
+		if err != nil {
+			t.Fatalf("contender %d: %v", index, err)
+		}
+	}
+
+	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%t err=%v", found, err)
+	}
+	storedTask, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask: found=%t err=%v", found, err)
+	}
+	if storedTask.LastError != storedRun.LastError || !storedTask.FinishedAt.Equal(storedRun.FinishedAt) {
+		t.Fatalf("task/run winners diverged: task=%+v run=%+v", storedTask, storedRun)
+	}
+
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	counts := make(map[string]int)
+	var terminalEvent types.TaskRunEvent
+	for _, event := range events {
+		counts[event.EventType]++
+		if event.EventType == "run.cancelled" {
+			terminalEvent = event
+		}
+	}
+	if counts["run.cancelled"] != 1 || counts["task.updated"] != 1 || len(events) != 2 {
+		t.Fatalf("events/counts = %+v/%v, want one terminal and task event", events, counts)
+	}
+	if terminalEvent.Data["reason"] != storedRun.LastError || terminalEvent.RequestID != storedRun.RequestID || terminalEvent.TraceID != storedRun.TraceID {
+		t.Fatalf("terminal event = %+v, want stored winner %+v", terminalEvent, storedRun)
+	}
+}
+
+func runStoreApplyRunTerminalTransitionPreservesTaskProjection(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC().Add(-time.Minute)
+	authoritativeTask := types.Task{
+		ID: "task-terminal-child-cleanup", Title: "authoritative title", Status: "queued",
+		LatestRunID: "run-terminal-new", BudgetMicrosUSD: 300,
+		CreatedAt: now, UpdatedAt: now.Add(30 * time.Second), StartedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, authoritativeTask); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	oldRun := types.TaskRun{
+		ID: "run-terminal-old", TaskID: authoritativeTask.ID, Number: 1, Status: "cancelled",
+		StartedAt: now, FinishedAt: now.Add(10 * time.Second), LastError: "run cancelled",
+	}
+	if _, err := store.CreateRun(ctx, oldRun); err != nil {
+		t.Fatalf("CreateRun(old): %v", err)
+	}
+	newRun := types.TaskRun{
+		ID: authoritativeTask.LatestRunID, TaskID: authoritativeTask.ID, Number: 2,
+		Status: "queued", StartedAt: now.Add(20 * time.Second),
+	}
+	if _, err := store.CreateRun(ctx, newRun); err != nil {
+		t.Fatalf("CreateRun(new): %v", err)
+	}
+	approval := types.TaskApproval{
+		ID: "approval-terminal-late", TaskID: authoritativeTask.ID, RunID: oldRun.ID,
+		Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now.Add(15 * time.Second),
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+
+	staleTask := authoritativeTask
+	staleTask.Title = "stale title"
+	staleTask.Status = "cancelled"
+	staleTask.LatestRunID = oldRun.ID
+	staleTask.BudgetMicrosUSD = 1
+	staleTask.FinishedAt = oldRun.FinishedAt
+	result, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: staleTask, Run: oldRun, FinishedAt: oldRun.FinishedAt,
+		PreserveTaskProjection:        true,
+		CancelPendingApprovals:        true,
+		PendingApprovalStatus:         "cancelled",
+		PendingApprovalResolvedBy:     "system",
+		PendingApprovalResolutionNote: oldRun.LastError,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunTerminalTransition: %v", err)
+	}
+	if !result.Applied {
+		t.Fatal("ApplyRunTerminalTransition did not apply child cleanup")
+	}
+	if result.Task.Title != authoritativeTask.Title || result.Task.Status != "queued" ||
+		result.Task.LatestRunID != newRun.ID || result.Task.BudgetMicrosUSD != 300 ||
+		!result.Task.FinishedAt.IsZero() {
+		t.Fatalf("result task = %+v, want authoritative newer-run projection", result.Task)
+	}
+	storedTask, found, err := store.GetTask(ctx, authoritativeTask.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask: found=%t err=%v", found, err)
+	}
+	if storedTask.Title != authoritativeTask.Title || storedTask.Status != "queued" ||
+		storedTask.LatestRunID != newRun.ID || storedTask.BudgetMicrosUSD != 300 ||
+		!storedTask.FinishedAt.IsZero() {
+		t.Fatalf("stored task = %+v, want authoritative newer-run projection", storedTask)
+	}
+	approvals, err := store.ListApprovals(ctx, authoritativeTask.ID)
+	if err != nil || len(approvals) != 1 || approvals[0].Status != "cancelled" || approvals[0].ResolvedBy != "system" {
+		t.Fatalf("late approval cleanup = %+v err=%v, want one system-cancelled approval", approvals, err)
+	}
+	if approvals[0].ResolvedAt.Before(approvals[0].CreatedAt) {
+		t.Fatalf("late approval cleanup resolved before creation: %+v", approvals[0])
+	}
+	storedNewRun, found, err := store.GetRun(ctx, authoritativeTask.ID, newRun.ID)
+	if err != nil || !found || storedNewRun.Status != "queued" {
+		t.Fatalf("new run = %+v found=%t err=%v, want queued", storedNewRun, found, err)
+	}
+}
+
 func runStoreApplyRunTerminalTransitionPreservesChildrenWithoutCancelFlags(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -1095,6 +2560,22 @@ func runStoreListRunsByFilterStatusSet(t *testing.T, store Store) {
 	}
 	if len(limited) != 2 {
 		t.Fatalf("ListRunsByFilter(limit) len = %d, want 2", len(limited))
+	}
+	firstPage, err := store.ListRunsByFilter(ctx, RunFilter{TaskID: "task-rfilter", Limit: 2, OrderByID: true})
+	if err != nil {
+		t.Fatalf("ListRunsByFilter(cursor first page): %v", err)
+	}
+	if len(firstPage) != 2 || firstPage[0].ID != "run-completed" || firstPage[1].ID != "run-failed" {
+		t.Fatalf("cursor first page = %+v", firstPage)
+	}
+	secondPage, err := store.ListRunsByFilter(ctx, RunFilter{
+		TaskID: "task-rfilter", Limit: 2, OrderByID: true, AfterID: firstPage[len(firstPage)-1].ID,
+	})
+	if err != nil {
+		t.Fatalf("ListRunsByFilter(cursor second page): %v", err)
+	}
+	if len(secondPage) != 2 || secondPage[0].ID != "run-queued" || secondPage[1].ID != "run-running" {
+		t.Fatalf("cursor second page = %+v", secondPage)
 	}
 }
 

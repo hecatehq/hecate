@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
+import { useChat } from "./state/chat";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
@@ -94,6 +95,46 @@ const projectDeleteResult = {
   memory_entries_deleted: 3,
   memory_candidates_deleted: 4,
 };
+
+function LateImageDraftControl() {
+  const chat = useChat();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          chat.actions.setPendingChatAttachments([
+            {
+              id: "late-navigation-draft",
+              file: new File(["image"], "late-navigation.png", { type: "image/png" }),
+            },
+          ])
+        }
+      >
+        Attach late navigation image
+      </button>
+      <output aria-label="Late navigation image count">
+        {chat.state.pendingChatAttachments.length}
+      </output>
+    </>
+  );
+}
+
+function RemoveChatSessionControl({ chatID }: { chatID: string }) {
+  const chat = useChat();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        chat.actions.setChatSessions((sessions) =>
+          sessions.filter((session) => session.id !== chatID),
+        )
+      }
+    >
+      Remove deleted chat from state
+    </button>
+  );
+}
 
 function emptyActivityData() {
   return {
@@ -564,7 +605,7 @@ describe("ConsoleShell navigation", () => {
     expect(screen.getByRole("button", { name: /Project Hecate/i })).toBeInTheDocument();
   });
 
-  it("lets the chat sidebar switch back to No project", () => {
+  it("lets the chat sidebar switch back to No project", async () => {
     const selectProject = vi.fn(async () => undefined);
     const state = createRuntimeConsoleFixture({
       projects: [
@@ -597,7 +638,7 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
     fireEvent.click(screen.getByRole("button", { name: /Project No project/i }));
 
-    expect(selectProject).toHaveBeenCalledWith("");
+    await waitFor(() => expect(selectProject).toHaveBeenCalledWith(""));
   });
 
   it("shows only chats for the selected project", async () => {
@@ -741,10 +782,12 @@ describe("ConsoleShell navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /New Hecate chat/i }));
 
-    expect(createChatSession).toHaveBeenCalledWith({
-      agentID: "hecate",
-      projectID: "proj_1",
-    });
+    await waitFor(() =>
+      expect(createChatSession).toHaveBeenCalledWith({
+        agentID: "hecate",
+        projectID: "proj_1",
+      }),
+    );
   });
 
   it("forces Hecate chats when opening chat from a project assignment", async () => {
@@ -972,7 +1015,11 @@ describe("ConsoleShell navigation", () => {
     ).toBeInTheDocument();
   });
 
-  async function openLinkedExternalAgentChat(selected: boolean) {
+  async function openLinkedExternalAgentChat(
+    selected: boolean | Promise<boolean>,
+    pendingImageDraft = false,
+    showLateDraftControl = false,
+  ) {
     const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
       async () => undefined,
     );
@@ -980,6 +1027,9 @@ describe("ConsoleShell navigation", () => {
       async () => selected,
     );
     const setMessage = vi.fn<RuntimeConsoleFixtureActions["setMessage"]>(() => undefined);
+    const selectProject = vi.fn<RuntimeConsoleFixtureActions["selectProject"]>(
+      async () => undefined,
+    );
     const onSelectWorkspace = vi.fn();
     const project = {
       id: "proj_1",
@@ -1041,16 +1091,28 @@ describe("ConsoleShell navigation", () => {
     const state = createRuntimeConsoleFixture({
       projects: [project],
       activeProjectID: project.id,
+      pendingChatAttachments: pendingImageDraft
+        ? [
+            {
+              id: "draft-1",
+              file: new File(["image"], "map.png", { type: "image/png" }),
+            },
+          ]
+        : [],
       chatCreating: true,
     });
     render(
       withRuntimeConsole(
-        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        <>
+          {showLateDraftControl && <LateImageDraftControl />}
+          <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />
+        </>,
         {
           state,
           actions: {
             ...createRuntimeConsoleActions(),
             createChatSession,
+            selectProject,
             selectChatSession,
             setMessage,
           },
@@ -1059,32 +1121,79 @@ describe("ConsoleShell navigation", () => {
     );
 
     fireEvent.click(await screen.findByRole("tab", { name: /Work/ }));
+    selectProject.mockClear();
     fireEvent.click(await screen.findByRole("button", { name: "Continue in chat" }));
+
+    return {
+      createChatSession,
+      onSelectWorkspace,
+      selectChatSession,
+      selectProject,
+      setMessage,
+    };
+  }
+
+  it("selects linked External Agent chats without replacing an unsent draft", async () => {
+    const { createChatSession, onSelectWorkspace, selectChatSession, setMessage } =
+      await openLinkedExternalAgentChat(true);
 
     expect(selectChatSession).toHaveBeenCalledWith(
       "chat_external_1",
       expect.objectContaining({ draft: expect.stringContaining("Launch context") }),
     );
     expect(createChatSession).not.toHaveBeenCalled();
-    expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
-    return { selectChatSession, setMessage };
-  }
-
-  it("selects linked External Agent chats without replacing an unsent draft", async () => {
-    const { selectChatSession, setMessage } = await openLinkedExternalAgentChat(true);
-
-    await waitFor(() => expect(selectChatSession).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSelectWorkspace).toHaveBeenCalledWith("chats"));
     expect(setMessage).not.toHaveBeenCalled();
   });
 
   it("selects linked External Agent chats without seeding a draft when selection fails", async () => {
-    const { selectChatSession, setMessage } = await openLinkedExternalAgentChat(false);
+    const { createChatSession, onSelectWorkspace, selectChatSession, setMessage } =
+      await openLinkedExternalAgentChat(false);
 
     await waitFor(() => expect(selectChatSession).toHaveBeenCalledTimes(1));
+    expect(createChatSession).not.toHaveBeenCalled();
+    expect(onSelectWorkspace).not.toHaveBeenCalled();
     expect(setMessage).not.toHaveBeenCalled();
   });
 
-  it("moves the active chat when selecting a different project", () => {
+  it("does not commit Projects-to-chat navigation when an image draft appears during selection", async () => {
+    let resolveSelection: ((selected: boolean) => void) | undefined;
+    const selection = new Promise<boolean>((resolve) => {
+      resolveSelection = resolve;
+    });
+    const { onSelectWorkspace, selectChatSession, selectProject, setMessage } =
+      await openLinkedExternalAgentChat(selection, false, true);
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach late navigation image" }));
+    expect(screen.getByRole("status", { name: "Late navigation image count" })).toHaveTextContent(
+      "1",
+    );
+    await act(async () => resolveSelection?.(true));
+
+    await waitFor(() => expect(onSelectWorkspace).not.toHaveBeenCalled());
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(setMessage).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Remove attached files before opening a chat from Projects."),
+    ).toBeVisible();
+  });
+
+  it("keeps image drafts scoped when Projects tries to open another chat", async () => {
+    const { createChatSession, onSelectWorkspace, selectChatSession, selectProject, setMessage } =
+      await openLinkedExternalAgentChat(true, true);
+
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(selectChatSession).not.toHaveBeenCalled();
+    expect(createChatSession).not.toHaveBeenCalled();
+    expect(setMessage).not.toHaveBeenCalled();
+    expect(onSelectWorkspace).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Remove attached files before opening a chat from Projects."),
+    ).toBeVisible();
+  });
+
+  it("moves the active chat when selecting a different project", async () => {
     const selectProject = vi.fn(async () => undefined);
     const selectChatSession = vi.fn(async () => true);
     const state = createRuntimeConsoleFixture({
@@ -1129,8 +1238,87 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
     fireEvent.click(screen.getByRole("button", { name: /Project Hecate/i }));
 
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_project"));
     expect(selectProject).toHaveBeenCalledWith("proj_1");
-    expect(selectChatSession).toHaveBeenCalledWith("chat_project");
+  });
+
+  it("keeps project scope and workspace unchanged when a late image draft rejects selection", async () => {
+    let resolveSelection: ((selected: boolean) => void) | undefined;
+    const selectChatSession = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSelection = resolve;
+        }),
+    );
+    const selectProject = vi.fn(async () => undefined);
+    const setAgentWorkspace = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "",
+      activeChatSessionID: "chat_loose",
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "/workspace/hecate",
+          message_count: 0,
+        },
+        {
+          id: "chat_loose",
+          title: "Loose chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(
+        <>
+          <LateImageDraftControl />
+          <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />
+        </>,
+        {
+          state,
+          actions: {
+            ...createRuntimeConsoleActions(),
+            selectChatSession,
+            selectProject,
+            setAgentWorkspace,
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Project Hecate/i }));
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_project"));
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(setAgentWorkspace).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach late navigation image" }));
+    await act(async () => resolveSelection?.(true));
+
+    await waitFor(() => expect(selectProject).not.toHaveBeenCalled());
+    expect(setAgentWorkspace).not.toHaveBeenCalled();
+    expect(screen.getByRole("status", { name: "Late navigation image count" })).toHaveTextContent(
+      "1",
+    );
+    expect(
+      await screen.findByText("Remove attached files before changing or deleting chat ownership."),
+    ).toBeVisible();
   });
 
   it("shows only unprojected chats when No project is selected", async () => {
@@ -1286,6 +1474,56 @@ describe("ConsoleShell navigation", () => {
     });
   });
 
+  it("keeps a pending project deletion modal non-dismissible and single-flight", async () => {
+    let finishDelete: ((value: typeof projectDeleteResult) => void) | undefined;
+    const deleteProject = vi.fn(
+      () =>
+        new Promise<typeof projectDeleteResult>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteProject },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    const projectButton = screen.getByRole("button", { name: /Project Hecate/i });
+    fireEvent.mouseEnter(projectButton.parentElement as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: /Delete project Hecate/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete project$/i }));
+
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Delete project" });
+    const pendingButton = screen.getByRole("button", { name: "Working…" });
+    expect(pendingButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    fireEvent.click(pendingButton);
+    expect(deleteProject).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toBe(dialog);
+
+    await act(async () => finishDelete?.(projectDeleteResult));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete project" })).toBeNull(),
+    );
+  });
+
   it("keeps project chats visible when project deletion fails", async () => {
     const deleteProject = vi.fn(async () => null);
     const state = createRuntimeConsoleFixture({
@@ -1329,7 +1567,7 @@ describe("ConsoleShell navigation", () => {
   });
 
   it("confirms chat deletion from the chat sidebar", async () => {
-    const deleteChatSession = vi.fn(async () => undefined);
+    const deleteChatSession = vi.fn(async () => true);
     const state = createRuntimeConsoleFixture({
       chatSessions: [
         {
@@ -1358,7 +1596,115 @@ describe("ConsoleShell navigation", () => {
     expect(deleteChatSession).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /^Delete chat$/i }));
 
-    expect(deleteChatSession).toHaveBeenCalledWith("chat_1");
+    await waitFor(() => expect(deleteChatSession).toHaveBeenCalledWith("chat_1"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete chat" })).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Search chats" })).toHaveFocus();
+  });
+
+  it("keeps a failed chat deletion open and allows a successful retry", async () => {
+    const deleteChatSession = vi
+      .fn<(id: string) => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const state = createRuntimeConsoleFixture({
+      chatSessions: [
+        {
+          id: "chat_1",
+          title: "Cleanup chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteChatSession },
+      }),
+    );
+
+    const chatRow = await screen.findByLabelText("Chat Cleanup chat, Hecate");
+    fireEvent.mouseEnter(chatRow);
+    fireEvent.click(screen.getByRole("button", { name: /Delete chat Cleanup chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete chat$/i }));
+
+    await waitFor(() => expect(deleteChatSession).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("dialog", { name: "Delete chat" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Delete chat$/i })).toBeEnabled(),
+    );
+    expect(screen.getByRole("button", { name: /^Delete chat$/i })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Close" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Delete chat$/i }));
+    await waitFor(() => expect(deleteChatSession).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete chat" })).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Search chats" })).toHaveFocus();
+  });
+
+  it("keeps a pending chat deletion modal non-dismissible and prevents repeat confirmation", async () => {
+    let finishDelete: ((deleted: boolean) => void) | undefined;
+    const deleteChatSession = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    const state = createRuntimeConsoleFixture({
+      chatSessions: [
+        {
+          id: "chat_1",
+          title: "Cleanup chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(
+        <>
+          <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />
+          <RemoveChatSessionControl chatID="chat_1" />
+        </>,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), deleteChatSession },
+        },
+      ),
+    );
+
+    const chatRow = await screen.findByLabelText("Chat Cleanup chat, Hecate");
+    fireEvent.mouseEnter(chatRow);
+    const deleteButton = screen.getByRole("button", { name: /Delete chat Cleanup chat/i });
+    deleteButton.focus();
+    fireEvent.click(deleteButton);
+    fireEvent.click(screen.getByRole("button", { name: /^Delete chat$/i }));
+
+    await waitFor(() => expect(deleteChatSession).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Delete chat" });
+    const pendingButton = screen.getByRole("button", { name: "Working…" });
+    expect(pendingButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    fireEvent.click(pendingButton);
+    expect(deleteChatSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Delete chat" })).toBe(dialog);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove deleted chat from state" }));
+      finishDelete?.(true);
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete chat" })).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Search chats" })).toHaveFocus();
   });
 });
 

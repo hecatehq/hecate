@@ -2,15 +2,19 @@ package agentadapters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
@@ -29,10 +33,22 @@ type acpChatClient struct {
 	mu   sync.Mutex
 	turn *acpTurn
 
-	terminalMu       sync.Mutex
-	terminalsEnabled bool
-	terminals        map[string]*acpTerminal
-	terminalPreviews map[string]string
+	promptStageMu         sync.RWMutex
+	promptStageNamespaces map[*acpPromptStageNamespace]struct{}
+	// promptStageRedactorSet is session-owned rather than namespace-owned.
+	// Cleanup proof may release a filesystem fence while the live ACP peer can
+	// still send delayed typed metadata containing a previously disclosed alias.
+	promptStageRedactorSet map[*acpPromptRedactor]struct{}
+
+	terminalMu           sync.Mutex
+	terminalsEnabled     bool
+	workspaceCoordinator *workspacecoord.Registry
+	terminalsClosed      bool
+	terminalCreates      int
+	terminalCreatesDone  chan struct{}
+	openTerminal         func(context.Context, workspace.TerminalOptions) (workspace.Terminal, error)
+	terminals            map[string]*acpTerminal
+	terminalPreviews     map[string]string
 }
 
 func (c *acpChatClient) setTurn(turn *acpTurn) {
@@ -58,15 +74,145 @@ func (c *acpChatClient) currentTurn() *acpTurn {
 	return c.turn
 }
 
+func (c *acpChatClient) registerPromptStageNamespace(stage *acpPromptStage, redactor *acpPromptRedactor) {
+	if c == nil || stage == nil || stage.dir == "" || stage.namespace != nil {
+		return
+	}
+	namespace := newACPPromptStageNamespace(stage.dir)
+	if current := currentPrivateACPPromptStageDirectory(stage.identity); current != "" {
+		namespace.addDirectory(current)
+	}
+	namespace.register = func(dir string) {
+		c.promptStageMu.Lock()
+		defer c.promptStageMu.Unlock()
+		if _, registered := c.promptStageNamespaces[namespace]; registered {
+			namespace.addDirectory(dir)
+		}
+	}
+	namespace.release = func() {
+		c.promptStageMu.Lock()
+		delete(c.promptStageNamespaces, namespace)
+		c.promptStageMu.Unlock()
+	}
+	c.promptStageMu.Lock()
+	if c.promptStageNamespaces == nil {
+		c.promptStageNamespaces = make(map[*acpPromptStageNamespace]struct{})
+	}
+	c.promptStageNamespaces[namespace] = struct{}{}
+	if redactor != nil {
+		if c.promptStageRedactorSet == nil {
+			c.promptStageRedactorSet = make(map[*acpPromptRedactor]struct{})
+		}
+		c.promptStageRedactorSet[redactor] = struct{}{}
+	}
+	c.promptStageMu.Unlock()
+	stage.namespace = namespace
+	setPrivateACPPromptStageQuarantineObserver(stage.identity, namespace.registerDirectory)
+}
+
+func (c *acpChatClient) containsPromptStagePath(path string) bool {
+	if c == nil {
+		return false
+	}
+	c.promptStageMu.RLock()
+	defer c.promptStageMu.RUnlock()
+	return c.containsPromptStagePathLocked(path)
+}
+
+// containsPromptStagePathLocked requires promptStageMu to be held for reading
+// or writing. Keeping that lock through WorkspaceFS fallback prevents cleanup
+// from registering and renaming a quarantine alias between a deny miss and the
+// actual filesystem operation.
+func (c *acpChatClient) containsPromptStagePathLocked(path string) bool {
+	paths := acpPromptStageCallbackPaths(path, c.workspace)
+	for namespace := range c.promptStageNamespaces {
+		for _, candidate := range paths {
+			if namespace.contains(candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *acpChatClient) withPromptStageWorkspaceFallback(path, deniedMessage string, fallback func() error) error {
+	c.promptStageMu.RLock()
+	defer c.promptStageMu.RUnlock()
+	if c.containsPromptStagePathLocked(path) {
+		return errors.New(deniedMessage)
+	}
+	return fallback()
+}
+
+func (c *acpChatClient) promptStageRedactors(turn *acpTurn) []*acpPromptRedactor {
+	var redactors []*acpPromptRedactor
+	seen := make(map[*acpPromptRedactor]struct{})
+	if turn != nil {
+		if redactor := turn.redactor(); redactor != nil {
+			redactors = append(redactors, redactor)
+			seen[redactor] = struct{}{}
+		}
+	}
+	c.promptStageMu.RLock()
+	for redactor := range c.promptStageRedactorSet {
+		if _, ok := seen[redactor]; !ok {
+			redactors = append(redactors, redactor)
+			seen[redactor] = struct{}{}
+		}
+	}
+	c.promptStageMu.RUnlock()
+	return redactors
+}
+
+func (c *acpChatClient) redactPromptStageConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
+	if c == nil {
+		return options
+	}
+	for _, redactor := range c.promptStageRedactors(nil) {
+		options = redactor.redactConfigOptions(options)
+	}
+	return options
+}
+
+func (c *acpChatClient) redactPromptStageError(err error) error {
+	if c == nil {
+		return err
+	}
+	return redactACPPromptStageError(c.promptStageRedactors(nil), err)
+}
+
+func redactACPPromptStageError(redactors []*acpPromptRedactor, err error) error {
+	for _, redactor := range redactors {
+		err = redactor.redactError(err)
+	}
+	return err
+}
+
 func (c *acpChatClient) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
+	turn := c.currentTurn()
+	redactors := c.promptStageRedactors(turn)
+	typedControlUpdate := params.Update.AvailableCommandsUpdate != nil || params.Update.ConfigOptionUpdate != nil
 	if params.Update.AvailableCommandsUpdate != nil && c.onAvailableCommands != nil {
-		c.onAvailableCommands(agentcontrols.FromACPCommands(params.Update.AvailableCommandsUpdate.AvailableCommands))
+		commands := agentcontrols.FromACPCommands(params.Update.AvailableCommandsUpdate.AvailableCommands)
+		for _, redactor := range redactors {
+			commands = redactor.redactCommands(commands)
+		}
+		c.onAvailableCommands(commands)
 	}
 	if params.Update.ConfigOptionUpdate != nil && c.onConfigOptions != nil {
-		c.onConfigOptions(agentcontrols.FromACPOptions(params.Update.ConfigOptionUpdate.ConfigOptions))
+		options := agentcontrols.FromACPOptions(params.Update.ConfigOptionUpdate.ConfigOptions)
+		for _, redactor := range redactors {
+			options = redactor.redactConfigOptions(options)
+		}
+		c.onConfigOptions(options)
 	}
-	turn := c.currentTurn()
 	if turn == nil {
+		return nil
+	}
+	if typedControlUpdate && len(redactors) > 0 {
+		// The typed projections above are the durable/operator-visible authority.
+		// Do not also retain the original peer-controlled wire record in a later
+		// turn whose own prompt did not install the historical stage redactor.
 		return nil
 	}
 	turn.recordUpdate(params)
@@ -74,12 +220,23 @@ func (c *acpChatClient) SessionUpdate(_ context.Context, params acp.SessionNotif
 }
 
 func (c *acpChatClient) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	redactors := c.promptStageRedactors(c.currentTurn())
+	for _, redactor := range redactors {
+		safeParams, err := redactor.redactRequestPermission(params)
+		if err != nil {
+			// Fail before the coordinator sees the request: an approval payload that
+			// cannot be safely reconstructed must never reach durable storage.
+			return acp.RequestPermissionResponse{}, err
+		}
+		params = safeParams
+	}
 	if c.coordinator != nil {
-		return c.coordinator.RequestPermission(ctx, RecordingContext{
+		response, requestErr := c.coordinator.RequestPermission(ctx, RecordingContext{
 			SessionID: c.sessionID,
 			AdapterID: c.adapterID,
 			Workspace: c.workspace,
 		}, params)
+		return response, redactACPPromptStageError(redactors, requestErr)
 	}
 	// Legacy auto-approve fallback. Preserved for callers that
 	// construct an acpChatClient (or SessionManager) without an
@@ -108,36 +265,61 @@ func (c *acpChatClient) UnstableCompleteElicitation(context.Context, acp.Unstabl
 }
 
 func (c *acpChatClient) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
-	fsys, path, err := c.workspaceFS(params.Path)
+	if turn := c.currentTurn(); turn != nil {
+		if data, ok := turn.promptFile(params.Path); ok {
+			if !utf8.Valid(data) {
+				return acp.ReadTextFileResponse{}, fmt.Errorf("staged prompt input is not UTF-8 text")
+			}
+			return acp.ReadTextFileResponse{Content: selectTextFileLines(string(data), params.Line, params.Limit)}, nil
+		}
+		if turn.containsPromptStagePath(params.Path) {
+			return acp.ReadTextFileResponse{}, fmt.Errorf("staged prompt input is not available")
+		}
+	}
+	var data []byte
+	err := c.withPromptStageWorkspaceFallback(params.Path, "staged prompt input is not available", func() error {
+		fsys, path, err := c.workspaceFS(params.Path)
+		if err != nil {
+			return err
+		}
+		data, _, err = fsys.ReadFile(path)
+		return err
+	})
 	if err != nil {
 		return acp.ReadTextFileResponse{}, err
 	}
-	data, _, err := fsys.ReadFile(path)
-	if err != nil {
-		return acp.ReadTextFileResponse{}, err
+	return acp.ReadTextFileResponse{Content: selectTextFileLines(string(data), params.Line, params.Limit)}, nil
+}
+
+func selectTextFileLines(content string, line, limit *int) string {
+	if line == nil && limit == nil {
+		return content
 	}
-	content := string(data)
-	if params.Line != nil || params.Limit != nil {
-		lines := strings.Split(content, "\n")
-		start := 0
-		if params.Line != nil && *params.Line > 0 {
-			start = min(*params.Line-1, len(lines))
-		}
-		end := len(lines)
-		if params.Limit != nil && *params.Limit > 0 && start+*params.Limit < end {
-			end = start + *params.Limit
-		}
-		content = strings.Join(lines[start:end], "\n")
+	lines := strings.Split(content, "\n")
+	start := 0
+	if line != nil && *line > 0 {
+		start = min(*line-1, len(lines))
 	}
-	return acp.ReadTextFileResponse{Content: content}, nil
+	end := len(lines)
+	if limit != nil && *limit > 0 && start+*limit < end {
+		end = start + *limit
+	}
+	return strings.Join(lines[start:end], "\n")
 }
 
 func (c *acpChatClient) WriteTextFile(_ context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
-	fsys, path, err := c.workspaceFS(params.Path)
-	if err != nil {
-		return acp.WriteTextFileResponse{}, err
+	if turn := c.currentTurn(); turn != nil && turn.containsPromptStagePath(params.Path) {
+		return acp.WriteTextFileResponse{}, fmt.Errorf("staged prompt inputs are read-only")
 	}
-	if _, err := fsys.WriteFile(path, []byte(params.Content), 0o644); err != nil {
+	err := c.withPromptStageWorkspaceFallback(params.Path, "staged prompt inputs are read-only", func() error {
+		fsys, path, err := c.workspaceFS(params.Path)
+		if err != nil {
+			return err
+		}
+		_, err = fsys.WriteFile(path, []byte(params.Content), 0o644)
+		return err
+	})
+	if err != nil {
 		return acp.WriteTextFileResponse{}, err
 	}
 	return acp.WriteTextFileResponse{}, nil

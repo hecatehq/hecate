@@ -12,7 +12,7 @@
 // the coordinator override context. View tests assert against
 // fixture state, not the dashboard-loaded result.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   defaultModelForProvider,
@@ -85,6 +85,7 @@ export function RootEffects() {
     chatTarget,
     setNoticeMessage: settingsActions.setNoticeMessage,
   });
+  const queuedMessageAttemptSignatureRef = useRef("");
 
   const setSettingsConfig = useMemo(
     () =>
@@ -118,6 +119,9 @@ export function RootEffects() {
     refreshRuntimeState: chatActions.refreshRuntimeState,
   });
   loadDashboardRef.current = dashboardActions.loadDashboard;
+  const projectCatalogRetryAfterOwnershipRef = useRef(false);
+  const projectCatalogRecoveryInFlightRef = useRef(false);
+  const projectCatalogRecoveryRequestRef = useRef(0);
 
   const {
     activeChatSession,
@@ -125,31 +129,144 @@ export function RootEffects() {
     chatCreating,
     chatLoading,
     chatCancelling,
+    chatOwnershipMutationInFlight,
+    chatAttachmentTurnDraftCount,
+    pendingChatAttachments,
     queuedChatMessages,
     model,
     providerFilter,
   } = chat.state;
-  const { setChatCancelling, setModel, setProviderFilter, setQueuedChatMessages } = chat.actions;
+  const {
+    hasChatCancellationOwner,
+    setChatCancelling,
+    setChatCancellingSessionID,
+    setChatCancellingTurnKind,
+    setModel,
+    setProviderFilter,
+    setQueuedChatMessages,
+    chatOwnershipMutationBlockReason,
+    hasChatAttachmentTurn,
+    hasDurableQueuedChatSubmittingFence,
+    setChatErrorState,
+    chatCancellationOwnsSession,
+    currentChatCancellationEpoch,
+    chatStopFenceProtectsSession,
+  } = chat.actions;
   const { setHecateRTKEnabled: setHecateRTKEnabledState } = runtime.actions;
   const { models, providers, providerPresets } = providersAndModels.state;
   const { notice } = settings.state;
   const { dismissNoticeIfMatching } = settings.actions;
   const settingsConfig = settings.state.config;
+  const projectCatalogOwnershipBlocked = Boolean(chatOwnershipMutationBlockReason());
+  const projectCatalogOwnershipWasBlockedRef = useRef(projectCatalogOwnershipBlocked);
+  const recoverProjectCatalogAfterOwnership = useCallback(
+    async function recoverProjectCatalogAfterOwnership(): Promise<void> {
+      projectCatalogRecoveryRequestRef.current += 1;
+      if (projectCatalogRecoveryInFlightRef.current) return;
+      projectCatalogRecoveryInFlightRef.current = true;
+      try {
+        let handledRequest = 0;
+        while (handledRequest < projectCatalogRecoveryRequestRef.current) {
+          if (chatOwnershipMutationBlockReason()) {
+            projectCatalogRetryAfterOwnershipRef.current = true;
+            return;
+          }
+          let request = projectCatalogRecoveryRequestRef.current;
+          let result = await projects.actions.loadProjects({
+            shouldApply: () => !chatOwnershipMutationBlockReason(),
+          });
+          if (chatOwnershipMutationBlockReason()) {
+            projectCatalogRetryAfterOwnershipRef.current = true;
+            return;
+          }
+          if (result.status === "superseded") {
+            // The first attempt may have joined an older request whose
+            // participant had already lost apply authority. Make one fresh
+            // attempt, then defer instead of spinning on another participant.
+            request = projectCatalogRecoveryRequestRef.current;
+            result = await projects.actions.loadProjects({
+              shouldApply: () => !chatOwnershipMutationBlockReason(),
+            });
+            if (chatOwnershipMutationBlockReason()) {
+              projectCatalogRetryAfterOwnershipRef.current = true;
+              return;
+            }
+          }
+          handledRequest = request;
+          if (result.status === "superseded") {
+            if (handledRequest < projectCatalogRecoveryRequestRef.current) {
+              continue;
+            }
+            projectCatalogRetryAfterOwnershipRef.current = true;
+            return;
+          }
+          // A second ownership-clear request may arrive while a recovery is
+          // pending. Drain it with one fresh read even if the older read was
+          // applied or failed.
+        }
+      } finally {
+        projectCatalogRecoveryInFlightRef.current = false;
+      }
+    },
+    [chatOwnershipMutationBlockReason, projects.actions],
+  );
+  const loadProjectCatalog = useCallback(
+    async function loadProjectCatalog(): Promise<void> {
+      let ownershipDeniedApply = false;
+      const result = await projects.actions.loadProjects({
+        shouldApply: () => {
+          ownershipDeniedApply = Boolean(chatOwnershipMutationBlockReason());
+          return !ownershipDeniedApply;
+        },
+      });
+      if (result.status !== "superseded" || !ownershipDeniedApply) return;
+      projectCatalogRetryAfterOwnershipRef.current = true;
+      if (chatOwnershipMutationBlockReason()) return;
+      // Ownership may clear after the predicate denied the apply but before
+      // this continuation runs. Retry immediately so mount hydration is not
+      // stranded waiting for another render.
+      projectCatalogRetryAfterOwnershipRef.current = false;
+      void recoverProjectCatalogAfterOwnership();
+    },
+    [chatOwnershipMutationBlockReason, projects.actions, recoverProjectCatalogAfterOwnership],
+  );
 
   // Mount-time dashboard load. The facade ran the same effect; the
   // dashboard coordinator's loadDashboard is stable, so this is a
   // one-shot regardless of re-renders.
   useEffect(() => {
     void dashboardActions.loadDashboard();
-    void projects.actions.loadProjects();
+    void loadProjectCatalog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!chatLoading) {
-      setChatCancelling(false);
-    }
-  }, [chatLoading, setChatCancelling]);
+    const ownershipWasBlocked = projectCatalogOwnershipWasBlockedRef.current;
+    projectCatalogOwnershipWasBlockedRef.current = projectCatalogOwnershipBlocked;
+    if (projectCatalogOwnershipBlocked) return;
+    if (!ownershipWasBlocked && !projectCatalogRetryAfterOwnershipRef.current) return;
+    projectCatalogRetryAfterOwnershipRef.current = false;
+    // Project Assistant and other project reads can be superseded while an
+    // attachment turn owns chat scope, then outlive the Projects surface itself.
+    // Reconcile once at the app lifetime when that ownership window closes.
+    void recoverProjectCatalogAfterOwnership();
+  }, [projectCatalogOwnershipBlocked, recoverProjectCatalogAfterOwnership]);
+
+  useEffect(() => {
+    if (!chatCancelling || hasChatCancellationOwner()) return;
+    // Fixture/rehydration compatibility for state projected without a live
+    // process-local cancellation owner. Live owners release their own exact
+    // token; chatLoading is not an ownership signal.
+    setChatCancelling(false);
+    setChatCancellingSessionID("");
+    setChatCancellingTurnKind("");
+  }, [
+    chatCancelling,
+    hasChatCancellationOwner,
+    setChatCancelling,
+    setChatCancellingSessionID,
+    setChatCancellingTurnKind,
+  ]);
 
   // Reconnect catch-up: whenever the active agent-chat session
   // changes (initial mount, user-driven switch, post-load), refetch
@@ -157,7 +274,14 @@ export function RootEffects() {
   // disconnected is reconciled.
   useEffect(() => {
     if (!activeChatSessionID) return;
-    void approvals.actions.refetchPending(activeChatSessionID);
+    const sessionID = activeChatSessionID;
+    const cancellationEpoch = currentChatCancellationEpoch(sessionID);
+    const isCurrent = () =>
+      currentChatCancellationEpoch(sessionID) === cancellationEpoch &&
+      !chatCancellationOwnsSession(sessionID) &&
+      !chatStopFenceProtectsSession(sessionID);
+    if (!isCurrent()) return;
+    void approvals.actions.refetchPending(sessionID, isCurrent);
     // refetchPending is a stable callback from the slice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatSessionID]);
@@ -289,7 +413,17 @@ export function RootEffects() {
   // Queued-message drain — sends the next queued message once the
   // active chat is idle.
   useEffect(() => {
-    if (queuedChatMessages.length === 0 || chatCreating || chatLoading || chatCancelling) {
+    if (queuedChatMessages.length === 0) {
+      queuedMessageAttemptSignatureRef.current = "";
+      return;
+    }
+    if (chatCreating || chatLoading || chatCancelling) {
+      return;
+    }
+    if (chatOwnershipMutationInFlight) {
+      return;
+    }
+    if (hasChatAttachmentTurn() || pendingChatAttachments.length > 0) {
       return;
     }
     if (chatSessionIsBusy(activeChatSession)) {
@@ -309,8 +443,54 @@ export function RootEffects() {
       setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
       return;
     }
-    setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
-    void chatActions.submitAgentChat(next);
+    if (next.delivery_state) {
+      queuedMessageAttemptSignatureRef.current = "";
+      return;
+    }
+    const attemptSignature = `${next.id}\u0000${next.content}`;
+    if (queuedMessageAttemptSignatureRef.current === attemptSignature) {
+      return;
+    }
+    queuedMessageAttemptSignatureRef.current = attemptSignature;
+    const submitting = {
+      ...next,
+      delivery_state: "submitting" as const,
+      delivery_idempotency_keyed: true,
+      delivery_baseline_message_ids: (activeChatSession.messages ?? []).map(
+        (message) => message.id,
+      ),
+    };
+    let marked = false;
+    setQueuedChatMessages((current) =>
+      current.map((item) => {
+        if (item.id !== next.id || item.content !== next.content) return item;
+        marked = true;
+        return submitting;
+      }),
+    );
+    // The queue setter is configured for synchronous write-through. If a
+    // newer mutation removed or edited this snapshot, do not dispatch stale
+    // work that was never fenced as submitting in localStorage.
+    if (!marked) {
+      queuedMessageAttemptSignatureRef.current = "";
+      return;
+    }
+    if (!hasDurableQueuedChatSubmittingFence(submitting)) {
+      setQueuedChatMessages((current) =>
+        current.map((item) =>
+          item.id === next.id && item.content === next.content
+            ? { ...item, delivery_state: "retryable" }
+            : item,
+        ),
+      );
+      queuedMessageAttemptSignatureRef.current = "";
+      const persistenceError =
+        "Queued delivery is paused because browser storage could not persist its submission fence. Free browser storage, then choose Retry or remove the queued message.";
+      setChatErrorState(new Error(persistenceError));
+      settingsActions.setNoticeMessage("error", persistenceError);
+      return;
+    }
+    void chatActions.submitAgentChat(submitting);
     // submitAgentChat reads queued snapshot from its argument, not from
     // closure state, so it stays out of the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -321,9 +501,14 @@ export function RootEffects() {
     activeChatSession?.updated_at,
     activeChatSessionID,
     chatCancelling,
+    chatOwnershipMutationInFlight,
+    chatAttachmentTurnDraftCount,
     chatCreating,
     chatLoading,
+    hasDurableQueuedChatSubmittingFence,
+    pendingChatAttachments.length,
     queuedChatMessages,
+    setChatErrorState,
   ]);
 
   return null;

@@ -337,6 +337,12 @@ Provider execution also emits attempt-level metrics. These are intentionally
 separate from finalized chat metrics: retries and failed attempts are visible
 even when a later provider recovers the request.
 
+For Hecate-owned image turns, `provider.call.blocked` records a final
+execution-time provider fence failure before any upstream call. Its
+`hecate.route.skip_reason` is `provider_not_found` or
+`provider_instance_changed`; the event includes the normal provider name/model
+and candidate index, but never the opaque provider generation or image data.
+
 When `HECATE_TRACE_BODIES=true`, the gateway also records trace events named:
 
 - `request.body.captured`

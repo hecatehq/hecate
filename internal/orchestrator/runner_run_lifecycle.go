@@ -2,9 +2,12 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskruncoord"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -21,7 +24,19 @@ func (r *Runner) emitRunQueuedAndEnqueue(ctx context.Context, taskID, runID, req
 	return r.enqueueRun(taskID, runID)
 }
 
-func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, run types.TaskRun, opts disconnectedRunRequeueOptions) {
+func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, run types.TaskRun, opts disconnectedRunRequeueOptions) error {
+	originLease, err := r.beginOriginRunMutation(ctx, task)
+	if err != nil {
+		if errors.Is(err, taskruncoord.ErrOriginUnavailable) {
+			_, cancelErr := r.cancelRunWithMessage(ctx, task, run, "run cancelled: task origin is unavailable", opts.RequestID, opts.TraceID)
+			return cancelErr
+		}
+		return err
+	}
+	if originLease != nil {
+		defer originLease.Release()
+	}
+
 	priorStatus := run.Status
 	now := time.Now().UTC()
 
@@ -30,17 +45,11 @@ func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, ru
 	run.FinishedAt = time.Time{}
 	run.OtelStatusCode = ""
 	run.OtelStatusMessage = ""
-	if _, err := r.store.UpdateRun(ctx, run); err != nil {
-		return
-	}
-
 	task.Status = "queued"
 	task.LatestRunID = run.ID
 	task.LastError = ""
 	task.UpdatedAt = now
 	task.FinishedAt = time.Time{}
-	_, _ = r.store.UpdateTask(ctx, task)
-
 	data := map[string]any{
 		"reason":            opts.Reason,
 		"action":            "requeued",
@@ -51,6 +60,20 @@ func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, ru
 	for key, value := range opts.Extra {
 		data[key] = value
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventGapRunDisconnected.String(), opts.RequestID, opts.TraceID, data)
-	_ = r.enqueueRun(task.ID, run.ID)
+	result, err := r.store.ApplyRunStateTransition(ctx, taskstate.RunStateTransition{
+		Task:                task,
+		Run:                 run,
+		ExpectedRunStatuses: []string{priorStatus},
+		Events: []taskstate.RunEventSpec{{
+			EventType: runtimeevents.EventGapRunDisconnected.String(),
+			Data:      data,
+			RequestID: opts.RequestID,
+			TraceID:   opts.TraceID,
+			CreatedAt: now,
+		}},
+	})
+	if err != nil || !result.Applied {
+		return err
+	}
+	return r.enqueueRun(task.ID, run.ID)
 }

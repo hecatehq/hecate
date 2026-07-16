@@ -1,11 +1,20 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ProjectNavigationState } from "../../app/navigation";
+import { ChatProvider, useChat } from "../../app/state/chat";
+import { CoordinatorOverridesProvider } from "../../app/state/coordinators/overrides";
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
-import { ProjectsProvider, useProjects } from "../../app/state/projects";
-import { SettingsProvider } from "../../app/state/settings";
+import {
+  ProjectsProvider,
+  type ProjectCatalogLoadOptions,
+  type ProjectCatalogLoadResult,
+  useProjects,
+} from "../../app/state/projects";
+import { RootEffects } from "../../app/state/rootEffects";
+import { SettingsProvider, useSettings } from "../../app/state/settings";
 import {
   ApiError,
   acceptProjectHandoffWithFollowUp,
@@ -83,6 +92,7 @@ import type {
   ProjectAssignmentLaunchReadinessRecord,
   ProjectAssignmentRecord,
   ProjectActivityData,
+  ProjectDeleteRecord,
   ProjectHandoffRecord,
   ProjectHealthAttention,
   ProjectMemoryCandidateRecord,
@@ -105,6 +115,120 @@ const launchContextContract = launchContextContractRaw as LaunchContextContract;
 
 function WorkProjects(props: ComponentProps<typeof ProjectsView>) {
   return <ProjectsView initialWorkspaceTab="work" {...props} />;
+}
+
+function ProjectImageOwnershipProbe() {
+  const chat = useChat();
+  const [turnAttempt, setTurnAttempt] = useState("not tried");
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          chat.actions.setPendingChatAttachments([
+            {
+              id: "late-project-draft",
+              file: new File(["image"], "late-project.png", { type: "image/png" }),
+            },
+          ])
+        }
+      >
+        Attach project test image
+      </button>
+      <button type="button" onClick={() => chat.actions.setPendingChatAttachments([])}>
+        Clear project test images
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          setTurnAttempt(
+            chat.actions.beginChatAttachmentTurn("chat_project", 1) === null
+              ? "blocked"
+              : "started",
+          )
+        }
+      >
+        Try project image submission
+      </button>
+      <span data-testid="project-draft-count">{chat.state.pendingChatAttachments.length}</span>
+      <span data-testid="project-turn-attempt">{turnAttempt}</span>
+    </>
+  );
+}
+
+function ProjectCatalogReloadProbe() {
+  const projects = useProjects();
+  return (
+    <button type="button" onClick={() => void projects.actions.loadProjects()}>
+      Reload project catalog
+    </button>
+  );
+}
+
+function ProjectCatalogExternalRecoveryProbe({
+  register,
+}: {
+  register: (load: () => Promise<ProjectCatalogLoadResult>) => void;
+}) {
+  const projects = useProjects();
+  useLayoutEffect(() => {
+    register(() => projects.actions.loadProjects());
+  }, [projects.actions, register]);
+  return null;
+}
+
+function ProjectCatalogStateProbe({
+  register,
+}: {
+  register: (apply: (projects: ProjectRecord[]) => void) => void;
+}) {
+  const projects = useProjects();
+  useLayoutEffect(() => {
+    register((items) => projects.actions.setProjects(items));
+  }, [projects.actions, register]);
+  return (
+    <output aria-label="Project catalog names">
+      {projects.state.projects.map((item) => item.name).join(", ")}
+    </output>
+  );
+}
+
+function ProjectAssistantCatalogRecoveryHarness({
+  register,
+}: {
+  register: (apply: (projects: ProjectRecord[]) => void) => void;
+}) {
+  const [projectsVisible, setProjectsVisible] = useState(true);
+  return (
+    <>
+      <RootEffects />
+      <ProjectImageOwnershipProbe />
+      <ProjectCatalogStateProbe register={register} />
+      <button type="button" onClick={() => setProjectsVisible(false)}>
+        Leave project test surface
+      </button>
+      {projectsVisible ? <WorkProjects /> : null}
+    </>
+  );
+}
+
+function ProjectNoticeProbe() {
+  const notice = useSettings().state.notice;
+  return <output aria-label="Project notice">{notice?.message ?? "None"}</output>;
+}
+
+function RemoveProjectControl({ projectID }: { projectID: string }) {
+  const projects = useProjects();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        projects.actions.setProjects((current) => current.filter((item) => item.id !== projectID))
+      }
+    >
+      Remove deleted project from state
+    </button>
+  );
 }
 
 function emptyActivityData() {
@@ -1435,7 +1559,9 @@ function directWrapper(initialState: Parameters<typeof ProjectsProvider>[0]["ini
     return (
       <SettingsProvider>
         <ProvidersAndModelsProvider>
-          <ProjectsProvider initialState={initialState}>{children}</ProjectsProvider>
+          <ProjectsProvider initialState={initialState}>
+            <ChatProvider>{children}</ChatProvider>
+          </ProjectsProvider>
         </ProvidersAndModelsProvider>
       </SettingsProvider>
     );
@@ -2335,6 +2461,57 @@ describe("ProjectsView index", () => {
     expect(actions.deleteProject).toHaveBeenCalledWith(project.id);
   });
 
+  it("returns focus to Add when a deleted project row disappears", async () => {
+    resetProjectWorkMocks();
+    let finishDelete: ((value: ProjectDeleteRecord | null) => void) | undefined;
+    const deleteResult: ProjectDeleteRecord = {
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 0,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    };
+    const deleteProject = vi.fn(
+      () =>
+        new Promise<ProjectDeleteRecord | null>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const user = userEvent.setup();
+    render(
+      withRuntimeConsole(
+        <>
+          <WorkProjects />
+          <RemoveProjectControl projectID={project.id} />
+        </>,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), deleteProject },
+        },
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    await user.click(screen.getByRole("button", { name: "Delete project record" }));
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove deleted project from state" }));
+      finishDelete?.(deleteResult);
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete project" })).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "Add" })).toHaveFocus();
+  });
+
   it("guards repeated project create submissions while pending", async () => {
     resetProjectWorkMocks();
     let resolveCreate!: (value: ProjectRecord | null) => void;
@@ -2428,6 +2605,147 @@ describe("ProjectsView index", () => {
     expect(screen.getByRole("main", { name: "Chats workspace" })).toBeTruthy();
     expect(onNavigate).not.toHaveBeenCalled();
     expect(actions.selectProject).not.toHaveBeenCalled();
+  });
+
+  it("blocks project deletion after navigating away with visible image files", async () => {
+    const user = userEvent.setup();
+    const deleteProject = vi.fn(async () => ({
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 1,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    }));
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+      pendingChatAttachments: [
+        {
+          id: "draft-1",
+          file: new File(["image"], "map.png", { type: "image/png" }),
+        },
+      ],
+    });
+    const actions = { ...createRuntimeConsoleActions(), deleteProject };
+    render(withRuntimeConsole(<WorkProjects />, { state, actions }));
+
+    await user.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    await user.click(screen.getByRole("button", { name: "Delete project record" }));
+
+    expect(deleteProject).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toBeTruthy();
+  });
+
+  it("blocks project selection and creation while an unsent image draft exists", async () => {
+    const user = userEvent.setup();
+    const otherProject = { ...project, id: "project_2", name: "Other project" };
+    const selectProject = vi.fn(async () => undefined);
+    const createProject = vi.fn(async () => otherProject);
+    const state = createRuntimeConsoleFixture({
+      projects: [project, otherProject],
+      activeProjectID: project.id,
+      pendingChatAttachments: [
+        {
+          id: "draft-1",
+          file: new File(["image"], "map.png", { type: "image/png" }),
+        },
+      ],
+    });
+    const actions = { ...createRuntimeConsoleActions(), createProject, selectProject };
+    render(withRuntimeConsole(<WorkProjects />, { state, actions }));
+
+    await user.click(screen.getByRole("link", { name: "Open project Other project" }));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(selectProject).not.toHaveBeenCalled();
+    expect(createProject).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Create project" })).toBeNull();
+  });
+
+  it("rechecks image ownership when a draft is attached after create opens", async () => {
+    const user = userEvent.setup();
+    const createProject = vi.fn(async () => ({ ...project, id: "project_late" }));
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const actions = { ...createRuntimeConsoleActions(), createProject };
+    render(
+      withRuntimeConsole(
+        <>
+          <ProjectImageOwnershipProbe />
+          <WorkProjects />
+        </>,
+        { state, actions },
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    const createDialog = await screen.findByRole("dialog", { name: "Create project" });
+    fireEvent.change(within(createDialog).getByLabelText("Name"), {
+      target: { value: "Late project" },
+    });
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    await user.click(within(createDialog).getByRole("button", { name: "Create project" }));
+
+    expect(createProject).not.toHaveBeenCalled();
+    expect(
+      within(createDialog).getByText(
+        "Remove attached files before changing or deleting chat ownership.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("holds project-delete ownership while the backend is pending and denies late image work", async () => {
+    const user = userEvent.setup();
+    let finishDelete: ((value: ProjectDeleteRecord | null) => void) | undefined;
+    const deleteProject = vi.fn(
+      () =>
+        new Promise<ProjectDeleteRecord | null>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const actions = { ...createRuntimeConsoleActions(), deleteProject };
+    render(
+      withRuntimeConsole(
+        <>
+          <ProjectImageOwnershipProbe />
+          <WorkProjects />
+        </>,
+        { state, actions },
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    await user.click(screen.getByRole("button", { name: "Delete project record" }));
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    await user.click(screen.getByRole("button", { name: "Try project image submission" }));
+    expect(screen.getByTestId("project-draft-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("project-turn-attempt")).toHaveTextContent("blocked");
+
+    finishDelete?.({
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 1,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete project" })).toBeNull(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    expect(screen.getByTestId("project-draft-count")).toHaveTextContent("1");
   });
 });
 
@@ -2648,6 +2966,198 @@ describe("ProjectsView cockpit", () => {
     expect(within(assistant).getByText("Proposal pa_test is applied.")).toBeTruthy();
     expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
     expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
+  });
+
+  it("refetches a catalog read that started before an Assistant project mutation", async () => {
+    resetProjectWorkMocks();
+    const renamedProject = { ...project, name: "Hecate reconciled" };
+    let resolveOlderCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const olderCatalog = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      resolveOlderCatalog = resolve;
+    });
+    vi.mocked(getProjects)
+      .mockReturnValueOnce(olderCatalog)
+      .mockResolvedValueOnce({ object: "projects", data: [renamedProject] });
+    vi.mocked(draftProjectAssistant).mockResolvedValueOnce({
+      object: "project_assistant.proposal",
+      data: {
+        id: "pa_rename",
+        title: "Rename project",
+        summary: "Rename the selected project.",
+        requires_confirmation: true,
+        actions: [
+          {
+            kind: "update_project",
+            target: { project_id: project.id },
+            patch: { name: renamedProject.name },
+          },
+        ],
+      },
+    });
+    vi.mocked(applyProjectAssistant).mockResolvedValueOnce({
+      object: "project_assistant.apply_result",
+      data: {
+        proposal_id: "pa_rename",
+        status: "applied",
+        applied: true,
+        actions: [
+          {
+            kind: "update_project",
+            id: project.id,
+            data: { project_id: project.id },
+          },
+        ],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(
+      <>
+        <ProjectCatalogReloadProbe />
+        <WorkProjects />
+      </>,
+      { wrapper: directWrapper({ projects: [project], loaded: true }) },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Reload project catalog" }));
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+    const assistant = await openProjectAssistant();
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    expect(await within(assistant).findByText("Update project")).toBeTruthy();
+    const memoryLoadsBeforeApply = vi.mocked(getProjectMemory).mock.calls.length;
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+    await waitFor(() => expect(applyProjectAssistant).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(vi.mocked(getProjectMemory).mock.calls.length).toBeGreaterThan(memoryLoadsBeforeApply),
+    );
+
+    await act(async () => {
+      resolveOlderCatalog({ object: "projects", data: [project] });
+      await olderCatalog;
+    });
+
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("link", { name: "Open project Hecate reconciled" }),
+    ).toBeTruthy();
+    expect(await within(assistant).findByText("Applied 1 action")).toBeTruthy();
+  });
+
+  it("does not apply Assistant catalog reconciliation after image ownership starts", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_remaining",
+      name: "Apollo",
+    };
+    let resolveCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const catalog = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      resolveCatalog = resolve;
+    });
+    vi.mocked(getProjects).mockImplementationOnce(async () => catalog);
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(
+      <>
+        <ProjectImageOwnershipProbe />
+        <WorkProjects />
+      </>,
+      {
+        wrapper: directWrapper({
+          projects: [project, remainingProject],
+          loaded: true,
+        }),
+      },
+    );
+
+    const assistant = await openProjectAssistant();
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    await within(assistant).findByText("Create assignment");
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    expect(screen.getByTestId("project-draft-count")).toHaveTextContent("1");
+    await act(async () => {
+      resolveCatalog({ object: "projects", data: [remainingProject] });
+      await catalog;
+    });
+
+    expect(await within(assistant).findByText("Applied 1 action")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open project Hecate" })).toBeTruthy();
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+    expect(screen.queryByText("Project not found", { exact: true })).toBeNull();
+  });
+
+  it("reconciles a superseded Assistant catalog after image ownership clears globally", async () => {
+    resetProjectWorkMocks();
+    const reconciledProject = { ...project, name: "Hecate reconciled" };
+    let applyCatalog!: (projects: ProjectRecord[]) => void;
+    const registerCatalogApplier = (apply: (projects: ProjectRecord[]) => void) => {
+      applyCatalog = apply;
+    };
+    let releaseAssistantCatalog!: () => void;
+    const assistantCatalogGate = new Promise<void>((resolve) => {
+      releaseAssistantCatalog = resolve;
+    });
+    let loadAttempt = 0;
+    let assistantCatalogAllowed: boolean | undefined;
+    const loadProjects = vi.fn(
+      async (options?: ProjectCatalogLoadOptions): Promise<ProjectCatalogLoadResult> => {
+        loadAttempt += 1;
+        if (loadAttempt === 1) return { status: "applied" };
+        if (loadAttempt === 2) {
+          await assistantCatalogGate;
+          assistantCatalogAllowed = !options?.shouldApply || options.shouldApply();
+          return assistantCatalogAllowed ? { status: "applied" } : { status: "superseded" };
+        }
+        applyCatalog([reconciledProject]);
+        return { status: "applied" };
+      },
+    );
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      loadDashboard: vi.fn(async () => undefined),
+      loadProjects,
+    };
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(
+      withRuntimeConsole(
+        <ProjectAssistantCatalogRecoveryHarness register={registerCatalogApplier} />,
+        { state, actions },
+      ),
+    );
+
+    await waitFor(() => expect(loadProjects).toHaveBeenCalledTimes(1));
+    const assistant = await openProjectAssistant();
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    await within(assistant).findByText("Create assignment");
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+    await waitFor(() => expect(loadProjects).toHaveBeenCalledTimes(2));
+    expect(loadProjects.mock.calls[1]?.[0]?.invalidateInFlightSnapshot).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+
+    await act(async () => {
+      releaseAssistantCatalog();
+      await assistantCatalogGate;
+    });
+    expect(await within(assistant).findByText("Applied 1 action")).toBeTruthy();
+    expect(assistantCatalogAllowed).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Leave project test surface" }));
+    expect(screen.queryByRole("region", { name: "Project Assistant" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Clear project test images" }));
+
+    await waitFor(() => expect(loadProjects).toHaveBeenCalledTimes(3));
+    expect(screen.getByLabelText("Project catalog names")).toHaveTextContent("Hecate reconciled");
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+    const recoveryOptions = loadProjects.mock.calls[2]?.[0];
+    expect(recoveryOptions?.shouldApply?.()).toBe(true);
   });
 
   it("loads a chat-drafted Project Assistant proposal into the review panel", async () => {
@@ -4542,6 +5052,66 @@ describe("ProjectsView cockpit", () => {
         screen.queryByText(/Projects could not be checked\. Showing the last known catalog/),
       ).toBeNull(),
     );
+  });
+
+  it("does not apply a passive catalog removal after image ownership starts", async () => {
+    resetProjectWorkMocks();
+    const remainingProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+    };
+    let releaseCatalog!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    const catalog = new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+      releaseCatalog = resolve;
+    });
+    vi.mocked(getProjects).mockResolvedValue({
+      object: "projects",
+      data: [remainingProject],
+    });
+    vi.mocked(getProjects).mockImplementationOnce(async () => catalog);
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(
+      <>
+        <ProjectImageOwnershipProbe />
+        <ProjectsView navigation={{ projectID: project.id, view: "overview", workItemID: null }} />
+      </>,
+      {
+        wrapper: directWrapper({ projects: [project, remainingProject], loaded: true }),
+      },
+    );
+
+    await screen.findByRole("region", { name: "Project overview" });
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    expect(screen.getByTestId("project-draft-count")).toHaveTextContent("1");
+
+    await act(async () => {
+      releaseCatalog({ object: "projects", data: [remainingProject] });
+      await catalog;
+    });
+
+    expect(screen.getByRole("link", { name: "Open project Hecate" })).toBeTruthy();
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+    expect(screen.queryByText(/The selected project was removed/)).toBeNull();
+
+    act(returnProjectsToForeground);
+    await act(async () => Promise.resolve());
+    expect(getProjects).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Clear project test images" }));
+    expect(screen.getByTestId("project-draft-count")).toHaveTextContent("0");
+    act(returnProjectsToForeground);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "Open project Hecate" })).toBeNull();
+      expect(window.localStorage.getItem("hecate.project")).toBeNull();
+    });
+    expect(screen.getByText("Project not found", { exact: true })).toBeTruthy();
   });
 
   it("moves focus to stable content when passive catalog refresh removes a routed project", async () => {
@@ -12162,6 +12732,118 @@ describe("ProjectsView cockpit", () => {
 });
 
 describe("ProjectsView navigation destinations", () => {
+  it("rejects a routed project change while an image draft owns the current project", async () => {
+    resetProjectWorkMocks();
+    const otherProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [{ ...project.roots[0], id: "root_2", path: "/Users/alice/dev/apollo" }],
+    };
+    const state = createRuntimeConsoleFixture({
+      projects: [project, otherProject],
+      activeProjectID: project.id,
+      pendingChatAttachments: [
+        {
+          id: "draft-route",
+          file: new File(["image"], "route.png", { type: "image/png" }),
+        },
+      ],
+    });
+    const selectProject = vi.fn(async () => undefined);
+    const actions = { ...createRuntimeConsoleActions(), selectProject };
+    const onNavigate = vi.fn();
+    const route = (projectID: string) =>
+      withRuntimeConsole(
+        <ProjectsView
+          navigation={{ projectID, view: "overview", workItemID: null }}
+          onNavigate={onNavigate}
+        />,
+        { state, actions },
+      );
+    const rendered = render(route(project.id));
+    await screen.findByRole("region", { name: "Project overview" });
+    onNavigate.mockClear();
+    selectProject.mockClear();
+
+    rendered.rerender(route(otherProject.id));
+
+    await waitFor(() =>
+      expect(onNavigate).toHaveBeenCalledWith(
+        { projectID: project.id, view: "overview", workItemID: null },
+        "replace",
+      ),
+    );
+    expect(selectProject).not.toHaveBeenCalledWith(otherProject.id);
+    expect(getProjectSetupReadiness).not.toHaveBeenCalledWith(otherProject.id);
+    expect(screen.getByRole("region", { name: "Project overview" })).toBeTruthy();
+  });
+
+  it("restores the accepted project when image ownership starts before a direct route persists", async () => {
+    resetProjectWorkMocks();
+    const otherProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [{ ...project.roots[0], id: "root_2", path: "/Users/alice/dev/apollo" }],
+    };
+    let ownershipStarted = false;
+    const chatOwnershipMutationBlockReason = vi.fn(() =>
+      ownershipStarted ? "Remove attached files before changing or deleting chat ownership." : "",
+    );
+    const selectProject = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
+    function Harness() {
+      const [navigation, setNavigation] = useState<ProjectNavigationState>({
+        projectID: otherProject.id,
+        view: "overview",
+        workItemID: null,
+      });
+      useLayoutEffect(() => {
+        ownershipStarted = true;
+      }, []);
+      return (
+        <ProjectsView
+          navigation={navigation}
+          onNavigate={(destination, mode) => {
+            onNavigate(destination, mode);
+            if (mode !== "replace") return;
+            setNavigation({
+              projectID: destination.projectID ?? null,
+              view: destination.view ?? "overview",
+              workItemID: destination.workItemID ?? null,
+            });
+          }}
+        />
+      );
+    }
+    window.localStorage.setItem("hecate.project", project.id);
+    render(
+      <CoordinatorOverridesProvider
+        value={{
+          chatSlice: { chatOwnershipMutationBlockReason },
+          projectsSlice: { selectProject },
+        }}
+      >
+        <Harness />
+      </CoordinatorOverridesProvider>,
+      {
+        wrapper: directWrapper({ projects: [project, otherProject], loaded: true }),
+      },
+    );
+
+    await waitFor(() =>
+      expect(onNavigate).toHaveBeenCalledWith(
+        { projectID: project.id, view: "overview", workItemID: null },
+        "replace",
+      ),
+    );
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(selectProject).not.toHaveBeenCalledWith(otherProject.id);
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+    expect(await screen.findByRole("region", { name: "Project overview" })).toBeTruthy();
+  });
+
   it("clears the previous project work when the next routed project fails to load", async () => {
     resetProjectWorkMocks();
     const secondProject: ProjectRecord = {
@@ -12417,6 +13099,109 @@ describe("ProjectsView navigation destinations", () => {
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-ghost");
   });
 
+  it("keeps external catalog recovery focus stable and moves it to content on success", async () => {
+    let startExternalRecovery!: () => Promise<ProjectCatalogLoadResult>;
+    let resolveRecovery!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects).mockReturnValueOnce(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveRecovery = resolve;
+      }),
+    );
+    const registerRecovery = (load: () => Promise<ProjectCatalogLoadResult>) => {
+      startExternalRecovery = load;
+    };
+    const user = userEvent.setup();
+    render(
+      <>
+        <ProjectCatalogExternalRecoveryProbe register={registerRecovery} />
+        <ProjectImageOwnershipProbe />
+        <ProjectNoticeProbe />
+        <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />
+      </>,
+      {
+        wrapper: directWrapper({
+          projects: [],
+          loaded: false,
+          catalogError: "Projects are unavailable.",
+        }),
+      },
+    );
+
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    retryButton.focus();
+    let recovery!: Promise<ProjectCatalogLoadResult>;
+    act(() => {
+      recovery = startExternalRecovery();
+    });
+    const retryingButton = await screen.findByRole("button", { name: "Retrying…" });
+    expect(retryingButton).toBe(retryButton);
+    expect(retryingButton).toHaveAttribute("aria-disabled", "true");
+    expect(retryingButton).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    retryingButton.focus();
+    await user.click(retryingButton);
+    expect(getProjects).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Project notice")).toHaveTextContent("None");
+
+    resolveRecovery({ object: "projects", data: [] });
+    await act(async () => {
+      await recovery;
+    });
+
+    expect(await screen.findByText("Projects loaded.")).toBeTruthy();
+    const workspaceContent = screen.getByRole("region", { name: "Project workspace content" });
+    await waitFor(() => expect(workspaceContent).toHaveFocus());
+    expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
+  });
+
+  it("preserves Retry focus when external catalog recovery fails", async () => {
+    let startExternalRecovery!: () => Promise<ProjectCatalogLoadResult>;
+    let rejectRecovery!: (reason: Error) => void;
+    vi.mocked(getProjects).mockReturnValueOnce(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((_resolve, reject) => {
+        rejectRecovery = reject;
+      }),
+    );
+    const registerRecovery = (load: () => Promise<ProjectCatalogLoadResult>) => {
+      startExternalRecovery = load;
+    };
+    render(
+      <>
+        <ProjectCatalogExternalRecoveryProbe register={registerRecovery} />
+        <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />
+      </>,
+      {
+        wrapper: directWrapper({
+          projects: [],
+          loaded: false,
+          catalogError: "Projects are unavailable.",
+        }),
+      },
+    );
+
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    retryButton.focus();
+    let recovery!: Promise<ProjectCatalogLoadResult>;
+    act(() => {
+      recovery = startExternalRecovery();
+    });
+    const retryingButton = await screen.findByRole("button", { name: "Retrying…" });
+    expect(retryingButton).toBe(retryButton);
+    expect(retryingButton).toHaveFocus();
+
+    rejectRecovery(new Error("Projects are still unavailable."));
+    await act(async () => {
+      await recovery;
+    });
+
+    await waitFor(() => {
+      const restoredRetry = screen.getByRole("button", { name: "Retry" });
+      expect(restoredRetry).toBe(retryButton);
+      expect(restoredRetry).toHaveFocus();
+    });
+    expect(screen.queryByText("Projects loaded.")).toBeNull();
+  });
+
   it("keeps an operation failure visible during managed catalog recovery", async () => {
     await act(async () => {
       render(
@@ -12478,13 +13263,19 @@ describe("ProjectsView navigation destinations", () => {
       }),
     );
     const user = userEvent.setup();
-    render(<ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />, {
-      wrapper: directWrapper({
-        projects: [],
-        loaded: false,
-        catalogError: "Projects are unavailable.",
-      }),
-    });
+    render(
+      <>
+        <ProjectCatalogReloadProbe />
+        <ProjectsView navigation={{ projectID: null, view: "overview", workItemID: null }} />
+      </>,
+      {
+        wrapper: directWrapper({
+          projects: [],
+          loaded: false,
+          catalogError: "Projects are unavailable.",
+        }),
+      },
+    );
 
     const retryButton = screen.getByRole("button", { name: "Retry" });
     retryButton.focus();
@@ -12510,6 +13301,11 @@ describe("ProjectsView navigation destinations", () => {
     await waitFor(() => expect(workspaceContent).toHaveFocus());
     expect(screen.getByText("Add a project to begin")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
+
+    vi.mocked(getProjects).mockRejectedValueOnce(new Error("catalog unavailable again"));
+    await user.click(screen.getByRole("button", { name: "Reload project catalog" }));
+    expect(await screen.findByText("catalog unavailable again")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Projects loaded.")).toBeNull());
   });
 
   it("keeps retry focus when the catalog remains unavailable", async () => {
@@ -12549,6 +13345,51 @@ describe("ProjectsView navigation destinations", () => {
     });
     expect(screen.queryByText("Projects loaded.")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(getProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not apply an explicit catalog retry after image ownership starts", async () => {
+    resetProjectWorkMocks();
+    let resolveRetry!: (value: { object: "projects"; data: ProjectRecord[] }) => void;
+    vi.mocked(getProjects).mockReturnValueOnce(
+      new Promise<{ object: "projects"; data: ProjectRecord[] }>((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    render(
+      <>
+        <ProjectImageOwnershipProbe />
+        <ProjectNoticeProbe />
+        <ProjectsView navigation={{ projectID: project.id, view: "overview", workItemID: null }} />
+      </>,
+      {
+        wrapper: directWrapper({
+          projects: [project],
+          loaded: false,
+          catalogError: "Projects are unavailable.",
+        }),
+      },
+    );
+
+    const retryButton = await screen.findByRole("button", { name: "Retry" });
+    await user.click(retryButton);
+    await waitFor(() => expect(getProjects).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "Attach project test image" }));
+    await act(async () => {
+      resolveRetry({ object: "projects", data: [] });
+    });
+
+    await waitFor(() => expect(retryButton).toHaveAccessibleName("Retry"));
+    expect(screen.getByRole("link", { name: "Open project Hecate" })).toBeTruthy();
+    expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+    expect(screen.queryByText("Projects loaded.")).toBeNull();
+    expect(screen.getByLabelText("Project notice")).toHaveTextContent(
+      "Remove attached files before changing or deleting chat ownership.",
+    );
+
+    await user.click(retryButton);
     expect(getProjects).toHaveBeenCalledTimes(1);
   });
 

@@ -37,8 +37,8 @@ func TestTerminalRunTransitionBuilders_CancelRun(t *testing.T) {
 	if got := transition.EventData["reason"]; got != "run cancelled: operator stop" {
 		t.Fatalf("reason event data = %v, want operator reason", got)
 	}
-	if transition.SkipIfStoredTerminalStatus || transition.SuppressDuplicateEvent {
-		t.Fatalf("duplicate flags = skip:%t suppress:%t, want false", transition.SkipIfStoredTerminalStatus, transition.SuppressDuplicateEvent)
+	if transition.SkipIfStoredTerminalStatus || transition.SuppressDuplicateEvent || transition.TrustedSupplementalRunMetadata != nil {
+		t.Fatalf("duplicate/trusted fields = skip:%t suppress:%t metadata:%+v, want false/false/nil", transition.SkipIfStoredTerminalStatus, transition.SuppressDuplicateEvent, transition.TrustedSupplementalRunMetadata)
 	}
 }
 
@@ -68,8 +68,8 @@ func TestTerminalRunTransitionBuilders_FailedRun(t *testing.T) {
 	if !transition.SkipIfStoredTerminalStatus {
 		t.Fatalf("SkipIfStoredTerminalStatus = false, want true")
 	}
-	if transition.CancelActiveSteps || transition.CancelStreamingArtifacts || transition.CancelPendingApprovals || transition.EmitTaskUpdated || transition.EventData != nil {
-		t.Fatalf("unexpected cancel/event settings: steps=%t artifacts=%t approvals=%t task_updated=%t data=%+v", transition.CancelActiveSteps, transition.CancelStreamingArtifacts, transition.CancelPendingApprovals, transition.EmitTaskUpdated, transition.EventData)
+	if transition.CancelActiveSteps || transition.CancelStreamingArtifacts || transition.CancelPendingApprovals || transition.EmitTaskUpdated || transition.EventData != nil || transition.TrustedSupplementalRunMetadata != nil {
+		t.Fatalf("unexpected cancel/event settings: steps=%t artifacts=%t approvals=%t task_updated=%t data=%+v metadata=%+v", transition.CancelActiveSteps, transition.CancelStreamingArtifacts, transition.CancelPendingApprovals, transition.EmitTaskUpdated, transition.EventData, transition.TrustedSupplementalRunMetadata)
 	}
 }
 
@@ -125,6 +125,12 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 	}
 	if !transition.SuppressDuplicateEvent {
 		t.Fatalf("SuppressDuplicateEvent = false, want true")
+	}
+	metadata := transition.TrustedSupplementalRunMetadata
+	if metadata == nil || metadata.Provider != transition.Run.Provider || metadata.ProviderKind != transition.Run.ProviderKind ||
+		metadata.Model != transition.Run.Model || metadata.StepCount != transition.Run.StepCount ||
+		metadata.ArtifactCount != transition.Run.ArtifactCount || metadata.TotalCostMicrosUSD != transition.Run.TotalCostMicrosUSD {
+		t.Fatalf("trusted supplemental metadata = %+v, want execution-result fields from %+v", metadata, transition.Run)
 	}
 	if transition.Run.Provider != "fallback-provider" || transition.Run.ProviderKind != "openai" || transition.Run.Model != "gpt-4.1" {
 		t.Fatalf("route = provider:%q kind:%q model:%q, want fallback provider + execution kind/model", transition.Run.Provider, transition.Run.ProviderKind, transition.Run.Model)

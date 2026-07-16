@@ -82,6 +82,10 @@ unless there is an explicit product reason and a documented follow-up.
   need text, not color alone.
 - Modal and dialog work must include focus management, `aria-modal`, labelled
   titles, and non-trapping escape paths.
+- Once a destructive confirmation starts its request, keep the dialog modal and
+  disable confirm, Escape, close, and backdrop dismissal until the request
+  settles. This prevents operators from editing context that a successful
+  mutation is about to clear.
 - Keep contrast readable in the dark operator theme. Muted text can be quiet,
   but it still needs to be legible against panels and borders.
 - Respect reduced-motion expectations. Motion should orient; avoid relying on
@@ -125,8 +129,182 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   segment is active, the whole Hecate Chat session is busy: keep
   provider/model controls locked to the segment snapshot. If the operator
   submits another prompt, queue it locally in the composer and send it after
-  the task finishes, is stopped, or reaches a terminal approval outcome. Do not
-  pretend that local queue is durable before the message is submitted.
+  the task finishes, is stopped, or reaches a terminal approval outcome. Treat
+  this as browser-local operator state, not a server-side message. Persist one
+  logical record per queue item (never a stale whole-array rewrite), but give
+  every mutation a new immutable physical key containing queue-lineage generation,
+  random revision, and item id. Verify the new revision before retiring the
+  exact old revision. Merge same-origin same-profile tab changes through
+  `storage` events; duplicate surviving revisions make lineage ambiguous, so
+  quarantine the whole queue until an exact cleanup event lets every row rebuild
+  from the recovered logical snapshot.
+  Remove malformed item keys during explicit browser-queue cleanup. Before the message POST starts, synchronously
+  write through and verify a `submitting` state plus the current transcript
+  message-id baseline. Fail closed before dispatch when the durable fence cannot
+  be confirmed. A durable `submitting` record recovered after reload or observed
+  from another tab is a local `reconcile_required` projection: do not rewrite,
+  remove, retry, or otherwise mutate that foreign fence. Only an explicit
+  **Check status** action may claim an exact matching keyed fence for replay,
+  without changing its durable payload. Send the queued runtime
+  snapshot, including `tools_enabled`, verbatim even if current capability state
+  has changed. Parse stored `submitting` and legacy retry markers as
+  `reconcile_required`; never auto-resend them. Only known local or pre-commit
+  failures become `retryable`. For current keyed ambiguous outcomes, **Check
+  status** safely replays the exact key/payload and uses
+  `message_request.committed_message_id`; keep it at the FIFO head until a
+  terminal assistant for that user appears before the next user turn. Observe
+  SSE and authoritative polling concurrently to close subscription races.
+  Content/baseline matching is only for legacy unkeyed records. A server-proven
+  `chat.client_request_conflict` must preserve typed provenance, bypass content
+  matching even when text is identical, and remain blocked; the operator
+  reviews/removes it and a later submission uses a new queue id. Keep the item
+  blocked with clear manual-review copy when proof is impossible. Preserve FIFO,
+  and disable editing, removal, retry, and status checks while `submitting` or a
+  destructive chat-ownership reservation is active.
+- Successful keyed message responses expose `message_request.replay` and the
+  exact committed user-message id. A replay can return before its assistant is
+  terminal: keep that queue item at the FIFO head, observe the live session
+  stream, and poll the authoritative session as a fallback until a terminal
+  assistant is proven after that user message and before the next user turn.
+  Treat missing metadata, missing exact-turn terminal proof, timeout, or stale
+  destructive-mutation ownership as `reconcile_required`; never let later
+  queued work overtake it.
+- Treat `POST /chat/sessions/{id}/cancel` `202` as a signal acknowledgement,
+  not a terminal session snapshot. Keep a session/turn-scoped fence after the
+  acknowledgement, suppress reordered busy snapshots and approval requests,
+  and settle only from the matching turn stream/POST or a GET begun after the
+  accepted Stop. Bound the visible cancellation owner so a hanging read cannot
+  wedge controls, but retain the terminal fence until proof arrives. On a
+  rejected Stop, remove the provisional fence before launching independent,
+  epoch-checked session and approval catch-ups. If a retry fails over an older
+  accepted fence, restore that fence with a renewed bounded settlement window
+  and keep waiting on the original turn's terminal path.
+- Queue storage failures are operator-visible safety state, never a silent
+  memory-only success. Initial enqueue must return synchronous admission
+  success before clearing the composer. A failed ready-item edit keeps the new
+  text visible as blocked/retryable and best-effort removes the older durable
+  ready payload so reload cannot auto-send stale content. Never remove a stored
+  `submitting`/reconcile fence merely because a safer local transition failed to
+  persist. Mark local failure fields non-durable, pause FIFO drain, and install
+  unload protection until retry/remove succeeds. Session/project deletion and
+  explicit all-session queue cleanup must verify removals and surface manual
+  clear-site-data guidance. Persist the originating
+  project id in new queue snapshots solely for browser cleanup; project deletion
+  must inspect the durable per-item store, not only the current tab's session
+  summaries. Preserve an explicit empty project id for newly project-free
+  records, reserve an absent id for legacy unknown ownership, and make unknown,
+  malformed, or unreadable records fail cleanup closed. Quarantine absent-owner
+  records after any project tombstone because unrelated ownership cannot be
+  proven. Advance a profile-wide
+  project-deletion tombstone before cleanup; check it before and after enqueue,
+  react to its storage event, and purge matching records during initialization
+  so a late tab cannot resurrect deleted-project prompts. Apply the same
+  generation-scoped fence to a deleted session, using only its canonical id and
+  no prompt-bearing metadata. Explicit all-session queue cleanup may advance the
+  profile-wide queue-lineage epoch before cleanup; the disabled server reset
+  endpoint does not invoke this browser action.
+  For an ordinary logical Remove, first write an
+  immutable tombstone scoped by generation, item id, and SHA-256 of the exact
+  canonical payload without its storage revision. Suppress only matching
+  payloads. Preserve a different same-id ready payload as a local queue-id
+  conflict that says Remove and submit again; do not label it as a server-proven
+  `chat.client_request_conflict`. Preserve a different same-id `submitting`
+  payload as a fence that explicit Check status can claim. A surviving
+  tombstoned immutable revision is a known cleanup failure: keep its raw source
+  fingerprint behind the UI projection so Remove can retry after reload.
+  Tombstones are prompt-free but equality-revealing and remain until reset.
+  Stamp every item, item tombstone, project tombstone, and session tombstone with
+  the generation observed before its write and scope its storage key by that
+  generation, so old cleanup cannot address a current-generation same-id
+  replacement. Treat
+  unreadable or noncanonical epoch/item metadata and an absent epoch paired with
+  nonzero item generations as blocked/unknown, never as deletion or a virgin
+  profile. Migrate mutable unscoped/revisionless rows by
+  copying them to an immutable revision and writing a SHA-256 marker. Do not
+  get/get/remove the mutable row: a concurrent replacement can land at the
+  delete boundary. Keep matching legacy rows as suppressed shadows; surface a
+  changed shadow as conflict. Snapshot raw old-generation item revisions, project and
+  session tombstones, item tombstones, migration markers, and the prompt-bearing
+  legacy whole-array key first, remove only unchanged old records after the epoch
+  changes, then post-audit every keyed namespace and the legacy array.
+  Stale tabs clear/quarantine only their local view, ignore later
+  item events, and refuse writes until reload. They must never delete a
+  same-ID current-generation record owned by a fresh tab.
+- Chat attachment drafts are in-memory `File` values only. Never put `File`,
+  Blob URLs, or base64 into persisted state/localStorage. Hecate-owned Tools-off
+  turns accept only PNG/JPEG/WebP with explicitly supported `image_input`;
+  External Agent turns accept up to four arbitrary non-empty files through the
+  ACP resource-block path. Apply the shared 5 MiB per-file and 12 MiB combined
+  limits. Allow drafts to move into an External Agent target, but block Tools-on
+  switching and any move into a Hecate route that cannot accept every selected
+  file. Busy-queue submission and chat-session/project switching remain blocked
+  while drafts exist. Register a `beforeunload` warning
+  while visible or submitted-but-unsettled memory-only drafts exist, and
+  announce draft additions and removals through one polite live region. On
+  submit, synchronously acquire a tokenized owner and atomically clear the exact
+  prompt and `File` snapshot before the first async boundary; later composer
+  edits are a different turn and visible Remove controls must never mutate the
+  submitted snapshot. Stored transcript previews must keep
+  the filename and a load control accessible before deferred loading, reserve
+  stable dimensions, use the runtime-token-aware API client, create object URLs from fetched Blobs,
+  revoke every URL, abort body reads that move outside the viewport, and unload
+  previews again when they move well outside the viewport. Render every
+  non-image transcript file as inert metadata plus an explicit guarded Download
+  action; never inline-render active content, and revoke the download object URL
+  only after the synthetic anchor click has been processed. Transfer focus when
+  a draft Remove button or stored-preview Load/Retry button unmounts: prefer the
+  next relevant action, then the attachment picker, loading status, or loaded
+  image link, but transfer only while focus still belongs to the disappearing
+  control so delayed loads never steal focus back from the operator. Once
+  submission begins, keep a single session owner until the turn settles, even
+  before a newly created session id can be bound. Block compact and every
+  ownership/session mutation while that owner is live. Project links and
+  browser-history routes are not escape hatches: keep rendering the last
+  accepted project and replace a rejected cross-project route while an attachment
+  draft or turn owns the current context. While an attachment turn is live, reject
+  even an explicit text-only follow-up without clearing it or creating a
+  browser queue record; the operator may send that retained composer text only
+  after the attachment response reaches a known outcome. Never auto-queue newer
+  unsent composer text. On a definite rejection, restore the original prompt
+  and Files without overwriting that newer text. After an attachment
+  message POST becomes ambiguous, reconcile with an authoritative session GET:
+  never auto-resend; retain server drafts for network/proxy ambiguity, but
+  delete and restore local Files after a known pre-commit rejection or a
+  Hecate-shaped HTTP error whose successful GET proves no commit. Attachment
+  uploads are a separate commit boundary with no idempotency key or draft-list
+  recovery endpoint: treat transport failures and every upload 5xx as
+  ambiguous, including Hecate-shaped errors, restore the exact local prompt and
+  Files, delete only previously acknowledged drafts, and never auto-retry.
+  Retry a failed draft DELETE once without logging attachment ids. If cleanup still
+  fails, preserve the typed submission error, restore the local Files, and add
+  an explicit warning that retained server copies may consume draft quota until
+  a later upload reclaims them after 24 hours; direct the operator to that
+  triggered reclamation or immediate chat deletion, never automatic expiry.
+- Individual chat deletion and project deletion are destructive chat-ownership
+  mutations. Route every entry point through a shared tokenized
+  ownership reservation
+  acquired synchronously before the backend request, release it on every
+  outcome, then fence chat state centrally after success. While it is held,
+  reject attachment draft additions and attachment-turn acquisition, pause queued delivery,
+  and block competing chat/session ownership changes. Explicit and first-message
+  session creation must hold the reciprocal create reservation so destructive
+  acquisition fails until the server create settles. Fence deferred
+  stream/tool-continuation writes against the current queue-lineage generation
+  and session/project tombstones after every await. Before writing a
+  returned session into summaries, active state, or per-session target/tools maps,
+  reject and tombstone it when that
+  generation changed or its requested/returned project is tombstoned. Ordinary
+  navigation may still leave a successfully created session in the sidebar.
+  After the backend confirms a single-chat delete, write and verify a
+  generation-scoped, prompt-free durable session tombstone before removing any
+  matching browser-queue record. Queue reads, writes, enqueue admission,
+  submitting-fence checks, storage events, reload migration, and queue cleanup
+  must honor that tombstone so another tab cannot resurrect work for the
+  deleted session. Verify removal of every matching durable record before
+  tombstoning local chat state or closing its confirmation modal. If either the
+  fence or cleanup cannot be verified, retain the row as a retry surface and
+  direct the operator to free browser storage or clear Hecate site data; the
+  backend DELETE is idempotent for that retry.
 - Hecate-owned chat slash commands are local UI shortcuts, not External Agent
   ACP commands. Keep project-shaping commands (`/proposal`, `/plan`, `/work`,
   `/handoff`, `/review`) on the Project Assistant proposal/confirmation rail;
@@ -151,7 +329,18 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   operator searches or opens them. When the workspace panel is visible, refresh
   it after an active chat/agent turn settles so the operator sees live changes
   without pressing Refresh; keep the explicit Refresh action for manual
-  rechecks and recovery.
+  rechecks and recovery. Bind every discard confirmation and request to the
+  opaque revision from the exact reviewed diff, fail closed when it is absent,
+  and disable discard while agent work is queued, running, or awaiting
+  approval. Treat the content-derived token as sensitive operational metadata:
+  it can reveal equality with a known complete unstaged tracked patch, so never
+  persist or log it. The backend remains the authority for revision drift,
+  active-work conflicts, and staged-state refusal. When workspace review or
+  discard returns `422 invalid_request` because the scoped workspace has staged
+  changes, never retain a previous revision or render a false clean state. Tell
+  the operator to unstage the changes, refresh, review the newly visible
+  index-to-worktree patch, and confirm again. Do not imply that this surface
+  reviews staged or untracked layers.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.

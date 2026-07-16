@@ -10,7 +10,7 @@
 # or API keys. Remote runtime mode ignores local login files and accepts only the
 # remote-safe credential env families declared by the adapters.
 
-ARG GO_VERSION=1.26.2
+ARG GO_VERSION=1.26.5
 ARG BUN_VERSION=1.3.13
 ARG ALPINE_VERSION=3.22
 ARG NODE_IMAGE=node:24-trixie-slim

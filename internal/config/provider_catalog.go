@@ -332,15 +332,16 @@ func DefaultProviderTimeout(kind string) time.Duration {
 
 func (p BuiltInProvider) RuntimeConfig() OpenAICompatibleProviderConfig {
 	return OpenAICompatibleProviderConfig{
-		Name:         p.ID,
-		Kind:         p.Kind,
-		Protocol:     p.Protocol,
-		BaseURL:      p.BaseURL,
-		APIVersion:   p.APIVersion,
-		ChatPath:     p.ChatPath,
-		ModelsPath:   p.ModelsPath,
-		Timeout:      DefaultProviderTimeout(p.Kind),
-		StubMode:     false,
-		DefaultModel: p.DefaultModel,
+		Name:           p.ID,
+		ProviderFamily: p.ID,
+		Kind:           p.Kind,
+		Protocol:       p.Protocol,
+		BaseURL:        p.BaseURL,
+		APIVersion:     p.APIVersion,
+		ChatPath:       p.ChatPath,
+		ModelsPath:     p.ModelsPath,
+		Timeout:        DefaultProviderTimeout(p.Kind),
+		StubMode:       false,
+		DefaultModel:   p.DefaultModel,
 	}
 }

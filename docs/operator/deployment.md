@@ -301,6 +301,11 @@ fails.
 
 ## Resetting state
 
+The running `POST /hecate/v1/system/reset-data` endpoint is intentionally
+unavailable and returns `409 conflict` before deleting anything. Stop the
+runtime completely before using one of these deployment-specific reset paths;
+do not remove a live SQLite or Cairnline database.
+
 To wipe the stack back to first-run — removes the `hecate-data` volume (SQLite db) and regenerates state on the next `docker compose up`:
 
 ```bash
@@ -308,6 +313,11 @@ just reset-docker
 ```
 
 For local (non-Docker) development resets, see [`development.md`](../contributor/development.md#reset-state).
+
+For Postgres-backed deployments, removing only Hecate's local data directory
+does not clear Postgres. With the runtime fully stopped, clear the configured
+Postgres state and any local Cairnline/bootstrap files that belong to the same
+deployment according to its backup and recovery policy.
 
 ## Bootstrap key and backups
 
@@ -347,7 +357,8 @@ Hecate keeps one process-wide backend selector for Hecate-owned state.
 
 This backend covers settings, encrypted provider credentials, audit and usage
 history, Agent Presets, chat sessions, external-agent approvals and grants,
-tasks, the task queue, and Hecate's project-runtime overlays.
+chat attachment bodies, tasks, the task queue, and Hecate's
+project-runtime overlays.
 
 Portable Projects coordination is stored by embedded
 [Cairnline](https://github.com/hecatehq/cairnline) in
@@ -377,6 +388,61 @@ Deployment-specific notes:
 - When `HECATE_BACKEND=sqlite` or `postgres`, Hecate reconciles pending
   external-agent approvals from a prior process to `status=timed_out`,
   `path=startup_reconcile` before serving requests.
+- Every backend runs Chat attachment recovery before serving: pending
+  message-id claim fences are resolved from transcript metadata and a
+  metadata-only session sweep removes bodies whose owning chat no longer
+  exists. Conflicting metadata remains claimed and is reported rather than
+  released. Run a single Chat API writer against a backend; task queue leases
+  support multiple workers, but this attachment reconciliation slice does not
+  make Chat transcript writes active-active.
+- Durable queued-message submissions use the backend's
+  `chat_message_requests` ledger. The session-scoped request key and SHA-256
+  payload fingerprint are committed atomically with the user transcript row;
+  raw prompts, MCP configuration, and attachment bodies are not duplicated in
+  that table. A bounded pending-owner lease prevents an interrupted runtime
+  from blocking the key forever. This protects retries across browser tabs and
+  runtime replacement, but it does not make unrelated Chat transcript writes
+  generally active-active.
+- Attachment bodies are bounded to 512 MiB per chat. Across draft and linked
+  rows, the memory backend is capped at 512 MiB and SQLite/Postgres at 4 GiB.
+  Postgres serializes cross-session quota admission so concurrent uploads
+  cannot exceed the aggregate cap. Any new upload reclaims drafts older than 24
+  hours across the attachment store; linked rows remain until the owning chat
+  is deleted.
+- Attachment upload validation has a fixed two-request admission gate per Hecate
+  process. Additional uploads fail before their bodies are read with
+  `429 chat.attachment_upload_busy` and `Retry-After: 1`; this guard is
+  independent of the optional general request rate limiter below. An admitted
+  upload body has 60 seconds to finish reading; a route-local socket deadline
+  closes a stalled body and its expired HTTP/1 connection, then returns
+  `408 chat.attachment_upload_timeout`. This does not set a global server read
+  timeout or constrain streaming endpoints.
+- Attachment content responses have an independent fixed four-request gate.
+  The permit spans the scoped store lookup, integrity check, and body write;
+  additional downloads fail before hydration with
+  `429 chat.attachment_content_busy`, `Retry-After: 1`, and typed
+  concurrency/retry fields. Each admitted write has a route-local 30-second
+  socket deadline, so stalled clients release both the permit and the chat
+  lifecycle operation without setting a global server write timeout. If a
+  proxy/wrapper does not expose socket write deadlines, Hecate closes that
+  response and returns a fixed `500` before committing the image `200` rather
+  than falling back to an unbounded download.
+- Image-bearing direct-model turns have a separate fixed two-request admission
+  gate per Hecate process. The permit spans attachment claim, historical body
+  hydration, base64 expansion, provider serialization, and the provider call.
+  Additional image turns fail before claim or transcript mutation with
+  `429 chat.image_turn_busy`, `Retry-After: 1`, and typed concurrency/retry
+  fields. Text-only turns remain outside this gate.
+- File-bearing External Agent turns have their own fixed two-request admission
+  gate per Hecate process. The permit spans attachment claim, hydration,
+  private staging, and the synchronous ACP prompt. Additional file turns fail
+  before claim or transcript mutation with
+  `429 chat.external_file_turn_busy`, `Retry-After: 1`, and typed
+  concurrency/retry fields. Text-only External Agent turns remain outside this
+  gate.
+- Hecate does not encrypt attachment blobs at the application layer. Protect
+  `/data`, SQLite files, Postgres roles and transport, snapshots, and backups
+  with the deployment's filesystem/volume/database controls.
 
 ## Rate limiting
 

@@ -61,6 +61,10 @@ func writeChatAdmissionError(w http.ResponseWriter, err error) bool {
 		writeChatExecutionModeInvalid(w)
 	case errors.Is(err, chatapp.ErrExternalCannotRunHecate), errors.Is(err, chatapp.ErrHecateCannotRunExternal):
 		writeAgentChatRuntimeMismatch(w, err.Error())
+	case errors.Is(err, chatapp.ErrAttachmentsDirectOnly):
+		WriteError(w, http.StatusUnprocessableEntity, errCodeAttachmentUnsupported, err.Error())
+	case errors.Is(err, chatapp.ErrTooManyAttachments), errors.Is(err, chatapp.ErrDuplicateAttachmentID), errors.Is(err, chatapp.ErrAttachmentIDRequired):
+		WriteError(w, http.StatusUnprocessableEntity, errCodeAttachmentInvalid, err.Error())
 	default:
 		return false
 	}

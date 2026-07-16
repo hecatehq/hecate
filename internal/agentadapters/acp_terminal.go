@@ -2,6 +2,7 @@ package agentadapters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 )
 
 const defaultACPTerminalOutputByteLimit = 1024 * 1024
@@ -27,24 +29,36 @@ const (
 
 var nextACPTerminalApprovalID atomic.Uint64
 
+var errACPTerminalsClosed = errors.New("ACP terminal admission is closed")
+
 type acpTerminal struct {
-	id           string
-	commandLine  string
-	cwd          string
-	term         workspace.Terminal
-	output       *acpTerminalOutputBuffer
-	done         chan struct{}
-	killed       atomic.Bool
-	exitReported atomic.Bool
-	onExit       func(*acpTerminal)
-	exitCode     *int
-	waitErr      error
+	id             string
+	commandLine    string
+	cwd            string
+	term           workspace.Terminal
+	output         *acpTerminalOutputBuffer
+	done           chan struct{}
+	killed         atomic.Bool
+	exitReported   atomic.Bool
+	activityMu     sync.Mutex
+	activitySink   func(Activity)
+	activityDone   func(string)
+	redactor       *acpPromptRedactor
+	onExit         func(*acpTerminal)
+	exitCode       *int
+	waitErr        error
+	workspaceLease *workspacecoord.WriterLease
 }
 
 func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
 	if !c.terminalsEnabled {
 		return acp.CreateTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalCreate)
 	}
+	finishCreate, err := c.beginTerminalCreate()
+	if err != nil {
+		return acp.CreateTerminalResponse{}, err
+	}
+	defer finishCreate()
 	command := strings.TrimSpace(params.Command)
 	if command == "" {
 		return acp.CreateTerminalResponse{}, fmt.Errorf("command is required")
@@ -62,11 +76,22 @@ func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTer
 		limit = *params.OutputByteLimit
 	}
 	commandLine := terminalCommandLine(command, params.Args)
+	// Capture the originating turn's durable activity sink before spawning.
+	// A terminal may outlive RunTurn; resolving currentTurn when it exits would
+	// drop its completion while idle or attribute it to a later turn.
+	activitySink, activityDone, redactor := c.currentTerminalCallbacks()
+	if c.workspaceCoordinator == nil {
+		return acp.CreateTerminalResponse{}, fmt.Errorf("workspace coordination is required for ACP terminals")
+	}
 	if err := c.approveTerminalCreate(ctx, params, cwd, limit); err != nil {
 		return acp.CreateTerminalResponse{}, err
 	}
-	ws := workspace.NewLocalWorkspace()
-	term, err := ws.OpenTerminal(ctx, workspace.TerminalOptions{
+	workspaceLease, err := c.workspaceCoordinator.AcquireWriter(ctx, c.workspace)
+	if err != nil {
+		emitACPTerminalActivity(activitySink, terminalActivity("", commandLine, cwd, "failed", terminalFailureDetail(err), ""))
+		return acp.CreateTerminalResponse{}, fmt.Errorf("acquire ACP terminal workspace writer: %w", err)
+	}
+	term, err := c.openWorkspaceTerminal(ctx, workspace.TerminalOptions{
 		Command:          command,
 		Args:             append([]string(nil), params.Args...),
 		WorkingDirectory: cwd,
@@ -77,23 +102,58 @@ func (c *acpChatClient) CreateTerminal(ctx context.Context, params acp.CreateTer
 		Env: env,
 	})
 	if err != nil {
-		c.emitCurrentTurnActivity(terminalActivity("", commandLine, cwd, "failed", terminalFailureDetail(err), ""))
+		workspaceLease.Release()
+		emitACPTerminalActivity(activitySink, terminalActivity("", commandLine, cwd, "failed", terminalFailureDetail(err), ""))
 		return acp.CreateTerminalResponse{}, err
 	}
 
 	item := &acpTerminal{
-		id:          term.ID(),
-		commandLine: commandLine,
-		cwd:         cwd,
-		term:        term,
-		output:      newACPTerminalOutputBuffer(limit),
-		done:        make(chan struct{}),
-		onExit:      c.emitTerminalExitActivity,
+		id:             term.ID(),
+		commandLine:    commandLine,
+		cwd:            cwd,
+		term:           term,
+		output:         newACPTerminalOutputBuffer(limit),
+		done:           make(chan struct{}),
+		activitySink:   activitySink,
+		activityDone:   activityDone,
+		redactor:       redactor,
+		onExit:         c.emitTerminalExitActivity,
+		workspaceLease: workspaceLease,
 	}
-	c.storeTerminal(item)
+	if !c.registerTerminal(item) {
+		// closeTerminals closed admission while OpenTerminal was in flight.
+		// The watcher remains the sole lease authority: start it before the
+		// best-effort rollback so a caller deadline can return without releasing
+		// workspace ownership ahead of actual process/output completion.
+		go item.watch()
+		item.killed.Store(true)
+		closeErr := item.term.Close(ctx)
+		c.rememberTerminalPreview(item)
+		if terminalDone(item) {
+			c.emitTerminalExitActivity(item)
+		} else {
+			c.emitAuthoritativeTerminalCancellation(item, "session closing")
+		}
+		if closeErr != nil {
+			return acp.CreateTerminalResponse{}, errors.Join(errACPTerminalsClosed, closeErr)
+		}
+		return acp.CreateTerminalResponse{}, errACPTerminalsClosed
+	}
+	// Publish the initial row before the watcher can publish a fast exit. Keep
+	// output draining concurrent with persistence, but serialize lifecycle
+	// callbacks through activityMu so "running" can never overwrite a final.
+	item.activityMu.Lock()
 	go item.watch()
 	c.emitTerminalActivity(item, "running", "", "")
+	item.activityMu.Unlock()
 	return acp.CreateTerminalResponse{TerminalId: item.id}, nil
+}
+
+func (c *acpChatClient) openWorkspaceTerminal(ctx context.Context, opts workspace.TerminalOptions) (workspace.Terminal, error) {
+	if c.openTerminal != nil {
+		return c.openTerminal(ctx, opts)
+	}
+	return workspace.NewLocalWorkspace().OpenTerminal(ctx, opts)
 }
 
 func (c *acpChatClient) KillTerminal(ctx context.Context, params acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
@@ -109,7 +169,7 @@ func (c *acpChatClient) KillTerminal(ctx context.Context, params acp.KillTermina
 		item.killed.Store(false)
 		return acp.KillTerminalResponse{}, err
 	}
-	c.emitTerminalActivity(item, "cancelled", "killed", "")
+	c.emitTransientTerminalActivity(item, "cancelled", "killed", "")
 	return acp.KillTerminalResponse{}, nil
 }
 
@@ -143,7 +203,25 @@ func (c *acpChatClient) ReleaseTerminal(ctx context.Context, params acp.ReleaseT
 		return acp.ReleaseTerminalResponse{}, err
 	}
 	doneBeforeClose := terminalDone(item)
+	if !doneBeforeClose {
+		// Mark release cancellation before Close can wake the watcher. Local
+		// terminal Close may wait for or cause exit, and the watcher is the usual
+		// winner of exitReported; setting this afterward could misreport a
+		// released command as completed.
+		item.activityMu.Lock()
+		if !item.exitReported.Load() {
+			item.killed.Store(true)
+		}
+		item.activityMu.Unlock()
+	}
 	if err := item.term.Close(ctx); err != nil {
+		if !doneBeforeClose {
+			item.activityMu.Lock()
+			if !item.exitReported.Load() {
+				item.killed.Store(false)
+			}
+			item.activityMu.Unlock()
+		}
 		return acp.ReleaseTerminalResponse{}, err
 	}
 	if _, err := c.removeTerminal(params.TerminalId); err != nil {
@@ -153,8 +231,7 @@ func (c *acpChatClient) ReleaseTerminal(ctx context.Context, params acp.ReleaseT
 	if doneBeforeClose {
 		c.emitTerminalExitActivity(item)
 	} else {
-		item.killed.Store(true)
-		c.emitTerminalActivity(item, "cancelled", "released before exit", "")
+		c.emitAuthoritativeTerminalCancellation(item, "released before exit")
 	}
 	return acp.ReleaseTerminalResponse{}, nil
 }
@@ -173,7 +250,7 @@ func (c *acpChatClient) WaitForTerminalExit(ctx context.Context, params acp.Wait
 		return acp.WaitForTerminalExitResponse{}, ctx.Err()
 	}
 	c.emitTerminalExitActivity(item)
-	return acp.WaitForTerminalExitResponse{ExitCode: item.exitCode}, item.waitErr
+	return acp.WaitForTerminalExitResponse{ExitCode: item.exitCode}, item.redactor.redactError(item.waitErr)
 }
 
 func (c *acpChatClient) approveTerminalCreate(ctx context.Context, params acp.CreateTerminalRequest, cwd string, outputByteLimit int) error {
@@ -187,11 +264,7 @@ func (c *acpChatClient) approveTerminalCreate(ctx context.Context, params acp.Cr
 	if commandLine != "" {
 		title = "Run " + commandLine
 	}
-	resp, err := c.coordinator.RequestPermission(ctx, RecordingContext{
-		SessionID: c.sessionID,
-		AdapterID: c.adapterID,
-		Workspace: c.workspace,
-	}, acp.RequestPermissionRequest{
+	resp, err := c.RequestPermission(ctx, acp.RequestPermissionRequest{
 		SessionId: params.SessionId,
 		Options: []acp.PermissionOption{
 			{OptionId: acpTerminalAllowOnceOptionID, Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once"},
@@ -258,6 +331,8 @@ func (c *acpChatClient) emitTerminalExitActivity(item *acpTerminal) {
 	if item == nil {
 		return
 	}
+	item.activityMu.Lock()
+	defer item.activityMu.Unlock()
 	if !item.exitReported.CompareAndSwap(false, true) {
 		return
 	}
@@ -277,22 +352,69 @@ func (c *acpChatClient) emitTerminalExitActivity(item *acpTerminal) {
 		status = "cancelled"
 		extra = "killed"
 	}
-	c.emitTerminalActivity(item, status, extra, terminalOutputPreview(item))
+	c.emitTerminalSettlement(item, status, extra, terminalOutputPreview(item))
+}
+
+func (c *acpChatClient) emitAuthoritativeTerminalCancellation(item *acpTerminal, extra string) {
+	if item == nil {
+		return
+	}
+	item.activityMu.Lock()
+	defer item.activityMu.Unlock()
+	if !item.exitReported.CompareAndSwap(false, true) {
+		return
+	}
+	c.emitTerminalSettlement(item, "cancelled", extra, terminalOutputPreview(item))
 }
 
 func (c *acpChatClient) emitTerminalActivity(item *acpTerminal, status, extra, preview string) {
 	if item == nil {
 		return
 	}
-	c.emitCurrentTurnActivity(terminalActivity(item.id, item.commandLine, item.cwd, status, extra, preview))
+	emitACPTerminalActivity(item.activitySink, terminalActivity(item.id, item.commandLine, item.cwd, status, extra, preview))
 }
 
-func (c *acpChatClient) emitCurrentTurnActivity(activity Activity) {
-	turn := c.currentTurn()
-	if turn == nil {
+func (c *acpChatClient) emitTransientTerminalActivity(item *acpTerminal, status, extra, preview string) {
+	if item == nil {
 		return
 	}
-	turn.emitActivity(activity)
+	item.activityMu.Lock()
+	defer item.activityMu.Unlock()
+	if item.exitReported.Load() {
+		return
+	}
+	c.emitTerminalActivity(item, status, extra, preview)
+}
+
+// emitTerminalSettlement must be called with activityMu held and after the
+// caller wins exitReported. It detaches both callbacks before invoking them so
+// a late process watcher can never re-enter a closed transcript callback.
+func (c *acpChatClient) emitTerminalSettlement(item *acpTerminal, status, extra, preview string) {
+	if item == nil {
+		return
+	}
+	sink := item.activitySink
+	done := item.activityDone
+	item.activitySink = nil
+	item.activityDone = nil
+	emitACPTerminalActivity(sink, terminalActivity(item.id, item.commandLine, item.cwd, status, extra, preview))
+	if done != nil {
+		done(item.id)
+	}
+}
+
+func (c *acpChatClient) currentTerminalCallbacks() (func(Activity), func(string), *acpPromptRedactor) {
+	turn := c.currentTurn()
+	if turn == nil {
+		return nil, nil, nil
+	}
+	return turn.terminalCallbacks()
+}
+
+func emitACPTerminalActivity(sink func(Activity), activity Activity) {
+	if sink != nil {
+		sink(activity)
+	}
 }
 
 func terminalActivity(terminalID, commandLine, cwd, status, extra, preview string) Activity {
@@ -341,6 +463,10 @@ func terminalOutputPreview(item *acpTerminal) string {
 	if output == "" {
 		return ""
 	}
+	// Redact the raw ring snapshot before adding Hecate's truncation marker.
+	// A capped ring can begin with only the suffix of a staged path; prefixing
+	// metadata first would hide that leading fragment from the turn redactor.
+	output = item.redactor.redactFragment(output)
 	if truncated {
 		output = "[terminal output truncated]\n" + output
 	}
@@ -445,9 +571,52 @@ func acpTerminalEnvNames(vars []acp.EnvVariable) []string {
 	return names
 }
 
+func (c *acpChatClient) beginTerminalCreate() (func(), error) {
+	c.terminalMu.Lock()
+	defer c.terminalMu.Unlock()
+	if c.terminalsClosed {
+		return nil, errACPTerminalsClosed
+	}
+	if c.terminalCreates == 0 {
+		c.terminalCreatesDone = make(chan struct{})
+	}
+	c.terminalCreates++
+	var once sync.Once
+	return func() {
+		once.Do(c.finishTerminalCreate)
+	}, nil
+}
+
+func (c *acpChatClient) finishTerminalCreate() {
+	c.terminalMu.Lock()
+	defer c.terminalMu.Unlock()
+	if c.terminalCreates == 0 {
+		return
+	}
+	c.terminalCreates--
+	if c.terminalCreates == 0 {
+		close(c.terminalCreatesDone)
+		c.terminalCreatesDone = nil
+	}
+}
+
+func (c *acpChatClient) registerTerminal(item *acpTerminal) bool {
+	c.terminalMu.Lock()
+	defer c.terminalMu.Unlock()
+	if c.terminalsClosed {
+		return false
+	}
+	c.storeTerminalLocked(item)
+	return true
+}
+
 func (c *acpChatClient) storeTerminal(item *acpTerminal) {
 	c.terminalMu.Lock()
 	defer c.terminalMu.Unlock()
+	c.storeTerminalLocked(item)
+}
+
+func (c *acpChatClient) storeTerminalLocked(item *acpTerminal) {
 	if c.terminals == nil {
 		c.terminals = make(map[string]*acpTerminal)
 	}
@@ -493,6 +662,23 @@ func (c *acpChatClient) removeTerminal(id string) (*acpTerminal, error) {
 }
 
 func (c *acpChatClient) closeTerminals(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.terminalMu.Lock()
+	c.terminalsClosed = true
+	createsDone := c.terminalCreatesDone
+	c.terminalMu.Unlock()
+
+	var firstErr error
+	if createsDone != nil {
+		select {
+		case <-createsDone:
+		case <-ctx.Done():
+			firstErr = ctx.Err()
+		}
+	}
+
 	c.terminalMu.Lock()
 	items := make([]*acpTerminal, 0, len(c.terminals))
 	for id, item := range c.terminals {
@@ -501,35 +687,49 @@ func (c *acpChatClient) closeTerminals(ctx context.Context) error {
 	}
 	c.terminalMu.Unlock()
 
-	var firstErr error
 	for _, item := range items {
 		item.killed.Store(true)
 		if err := item.term.Close(ctx); err != nil && firstErr == nil {
 			firstErr = err
 		}
-		waitForACPTerminalDone(ctx, item)
+		completed := waitForACPTerminalDone(ctx, item)
 		c.rememberTerminalPreview(item)
-		c.emitTerminalExitActivity(item)
+		if completed {
+			// The watcher publishes completion fields before closing done, so
+			// this read is synchronized. Usually its own callback already won
+			// exitReported; retaining the call covers test/custom watchers.
+			c.emitTerminalExitActivity(item)
+		} else {
+			// A shutdown deadline may expire before process/output drain. The
+			// cancellation is authoritative for transcript ownership; the watcher
+			// may still drain process output and release the workspace lease, but
+			// its later exit cannot re-enter detached callbacks.
+			c.emitAuthoritativeTerminalCancellation(item, "killed")
+		}
 	}
 	return firstErr
 }
 
-func waitForACPTerminalDone(ctx context.Context, item *acpTerminal) {
+func waitForACPTerminalDone(ctx context.Context, item *acpTerminal) bool {
 	if item == nil {
-		return
+		return false
 	}
 	if terminalDone(item) {
-		return
+		return true
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	select {
 	case <-item.done:
+		return true
 	case <-waitCtx.Done():
+		return false
 	}
 }
 
 func (t *acpTerminal) watch() {
+	defer close(t.done)
+	defer t.workspaceLease.Release()
 	outputDone := make(chan struct{})
 	go func() {
 		defer close(outputDone)
@@ -545,7 +745,6 @@ func (t *acpTerminal) watch() {
 	if t.onExit != nil {
 		t.onExit(t)
 	}
-	close(t.done)
 }
 
 type acpTerminalOutputBuffer struct {

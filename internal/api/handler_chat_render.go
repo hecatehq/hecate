@@ -1,10 +1,12 @@
 package api
 
 import (
+	"net/url"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/config"
 )
 
@@ -71,6 +73,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 			SpanID:          message.SpanID,
 			Role:            message.Role,
 			Content:         message.Content,
+			Attachments:     renderChatAttachments(session.ID, message.Attachments),
 			RawOutput:       message.RawOutput,
 			AgentID:         message.AgentID,
 			AgentName:       message.AgentName,
@@ -128,6 +131,43 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		Segments:             renderChatSegments(session),
 		Messages:             messages,
 	}
+}
+
+func renderChatAttachments(sessionID string, attachments []chat.MessageAttachment) []ChatAttachmentItem {
+	if len(attachments) == 0 {
+		return nil
+	}
+	items := make([]ChatAttachmentItem, 0, len(attachments))
+	for _, attachment := range attachments {
+		items = append(items, ChatAttachmentItem{
+			ID:         attachment.ID,
+			SessionID:  sessionID,
+			Filename:   attachment.Filename,
+			MediaType:  attachment.MediaType,
+			SizeBytes:  attachment.SizeBytes,
+			SHA256:     attachment.SHA256,
+			CreatedAt:  formatOptionalTime(attachment.CreatedAt),
+			ContentURL: chatAttachmentContentURL(sessionID, attachment.ID),
+		})
+	}
+	return items
+}
+
+func renderChatAttachment(attachment chatattachments.Attachment) ChatAttachmentItem {
+	return ChatAttachmentItem{
+		ID:         attachment.ID,
+		SessionID:  attachment.SessionID,
+		Filename:   attachment.Filename,
+		MediaType:  attachment.MediaType,
+		SizeBytes:  attachment.SizeBytes,
+		SHA256:     attachment.SHA256,
+		CreatedAt:  formatOptionalTime(attachment.CreatedAt),
+		ContentURL: chatAttachmentContentURL(attachment.SessionID, attachment.ID),
+	}
+}
+
+func chatAttachmentContentURL(sessionID, attachmentID string) string {
+	return "/hecate/v1/chat/sessions/" + url.PathEscape(sessionID) + "/attachments/" + url.PathEscape(attachmentID) + "/content"
 }
 
 func renderChatContextSummary(summary chat.ContextSummary) *ChatContextSummaryItem {

@@ -61,6 +61,7 @@ type Message struct {
 	SpanID          string
 	Role            string
 	Content         string
+	Attachments     []MessageAttachment
 	RawOutput       string
 	AgentID         string
 	AgentName       string
@@ -71,22 +72,38 @@ type Message struct {
 	ExitCode        int
 	CostMode        string
 	Provider        string
-	Model           string
-	Capabilities    types.ModelCapabilities
-	Workspace       string
-	DiffStat        string
-	Diff            string
-	CreatedAt       time.Time
-	StartedAt       time.Time
-	CompletedAt     time.Time
-	Error           string
-	Activities      []Activity
-	Usage           Usage
-	Timing          Timing
+	// ProviderInstance is an internal, opaque fence for provider-bound binary
+	// history. It is persisted but never rendered into chat API responses.
+	ProviderInstance types.ProviderInstanceIdentity
+	Model            string
+	Capabilities     types.ModelCapabilities
+	Workspace        string
+	DiffStat         string
+	Diff             string
+	CreatedAt        time.Time
+	StartedAt        time.Time
+	CompletedAt      time.Time
+	Error            string
+	Activities       []Activity
+	Usage            Usage
+	Timing           Timing
 	// Context is attached to assistant messages. It records metadata about the
 	// context sources visible to the operator, without prompt bodies or file
 	// contents.
 	Context ContextPacket
+}
+
+// MessageAttachment is the immutable metadata snapshot stored with a chat
+// message. Binary bodies live in chatattachments and are hydrated only for an
+// outbound model/agent request or a Hecate-native content response; middleware
+// applies the optional runtime-token or remote-runtime identity guard.
+type MessageAttachment struct {
+	ID        string    `json:"id"`
+	Filename  string    `json:"filename"`
+	MediaType string    `json:"media_type"`
+	SizeBytes int64     `json:"size_bytes"`
+	SHA256    string    `json:"sha256"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Activity struct {
@@ -244,6 +261,11 @@ type Store interface {
 	DeleteByProjectID(ctx context.Context, projectID string) error
 	UpdateSession(ctx context.Context, id string, update func(*Session)) (Session, error)
 	AppendMessage(ctx context.Context, sessionID string, message Message) (Session, error)
+	MessageRequestLeaseTTL() time.Duration
+	ClaimMessageRequest(ctx context.Context, sessionID, clientRequestID string, fingerprint MessageRequestFingerprint) (MessageRequestClaim, error)
+	RenewMessageRequest(ctx context.Context, req RenewMessageRequestRequest) error
+	CommitMessageRequest(ctx context.Context, lease MessageRequestLease, message Message) (Session, error)
+	ReleaseMessageRequest(ctx context.Context, lease MessageRequestLease) error
 	UpdateMessage(ctx context.Context, sessionID string, messageID string, update func(*Message)) (Session, error)
 }
 
@@ -317,12 +339,35 @@ func activityTypeExists(items []Activity, typ string) bool {
 }
 
 type MemoryStore struct {
-	mu       sync.Mutex
-	sessions map[string]Session
+	mu                sync.Mutex
+	sessions          map[string]Session
+	messageRequests   map[messageRequestKey]*memoryMessageRequest
+	messageRequestNow func() time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{sessions: make(map[string]Session)}
+	return &MemoryStore{
+		sessions:          make(map[string]Session),
+		messageRequests:   make(map[messageRequestKey]*memoryMessageRequest),
+		messageRequestNow: time.Now,
+	}
+}
+
+func (s *MemoryStore) MessageRequestLeaseTTL() time.Duration {
+	return MessageRequestLeaseStaleAfter
+}
+
+func (s *MemoryStore) messageRequestNowUTC() time.Time {
+	if s.messageRequestNow == nil {
+		return time.Now().UTC()
+	}
+	return s.messageRequestNow().UTC()
+}
+
+func (s *MemoryStore) setMessageRequestNow(now func() time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messageRequestNow = now
 }
 
 func (s *MemoryStore) Backend() string {
@@ -378,6 +423,15 @@ func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
+	for key, record := range s.messageRequests {
+		if key.SessionID != id {
+			continue
+		}
+		if !record.committed {
+			close(record.done)
+		}
+		delete(s.messageRequests, key)
+	}
 	return nil
 }
 
@@ -387,6 +441,15 @@ func (s *MemoryStore) DeleteByProjectID(_ context.Context, projectID string) err
 	for id, session := range s.sessions {
 		if session.ProjectID == projectID {
 			delete(s.sessions, id)
+			for key, record := range s.messageRequests {
+				if key.SessionID != id {
+					continue
+				}
+				if !record.committed {
+					close(record.done)
+				}
+				delete(s.messageRequests, key)
+			}
 		}
 	}
 	return nil
@@ -412,20 +475,27 @@ func (s *MemoryStore) AppendMessage(_ context.Context, sessionID string, message
 	if !ok {
 		return Session{}, fmt.Errorf("agent chat session %q not found", sessionID)
 	}
+	if err := appendMemoryMessage(&session, message); err != nil {
+		return Session{}, err
+	}
+	s.sessions[sessionID] = session
+	return cloneSession(session), nil
+}
+
+func appendMemoryMessage(session *Session, message Message) error {
 	if message.ID == "" {
-		return Session{}, fmt.Errorf("message id is required")
+		return fmt.Errorf("message id is required")
 	}
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = time.Now().UTC()
 	}
-	hydrateMessageRuntimeFromSession(&message, session)
+	hydrateMessageRuntimeFromSession(&message, *session)
 	session.Messages = append(session.Messages, message)
 	session.UpdatedAt = message.CreatedAt
 	if message.Status != "" && message.Role == "assistant" {
 		session.Status = message.Status
 	}
-	s.sessions[sessionID] = session
-	return cloneSession(session), nil
+	return nil
 }
 
 func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, messageID string, update func(*Message)) (Session, error) {
@@ -439,9 +509,10 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 		if session.Messages[i].ID != messageID {
 			continue
 		}
+		previousStatus := session.Messages[i].Status
 		update(&session.Messages[i])
 		session.UpdatedAt = time.Now().UTC()
-		if session.Messages[i].Status != "" && session.Messages[i].Role == "assistant" {
+		if session.Messages[i].Status != "" && session.Messages[i].Role == "assistant" && session.Messages[i].Status != previousStatus {
 			session.Status = session.Messages[i].Status
 		}
 		s.sessions[sessionID] = session
@@ -459,6 +530,7 @@ func cloneSession(session Session) Session {
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
 		session.Messages[i].AgentInfo = cloneImplementationInfo(session.Messages[i].AgentInfo)
+		session.Messages[i].Attachments = append([]MessageAttachment(nil), session.Messages[i].Attachments...)
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 		for j := range session.Messages[i].Activities {
 			session.Messages[i].Activities[j].MCPApp = cloneMCPApp(session.Messages[i].Activities[j].MCPApp)
@@ -570,7 +642,7 @@ func hydrateMessageRuntimeFromSession(message *Message, session Session) {
 	if message.Model == "" {
 		message.Model = session.Model
 	}
-	if message.Capabilities.ToolCalling == "" && !message.Capabilities.Streaming && message.Capabilities.MaxContextTokens == 0 && message.Capabilities.Source == "" {
+	if message.Capabilities.ToolCalling == "" && message.Capabilities.ImageInput == "" && !message.Capabilities.Streaming && message.Capabilities.MaxContextTokens == 0 && message.Capabilities.Source == "" {
 		message.Capabilities = session.Capabilities
 	}
 	if message.AgentInfo == nil {

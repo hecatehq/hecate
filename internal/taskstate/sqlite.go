@@ -254,18 +254,26 @@ func (s *SQLiteStore) ListRunsByFilter(ctx context.Context, filter RunFilter) ([
 		}
 		where = append(where, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ", ")))
 	}
+	if filter.OrderByID && filter.AfterID != "" {
+		args = append(args, filter.AfterID)
+		where = append(where, "id > ?")
+	}
 	limitSQL := ""
 	if filter.Limit > 0 {
 		args = append(args, filter.Limit)
 		limitSQL = "LIMIT ?"
 	}
+	orderSQL := "ORDER BY number DESC, started_at DESC"
+	if filter.OrderByID {
+		orderSQL = "ORDER BY id ASC"
+	}
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT payload
-		FROM %s
-		WHERE %s
-		ORDER BY number DESC, started_at DESC
-		%s
-	`, s.runsTable, strings.Join(where, " AND "), limitSQL), args...)
+			SELECT payload
+			FROM %s
+			WHERE %s
+			%s
+			%s
+		`, s.runsTable, strings.Join(where, " AND "), orderSQL, limitSQL), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -468,49 +476,6 @@ func (s *SQLiteStore) UpdatePendingApproval(ctx context.Context, approval types.
 	return approval, true, nil
 }
 
-func (s *SQLiteStore) UpdatePendingApprovalForAwaitingRun(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
-	if strings.TrimSpace(approval.ID) == "" {
-		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
-	}
-	if strings.TrimSpace(approval.TaskID) == "" {
-		return types.TaskApproval{}, false, fmt.Errorf("approval task id is required")
-	}
-	if strings.TrimSpace(approval.RunID) == "" {
-		return types.TaskApproval{}, false, fmt.Errorf("approval run id is required")
-	}
-	payload, err := json.Marshal(approval)
-	if err != nil {
-		return types.TaskApproval{}, false, err
-	}
-	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-		UPDATE %s
-		SET status = ?, payload = ?
-		WHERE id = ?
-		  AND task_id = ?
-		  AND run_id = ?
-		  AND status = 'pending'
-		  AND EXISTS (
-		    SELECT 1
-		    FROM %s
-		    WHERE id = ?
-		      AND task_id = ?
-		      AND status = 'awaiting_approval'
-		  )
-	`, s.approvalsTable, s.runsTable), approval.Status, string(payload), approval.ID, approval.TaskID, approval.RunID, approval.RunID, approval.TaskID)
-	if err != nil {
-		return types.TaskApproval{}, false, err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return types.TaskApproval{}, false, err
-	}
-	if n == 0 {
-		return types.TaskApproval{}, false, nil
-	}
-	s.signalRun(approval.RunID)
-	return approval, true, nil
-}
-
 func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
 	if strings.TrimSpace(artifact.ID) == "" {
 		return types.TaskArtifact{}, fmt.Errorf("artifact id is required")
@@ -654,40 +619,178 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	}
 	defer tx.Rollback()
 
-	if err := sqliteRequireRow(ctx, tx, fmt.Sprintf(`SELECT 1 FROM %s WHERE id = ?`, s.tasksTable), tr.Task.ID); err != nil {
+	storedTask, err := s.sqliteGetTaskTx(ctx, tx, tr.Task.ID)
+	if err != nil {
 		return TerminalRunTransitionResult{}, err
 	}
-	if err := sqliteRequireRow(ctx, tx, fmt.Sprintf(`SELECT 1 FROM %s WHERE id = ? AND task_id = ?`, s.runsTable), tr.Run.ID, tr.Task.ID); err != nil {
+	storedRun, err := s.sqliteGetRunTx(ctx, tx, tr.Task.ID, tr.Run.ID)
+	if err != nil {
 		return TerminalRunTransitionResult{}, err
+	}
+	storedResolutionApproval := types.TaskApproval{}
+	if tr.ApprovalResolution != nil {
+		storedResolutionApproval, err = s.sqliteGetApprovalTx(ctx, tx, tr.Task.ID, tr.Run.ID, tr.ApprovalResolution.ApprovalID)
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+		if storedRun.Status != "awaiting_approval" || storedResolutionApproval.Status != "pending" {
+			steps, listErr := s.sqliteListStepsTx(ctx, tx, storedRun.ID)
+			if listErr != nil {
+				return TerminalRunTransitionResult{}, listErr
+			}
+			artifacts, listErr := s.sqliteListArtifactsTx(ctx, tx, ArtifactFilter{TaskID: tr.Task.ID, RunID: storedRun.ID}, "")
+			if listErr != nil {
+				return TerminalRunTransitionResult{}, listErr
+			}
+			return TerminalRunTransitionResult{
+				Task: storedTask, Run: storedRun, Approval: storedResolutionApproval,
+				Steps: steps, Artifacts: artifacts,
+			}, nil
+		}
+	}
+	storedRunTerminal := types.IsTerminalTaskRunStatus(storedRun.Status)
+	trustedDifferentTerminalReplay := storedRunTerminal && storedRun.Status != tr.Run.Status && tr.TrustedSupplementalRunMetadata != nil
+	if storedRunTerminal && storedRun.Status != tr.Run.Status && !trustedDifferentTerminalReplay {
+		steps, listErr := s.sqliteListStepsTx(ctx, tx, storedRun.ID)
+		if listErr != nil {
+			return TerminalRunTransitionResult{}, listErr
+		}
+		artifacts, listErr := s.sqliteListArtifactsTx(ctx, tx, ArtifactFilter{TaskID: tr.Task.ID, RunID: storedRun.ID}, "")
+		if listErr != nil {
+			return TerminalRunTransitionResult{}, listErr
+		}
+		return TerminalRunTransitionResult{Task: storedTask, Run: storedRun, Steps: steps, Artifacts: artifacts}, nil
 	}
 
 	finishedAt := terminalTransitionFinishedAt(tr)
 	task := tr.Task
 	run := tr.Run
-	if task.UpdatedAt.IsZero() {
-		task.UpdatedAt = finishedAt
+	terminalEvent := tr.TerminalEvent
+	taskUpdatedEvent := tr.TaskUpdatedEvent
+	activeStepError := tr.ActiveStepError
+	activeStepResult := tr.ActiveStepResult
+	activeStepErrorKind := tr.ActiveStepErrorKind
+	pendingApprovalResolutionNote := tr.PendingApprovalResolutionNote
+	cancelActiveSteps := tr.CancelActiveSteps
+	cancelStreamingArtifacts := tr.CancelStreamingArtifacts
+	cancelPendingApprovals := tr.CancelPendingApprovals
+	pendingApprovalStatus := tr.PendingApprovalStatus
+	pendingApprovalResolvedBy := tr.PendingApprovalResolvedBy
+	if tr.ApprovalResolution != nil {
+		terminalEvent = nil
+		taskUpdatedEvent = nil
+		cancelActiveSteps = true
+		cancelStreamingArtifacts = true
+		cancelPendingApprovals = true
+		activeStepError = run.LastError
+		activeStepResult = "error"
+		activeStepErrorKind = "run_cancelled"
+		pendingApprovalStatus = "cancelled"
+		pendingApprovalResolvedBy = "system"
+		pendingApprovalResolutionNote = run.LastError
 	}
-	if task.FinishedAt.IsZero() {
-		task.FinishedAt = finishedAt
+	sameTerminalReplay := storedRunTerminal && storedRun.Status == tr.Run.Status
+	terminalReplay := sameTerminalReplay || trustedDifferentTerminalReplay
+	if trustedDifferentTerminalReplay {
+		task = storedTask
+		run = mergeTrustedTerminalRunMetadata(storedRun, tr.TrustedSupplementalRunMetadata)
+		terminalEvent = nil
+		taskUpdatedEvent = nil
+	} else if sameTerminalReplay {
+		task = storedTask
+		run = mergeTrustedTerminalRunMetadata(storedRun, tr.TrustedSupplementalRunMetadata)
+		terminalEvent = nil
+		taskUpdatedEvent = nil
+		activeStepError = run.LastError
+		pendingApprovalResolutionNote = run.LastError
+	} else if tr.PreserveTaskProjection {
+		task = storedTask
+	} else {
+		if task.UpdatedAt.IsZero() {
+			task.UpdatedAt = finishedAt
+		}
+		if task.FinishedAt.IsZero() {
+			task.FinishedAt = finishedAt
+		}
 	}
-	if run.FinishedAt.IsZero() {
+	if !terminalReplay && run.FinishedAt.IsZero() {
 		run.FinishedAt = finishedAt
+	}
+	resolvedApproval := storedResolutionApproval
+	if tr.ApprovalResolution != nil {
+		resolvedApproval, err = mergeApprovalResolution(storedResolutionApproval, *tr.ApprovalResolution)
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+	}
+	if !terminalReplay {
+		applied, err := s.sqliteUpdateRunIfNonTerminalTx(ctx, tx, run)
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+		if !applied {
+			currentTask, getErr := s.sqliteGetTaskTx(ctx, tx, tr.Task.ID)
+			if getErr != nil {
+				return TerminalRunTransitionResult{}, getErr
+			}
+			currentRun, getErr := s.sqliteGetRunTx(ctx, tx, tr.Task.ID, tr.Run.ID)
+			if getErr != nil {
+				return TerminalRunTransitionResult{}, getErr
+			}
+			if !types.IsTerminalTaskRunStatus(currentRun.Status) {
+				return TerminalRunTransitionResult{Task: currentTask, Run: currentRun}, nil
+			}
+			if tr.ApprovalResolution != nil {
+				return TerminalRunTransitionResult{Task: currentTask, Run: currentRun, Approval: storedResolutionApproval}, nil
+			}
+			sameTerminalReplay = currentRun.Status == tr.Run.Status
+			trustedDifferentTerminalReplay = currentRun.Status != tr.Run.Status && tr.TrustedSupplementalRunMetadata != nil
+			if !sameTerminalReplay && !trustedDifferentTerminalReplay {
+				return TerminalRunTransitionResult{Task: currentTask, Run: currentRun}, nil
+			}
+			// A concurrent terminal transition won after the reads above. Keep
+			// its authoritative run/task and events. Same-status replays may
+			// clean up late children; different-status trusted executor replays
+			// may only merge route/accounting metadata.
+			terminalReplay = true
+			task = currentTask
+			run = mergeTrustedTerminalRunMetadata(currentRun, tr.TrustedSupplementalRunMetadata)
+			terminalEvent = nil
+			taskUpdatedEvent = nil
+			activeStepError = run.LastError
+			pendingApprovalResolutionNote = run.LastError
+		}
+		if !terminalReplay && !tr.PreserveTaskProjection {
+			if err := s.sqliteUpdateTaskTx(ctx, tx, task); err != nil {
+				return TerminalRunTransitionResult{}, err
+			}
+		}
+	}
+	if terminalReplay {
+		if err := s.sqliteUpdateSameTerminalRunTx(ctx, tx, run); err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+	}
+	if tr.ApprovalResolution != nil {
+		if err := s.sqliteUpdateApprovalTx(ctx, tx, resolvedApproval); err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
 	}
 
 	cancelledApprovals := make([]types.TaskApproval, 0)
-	if tr.CancelPendingApprovals {
+	if cancelPendingApprovals && !trustedDifferentTerminalReplay {
 		pending, err := s.sqliteListApprovalsTx(ctx, tx, task.ID, run.ID, "pending")
 		if err != nil {
 			return TerminalRunTransitionResult{}, err
 		}
-		status := firstNonEmptyString(tr.PendingApprovalStatus, "cancelled")
-		resolvedBy := firstNonEmptyString(tr.PendingApprovalResolvedBy, "system")
-		note := firstNonEmptyString(tr.PendingApprovalResolutionNote, run.LastError)
+		status := firstNonEmptyString(pendingApprovalStatus, "cancelled")
+		resolvedBy := firstNonEmptyString(pendingApprovalResolvedBy, "system")
+		note := firstNonEmptyString(pendingApprovalResolutionNote, run.LastError)
 		for _, approval := range pending {
 			approval.Status = status
 			approval.ResolvedBy = resolvedBy
 			approval.ResolutionNote = note
-			approval.ResolvedAt = finishedAt
+			approval.ResolvedAt = terminalChildSettlementTime(finishedAt, approval.CreatedAt)
 			if err := s.sqliteUpdateApprovalTx(ctx, tx, approval); err != nil {
 				return TerminalRunTransitionResult{}, err
 			}
@@ -695,27 +798,27 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 		}
 	}
 
-	if tr.CancelActiveSteps {
+	if cancelActiveSteps && !trustedDifferentTerminalReplay {
 		active, err := s.sqliteListActiveStepsTx(ctx, tx, run.ID)
 		if err != nil {
 			return TerminalRunTransitionResult{}, err
 		}
-		result := firstNonEmptyString(tr.ActiveStepResult, "error")
-		errorKind := firstNonEmptyString(tr.ActiveStepErrorKind, "run_cancelled")
-		stepError := firstNonEmptyString(tr.ActiveStepError, run.LastError)
+		result := firstNonEmptyString(activeStepResult, "error")
+		errorKind := firstNonEmptyString(activeStepErrorKind, "run_cancelled")
+		stepError := firstNonEmptyString(activeStepError, run.LastError)
 		for _, step := range active {
 			step.Status = "cancelled"
 			step.Result = result
 			step.Error = stepError
 			step.ErrorKind = errorKind
-			step.FinishedAt = finishedAt
+			step.FinishedAt = terminalChildSettlementTime(finishedAt, step.StartedAt)
 			if err := s.sqliteUpdateStepTx(ctx, tx, step); err != nil {
 				return TerminalRunTransitionResult{}, err
 			}
 		}
 	}
 
-	if tr.CancelStreamingArtifacts {
+	if cancelStreamingArtifacts && !trustedDifferentTerminalReplay {
 		streaming, err := s.sqliteListArtifactsTx(ctx, tx, ArtifactFilter{TaskID: task.ID, RunID: run.ID}, "streaming")
 		if err != nil {
 			return TerminalRunTransitionResult{}, err
@@ -728,13 +831,6 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 		}
 	}
 
-	if err := s.sqliteUpdateRunTx(ctx, tx, run); err != nil {
-		return TerminalRunTransitionResult{}, err
-	}
-	if err := s.sqliteUpdateTaskTx(ctx, tx, task); err != nil {
-		return TerminalRunTransitionResult{}, err
-	}
-
 	steps, err := s.sqliteListStepsTx(ctx, tx, run.ID)
 	if err != nil {
 		return TerminalRunTransitionResult{}, err
@@ -743,17 +839,20 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	if err != nil {
 		return TerminalRunTransitionResult{}, err
 	}
-	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+2)
+	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+3)
 	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, runtimeevents.EventApprovalResolved.String())
+	if tr.ApprovalResolution != nil {
+		approvalEventType = runtimeevents.EventApprovalResolved.String()
+	}
 	for _, approval := range cancelledApprovals {
 		event := types.TaskRunEvent{
 			TaskID:    task.ID,
 			RunID:     run.ID,
 			EventType: approvalEventType,
 			Data:      runtimeevents.ApprovalResolved(approval),
-			RequestID: tr.Run.RequestID,
-			TraceID:   tr.Run.TraceID,
-			CreatedAt: finishedAt,
+			RequestID: run.RequestID,
+			TraceID:   run.TraceID,
+			CreatedAt: approval.ResolvedAt,
 		}
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
@@ -761,16 +860,35 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 		}
 		events = append(events, inserted)
 	}
-	if tr.TerminalEvent != nil {
-		event := terminalEventFromSpec(*tr.TerminalEvent, task.ID, run.ID, finishedAt)
+	if tr.ApprovalResolution != nil {
+		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, rejectedApprovalTerminalEvent(task.ID, *tr.ApprovalResolution, run, finishedAt))
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+		events = append(events, inserted)
+		inserted, err = s.sqliteInsertRunEventTx(ctx, tx, rejectedApprovalTaskUpdatedEvent(task.ID, *tr.ApprovalResolution, run.ID, finishedAt))
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+		events = append(events, inserted)
+	} else if terminalEvent != nil {
+		event := runStateEventFromSpec(*terminalEvent, task.ID, run, steps, artifacts, finishedAt)
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
 			return TerminalRunTransitionResult{}, err
 		}
 		events = append(events, inserted)
 	}
-	if tr.TaskUpdatedEvent != nil {
-		event := terminalEventFromSpec(*tr.TaskUpdatedEvent, task.ID, run.ID, finishedAt)
+	if tr.ApprovalResolution == nil && taskUpdatedEvent != nil {
+		event := runStateEventFromSpec(*taskUpdatedEvent, task.ID, run, steps, artifacts, finishedAt)
+		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
+		if err != nil {
+			return TerminalRunTransitionResult{}, err
+		}
+		events = append(events, inserted)
+	}
+	if tr.ApprovalResolution != nil {
+		event := approvalResolutionEvent(task.ID, *tr.ApprovalResolution, resolvedApproval, run, steps, artifacts)
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
 			return TerminalRunTransitionResult{}, err
@@ -787,10 +905,12 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	return TerminalRunTransitionResult{
 		Task:               task,
 		Run:                run,
+		Approval:           resolvedApproval,
 		Steps:              steps,
 		Artifacts:          artifacts,
 		CancelledApprovals: cancelledApprovals,
 		Events:             events,
+		Applied:            true,
 	}, nil
 }
 
@@ -975,6 +1095,43 @@ func (s *SQLiteStore) sqliteUpdateRunTx(ctx context.Context, tx storage.Tx, run 
 		SET status = ?, started_at = ?, payload = ?
 		WHERE id = ? AND task_id = ?
 	`, s.runsTable), run.Status, run.StartedAt, string(payload), run.ID, run.TaskID)
+	if err != nil {
+		return err
+	}
+	return sqliteRequireRowsAffected(res, "run", run.ID)
+}
+
+func (s *SQLiteStore) sqliteUpdateRunIfNonTerminalTx(ctx context.Context, tx storage.Tx, run types.TaskRun) (bool, error) {
+	payload, err := json.Marshal(run)
+	if err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET status = ?, started_at = ?, payload = ?
+		WHERE id = ? AND task_id = ?
+		  AND status NOT IN ('completed', 'failed', 'cancelled')
+	`, s.runsTable), run.Status, run.StartedAt, string(payload), run.ID, run.TaskID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
+}
+
+func (s *SQLiteStore) sqliteUpdateSameTerminalRunTx(ctx context.Context, tx storage.Tx, run types.TaskRun) error {
+	payload, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET started_at = ?, payload = ?
+		WHERE id = ? AND task_id = ? AND status = ?
+	`, s.runsTable), run.StartedAt, string(payload), run.ID, run.TaskID, run.Status)
 	if err != nil {
 		return err
 	}

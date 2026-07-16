@@ -21,7 +21,11 @@ func TestWriteErrorAddsDefaultOperatorMetadata(t *testing.T) {
 		{name: "gateway error", code: errCodeGatewayError},
 		{name: "rate limit", code: errCodeRateLimitExceeded},
 		{name: "chat busy", code: errCodeAgentSessionBusy},
+		{name: "chat attachment upload busy", code: errCodeAttachmentUploadBusy},
+		{name: "chat attachment upload timeout", code: errCodeAttachmentUploadTimeout},
+		{name: "chat attachment content busy", code: errCodeAttachmentContentBusy},
 		{name: "model not configured", code: errCodeModelNotConfigured},
+		{name: "provider ambiguous", code: errCodeProviderAmbiguous},
 	}
 
 	for _, tt := range tests {
@@ -55,6 +59,15 @@ func TestWriteErrorAddsDefaultOperatorMetadata(t *testing.T) {
 				t.Fatal("error.operator_action = empty")
 			}
 		})
+	}
+}
+
+func TestAttachmentDraftQuotaActionDescribesTriggeredReclamation(t *testing.T) {
+	t.Parallel()
+
+	want := "Remove unused drafts and retry. Drafts older than 24 hours are reclaimed when a later upload runs, or delete the chat to remove them immediately."
+	if got := defaultErrorAction(errCodeAttachmentDraftQuota); got != want {
+		t.Fatalf("defaultErrorAction() = %q, want %q", got, want)
 	}
 }
 

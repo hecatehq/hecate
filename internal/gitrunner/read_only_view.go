@@ -12,7 +12,12 @@ import (
 	"strings"
 )
 
-const readOnlyViewMetadataLimit = 1024 * 1024
+const (
+	readOnlyViewMetadataLimit    = 1024 * 1024
+	trackedPathOutputLimit       = 8 * 1024 * 1024
+	attributeMetadataOutputLimit = trackedPathOutputLimit * 3
+	stagedChangeProbeOutputLimit = 4 * 1024
+)
 
 // ReadOnlyView is an immutable Git control-plane snapshot for passive
 // inspection. The worktree, index, and object database remain the source
@@ -24,13 +29,35 @@ type ReadOnlyView struct {
 	workspace       string
 	workTree        string
 	workspacePrefix string
+	indexPath       string
 	tempDir         string
+}
+
+// indexMutationLease reserves Git's conventional index lock while Hecate
+// validates and mutates the worktree. The reverse apply itself does not change
+// the index, but holding this lock prevents a concurrent well-behaved Git
+// writer from staging between the final index check and the worktree mutation.
+type indexMutationLease struct {
+	file     *os.File
+	lockPath string
 }
 
 // NewReadOnlyView snapshots the non-executable repository metadata needed by
 // status/diff and returns a runner that never loads the source repository's
 // mutable config. The caller must Close the view.
 func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*ReadOnlyView, error) {
+	// Passive inspection must not inherit Git settings that can update the
+	// source index, lazily contact a remote, or prompt for credentials. Apply
+	// these overrides before the metadata probes as well as to the completed
+	// view so every command in the construction sequence has the same posture.
+	passiveRunner := *r
+	passiveRunner.Env = replaceEnvironment(r.env(), map[string]string{
+		"GIT_OPTIONAL_LOCKS":  "0",
+		"GIT_NO_LAZY_FETCH":   "1",
+		"GIT_TERMINAL_PROMPT": "0",
+	})
+	r = &passiveRunner
+
 	workspace, err := cleanWorkspace(workspace)
 	if err != nil {
 		return nil, err
@@ -170,6 +197,7 @@ func (r *LocalRunner) NewReadOnlyView(ctx context.Context, workspace string) (*R
 		workspace:       workspace,
 		workTree:        workTree,
 		workspacePrefix: workspacePrefix,
+		indexPath:       normalizeProbedGitPath(workspace, indexPath),
 		tempDir:         tempDir,
 	}, nil
 }
@@ -181,6 +209,42 @@ func (v *ReadOnlyView) Close() error {
 	err := os.RemoveAll(v.tempDir)
 	v.tempDir = ""
 	return err
+}
+
+func (v *ReadOnlyView) lockIndexForMutation(ctx context.Context) (*indexMutationLease, error) {
+	if v == nil || strings.TrimSpace(v.indexPath) == "" {
+		return nil, errors.New("passive Git metadata view has no index path")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	lockPath := v.indexPath + ".lock"
+	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("%w: Git index is busy", ErrDiffSnapshotNotApplicable)
+		}
+		return nil, fmt.Errorf("reserve Git index for conditional apply: %w", err)
+	}
+	lease := &indexMutationLease{file: file, lockPath: lockPath}
+	if err := ctx.Err(); err != nil {
+		_ = lease.Release()
+		return nil, err
+	}
+	return lease, nil
+}
+
+func (l *indexMutationLease) Release() error {
+	if l == nil || l.file == nil {
+		return nil
+	}
+	closeErr := l.file.Close()
+	l.file = nil
+	removeErr := os.Remove(l.lockPath)
+	if errors.Is(removeErr, os.ErrNotExist) {
+		removeErr = nil
+	}
+	return errors.Join(closeErr, removeErr)
 }
 
 func (v *ReadOnlyView) RunLimited(ctx context.Context, maxBytes int64, args ...string) (Result, error) {
@@ -196,6 +260,89 @@ func (v *ReadOnlyView) RunLimitedInput(ctx context.Context, maxBytes int64, stdi
 		return Result{ExitCode: -1}, errors.New("passive Git metadata view is not configured")
 	}
 	return v.runner.RunLimitedReadOnlyInput(ctx, v.workspace, maxBytes, stdin, args...)
+}
+
+// RejectContentConversionAttributes fails closed when a tracked path in the
+// scoped workspace has an effective filter attribute. Git's clean/process
+// filters are executable repository configuration, so a passive status or
+// diff must not continue when conversion behavior is effective or ambiguous.
+func (v *ReadOnlyView) RejectContentConversionAttributes(ctx context.Context) error {
+	if v == nil || v.runner == nil {
+		return errors.New("passive Git metadata view is not configured")
+	}
+	result, err := v.RunLimited(ctx, trackedPathOutputLimit,
+		"--no-pager", "ls-files", "-z", "--", ".",
+	)
+	if err != nil {
+		return fmt.Errorf("inspect tracked paths for passive Git attributes: %w", err)
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return fmt.Errorf("passive Git inspection refused: tracked path metadata exceeded %d bytes", trackedPathOutputLimit)
+	}
+	if result.Stdout == "" {
+		return nil
+	}
+	attributes, err := v.RunLimitedInput(ctx, attributeMetadataOutputLimit, result.Stdout,
+		"--no-pager", "-c", "core.attributesFile="+os.DevNull,
+		"check-attr", "-z", "--stdin", "--all",
+	)
+	if err != nil {
+		return fmt.Errorf("resolve passive Git attributes: %w", err)
+	}
+	if attributes.StdoutTruncated || attributes.StderrTruncated {
+		return fmt.Errorf("passive Git inspection refused: effective attribute metadata exceeded %d bytes", attributeMetadataOutputLimit)
+	}
+	return RejectEffectiveContentConversionFilters(ctx, attributes.Stdout)
+}
+
+// RejectEffectiveContentConversionFilters validates the NUL-delimited triples
+// emitted by `git check-attr -z --all` and rejects any effective filter.
+func RejectEffectiveContentConversionFilters(ctx context.Context, output string) error {
+	records := strings.Split(output, "\x00")
+	if len(records) == 0 || records[len(records)-1] != "" || (len(records)-1)%3 != 0 {
+		return errors.New("passive Git inspection refused malformed effective attribute metadata")
+	}
+	for i := 0; i < len(records)-1; i += 3 {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("resolve passive Git attributes: %w", err)
+		}
+		path, attribute := records[i], records[i+1]
+		if path == "" || attribute == "" {
+			return errors.New("passive Git inspection refused malformed effective attribute metadata")
+		}
+		if attribute == "filter" {
+			return errors.New("passive Git inspection refused: a scoped path has an effective or ambiguous content-conversion filter")
+		}
+	}
+	return nil
+}
+
+// RejectStagedChanges ensures a successful SnapshotDiff covers every tracked
+// change in its scoped workspace. Conditional reverse apply currently owns the
+// worktree layer only; accepting an index-only change would report a false
+// clean snapshot, while folding HEAD-relative changes into the worktree patch
+// would leave the index changed. Staged and mixed-layer support therefore
+// remains an explicit follow-up rather than weakening discard semantics here.
+func (v *ReadOnlyView) RejectStagedChanges(ctx context.Context) error {
+	if v == nil || v.runner == nil {
+		return errors.New("passive Git metadata view is not configured")
+	}
+	result, err := v.RunLimited(ctx, stagedChangeProbeOutputLimit, passiveInspectionArgs(
+		"diff", "--cached", "--exit-code", "--no-renames", "--no-ext-diff", "--no-textconv", "--binary", "--", ".",
+	)...)
+	if err == nil {
+		if result.Stdout != "" || result.Stderr != "" || result.StdoutTruncated || result.StderrTruncated {
+			return errors.New("inspect staged Git changes: unexpected successful diff output")
+		}
+		return nil
+	}
+	// `git diff --exit-code` uses exit 1 for differences. Require the
+	// canonical patch prefix as well so an exit 1 from an OS sandbox wrapper
+	// or another pre-Git failure is not mistaken for a staged change.
+	if result.ExitCode == 1 && strings.HasPrefix(result.Stdout, "diff --git ") && result.Stderr == "" && !result.StderrTruncated {
+		return ErrStagedChangesUnsupported
+	}
+	return fmt.Errorf("inspect staged Git changes: %w", err)
 }
 
 // WorkspacePrefix returns Workspace relative to WorkTree. Git paths emitted

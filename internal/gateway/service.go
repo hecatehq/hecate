@@ -17,9 +17,11 @@ import (
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/models"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/prompttokens"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/retention"
 	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/sse"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -81,7 +83,8 @@ type ChatResult struct {
 }
 
 type ModelsResult struct {
-	Models []types.ModelInfo
+	Models             []types.ModelInfo
+	ProviderIdentities []catalog.ProviderIdentity
 }
 
 type ProviderStatusResult struct {
@@ -124,6 +127,7 @@ type ResponseMetadata struct {
 	RequestID               string
 	Provider                string
 	ProviderKind            string
+	ProviderInstance        types.ProviderInstanceIdentity
 	RouteReason             string
 	RequestedModel          string
 	CanonicalRequestedModel string
@@ -342,7 +346,17 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 func (s *Service) executePlan(ctx context.Context, trace *profiler.Trace, plan *ExecutionPlan) (*ChatResult, error) {
 	callResult, err := s.executor.Execute(ctx, trace, plan.Request, plan.Route)
 	if err != nil {
-		return nil, err
+		if callResult == nil {
+			return nil, err
+		}
+		// A provider may have received the request before returning an error.
+		// Preserve that attempted execution identity even without a response so
+		// Hecate can durably attribute image disclosure and correlate the trace.
+		identity := models.BuildIdentity(plan.OriginalRequest.Model, callResult.Decision.Model)
+		return &ChatResult{
+			Metadata: buildResponseMetadata(plan, callResult, trace, identity, types.Usage{}, 0),
+			Trace:    trace,
+		}, err
 	}
 	result, err := s.finalizer.FinalizeExecution(ctx, trace, plan, callResult)
 	if err != nil {
@@ -361,10 +375,7 @@ type providerCallResult struct {
 }
 
 func estimateUsage(req types.ChatRequest) types.Usage {
-	promptTokens := 0
-	for _, msg := range req.Messages {
-		promptTokens += len(msg.Content) / 4
-	}
+	promptTokens := prompttokens.EstimateMessages(req.Messages)
 	completionTokens := req.MaxTokens
 	if completionTokens < 0 {
 		completionTokens = 0
@@ -455,12 +466,11 @@ func (c *sseCapture) drain() {
 		line := strings.TrimRight(string(c.pending[:idx]), "\r")
 		c.pending = c.pending[idx+1:]
 
-		const prefix = "data: "
-		if !strings.HasPrefix(line, prefix) {
+		data, ok := sse.DataValue(line)
+		if !ok {
 			continue
 		}
-		data := line[len(prefix):]
-		if data == "[DONE]" {
+		if strings.TrimSpace(data) == "[DONE]" {
 			break
 		}
 		var chunk struct {
@@ -596,10 +606,11 @@ func (s *Service) HandleChatStreamCapture(ctx context.Context, req types.ChatReq
 		Model:     model,
 		CreatedAt: time.Now().UTC(),
 		Route: types.RouteDecision{
-			Provider:     handle.Metadata.Provider,
-			ProviderKind: handle.Metadata.ProviderKind,
-			Model:        handle.Metadata.Model,
-			Reason:       handle.Metadata.RouteReason,
+			Provider:         handle.Metadata.Provider,
+			ProviderKind:     handle.Metadata.ProviderKind,
+			ProviderInstance: handle.Metadata.ProviderInstance,
+			Model:            handle.Metadata.Model,
+			Reason:           handle.Metadata.RouteReason,
 		},
 		Choices: []types.ChatChoice{{
 			Index: 0,
@@ -626,14 +637,20 @@ func (s *Service) RouteForStream(ctx context.Context, req types.ChatRequest) (*S
 		return nil, ctx, err
 	}
 
-	var p providers.Provider
+	var instance providers.ProviderInstance
+	var found bool
 	if s.providers != nil {
-		p, _ = s.providers.Get(plan.Route.Provider)
+		instance, found = s.providers.GetInstance(plan.Route.Provider)
 	}
-	if p == nil {
+	if !found || instance.Provider == nil {
 		trace.Finalize()
 		return nil, ctx, fmt.Errorf("provider %q not found", plan.Route.Provider)
 	}
+	if err := validateProviderInstanceFence(plan.Request, plan.Route, instance.Identity); err != nil {
+		trace.Finalize()
+		return nil, ctx, err
+	}
+	p := instance.Provider
 
 	streamer, ok := p.(providers.Streamer)
 	if !ok {
@@ -652,21 +669,42 @@ func (s *Service) RouteForStream(ctx context.Context, req types.ChatRequest) (*S
 	streamReq.Model = plan.Route.Model
 
 	meta := ResponseMetadata{
-		RequestID:      req.RequestID,
-		Provider:       plan.Route.Provider,
-		ProviderKind:   plan.ProviderKind,
-		RouteReason:    plan.Route.Reason,
-		RequestedModel: req.Model,
-		Model:          plan.Route.Model,
-		TraceID:        trace.TraceID,
-		SpanID:         trace.RootSpanID(),
+		RequestID:        req.RequestID,
+		Provider:         plan.Route.Provider,
+		ProviderKind:     plan.ProviderKind,
+		ProviderInstance: plan.Route.ProviderInstance,
+		RouteReason:      plan.Route.Reason,
+		RequestedModel:   req.Model,
+		Model:            plan.Route.Model,
+		TraceID:          trace.TraceID,
+		SpanID:           trace.RootSpanID(),
 	}
 
 	handle := &StreamHandle{
 		Metadata: meta,
 		stream: func(w io.Writer) error {
 			defer trace.Finalize()
-			return streamer.ChatStream(ctx, streamReq, w)
+
+			dispatchStreamer := streamer
+			if requiresProviderInstanceFence(streamReq) {
+				dispatchInstance, err := providerInstanceForDispatch(s.providers, streamReq, plan.Route)
+				if err != nil {
+					recordProviderCallBlocked(trace, plan.Route, 0, err)
+					return err
+				}
+				currentStreamer, ok := dispatchInstance.Provider.(providers.Streamer)
+				if !ok {
+					return fmt.Errorf("provider %q does not support streaming", plan.Route.Provider)
+				}
+				if validator, ok := dispatchInstance.Provider.(providers.Validator); ok {
+					if err := validator.Validate(); err != nil {
+						return fmt.Errorf("%w: %v", errClient, err)
+					}
+				}
+				dispatchStreamer = currentStreamer
+			}
+
+			return dispatchStreamer.ChatStream(ctx, streamReq, w)
 		},
 	}
 	return handle, ctx, nil

@@ -7,6 +7,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/gateway"
 	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/safetext"
 )
 
 const (
@@ -82,18 +83,19 @@ func classifyGatewayError(err error) gatewayHTTPError {
 
 func classifyUpstreamError(err *providers.UpstreamError) gatewayHTTPError {
 	status := mapUpstreamStatus(err.StatusCode)
-	message := err.Message
+	message := safetext.SanitizeErrorMessage(err.Message)
+	errorType := safetext.SanitizeErrorType(err.Type, "api_error")
 	if strings.TrimSpace(message) == "" {
 		message = "upstream provider error"
 	}
 	out := gatewayHTTPError{
 		Status:        status,
 		OpenAIType:    errCodeUpstreamError,
-		AnthropicType: firstNonEmptyString(err.Type, "api_error"),
+		AnthropicType: errorType,
 		Message:       message,
 	}
 
-	lower := strings.ToLower(err.Type + " " + message)
+	lower := strings.ToLower(errorType + " " + message)
 	switch {
 	case err.StatusCode == http.StatusUnauthorized || err.StatusCode == http.StatusForbidden ||
 		strings.Contains(lower, "incorrect api key") ||

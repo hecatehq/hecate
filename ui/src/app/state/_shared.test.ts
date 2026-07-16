@@ -10,36 +10,84 @@ import {
 } from "./_shared";
 
 describe("parseQueuedChatMessageList", () => {
-  it("keeps valid queued chat messages", () => {
+  const validQueuedMessage = {
+    id: "queued-1",
+    session_id: "chat-1",
+    content: "continue",
+    execution_mode: "hecate_task",
+    tools_enabled: false,
+    provider_filter: "auto",
+    model: "gpt-4o-mini",
+    workspace: "/tmp/hecate",
+    system_prompt: "Be concise.",
+    agent_id: "hecate",
+    created_at: "2026-05-18T10:00:00.000Z",
+  };
+
+  it("keeps valid ready queued chat messages", () => {
+    expect(parseQueuedChatMessageList([validQueuedMessage])).toEqual([validQueuedMessage]);
+  });
+
+  it("loads stored submitting attempts as reconciliation-required with a sanitized baseline", () => {
     expect(
       parseQueuedChatMessageList([
         {
-          id: "queued-1",
-          session_id: "chat-1",
-          content: "continue",
-          execution_mode: "hecate_task",
-          tools_enabled: false,
-          provider_filter: "auto",
-          model: "gpt-4o-mini",
-          workspace: "/tmp/hecate",
-          system_prompt: "Be concise.",
-          agent_id: "hecate",
-          created_at: "2026-05-18T10:00:00.000Z",
+          ...validQueuedMessage,
+          delivery_state: "submitting",
+          delivery_baseline_message_ids: ["message-1", "", "message-1", 2, "message-2"],
         },
       ]),
     ).toEqual([
       {
-        id: "queued-1",
-        session_id: "chat-1",
-        content: "continue",
-        execution_mode: "hecate_task",
-        tools_enabled: false,
-        provider_filter: "auto",
-        model: "gpt-4o-mini",
-        workspace: "/tmp/hecate",
-        system_prompt: "Be concise.",
-        agent_id: "hecate",
-        created_at: "2026-05-18T10:00:00.000Z",
+        ...validQueuedMessage,
+        delivery_state: "reconcile_required",
+        delivery_baseline_message_ids: ["message-1", "message-2"],
+      },
+    ]);
+  });
+
+  it("preserves current delivery states and fails unknown states closed", () => {
+    expect(
+      parseQueuedChatMessageList([
+        { ...validQueuedMessage, id: "retryable", delivery_state: "retryable" },
+        {
+          ...validQueuedMessage,
+          id: "reconcile",
+          delivery_state: "reconcile_required",
+        },
+        { ...validQueuedMessage, id: "unknown", delivery_state: "future_state" },
+      ]),
+    ).toEqual([
+      expect.objectContaining({ id: "retryable", delivery_state: "retryable" }),
+      expect.objectContaining({ id: "reconcile", delivery_state: "reconcile_required" }),
+      expect.objectContaining({ id: "unknown", delivery_state: "reconcile_required" }),
+    ]);
+  });
+
+  it("preserves client-request conflict provenance for fail-closed reconciliation", () => {
+    expect(
+      parseQueuedChatMessageList([
+        {
+          ...validQueuedMessage,
+          delivery_state: "reconcile_required",
+          delivery_error_code: "chat.client_request_conflict",
+          delivery_idempotency_keyed: true,
+        },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        delivery_state: "reconcile_required",
+        delivery_error_code: "chat.client_request_conflict",
+        delivery_idempotency_keyed: true,
+      }),
+    ]);
+  });
+
+  it("loads the legacy retry marker as reconciliation-required instead of retrying", () => {
+    expect(parseQueuedChatMessageList([{ ...validQueuedMessage, retry_required: true }])).toEqual([
+      {
+        ...validQueuedMessage,
+        delivery_state: "reconcile_required",
       },
     ]);
   });
@@ -67,6 +115,26 @@ describe("parseQueuedChatMessageList", () => {
       }),
     ]);
   });
+
+  it("rejects padded session ownership that could bypass a deletion fence", () => {
+    expect(parseQueuedChatMessageList([{ ...validQueuedMessage, session_id: " chat-1 " }])).toEqual(
+      [],
+    );
+  });
+
+  it.each(["", " padded ", 7])(
+    "rejects a noncanonical queued storage epoch %j",
+    (deliveryStorageEpoch) => {
+      expect(
+        parseQueuedChatMessageList([
+          {
+            ...validQueuedMessage,
+            delivery_storage_epoch: deliveryStorageEpoch,
+          },
+        ]),
+      ).toEqual([]);
+    },
+  );
 });
 
 describe("parseStoredChatTarget", () => {

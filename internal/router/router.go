@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/requestscope"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -23,16 +24,17 @@ type RuleRouter struct {
 }
 
 type routeCandidate struct {
-	Provider      providers.Provider
-	Name          string
-	Kind          providers.Kind
-	Model         string
-	Reason        string
-	Status        string
-	HealthReason  string
-	Healthy       bool
-	LastLatencyMS int64
-	Stability     int64
+	Provider         providers.Provider
+	ProviderInstance types.ProviderInstanceIdentity
+	Name             string
+	Kind             providers.Kind
+	Model            string
+	Reason           string
+	Status           string
+	HealthReason     string
+	Healthy          bool
+	LastLatencyMS    int64
+	Stability        int64
 }
 
 func NewRuleRouter(defaultModel string, catalog catalog.Catalog) *RuleRouter {
@@ -61,22 +63,23 @@ func (r *RuleRouter) Route(ctx context.Context, req types.ChatRequest) (types.Ro
 		ok        bool
 	)
 	if req.Model != "" {
-		candidate, ok = r.selectCandidate(r.explicitModelCandidates(ctx, model))
+		candidate, ok = r.selectCandidate(r.explicitModelCandidates(ctx, req, model))
 		if !ok {
 			return types.RouteDecision{}, fmt.Errorf("no provider supports explicit model %q", model)
 		}
 	} else {
-		candidate, ok = r.selectCandidate(r.defaultCandidates(ctx, model))
+		candidate, ok = r.selectCandidate(r.defaultCandidates(ctx, req, model))
 		if !ok {
 			return types.RouteDecision{}, fmt.Errorf("no provider available for default routing")
 		}
 	}
 
 	return types.RouteDecision{
-		Provider:     candidate.Name,
-		ProviderKind: string(candidate.Kind),
-		Model:        candidate.Model,
-		Reason:       candidate.Reason,
+		Provider:         candidate.Name,
+		ProviderKind:     string(candidate.Kind),
+		ProviderInstance: candidate.ProviderInstance,
+		Model:            candidate.Model,
+		Reason:           candidate.Reason,
 	}, nil
 }
 
@@ -112,6 +115,9 @@ func (r *RuleRouter) Fallbacks(ctx context.Context, req types.ChatRequest, curre
 				continue
 			}
 		}
+		if !supportsRequest(provider, model, req) {
+			continue
+		}
 
 		key := provider.Name + "/" + model
 		if _, ok := seen[key]; ok {
@@ -120,10 +126,11 @@ func (r *RuleRouter) Fallbacks(ctx context.Context, req types.ChatRequest, curre
 		seen[key] = struct{}{}
 
 		out = append(out, types.RouteDecision{
-			Provider:     provider.Name,
-			ProviderKind: string(provider.Kind),
-			Model:        model,
-			Reason:       routeReasonForHealth(current.Reason+"_failover", provider.Status),
+			Provider:         provider.Name,
+			ProviderKind:     string(provider.Kind),
+			ProviderInstance: provider.ProviderInstance,
+			Model:            model,
+			Reason:           routeReasonForHealth(current.Reason+"_failover", provider.Status),
 		})
 	}
 
@@ -135,7 +142,10 @@ func (r *RuleRouter) Fallbacks(ctx context.Context, req types.ChatRequest, curre
 }
 
 func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRequest, explicitProvider, model string) (types.RouteDecision, error) {
-	entry, ok := r.lookupProvider(ctx, explicitProvider)
+	entry, ok, ambiguous := r.lookupProvider(ctx, explicitProvider, req.Requirements.ExactProvider)
+	if ambiguous {
+		return types.RouteDecision{}, fmt.Errorf("provider %q matches multiple configured providers", explicitProvider)
+	}
 	if !ok {
 		return types.RouteDecision{}, fmt.Errorf("provider %q not found", explicitProvider)
 	}
@@ -153,34 +163,49 @@ func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRe
 			return types.RouteDecision{}, fmt.Errorf("provider %q has no default model for routing", explicitProvider)
 		}
 	}
+	if req.Requirements.ProviderInstance.Valid() && entry.ProviderInstance != req.Requirements.ProviderInstance {
+		return types.RouteDecision{}, fmt.Errorf("provider %q configuration changed during image admission", explicitProvider)
+	}
+	if !supportsRequest(entry, routedModel, req) {
+		return types.RouteDecision{}, fmt.Errorf("provider %q model %q does not declare image-input support", explicitProvider, routedModel)
+	}
 
 	return types.RouteDecision{
-		Provider:     entry.Name,
-		ProviderKind: string(entry.Kind),
-		Model:        routedModel,
-		Reason:       routeReasonForHealth(reason, entry.Status),
+		Provider:         entry.Name,
+		ProviderKind:     string(entry.Kind),
+		ProviderInstance: entry.ProviderInstance,
+		Model:            routedModel,
+		Reason:           routeReasonForHealth(reason, entry.Status),
 	}, nil
 }
 
-func (r *RuleRouter) lookupProvider(ctx context.Context, provider string) (catalog.Entry, bool) {
+func (r *RuleRouter) lookupProvider(ctx context.Context, provider string, exact bool) (catalog.Entry, bool, bool) {
 	entry, ok := r.catalog.Get(ctx, provider)
-	if ok {
-		return entry, true
+	if ok || exact {
+		return entry, ok, false
 	}
-	for _, entry := range r.catalog.Snapshot(ctx) {
-		if catalog.EntryMatchesProvider(entry, provider) {
-			return entry, true
-		}
+
+	entries := r.catalog.Snapshot(ctx)
+	identities := make([]catalog.ProviderIdentity, 0, len(entries))
+	for _, candidate := range entries {
+		identities = append(identities, catalog.EntryProviderIdentity(candidate))
 	}
-	return catalog.Entry{}, false
+	resolution := catalog.ResolveProviderIdentity(identities, provider)
+	if resolution.Ambiguous {
+		return catalog.Entry{}, false, true
+	}
+	if resolution.Found {
+		return entries[resolution.Index], true, false
+	}
+	return catalog.Entry{}, false, false
 }
 
-func (r *RuleRouter) explicitModelCandidates(ctx context.Context, model string) []routeCandidate {
+func (r *RuleRouter) explicitModelCandidates(ctx context.Context, req types.ChatRequest, model string) []routeCandidate {
 	entries := orderedEntriesByName(r.catalog.Snapshot(ctx))
 	candidates := make([]routeCandidate, 0, len(entries)+2)
 
 	for _, entry := range entries {
-		if !isRoutableCandidate(entry, model) {
+		if !isRoutableCandidate(entry, model) || !supportsRequest(entry, model, req) {
 			continue
 		}
 		candidates = append(candidates, newRouteCandidate(entry, model, "requested_model"))
@@ -188,7 +213,7 @@ func (r *RuleRouter) explicitModelCandidates(ctx context.Context, model string) 
 	return orderCandidates(dedupeCandidates(candidates))
 }
 
-func (r *RuleRouter) defaultCandidates(ctx context.Context, model string) []routeCandidate {
+func (r *RuleRouter) defaultCandidates(ctx context.Context, req types.ChatRequest, model string) []routeCandidate {
 	entries := orderedEntriesByName(r.catalog.Snapshot(ctx))
 	candidates := make([]routeCandidate, 0, len(entries))
 	for _, entry := range entries {
@@ -197,10 +222,13 @@ func (r *RuleRouter) defaultCandidates(ctx context.Context, model string) []rout
 		}
 
 		if providerModel := entry.DefaultModel; providerModel != "" {
+			if !supportsRequest(entry, providerModel, req) {
+				continue
+			}
 			candidates = append(candidates, newRouteCandidate(entry, providerModel, "provider_default_model"))
 			continue
 		}
-		if supportsModel(entry, model) {
+		if supportsModel(entry, model) && supportsRequest(entry, model, req) {
 			candidates = append(candidates, newRouteCandidate(entry, model, "global_default_model"))
 		}
 	}
@@ -241,6 +269,21 @@ func supportsModel(entry catalog.Entry, model string) bool {
 	return entry.DefaultModel != "" && entry.DefaultModel == model
 }
 
+func supportsRequest(entry catalog.Entry, model string, req types.ChatRequest) bool {
+	if req.Requirements.ProviderInstance.Valid() && entry.ProviderInstance != req.Requirements.ProviderInstance {
+		return false
+	}
+	if !req.Requirements.ImageInput {
+		return true
+	}
+	providerCap := types.ModelCapabilities{}
+	if entry.ModelCapabilities != nil {
+		providerCap = entry.ModelCapabilities[model]
+	}
+	capability := modelcaps.ResolveWithProviderCapability(entry.ProviderFamily, string(entry.Kind), model, entry.DiscoverySource, providerCap)
+	return modelcaps.ImageCapable(capability)
+}
+
 func (r *RuleRouter) orderedProviders() []catalog.Entry {
 	entries := orderedEntriesByName(r.catalog.Snapshot(context.Background()))
 	candidates := make([]catalog.Entry, 0, len(entries))
@@ -270,16 +313,17 @@ func orderedEntriesByName(entries []catalog.Entry) []catalog.Entry {
 
 func newRouteCandidate(entry catalog.Entry, model, reason string) routeCandidate {
 	return routeCandidate{
-		Provider:      entry.Provider,
-		Name:          entry.Name,
-		Kind:          entry.Kind,
-		Model:         model,
-		Reason:        routeReasonForHealth(reason, entry.Status),
-		Status:        entry.Status,
-		HealthReason:  entry.HealthReason,
-		Healthy:       entry.Healthy,
-		LastLatencyMS: entry.LastLatencyMS,
-		Stability:     stabilityPenalty(entry),
+		Provider:         entry.Provider,
+		ProviderInstance: entry.ProviderInstance,
+		Name:             entry.Name,
+		Kind:             entry.Kind,
+		Model:            model,
+		Reason:           routeReasonForHealth(reason, entry.Status),
+		Status:           entry.Status,
+		HealthReason:     entry.HealthReason,
+		Healthy:          entry.Healthy,
+		LastLatencyMS:    entry.LastLatencyMS,
+		Stability:        stabilityPenalty(entry),
 	}
 }
 

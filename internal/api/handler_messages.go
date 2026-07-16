@@ -3,17 +3,20 @@ package api
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/requestscope"
+	"github.com/hecatehq/hecate/internal/sse"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -23,19 +26,20 @@ import (
 // / ChatResponse so that an Anthropic SDK pointed at Hecate (ANTHROPIC_BASE_URL)
 // can route through any configured provider (including OpenAI-compatible ones).
 func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
-	if !h.checkRateLimit(w, "") {
+	bodyRead := h.beginInferenceBodyRead(w, r)
+	if !h.checkInferenceRateLimit(w, "", bodyRead, inferenceErrorAnthropic) {
 		return
 	}
 	ctx := r.Context()
 
 	var wireReq AnthropicMessagesRequest
-	if !decodeJSON(w, r, &wireReq) {
+	if !h.decodeInferenceJSON(w, r, &wireReq, bodyRead, inferenceErrorAnthropic) {
 		return
 	}
 
 	internalReq, err := normalizeAnthropicRequest(wireReq, RequestIDFromContext(ctx))
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		writeInferenceError(w, inferenceErrorAnthropic, http.StatusBadRequest, errCodeInvalidRequest, err.Error(), ErrorDetails{})
 		return
 	}
 
@@ -122,26 +126,46 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, c
 	_ = pr.CloseWithError(streamCtx.Err())
 	runErr := <-errCh
 	if runErr != nil {
+		terminalErr := classifyStreamingTerminalError(runErr)
 		telemetry.Error(h.logger, streamCtx, "gen_ai.gateway.stream.failed",
 			slog.String("event.name", "gen_ai.gateway.stream.failed"),
 			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
-			slog.Any("error", runErr),
+			slog.String(telemetry.AttrErrorType, terminalErr.AnthropicType),
+			slog.String(telemetry.AttrErrorMessage, terminalErr.Message),
 		)
-		errMsg := runErr.Error()
-		var upstreamErr *providers.UpstreamError
-		if errors.As(runErr, &upstreamErr) {
-			errMsg = upstreamErr.Message
-		}
-		fmt.Fprintf(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":%q}}\n\n", errMsg)
-		flusher.Flush()
+		writeAnthropicStreamError(w, flusher, terminalErr)
 		return
 	}
 	if translateErr != nil {
+		terminalErr := classifyStreamingTerminalError(translateErr)
 		telemetry.Error(h.logger, streamCtx, "gen_ai.gateway.stream.translate_failed",
 			slog.String("event.name", "gen_ai.gateway.stream.translate_failed"),
-			slog.Any("error", translateErr),
+			slog.String(telemetry.AttrErrorType, terminalErr.AnthropicType),
+			slog.String(telemetry.AttrErrorMessage, terminalErr.Message),
 		)
+		// A custom or future streamer can return nil without writing the
+		// required OpenAI [DONE] sentinel. The translator owns this boundary:
+		// do not leave Anthropic clients with an ambiguous, unterminated stream.
+		// If the client has already disconnected, there is nowhere to report it.
+		if streamCtx.Err() == nil {
+			writeAnthropicStreamError(w, flusher, terminalErr)
+		}
 	}
+}
+
+func writeAnthropicStreamError(dst io.Writer, flusher http.Flusher, terminalErr gatewayHTTPError) {
+	payload, marshalErr := json.Marshal(map[string]any{
+		"type": "error",
+		"error": map[string]string{
+			"type":    terminalErr.AnthropicType,
+			"message": terminalErr.Message,
+		},
+	})
+	if marshalErr != nil {
+		payload = []byte(`{"type":"error","error":{"type":"api_error","message":"gateway stream error"}}`)
+	}
+	_, _ = fmt.Fprintf(dst, "event: error\ndata: %s\n\n", payload)
+	flusher.Flush()
 }
 
 // applyRuntimeHeaders sets X-Runtime-* headers consistent with the chat completion handler.
@@ -173,6 +197,8 @@ func applyRuntimeHeaders(w http.ResponseWriter,
 func writeMessagesError(w http.ResponseWriter, err error, details ErrorDetails) {
 	writeAnthropicGatewayError(w, classifyGatewayError(err), details)
 }
+
+var errInvalidAnthropicImageSource = errors.New("invalid Anthropic image source")
 
 func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (types.ChatRequest, error) {
 	if strings.TrimSpace(req.Model) == "" {
@@ -226,6 +252,9 @@ func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (
 	toolChoice := anthropicInboundToolChoice(req.ToolChoice)
 
 	scope := requestscope.Build(req.Provider)
+	requirements := types.ChatRequestRequirements{
+		NoProviderFailover: chatMessagesContainImages(messages),
+	}
 
 	return types.ChatRequest{
 		RequestID:     requestID,
@@ -237,6 +266,7 @@ func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (
 		TopK:          req.TopK,
 		StopSequences: req.StopSequences,
 		Scope:         scope,
+		Requirements:  requirements,
 		Tools:         tools,
 		ToolChoice:    toolChoice,
 		Stream:        req.Stream,
@@ -288,8 +318,8 @@ func contentBlocksText(blocks []types.ContentBlock) string {
 
 // convertAnthropicInboundMessage converts one Anthropic message into one or more
 // internal messages. ContentBlocks is always populated from block arrays so that
-// cache_control annotations survive the gateway roundtrip to Anthropic upstreams.
-// OpenAI-bound providers use Message.Content / Message.ToolCalls and ignore ContentBlocks.
+// cache_control annotations and rich image content survive provider serialization.
+// Provider adapters choose the appropriate string or structured wire form.
 func convertAnthropicInboundMessage(m AnthropicInboundMessage) ([]types.Message, error) {
 	role := strings.TrimSpace(m.Role)
 	if role != "user" && role != "assistant" {
@@ -335,7 +365,7 @@ func convertAnthropicInboundMessage(m AnthropicInboundMessage) ([]types.Message,
 		toolCalls = nil
 	}
 
-	for _, b := range blocks {
+	for blockIndex, b := range blocks {
 		switch b.Type {
 		case "text":
 			cb := types.ContentBlock{
@@ -372,10 +402,9 @@ func convertAnthropicInboundMessage(m AnthropicInboundMessage) ([]types.Message,
 			if err != nil {
 				return nil, err
 			}
-			resultBlocks, err := decodeToolResultBlocks(b.Content)
+			resultBlocks, err := decodeToolResultBlocksWithFallback(b.Content, resultText)
 			if err != nil {
-				// non-fatal: fall back to text only
-				resultBlocks = []types.ContentBlock{{Type: "text", Text: resultText}}
+				return nil, err
 			}
 			out = append(out, types.Message{
 				Role:          "tool",
@@ -400,8 +429,14 @@ func convertAnthropicInboundMessage(m AnthropicInboundMessage) ([]types.Message,
 				Type: "redacted_thinking",
 				Data: b.Data,
 			})
+		case "image":
+			imageBlock, err := convertAnthropicInboundImageBlock(b)
+			if err != nil {
+				return nil, fmt.Errorf("content[%d]: %w", blockIndex, err)
+			}
+			contentBlocks = append(contentBlocks, imageBlock)
 		default:
-			// Unknown block types (image, document, ...): carry them
+			// Unknown block types (document, search results, ...): carry them
 			// as ContentBlocks for Anthropic pass-through but skip for text/toolCalls.
 			if b.Type != "" {
 				contentBlocks = append(contentBlocks, types.ContentBlock{
@@ -459,16 +494,90 @@ func decodeToolResultBlocks(raw json.RawMessage) ([]types.ContentBlock, error) {
 		return nil, fmt.Errorf("tool_result content must be a string or an array of content blocks")
 	}
 	out := make([]types.ContentBlock, 0, len(blocks))
-	for _, b := range blocks {
-		if b.Type == "" || b.Type == "text" {
+	for blockIndex, b := range blocks {
+		switch b.Type {
+		case "", "text":
 			out = append(out, types.ContentBlock{
 				Type:         "text",
 				Text:         b.Text,
 				CacheControl: b.CacheControl,
 			})
+		case "image":
+			imageBlock, err := convertAnthropicInboundImageBlock(b)
+			if err != nil {
+				return nil, fmt.Errorf("content[%d]: %w", blockIndex, err)
+			}
+			out = append(out, imageBlock)
 		}
 	}
 	return out, nil
+}
+
+func decodeToolResultBlocksWithFallback(raw json.RawMessage, resultText string) ([]types.ContentBlock, error) {
+	blocks, err := decodeToolResultBlocks(raw)
+	if err == nil {
+		return blocks, nil
+	}
+	if errors.Is(err, errInvalidAnthropicImageSource) {
+		return nil, err
+	}
+	return []types.ContentBlock{{Type: "text", Text: resultText}}, nil
+}
+
+func convertAnthropicInboundImageBlock(block AnthropicInboundContentBlock) (types.ContentBlock, error) {
+	image, err := validateAnthropicInboundImageSource(block.Source)
+	if err != nil {
+		return types.ContentBlock{}, err
+	}
+	return types.ContentBlock{
+		Type:         "image",
+		Image:        image,
+		CacheControl: block.CacheControl,
+	}, nil
+}
+
+func validateAnthropicInboundImageSource(source *AnthropicInboundImageSource) (*types.ContentImage, error) {
+	if source == nil {
+		return nil, fmt.Errorf("%w: image source is required", errInvalidAnthropicImageSource)
+	}
+
+	switch strings.TrimSpace(source.Type) {
+	case "base64":
+		if strings.TrimSpace(source.URL) != "" {
+			return nil, fmt.Errorf("%w: base64 image source must not include url", errInvalidAnthropicImageSource)
+		}
+		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(source.MediaType))
+		if err != nil || !strings.HasPrefix(mediaType, "image/") || strings.TrimPrefix(mediaType, "image/") == "" || len(params) > 0 {
+			return nil, fmt.Errorf("%w: base64 image source requires a valid image media_type", errInvalidAnthropicImageSource)
+		}
+		if source.Data == "" {
+			return nil, fmt.Errorf("%w: base64 image source requires data", errInvalidAnthropicImageSource)
+		}
+		decoder := base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(source.Data))
+		if _, err := io.Copy(io.Discard, decoder); err != nil {
+			return nil, fmt.Errorf("%w: base64 image source data is invalid", errInvalidAnthropicImageSource)
+		}
+		return &types.ContentImage{
+			Data:      source.Data,
+			MediaType: mediaType,
+		}, nil
+
+	case "url":
+		if strings.TrimSpace(source.Data) != "" || strings.TrimSpace(source.MediaType) != "" {
+			return nil, fmt.Errorf("%w: url image source must not include data or media_type", errInvalidAnthropicImageSource)
+		}
+		rawURL := strings.TrimSpace(source.URL)
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return nil, fmt.Errorf("%w: url image source requires an absolute http or https url", errInvalidAnthropicImageSource)
+		}
+		return &types.ContentImage{URL: rawURL}, nil
+
+	case "":
+		return nil, fmt.Errorf("%w: image source type is required", errInvalidAnthropicImageSource)
+	default:
+		return nil, fmt.Errorf("%w: image source type is not supported", errInvalidAnthropicImageSource)
+	}
 }
 
 // anthropicInboundToolChoice converts Anthropic tool_choice ({"type":"auto"|"any"|"tool","name":...})
@@ -670,6 +779,7 @@ func translateOpenAIToAnthropicSSE(ctx context.Context, requestedModel, resolved
 	completionTokens := 0
 	var stopReason string
 	started := false
+	doneObserved := false
 
 	writeEvent := func(event string, payload any) error {
 		b, err := json.Marshal(payload)
@@ -731,11 +841,12 @@ func translateOpenAIToAnthropicSSE(ctx context.Context, requestedModel, resolved
 			return err
 		}
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+		data, ok := sse.DataValue(line)
+		if !ok {
 			continue
 		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
+		if strings.TrimSpace(data) == "[DONE]" {
+			doneObserved = true
 			break
 		}
 
@@ -861,6 +972,9 @@ func translateOpenAIToAnthropicSSE(ctx context.Context, requestedModel, resolved
 	}
 	if err := scanner.Err(); err != nil {
 		return err
+	}
+	if !doneObserved {
+		return errors.New("OpenAI-compatible stream ended before [DONE]")
 	}
 
 	// Ensure message_start even for empty streams.

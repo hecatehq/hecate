@@ -220,7 +220,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 
 	defer terminateProcess(cmd)
 
-	conn := acp.NewClientSideConnection(probeClient{workspace: workspace}, stdin, stdout)
+	conn := newGuardedACPProbeConnection(workspace, stdin, stdout)
 
 	res.Stage = ProbeStageInitialize
 	initCtx, initCancel := context.WithTimeout(probeCtx, 10*time.Second)

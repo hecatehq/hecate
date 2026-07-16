@@ -2,9 +2,19 @@ package taskstate
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/hecatehq/hecate/pkg/types"
+)
+
+var (
+	// ErrActiveRun is returned when an atomic run-start transition finds a
+	// durable non-terminal run for the same task.
+	ErrActiveRun = errors.New("task already has an active run")
+	// ErrBudgetLower protects the durable per-task ceiling from stale or
+	// concurrent resume requests that would lower it.
+	ErrBudgetLower = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
 )
 
 type TaskFilter struct {
@@ -25,6 +35,10 @@ type RunFilter struct {
 	TaskID   string
 	Statuses []string
 	Limit    int
+	// OrderByID switches to stable id-ascending order for cursor scans.
+	// AfterID is exclusive and is only applied with OrderByID.
+	OrderByID bool
+	AfterID   string
 }
 
 // EventFilter scopes a cross-run event query for the public events
@@ -48,17 +62,104 @@ type EventFilter struct {
 }
 
 type RunEventSpec struct {
-	EventType string
-	Data      map[string]any
-	RequestID string
-	TraceID   string
-	CreatedAt time.Time
+	EventType          string
+	Data               map[string]any
+	RequestID          string
+	TraceID            string
+	CreatedAt          time.Time
+	IncludeRunSnapshot bool
 }
 
+// PendingApprovalResolution is the only mutable portion of a pending approval
+// accepted by the atomic run transitions. The store loads the approval by ID
+// under the task/run lock, preserves its immutable request provenance, and
+// derives the approval.resolved event from the merged authoritative record.
+type PendingApprovalResolution struct {
+	ApprovalID     string
+	Status         string
+	ResolvedBy     string
+	ResolutionNote string
+	ResolvedAt     time.Time
+	RequestID      string
+	TraceID        string
+}
+
+// RunStartTransition atomically verifies that a task has no non-terminal run,
+// preserves or raises its durable budget ceiling, assigns the next run number,
+// creates the run, and advances the task's runtime projection. The candidate
+// Task carries only the runtime fields the caller wants advanced; stores merge
+// those fields into the authoritative task so unrelated concurrent edits are
+// not overwritten.
+type RunStartTransition struct {
+	Task            types.Task
+	Run             types.TaskRun
+	BudgetMicrosUSD int64
+}
+
+type RunStartTransitionResult struct {
+	Task types.Task
+	Run  types.TaskRun
+}
+
+// RunStateTransition atomically changes one non-terminal run and its parent
+// task only when the durable run still has one of ExpectedRunStatuses. Queue
+// claim and reconciliation paths use this compare-and-swap boundary so stale
+// snapshots cannot resurrect a run that cancellation already settled.
+type RunStateTransition struct {
+	Task                types.Task
+	Run                 types.TaskRun
+	ExpectedRunStatuses []string
+	// ApprovalResolution atomically resolves a pending approval together with
+	// an awaiting-approval run transition. In this mode the store derives the
+	// mandatory approval.resolved and run.queued snapshot events, and Events
+	// must be empty.
+	ApprovalResolution *PendingApprovalResolution
+	Events             []RunEventSpec
+}
+
+type RunStateTransitionResult struct {
+	Task     types.Task
+	Run      types.TaskRun
+	Approval types.TaskApproval
+	Events   []types.TaskRunEvent
+	Applied  bool
+}
+
+// TerminalRunSupplementalMetadata contains executor-observed fields that may
+// safely enrich an already-terminal run without changing its winning status,
+// reason, timestamps, task projection, or events.
+type TerminalRunSupplementalMetadata struct {
+	Provider           string
+	ProviderKind       string
+	Model              string
+	StepCount          int
+	ArtifactCount      int
+	TotalCostMicrosUSD int64
+}
+
+// TerminalRunTransition atomically settles a run and its parent projection.
+// The first terminal status is authoritative. A same-status replay may settle
+// active children left by executor drain without emitting another terminal or
+// task event. Execution-result finalization may also enrich any terminal
+// winner with explicitly trusted route and monotonic accounting metadata; a
+// different-status loser performs no child cleanup.
 type TerminalRunTransition struct {
 	Task       types.Task
 	Run        types.TaskRun
 	FinishedAt time.Time
+	// ApprovalResolution atomically rejects the target approval, cancels the
+	// run/task and active children, cancels other pending approvals, and derives
+	// run.cancelled, task.updated, and approval.resolved events. Immutable
+	// approval request provenance comes from the locked stored row.
+	ApprovalResolution *PendingApprovalResolution
+	// TrustedSupplementalRunMetadata may be set only by execution-result
+	// finalization. Operator cancellation and cleanup replays must leave it nil
+	// so stale run snapshots cannot replace the actual provider route.
+	TrustedSupplementalRunMetadata *TerminalRunSupplementalMetadata
+	// PreserveTaskProjection applies run-child cleanup without overwriting the
+	// authoritative parent task. Post-drain cancellation cleanup uses this when
+	// a newer run may already own the task's runtime projection.
+	PreserveTaskProjection bool
 
 	CancelActiveSteps             bool
 	ActiveStepError               string
@@ -78,10 +179,12 @@ type TerminalRunTransition struct {
 type TerminalRunTransitionResult struct {
 	Task               types.Task
 	Run                types.TaskRun
+	Approval           types.TaskApproval
 	Steps              []types.TaskStep
 	Artifacts          []types.TaskArtifact
 	CancelledApprovals []types.TaskApproval
 	Events             []types.TaskRunEvent
+	Applied            bool
 }
 
 type Store interface {
@@ -97,6 +200,8 @@ type Store interface {
 	ListRuns(ctx context.Context, taskID string) ([]types.TaskRun, error)
 	ListRunsByFilter(ctx context.Context, filter RunFilter) ([]types.TaskRun, error)
 	UpdateRun(ctx context.Context, run types.TaskRun) (types.TaskRun, error)
+	ApplyRunStartTransition(ctx context.Context, transition RunStartTransition) (RunStartTransitionResult, error)
+	ApplyRunStateTransition(ctx context.Context, transition RunStateTransition) (RunStateTransitionResult, error)
 
 	AppendStep(ctx context.Context, step types.TaskStep) (types.TaskStep, error)
 	GetStep(ctx context.Context, runID, stepID string) (types.TaskStep, bool, error)
@@ -108,7 +213,6 @@ type Store interface {
 	ListApprovals(ctx context.Context, taskID string) ([]types.TaskApproval, error)
 	UpdateApproval(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, error)
 	UpdatePendingApproval(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error)
-	UpdatePendingApprovalForAwaitingRun(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error)
 
 	CreateArtifact(ctx context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error)
 	GetArtifact(ctx context.Context, taskID, artifactID string) (types.TaskArtifact, bool, error)

@@ -1,6 +1,7 @@
 package projectassistant
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -88,6 +89,85 @@ func TestService_ProposeRejectsUnknownActionKind(t *testing.T) {
 	})
 	if !errors.Is(err, ErrUnknownActionKind) {
 		t.Fatalf("Propose err = %v, want ErrUnknownActionKind", err)
+	}
+}
+
+func TestService_ProposeAndDirectApplyCanonicalizeOmittedCreateProjectID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	action := Action{
+		Kind:  ActionCreateProject,
+		Patch: rawPatch(t, map[string]string{"name": "Generated project"}),
+	}
+
+	proposal, err := fixture.service.Propose(ctx, ProposalInput{
+		ID:      "pa_generated_project",
+		Title:   "Create generated project",
+		Actions: []Action{action},
+	})
+	if err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	var canonical projectPatch
+	if err := json.Unmarshal(proposal.Actions[0].Patch, &canonical); err != nil {
+		t.Fatalf("decode canonical action: %v", err)
+	}
+	if canonical.ID == "" || canonical.ID != canonicalCreateProjectID(proposal.ID, 0) {
+		t.Fatalf("canonical project id = %q, want stable generated id", canonical.ID)
+	}
+
+	// A non-handler caller may retry the original omitted-id action. Service
+	// canonicalization must resolve it to the exact stored fingerprint.
+	direct := proposal
+	direct.Actions = []Action{action}
+	result, err := fixture.service.Apply(ctx, direct, true)
+	if err != nil {
+		t.Fatalf("Apply omitted-id proposal: %v", err)
+	}
+	if len(result.Actions) != 1 || result.Actions[0].ID != canonical.ID {
+		t.Fatalf("apply result = %+v, want generated project %q", result, canonical.ID)
+	}
+	if _, ok, err := fixture.projects.Get(ctx, canonical.ID); err != nil || !ok {
+		t.Fatalf("generated project ok=%t err=%v, want persisted", ok, err)
+	}
+	if _, err := fixture.service.Apply(ctx, direct, true); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "already applied") {
+		t.Fatalf("repeated direct Apply error = %v, want stable already-applied conflict", err)
+	}
+}
+
+func TestService_CanonicalizeProposalIsIdempotentAndPreservesExplicitProjectID(t *testing.T) {
+	t.Parallel()
+	fixture := newMemoryAssistantFixture(t)
+	missing := Proposal{
+		ID: "pa_canonical_idempotent",
+		Actions: []Action{{
+			Kind:  ActionCreateProject,
+			Patch: rawPatch(t, map[string]string{"name": "Generated"}),
+		}},
+	}
+	first, err := fixture.service.CanonicalizeProposal(missing)
+	if err != nil {
+		t.Fatalf("CanonicalizeProposal(first): %v", err)
+	}
+	second, err := fixture.service.CanonicalizeProposal(first)
+	if err != nil {
+		t.Fatalf("CanonicalizeProposal(second): %v", err)
+	}
+	if !bytes.Equal(first.Actions[0].Patch, second.Actions[0].Patch) {
+		t.Fatalf("repeated canonicalization changed patch: %s != %s", first.Actions[0].Patch, second.Actions[0].Patch)
+	}
+
+	explicitPatch := json.RawMessage(`{ "name": "Explicit", "id": "proj_explicit" }`)
+	explicit, err := fixture.service.CanonicalizeProposal(Proposal{
+		ID:      "pa_explicit_project",
+		Actions: []Action{{Kind: ActionCreateProject, Patch: explicitPatch}},
+	})
+	if err != nil {
+		t.Fatalf("CanonicalizeProposal(explicit): %v", err)
+	}
+	if !bytes.Equal(explicit.Actions[0].Patch, explicitPatch) {
+		t.Fatalf("explicit project patch changed: got %s want %s", explicit.Actions[0].Patch, explicitPatch)
 	}
 }
 

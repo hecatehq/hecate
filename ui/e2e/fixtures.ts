@@ -1,4 +1,9 @@
-import { test as base, type Page } from "@playwright/test";
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
+
+import { test as base, type Page, type Request } from "@playwright/test";
+import type { ChatAttachmentRecord } from "../src/types/chat";
+import type { ModelRecord } from "../src/types/model";
 import type { ProjectRecord } from "../src/types/project";
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
@@ -110,7 +115,7 @@ export const MOCK_PROJECTS: ProjectRecord[] = [
   },
 ];
 
-export const MOCK_MODELS = [
+export const MOCK_MODELS: ModelRecord[] = [
   {
     id: "claude-opus-4-7",
     owned_by: "anthropic",
@@ -386,9 +391,75 @@ export type GatewayMockOptions = {
   // MOCK_SETTINGS_CONFIG_WITH_PROVIDERS (or any custom shape).
   settingsConfig?: SettingsConfig;
   projects?: ProjectRecord[];
+  models?: ModelRecord[];
 };
 
-export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {}) {
+export type GatewayMockState = {
+  chatAttachmentUploads: Array<{
+    session_id: string;
+    attachment_id: string;
+    filename: string;
+    media_type: string;
+    size_bytes: number;
+    multipart_content_type: string;
+  }>;
+  chatAttachmentContentRequests: Array<{
+    session_id: string;
+    attachment_id: string;
+  }>;
+  chatMessagePayloads: Array<Record<string, unknown>>;
+};
+
+function parseMultipartFile(request: Request): {
+  filename: string;
+  mediaType: string;
+  content: Buffer;
+  requestContentType: string;
+} {
+  const requestContentType = request.headers()["content-type"] ?? "";
+  const boundaryMatch = /(?:^|;\s*)boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(requestContentType);
+  const boundaryValue = boundaryMatch?.[1] || boundaryMatch?.[2] || "";
+  const body = request.postDataBuffer();
+  if (!boundaryValue || !body) throw new Error("expected a multipart attachment upload");
+
+  const boundary = Buffer.from(`--${boundaryValue}`);
+  const nextBoundary = Buffer.from(`\r\n--${boundaryValue}`);
+  const headerSeparator = Buffer.from("\r\n\r\n");
+  let cursor = body.indexOf(boundary);
+
+  while (cursor >= 0) {
+    cursor += boundary.length;
+    if (body.subarray(cursor, cursor + 2).toString() === "--") break;
+    if (body.subarray(cursor, cursor + 2).toString() === "\r\n") cursor += 2;
+
+    const headersEnd = body.indexOf(headerSeparator, cursor);
+    if (headersEnd < 0) break;
+    const headerText = body.subarray(cursor, headersEnd).toString("utf8");
+    const contentStart = headersEnd + headerSeparator.length;
+    const contentEnd = body.indexOf(nextBoundary, contentStart);
+    if (contentEnd < 0) break;
+
+    if (/content-disposition:\s*form-data;[^\r\n]*\bname="file"/i.test(headerText)) {
+      const filename = /\bfilename="([^"]*)"/i.exec(headerText)?.[1] || "image";
+      const mediaType = /^content-type:\s*([^\r\n]+)/im.exec(headerText)?.[1]?.trim() || "";
+      return {
+        filename,
+        mediaType,
+        content: Buffer.from(body.subarray(contentStart, contentEnd)),
+        requestContentType,
+      };
+    }
+
+    cursor = body.indexOf(boundary, contentEnd);
+  }
+
+  throw new Error("multipart attachment upload did not include the file field");
+}
+
+export async function mockGatewayAPIs(
+  page: Page,
+  opts: GatewayMockOptions = {},
+): Promise<GatewayMockState> {
   const ok = (body: unknown) => ({
     status: 200,
     contentType: "application/json",
@@ -401,8 +472,37 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG),
   );
   const projects: ProjectRecord[] = JSON.parse(JSON.stringify(opts.projects ?? MOCK_PROJECTS));
+  const models = opts.models ?? MOCK_MODELS;
   const chatSessions: any[] = [];
+  const stagedChatAttachments = new Map<
+    string,
+    { record: ChatAttachmentRecord; content: Buffer }
+  >();
+  const mockState: GatewayMockState = {
+    chatAttachmentUploads: [],
+    chatAttachmentContentRequests: [],
+    chatMessagePayloads: [],
+  };
   let chatSequence = 1;
+  let chatAttachmentSequence = 1;
+
+  const modelCapabilities = (provider: string, model: string) => {
+    const selected =
+      models.find(
+        (entry) =>
+          entry.id === model &&
+          (!provider ||
+            provider === "auto" ||
+            entry.owned_by === provider ||
+            entry.metadata?.provider === provider),
+      ) ?? models.find((entry) => entry.id === model);
+    return {
+      tool_calling: "basic",
+      streaming: true,
+      source: "provider",
+      ...selected?.metadata?.capabilities,
+    };
+  };
 
   await page.route("/healthz", (r) =>
     r.fulfill(ok({ status: "ok", time: "2026-04-25T00:00:00Z" })),
@@ -420,7 +520,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     ),
   );
 
-  await page.route("/v1/models*", (r) => r.fulfill(ok({ object: "list", data: MOCK_MODELS })));
+  await page.route("/v1/models*", (r) => r.fulfill(ok({ object: "list", data: models })));
 
   await page.route("/hecate/v1/providers/status*", (r) =>
     r.fulfill(ok({ object: "list", data: MOCK_PROVIDERS })),
@@ -514,7 +614,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           provider: body.provider || "auto",
           model: body.model || "",
           project_id: body.project_id || "",
-          capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+          capabilities: modelCapabilities(body.provider || "auto", body.model || ""),
           rtk_enabled: Boolean(body.rtk_enabled),
           workspace: body.workspace || "/tmp/hecate-e2e",
           workspace_branch: "",
@@ -640,8 +740,71 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       return;
     }
 
+    if (parts[1] === "attachments" && method === "POST" && parts.length === 2) {
+      const upload = parseMultipartFile(request);
+      const attachmentID = `attachment-e2e-${chatAttachmentSequence++}`;
+      const record: ChatAttachmentRecord = {
+        id: attachmentID,
+        session_id: id,
+        filename: upload.filename,
+        media_type: upload.mediaType,
+        size_bytes: upload.content.byteLength,
+        sha256: createHash("sha256").update(upload.content).digest("hex"),
+        created_at: now(),
+        content_url: `/hecate/v1/chat/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentID)}/content`,
+      };
+      stagedChatAttachments.set(attachmentID, { record, content: upload.content });
+      mockState.chatAttachmentUploads.push({
+        session_id: id,
+        attachment_id: attachmentID,
+        filename: record.filename,
+        media_type: record.media_type,
+        size_bytes: record.size_bytes,
+        multipart_content_type: upload.requestContentType,
+      });
+      await route.fulfill(ok({ object: "chat_attachment", data: record }));
+      return;
+    }
+
+    if (parts[1] === "attachments" && parts.length >= 3) {
+      const attachmentID = parts[2];
+      const staged = stagedChatAttachments.get(attachmentID);
+      if (!staged || staged.record.session_id !== id) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: { type: "not_found", message: "chat attachment not found" },
+          }),
+        });
+        return;
+      }
+      if (method === "GET" && parts[3] === "content" && parts.length === 4) {
+        mockState.chatAttachmentContentRequests.push({
+          session_id: id,
+          attachment_id: attachmentID,
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: staged.record.media_type,
+          headers: {
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+          },
+          body: staged.content,
+        });
+        return;
+      }
+      if (method === "DELETE" && parts.length === 3) {
+        stagedChatAttachments.delete(attachmentID);
+        await route.fulfill({ status: 204, body: "" });
+        return;
+      }
+    }
+
     if (parts[1] === "messages" && method === "POST" && parts.length === 2) {
       const body = JSON.parse(request.postData() || "{}");
+      mockState.chatMessagePayloads.push(body);
       const content = String(body.content || "");
       const executionMode =
         body.execution_mode ||
@@ -652,6 +815,18 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const segmentID = `segment-${sequence}`;
       const isExternal = executionMode === "external_agent";
       const keepRunning = isExternal && content.includes("[[keep-running]]");
+      const messageAttachments = Array.isArray(body.attachment_ids)
+        ? body.attachment_ids
+            .map((attachmentID: unknown) =>
+              typeof attachmentID === "string"
+                ? stagedChatAttachments.get(attachmentID)?.record
+                : undefined,
+            )
+            .filter(
+              (attachment: ChatAttachmentRecord | undefined): attachment is ChatAttachmentRecord =>
+                Boolean(attachment && attachment.session_id === id),
+            )
+        : [];
       if (isExternal) {
         session.segments = [
           ...(session.segments ?? []),
@@ -673,6 +848,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           segment_id: isExternal ? segmentID : undefined,
           role: "user",
           content,
+          attachments: messageAttachments,
           tools_enabled: toolsEnabled,
           created_at: now(),
         },
@@ -753,6 +929,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       chatSequence += 1;
       session.provider = body.provider || session.provider;
       session.model = body.model || session.model;
+      session.capabilities = modelCapabilities(session.provider, session.model);
       session.status = keepRunning ? "running" : "completed";
       session.message_count = session.messages.length;
       session.updated_at = now();
@@ -1032,23 +1209,20 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
   await page.route("/hecate/v1/system/reset-data", async (route) => {
     if (route.request().method() === "POST") {
-      state.providers = [];
-      state.policy_rules = [];
-      chatSessions.splice(0, chatSessions.length);
-      await route.fulfill(
-        ok({
-          object: "system_reset",
-          data: {
-            projects_deleted: 0,
-            chat_sessions_deleted: 0,
-            tasks_deleted: 0,
-            providers_deleted: 0,
-            policy_rules_deleted: 0,
-            agent_approval_grants_deleted: 0,
-            database_rows_deleted: state.backend === "sqlite" ? 2 : 0,
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            type: "conflict",
+            message:
+              "in-process data reset is unavailable until runtime-wide write quiescence is implemented; stop the runtime before clearing its configured state",
+            user_message: "In-process data reset is unavailable.",
+            operator_action:
+              "Stop the runtime completely, then follow the deployment-specific state reset procedure.",
           },
         }),
-      );
+      });
       return;
     }
     await route.fallback();
@@ -1068,6 +1242,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   );
 
   await page.route("/hecate/v1/traces*", (r) => r.fulfill(ok({ object: "list", data: [] })));
+  return mockState;
 }
 
 // ── Extended test fixture ─────────────────────────────────────────────────────

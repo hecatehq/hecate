@@ -11,6 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/safetext"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -72,13 +73,14 @@ func NewResilientExecutor(
 
 func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, req types.ChatRequest, initial types.RouteDecision) (*providerCallResult, error) {
 	candidates := []types.RouteDecision{initial}
-	if e.options.FailoverEnabled {
+	if e.options.FailoverEnabled && !req.Requirements.NoProviderFailover {
 		candidates = append(candidates, e.router.Fallbacks(ctx, req, initial)...)
 	}
 
 	totalAttempts := 0
 	totalRetries := 0
 	var lastErr error
+	var lastAttempt *providerCallResult
 
 	for index, candidate := range candidates {
 		recordTrace(trace, "router.candidate.considered", "routing", map[string]any{
@@ -91,7 +93,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 			telemetry.AttrHecateProviderHealthStatus: healthStatus(e.healthTracker, candidate.Provider),
 		})
 
-		provider, ok := e.providers.Get(candidate.Provider)
+		instance, ok := e.providers.GetInstance(candidate.Provider)
 		if !ok {
 			lastErr = fmt.Errorf("provider %q not found", candidate.Provider)
 			recordTraceError(trace, "router.candidate.skipped", "routing", errorKindRouterFailed, lastErr, map[string]any{
@@ -111,13 +113,28 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 				Reason:             string(RoutePreflightProviderNotFound),
 				RouteReason:        candidate.Reason,
 				HealthStatus:       healthStatus(e.healthTracker, candidate.Provider),
-				Error:              lastErr.Error(),
+				Error:              safetext.ErrorMessage(lastErr),
 				EstimatedMicrosUSD: 0,
 			})
 			continue
 		}
+		provider := instance.Provider
 
-		preflight, err := e.preflight.Evaluate(ctx, req, candidate)
+		var (
+			preflight *RoutePreflightResult
+			err       error
+		)
+		if fenceErr := validateProviderInstanceFence(req, candidate, instance.Identity); fenceErr != nil {
+			err = &RoutePreflightError{
+				Kind:         RoutePreflightProviderChanged,
+				Provider:     candidate.Provider,
+				Model:        candidate.Model,
+				ProviderKind: string(provider.Kind()),
+				Err:          fenceErr,
+			}
+		} else {
+			preflight, err = e.preflight.Evaluate(ctx, req, candidate)
+		}
 		if err != nil {
 			lastErr = err
 			if preflightErr, ok := AsRoutePreflightError(err); ok {
@@ -156,7 +173,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 					Reason:             reason,
 					RouteReason:        candidate.Reason,
 					HealthStatus:       healthStatus(e.healthTracker, candidate.Provider),
-					Error:              preflightErr.Error(),
+					Error:              safetext.ErrorMessage(preflightErr),
 					ErrorClass:         providers.HealthErrorClass(preflightErr.Err),
 					EstimatedMicrosUSD: preflightErr.EstimatedCostMicros,
 				})
@@ -210,7 +227,28 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 
 		attemptReq := withResolvedModel(req, candidate.Model)
 		for attempt := 1; attempt <= e.options.MaxAttempts; attempt++ {
+			dispatchProvider := provider
+			if requiresProviderInstanceFence(req) {
+				dispatchInstance, dispatchErr := providerInstanceForDispatch(e.providers, req, candidate)
+				if dispatchErr != nil {
+					lastErr = dispatchErr
+					recordProviderCallBlocked(trace, candidate, index, dispatchErr)
+					if lastAttempt != nil {
+						lastAttempt.AttemptCount = totalAttempts
+						lastAttempt.RetryCount = totalRetries
+					}
+					return lastAttempt, dispatchErr
+				}
+				dispatchProvider = dispatchInstance.Provider
+			}
 			totalAttempts++
+			lastAttempt = &providerCallResult{
+				Decision:             candidate,
+				ProviderKind:         preflight.ProviderKind,
+				AttemptCount:         totalAttempts,
+				RetryCount:           totalRetries,
+				FallbackFromProvider: fallbackFrom(initial.Provider, candidate.Provider),
+			}
 			recordTrace(trace, "provider.call.started", "provider", map[string]any{
 				telemetry.AttrGenAIProviderName:      candidate.Provider,
 				telemetry.AttrGenAIRequestModel:      candidate.Model,
@@ -221,7 +259,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 			})
 
 			start := time.Now()
-			resp, err := provider.Chat(ctx, attemptReq)
+			resp, err := dispatchProvider.Chat(ctx, attemptReq)
 			latency := time.Since(start)
 			if err == nil {
 				recordTrace(trace, "provider.call.finished", "provider", map[string]any{
@@ -298,13 +336,15 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 				telemetry.AttrHecateFailoverActive:   index > 0,
 			})
 			if err := e.sleep(ctx, backoff); err != nil {
+				lastAttempt.AttemptCount = totalAttempts
+				lastAttempt.RetryCount = totalRetries
 				recordTraceError(trace, "provider.retry.backoff_failed", "provider", errorKindRetryBackoffFailed, err, map[string]any{
 					telemetry.AttrGenAIProviderName:    candidate.Provider,
 					telemetry.AttrGenAIRequestModel:    candidate.Model,
 					telemetry.AttrHecateRetryAttempt:   attempt,
 					telemetry.AttrHecateRetryBackoffMS: backoff.Milliseconds(),
 				})
-				return nil, fmt.Errorf("wait for retry backoff: %w", err)
+				return lastAttempt, fmt.Errorf("wait for retry backoff: %w", err)
 			}
 		}
 
@@ -338,7 +378,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 				PeerRouteReason:  nextCandidate.Reason,
 				HealthStatus:     healthStatus(e.healthTracker, candidate.Provider),
 				PeerHealthStatus: healthStatus(e.healthTracker, nextCandidate.Provider),
-				Error:            lastErr.Error(),
+				Error:            safetext.ErrorMessage(lastErr),
 				ErrorClass:       providers.HealthErrorClass(lastErr),
 				AttemptCount:     e.options.MaxAttempts,
 			})
@@ -350,7 +390,11 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 	if lastErr == nil {
 		lastErr = errors.New("provider call failed")
 	}
-	return nil, lastErr
+	if lastAttempt != nil {
+		lastAttempt.AttemptCount = totalAttempts
+		lastAttempt.RetryCount = totalRetries
+	}
+	return lastAttempt, lastErr
 }
 
 func (e *ResilientExecutor) recordProviderCallMetric(ctx context.Context, candidate types.RouteDecision, providerKind, result string, attempt int, latency time.Duration) {
@@ -419,6 +463,7 @@ func (e *ResilientExecutor) appendFailoverHistory(ctx context.Context, entry fai
 		return
 	}
 	traceIDs := telemetry.TraceIDsFromContext(ctx)
+	entry.Error = safetext.SanitizeErrorMessage(entry.Error)
 	_ = e.history.Append(context.Background(), providers.HealthHistoryRecord{
 		Provider:           entry.Provider,
 		Model:              entry.Model,

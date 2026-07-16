@@ -21,6 +21,14 @@ func (h *Handler) cairnlineProjectAssignments(
 	service *cairnline.Service,
 	snapshot cairnlinebridge.Snapshot,
 ) ([]projectwork.Assignment, error) {
+	if h != nil && h.requiresEmbeddedCairnlineProjectReads() && h.projectAssignmentWritesUseCairnlineAuthority() {
+		mutationCtx, release, err := h.projectMutationGate.begin(ctx, snapshot.Project.ID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		ctx = mutationCtx
+	}
 	items, err := service.ListAssignments(ctx, snapshot.Project.ID)
 	if err != nil {
 		return nil, err

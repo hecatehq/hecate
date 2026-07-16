@@ -616,8 +616,14 @@ type ChatSessionsResponse struct {
 }
 
 type ChatSessionResponse struct {
-	Object string          `json:"object"`
-	Data   ChatSessionItem `json:"data"`
+	Object         string                          `json:"object"`
+	Data           ChatSessionItem                 `json:"data"`
+	MessageRequest *ChatMessageRequestResponseItem `json:"message_request,omitempty"`
+}
+
+type ChatMessageRequestResponseItem struct {
+	Replay             bool   `json:"replay"`
+	CommittedMessageID string `json:"committed_message_id"`
 }
 
 type WorkspaceDialogResponse struct {
@@ -910,6 +916,12 @@ type CreateChatSessionRequest struct {
 
 type CreateChatMessageRequest struct {
 	Content string `json:"content"`
+	// ClientRequestID is an optional session-scoped idempotency key. Browser
+	// queued turns persist their queue item id here and reuse it for retries.
+	ClientRequestID string `json:"client_request_id,omitempty"`
+	// AttachmentIDs references immutable files uploaded to this session.
+	// Bodies remain out of the JSON request and transcript snapshots.
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 	// ExecutionMode identifies the runtime owner for this turn:
 	// "hecate_task" or "external_agent". Tools-off Hecate turns still
 	// use "hecate_task" and carry ToolsEnabled=false.
@@ -1039,6 +1051,7 @@ type ChatMessageItem struct {
 	SpanID          string                            `json:"span_id,omitempty"`
 	Role            string                            `json:"role"`
 	Content         string                            `json:"content"`
+	Attachments     []ChatAttachmentItem              `json:"attachments,omitempty"`
 	RawOutput       string                            `json:"raw_output,omitempty"`
 	AgentID         string                            `json:"agent_id,omitempty"`
 	AgentName       string                            `json:"agent_name,omitempty"`
@@ -1063,6 +1076,22 @@ type ChatMessageItem struct {
 	Usage           *ChatUsageItem                    `json:"usage,omitempty"`
 	Timing          *ChatTimingItem                   `json:"timing,omitempty"`
 	ContextPacket   *ChatContextPacketItem            `json:"context_packet,omitempty"`
+}
+
+type ChatAttachmentItem struct {
+	ID         string `json:"id"`
+	SessionID  string `json:"session_id"`
+	Filename   string `json:"filename"`
+	MediaType  string `json:"media_type"`
+	SizeBytes  int64  `json:"size_bytes"`
+	SHA256     string `json:"sha256"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	ContentURL string `json:"content_url"`
+}
+
+type ChatAttachmentResponse struct {
+	Object string             `json:"object"`
+	Data   ChatAttachmentItem `json:"data"`
 }
 
 type ChatContextPacketItem struct {
@@ -1130,6 +1159,7 @@ type ChatChangedFilesResponse struct {
 
 type ChatWorkspaceDiffItem struct {
 	Workspace  string                `json:"workspace,omitempty"`
+	Revision   string                `json:"revision"`
 	DiffStat   string                `json:"diff_stat,omitempty"`
 	Diff       string                `json:"diff,omitempty"`
 	HasChanges bool                  `json:"has_changes"`
@@ -1173,8 +1203,9 @@ type ChatChangedFileDiffResponse struct {
 	Data   ChatChangedFileDiffItem `json:"data"`
 }
 
-type RevertChatMessageFilesRequest struct {
-	Paths []string `json:"paths,omitempty"`
+type RevertChatWorkspaceFilesRequest struct {
+	Paths            []string `json:"paths,omitempty"`
+	ExpectedRevision string   `json:"expected_revision,omitempty"`
 }
 
 type WorkspaceOpenRequest struct {
@@ -1190,18 +1221,6 @@ type WorkspaceOpenResponseItem struct {
 type WorkspaceOpenResponse struct {
 	Object string                    `json:"object"`
 	Data   WorkspaceOpenResponseItem `json:"data"`
-}
-
-type ChatRevertItem struct {
-	Reverted bool                  `json:"reverted"`
-	Paths    []string              `json:"paths"`
-	DiffStat string                `json:"diff_stat,omitempty"`
-	Files    []ChatChangedFileItem `json:"files"`
-}
-
-type ChatRevertResponse struct {
-	Object string         `json:"object"`
-	Data   ChatRevertItem `json:"data"`
 }
 
 type ChatActivityItem struct {

@@ -11,7 +11,12 @@
 // the bag out into slice providers seeded with state and a
 // coordinator-overrides context that intercepts action calls.
 
-import type { ChatTarget, HecateChatTarget, QueuedChatMessage } from "../app/state/_shared";
+import type {
+  ChatTarget,
+  HecateChatTarget,
+  PendingChatAttachment,
+  QueuedChatMessage,
+} from "../app/state/_shared";
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../types/agent-adapter";
 import type {
@@ -33,7 +38,8 @@ import type { CreateProjectPayload, ProjectDeleteRecord, ProjectRecord } from ".
 import type { RetentionRunData } from "../types/retention";
 import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
-import type { PendingToolCall, RecoverableComposerDraft } from "../app/state/chat";
+import type { ChatTurnKind, PendingToolCall, RecoverableComposerDraft } from "../app/state/chat";
+import type { ProjectCatalogLoadOptions, ProjectCatalogLoadResult } from "../app/state/projects";
 import type { NoticeState } from "../app/state/settings";
 import type { ChatMessage } from "../lib/api";
 
@@ -47,6 +53,8 @@ export type RuntimeConsoleFixtureState = {
   agentConfigOptions: ChatConfigOptionRecord[];
   agentAdapters: AgentAdapterRecord[];
   chatCancelling: boolean;
+  chatCancellingSessionID: string;
+  chatCancellingTurnKind: ChatTurnKind | "";
   chatSessions: ChatSessionSummaryRecord[];
   hecateRTKEnabled: boolean;
   hecateRTKAvailable: boolean;
@@ -64,6 +72,8 @@ export type RuntimeConsoleFixtureState = {
   chatCreating: boolean;
   chatTurnSessionID: string;
   chatTurnActive: boolean;
+  chatTurnKind: ChatTurnKind | "";
+  chatTurnCancellationAvailable: boolean;
   recoverableComposerDraft: RecoverableComposerDraft | null;
   activeRecoverableComposerDraftID: number | null;
   savedComposerDraftsBySessionID: Map<string, string[]>;
@@ -71,6 +81,8 @@ export type RuntimeConsoleFixtureState = {
   chatResult: ChatResponse | null;
   chatTarget: ChatTarget;
   pendingToolCalls: PendingToolCall[];
+  pendingChatAttachments: PendingChatAttachment[];
+  chatAttachmentTurnDraftCount: number;
   queuedChatMessages: QueuedChatMessage[];
   cloudModels: ModelRecord[];
   cloudProviders: ProviderRecord[];
@@ -133,6 +145,8 @@ export function createRuntimeConsoleFixture(
     agentConfigOptions: [],
     agentAdapters: [],
     chatCancelling: false,
+    chatCancellingSessionID: "",
+    chatCancellingTurnKind: "",
     chatSessions: [],
     hecateRTKEnabled: false,
     hecateRTKAvailable: false,
@@ -150,6 +164,8 @@ export function createRuntimeConsoleFixture(
     chatCreating: false,
     chatTurnSessionID: "",
     chatTurnActive: false,
+    chatTurnKind: "",
+    chatTurnCancellationAvailable: false,
     recoverableComposerDraft: null,
     activeRecoverableComposerDraftID: null,
     savedComposerDraftsBySessionID: new Map(),
@@ -157,6 +173,8 @@ export function createRuntimeConsoleFixture(
     chatResult: null,
     chatTarget: "agent",
     pendingToolCalls: [],
+    pendingChatAttachments: [],
+    chatAttachmentTurnDraftCount: 0,
     queuedChatMessages: [],
     cloudModels: [],
     cloudProviders: [],
@@ -223,7 +241,7 @@ export type RuntimeConsoleFixtureActions = {
     title?: string;
     draft?: string;
   }) => Promise<void>;
-  deleteChatSession: (id: string) => Promise<void>;
+  deleteChatSession: (id: string) => Promise<boolean>;
   deletePolicyRule: (id: string) => Promise<void>;
   loadDashboard: () => Promise<void>;
   loadRetentionRuns: () => Promise<void>;
@@ -258,7 +276,7 @@ export type RuntimeConsoleFixtureActions = {
   setProviderCustomName: (id: string, customName: string) => Promise<void>;
   setProviderAccountID: (id: string, accountID: string) => Promise<void>;
   setActiveProjectID: (id: string) => void;
-  loadProjects: () => Promise<void>;
+  loadProjects: (options?: ProjectCatalogLoadOptions) => Promise<ProjectCatalogLoadResult>;
   selectProject: (id: string) => Promise<void>;
   createProject: (payload: CreateProjectPayload) => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
@@ -268,13 +286,12 @@ export type RuntimeConsoleFixtureActions = {
   getChatWorkspaceDiff: (sessionID: string) => Promise<unknown>;
   getChatWorkspaceFiles: (sessionID: string) => Promise<unknown>;
   getChatWorkspaceFileDiff: (sessionID: string, path: string) => Promise<unknown>;
-  revertChatWorkspaceFiles: (sessionID: string, paths: string[]) => Promise<unknown>;
-  getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
-  revertChatMessageFiles: (
+  revertChatWorkspaceFiles: (
     sessionID: string,
-    messageID: string,
     paths: string[],
-  ) => Promise<boolean>;
+    expectedRevision: string,
+  ) => Promise<unknown>;
+  getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
   resolveTaskApproval: (taskID: string, approvalID: string, decision: unknown) => Promise<boolean>;
   resolveChatApproval: (
     sessionID: string,
@@ -303,7 +320,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     compactChatSession: async () => true,
     chooseAgentWorkspace: async () => true,
     createChatSession: async () => undefined,
-    deleteChatSession: async () => undefined,
+    deleteChatSession: async () => true,
     deletePolicyRule: async () => undefined,
     loadDashboard: async () => undefined,
     loadRetentionRuns: async () => undefined,
@@ -338,7 +355,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setProviderCustomName: async () => undefined,
     setProviderAccountID: async () => undefined,
     setActiveProjectID: () => undefined,
-    loadProjects: async () => undefined,
+    loadProjects: async () => ({ status: "applied" }),
     selectProject: async () => undefined,
     createProject: async () => null,
     renameProject: async () => undefined,
@@ -354,6 +371,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     listChatMessageFiles: async () => [],
     getChatWorkspaceDiff: async () => ({
       workspace: "",
+      revision: "sha256:empty",
       diff_stat: "",
       diff: "",
       has_changes: false,
@@ -366,13 +384,13 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     getChatWorkspaceFileDiff: async () => null,
     revertChatWorkspaceFiles: async () => ({
       workspace: "",
+      revision: "sha256:empty",
       diff_stat: "",
       diff: "",
       has_changes: false,
       files: [],
     }),
     getChatMessageFileDiff: async () => null,
-    revertChatMessageFiles: async () => true,
     resolveTaskApproval: async () => true,
     resolveChatApproval: async () => true,
     cancelChatApproval: async () => true,

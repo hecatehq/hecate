@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  modelSelectionImageInputCapability,
   modelSelectionHasNoToolCalling,
   resolveChatSetupRepairState,
   toolCallingSupportsTaskMode,
@@ -211,6 +212,7 @@ describe("modelSelectionHasNoToolCalling", () => {
       modelSelectionHasNoToolCalling({
         model: "llama3.1:8b",
         providerFilter: "ollama",
+        configuredProviders: [],
         models: [
           {
             id: "llama3.1:8b",
@@ -230,6 +232,7 @@ describe("modelSelectionHasNoToolCalling", () => {
       modelSelectionHasNoToolCalling({
         model: "shared-model",
         providerFilter: "auto",
+        configuredProviders: [],
         models: [
           {
             id: "shared-model",
@@ -257,6 +260,7 @@ describe("modelSelectionHasNoToolCalling", () => {
       modelSelectionHasNoToolCalling({
         model: "smollm2:135m",
         providerFilter: "ollama",
+        configuredProviders: [],
         models: [
           {
             id: "smollm2:135m",
@@ -279,5 +283,143 @@ describe("toolCallingSupportsTaskMode", () => {
     expect(toolCallingSupportsTaskMode("unknown")).toBe(false);
     expect(toolCallingSupportsTaskMode("none")).toBe(false);
     expect(toolCallingSupportsTaskMode(undefined)).toBe(false);
+  });
+});
+
+describe("modelSelectionImageInputCapability", () => {
+  it("enables images when an automatic route has an eligible image-capable candidate", () => {
+    const models = [
+      {
+        id: "vision-model",
+        owned_by: "provider-a",
+        metadata: {
+          provider: "provider-a",
+          capabilities: { image_input: "supported" },
+        },
+      },
+      {
+        id: "vision-model",
+        owned_by: "provider-b",
+        metadata: {
+          provider: "provider-b",
+          capabilities: { image_input: "unknown" },
+        },
+      },
+    ];
+
+    expect(
+      modelSelectionImageInputCapability({
+        models,
+        providerFilter: "auto",
+        model: "vision-model",
+        configuredProviders: [],
+      }),
+    ).toBe("supported");
+    expect(
+      modelSelectionImageInputCapability({
+        models,
+        providerFilter: "provider-a",
+        model: "vision-model",
+        configuredProviders: [],
+      }),
+    ).toBe("supported");
+  });
+
+  it("distinguishes known text-only models from missing capability metadata", () => {
+    expect(
+      modelSelectionImageInputCapability({
+        providerFilter: "ollama",
+        model: "text-model",
+        configuredProviders: [],
+        models: [
+          {
+            id: "text-model",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              capabilities: { image_input: "none" },
+            },
+          },
+        ],
+      }),
+    ).toBe("none");
+    expect(
+      modelSelectionImageInputCapability({
+        providerFilter: "ollama",
+        model: "unreported-model",
+        models: [],
+        configuredProviders: [],
+      }),
+    ).toBe("unknown");
+  });
+
+  it("ignores image-capable routes that are not currently routable", () => {
+    expect(
+      modelSelectionImageInputCapability({
+        providerFilter: "auto",
+        model: "shared-model",
+        configuredProviders: [],
+        models: [
+          {
+            id: "shared-model",
+            owned_by: "blocked-provider",
+            metadata: {
+              provider: "blocked-provider",
+              capabilities: { image_input: "supported" },
+              readiness: { ready: false, routing_ready: false },
+            },
+          },
+          {
+            id: "shared-model",
+            owned_by: "ready-provider",
+            metadata: {
+              provider: "ready-provider",
+              capabilities: { image_input: "none" },
+              readiness: { ready: true, routing_ready: true },
+            },
+          },
+        ],
+      }),
+    ).toBe("none");
+  });
+
+  it("matches a configured provider id to its runtime name", () => {
+    const configuredProviders = [
+      {
+        id: "my-gateway",
+        name: "My Gateway",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "https://gateway.example/v1",
+        credential_configured: true,
+      },
+    ];
+    const models = [
+      {
+        id: "vision-model",
+        owned_by: "My Gateway",
+        metadata: {
+          provider: "My Gateway",
+          capabilities: { image_input: "supported", tool_calling: "basic" },
+        },
+      },
+    ];
+
+    expect(
+      modelSelectionImageInputCapability({
+        models,
+        providerFilter: "my-gateway",
+        model: "vision-model",
+        configuredProviders,
+      }),
+    ).toBe("supported");
+    expect(
+      modelSelectionHasNoToolCalling({
+        models,
+        providerFilter: "my-gateway",
+        model: "vision-model",
+        configuredProviders,
+      }),
+    ).toBe(false);
   });
 });

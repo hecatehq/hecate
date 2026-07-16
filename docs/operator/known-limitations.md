@@ -73,6 +73,12 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   git / file call is additionally wrapped for filesystem and network
   confinement — auto-detected at startup, no opt-in flag (see
   `docs/runtime/sandbox.md`).
+- Long-lived terminals own a Windows Job Object or a dedicated Unix process
+  group and retain workspace admission until descendants/output are observed
+  drained. Unix preflight and interactive-code checks reject known detachment
+  patterns, but sourced/generated/encoded code, arbitrary wrappers, custom
+  binaries, and external service managers can escape that group. This is
+  best-effort trusted-subprocess supervision, not hard descendant containment.
 - Network allowlisting for task tools is best-effort static command parsing.
   When the Layer 2 wrapper is active (Linux with `bwrap` installed, or macOS),
   the network half is also enforced at the kernel — `bwrap --unshare-net` or
@@ -114,7 +120,18 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   The HTTP API rejects new turns with `409 chat.agent_session_busy` while
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt
-  after the active run settles; queued prompts are not durable until submitted.
+  after the active run settles. Queue entries are synchronously persisted in
+  independent per-item records before dispatch. Same-origin tabs in that
+  browser profile merge those records and preserve another tab's in-flight
+  delivery fence, but the queue is not server-owned or portable to another
+  profile, browser, or device until the transcript commit succeeds.
+  Browser-storage write or removal failures keep affected work blocked and
+  visible, warn before reload, and may require clearing site data manually.
+  In-process data reset is currently unavailable. The reserved API returns
+  `409 conflict` without deleting server or browser state, because Hecate cannot
+  yet quiesce every background writer. Stop the runtime before following the
+  deployment-specific data-directory reset procedure; restart a memory-backed
+  runtime to clear its state.
 - Tools-on Hecate Chat needs a model known to support tools
   (`tool_calling="basic"` or `parallel`). If the selected model is unknown or
   explicitly does not support tools, the operator UI keeps the transcript
@@ -122,6 +139,26 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   capability repair hint. Ollama models can be enriched from their native
   capability metadata; generic OpenAI-compatible local models often remain
   `unknown` until the provider reports richer metadata.
+- File attachments are available for Hecate-owned Tools-off image turns and
+  External Agent turns, but not task-backed Tools-on turns. Direct-model inputs
+  remain PNG/JPEG/WebP only and require confirmed model image capability;
+  External Agents accept up to four non-empty files of any type within the same
+  5 MiB per-file and 12 MiB combined limits. Two file-bearing External turns
+  may run concurrently per Hecate process; later file turns receive a typed
+  retryable `429`, while text-only turns remain available. Message
+  submission accepts a session-scoped `client_request_id`, and the operator UI
+  reuses its persisted queued-item id so same-payload retries cannot dispatch a
+  second turn. A process failure after the user row and key commit but before a
+  terminal assistant is durable can leave that turn without terminal proof;
+  the UI keeps it blocked for transcript review and does not dispatch later FIFO
+  work automatically. Uploads still do not accept client idempotency keys, and
+  there is no draft-list recovery surface. An upload whose success response is
+  lost can remain as a hidden draft until it is at least 24 hours old and a
+  later upload runs stale-draft reclamation. The console restores the local
+  prompt and Files with an ambiguity warning but never retries automatically.
+  To avoid accumulating hidden drafts, delete the chat before uploading those
+  files again, or remove them and wait until after 24 hours before a later
+  upload triggers reclamation.
 - Workspace modes are available for task/project starts, and named Agent
   Presets now have a core API, preset-management UI, project/role default
   selection, project-skill pickers, and preset-driven assignment context-packet
@@ -141,15 +178,32 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.
+- External Agent resource-link file input requires a trusted temporary
+  filesystem path. macOS rejects any non-local mount in the canonical temporary
+  path or its ancestors. Linux accepts only ext2/3/4, XFS, Btrfs, tmpfs,
+  overlayfs, ramfs, or F2FS and rejects every other model, including NFS,
+  SMB/CIFS, FUSE, ZFS, AUFS, eCryptfs, and 9p. If the default or a custom
+  temporary path fails this check, launch Hecate with `TMPDIR` on an allowlisted
+  local filesystem whose canonical ancestors also pass. Rich inputs can still
+  overflow into resource-link staging, so advertised image/resource support is
+  not a reliable workaround. Cleanup transfers to a process-owned janitor that
+  outlives the ACP session. Four persistent protected remnants block further
+  file-bearing turns for that session; 16 reserved or retained stages block
+  file-bearing turns process-wide. Text-only turns remain available.
+- Temporary-path redaction covers complete aliases and ordinary accumulated ACP
+  chunks, but it is not DLP against the selected trusted agent. A deliberately
+  evasive agent can transform a path or split it into unrelated short message
+  or activity records that are not individually recognizable as that alias.
 - Agent auth and billing state belongs to the underlying CLI account. Hecate
   can probe common failures and surface friendly hints, but operators still
   need to use each agent's own login/status flow when credentials expire.
 - Readiness fixtures are diagnostic only. They can force Connections and Chats
   status states for UI testing, but real External Agent chats still require the
   underlying CLI and ACP adapter to start successfully.
-- Patch review is alpha-grade: Hecate captures Git diffs, exposes changed-file
-  inspection, and can revert captured paths, but a full side-by-side review
-  workspace is not shipped yet.
+- Patch review is alpha-grade: Hecate keeps captured per-turn Git diffs as
+  read-only evidence and can discard selected paths from a separately refreshed,
+  revision-bound live unstaged tracked workspace patch. Staged and untracked
+  changes plus a full side-by-side review workspace are not supported yet.
 
 ## Deployment
 

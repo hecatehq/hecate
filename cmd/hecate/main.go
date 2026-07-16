@@ -22,6 +22,8 @@ import (
 	"github.com/hecatehq/hecate/internal/bootstrap"
 	"github.com/hecatehq/hecate/internal/catalog"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatapp"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
@@ -207,6 +209,36 @@ func runServe() {
 	tracer := profiler.NewInMemoryTracer(profiler.NewOTelTracer(otelProvider))
 	usageStore := buildUsageStore(cfg, logger, sqliteClient, postgresClient)
 	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient, postgresClient)
+	chatAttachmentStore := buildChatAttachmentStore(cfg, logger, sqliteClient, postgresClient)
+	attachmentReconcileCtx, attachmentReconcileCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	attachmentReconcile, err := chatapp.ReconcileChatAttachments(
+		attachmentReconcileCtx,
+		agentChatStore,
+		chatAttachmentStore,
+	)
+	attachmentReconcileCancel()
+	if err != nil {
+		logger.Error("chat attachment startup reconcile failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+	if attachmentReconcile.ConflictedClaims > 0 {
+		logger.Warn("chat attachment startup reconcile left conflicting claims fenced",
+			slog.Int("linked_claims", attachmentReconcile.LinkedClaims),
+			slog.Int("released_claims", attachmentReconcile.ReleasedClaims),
+			slog.Int("deleted_sessions", attachmentReconcile.DeletedSessions),
+			slog.Int("conflicted_claims", attachmentReconcile.ConflictedClaims),
+			slog.String("path", "startup_reconcile"),
+		)
+	} else if attachmentReconcile.LinkedClaims > 0 || attachmentReconcile.ReleasedClaims > 0 ||
+		attachmentReconcile.DeletedSessions > 0 {
+		logger.Info("chat attachment startup reconcile completed",
+			slog.Int("linked_claims", attachmentReconcile.LinkedClaims),
+			slog.Int("released_claims", attachmentReconcile.ReleasedClaims),
+			slog.Int("deleted_sessions", attachmentReconcile.DeletedSessions),
+			slog.Int("conflicted_claims", attachmentReconcile.ConflictedClaims),
+			slog.String("path", "startup_reconcile"),
+		)
+	}
 	projectRuntimeStore := buildProjectRuntimeStore(cfg, logger, sqliteClient, postgresClient)
 	pluginRegistryStore := buildPluginRegistryStore(cfg, logger, sqliteClient, postgresClient)
 	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient, postgresClient)
@@ -277,6 +309,7 @@ func runServe() {
 
 	handler := api.NewHandler(cfg, logger, service, controlPlaneStore, taskStore, taskQueue, providerRuntime)
 	handler.SetAgentChatStore(agentChatStore)
+	handler.SetChatAttachmentStore(chatAttachmentStore)
 	handler.SetProjectRuntimeStore(projectRuntimeStore)
 	handler.SetPluginRegistryStore(pluginRegistryStore)
 	handler.SetAgentProfileStore(agentProfileStore)
@@ -884,6 +917,27 @@ func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *s
 		return store
 	default:
 		return chat.NewMemoryStore()
+	}
+}
+
+func buildChatAttachmentStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) chatattachments.Store {
+	switch cfg.Chat.SessionsBackend {
+	case "sqlite":
+		store, err := chatattachments.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("chat attachment store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := chatattachments.NewPostgresStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("chat attachment store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return chatattachments.NewMemoryStore()
 	}
 }
 

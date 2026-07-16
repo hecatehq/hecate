@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/prompttokens"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -184,11 +185,7 @@ func rewriteMessage(rule Rule) string {
 }
 
 func promptEstimate(req types.ChatRequest) int {
-	total := 0
-	for _, msg := range req.Messages {
-		total += len(msg.Content) / 4
-	}
-	return total
+	return prompttokens.EstimateMessages(req.Messages)
 }
 
 func contains(values []string, target string) bool {

@@ -12,9 +12,8 @@ package api
 //     request-normalisation → gateway → response-serialisation path.
 //
 //  2. Fake upstream server (real provider) — an httptest.NewServer plays the
-//     role of the upstream OpenAI/Anthropic API.  A real
-//     providers.OpenAICompatibleProvider points at it so the provider's own
-//     HTTP client code is exercised end-to-end.
+//     role of the upstream OpenAI/Anthropic API. Real provider adapters point
+//     at it so their own HTTP client code is exercised end-to-end.
 
 import (
 	"bufio"
@@ -1153,6 +1152,160 @@ func TestGatewayViaRealProviderClaudeCodeClient(t *testing.T) {
 	}
 }
 
+func TestGatewayViaRealAnthropicProviderPreservesImageSources(t *testing.T) {
+	t.Parallel()
+
+	const model = "claude-sonnet-4-20250514"
+	var captured map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/models"):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"data":[{"id":%q}]}`, model)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/v1/messages"):
+			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"id":"msg_image_roundtrip","type":"message","role":"assistant","model":%q,"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":20,"output_tokens":1}}`, model)
+		default:
+			http.Error(w, "unexpected upstream route", http.StatusNotFound)
+		}
+	}))
+	defer upstream.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	realProvider := providers.NewAnthropicProvider(config.OpenAICompatibleProviderConfig{
+		Name:                   "anthropic",
+		Kind:                   "cloud",
+		Protocol:               "anthropic",
+		BaseURL:                upstream.URL,
+		APIKey:                 "fake-upstream-key",
+		DefaultModel:           model,
+		Enabled:                true,
+		AnthropicCacheDisabled: true,
+	}, logger)
+	gatewaySrv := newGatewayServer(t, realProvider, config.Config{
+		Router: config.RouterConfig{DefaultModel: model},
+	})
+	defer gatewaySrv.Close()
+
+	reqBody := `{
+		"model":"claude-sonnet-4-20250514",
+		"max_tokens":128,
+		"messages":[
+			{"role":"user","content":[
+				{"type":"text","text":"Inspect this image."},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AQID"},"cache_control":{"type":"ephemeral"}}
+			]},
+			{"role":"assistant","content":[
+				{"type":"tool_use","id":"toolu_image","name":"capture_frame","input":{}}
+			]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_image","content":[
+					{"type":"text","text":"Captured frame"},
+					{"type":"image","source":{"type":"url","url":"https://images.example.test/tool-output.webp"},"cache_control":{"type":"ephemeral","ttl":"5m"}}
+				]}
+			]}
+		]
+	}`
+	resp := gatewayPost(t, gatewaySrv.URL+"/v1/messages", reqBody, map[string]string{
+		"x-api-key":         "sk-ant-unused",
+		"anthropic-version": "2023-06-01",
+	})
+	raw := readBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", resp.StatusCode, raw)
+	}
+
+	messages, ok := captured["messages"].([]any)
+	if !ok || len(messages) != 3 {
+		t.Fatalf("upstream messages = %#v, want three messages", captured["messages"])
+	}
+	first, ok := messages[0].(map[string]any)
+	if !ok {
+		t.Fatalf("upstream messages[0] = %#v, want object", messages[0])
+	}
+	firstContent, ok := first["content"].([]any)
+	if !ok || len(firstContent) != 2 {
+		t.Fatalf("upstream messages[0].content = %#v, want text and image", first["content"])
+	}
+	base64Image := requireGatewayClientObject(t, firstContent[1], "messages[0].content[1]")
+	base64Source := requireGatewayClientObject(t, base64Image["source"], "messages[0].content[1].source")
+	if base64Image["type"] != "image" || base64Source["type"] != "base64" || base64Source["media_type"] != "image/png" || base64Source["data"] != "AQID" {
+		t.Fatalf("base64 image = %#v, want preserved Anthropic image source", base64Image)
+	}
+	base64Cache := requireGatewayClientObject(t, base64Image["cache_control"], "messages[0].content[1].cache_control")
+	if base64Cache["type"] != "ephemeral" {
+		t.Fatalf("base64 image cache_control = %#v, want caller marker", base64Cache)
+	}
+
+	toolResultMessage := requireGatewayClientObject(t, messages[2], "messages[2]")
+	toolResultContent, ok := toolResultMessage["content"].([]any)
+	if !ok || len(toolResultContent) != 1 {
+		t.Fatalf("upstream messages[2].content = %#v, want one tool_result", toolResultMessage["content"])
+	}
+	toolResult := requireGatewayClientObject(t, toolResultContent[0], "messages[2].content[0]")
+	nested, ok := toolResult["content"].([]any)
+	if !ok || len(nested) != 2 {
+		t.Fatalf("tool_result.content = %#v, want text and image", toolResult["content"])
+	}
+	urlImage := requireGatewayClientObject(t, nested[1], "messages[2].content[0].content[1]")
+	urlSource := requireGatewayClientObject(t, urlImage["source"], "messages[2].content[0].content[1].source")
+	if urlImage["type"] != "image" || urlSource["type"] != "url" || urlSource["url"] != "https://images.example.test/tool-output.webp" {
+		t.Fatalf("tool-result image = %#v, want preserved URL source", urlImage)
+	}
+	urlCache := requireGatewayClientObject(t, urlImage["cache_control"], "messages[2].content[0].content[1].cache_control")
+	if urlCache["type"] != "ephemeral" || urlCache["ttl"] != "5m" {
+		t.Fatalf("tool-result image cache_control = %#v, want caller marker and ttl", urlCache)
+	}
+
+	// The OpenAI compatibility endpoint accepts URI schemes
+	// case-insensitively. Routing that accepted DATA: image to an Anthropic
+	// provider must still translate it into Anthropic's base64 source shape,
+	// rather than forwarding the pseudo-URL as source.type=url.
+	openAIReqBody := `{
+		"model":"claude-sonnet-4-20250514",
+		"messages":[{"role":"user","content":[
+			{"type":"text","text":"Inspect this image."},
+			{"type":"image_url","image_url":{"url":"DATA:image/png;base64,AQID"}}
+		]}]
+	}`
+	resp = gatewayPost(t, gatewaySrv.URL+"/v1/chat/completions", openAIReqBody, nil)
+	raw = readBody(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("OpenAI compatibility status = %d, want 200, body=%s", resp.StatusCode, raw)
+	}
+
+	messages, ok = captured["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("cross-provider messages = %#v, want one message", captured["messages"])
+	}
+	first = requireGatewayClientObject(t, messages[0], "cross-provider messages[0]")
+	firstContent, ok = first["content"].([]any)
+	if !ok || len(firstContent) != 2 {
+		t.Fatalf("cross-provider messages[0].content = %#v, want text and image", first["content"])
+	}
+	base64Image = requireGatewayClientObject(t, firstContent[1], "cross-provider messages[0].content[1]")
+	base64Source = requireGatewayClientObject(t, base64Image["source"], "cross-provider messages[0].content[1].source")
+	if base64Source["type"] != "base64" || base64Source["media_type"] != "image/png" || base64Source["data"] != "AQID" {
+		t.Fatalf("cross-provider image source = %#v, want parsed base64 DATA: URI", base64Source)
+	}
+	if _, ok := base64Source["url"]; ok {
+		t.Fatalf("cross-provider image source = %#v, want no pseudo-URL", base64Source)
+	}
+}
+
+func requireGatewayClientObject(t *testing.T, value any, path string) map[string]any {
+	t.Helper()
+	object, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want object", path, value)
+	}
+	return object
+}
+
 // TestGatewayViaRealProviderUpstreamUnavailable verifies that when the upstream
 // is unreachable the gateway returns a 5xx error rather than hanging or
 // panicking.
@@ -1376,6 +1529,93 @@ func TestCodexClientFailoverReportsHeaders(t *testing.T) {
 	}
 	if got := resp.Header.Get("X-Runtime-Attempts"); got != "2" {
 		t.Errorf("X-Runtime-Attempts = %q, want 2", got)
+	}
+}
+
+func TestCompatibilityImageRequestsDoNotFailOverAcrossProviders(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "OpenAI compatibility",
+			path: "/v1/chat/completions",
+			body: `{"model":"shared-vision","messages":[{"role":"user","content":[
+				{"type":"text","text":"describe"},
+				{"type":"image_url","image_url":{"url":"https://images.example.test/private.png"}}
+			]}]}`,
+		},
+		{
+			name: "Anthropic compatibility",
+			path: "/v1/messages",
+			body: `{"model":"shared-vision","max_tokens":64,"messages":[{"role":"user","content":[
+				{"type":"text","text":"describe"},
+				{"type":"image","source":{"type":"url","url":"https://images.example.test/private.png"}}
+			]}]}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			primary := &fakeProvider{
+				name:         "cloud-vision",
+				defaultModel: "shared-vision",
+				capabilities: providers.Capabilities{
+					Name:         "cloud-vision",
+					Kind:         providers.KindCloud,
+					DefaultModel: "shared-vision",
+					Models:       []string{"shared-vision"},
+				},
+				err: &providers.UpstreamError{
+					StatusCode: http.StatusBadGateway,
+					Message:    "primary unavailable",
+					Type:       "server_error",
+				},
+			}
+			secondary := &fakeProvider{
+				name:         "local-vision",
+				defaultModel: "shared-vision",
+				capabilities: providers.Capabilities{
+					Name:         "local-vision",
+					Kind:         providers.KindLocal,
+					DefaultModel: "shared-vision",
+					Models:       []string{"shared-vision"},
+				},
+				response: &types.ChatResponse{
+					ID:    "chatcmpl-should-not-run",
+					Model: "shared-vision",
+					Choices: []types.ChatChoice{{
+						Message:      types.Message{Role: "assistant", Content: "unexpected fallback"},
+						FinishReason: "stop",
+					}},
+				},
+			}
+			server := httptest.NewServer(newTestHTTPHandlerForProviders(
+				slog.New(slog.NewJSONHandler(io.Discard, nil)),
+				[]providers.Provider{primary, secondary},
+				config.Config{Provider: config.ProviderConfig{
+					MaxAttempts:     1,
+					RetryBackoff:    time.Millisecond,
+					FailoverEnabled: true,
+				}},
+			))
+			defer server.Close()
+
+			response := gatewayPost(t, server.URL+test.path, test.body, nil)
+			body := readBody(t, response)
+			if response.StatusCode == http.StatusOK {
+				t.Fatalf("status = 200, want primary failure without cross-provider fallback; body=%s", body)
+			}
+			if primary.CallCount() != 1 {
+				t.Fatalf("primary calls = %d, want 1", primary.CallCount())
+			}
+			if secondary.CallCount() != 0 {
+				t.Fatalf("secondary calls = %d, want 0", secondary.CallCount())
+			}
+		})
 	}
 }
 

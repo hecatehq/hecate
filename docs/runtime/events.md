@@ -111,11 +111,15 @@ operator snapshots without a separate fetch. Public event-list and cross-run-fee
 responses intentionally strip these runtime snapshot keys and return compact,
 protocol-shaped `data` payloads instead.
 
-Store-level terminal transitions (`run.finished`, `run.failed`,
-`run.cancelled`, `approval.resolved`, and `task.updated` events emitted while
-atomically terminalizing a run) persist only their event-specific keys. The
-per-run stream projector rebuilds the final run/step/artifact/approval snapshot
-from storage after reading those terminal events.
+Store-level terminal transitions keep `run.finished`, `run.failed`,
+`run.cancelled`, `task.updated`, and system-generated `approval.resolved` rows
+compact, with only their event-specific keys. Operator approve/reject
+transitions instead persist `approval.resolved` with authoritative `run`,
+`steps`, and `artifacts` snapshot keys in the same transaction as the approval
+and run/task mutation; an approved transition's `run.queued` row is
+snapshot-bearing too. Public event envelopes still strip those snapshot keys.
+The per-run stream projector rebuilds final state from storage when a compact
+terminal row does not carry a snapshot.
 
 Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The per-run stream projector honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
 

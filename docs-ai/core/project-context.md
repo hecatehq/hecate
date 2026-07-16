@@ -88,6 +88,44 @@ task/run or chat-session references in the Hecate project-runtime overlay,
 while assignment lifecycle state remains in Cairnline. Linked External Agent
 reconciliation follows the same split.
 
+Hecate Chat attachments are Hecate runtime state, not Projects
+coordination. Keep session-scoped binary bodies in `internal/chatattachments`
+and immutable metadata in `internal/chat`; never put bytes or base64 in
+transcript JSON, SSE, traces, logs, or the UI's persisted queued prompts.
+Tools-off Hecate turns accept supported raster images; External Agent turns
+accept files and resolve them into capability-gated ACP image/resource blocks
+or private per-turn resource links. External rich blocks share a cumulative
+768 KiB encoded wire budget so prompt text, JSON escaping, and base64 expansion
+cannot cross the supported adapters' 1 MiB message cap; stage overflow files as
+links, preflight allocations, and reject oversized text before dispatch. A
+separate two-slot process gate bounds file-bearing External turns through ACP
+return, and cancelled turns are rechecked immediately before disclosure.
+Direct-model attachment sends set an explicit internal request
+requirement and must fail closed unless the selected initial route has effective
+image-input support. Hydrated image requests may retry on that provider but
+must not cross-provider fail over. Rehydrate
+historical bytes only for the same configured provider name and opaque
+generation recorded on the original turn; use an omission marker for legacy
+rows without a generation, provider replacement (including same-name
+replacement), provider switches, recreated runtime-only providers, or
+unresolved Auto routing. Carry the generation through catalog, routing, gateway
+metadata, and chat persistence, and revalidate it against the live registry
+immediately before dispatch. Derive durable generations only from non-secret
+control-plane generation/configuration data and never expose them through APIs,
+telemetry, logs, or errors.
+Do not derive provider-native capability provenance from model discovery alone,
+and do not apply Hecate's strict attachment requirement to ordinary
+provider-compatible `/v1` rich-content passthrough. Keep that compatibility
+ingress bounded to one JSON value, 32 MiB encoded, and a route-local 60-second
+body-read deadline. Image-bearing compatibility requests must set only the
+cross-provider disclosure fence (`NoProviderFailover`), not Hecate-native
+`ImageInput` admission. `NoProviderFailover` also requires immediate
+provider-instance revalidation before streaming and non-streaming dispatch; do
+not let same-name replacement retarget the request. Provider HTTP/SSE error
+messages and error-type fields must cross `internal/safetext` before clients,
+logs, traces, health, telemetry, or persistence. Do not extend attachment ids
+to task-backed or ACP execution by silently changing runtime ownership.
+
 `internal/cairnlinebridge` is the live mapping boundary between Cairnline's
 agent-neutral coordination model and Hecate's API/runtime views. Keep the bridge
 free of Hecate execution authority: Cairnline assignment metadata is intent,
@@ -137,7 +175,8 @@ internal/mcp/              stdio MCP server (read tools + write tools)
 internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
                              Grok Build
 internal/chat/        chat transcript persistence and runtime linkage
-internal/modelcaps/        model tool-capability merge logic and defaults
+internal/chatattachments/ session-scoped attachment bodies outside transcript JSON
+internal/modelcaps/        model tool/image capability merge logic and defaults
 internal/cairnlinebridge/  live Cairnline-to-Hecate mapping and coordination adapter
 
 ui/                        React/Vite operator UI (embedded via //go:embed ui/dist)
@@ -203,7 +242,12 @@ Postgres remains observable as `hecate.queue.backend=postgres`.
 These earn extra scrutiny; changes here are not drive-by territory.
 
 - **Workspace and subprocess boundary** (`internal/workspacefs/`, `internal/processrunner/`, `internal/gitrunner/`, `internal/sandbox/`) — Hecate-mediated file/search/write operations resolve paths through WorkspaceFS. Shell commands go through the sandbox executor and ProcessRunner; Hecate-owned Git helpers use GitRunner where they do not need the broad `git_exec` shell-shaped interface. The sandbox layer still applies policy validation, env sanitisation, output caps, wall-clock timeout, and optional `bwrap` / `sandbox-exec` OS isolation (auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are _not_ applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New workspace tool kinds use WorkspaceFS / ProcessRunner / GitRunner as appropriate rather than raw filesystem, process, or git calls. See `docs/runtime/sandbox.md` for the layer model and `docs/runtime/agent-runtime.md` for the network-egress policy that sits on top.
-- **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
+- **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) —
+  pre-execution and mid-loop approvals halt the run. New gates use the same
+  `TaskApproval` shape. Resolving a pending approval is one cross-backend
+  taskstate transition with the awaiting run/task, mandatory lifecycle events,
+  and rejection cleanup; handlers and runners must not split those writes or
+  route lifecycle resolution through low-level approval updates.
 - **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `chat_approvals`. Persisted things must mirror.
 - **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.
 - **No built-in multi-user auth layer in local mode.** Every local-mode request

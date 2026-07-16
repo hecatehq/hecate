@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/providers"
@@ -38,36 +39,42 @@ func (c *RegistryCatalog) SnapshotRefresh(ctx context.Context) []Entry {
 }
 
 func (c *RegistryCatalog) snapshot(ctx context.Context, refresh bool) []Entry {
-	items := c.registry.All()
+	items := c.registry.AllInstances()
 	out := make([]Entry, 0, len(items))
-	for _, provider := range items {
-		out = append(out, c.entryForProvider(ctx, provider, refresh))
+	for _, instance := range items {
+		out = append(out, c.entryForProvider(ctx, instance, refresh))
 	}
 	return out
 }
 
 func (c *RegistryCatalog) Get(ctx context.Context, name string) (Entry, bool) {
-	provider, ok := c.registry.Get(name)
+	instance, ok := c.registry.GetInstance(name)
 	if !ok {
 		return Entry{}, false
 	}
-	return c.entryForProvider(ctx, provider, false), true
+	return c.entryForProvider(ctx, instance, false), true
 }
 
-func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider providers.Provider, refresh bool) Entry {
+func (c *RegistryCatalog) entryForProvider(ctx context.Context, instance providers.ProviderInstance, refresh bool) Entry {
+	provider := instance.Provider
 	baseURL := providerBaseURL(provider)
 	credentialState := providerCredentialState(provider)
+	providerAliases := providerAliases(provider)
+	providerFamily := providerCapabilityFamily(provider)
 
 	if e, ok := provider.(providers.Enabler); ok && !e.Enabled() {
 		return Entry{
-			Provider:        provider,
-			Name:            provider.Name(),
-			Kind:            provider.Kind(),
-			BaseURL:         baseURL,
-			CredentialState: credentialState,
-			DiscoverySource: "control_plane",
-			Healthy:         false,
-			Status:          "disabled",
+			Provider:         provider,
+			ProviderInstance: instance.Identity,
+			Name:             provider.Name(),
+			ProviderAliases:  providerAliases,
+			ProviderFamily:   providerFamily,
+			Kind:             provider.Kind(),
+			BaseURL:          baseURL,
+			CredentialState:  credentialState,
+			DiscoverySource:  "control_plane",
+			Healthy:          false,
+			Status:           "disabled",
 		}
 	}
 
@@ -75,16 +82,19 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 		if baseURL != "" {
 			if isSelfReferentialURL(c.selfListenAddr, baseURL) {
 				return Entry{
-					Provider:        provider,
-					Name:            provider.Name(),
-					Kind:            provider.Kind(),
-					BaseURL:         baseURL,
-					CredentialState: credentialState,
-					DiscoverySource: "self_referential",
-					Healthy:         false,
-					Status:          "degraded",
-					LastError:       fmt.Sprintf("provider base URL %q points to the gateway's own address — run the local provider on a different port", baseURL),
-					Error:           fmt.Sprintf("provider base URL %q points to the gateway's own address — run the local provider on a different port", baseURL),
+					Provider:         provider,
+					ProviderInstance: instance.Identity,
+					Name:             provider.Name(),
+					ProviderAliases:  providerAliases,
+					ProviderFamily:   providerFamily,
+					Kind:             provider.Kind(),
+					BaseURL:          baseURL,
+					CredentialState:  credentialState,
+					DiscoverySource:  "self_referential",
+					Healthy:          false,
+					Status:           "degraded",
+					LastError:        fmt.Sprintf("provider base URL %q points to the gateway's own address — run the local provider on a different port", baseURL),
+					Error:            fmt.Sprintf("provider base URL %q points to the gateway's own address — run the local provider on a different port", baseURL),
 				}
 			}
 		}
@@ -127,7 +137,10 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 
 	entry := Entry{
 		Provider:             provider,
+		ProviderInstance:     instance.Identity,
 		Name:                 provider.Name(),
+		ProviderAliases:      providerAliases,
+		ProviderFamily:       providerFamily,
 		Kind:                 provider.Kind(),
 		BaseURL:              baseURL,
 		CredentialState:      credentialState,
@@ -183,6 +196,41 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 	}
 
 	return entry
+}
+
+func providerAliases(provider providers.Provider) []string {
+	reporter, ok := provider.(providers.AliasReporter)
+	if !ok {
+		return nil
+	}
+	aliases := reporter.Aliases()
+	out := make([]string, 0, len(aliases))
+	seen := make(map[string]struct{}, len(aliases))
+	for _, alias := range aliases {
+		alias = strings.TrimSpace(alias)
+		key := providerLookupKey(alias)
+		if alias == "" || key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, alias)
+	}
+	return out
+}
+
+func providerCapabilityFamily(provider providers.Provider) string {
+	if reporter, ok := provider.(providers.CapabilityFamilyReporter); ok {
+		return strings.TrimSpace(reporter.CapabilityFamily())
+	}
+	// Provider implementations that predate the explicit family contract are
+	// treated as having their routing name as their canonical identity. This
+	// keeps third-party/test providers compatible without weakening concrete
+	// OpenAI-compatible providers, which implement the reporter and may return
+	// an intentionally empty family for custom endpoints.
+	return strings.TrimSpace(provider.Name())
 }
 
 func providerBaseURL(provider providers.Provider) string {

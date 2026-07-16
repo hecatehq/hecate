@@ -87,3 +87,63 @@ diff --git a/b.txt b/b.txt
 		t.Fatal("ExtractFileDiff missing ok = true, want false")
 	}
 }
+
+func TestParseChangedFilesPreservesUnusualGitPaths(t *testing.T) {
+	t.Parallel()
+
+	controlPath := "line\nname\t.txt"
+	diff := "diff --git a/foo b/bar.txt b/foo b/bar.txt\n" +
+		"--- a/foo b/bar.txt\n" +
+		"+++ b/foo b/bar.txt\n" +
+		"@@ -1 +1 @@\n" +
+		"-old\n" +
+		"+new\n" +
+		"diff --git \"a/line\\nname\\t.txt\" \"b/line\\nname\\t.txt\"\n" +
+		"--- \"a/line\\nname\\t.txt\"\n" +
+		"+++ \"b/line\\nname\\t.txt\"\n" +
+		"@@ -1 +1 @@\n" +
+		"-before\n" +
+		"+after\n"
+
+	files := ParseChangedFiles(diff, "")
+	if len(files) != 2 {
+		t.Fatalf("files = %#v, want two unusual paths", files)
+	}
+	byPath := make(map[string]ChangedFile, len(files))
+	for _, file := range files {
+		byPath[file.Path] = file
+	}
+	if got, ok := byPath["foo b/bar.txt"]; !ok || got.Additions != 1 || got.Deletions != 1 {
+		t.Fatalf("space-delimiter path = %#v, present=%v", got, ok)
+	}
+	if got, ok := byPath[controlPath]; !ok || got.Additions != 1 || got.Deletions != 1 {
+		t.Fatalf("C-quoted path = %#v, present=%v", got, ok)
+	}
+	if _, ok := ExtractFileDiff(diff, controlPath); !ok {
+		t.Fatalf("ExtractFileDiff(%q) did not preserve exact decoded path", controlPath)
+	}
+}
+
+func TestParseChangedFilesUsesDecodedRenameAndCopyDestinations(t *testing.T) {
+	t.Parallel()
+
+	diff := "diff --git a/old.txt \"b/new\\tname.txt\"\n" +
+		"similarity index 100%\n" +
+		"rename from old.txt\n" +
+		"rename to \"new\\tname.txt\"\n" +
+		"diff --git a/source.txt \"b/copy\\nname.txt\"\n" +
+		"similarity index 100%\n" +
+		"copy from source.txt\n" +
+		"copy to \"copy\\nname.txt\"\n"
+
+	files := ParseChangedFiles(diff, "")
+	if len(files) != 2 {
+		t.Fatalf("files = %#v, want rename and copy", files)
+	}
+	if files[0].Path != "copy\nname.txt" || files[0].Status != "copied" {
+		t.Fatalf("copy = %#v", files[0])
+	}
+	if files[1].Path != "new\tname.txt" || files[1].Status != "renamed" {
+		t.Fatalf("rename = %#v", files[1])
+	}
+}

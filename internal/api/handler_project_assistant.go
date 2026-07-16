@@ -96,6 +96,13 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant draft request")
 		return
 	}
+	mutationCtx, release, _, err := h.beginProjectAssistantMutation(r.Context(), projectassistant.Proposal{}, req.ProjectID)
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	defer release()
+	r = r.WithContext(mutationCtx)
 	proposal, err := h.projectAssistantDraft(r.Context(), projectassistantapp.DraftCommand{
 		ProjectID:        req.ProjectID,
 		WorkItemID:       req.WorkItemID,
@@ -149,6 +156,13 @@ func (h *Handler) HandleChatProjectAssistantDraft(w http.ResponseWriter, r *http
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request is required")
 		return
 	}
+	mutationCtx, release, _, err := h.beginProjectAssistantMutation(r.Context(), projectassistant.Proposal{}, projectID)
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	defer release()
+	r = r.WithContext(mutationCtx)
 	proposal, err := h.projectAssistantDraft(r.Context(), projectassistantapp.DraftCommand{
 		ProjectID:  projectID,
 		WorkItemID: req.WorkItemID,
@@ -183,13 +197,26 @@ func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.R
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant proposal request")
 		return
 	}
-	proposal, err := h.projectAssistantApplication().Propose(r.Context(), projectassistantapp.ProposeCommand{
+	application := h.projectAssistantApplication()
+	proposal, err := application.PrepareProposal(projectassistantapp.ProposeCommand{
 		ID:      req.ID,
 		Title:   req.Title,
 		Summary: req.Summary,
 		Actions: req.Actions,
 		TraceID: requestTraceID(r),
 	})
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	mutationCtx, release, projectID, err := h.beginProjectAssistantMutation(r.Context(), proposal)
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	defer release()
+	r = r.WithContext(mutationCtx)
+	proposal, err = application.ProposePrepared(r.Context(), proposal, projectID)
 	if err != nil {
 		writeProjectAssistantError(w, err)
 		return
@@ -278,8 +305,27 @@ func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Req
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant apply request")
 		return
 	}
-	result, err := h.projectAssistantApplication().Apply(r.Context(), projectassistantapp.ApplyCommand{
-		Proposal: req.Proposal,
+	// The application already serializes apply execution. Extend that boundary
+	// to scope discovery so a preceding chat move cannot change the source
+	// project between fence admission and the direct chat-store mutation.
+	h.projectAssistantApplyMu.Lock()
+	defer h.projectAssistantApplyMu.Unlock()
+	application := h.projectAssistantApplication()
+	proposal, err := application.CanonicalizeProposal(req.Proposal)
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	req.Proposal = proposal
+	mutationCtx, release, _, err := h.beginProjectAssistantMutation(r.Context(), proposal)
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	defer release()
+	r = r.WithContext(mutationCtx)
+	result, err := application.Apply(r.Context(), projectassistantapp.ApplyCommand{
+		Proposal: proposal,
 		Confirm:  req.Confirm,
 	})
 	if err != nil {
@@ -339,7 +385,10 @@ func projectAssistantErrorStatusCode(err error) (int, string) {
 		return http.StatusBadRequest, errCodeInvalidRequest
 	case errors.Is(err, projectassistant.ErrNotFound):
 		return http.StatusNotFound, errCodeNotFound
-	case errors.Is(err, projectassistant.ErrConfirmationRequired), errors.Is(err, projectassistant.ErrConflict):
+	case errors.Is(err, projectassistant.ErrConfirmationRequired),
+		errors.Is(err, projectassistant.ErrConflict),
+		errors.Is(err, errProjectMutationClosed),
+		errors.Is(err, errProjectMutationFenceOrder):
 		return http.StatusConflict, errCodeConflict
 	default:
 		return http.StatusInternalServerError, errCodeInternalError

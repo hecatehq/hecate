@@ -7,9 +7,11 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/gitrunner"
@@ -17,6 +19,13 @@ import (
 )
 
 const chatWorkspaceFilesMaxEntries = 5000
+
+type chatWorkspaceGitRunner interface {
+	IsWorkTree(context.Context, string) bool
+	SnapshotDiff(context.Context, string, int64) (gitrunner.DiffSnapshot, error)
+	StatusPorcelain(context.Context, string, int64) (string, error)
+	ReverseApplySnapshot(context.Context, string, gitrunner.DiffSnapshot, []string) (gitrunner.Result, error)
+}
 
 func (h *Handler) HandleChatMessageFiles(w http.ResponseWriter, r *http.Request) {
 	_, message, ok := h.loadChatMessage(r.Context(), w, r)
@@ -39,7 +48,7 @@ func (h *Handler) HandleChatMessageFileDiff(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	path := strings.TrimSpace(r.PathValue("path"))
+	path := r.PathValue("path")
 	file, found := chat.ExtractFileDiff(message.Diff, path)
 	if !found {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "changed file not found")
@@ -96,23 +105,20 @@ func (h *Handler) HandleChatWorkspaceFileDiff(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	path := strings.TrimSpace(r.PathValue("path"))
+	path := r.PathValue("path")
 	file, found := findChatChangedFile(item.Files, path)
 	if !found {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "workspace changed file not found")
 		return
 	}
-	diff, err := runGit(r.Context(), session.Workspace, "diff", "--no-ext-diff", "--binary", "--", file.Path)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, strings.TrimSpace(diff))
+	parsed, parsedFound := chat.ExtractFileDiff(item.Diff, file.Path)
+	if !parsedFound {
+		WriteError(w, http.StatusConflict, errCodeConflict, "workspace diff changed before the selected file could be rendered")
 		return
 	}
-	parsed, parsedFound := chat.ExtractFileDiff(strings.TrimSpace(diff), file.Path)
-	if parsedFound {
-		file.Additions = parsed.Additions
-		file.Deletions = parsed.Deletions
-		file.Status = parsed.Status
-	}
+	file.Additions = parsed.Additions
+	file.Deletions = parsed.Deletions
+	file.Status = parsed.Status
 	WriteJSON(w, http.StatusOK, ChatChangedFileDiffResponse{
 		Object: "chat_workspace_file_diff",
 		Data: ChatChangedFileDiffItem{
@@ -120,7 +126,7 @@ func (h *Handler) HandleChatWorkspaceFileDiff(w http.ResponseWriter, r *http.Req
 			Additions: file.Additions,
 			Deletions: file.Deletions,
 			Status:    file.Status,
-			Diff:      strings.TrimSpace(diff),
+			Diff:      parsed.Diff,
 		},
 	})
 }
@@ -130,17 +136,30 @@ func (h *Handler) HandleRevertChatWorkspaceFiles(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
+	var req RevertChatWorkspaceFilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid JSON body")
+		return
+	}
+	expectedRevision := strings.TrimSpace(req.ExpectedRevision)
+	if expectedRevision == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "expected_revision is required")
+		return
+	}
+	if busy, status := h.chatWorkspaceRevertBusy(r.Context(), session); busy {
+		writeChatWorkspaceRevertBusy(w, status)
+		return
+	}
 	item, ok := h.currentChatWorkspaceDiff(r.Context(), w, session)
 	if !ok {
 		return
 	}
-	if len(item.Files) == 0 {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace has no current git diff")
+	if expectedRevision != item.Revision {
+		writeChatWorkspaceDiffConflict(w)
 		return
 	}
-	var req RevertChatMessageFilesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid JSON body")
+	if len(item.Files) == 0 {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace has no current git diff")
 		return
 	}
 	allowed := make(map[string]struct{}, len(item.Files))
@@ -162,12 +181,70 @@ func (h *Handler) HandleRevertChatWorkspaceFiles(w http.ResponseWriter, r *http.
 			return
 		}
 	}
-	result, err := gitrunner.NewLocalRunner().Restore(r.Context(), session.Workspace, paths)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, strings.TrimSpace(combinedProcessOutput(result)))
+	if h.agentChatLive == nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "chat lifecycle coordination is unavailable")
 		return
 	}
-	next, ok := h.currentChatWorkspaceDiff(r.Context(), w, session)
+	lifecycleClosure := h.agentChatLive.closeSessionLifecycle(session.ID)
+	defer lifecycleClosure.release()
+	operationCtx, operationCancel := context.WithTimeout(r.Context(), 3*time.Second)
+	operationsDrained := lifecycleClosure.waitForOperations(operationCtx)
+	operationCancel()
+	if !operationsDrained {
+		writeChatWorkspaceRevertBusy(w, "settling")
+		return
+	}
+
+	workspaceClosure, ok := h.closeWorkspaceForRevert(w, r.Context(), session.Workspace)
+	if !ok {
+		return
+	}
+	defer workspaceClosure.Release()
+
+	// Re-read every durable owner after both admission domains are closed. A
+	// browser confirmation is not authority to discard edits while another chat
+	// or Task has queued, running, or approval-blocked work for the same path.
+	latestSession, ok := h.loadChatSession(r.Context(), w, r)
+	if !ok {
+		return
+	}
+	if latestSession.Workspace != session.Workspace {
+		writeChatWorkspaceDiffConflict(w)
+		return
+	}
+	if busy, status := h.chatWorkspaceRevertBusy(r.Context(), latestSession); busy {
+		writeChatWorkspaceRevertBusy(w, status)
+		return
+	}
+	if status, active, err := h.chatWorkspaceDurableOwner(r.Context(), workspaceClosure.Workspace(), session.ID); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "failed to verify workspace activity")
+		return
+	} else if active {
+		writeChatWorkspaceRevertBusy(w, status)
+		return
+	}
+	current, ok := h.currentChatWorkspaceDiff(r.Context(), w, latestSession)
+	if !ok {
+		return
+	}
+	if expectedRevision != current.Revision {
+		writeChatWorkspaceDiffConflict(w)
+		return
+	}
+	snapshot := gitrunner.DiffSnapshot{
+		Diff:     current.Diff,
+		Revision: current.Revision,
+	}
+	_, err := h.chatWorkspaceGitRunner().ReverseApplySnapshot(r.Context(), latestSession.Workspace, snapshot, paths)
+	if errors.Is(err, gitrunner.ErrDiffSnapshotNotApplicable) {
+		writeChatWorkspaceDiffConflict(w)
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "failed to discard the selected workspace changes")
+		return
+	}
+	next, ok := h.currentChatWorkspaceDiff(r.Context(), w, latestSession)
 	if !ok {
 		return
 	}
@@ -198,26 +275,123 @@ func (h *Handler) loadChatSession(ctx context.Context, w http.ResponseWriter, r 
 func (h *Handler) currentChatWorkspaceDiff(ctx context.Context, w http.ResponseWriter, session chat.Session) (ChatWorkspaceDiffItem, bool) {
 	workspace := strings.TrimSpace(session.Workspace)
 	if workspace == "" {
-		return ChatWorkspaceDiffItem{Workspace: workspace, Files: []ChatChangedFileItem{}}, true
+		return ChatWorkspaceDiffItem{
+			Workspace: workspace,
+			Revision:  gitrunner.DiffRevision(""),
+			Files:     []ChatChangedFileItem{},
+		}, true
 	}
-	runner := gitrunner.NewLocalRunner()
+	runner := h.chatWorkspaceGitRunner()
 	if !runner.IsWorkTree(ctx, workspace) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "chat workspace is not a git worktree")
 		return ChatWorkspaceDiffItem{}, false
 	}
-	diffStat, diff := runner.Diff(ctx, workspace, agentChatMaxOutputBytes)
-	files := chat.ParseChangedFiles(diff, diffStat)
+	snapshot, err := runner.SnapshotDiff(ctx, workspace, agentChatMaxOutputBytes)
+	if errors.Is(err, gitrunner.ErrDiffSnapshotTooLarge) {
+		WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "workspace diff is too large to review and revert safely")
+		return ChatWorkspaceDiffItem{}, false
+	}
+	if errors.Is(err, gitrunner.ErrStagedChangesUnsupported) {
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "staged workspace changes cannot be reviewed and discarded safely", ErrorDetails{
+			UserMessage:    "This workspace has staged Git changes.",
+			OperatorAction: "Unstage the changes, refresh the workspace diff, and review discard again.",
+		})
+		return ChatWorkspaceDiffItem{}, false
+	}
+	if errors.Is(err, gitrunner.ErrDiffSnapshotInvalid) {
+		WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "workspace diff paths cannot be represented safely for review and discard")
+		return ChatWorkspaceDiffItem{}, false
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return ChatWorkspaceDiffItem{}, false
+	}
+	// DiffStat is presentation-only because it is captured by a separate Git
+	// process. Only paths parsed from the exact patch covered by Revision may
+	// become restore authority.
+	files := chat.ParseChangedFiles(snapshot.Diff, "")
+	parsedPaths := make([]string, 0, len(files))
+	for _, file := range files {
+		if !utf8.ValidString(file.Path) || strings.ContainsRune(file.Path, '\x00') {
+			WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "workspace diff paths cannot be represented safely for review and discard")
+			return ChatWorkspaceDiffItem{}, false
+		}
+		parsedPaths = append(parsedPaths, file.Path)
+	}
+	if !slices.Equal(parsedPaths, snapshot.Paths) {
+		WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "workspace diff paths cannot be represented safely for review and discard")
+		return ChatWorkspaceDiffItem{}, false
+	}
 	items := make([]ChatChangedFileItem, 0, len(files))
 	for _, file := range files {
 		items = append(items, renderChatChangedFile(file))
 	}
+	diffStat := snapshot.Stat
+	hasChanges := strings.TrimSpace(snapshot.Diff) != ""
+	if !hasChanges {
+		// A stat-only result can only be an observation from before the exact
+		// patch capture. Do not surface it as part of the authoritative snapshot.
+		diffStat = ""
+	}
 	return ChatWorkspaceDiffItem{
 		Workspace:  workspace,
+		Revision:   snapshot.Revision,
 		DiffStat:   diffStat,
-		Diff:       diff,
-		HasChanges: strings.TrimSpace(diffStat) != "" || strings.TrimSpace(diff) != "",
+		Diff:       snapshot.Diff,
+		HasChanges: hasChanges,
 		Files:      items,
 	}, true
+}
+
+func (h *Handler) chatWorkspaceGitRunner() chatWorkspaceGitRunner {
+	if h.chatWorkspaceGit != nil {
+		return h.chatWorkspaceGit
+	}
+	return gitrunner.NewLocalRunner()
+}
+
+func (h *Handler) chatWorkspaceRevertBusy(ctx context.Context, session chat.Session) (bool, string) {
+	if h.agentChatLive != nil && h.agentChatLive.hasRun(session.ID) {
+		return true, "running"
+	}
+	if busy, status := h.hecateAgentSessionBusy(ctx, session); busy {
+		return true, status
+	}
+	if chatWorkspaceActiveStatus(session.Status) {
+		return true, session.Status
+	}
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		if chatWorkspaceActiveStatus(session.Messages[i].Status) {
+			return true, session.Messages[i].Status
+		}
+	}
+	return false, ""
+}
+
+func chatWorkspaceActiveStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending", "queued", "running", "in_progress", "awaiting_approval":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeChatWorkspaceRevertBusy(w http.ResponseWriter, status string) {
+	WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "workspace changes cannot be discarded while agent work is active", ErrorDetails{
+		UserMessage:    "Workspace changes cannot be discarded while the agent is still working.",
+		OperatorAction: "Wait for the current turn to finish, resolve its approval, or stop it before discarding changes.",
+		Fields: map[string]any{
+			"status": strings.TrimSpace(status),
+		},
+	})
+}
+
+func writeChatWorkspaceDiffConflict(w http.ResponseWriter) {
+	WriteErrorDetails(w, http.StatusConflict, errCodeConflict, "workspace diff changed after it was reviewed", ErrorDetails{
+		UserMessage:    "The workspace changed after this diff was reviewed.",
+		OperatorAction: "Refresh the workspace diff, review the latest changes, and confirm discard again.",
+	})
 }
 
 func (h *Handler) currentChatWorkspaceFiles(ctx context.Context, w http.ResponseWriter, session chat.Session) (ChatWorkspaceFilesItem, bool) {
@@ -231,11 +405,11 @@ func (h *Handler) currentChatWorkspaceFiles(ctx context.Context, w http.Response
 		return ChatWorkspaceFilesItem{}, false
 	}
 
-	statuses := workspaceGitStatus(ctx, workspace)
+	statuses := workspaceGitStatus(ctx, h.chatWorkspaceGitRunner(), workspace)
 	files := make([]ChatWorkspaceFileItem, 0, 256)
 	truncated := false
 	err = fsys.WalkDir(".", func(_ string, relPath string, entry workspacefs.DirEntry) error {
-		path := filepath.ToSlash(strings.TrimSpace(relPath))
+		path := filepath.ToSlash(relPath)
 		if path == "" || path == "." {
 			return nil
 		}
@@ -290,16 +464,18 @@ func shouldSkipWorkspaceTreeDir(name string) bool {
 	}
 }
 
-func workspaceGitStatus(ctx context.Context, workspace string) map[string]string {
-	runner := gitrunner.NewLocalRunner()
+func workspaceGitStatus(ctx context.Context, runner chatWorkspaceGitRunner, workspace string) map[string]string {
+	if runner == nil {
+		return nil
+	}
 	if !runner.IsWorkTree(ctx, workspace) {
 		return nil
 	}
-	result, err := runner.Run(ctx, workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	status, err := runner.StatusPorcelain(ctx, workspace, agentChatMaxOutputBytes)
 	if err != nil {
 		return nil
 	}
-	return parseWorkspaceGitStatus(result.Stdout)
+	return parseWorkspaceGitStatus(status)
 }
 
 func parseWorkspaceGitStatus(out string) map[string]string {
@@ -311,7 +487,7 @@ func parseWorkspaceGitStatus(out string) map[string]string {
 			continue
 		}
 		code := strings.TrimSpace(record[:2])
-		path := strings.TrimSpace(record[3:])
+		path := record[3:]
 		if path == "" {
 			continue
 		}
@@ -340,91 +516,6 @@ func workspaceStatusLabel(code string) string {
 	default:
 		return "changed"
 	}
-}
-
-func (h *Handler) HandleRevertChatMessageFiles(w http.ResponseWriter, r *http.Request) {
-	session, message, ok := h.loadChatMessage(r.Context(), w, r)
-	if !ok {
-		return
-	}
-	files := chat.ParseChangedFiles(message.Diff, message.DiffStat)
-	if len(files) == 0 {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "agent chat message has no captured diff")
-		return
-	}
-	var req RevertChatMessageFilesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid JSON body")
-		return
-	}
-	allowed := make(map[string]struct{}, len(files))
-	allPaths := make([]string, 0, len(files))
-	for _, file := range files {
-		if file.Path == "" {
-			continue
-		}
-		allowed[file.Path] = struct{}{}
-		allPaths = append(allPaths, file.Path)
-	}
-	paths := normalizeRevertPaths(req.Paths)
-	if len(paths) == 0 {
-		paths = append(paths, allPaths...)
-	}
-	for _, path := range paths {
-		if _, ok := allowed[path]; !ok {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "path is not present in the captured agent diff: "+path)
-			return
-		}
-	}
-	if err := ensureGitWorkspace(r.Context(), session.Workspace); err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-	if out, err := runGit(r.Context(), session.Workspace, append([]string{"restore", "--"}, paths...)...); err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, strings.TrimSpace(out))
-		return
-	}
-	diffStat, err := runGit(r.Context(), session.Workspace, append([]string{"diff", "--stat", "--"}, allPaths...)...)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, strings.TrimSpace(diffStat))
-		return
-	}
-	diff, err := runGit(r.Context(), session.Workspace, append([]string{"diff", "--binary", "--"}, allPaths...)...)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, strings.TrimSpace(diff))
-		return
-	}
-	now := time.Now().UTC()
-	updated, err := h.agentChat.UpdateMessage(r.Context(), session.ID, message.ID, func(item *chat.Message) {
-		item.DiffStat = strings.TrimSpace(diffStat)
-		item.Diff = strings.TrimSpace(diff)
-		item.Activities = append(item.Activities, chat.Activity{
-			Type:      "files_reverted",
-			Status:    "completed",
-			Title:     "Files reverted",
-			Detail:    strings.Join(paths, "\n"),
-			CreatedAt: now,
-		})
-	})
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	h.agentChatLive.publishSession(updated)
-	remaining := chat.ParseChangedFiles(strings.TrimSpace(diff), strings.TrimSpace(diffStat))
-	items := make([]ChatChangedFileItem, 0, len(remaining))
-	for _, file := range remaining {
-		items = append(items, renderChatChangedFile(file))
-	}
-	WriteJSON(w, http.StatusOK, ChatRevertResponse{
-		Object: "chat_revert",
-		Data: ChatRevertItem{
-			Reverted: true,
-			Paths:    paths,
-			DiffStat: strings.TrimSpace(diffStat),
-			Files:    items,
-		},
-	})
 }
 
 func (h *Handler) loadChatMessage(ctx context.Context, w http.ResponseWriter, r *http.Request) (chat.Session, chat.Message, bool) {
@@ -456,7 +547,6 @@ func normalizeRevertPaths(paths []string) []string {
 	out := make([]string, 0, len(paths))
 	seen := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
-		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}
@@ -470,7 +560,6 @@ func normalizeRevertPaths(paths []string) []string {
 }
 
 func findChatChangedFile(files []ChatChangedFileItem, path string) (ChatChangedFileItem, bool) {
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return ChatChangedFileItem{}, false
 	}
@@ -480,34 +569,6 @@ func findChatChangedFile(files []ChatChangedFileItem, path string) (ChatChangedF
 		}
 	}
 	return ChatChangedFileItem{}, false
-}
-
-func ensureGitWorkspace(ctx context.Context, workspace string) error {
-	if !gitrunner.NewLocalRunner().IsWorkTree(ctx, workspace) {
-		return errors.New("agent chat revert requires a git workspace")
-	}
-	return nil
-}
-
-func runGit(ctx context.Context, workspace string, args ...string) (string, error) {
-	if strings.TrimSpace(workspace) == "" {
-		return "", errors.New("workspace is required")
-	}
-	result, err := gitrunner.NewLocalRunner().Run(ctx, workspace, args...)
-	return combinedProcessOutput(result), err
-}
-
-func combinedProcessOutput(result gitrunner.Result) string {
-	out := strings.TrimSpace(result.Stdout)
-	errText := strings.TrimSpace(result.Stderr)
-	switch {
-	case out != "" && errText != "":
-		return out + "\n" + errText
-	case out != "":
-		return out
-	default:
-		return errText
-	}
 }
 
 func renderChatChangedFile(file chat.ChangedFile) ChatChangedFileItem {

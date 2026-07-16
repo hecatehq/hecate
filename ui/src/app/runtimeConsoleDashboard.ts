@@ -55,8 +55,11 @@ export type DashboardSnapshot = {
   providers: ProviderStatusResponse["data"];
   agentAdapters: AgentAdapterRecord[];
   chatSessions: ChatSessionsResponse["data"];
+  chatSessionsFresh: boolean;
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
+  activeChatSessionFresh: boolean;
+  activeChatSessionMissing: boolean;
   settingsConfig: ConfiguredStateResponse["data"] | null;
   agentAdapterApprovalMode: string;
   rtkAvailable: boolean;
@@ -85,9 +88,12 @@ export async function resolveDashboardSnapshot(args: {
    * rendered shell rather than a blocking spinner.
    */
   onEssentials?: (essentials: DashboardEssentials) => void;
+  onChatSessionsReadStart?: () => void;
+  onActiveChatSessionReadStart?: (sessionID: string) => void;
 }): Promise<DashboardSnapshot> {
   const results = await loadDashboardResults({
     onEssentials: args.onEssentials ? (essentials) => args.onEssentials!(essentials) : undefined,
+    onChatSessionsReadStart: args.onChatSessionsReadStart,
     previousSettingsConfig: args.previous.settingsConfig,
   });
   const health = requireFulfilledDashboardResult(results.health);
@@ -116,6 +122,7 @@ export async function resolveDashboardSnapshot(args: {
     previousSessions: args.previous.chatSessions,
     previousActiveSession: args.previous.activeChatSession,
     result: results.chatSessions,
+    onActiveChatSessionReadStart: args.onActiveChatSessionReadStart,
   });
 
   return {
@@ -125,8 +132,11 @@ export async function resolveDashboardSnapshot(args: {
     providers,
     agentAdapters,
     chatSessions: chatState.sessions,
+    chatSessionsFresh: chatState.sessionsFresh,
     activeChatSessionID: chatState.activeSessionID,
     activeChatSession: chatState.activeSession,
+    activeChatSessionFresh: chatState.activeSessionFresh,
+    activeChatSessionMissing: chatState.activeSessionMissing,
     settingsConfig,
     agentAdapterApprovalMode,
     rtkAvailable,
@@ -140,6 +150,7 @@ export function deriveSessionState(sessionInfo: SessionResponse["data"] | null):
 
 async function loadDashboardResults(opts: {
   onEssentials?: (essentials: DashboardEssentials) => void;
+  onChatSessionsReadStart?: () => void;
   previousSettingsConfig: ConfiguredStateResponse["data"] | null;
 }): Promise<DashboardResults> {
   // Wave 1 — essentials. Three parallel calls drive everything the
@@ -194,6 +205,8 @@ async function loadDashboardResults(opts: {
     opts.previousSettingsConfig,
   );
   const configured = resolvedSettingsConfig?.providers ?? [];
+  opts.onChatSessionsReadStart?.();
+  const chatSessionsRequest = getChatSessions();
   const secondary: Promise<unknown>[] = [
     getModels().then(
       (r) => {
@@ -211,7 +224,7 @@ async function loadDashboardResults(opts: {
         agentAdapters = { status: "rejected", reason: e };
       },
     ),
-    getChatSessions().then(
+    chatSessionsRequest.then(
       (r) => {
         chatSessions = { status: "fulfilled", value: r };
       },
@@ -289,16 +302,23 @@ async function resolveChatDashboardState(args: {
   previousSessions: ChatSessionsResponse["data"];
   previousActiveSession: ChatSessionRecord | null;
   result: PromiseSettledResult<ChatSessionsResponse>;
+  onActiveChatSessionReadStart?: (sessionID: string) => void;
 }): Promise<{
   sessions: ChatSessionsResponse["data"];
+  sessionsFresh: boolean;
   activeSessionID: string;
   activeSession: ChatSessionRecord | null;
+  activeSessionFresh: boolean;
+  activeSessionMissing: boolean;
 }> {
   if (args.result.status !== "fulfilled") {
     return {
       sessions: args.previousSessions,
+      sessionsFresh: false,
       activeSessionID: args.activeSessionID,
       activeSession: args.previousActiveSession,
+      activeSessionFresh: false,
+      activeSessionMissing: false,
     };
   }
 
@@ -309,16 +329,45 @@ async function resolveChatDashboardState(args: {
       : "";
 
   if (!activeSessionID) {
-    return { sessions, activeSessionID, activeSession: null };
+    return {
+      sessions,
+      sessionsFresh: true,
+      activeSessionID,
+      activeSession: null,
+      activeSessionFresh: false,
+      activeSessionMissing: Boolean(args.activeSessionID),
+    };
   }
 
   try {
+    args.onActiveChatSessionReadStart?.(activeSessionID);
     const sessionResult = await getChatSession(activeSessionID);
-    return { sessions, activeSessionID, activeSession: sessionResult.data };
+    return {
+      sessions,
+      sessionsFresh: true,
+      activeSessionID,
+      activeSession: sessionResult.data,
+      activeSessionFresh: true,
+      activeSessionMissing: false,
+    };
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) {
-      return { sessions, activeSessionID, activeSession: args.previousActiveSession };
+      return {
+        sessions,
+        sessionsFresh: true,
+        activeSessionID,
+        activeSession: args.previousActiveSession,
+        activeSessionFresh: false,
+        activeSessionMissing: false,
+      };
     }
-    return { sessions, activeSessionID: "", activeSession: null };
+    return {
+      sessions,
+      sessionsFresh: true,
+      activeSessionID: "",
+      activeSession: null,
+      activeSessionFresh: false,
+      activeSessionMissing: true,
+    };
   }
 }

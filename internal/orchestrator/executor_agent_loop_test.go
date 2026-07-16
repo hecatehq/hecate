@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -1487,7 +1488,7 @@ func TestRunGitReadCommandPreservesWhitespaceInTrackedPaths(t *testing.T) {
 func TestEffectiveGitAttributeParsingStopsWhenContextCancels(t *testing.T) {
 	ctx := &cancelAfterChecksContext{Context: context.Background(), remaining: 4}
 	output := strings.Repeat("nested/file.txt\x00text\x00set\x00", 100)
-	err := rejectEffectiveGitConversionFilters(ctx, output)
+	err := gitrunner.RejectEffectiveContentConversionFilters(ctx, output)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("rejectEffectiveGitConversionFilters error = %v, want context cancellation", err)
 	}
@@ -1539,7 +1540,7 @@ func TestGitAttributeResolutionCancelsWhenWorktreeAttributesAreFIFO(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	err = rejectGitReadConversionAttributes(ctx, view)
+	err = view.RejectContentConversionAttributes(ctx)
 	if err == nil {
 		t.Fatal("rejectGitReadConversionAttributes succeeded, want cancellation")
 	}
@@ -1566,7 +1567,7 @@ func TestRejectEffectiveGitConversionFilters(t *testing.T) {
 				attribute = "text"
 			}
 			output := "tracked.bin\x00" + attribute + "\x00" + tc.value + "\x00"
-			err := rejectEffectiveGitConversionFilters(context.Background(), output)
+			err := gitrunner.RejectEffectiveContentConversionFilters(context.Background(), output)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("rejectEffectiveGitConversionFilters(%q) error = %v, wantErr %v", tc.value, err, tc.wantErr)
 			}

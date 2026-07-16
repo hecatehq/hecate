@@ -4,7 +4,7 @@
 // interrupts to ask a question; ConfirmModal is the styled replacement
 // for window.confirm.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type React from "react";
 
 import { Icon, Icons } from "./Icons";
@@ -21,6 +21,7 @@ function DialogChrome({
   footer,
   initialFocusRef,
   onClose,
+  returnFocusRef,
   surface,
 }: {
   title: string;
@@ -30,6 +31,7 @@ function DialogChrome({
   footer: React.ReactNode;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   surface: React.CSSProperties;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -58,16 +60,29 @@ function DialogChrome({
       if (
         activeElementOnClose &&
         activeElementOnClose !== document.body &&
+        activeElementOnClose !== document.documentElement &&
         dialog &&
         !dialog.contains(activeElementOnClose)
       ) {
         return;
       }
-      if (previousFocusRef.current && document.contains(previousFocusRef.current)) {
+      if (
+        previousFocusRef.current &&
+        previousFocusRef.current !== document.body &&
+        previousFocusRef.current !== document.documentElement &&
+        !previousFocusRef.current.matches(":disabled") &&
+        document.contains(previousFocusRef.current)
+      ) {
         previousFocusRef.current.focus();
+      } else if (
+        returnFocusRef?.current &&
+        !returnFocusRef.current.matches(":disabled") &&
+        document.contains(returnFocusRef.current)
+      ) {
+        returnFocusRef.current.focus();
       }
     };
-  }, [initialFocusRef]);
+  }, [initialFocusRef, returnFocusRef]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -264,6 +279,7 @@ export function Modal({
   footer,
   initialFocusRef,
   onClose,
+  returnFocusRef,
   width = 560,
 }: {
   title: string;
@@ -273,6 +289,7 @@ export function Modal({
   footer: React.ReactNode;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   width?: number;
 }) {
   return (
@@ -283,6 +300,7 @@ export function Modal({
       footer={footer}
       initialFocusRef={initialFocusRef}
       onClose={onClose}
+      returnFocusRef={returnFocusRef}
       surface={{
         width,
         maxWidth: "calc(100vw - 24px)",
@@ -324,6 +342,7 @@ export function ConfirmModal({
   confirmDisabled = false,
   onConfirm,
   onClose,
+  returnFocusRef,
 }: {
   title: string;
   message: React.ReactNode;
@@ -333,14 +352,32 @@ export function ConfirmModal({
   confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const wasPendingRef = useRef(pending);
+
+  useLayoutEffect(() => {
+    const wasPending = wasPendingRef.current;
+    wasPendingRef.current = pending;
+    if (!wasPending || pending) return;
+
+    const confirmButton = confirmButtonRef.current;
+    if (confirmButton && !confirmButton.disabled) {
+      confirmButton.focus({ preventScroll: true });
+    }
+  }, [pending]);
+
   return (
     <Modal
       title={title}
+      dismissible={!pending}
       onClose={onClose}
+      returnFocusRef={returnFocusRef}
       width={420}
       footer={
         <button
+          ref={confirmButtonRef}
           className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
           style={{ width: "100%", justifyContent: "center" }}
           disabled={pending || confirmDisabled}

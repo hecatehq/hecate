@@ -57,6 +57,17 @@ export type ChatMCPServerRecord = {
   approval_policy?: "auto" | "require_approval" | "block" | string;
 };
 
+export type ChatAttachmentRecord = {
+  id: string;
+  session_id: string;
+  filename: string;
+  media_type: "image/png" | "image/jpeg" | "image/webp" | string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+  content_url: string;
+};
+
 export type ChatMessageRecord = {
   id: string;
   turn_kind?: "direct_model" | "hecate_task" | "external_agent" | string;
@@ -72,6 +83,7 @@ export type ChatMessageRecord = {
   span_id?: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachmentRecord[];
   raw_output?: string;
   agent_id?: string;
   agent_name?: string;
@@ -250,6 +262,18 @@ export type ChatSessionsResponse = {
 export type ChatSessionResponse = {
   object: string;
   data: ChatSessionRecord;
+  // Present only for POST-message requests carrying client_request_id.
+  // The committed id is authoritative; replay tells the UI whether another
+  // caller already owned dispatch for this exact request payload.
+  message_request?: {
+    replay: boolean;
+    committed_message_id: string;
+  };
+};
+
+export type ChatAttachmentResponse = {
+  object: string;
+  data: ChatAttachmentRecord;
 };
 
 export type ChatChangedFileRecord = {
@@ -266,6 +290,7 @@ export type ChatChangedFilesResponse = {
 
 export type ChatWorkspaceDiffRecord = {
   workspace?: string;
+  revision: string;
   diff_stat?: string;
   diff?: string;
   has_changes: boolean;
@@ -303,16 +328,6 @@ export type ChatChangedFileDiffRecord = ChatChangedFileRecord & {
 export type ChatChangedFileDiffResponse = {
   object: string;
   data: ChatChangedFileDiffRecord;
-};
-
-export type ChatRevertResponse = {
-  object: string;
-  data: {
-    reverted: boolean;
-    paths: string[];
-    diff_stat?: string;
-    files: ChatChangedFileRecord[];
-  };
 };
 
 // ChatApprovalOption mirrors agentApprovalOptionItem on the wire.

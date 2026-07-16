@@ -281,12 +281,50 @@ agent bridge, while authentication and billing stay with the provider.
 5. Click **New chat**. Hecate starts the agent session immediately. The
    message input appears after that session exists, while launch controls can be
    shown earlier so required values can be selected first.
-6. If the agent row is amber/red, open **Connections**. The probe performs
+6. Optionally attach up to four non-empty files by choosing, dropping, or
+   pasting them. Each file can be up to 5 MiB and one turn can carry up to
+   12 MiB combined. Hecate uses the live ACP session's supported inline image
+   or embedded-resource form when available; otherwise it privately stages the
+   file and sends a resource link. Non-image transcript files are never
+   rendered inline and require an explicit **Download** action.
+   Resource-link callbacks admit only the exact per-turn files. Body-free stage
+   and quarantine namespaces remain denied across later callbacks and turns
+   until cleanup proves removal. Absolute, file-URI, and workspace-relative
+   spellings share the same fence, which remains held through ordinary
+   WorkspaceFS fallback while cleanup registers a quarantine alias before
+   rename. Body-free alias redactors remain for the ACP session lifetime, so
+   delayed approval requests, command/config updates, and direct config-write
+   responses still redact display metadata and drop entries whose protocol
+   identifiers or values would change; original typed-update raw records are
+   withheld. Hecate also redacts complete
+   temporary path aliases and ordinary accumulated ACP chunking from
+   operator-visible output, approvals, activities, errors, and late terminal
+   previews. Staged-turn raw ACP diagnostics are withheld when present, and
+   native close/delete failures retain only fixed classifications and numeric
+   codes. These controls are not DLP against a selected agent deliberately
+   transforming or segmenting a path. The protected stage reduces accidental
+   exposure but is not isolation from another process running as your OS user.
+   On macOS, every temporary-path
+   mount must be local. On Linux, the canonical temporary path and its ancestor
+   mounts must use ext2/3/4, XFS, Btrfs, tmpfs, overlayfs, ramfs, or F2FS. Every
+   other model rejects resource-link staging, including NFS, SMB/CIFS, FUSE,
+   ZFS, AUFS, eCryptfs, and 9p. If the default path fails, launch Hecate with
+   `TMPDIR` on an allowlisted local filesystem whose canonical ancestors also
+   pass. If four protected cleanup remnants are already pending for the same
+   ACP session, or 16 file turns/remnants already reserve process-wide cleanup
+   capacity, another file-bearing turn fails closed until the process janitor
+   makes room; text-only turns remain available. Hecate rechecks cancellation
+   after the final staged-file identity audit and before prompt dispatch, so a
+   cancellation that wins during that audit cleans up without sending the
+   resource link. Bounded adapter stderr is retained only for startup failures;
+   after initial session and model/config setup succeeds, that buffer is zeroed
+   and later stderr is discarded before a prompt can carry file data.
+7. If the agent row is amber/red, open **Connections**. The probe performs
    a real spawn + ACP handshake + temporary
    no-op session, so it catches missing auth, billing/subscription issues,
    unsupported versions, and missing or unsupported binaries before a prompt
    fails.
-7. Send a small smoke prompt:
+8. Send a small smoke prompt:
 
    ```text
    Show me git status and summarize what changed.
@@ -436,6 +474,8 @@ Use this order when troubleshooting:
 3. **Chat run** — send a real prompt only after discovery/probe are green. If
    the agent still fails, open the message's raw diagnostics disclosure; the
    normalized transcript is for reading, raw ACP output is for debugging.
+   File-bearing turns that use private resource-link staging withhold raw ACP
+   diagnostics when present so split temporary paths cannot be reconstructed.
 
 ### Codex ACP
 
@@ -534,7 +574,9 @@ environment that starts Hecate.
    - the header workspace-changes button opens the current workspace panel:
      **Review** shows changed files with collapsible rich diffs, while **Files**
      shows the full workspace tree separately
-   - raw ACP diagnostics under the inline diagnostic disclosure when they differ from the normalized transcript
+   - raw ACP diagnostics under the inline diagnostic disclosure when they differ
+     from the normalized transcript, except when private resource-link staging
+     requires them to be withheld
 
 ## Runtime behavior
 
@@ -568,17 +610,26 @@ that fallback. A draft detached before session creation completes carries a
 transient ownership token plus its project, agent, workspace, and Hecate
 provider/model route. Recovery is consumed only by the matching chat creation,
 so an identical string or a different project cannot claim it. Session
-creation is also serialized across Projects and Chats; its loading signal does
-not project an active agent turn or expose cancellation controls. After the
-session ID is allocated, a separate turn token remains bound to that session
-through message and stream completion. A newer chat selection therefore cannot
-inherit the background turn's transcript, working state, or Stop control. The
-submitted composer stays locked during the short unknown-session interval so a
-second draft cannot replace the prompt being recovered or sent; its route,
+creation is also serialized across Projects and Chats. A preparation request
+that has not submitted a turn does not project agent work or expose **Stop**.
+After the operator submits an implicit first turn, however, that exact detached
+composer owns a local busy/Stop projection while the session ID is unknown. Stop
+passes the turn's `AbortSignal` into session creation and fences every later
+message and ACP dispatch. If an adapter or intermediary ignores abort
+and returns a known create acknowledgement, Hecate keeps the message-empty
+session shell and its create-time title metadata. Stop does not roll that
+metadata back, but once cancellation wins the exact turn sends no message and
+starts no model or ACP work. After the session ID is allocated, the same turn
+generation remains bound to that session through message and stream completion.
+Server cancellation is unavailable until the bound session is authoritatively
+busy. A newer chat selection therefore cannot inherit the background turn's
+transcript, working state, or Stop control. The submitted
+composer stays locked during the short unknown-session interval so a second
+draft cannot replace the prompt being recovered or sent; its route,
 configuration, and MCP controls are frozen with the same request while the
 focused composer remains keyboard reachable. Explicitly prepared launch text
-can still be edited during creation, while its captured route and configuration
-remain fixed. Once a canonical session exists, a failed message is saved
+can still be edited during preparation, while its captured route and
+configuration remain fixed. Once a canonical session exists, a failed message is saved
 against that source session independently of the
 currently selected chat or any newer composer draft. The operator can restore
 saved messages explicitly without silently retrying them.
@@ -621,26 +672,69 @@ the selected workspace, rejects working directories outside that workspace,
 applies the same static command policy checks and OS sandbox wrapper path used
 by one-shot shell tasks, retains bounded merged stdout/stderr for
 `terminal/output`, supports `terminal/wait_for_exit`, `terminal/kill`, and
-invalidates the terminal after `terminal/release`. Interactive terminal
-requests without an initial command cannot be statically inspected; they rely
-on the OS sandbox wrapper and approval gate for containment. Terminal output
-retention truncates from the beginning at a valid UTF-8 boundary when the agent
+invalidates the terminal after `terminal/release`. On Unix, known
+process-group/session detachers are rejected in literal spawn commands and in
+stdin that is actually interactive shell/interpreter code; ordinary stdin data
+is not scanned. Shell writes retain up to 64 KiB of syntactically incomplete
+input for cross-write supervision and fail closed at that bound; validated,
+newline-terminated commands leave no cumulative history. Interpreter writes
+retain only fixed-size raw and whitespace-compacted tails needed to recognize
+split detachment forms. Explicit shell stdin (`sh`/`bash -`) and
+force-interactive interpreter modes remain code-scanned even when an inline
+command or script also runs. This validation is best effort and does not cover
+arbitrary wrappers, sourced/generated/encoded code, custom binaries, or
+delegation to an external service manager. Terminal output retention truncates
+from the beginning at a valid UTF-8 boundary when the agent
 supplies `outputByteLimit`. Env variable names are included in approval
 context; env values are not persisted in the approval payload. Terminal
 lifecycle callbacks are also projected into the
 chat activity timeline as `terminal` rows: Hecate records the command, working
 directory, running/completed/failed/cancelled status, exit code when available,
-and a bounded output preview after the process exits. When an ACP tool-call
-update references a terminal, Hecate also reuses the retained terminal output
-preview in the `tool_call` activity detail and artifact preview when available.
-This makes approved client-side commands visible after refresh even though
-Hecate does not expose an embedded operator terminal UI.
+and a bounded output preview after the process exits. Each terminal captures an
+immutable activity sink for the assistant message whose turn created it. If the
+process exits after that turn returns, while the session is idle, or during a
+later turn, its final status and preview still merge into the originating row;
+they are never resolved through mutable current-turn state. Terminal callbacks
+enqueue into a per-session settlement dispatcher, so older-terminal activity,
+current streaming output, turn-final metadata, and live session snapshots are
+persisted and published in one order. The callback returns without waiting for
+storage. A matching terminal-closed signal follows the authoritative final
+activity and ends callback ownership; the ordinary Run-scoped activity callback
+is never retained as a fallback. When an ACP tool-call update references a
+terminal, Hecate also reuses the retained terminal output preview in the
+`tool_call` activity detail and artifact preview when available. This makes
+approved client-side commands visible after refresh even though Hecate does not
+expose an embedded operator terminal UI.
+
+Each approved terminal acquires its own shared workspace writer admission
+immediately before spawn. That admission outlives the creating turn and is
+released only after terminal exit is observed, including every descendant in
+the owned Unix process group or Windows Job Object and all terminal output
+drain, during release or session shutdown. Current-workspace discard therefore
+returns `409 workspace_active` while an unreleased ACP terminal can still
+modify the selected workspace. A close deadline can return before drain, but
+the watcher retains the writer admission until it observes completion.
 
 On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, closes any unreleased ACP terminals, asks the
 native ACP session to close, and then kills the owned agent process group if it
 is still alive. Closing unreleased terminals marks them cancelled in the active
-chat activity timeline and retains their bounded output preview when available.
+originating chat activity timeline and retains their bounded output preview when
+available, even when the creating turn already returned.
+If the close deadline expires before process/output drain, that cancellation is
+authoritative for the transcript and Hecate detaches its activity callbacks.
+The process watcher continues only to drain output and release the workspace
+writer lease; its eventual exit does not publish a second terminal final.
+
+Chat close, delete, idle cleanup, and project cleanup close normal
+session admission before native cleanup. After pre-existing mutations drain,
+Hecate gives the serialized terminal dispatcher the same destructive owner,
+cancels any active turn, closes the native ACP session, and waits for its queued
+terminal finals before clearing or deleting the transcript. New callbacks are
+rejected once that queue is sealed. If settlement misses the bounded drain
+window, the operation reports that the chat is still stopping and leaves the
+transcript and lifecycle fence intact until the worker exits; Hecate does not
+publish a deleted transcript from a stale callback.
 This keeps app quit / restart from leaving Codex, Claude Code, Cursor Agent, or
 Grok Build processes behind. If an ACP peer does not implement `session/close`,
 Hecate treats that as an optional shutdown method and still terminates the owned
@@ -774,7 +868,8 @@ External agents are stable enough for alpha use when the operator
 accepts the trusted-subprocess model: Codex, Claude Code, Cursor Agent, and Grok Build run as
 their own runtimes in the selected workspace while Hecate supervises lifecycle,
 approvals, output capture, diagnostics, observability, guardrails, captured
-turn diffs, current workspace diff review, and full workspace file browsing.
+turn diffs, current workspace diff review, and full workspace file-tree
+browsing and search.
 
 ## Future enhancements
 

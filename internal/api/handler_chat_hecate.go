@@ -30,9 +30,9 @@ const hecateAgentPollInterval = 250 * time.Millisecond
 //
 // External-agent sessions never reach this function — the dispatcher
 // pins them to the external_agent path before getting here.
-func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest, toolsEnabled bool) {
+func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest, toolsEnabled bool, lifecycle agentChatLifecycleSnapshot, requestGuard *chatMessageRequestGuard) {
 	if !toolsEnabled {
-		h.handleDirectModelTurn(w, r, session, req)
+		h.handleDirectModelTurn(w, r, session, req, lifecycle, requestGuard)
 		return
 	}
 	content := strings.TrimSpace(req.Content)
@@ -91,12 +91,18 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	startedAt := time.Now().UTC()
 	trace, traceCtx := h.startAgentChatTrace(w, r)
 	defer trace.Finalize()
-	trace.Record(telemetry.EventAgentChatRunStarted, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
-		telemetry.AttrHecateRunStatus: "running",
-	}))
 
-	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
-	if !h.agentChatLive.registerRun(session.ID, cancel) {
+	// The task-backed chat watcher is server-owned once the user row commits.
+	// Keep its wait lifetime independent of the browser connection while the
+	// registered live-run cancel hook and explicit 30-minute watcher ceiling
+	// remain authoritative; the orchestrator-owned Task can outlive that ceiling.
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(traceCtx), agentChatTimeout)
+	switch h.agentChatLive.registerRun(lifecycle, cancel) {
+	case agentChatRunAdmissionClosed:
+		cancel()
+		writeChatSessionStopping(w)
+		return
+	case agentChatRunBusy:
 		cancel()
 		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "agent chat session is already running", ErrorDetails{
 			UserMessage:    "This chat is already running.",
@@ -120,7 +126,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		messageSnapshotSession.LatestRunID = ""
 	}
 	messageSnapshot := hecateAgentMessageSnapshot(messageSnapshotSession, caps, segmentID)
-	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
+	updated, err := requestGuard.appendUserMessage(r.Context(), session.ID, chat.Message{
 		ID:            userID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
 		// Hecate-task handler: the operator submitted with tools on
@@ -142,15 +148,19 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		return
 	}
 	h.agentChatLive.publishSession(updated)
+	trace.Record(telemetry.EventAgentChatRunStarted, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus: "running",
+	}))
 
-	taskSystemPrompt := h.hecateChatTaskSystemPrompt(r.Context(), session, req.SystemPrompt, forceNewTask)
-	contextPacket := h.hecateTaskContextPacket(r.Context(), session, messageSnapshot.Provider, messageSnapshot.Model, taskSystemPrompt, forceNewTask)
+	initialWriteCtx, initialWriteCancel := newAgentChatPersistenceContext(r.Context())
+	taskSystemPrompt := h.hecateChatTaskSystemPrompt(initialWriteCtx, session, req.SystemPrompt, forceNewTask)
+	contextPacket := h.hecateTaskContextPacket(initialWriteCtx, session, messageSnapshot.Provider, messageSnapshot.Model, taskSystemPrompt, forceNewTask)
 	contextPacket.ID = newChatID("ctx")
 	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
 		chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
 		chatcontext.TaskRunRefs(messageSnapshot.TaskID, "", session.ProjectID),
 	))
-	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
+	updated, err = h.agentChat.AppendMessage(initialWriteCtx, session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
 		ToolsEnabled:  true,
@@ -174,8 +184,11 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 			newChatActivity("started", "running", "Starting Hecate Chat tools", "Creating or continuing the backing task run"),
 		},
 	})
+	initialWriteCancel()
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		if r.Context().Err() == nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		}
 		return
 	}
 	h.agentChatLive.publishSession(updated)
@@ -190,23 +203,54 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	})
 	if err != nil {
 		completedAt := time.Now().UTC()
-		trace.Record(telemetry.EventAgentChatRunFailed, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
-			telemetry.AttrHecateRunStatus:     "failed",
+		status := "failed"
+		errorText := err.Error()
+		if errors.Is(runCtx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+			status = "cancelled"
+			errorText = "cancelled"
+		}
+		trace.Record(agentChatTerminalEvent(status), hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
+			telemetry.AttrHecateRunStatus:     status,
 			telemetry.AttrHecateRunDurationMS: completedAt.Sub(startedAt).Milliseconds(),
 			telemetry.AttrHecateResult:        telemetry.ResultError,
 			telemetry.AttrHecateErrorKind:     telemetry.ErrorKindOther,
 			telemetry.AttrErrorType:           "agent_start_failed",
-			telemetry.AttrErrorMessage:        err.Error(),
+			telemetry.AttrErrorMessage:        errorText,
 		}))
 		h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
 			AdapterID:  "hecate",
 			DriverKind: "hecate",
-			Status:     "failed",
+			Status:     status,
 			Result:     telemetry.ResultError,
 			DurationMS: completedAt.Sub(startedAt).Milliseconds(),
 		})
-		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, completedAt, nil, chat.Timing{})
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		terminalCtx, terminalCancel := newAgentChatPersistenceContext(r.Context())
+		terminal, terminalErr := h.finishHecateAgentMessage(
+			terminalCtx,
+			session.ID,
+			assistantID,
+			status,
+			hecateAgentFallbackOutput(status, "", "", errorText),
+			errorText,
+			startedAt,
+			completedAt,
+			nil,
+			chat.Timing{},
+		)
+		terminalCancel()
+		if terminalErr != nil {
+			h.logger.ErrorContext(context.WithoutCancel(r.Context()), "chat.hecate.assistant_start_failure_update_failed",
+				"session_id", session.ID,
+				"message_id", assistantID,
+				"status", status,
+				"error", terminalErr,
+			)
+		} else {
+			h.agentChatLive.publishSession(terminal)
+		}
+		if r.Context().Err() == nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		}
 		return
 	}
 	segmentID = "task:" + task.ID
@@ -217,7 +261,8 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Model:        session.Model,
 		Capabilities: caps,
 	}, caps, segmentID)
-	if userUpdated, userUpdateErr := h.agentChat.UpdateMessage(r.Context(), session.ID, userID, func(message *chat.Message) {
+	linkCtx, linkCancel := newAgentChatPersistenceContext(r.Context())
+	if userUpdated, userUpdateErr := h.agentChat.UpdateMessage(linkCtx, session.ID, userID, func(message *chat.Message) {
 		message.ExecutionMode = messageSnapshot.ExecutionMode
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
@@ -226,8 +271,10 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		message.Capabilities = messageSnapshot.Capabilities
 	}); userUpdateErr == nil {
 		h.agentChatLive.publishSession(userUpdated)
+	} else {
+		h.logger.WarnContext(linkCtx, "chat.hecate.user_task_link_update_failed", "session_id", session.ID, "message_id", userID, "error", userUpdateErr)
 	}
-	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
+	updated, err = h.agentChat.UpdateMessage(linkCtx, session.ID, assistantID, func(message *chat.Message) {
 		message.ExecutionMode = messageSnapshot.ExecutionMode
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
@@ -246,8 +293,10 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	})
 	if err == nil {
 		h.agentChatLive.publishSession(updated)
+	} else {
+		h.logger.WarnContext(linkCtx, "chat.hecate.assistant_task_link_update_failed", "session_id", session.ID, "message_id", assistantID, "error", err)
 	}
-	updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+	updated, err = h.agentChat.UpdateSession(linkCtx, session.ID, func(item *chat.Session) {
 		item.TaskID = task.ID
 		item.LatestRunID = run.ID
 		item.Provider = session.Provider
@@ -256,12 +305,18 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		item.Workspace = session.Workspace
 		item.WorkspaceBranch = session.WorkspaceBranch
 	})
+	linkCancel()
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
+		h.logger.WarnContext(context.WithoutCancel(r.Context()), "chat.hecate.session_task_link_update_failed", "session_id", session.ID, "task_id", task.ID, "run_id", run.ID, "error", err)
+		session.TaskID = task.ID
+		session.LatestRunID = run.ID
+		session.Provider = messageSnapshot.Provider
+		session.Model = messageSnapshot.Model
+		session.Capabilities = caps
+	} else {
+		session = updated
+		h.agentChatLive.publishSession(updated)
 	}
-	session = updated
-	h.agentChatLive.publishSession(updated)
 
 	finalRun, err := h.waitForHecateAgentRun(runCtx, task.ID, run.ID, session.ID, assistantID)
 	if finalRun.ID == "" {
@@ -282,17 +337,24 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		case "completed", "failed", "cancelled":
 			status = finalRun.Status
 		case "awaiting_approval", "queued", "running":
-			status = finalRun.Status
+			// A watcher error or explicit live-run cancellation must settle
+			// the transcript instead of restoring a stale non-terminal task
+			// snapshot over the local terminal outcome.
+			if err == nil {
+				status = finalRun.Status
+			}
 		}
 	}
 	if finalRun.LastError != "" && errorText == "" {
 		errorText = finalRun.LastError
 	}
 
+	terminalCtx, terminalCancel := newAgentChatPersistenceContext(r.Context())
+	defer terminalCancel()
 	output := ""
 	if status == "completed" {
-		output = h.finalHecateAgentAnswer(r.Context(), task.ID, finalRun.ID)
-		if commandOutput := h.finalHecateAgentCommandOutput(r.Context(), task.ID, finalRun.ID); commandOutput != "" {
+		output = h.finalHecateAgentAnswer(terminalCtx, task.ID, finalRun.ID)
+		if commandOutput := h.finalHecateAgentCommandOutput(terminalCtx, task.ID, finalRun.ID); commandOutput != "" {
 			output = mergeHecateAgentAnswerWithCommandOutput(output, commandOutput)
 		}
 	}
@@ -301,7 +363,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	completedAt := time.Now().UTC()
 	durationMS := completedAt.Sub(startedAt).Milliseconds()
-	timing := h.hecateAgentTiming(r.Context(), finalRun, startedAt, completedAt)
+	timing := h.hecateAgentTiming(terminalCtx, finalRun, startedAt, completedAt)
 	resultLabel := telemetry.ResultSuccess
 	if status == "failed" || status == "cancelled" {
 		resultLabel = telemetry.ResultError
@@ -340,22 +402,42 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 			Reason:    reason,
 		})
 	}
-	updated, err = h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, status, output, errorText, startedAt, completedAt, &finalRun, timing)
+	updated, err = h.finishHecateAgentMessage(terminalCtx, session.ID, assistantID, status, output, errorText, startedAt, completedAt, &finalRun, timing)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		h.logger.ErrorContext(terminalCtx, "chat.hecate.assistant_terminal_update_failed",
+			"session_id", session.ID,
+			"message_id", assistantID,
+			"status", status,
+			"error", err,
+		)
+		if r.Context().Err() == nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		}
 		return
 	}
-	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+	if inc, incErr := h.agentChat.UpdateSession(terminalCtx, session.ID, func(item *chat.Session) {
 		item.TurnsUsed++
 		item.TaskID = task.ID
 		item.LatestRunID = finalRun.ID
+		item.Provider = messageSnapshot.Provider
+		item.Model = messageSnapshot.Model
+		item.Capabilities = caps
+		item.Workspace = session.Workspace
+		item.WorkspaceBranch = session.WorkspaceBranch
 	}); incErr == nil {
 		updated = inc
 	} else {
-		h.logger.WarnContext(r.Context(), "chat.agent.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
+		h.logger.WarnContext(terminalCtx, "chat.agent.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
 	h.agentChatLive.publishSession(updated)
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+	if r.Context().Err() != nil {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{
+		Object:         "chat_session",
+		Data:           renderChatSession(updated, h.agentChatSnapshotConfig()),
+		MessageRequest: requestGuard.responseMetadata(false, ""),
+	})
 }
 
 func hecateAgentSegmentID(session chat.Session) string {

@@ -206,11 +206,43 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 }
 
 func (s *Service) Propose(ctx context.Context, input ProposalInput) (Proposal, error) {
+	proposal, err := s.PrepareProposal(input)
+	if err != nil {
+		return Proposal{}, err
+	}
+	return s.ProposePrepared(ctx, proposal, input.ProjectID, input.Source, input.SourceID)
+}
+
+// PrepareProposal constructs the exact canonical proposal that API composition
+// must use for mutation-scope admission. ProposePrepared persists that same
+// typed action set so its fingerprint is also the action set later applied.
+func (s *Service) PrepareProposal(input ProposalInput) (Proposal, error) {
 	proposal, err := s.buildProposal(input)
 	if err != nil {
 		return Proposal{}, err
 	}
-	record, err := s.storeProposal(ctx, proposal, input.ProjectID, input.Source, input.SourceID)
+	return s.CanonicalizeProposal(proposal)
+}
+
+func (s *Service) ProposePrepared(
+	ctx context.Context,
+	proposal Proposal,
+	projectID string,
+	source string,
+	sourceID string,
+) (Proposal, error) {
+	proposal, err := s.CanonicalizeProposal(proposal)
+	if err != nil {
+		return Proposal{}, err
+	}
+	proposal.Title = strings.TrimSpace(proposal.Title)
+	if proposal.Title == "" {
+		proposal.Title = "Project operation proposal"
+	}
+	proposal.Summary = strings.TrimSpace(proposal.Summary)
+	proposal.TraceID = strings.TrimSpace(proposal.TraceID)
+	proposal.RequiresConfirmation = true
+	record, err := s.storeProposal(ctx, proposal, projectID, source, sourceID)
 	if err != nil {
 		return Proposal{}, err
 	}
@@ -260,6 +292,10 @@ func (s *Service) storeProposal(ctx context.Context, proposal Proposal, projectI
 	if s == nil || s.proposals == nil {
 		return ProposalRecord{}, ErrStoreNotConfigured
 	}
+	projectID, err := ProposalRecordProjectID(proposal, projectID)
+	if err != nil {
+		return ProposalRecord{}, err
+	}
 	fingerprint, err := actionSetFingerprint(proposal.Actions)
 	if err != nil {
 		return ProposalRecord{}, err
@@ -273,6 +309,21 @@ func (s *Service) storeProposal(ctx context.Context, proposal Proposal, projectI
 		Status:      ProposalStatusProposed,
 		Fingerprint: fingerprint,
 	})
+}
+
+// ProposalRecordProjectID derives the canonical durable proposal scope and
+// rejects a caller-supplied scope that disagrees with the first typed action.
+func ProposalRecordProjectID(proposal Proposal, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	projectIDs := ProposalProjectIDs(proposal)
+	if len(projectIDs) == 0 {
+		return requested, nil
+	}
+	canonical := projectIDs[0]
+	if requested != "" && requested != canonical {
+		return "", fmt.Errorf("%w: proposal project_id %q does not match action scope %q", ErrInvalid, requested, canonical)
+	}
+	return canonical, nil
 }
 
 func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error) {

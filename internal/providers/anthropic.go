@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/safetext"
+	"github.com/hecatehq/hecate/internal/sse"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -157,8 +159,16 @@ func (p *AnthropicProvider) Name() string {
 	return p.config.Name
 }
 
+func (p *AnthropicProvider) ProviderInstanceIdentity() types.ProviderInstanceIdentity {
+	return configurationProviderInstanceIdentity(p.config)
+}
+
 func (p *AnthropicProvider) Aliases() []string {
 	return append([]string(nil), p.config.Aliases...)
+}
+
+func (p *AnthropicProvider) CapabilityFamily() string {
+	return configuredCapabilityFamily(p.config)
 }
 
 func (p *AnthropicProvider) Enabled() bool {
@@ -890,20 +900,18 @@ func buildAnthropicImageSource(img *types.ContentImage) json.RawMessage {
 		// OpenAI flows. Convert to Anthropic's base64 form
 		// inline so the upstream doesn't have to fetch a
 		// pseudo-URL.
-		if strings.HasPrefix(img.URL, "data:") {
-			mediaType, data := parseDataURI(img.URL)
-			if data != "" {
-				if mediaType == "" {
-					mediaType = "image/png"
-				}
-				raw, err := json.Marshal(map[string]any{
-					"type":       "base64",
-					"media_type": mediaType,
-					"data":       data,
-				})
-				if err == nil {
-					return raw
-				}
+		mediaType, data := parseDataURI(img.URL)
+		if data != "" {
+			if mediaType == "" {
+				mediaType = "image/png"
+			}
+			raw, err := json.Marshal(map[string]any{
+				"type":       "base64",
+				"media_type": mediaType,
+				"data":       data,
+			})
+			if err == nil {
+				return raw
 			}
 		}
 		raw, err := json.Marshal(map[string]any{
@@ -924,10 +932,11 @@ func buildAnthropicImageSource(img *types.ContentImage) json.RawMessage {
 // through verbatim, which lets newer Anthropic API versions that
 // accept data URIs handle it themselves.
 func parseDataURI(uri string) (mediaType, data string) {
-	if !strings.HasPrefix(uri, "data:") {
+	const prefix = "data:"
+	if len(uri) < len(prefix) || !strings.EqualFold(uri[:len(prefix)], prefix) {
 		return "", ""
 	}
-	rest := uri[len("data:"):]
+	rest := uri[len(prefix):]
 	commaIdx := strings.IndexByte(rest, ',')
 	if commaIdx < 0 {
 		return "", ""
@@ -991,12 +1000,14 @@ func toolResultBlock(msg types.Message) anthropicContentBlock {
 					Text:         cb.Text,
 					CacheControl: cb.CacheControl,
 				})
-			case "image":
-				// Image blocks carry their `source` as a json.RawMessage
-				// in the gateway's pass-through model. Preserve as-is.
+			case "image", "image_url":
+				source := buildAnthropicImageSource(cb.Image)
+				if source == nil {
+					continue
+				}
 				nestedBlocks = append(nestedBlocks, nested{
 					Type:         "image",
-					Source:       cb.Input, // image source is reused under the Input field in the gateway model
+					Source:       source,
 					CacheControl: cb.CacheControl,
 				})
 			}
@@ -1203,7 +1214,8 @@ func translateAnthropicSSE(ctx context.Context, model string, src io.Reader, dst
 		// totals here as output progresses; the final value (at
 		// the message_delta with stop_reason set) is the
 		// authoritative count.
-		Usage *anthropicUsage `json:"usage"`
+		Usage *anthropicUsage       `json:"usage"`
+		Error *anthropicErrorDetail `json:"error"`
 	}
 
 	type deltaPayload struct {
@@ -1250,21 +1262,39 @@ func translateAnthropicSSE(ctx context.Context, model string, src io.Reader, dst
 			return err
 		}
 		line := scanner.Text()
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimPrefix(line, "event: ")
+		if event, ok := sse.FieldValue(line, "event"); ok {
+			eventType = event
 			continue
 		}
-		if !strings.HasPrefix(line, "data: ") {
+		rawData, ok := sse.DataValue(line)
+		if !ok {
 			continue
 		}
-		rawData := strings.TrimPrefix(line, "data: ")
 
 		var ev anthropicStreamEvent
 		if err := json.Unmarshal([]byte(rawData), &ev); err != nil {
+			if eventType == "error" {
+				return &UpstreamError{
+					StatusCode: http.StatusBadGateway,
+					Message:    "upstream provider stream error",
+					Type:       "anthropic_error",
+				}
+			}
 			continue
 		}
 
 		switch eventType {
+		case "error":
+			message := "upstream provider stream error"
+			errorType := "anthropic_error"
+			if ev.Error != nil {
+				if sanitized := safetext.SanitizeErrorMessage(ev.Error.Message); strings.TrimSpace(sanitized) != "" {
+					message = sanitized
+				}
+				errorType = safetext.SanitizeErrorType(ev.Error.Type, errorType)
+			}
+			return &UpstreamError{StatusCode: http.StatusBadGateway, Message: message, Type: errorType}
+
 		case "message_start":
 			if ev.Message != nil {
 				completionID = ev.Message.ID
@@ -1473,12 +1503,11 @@ func translateAnthropicSSE(ctx context.Context, model string, src io.Reader, dst
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	// Send DONE if message_stop was never seen
-	fmt.Fprintf(dst, "data: [DONE]\n\n") //nolint:errcheck
-	if f, ok := dst.(interface{ Flush() }); ok {
-		f.Flush()
+	return &UpstreamError{
+		StatusCode: http.StatusBadGateway,
+		Message:    "Anthropic stream ended before message_stop",
+		Type:       "anthropic_error",
 	}
-	return nil
 }
 
 func decodeAnthropicError(resp *http.Response) error {
@@ -1487,8 +1516,8 @@ func decodeAnthropicError(resp *http.Response) error {
 	if err := json.Unmarshal(body, &envelope); err == nil && strings.TrimSpace(envelope.Error.Message) != "" {
 		return &UpstreamError{
 			StatusCode: resp.StatusCode,
-			Message:    envelope.Error.Message,
-			Type:       envelope.Error.Type,
+			Message:    safetext.SanitizeErrorMessage(envelope.Error.Message),
+			Type:       safetext.SanitizeErrorType(envelope.Error.Type, "anthropic_error"),
 		}
 	}
 	message := strings.TrimSpace(string(body))
@@ -1497,7 +1526,7 @@ func decodeAnthropicError(resp *http.Response) error {
 	}
 	return &UpstreamError{
 		StatusCode: resp.StatusCode,
-		Message:    message,
+		Message:    safetext.SanitizeErrorMessage(message),
 		Type:       "anthropic_error",
 	}
 }

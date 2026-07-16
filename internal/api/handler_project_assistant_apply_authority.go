@@ -76,6 +76,12 @@ func (authority projectAssistantProjectAuthority) CreateProject(ctx context.Cont
 	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, project.ID)
+	if mutationErr != nil {
+		return projects.Project{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	if h.projectIdentityWritesUseCairnlineAuthority() {
 		created, err := h.createProjectWithCairnlineAuthority(ctx, project)
 		return created, projectAssistantApplyProjectError(err)
@@ -92,6 +98,12 @@ func (authority projectAssistantProjectAuthority) UpdateProject(ctx context.Cont
 	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projects.Project{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	req := updateProjectRequest{Name: cmd.Name, Description: cmd.Description}
 	if h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req) {
 		updated, err := h.updateProjectMetadataDefaultsWithCairnlineAuthority(ctx, projectID, req)
@@ -116,6 +128,12 @@ func (authority projectAssistantProjectAuthority) AttachProjectRoot(ctx context.
 	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projects.Project{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	if h.projectRootWritesUseCairnlineAuthority() {
 		updated, _, err := h.createProjectRootWithCairnlineAuthority(ctx, projectID, root)
 		return updated, projectAssistantApplyProjectError(err)
@@ -134,6 +152,12 @@ func (authority projectAssistantProjectAuthority) RemoveProjectRoot(ctx context.
 	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projects.Project{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	if h.projectRootWritesUseCairnlineAuthority() {
 		updated, _, err := h.deleteProjectRootWithCairnlineAuthority(ctx, projectID, rootID)
 		return updated, projectAssistantApplyProjectError(err)
@@ -161,6 +185,12 @@ func (authority projectAssistantProjectAuthority) SetProjectDefaults(ctx context
 	if h == nil {
 		return projects.Project{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projects.Project{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	req := updateProjectRequest{
 		DefaultRootID:            cmd.DefaultRootID,
 		DefaultProvider:          cmd.DefaultProvider,
@@ -212,6 +242,12 @@ func (authority projectAssistantWorkAuthority) CreateRole(ctx context.Context, p
 	if h == nil {
 		return projectwork.AgentRoleProfile{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projectwork.AgentRoleProfile{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	appCmd := projectworkapp.CreateRoleCommand{
 		ID:                  cmd.ID,
 		Name:                cmd.Name,
@@ -240,6 +276,12 @@ func (authority projectAssistantWorkAuthority) CreateWorkItem(ctx context.Contex
 	if h == nil {
 		return projectwork.WorkItem{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projectwork.WorkItem{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	appCmd := projectworkapp.CreateWorkItemCommand{
 		ID:              cmd.ID,
 		Title:           cmd.Title,
@@ -266,6 +308,12 @@ func (authority projectAssistantWorkAuthority) UpdateWorkItem(ctx context.Contex
 	if h == nil {
 		return projectwork.WorkItem{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projectwork.WorkItem{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	appCmd := projectworkapp.UpdateWorkItemCommand{
 		Title:       cmd.Title,
 		Brief:       cmd.Brief,
@@ -294,6 +342,12 @@ func (authority projectAssistantWorkAuthority) CreateAssignment(ctx context.Cont
 	if h == nil {
 		return projectwork.Assignment{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projectwork.Assignment{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	appCmd := projectworkapp.CreateAssignmentCommand{
 		ID:         cmd.ID,
 		RoleID:     cmd.RoleID,
@@ -320,6 +374,12 @@ func (authority projectAssistantWorkAuthority) CreateHandoff(ctx context.Context
 	if h == nil {
 		return projectwork.Handoff{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projectwork.Handoff{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	appCmd := projectworkapp.CreateHandoffCommand{
 		ID:                    cmd.ID,
 		SourceAssignmentID:    cmd.SourceAssignmentID,
@@ -357,6 +417,12 @@ func (authority projectAssistantWorkAuthority) UpdateHandoff(ctx context.Context
 	if h == nil {
 		return projectwork.Handoff{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return projectwork.Handoff{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	appCmd := projectworkapp.UpdateHandoffCommand{
 		ExpectedUpdatedAt:  cmd.ExpectedUpdatedAt,
 		TargetAssignmentID: cmd.TargetAssignmentID,
@@ -417,6 +483,12 @@ func (authority projectAssistantMemoryCandidateAuthority) CreateMemoryCandidate(
 	if h == nil {
 		return memory.Candidate{}, projectassistant.ErrStoreNotConfigured
 	}
+	mutationCtx, release, mutationErr := h.projectMutationGate.begin(ctx, projectID)
+	if mutationErr != nil {
+		return memory.Candidate{}, mutationErr
+	}
+	defer release()
+	ctx = mutationCtx
 	candidate := memory.Candidate{
 		ID:                  cmd.ID,
 		ProjectID:           projectID,

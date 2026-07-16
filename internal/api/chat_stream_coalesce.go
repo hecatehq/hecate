@@ -25,11 +25,13 @@ const agentChatStreamCoalesceInterval = 50 * time.Millisecond
 // held and folded into the next flush — a later callback, the trailing
 // timer, or close's final flush, whichever comes first.
 //
-// Correctness rests on the adapter contract that OnOutput/OnActivity
-// fire only while RunRequest is executing, from the adapter's single
-// reader goroutine, and that the handler calls close() after Run
-// returns — i.e. once no further callbacks can arrive. A trailing timer
-// flushes a burst the window held when no later callback arrives to
+// Correctness rests on the adapter contract that OnOutput/OnActivity fire only
+// while RunRequest is executing, from the adapter's single reader goroutine,
+// and that the handler calls close() after Run returns — i.e. once no further
+// callbacks can arrive. Long-lived ACP terminal lifecycle events use the
+// separate RunRequest.OnTerminalActivity sink, which is bound directly to the
+// originating durable message and intentionally remains valid after Run. A
+// trailing timer flushes a burst the window held when no later callback arrives to
 // flush it, so a sparse stream can't hide an activity or partial output
 // for the length of a tool/run pause. The flush runs under c.mu, so
 // close() (which also takes c.mu) can neither overlap an in-flight
@@ -184,6 +186,14 @@ func (c *chatStreamCoalescer) trailingFlush() {
 // rows. Taking c.mu here is what serializes close with an in-flight or
 // late trailing flush.
 func (c *chatStreamCoalescer) close() {
+	c.closeWithFlush(nil)
+}
+
+// closeWithFlush is close with an optional final-flush override. The external
+// chat handler uses it after Run returns so a request disconnect cannot cancel
+// the last durable activity batch; live flushes keep using the request-bound
+// callback and do not extend ACP execution.
+func (c *chatStreamCoalescer) closeWithFlush(flush func(content string, haveContent bool, activities []agentadapters.Activity)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -193,7 +203,10 @@ func (c *chatStreamCoalescer) close() {
 	c.stopTimerLocked()
 	content, haveContent, activities := c.takePendingLocked()
 	if haveContent || len(activities) > 0 {
-		c.flush(content, haveContent, activities)
+		if flush == nil {
+			flush = c.flush
+		}
+		flush(content, haveContent, activities)
 	}
 }
 

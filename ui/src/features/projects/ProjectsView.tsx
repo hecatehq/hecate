@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -8,6 +9,7 @@ import {
   type RefObject,
 } from "react";
 
+import { useChat } from "../../app/state/chat";
 import { useProjects } from "../../app/state/projects";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
@@ -314,15 +316,42 @@ function projectNavigationAnnouncementMessage(
 
 export function ProjectsView({
   initialWorkspaceTab = "overview",
-  navigation,
+  navigation: requestedNavigation,
   onOpenChat,
   onOpenConnections,
   onOpenTask,
   onNavigate,
 }: Props) {
+  const chat = useChat();
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
+  const requestedProjectID = requestedNavigation?.projectID ?? "";
+  const initialRouteMatchesActiveProject = requestedProjectID === projects.activeProjectID;
+  const acceptedNavigationRef = useRef<ProjectNavigationState | null | undefined>({
+    projectID: projects.activeProjectID || null,
+    view: initialRouteMatchesActiveProject ? (requestedNavigation?.view ?? "overview") : "overview",
+    workItemID: initialRouteMatchesActiveProject ? (requestedNavigation?.workItemID ?? null) : null,
+  });
+  const acceptedProjectID = acceptedNavigationRef.current?.projectID ?? "";
+  const chatOwnershipMutationBlockReason = chat.actions.chatOwnershipMutationBlockReason;
+  const requestedRouteChangesProject =
+    requestedNavigation !== undefined &&
+    requestedProjectID !== acceptedProjectID &&
+    requestedProjectID !== projects.activeProjectID;
+  const chatOwnershipBlockReason = requestedRouteChangesProject
+    ? chatOwnershipMutationBlockReason()
+    : "";
+  const rejectedRouteBlockReason = requestedRouteChangesProject ? chatOwnershipBlockReason : "";
+  const routeNavigationBlocked = Boolean(rejectedRouteBlockReason);
+  if (
+    !routeNavigationBlocked &&
+    requestedNavigation !== undefined &&
+    (requestedProjectID === acceptedProjectID || requestedProjectID === projects.activeProjectID)
+  ) {
+    acceptedNavigationRef.current = requestedNavigation;
+  }
+  const navigation = routeNavigationBlocked ? acceptedNavigationRef.current : requestedNavigation;
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [hoveredProjectID, setHoveredProjectID] = useState("");
@@ -331,6 +360,7 @@ export function ProjectsView({
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
+  const addProjectButtonRef = useRef<HTMLButtonElement>(null);
   const createProjectInFlightRef = useRef(false);
   const createProjectRequestSequenceRef = useRef(0);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
@@ -391,6 +421,29 @@ export function ProjectsView({
   const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("all");
   const navigationRef = useRef(navigation);
   navigationRef.current = navigation;
+  const rejectedRouteNoticeRef = useRef("");
+  const rejectedRouteNavigationKey = routeNavigationBlocked
+    ? projectNavigationStateKey(requestedNavigation) || "bare-projects-route"
+    : "";
+  useEffect(() => {
+    if (!rejectedRouteNavigationKey || !rejectedRouteBlockReason) {
+      rejectedRouteNoticeRef.current = "";
+      return;
+    }
+    if (rejectedRouteNoticeRef.current === rejectedRouteNavigationKey) return;
+    rejectedRouteNoticeRef.current = rejectedRouteNavigationKey;
+    settings.actions.setNotice({ kind: "error", message: rejectedRouteBlockReason });
+    onNavigate?.(
+      acceptedNavigationRef.current ?? { projectID: projects.activeProjectID || null },
+      "replace",
+    );
+  }, [
+    onNavigate,
+    projects.activeProjectID,
+    rejectedRouteBlockReason,
+    rejectedRouteNavigationKey,
+    settings.actions,
+  ]);
   const deliberateOnboardingNavigationRef = useRef(false);
   const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>(
     navigation?.view ?? initialWorkspaceTab,
@@ -412,6 +465,8 @@ export function ProjectsView({
   const catalogRetryAnnouncementSequenceRef = useRef(0);
   const catalogRetryInFlightRef = useRef(false);
   const catalogRetryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const externalCatalogRecoveryFocusRef = useRef<HTMLButtonElement | null>(null);
+  const externalCatalogRecoveryWasPendingRef = useRef(false);
   const projectsShellRef = useRef<HTMLDivElement | null>(null);
   const passiveCatalogContextRef = useRef<{
     epoch: number;
@@ -513,7 +568,9 @@ export function ProjectsView({
     assistantApplyPendingRef.current = pending;
     passiveRefreshEpochRef.current += 1;
   }, []);
+  const chatOwnershipRefreshBlocked = Boolean(chatOwnershipMutationBlockReason());
   const passiveRefreshBlocked = Boolean(
+    chatOwnershipRefreshBlocked ||
     renamingProjectID ||
     deleteProjectID ||
     deletePending ||
@@ -599,6 +656,12 @@ export function ProjectsView({
       : controllerSelectedProject;
   const selectedProjectRecordIDRef = useRef(selectedProject?.id ?? "");
   selectedProjectRecordIDRef.current = selectedProject?.id ?? "";
+
+  function projectSelectionBlockReason(projectID = ""): string {
+    if (projectID && projectID === selectedProjectID) return "";
+    return chat.actions.chatOwnershipMutationBlockReason();
+  }
+
   const selectedProjectIDRef = useRef(selectedProjectID);
   const selectedWorkItemIDRef = useRef(selectedWorkItemID);
   const workItemSelectionGenerationRef = useRef(0);
@@ -617,6 +680,16 @@ export function ProjectsView({
     },
     [onNavigate, openProjectSelection],
   );
+
+  function tryOpenProject(projectID: string): boolean {
+    const blockedReason = projectSelectionBlockReason(projectID);
+    if (blockedReason) {
+      settings.actions.setNotice({ kind: "error", message: blockedReason });
+      return false;
+    }
+    openProject(projectID);
+    return true;
+  }
 
   useEffect(
     () => () => {
@@ -1339,6 +1412,7 @@ export function ProjectsView({
   const refreshProjectFromAuthority = useCallback(
     async (request: ProjectPassiveRefreshRequest) => {
       if (
+        chatOwnershipMutationBlockReason() ||
         passiveRefreshBlockedRef.current ||
         foregroundRefreshPendingRef.current ||
         assistantApplyPendingRef.current ||
@@ -1351,6 +1425,7 @@ export function ProjectsView({
       const selectedIDAtStart = selectedWorkItemIDRef.current;
       const passiveWaveIsCurrent = () =>
         passiveRefreshEpochRef.current === refreshEpoch &&
+        !chatOwnershipMutationBlockReason() &&
         !passiveRefreshBlockedRef.current &&
         !foregroundRefreshPendingRef.current &&
         !assistantApplyPendingRef.current &&
@@ -1477,6 +1552,7 @@ export function ProjectsView({
       );
     },
     [
+      chatOwnershipMutationBlockReason,
       loadProjectMemory,
       loadProjectSkills,
       loadWorkForProject,
@@ -1502,7 +1578,12 @@ export function ProjectsView({
     onMemoryError: setMemoryError,
     onSkillsError: setSkillsError,
     onApplyPending: setAssistantApplyPending,
-    refreshProjects: projects.actions.loadProjects,
+    refreshProjects: async () => {
+      await projects.actions.loadProjects({
+        invalidateInFlightSnapshot: true,
+        shouldApply: () => !chatOwnershipMutationBlockReason(),
+      });
+    },
     loadWorkForProject,
     loadWorkItemDetail: async (projectID, workItemID) => {
       await loadWorkItemDetail(projectID, workItemID);
@@ -1647,19 +1728,38 @@ export function ProjectsView({
     }
     if (selectedProject?.id !== navigation.projectID) return;
     if (projects.activeProjectID === navigation.projectID) {
+      acceptedNavigationRef.current = navigation;
       persistedRouteProjectRef.current = navigation.projectID;
       return;
     }
+    const persistenceBlockReason = chatOwnershipMutationBlockReason();
+    if (persistenceBlockReason) {
+      const rejectedKey = projectNavigationStateKey(navigation);
+      if (rejectedRouteNoticeRef.current !== rejectedKey) {
+        rejectedRouteNoticeRef.current = rejectedKey;
+        settings.actions.setNotice({ kind: "error", message: persistenceBlockReason });
+        onNavigate?.(
+          acceptedNavigationRef.current ?? { projectID: projects.activeProjectID || null },
+          "replace",
+        );
+      }
+      return;
+    }
+    rejectedRouteNoticeRef.current = "";
+    acceptedNavigationRef.current = navigation;
     if (persistedRouteProjectRef.current === navigation.projectID) return;
     persistedRouteProjectRef.current = navigation.projectID;
     void projects.actions.selectProject(navigation.projectID);
   }, [
+    chatOwnershipBlockReason,
+    chatOwnershipMutationBlockReason,
     navigation,
     onNavigate,
     projects.actions,
     projects.activeProjectID,
     projects.state.loaded,
     selectedProject,
+    settings.actions,
   ]);
 
   useEffect(() => {
@@ -1720,21 +1820,34 @@ export function ProjectsView({
 
   async function confirmDeleteProject() {
     if (!pendingDeleteProject) return;
+    const projectID = pendingDeleteProject.id;
+    const ownershipMutationToken = chat.actions.beginChatOwnershipMutation();
+    if (ownershipMutationToken === null) {
+      const blockedReason =
+        chat.actions.chatOwnershipMutationBlockReason() ||
+        "Wait for the current chat ownership change to finish.";
+      settings.actions.setNotice({ kind: "error", message: blockedReason });
+      return;
+    }
     setDeletePending(true);
     try {
-      const deleted = await projects.actions.deleteProject(pendingDeleteProject.id);
+      const deleted = await projects.actions.deleteProject(projectID);
       if (deleted) {
+        const browserQueueCleared = chat.actions.fenceDeletedChatProject(projectID);
         setDeleteProjectID("");
         settings.actions.setNotice({
-          kind: "success",
-          message: formatProjectDeleteSummary(deleted),
+          kind: browserQueueCleared ? "success" : "error",
+          message: browserQueueCleared
+            ? formatProjectDeleteSummary(deleted)
+            : `${formatProjectDeleteSummary(deleted)} Hecate could not clear every browser-local queued prompt for this project. Clear this site's browser data before closing or reloading.`,
         });
-        clearSelectedProject(pendingDeleteProject.id);
-        if (navigationRef.current?.projectID === pendingDeleteProject.id) {
+        clearSelectedProject(projectID);
+        if (navigationRef.current?.projectID === projectID) {
           onNavigate?.({ projectID: null }, "replace");
         }
       }
     } finally {
+      chat.actions.finishChatOwnershipMutation(ownershipMutationToken);
       setDeletePending(false);
     }
   }
@@ -1865,6 +1978,12 @@ export function ProjectsView({
 
   async function handleCreateProject(form: CreateProjectForm) {
     if (createProjectInFlightRef.current) return;
+    const blockedReason = projectSelectionBlockReason();
+    if (blockedReason) {
+      setCreateProjectError(blockedReason);
+      settings.actions.setNotice({ kind: "error", message: blockedReason });
+      return;
+    }
     const payload = createProjectPayloadFromForm(form);
     if (!payload.name) {
       setCreateProjectError("Project name is required.");
@@ -1877,8 +1996,7 @@ export function ProjectsView({
     try {
       const created = await projects.actions.createProject(payload);
       if (createProjectRequestSequenceRef.current !== requestSequence || !created) return;
-      setCreateProjectOpen(false);
-      openProject(created.id);
+      if (tryOpenProject(created.id)) setCreateProjectOpen(false);
     } catch (error) {
       if (createProjectRequestSequenceRef.current !== requestSequence) return;
       setCreateProjectError(errorMessage(error, "Failed to create project."));
@@ -3417,13 +3535,18 @@ export function ProjectsView({
   const managedCatalogUnavailable = Boolean(
     navigation && projects.state.catalogError && !projects.state.loaded && !projects.state.loading,
   );
+  const externalCatalogRecoveryPending = Boolean(
+    navigation && projects.state.catalogError && projects.state.loading && !catalogRetryPending,
+  );
+  const catalogRecoveryPending = catalogRetryPending || externalCatalogRecoveryPending;
   const projectIndexError =
-    projects.state.error || (managedCatalogUnavailable ? "" : projects.state.catalogError);
+    projects.state.error ||
+    (managedCatalogUnavailable || projects.state.loading ? "" : projects.state.catalogError);
   const navigationNotice = explicitProjectMissing
     ? "Project not found. It may have been deleted or this link may belong to another Hecate runtime."
     : explicitWorkItemMissing
       ? "Work item not found in this project. Choose another item from the queue."
-      : catalogRetryPending
+      : catalogRecoveryPending
         ? "Retrying projects…"
         : managedCatalogUnavailable
           ? "Projects could not be loaded. This link has been kept so you can retry."
@@ -3455,6 +3578,36 @@ export function ProjectsView({
           : "Choose a project from the list to view its work, memory, skills, and settings.";
   const addProjectIsPrimary =
     projects.state.projects.length === 0 && (!navigation || projects.state.loaded);
+
+  useLayoutEffect(() => {
+    const recoveryWasPending = externalCatalogRecoveryWasPendingRef.current;
+    externalCatalogRecoveryWasPendingRef.current = externalCatalogRecoveryPending;
+    if (externalCatalogRecoveryPending) {
+      if (!recoveryWasPending) {
+        const retryButton = catalogRetryButtonRef.current;
+        externalCatalogRecoveryFocusRef.current =
+          retryButton && document.activeElement === retryButton ? retryButton : null;
+      }
+      return;
+    }
+    if (!recoveryWasPending) return;
+
+    const focusedRetry = externalCatalogRecoveryFocusRef.current;
+    externalCatalogRecoveryFocusRef.current = null;
+    if (!focusedRetry) return;
+    const recoveryStillOwnedFocus =
+      document.activeElement === focusedRetry ||
+      (!focusedRetry.isConnected && document.activeElement === document.body);
+    if (!recoveryStillOwnedFocus) return;
+    if (!projects.state.loaded || projects.state.catalogError) return;
+
+    catalogRetryAnnouncementSequenceRef.current += 1;
+    setCatalogRetryAnnouncement({
+      key: String(catalogRetryAnnouncementSequenceRef.current),
+      message: "Projects loaded.",
+    });
+    projectsShellRef.current?.querySelector<HTMLElement>(".project-workspace-content")?.focus();
+  }, [externalCatalogRecoveryPending, projects.state.catalogError, projects.state.loaded]);
 
   useEffect(() => {
     const pendingContext = passiveCatalogContextRef.current;
@@ -3496,31 +3649,57 @@ export function ProjectsView({
     }
   }, [projects.state.projects]);
 
+  useEffect(() => {
+    if (!projects.state.catalogError || !catalogRetryAnnouncement.message) return;
+    catalogRetryAnnouncementSequenceRef.current += 1;
+    setCatalogRetryAnnouncement({
+      key: String(catalogRetryAnnouncementSequenceRef.current),
+      message: "",
+    });
+  }, [catalogRetryAnnouncement.message, projects.state.catalogError]);
+
   const retryProjectCatalog = async () => {
-    if (catalogRetryInFlightRef.current) return;
+    if (catalogRetryInFlightRef.current || projects.state.loading) return;
+    const blockedReason = projectSelectionBlockReason();
+    if (blockedReason) {
+      settings.actions.setNotice({ kind: "error", message: blockedReason });
+      return;
+    }
     const retryOwnedFocusAtStart = document.activeElement === catalogRetryButtonRef.current;
     catalogRetryInFlightRef.current = true;
     setCatalogRetryPending(true);
+    catalogRetryAnnouncementSequenceRef.current += 1;
+    setCatalogRetryAnnouncement({
+      key: String(catalogRetryAnnouncementSequenceRef.current),
+      message: "",
+    });
     try {
-      await projects.actions.loadProjects();
-    } finally {
+      let lateBlockReason = "";
+      const result = await projects.actions.loadProjects({
+        shouldApply: () => {
+          lateBlockReason = projectSelectionBlockReason();
+          return !lateBlockReason;
+        },
+      });
+      if (result.status !== "applied") {
+        if (result.status === "superseded" && lateBlockReason) {
+          settings.actions.setNotice({ kind: "error", message: lateBlockReason });
+        }
+        return;
+      }
       const retryStillOwnsFocus =
         retryOwnedFocusAtStart && document.activeElement === catalogRetryButtonRef.current;
+      catalogRetryAnnouncementSequenceRef.current += 1;
+      setCatalogRetryAnnouncement({
+        key: String(catalogRetryAnnouncementSequenceRef.current),
+        message: "Projects loaded.",
+      });
+      if (retryStillOwnsFocus) {
+        projectsShellRef.current?.querySelector<HTMLElement>(".project-workspace-content")?.focus();
+      }
+    } finally {
       catalogRetryInFlightRef.current = false;
       setCatalogRetryPending(false);
-      window.requestAnimationFrame(() => {
-        if (catalogRetryButtonRef.current) return;
-        catalogRetryAnnouncementSequenceRef.current += 1;
-        setCatalogRetryAnnouncement({
-          key: String(catalogRetryAnnouncementSequenceRef.current),
-          message: "Projects loaded.",
-        });
-        if (retryStillOwnsFocus) {
-          projectsShellRef.current
-            ?.querySelector<HTMLElement>(".project-workspace-content")
-            ?.focus();
-        }
-      });
     }
   };
   const handoffActionID =
@@ -3550,8 +3729,14 @@ export function ProjectsView({
           <div style={topbarActionsStyle}>
             <button
               className={`btn ${addProjectIsPrimary ? "btn-primary" : "btn-ghost"} btn-sm`}
+              ref={addProjectButtonRef}
               type="button"
               onClick={() => {
+                const blockedReason = projectSelectionBlockReason();
+                if (blockedReason) {
+                  settings.actions.setNotice({ kind: "error", message: blockedReason });
+                  return;
+                }
                 setCreateProjectError("");
                 projects.actions.setError("");
                 setCreateProjectOpen(true);
@@ -3602,7 +3787,7 @@ export function ProjectsView({
               onRenameCommit={() => void commitRename(project)}
               onRenameStart={() => startRename(project)}
               onDelete={() => setDeleteProjectID(project.id)}
-              onOpen={() => openProject(project.id)}
+              onOpen={() => tryOpenProject(project.id)}
             />
           ))}
         </div>
@@ -3663,15 +3848,15 @@ export function ProjectsView({
             <span aria-atomic="true" aria-live="polite" role="status">
               {navigationNotice}
             </span>
-            {(managedCatalogUnavailable || catalogRetryPending) && (
+            {(managedCatalogUnavailable || catalogRecoveryPending) && (
               <button
-                aria-disabled={catalogRetryPending || undefined}
+                aria-disabled={catalogRecoveryPending || undefined}
                 className="btn btn-primary btn-sm"
                 onClick={() => void retryProjectCatalog()}
                 ref={catalogRetryButtonRef}
                 type="button"
               >
-                {catalogRetryPending ? "Retrying…" : "Retry"}
+                {catalogRecoveryPending ? "Retrying…" : "Retry"}
               </button>
             )}
           </div>
@@ -4110,6 +4295,7 @@ export function ProjectsView({
             confirmLabel="Delete project record"
             onClose={() => setDeleteProjectID("")}
             onConfirm={confirmDeleteProject}
+            returnFocusRef={addProjectButtonRef}
             message={
               <>
                 Hecate will delete the project record, project roots, project-scoped chats, and

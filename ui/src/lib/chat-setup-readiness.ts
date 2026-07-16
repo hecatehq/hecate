@@ -1,7 +1,8 @@
 import type { SelectedModelIssue } from "./provider-issues";
 import type { ExternalAgentReadiness } from "./external-agent-readiness";
 import type { ModelRecord } from "../types/model";
-import type { ProviderFilter } from "../types/provider";
+import type { ConfiguredProviderRecord, ProviderFilter } from "../types/provider";
+import { providerAliasesForKey, providerKeyMatches } from "./provider-utils";
 
 export type ChatSetupTarget = "agent" | "external_agent";
 
@@ -188,16 +189,18 @@ export function modelSelectionHasNoToolCalling({
   models,
   providerFilter,
   model,
+  configuredProviders,
 }: {
   models: ModelRecord[];
   providerFilter: ProviderFilter;
   model: string;
+  configuredProviders: ConfiguredProviderRecord[];
 }): boolean {
   if (!model) return false;
+  const providerAliases = providerAliasesForSelection(providerFilter, configuredProviders);
   const matches = models.filter((entry) => {
     if (entry.id !== model) return false;
-    if (!providerFilter || providerFilter === "auto") return true;
-    return entry.metadata?.provider === providerFilter;
+    return !providerAliases || providerKeyMatches(entry.metadata?.provider, providerAliases);
   });
   if (matches.length === 0) return false;
   return matches.every(
@@ -207,4 +210,50 @@ export function modelSelectionHasNoToolCalling({
 
 export function toolCallingSupportsTaskMode(value?: string): boolean {
   return value === "basic" || value === "parallel";
+}
+
+export type ImageInputCapability = "unknown" | "none" | "supported";
+
+export function modelSelectionImageInputCapability({
+  models,
+  providerFilter,
+  model,
+  configuredProviders,
+}: {
+  models: ModelRecord[];
+  providerFilter: ProviderFilter;
+  model: string;
+  configuredProviders: ConfiguredProviderRecord[];
+}): ImageInputCapability {
+  if (!model) return "unknown";
+  const providerAliases = providerAliasesForSelection(providerFilter, configuredProviders);
+  const matches = models
+    .filter((entry) => {
+      if (entry.id !== model) return false;
+      return !providerAliases || providerKeyMatches(entry.metadata?.provider, providerAliases);
+    })
+    .filter((entry) => {
+      const readiness = entry.metadata?.readiness;
+      return !readiness || (readiness.ready && readiness.routing_ready !== false);
+    });
+  if (matches.length === 0) return "unknown";
+  const capabilities = matches.map((entry) =>
+    normalizeImageInputCapability(entry.metadata?.capabilities?.image_input),
+  );
+  if (capabilities.some((capability) => capability === "supported")) return "supported";
+  if (capabilities.every((capability) => capability === "none")) return "none";
+  return "unknown";
+}
+
+export function normalizeImageInputCapability(value?: string): ImageInputCapability {
+  if (value === "supported" || value === "none") return value;
+  return "unknown";
+}
+
+function providerAliasesForSelection(
+  providerFilter: ProviderFilter,
+  configuredProviders: ConfiguredProviderRecord[],
+): Set<string> | null {
+  if (!providerFilter || providerFilter === "auto") return null;
+  return providerAliasesForKey(providerFilter, configuredProviders);
 }

@@ -812,6 +812,9 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	if openai.Protocol != "openai" {
 		t.Fatalf("openai protocol = %q, want openai", openai.Protocol)
 	}
+	if family := openai.RuntimeConfig().ProviderFamily; family != "openai" {
+		t.Fatalf("openai runtime provider family = %q, want openai", family)
+	}
 
 	anthropic, ok := BuiltInProviderByID("anthropic")
 	if !ok {
@@ -819,6 +822,9 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	}
 	if anthropic.Protocol != "anthropic" {
 		t.Fatalf("anthropic protocol = %q, want anthropic", anthropic.Protocol)
+	}
+	if family := anthropic.RuntimeConfig().ProviderFamily; family != "anthropic" {
+		t.Fatalf("anthropic runtime provider family = %q, want anthropic", family)
 	}
 
 	for _, tc := range []struct {

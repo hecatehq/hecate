@@ -118,6 +118,9 @@ describe("resolveDashboardSnapshot", () => {
     expect(snapshot.agentAdapterApprovalMode).toBe("auto");
     expect(snapshot.rtkAvailable).toBe(true);
     expect(snapshot.rtkPath).toBe("/usr/local/bin/rtk");
+    expect(snapshot.chatSessionsFresh).toBe(true);
+    expect(snapshot.activeChatSessionFresh).toBe(false);
+    expect(snapshot.activeChatSessionMissing).toBe(false);
   });
 
   it("falls back to previous state when an endpoint rejects", async () => {
@@ -164,13 +167,22 @@ describe("resolveDashboardSnapshot", () => {
       new ApiError("not found", 404, "chat session not found"),
     );
 
+    const onChatSessionsReadStart = vi.fn();
+    const onActiveChatSessionReadStart = vi.fn();
     const snapshot = await resolveDashboardSnapshot({
       activeChatSessionID: "ac1",
       previous: emptyPrev,
+      onChatSessionsReadStart,
+      onActiveChatSessionReadStart,
     });
 
     expect(snapshot.activeChatSessionID).toBe("");
     expect(snapshot.activeChatSession).toBeNull();
+    expect(snapshot.chatSessionsFresh).toBe(true);
+    expect(snapshot.activeChatSessionFresh).toBe(false);
+    expect(snapshot.activeChatSessionMissing).toBe(true);
+    expect(onChatSessionsReadStart).toHaveBeenCalledTimes(1);
+    expect(onActiveChatSessionReadStart).toHaveBeenCalledWith("ac1");
   });
 
   it("preserves the previous agent chat session on non-404 errors", async () => {
@@ -206,6 +218,45 @@ describe("resolveDashboardSnapshot", () => {
 
     expect(snapshot.activeChatSessionID).toBe("ac1");
     expect(snapshot.activeChatSession?.title).toBe("stale");
+    expect(snapshot.chatSessionsFresh).toBe(true);
+    expect(snapshot.activeChatSessionFresh).toBe(false);
+    expect(snapshot.activeChatSessionMissing).toBe(false);
+  });
+
+  it("marks chat-session list fallback as stale provenance", async () => {
+    vi.mocked(api.getChatSessions).mockRejectedValue(new Error("network"));
+    const previous = {
+      ...emptyPrev,
+      chatSessions: [
+        {
+          id: "ac1",
+          title: "stale terminal fallback",
+          agent_id: "codex",
+          workspace: "/repo",
+          status: "cancelled",
+          message_count: 1,
+        },
+      ],
+      activeChatSession: {
+        id: "ac1",
+        title: "stale terminal fallback",
+        agent_id: "codex",
+        workspace: "/repo",
+        status: "cancelled",
+      },
+    };
+
+    const snapshot = await resolveDashboardSnapshot({
+      activeChatSessionID: "ac1",
+      previous,
+    });
+
+    expect(snapshot.chatSessions).toEqual(previous.chatSessions);
+    expect(snapshot.activeChatSession).toEqual(previous.activeChatSession);
+    expect(snapshot.chatSessionsFresh).toBe(false);
+    expect(snapshot.activeChatSessionFresh).toBe(false);
+    expect(snapshot.activeChatSessionMissing).toBe(false);
+    expect(api.getChatSession).not.toHaveBeenCalled();
   });
 
   it("skips the providers fetch when no providers are configured in the settings", async () => {

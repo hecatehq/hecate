@@ -27,6 +27,7 @@ import {
   useEnsureProviderPresetsLoaded,
   useProvidersAndModels,
 } from "../../app/state/providersAndModels";
+import { useChat } from "../../app/state/chat";
 import { useProjects } from "../../app/state/projects";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { ModelRecord } from "../../types/model";
@@ -130,6 +131,7 @@ export function TasksView({
   const [availableProviders, setAvailableProviders] = useState<ProviderRecord[]>([]);
   useEnsureProviderPresetsLoaded();
   const providerPresets = useProvidersAndModels().state.providerPresets;
+  const chat = useChat();
   const projects = useProjects();
   const activeProjectID = projects.activeProjectID;
   const defaultTaskWorkspace = projectDefaultWorkspace(projects.activeProject);
@@ -581,6 +583,24 @@ export function TasksView({
           <ProjectScopePanel
             noProjectDetail="Unprojected tasks only."
             emptyHint="Add a folder when you want task defaults and workspace context."
+            canChangeProjectScope={() => {
+              const reason = chat.actions.chatOwnershipMutationBlockReason();
+              if (!reason) return true;
+              setNotice({ tone: "error", message: reason });
+              return false;
+            }}
+            beginProjectDelete={() => {
+              const token = chat.actions.beginChatOwnershipMutation();
+              if (token !== null) return token;
+              setNotice({
+                tone: "error",
+                message:
+                  chat.actions.chatOwnershipMutationBlockReason() ||
+                  "Wait for the current chat ownership change to finish.",
+              });
+              return null;
+            }}
+            finishProjectDelete={chat.actions.finishChatOwnershipMutation}
             deleteMessage={(project) => (
               <>
                 Delete <strong>{project.name}</strong>? Existing tasks stay available, but this
@@ -590,8 +610,14 @@ export function TasksView({
             onProjectSelected={(projectID) => {
               void loadTasks("", "", projectID);
             }}
-            onProjectDeleted={(_, result) => {
-              setNotice({ tone: "success", message: formatProjectDeleteSummary(result) });
+            onProjectDeleted={(projectID, result) => {
+              const browserQueueCleared = chat.actions.fenceDeletedChatProject(projectID);
+              setNotice({
+                tone: browserQueueCleared ? "success" : "error",
+                message: browserQueueCleared
+                  ? formatProjectDeleteSummary(result)
+                  : `${formatProjectDeleteSummary(result)} Hecate could not clear every browser-local queued prompt for this project. Clear this site's browser data before closing or reloading.`,
+              });
             }}
           />
         }

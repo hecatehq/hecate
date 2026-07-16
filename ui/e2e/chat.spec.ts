@@ -6,6 +6,7 @@ import {
   MOCK_PROVIDERS,
   MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
 } from "./fixtures";
+import { Buffer } from "node:buffer";
 import type { Page } from "@playwright/test";
 
 // Chat tests need a populated provider list — without one, AppShell hides
@@ -714,8 +715,13 @@ test("external-agent running turns keep controls stable and request cancel throu
   await page.waitForSelector(".hecate-activitybar");
 
   let cancelPosts = 0;
+  let releaseCancel!: () => void;
+  const cancelResponseHeld = new Promise<void>((resolve) => {
+    releaseCancel = resolve;
+  });
   await page.route("/hecate/v1/chat/sessions/*/cancel", async (route) => {
     cancelPosts += 1;
+    await cancelResponseHeld;
     await route.fallback();
   });
 
@@ -733,11 +739,21 @@ test("external-agent running turns keep controls stable and request cancel throu
 
   const stop = page.getByRole("button", { name: "Stop external agent" });
   await stop.click();
+  const stopping = page.getByRole("button", { name: "Stopping external agent..." });
+  const stoppingStatus = page.getByRole("status").filter({ hasText: "Stopping external agent..." });
 
-  await expect.poll(() => cancelPosts).toBe(1);
-  await expect(stop).toBeDisabled();
-  await expect(stop).toHaveAttribute("title", "Stopping...");
-  await expect(page.getByText("Stopping...")).toBeVisible();
+  try {
+    await expect.poll(() => cancelPosts).toBe(1);
+    await expect(stopping).toBeDisabled();
+    await expect(stopping).toHaveAttribute("title", "Stopping external agent...");
+    await expect(stoppingStatus).toBeVisible();
+  } finally {
+    releaseCancel();
+  }
+
+  await expect(stopping).toHaveCount(0);
+  await expect(stoppingStatus).toHaveCount(0);
+  await expect(page.getByText("cancelled").first()).toBeVisible();
 });
 
 test("New chat falls back to Hecate when the remembered external agent needs setup", async ({
@@ -2020,6 +2036,168 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   ]);
 });
 
+test("Hecate Chat stages and renders an image through the browser attachment flow", async ({
+  page,
+}) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    window.localStorage.setItem("hecate.providerFilter", "openai");
+    window.localStorage.setItem("hecate.model", "gpt-4o");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
+  });
+  const gateway = await mockGatewayAPIs(page, {
+    settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
+    models: MOCK_MODELS.map((model) =>
+      model.id === "gpt-4o"
+        ? {
+            ...model,
+            metadata: {
+              ...model.metadata,
+              capabilities: {
+                tool_calling: "basic",
+                image_input: "supported",
+                streaming: true,
+                source: "provider",
+              },
+            },
+          }
+        : model,
+    ),
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await startHecateChat(page);
+  const providerPicker = page.getByRole("button", { name: /provider picker/i });
+  if (!(await providerPicker.textContent())?.includes("OpenAI")) {
+    await providerPicker.click();
+    await page
+      .locator(".dropdown-menu")
+      .first()
+      .locator("[role='option']")
+      .filter({ hasText: "OpenAI" })
+      .first()
+      .click();
+  }
+  await chooseComposerModel(page, "gpt-4o");
+  await expect(page.getByText("Tools off · /tmp/hecate-e2e")).toBeVisible();
+
+  const image = {
+    name: "browser-vision.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  };
+  const picker = page.getByLabel("Choose images");
+  await expect(picker).toBeEnabled();
+
+  await picker.setInputFiles(image);
+  await expect(page.getByRole("button", { name: "Remove browser-vision.png" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove browser-vision.png" }).click();
+  await expect(page.getByRole("button", { name: "Remove browser-vision.png" })).toHaveCount(0);
+  expect(gateway.chatAttachmentUploads).toHaveLength(0);
+
+  await picker.setInputFiles(image);
+  await expect(page.getByRole("button", { name: "Remove browser-vision.png" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("Describe this image");
+  await page.locator("button[type='submit']").click();
+
+  await expect.poll(() => gateway.chatAttachmentUploads.length).toBe(1);
+  const uploaded = gateway.chatAttachmentUploads[0];
+  expect(uploaded).toMatchObject({
+    session_id: "chat-e2e-1",
+    filename: "browser-vision.png",
+    media_type: "image/png",
+    size_bytes: image.buffer.byteLength,
+  });
+  expect(uploaded?.multipart_content_type).toMatch(/^multipart\/form-data;\s*boundary=/i);
+
+  await expect.poll(() => gateway.chatMessagePayloads.length).toBe(1);
+  expect(gateway.chatMessagePayloads[0]?.attachment_ids).toEqual([uploaded?.attachment_id]);
+  expect(gateway.chatMessagePayloads[0]?.tools_enabled).toBe(false);
+  await expect(page.locator('[aria-label="Queued messages"]')).toHaveCount(0);
+
+  await expect(page.getByRole("group", { name: "Attached images" })).toBeVisible();
+  const loadButton = page.getByRole("button", { name: "Load browser-vision.png" });
+  if (await loadButton.isVisible()) await loadButton.click();
+  await expect
+    .poll(() =>
+      gateway.chatAttachmentContentRequests.some(
+        (request) =>
+          request.session_id === "chat-e2e-1" && request.attachment_id === uploaded?.attachment_id,
+      ),
+    )
+    .toBe(true);
+  await expect(page.getByRole("link", { name: "Open browser-vision.png" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "browser-vision.png" })).toBeVisible();
+  await expect(page.locator("body")).toContainText("Direct response to: Describe this image");
+});
+
+test("External Agent stages arbitrary files and downloads them only on request", async ({
+  page,
+}) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  const gateway = await mockGatewayAPIs(page, {
+    settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS,
+  });
+  await mockAvailableAgentAdapters(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Claude Code chat", exact: true }).click();
+
+  const file = {
+    name: "browser-report.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("external-agent-report"),
+  };
+  const picker = page.getByLabel("Choose files");
+  await expect(picker).toBeEnabled();
+  await expect(picker).not.toHaveAttribute("accept");
+  await picker.setInputFiles(file);
+  await expect(page.getByRole("button", { name: "Remove browser-report.pdf" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("Review the attached report");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect.poll(() => gateway.chatAttachmentUploads.length).toBe(1);
+  const uploaded = gateway.chatAttachmentUploads[0];
+  expect(uploaded).toMatchObject({
+    filename: "browser-report.pdf",
+    media_type: "application/pdf",
+    size_bytes: file.buffer.byteLength,
+  });
+  await expect.poll(() => gateway.chatMessagePayloads.length).toBe(1);
+  expect(gateway.chatMessagePayloads[0]).toMatchObject({
+    execution_mode: "external_agent",
+    attachment_ids: [uploaded?.attachment_id],
+  });
+  expect(gateway.chatMessagePayloads[0]).not.toHaveProperty("tools_enabled");
+
+  await expect(page.getByRole("group", { name: "Attached files" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download browser-report.pdf" })).toBeVisible();
+  expect(gateway.chatAttachmentContentRequests).toHaveLength(0);
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download browser-report.pdf" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("browser-report.pdf");
+  await expect
+    .poll(() => gateway.chatAttachmentContentRequests)
+    .toContainEqual({
+      session_id: "chat-e2e-1",
+      attachment_id: uploaded?.attachment_id,
+    });
+});
+
 test("Hecate Chat falls back to direct chat when the selected model has no tools", async ({
   page,
 }) => {
@@ -3043,6 +3221,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
           object: "chat_workspace_diff",
           data: {
             workspace: "/tmp/e2e",
+            revision: "sha256:after-readme",
             diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
             diff: runtimeAPIDiff,
             has_changes: true,
@@ -3059,6 +3238,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
         object: "chat_workspace_diff",
         data: {
           workspace: "/tmp/e2e",
+          revision: "sha256:reviewed-workspace",
           diff_stat:
             "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
           diff: `${readmeDiff}\n${runtimeAPIDiff}`,
@@ -3115,8 +3295,14 @@ test("workspace changes review inspects and discards a current file", async ({ p
   });
 
   let discardedPaths: string[] | null = null;
+  let discardedRevision: string | null = null;
   await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/revert", async (route) => {
-    discardedPaths = (await route.request().postDataJSON()).paths;
+    const request = (await route.request().postDataJSON()) as {
+      paths: string[];
+      expected_revision: string;
+    };
+    discardedPaths = request.paths;
+    discardedRevision = request.expected_revision;
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -3124,6 +3310,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
         object: "chat_workspace_diff",
         data: {
           workspace: "/tmp/e2e",
+          revision: "sha256:after-readme",
           diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
           diff: runtimeAPIDiff,
           has_changes: true,
@@ -3155,6 +3342,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
   await expect(page.getByRole("button", { name: "Confirm discard README.md" })).toBeVisible();
   await page.getByRole("button", { name: "Confirm discard README.md" }).click();
   await expect.poll(() => discardedPaths).toEqual(["README.md"]);
+  await expect.poll(() => discardedRevision).toBe("sha256:reviewed-workspace");
   await expect(
     workspaceChangesPanel.getByText("1 file changed, 4 insertions(+)").first(),
   ).toBeVisible();

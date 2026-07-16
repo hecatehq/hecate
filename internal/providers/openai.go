@@ -16,6 +16,9 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/prompttokens"
+	"github.com/hecatehq/hecate/internal/safetext"
+	"github.com/hecatehq/hecate/internal/sse"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -278,10 +281,12 @@ func (e *UpstreamError) Error() string {
 	if e == nil {
 		return ""
 	}
-	if e.Type == "" {
-		return fmt.Sprintf("upstream error (%d): %s", e.StatusCode, e.Message)
+	message := safetext.SanitizeErrorMessage(e.Message)
+	errorType := safetext.SanitizeErrorType(e.Type, "")
+	if errorType == "" {
+		return fmt.Sprintf("upstream error (%d): %s", e.StatusCode, message)
 	}
-	return fmt.Sprintf("upstream error (%d/%s): %s", e.StatusCode, e.Type, e.Message)
+	return fmt.Sprintf("upstream error (%d/%s): %s", e.StatusCode, errorType, message)
 }
 
 func NewOpenAICompatibleProvider(cfg config.OpenAICompatibleProviderConfig, logger *slog.Logger) *OpenAICompatibleProvider {
@@ -302,8 +307,16 @@ func (p *OpenAICompatibleProvider) Name() string {
 	return p.config.Name
 }
 
+func (p *OpenAICompatibleProvider) ProviderInstanceIdentity() types.ProviderInstanceIdentity {
+	return configurationProviderInstanceIdentity(p.config)
+}
+
 func (p *OpenAICompatibleProvider) Aliases() []string {
 	return append([]string(nil), p.config.Aliases...)
+}
+
+func (p *OpenAICompatibleProvider) CapabilityFamily() string {
+	return configuredCapabilityFamily(p.config)
 }
 
 func (p *OpenAICompatibleProvider) Enabled() bool {
@@ -658,11 +671,18 @@ func (p *OpenAICompatibleProvider) discoverFireworksCapabilities(ctx context.Con
 		}
 		if item.SupportsTools {
 			cap.ToolCalling = "basic"
+		} else {
+			cap.ToolCalling = "none"
+		}
+		if item.SupportsImageInput {
+			cap.ImageInput = "supported"
+		} else {
+			cap.ImageInput = "none"
 		}
 		if item.ContextLength > 0 {
 			cap.MaxContextTokens = item.ContextLength
 		}
-		if cap.ToolCalling != "" || cap.MaxContextTokens > 0 {
+		if cap.ToolCalling != "" || cap.ImageInput != "" || cap.MaxContextTokens > 0 {
 			modelCapabilities[id] = cap
 		}
 	}
@@ -767,10 +787,13 @@ func (p *OpenAICompatibleProvider) ollamaCapabilityDiscoveryTimeout() time.Durat
 }
 
 func (p *OpenAICompatibleProvider) isOllamaProvider() bool {
-	return strings.EqualFold(strings.TrimSpace(p.config.Name), "ollama")
+	return p.CapabilityFamily() == "ollama"
 }
 
 func (p *OpenAICompatibleProvider) isFireworksProvider() bool {
+	if p.CapabilityFamily() == "fireworks" {
+		return true
+	}
 	if strings.EqualFold(strings.TrimSpace(p.config.Name), "fireworks") {
 		return true
 	}
@@ -784,6 +807,9 @@ func (p *OpenAICompatibleProvider) isFireworksProvider() bool {
 }
 
 func (p *OpenAICompatibleProvider) isLMStudioProvider() bool {
+	if p.CapabilityFamily() == "lmstudio" {
+		return true
+	}
 	switch strings.ToLower(strings.TrimSpace(p.config.Name)) {
 	case "lmstudio", "lm-studio", "lm studio", "local-lmstudio":
 		return true
@@ -847,14 +873,18 @@ func (p *OpenAICompatibleProvider) discoverOllamaModelCapability(ctx context.Con
 		return types.ModelCapabilities{}, false
 	}
 	toolCalling := "none"
+	imageInput := "none"
 	for _, capability := range payload.Capabilities {
-		if strings.EqualFold(strings.TrimSpace(capability), "tools") {
+		switch strings.ToLower(strings.TrimSpace(capability)) {
+		case "tools":
 			toolCalling = "basic"
-			break
+		case "vision":
+			imageInput = "supported"
 		}
 	}
 	return types.ModelCapabilities{
 		ToolCalling:    toolCalling,
+		ImageInput:     imageInput,
 		Streaming:      true,
 		StreamingKnown: true,
 		Source:         "provider",
@@ -1123,7 +1153,7 @@ func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.Cha
 //     case — single-turn text chat, tool results, etc.), we emit
 //     the string form. This matches what every OpenAI-compat
 //     upstream has accepted forever; multi-modal isn't needed.
-//   - When ContentBlocks contains image_url blocks, we emit the
+//   - When ContentBlocks contains image/image_url blocks, we emit the
 //     array form so the upstream sees the structured payload.
 //   - Text-only block content collapses back to the string form
 //     to keep payloads compact and avoid surprising unsupported
@@ -1141,15 +1171,10 @@ func buildOpenAIWireContent(msg types.Message) openAIMessageContent {
 				continue
 			}
 			blocks = append(blocks, openAIContentBlock{Type: "text", Text: cb.Text})
-		case "image_url":
-			out := openAIContentBlock{Type: "image_url"}
-			if cb.Image != nil {
-				out.ImageURL = &openAIContentImageURL{
-					URL:    cb.Image.URL,
-					Detail: cb.Image.Detail,
-				}
+		case "image_url", "image":
+			if imageURL := buildOpenAIImageURL(cb.Image); imageURL != nil {
+				blocks = append(blocks, openAIContentBlock{Type: "image_url", ImageURL: imageURL})
 			}
-			blocks = append(blocks, out)
 		}
 		// Unknown block types are dropped here — OpenAI rejects
 		// strict-mode requests with unrecognized block types, and
@@ -1163,6 +1188,24 @@ func buildOpenAIWireContent(msg types.Message) openAIMessageContent {
 		return openAIMessageContent{Text: msg.Content}
 	}
 	return openAIMessageContent{Blocks: blocks}
+}
+
+func buildOpenAIImageURL(image *types.ContentImage) *openAIContentImageURL {
+	if image == nil {
+		return nil
+	}
+	url := strings.TrimSpace(image.URL)
+	if data := strings.TrimSpace(image.Data); data != "" {
+		mediaType := strings.TrimSpace(image.MediaType)
+		if mediaType == "" {
+			return nil
+		}
+		url = "data:" + mediaType + ";base64," + data
+	}
+	if url == "" {
+		return nil
+	}
+	return &openAIContentImageURL{URL: url, Detail: image.Detail}
 }
 
 // messageHasNonTextBlocks reports whether the message's
@@ -1209,7 +1252,7 @@ func buildProviderURL(baseURL, path string) string {
 }
 
 func decodeUpstreamError(resp *http.Response) error {
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
 		return fmt.Errorf("read upstream error body: %w", err)
 	}
@@ -1218,8 +1261,8 @@ func decodeUpstreamError(resp *http.Response) error {
 	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Error.Message != "" {
 		return &UpstreamError{
 			StatusCode: resp.StatusCode,
-			Message:    envelope.Error.Message,
-			Type:       envelope.Error.Type,
+			Message:    safetext.SanitizeErrorMessage(envelope.Error.Message),
+			Type:       safetext.SanitizeErrorType(envelope.Error.Type, "upstream_error"),
 		}
 	}
 
@@ -1230,7 +1273,7 @@ func decodeUpstreamError(resp *http.Response) error {
 
 	return &UpstreamError{
 		StatusCode: resp.StatusCode,
-		Message:    message,
+		Message:    safetext.SanitizeErrorMessage(message),
 	}
 }
 
@@ -1244,11 +1287,7 @@ func lastUserMessage(messages []types.Message) string {
 }
 
 func estimatePromptTokens(messages []types.Message) int {
-	total := 0
-	for _, msg := range messages {
-		total += len(msg.Content) / 4
-	}
-	return max(1, total)
+	return max(1, prompttokens.EstimateMessages(messages))
 }
 
 func contains(items []string, target string) bool {
@@ -1260,9 +1299,10 @@ func contains(items []string, target string) bool {
 	return false
 }
 
-// proxySSE reads OpenAI-format SSE from src and writes it verbatim to dst,
-// flushing after each blank-line boundary. It returns when [DONE] is seen,
-// src is exhausted, or the context is cancelled.
+// proxySSE reads OpenAI-format SSE from src and writes ordinary events to dst,
+// flushing after each blank-line boundary. Provider error frames are converted
+// into typed, sanitized failures instead of being copied across the privacy
+// boundary or mistaken for a successful stream.
 func proxySSE(ctx context.Context, src io.Reader, dst io.Writer) error {
 	scanner := bufio.NewScanner(src)
 	for scanner.Scan() {
@@ -1272,6 +1312,9 @@ func proxySSE(ctx context.Context, src io.Reader, dst io.Writer) error {
 			return err
 		}
 		line := scanner.Text()
+		if upstreamErr := decodeOpenAIStreamError(line); upstreamErr != nil {
+			return upstreamErr
+		}
 		if _, err := fmt.Fprintf(dst, "%s\n", line); err != nil {
 			return err
 		}
@@ -1281,7 +1324,7 @@ func proxySSE(ctx context.Context, src io.Reader, dst io.Writer) error {
 				f.Flush()
 			}
 		}
-		if line == "data: [DONE]" {
+		if value, ok := sse.DataValue(line); ok && strings.TrimSpace(value) == "[DONE]" {
 			// Write the trailing blank line and flush.
 			fmt.Fprintf(dst, "\n") //nolint:errcheck
 			if f, ok := dst.(interface{ Flush() }); ok {
@@ -1296,5 +1339,50 @@ func proxySSE(ctx context.Context, src io.Reader, dst io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return &UpstreamError{
+		StatusCode: http.StatusBadGateway,
+		Message:    "OpenAI-compatible stream ended before [DONE]",
+		Type:       "upstream_error",
+	}
+}
+
+func decodeOpenAIStreamError(line string) *UpstreamError {
+	raw, ok := sse.DataValue(line)
+	if !ok {
+		return nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[DONE]" {
+		return nil
+	}
+	var event struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(raw), &event); err != nil || len(event.Error) == 0 || bytes.Equal(bytes.TrimSpace(event.Error), []byte("null")) {
+		return nil
+	}
+	message := "upstream provider stream error"
+	errorType := "upstream_error"
+	var detail openAIErrorDetail
+	if err := json.Unmarshal(event.Error, &detail); err == nil {
+		if sanitized := safetext.SanitizeErrorMessage(detail.Message); strings.TrimSpace(sanitized) != "" {
+			message = sanitized
+		}
+		errorType = safetext.SanitizeErrorType(detail.Type, errorType)
+	} else {
+		var stringMessage string
+		if err := json.Unmarshal(event.Error, &stringMessage); err == nil {
+			if sanitized := safetext.SanitizeErrorMessage(stringMessage); strings.TrimSpace(sanitized) != "" {
+				message = sanitized
+			}
+		}
+	}
+	return &UpstreamError{
+		StatusCode: http.StatusBadGateway,
+		Message:    message,
+		Type:       errorType,
+	}
 }

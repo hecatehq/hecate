@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
@@ -228,16 +229,17 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			apiKey = decrypted
 		}
 		cfg := config.OpenAICompatibleProviderConfig{
-			Name:         item.Name,
-			Aliases:      providerRuntimeAliases(item),
-			Kind:         item.Kind,
-			Protocol:     item.Protocol,
-			BaseURL:      item.BaseURL,
-			APIKey:       apiKey,
-			APIVersion:   item.APIVersion,
-			DefaultModel: item.DefaultModel,
-			Timeout:      config.DefaultProviderTimeout(item.Kind),
-			Enabled:      true,
+			Name:               item.Name,
+			Aliases:            providerRuntimeAliases(item),
+			InstanceGeneration: controlPlaneProviderInstanceGeneration(item),
+			Kind:               item.Kind,
+			Protocol:           item.Protocol,
+			BaseURL:            item.BaseURL,
+			APIKey:             apiKey,
+			APIVersion:         item.APIVersion,
+			DefaultModel:       item.DefaultModel,
+			Timeout:            config.DefaultProviderTimeout(item.Kind),
+			Enabled:            true,
 		}
 		// Apply the gateway-wide Anthropic cache toggle to any
 		// provider whose protocol respects it. The flag is global by
@@ -251,6 +253,7 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			cfg.AnthropicCacheDisabled = m.anthropicCacheDisabled
 		}
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
+			cfg.ProviderFamily = builtIn.ID
 			cfg.ChatPath = builtIn.ChatPath
 			cfg.ModelsPath = builtIn.ModelsPath
 			if builtIn.ID == "fireworks" {
@@ -277,6 +280,15 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 		out = append(out, cfg)
 	}
 	return out, nil
+}
+
+func controlPlaneProviderInstanceGeneration(provider controlplane.Provider) string {
+	return strings.Join([]string{
+		"control-plane-v1",
+		strings.TrimSpace(provider.ID),
+		provider.CreatedAt.UTC().Format(time.RFC3339Nano),
+		provider.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}, "\x00")
 }
 
 func providerRuntimeAliases(provider controlplane.Provider) []string {

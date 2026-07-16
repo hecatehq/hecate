@@ -216,7 +216,7 @@ type apiGrant struct {
 func injectChatSession(t *testing.T, dbPath string) string {
 	t.Helper()
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

@@ -33,6 +33,8 @@ type ChatSessionStore interface {
 
 type ChatDeleteFunc func(context.Context, chat.Session) (bool, error)
 
+type ChatAttachmentSweepFunc func(context.Context) error
+
 type ProjectWorkStore interface {
 	DeleteProject(ctx context.Context, projectID string) (int, error)
 }
@@ -58,27 +60,29 @@ type ProjectAssistantProposalStore interface {
 }
 
 type Application struct {
-	projects                  ProjectStore
-	chats                     ChatSessionStore
-	deleteChat                ChatDeleteFunc
-	projectWork               ProjectWorkStore
-	projectRuntime            ProjectRuntimeStore
-	projectSkills             ProjectSkillStore
-	projectAssistantProposals ProjectAssistantProposalStore
-	memory                    MemoryStore
-	memoryCandidates          MemoryCandidateStore
+	projects                     ProjectStore
+	chats                        ChatSessionStore
+	deleteChat                   ChatDeleteFunc
+	sweepOrphanedChatAttachments ChatAttachmentSweepFunc
+	projectWork                  ProjectWorkStore
+	projectRuntime               ProjectRuntimeStore
+	projectSkills                ProjectSkillStore
+	projectAssistantProposals    ProjectAssistantProposalStore
+	memory                       MemoryStore
+	memoryCandidates             MemoryCandidateStore
 }
 
 type Options struct {
-	Projects                  ProjectStore
-	Chats                     ChatSessionStore
-	DeleteChat                ChatDeleteFunc
-	ProjectWork               ProjectWorkStore
-	ProjectRuntime            ProjectRuntimeStore
-	ProjectSkills             ProjectSkillStore
-	ProjectAssistantProposals ProjectAssistantProposalStore
-	Memory                    MemoryStore
-	MemoryCandidates          MemoryCandidateStore
+	Projects                     ProjectStore
+	Chats                        ChatSessionStore
+	DeleteChat                   ChatDeleteFunc
+	SweepOrphanedChatAttachments ChatAttachmentSweepFunc
+	ProjectWork                  ProjectWorkStore
+	ProjectRuntime               ProjectRuntimeStore
+	ProjectSkills                ProjectSkillStore
+	ProjectAssistantProposals    ProjectAssistantProposalStore
+	Memory                       MemoryStore
+	MemoryCandidates             MemoryCandidateStore
 }
 
 type DeleteProjectResult struct {
@@ -94,15 +98,16 @@ type DeleteProjectResult struct {
 
 func New(opts Options) *Application {
 	return &Application{
-		projects:                  opts.Projects,
-		chats:                     opts.Chats,
-		deleteChat:                opts.DeleteChat,
-		projectWork:               opts.ProjectWork,
-		projectRuntime:            opts.ProjectRuntime,
-		projectSkills:             opts.ProjectSkills,
-		projectAssistantProposals: opts.ProjectAssistantProposals,
-		memory:                    opts.Memory,
-		memoryCandidates:          opts.MemoryCandidates,
+		projects:                     opts.Projects,
+		chats:                        opts.Chats,
+		deleteChat:                   opts.DeleteChat,
+		sweepOrphanedChatAttachments: opts.SweepOrphanedChatAttachments,
+		projectWork:                  opts.ProjectWork,
+		projectRuntime:               opts.ProjectRuntime,
+		projectSkills:                opts.ProjectSkills,
+		projectAssistantProposals:    opts.ProjectAssistantProposals,
+		memory:                       opts.Memory,
+		memoryCandidates:             opts.MemoryCandidates,
 	}
 }
 
@@ -365,6 +370,11 @@ func (app *Application) DeleteProjectScopedRows(ctx context.Context, project pro
 }
 
 func (app *Application) deleteProjectScopedRows(ctx context.Context, projectID string, result *DeleteProjectResult) error {
+	if app.sweepOrphanedChatAttachments != nil {
+		if err := app.sweepOrphanedChatAttachments(ctx); err != nil {
+			return fmt.Errorf("sweep orphaned chat attachments: %w", err)
+		}
+	}
 	if err := app.deleteProjectChats(ctx, projectID, result); err != nil {
 		return err
 	}

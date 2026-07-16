@@ -15,26 +15,38 @@ import (
 
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacecoord"
 )
 
 var (
-	ErrDisabled   = errors.New("operator terminals are disabled")
-	ErrNotFound   = errors.New("terminal not found")
-	ErrValidation = errors.New("terminal validation failed")
+	ErrDisabled      = errors.New("operator terminals are disabled")
+	ErrNotFound      = errors.New("terminal not found")
+	ErrValidation    = errors.New("terminal validation failed")
+	ErrWorkspaceBusy = errors.New("terminal workspace is temporarily unavailable")
+	ErrShuttingDown  = errors.New("operator terminals are shutting down")
 )
 
 type Options struct {
-	Enabled        bool
-	OutputMaxBytes int
-	NewWorkspace   func() workspace.Workspace
-	Now            func() time.Time
+	Enabled              bool
+	OutputMaxBytes       int
+	NewWorkspace         func() workspace.Workspace
+	WorkspaceCoordinator *workspacecoord.Registry
+	Now                  func() time.Time
 }
 
 type Application struct {
-	enabled        bool
-	outputMaxBytes int
-	newWorkspace   func() workspace.Workspace
-	now            func() time.Time
+	enabled              bool
+	outputMaxBytes       int
+	newWorkspace         func() workspace.Workspace
+	workspaceCoordinator *workspacecoord.Registry
+	now                  func() time.Time
+
+	lifecycleMu         sync.Mutex
+	shuttingDown        bool
+	startsInFlight      int
+	startsDrained       chan struct{}
+	shutdownGate        chan struct{}
+	shutdownCleanupOnce sync.Once
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -72,14 +84,17 @@ type session struct {
 	command          string
 	args             []string
 	createdAt        time.Time
+	workspaceLease   *workspacecoord.WriterLease
 
-	mu        sync.Mutex
-	output    outputBuffer
-	exitCode  *int
-	waitErr   error
-	done      bool
-	doneCh    chan struct{}
-	updatedAt time.Time
+	mu                   sync.Mutex
+	output               outputBuffer
+	exitCode             *int
+	waitErr              error
+	done                 bool
+	doneCh               chan struct{}
+	updatedAt            time.Time
+	closeGate            chan struct{}
+	workspaceReleaseOnce sync.Once
 }
 
 type outputBuffer struct {
@@ -104,11 +119,13 @@ func New(opts Options) *Application {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Application{
-		enabled:        opts.Enabled,
-		outputMaxBytes: outputMaxBytes,
-		newWorkspace:   newWorkspace,
-		now:            now,
-		sessions:       make(map[string]*session),
+		enabled:              opts.Enabled,
+		outputMaxBytes:       outputMaxBytes,
+		newWorkspace:         newWorkspace,
+		workspaceCoordinator: opts.WorkspaceCoordinator,
+		now:                  now,
+		shutdownGate:         newLifecycleGate(),
+		sessions:             make(map[string]*session),
 	}
 }
 
@@ -116,6 +133,10 @@ func (a *Application) Start(ctx context.Context, cmd StartCommand) (Snapshot, er
 	if a == nil || !a.enabled {
 		return Snapshot{}, ErrDisabled
 	}
+	if !a.beginStart() {
+		return Snapshot{}, ErrShuttingDown
+	}
+	defer a.finishStart()
 	workspaceRoot, err := canonicalWorkspace(cmd.Workspace)
 	if err != nil {
 		return Snapshot{}, validation(err.Error())
@@ -134,6 +155,16 @@ func (a *Application) Start(ctx context.Context, cmd StartCommand) (Snapshot, er
 		return Snapshot{}, err
 	}
 	now := a.now().UTC()
+	if a.workspaceCoordinator == nil {
+		return Snapshot{}, errors.New("workspace coordination is unavailable")
+	}
+	workspaceLease, err := a.workspaceCoordinator.AcquireWriter(ctx, workspaceRoot)
+	if err != nil {
+		if errors.Is(err, workspacecoord.ErrClosed) {
+			return Snapshot{}, ErrWorkspaceBusy
+		}
+		return Snapshot{}, err
+	}
 	term, err := a.newWorkspace().OpenTerminal(ctx, workspace.TerminalOptions{
 		Command:          command,
 		Args:             append([]string(nil), cmd.Args...),
@@ -142,6 +173,7 @@ func (a *Application) Start(ctx context.Context, cmd StartCommand) (Snapshot, er
 		Env:              cloneEnv(cmd.Env),
 	})
 	if err != nil {
+		workspaceLease.Release()
 		if sandbox.IsPolicyDenied(err) {
 			return Snapshot{}, validation(err.Error())
 		}
@@ -155,9 +187,11 @@ func (a *Application) Start(ctx context.Context, cmd StartCommand) (Snapshot, er
 		command:          command,
 		args:             append([]string(nil), cmd.Args...),
 		createdAt:        now,
+		workspaceLease:   workspaceLease,
 		updatedAt:        now,
 		output:           outputBuffer{limit: limit},
 		doneCh:           make(chan struct{}),
+		closeGate:        newLifecycleGate(),
 	}
 	a.mu.Lock()
 	a.sessions[id] = s
@@ -180,6 +214,9 @@ func (a *Application) Write(ctx context.Context, id, input string) (Snapshot, er
 		return Snapshot{}, err
 	}
 	if err := s.terminal.Write(ctx, input); err != nil {
+		if sandbox.IsPolicyDenied(err) {
+			return Snapshot{}, validation(err.Error())
+		}
 		return Snapshot{}, err
 	}
 	return s.snapshot(), nil
@@ -210,31 +247,120 @@ func (a *Application) Wait(ctx context.Context, id string) (Snapshot, error) {
 }
 
 func (a *Application) Release(ctx context.Context, id string) error {
-	s, err := a.remove(id)
+	s, err := a.get(id)
 	if err != nil {
 		return err
 	}
-	return s.terminal.Close(ctx)
+	if err := s.close(ctx); err != nil {
+		return err
+	}
+	a.deleteSession(id, s)
+	return nil
 }
 
 func (a *Application) Shutdown(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
-	a.mu.Lock()
-	sessions := make([]*session, 0, len(a.sessions))
-	for id, s := range a.sessions {
-		sessions = append(sessions, s)
-		delete(a.sessions, id)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	a.mu.Unlock()
-	var errs []error
-	for _, s := range sessions {
-		if err := s.terminal.Close(ctx); err != nil {
-			errs = append(errs, err)
+	startsDrained := a.fenceStarts()
+	if err := ctx.Err(); err != nil {
+		a.forceCloseSessions()
+		a.continueShutdown()
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		a.forceCloseSessions()
+		a.continueShutdown()
+		return ctx.Err()
+	case <-a.shutdownGate:
+	}
+	defer func() { a.shutdownGate <- struct{}{} }()
+
+	if startsDrained != nil {
+		select {
+		case <-startsDrained:
+		case <-ctx.Done():
+			a.forceCloseSessions()
+			a.continueShutdown()
+			return ctx.Err()
 		}
 	}
-	return errors.Join(errs...)
+	sessions := a.snapshotSessions()
+	var errs []error
+	for _, s := range sessions {
+		if err := s.close(ctx); err != nil {
+			s.forceClose()
+			errs = append(errs, err)
+			continue
+		}
+		a.deleteSession(s.id, s)
+	}
+	shutdownErr := errors.Join(errs...)
+	if shutdownErr != nil {
+		a.continueShutdown()
+	}
+	return shutdownErr
+}
+
+func (a *Application) fenceStarts() <-chan struct{} {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	a.shuttingDown = true
+	return a.startsDrained
+}
+
+func (a *Application) snapshotSessions() []*session {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	sessions := make([]*session, 0, len(a.sessions))
+	for _, s := range a.sessions {
+		sessions = append(sessions, s)
+	}
+	return sessions
+}
+
+func (a *Application) forceCloseSessions() {
+	for _, s := range a.snapshotSessions() {
+		s.forceClose()
+	}
+}
+
+// continueShutdown retains a cleanup owner after a caller's budget expires.
+// Session watchers remain the sole workspace-lease owners and release only
+// after process exit and output drain have both been observed.
+func (a *Application) continueShutdown() {
+	a.shutdownCleanupOnce.Do(func() {
+		go func() {
+			_ = a.Shutdown(context.Background())
+		}()
+	})
+}
+
+func (a *Application) beginStart() bool {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.shuttingDown {
+		return false
+	}
+	if a.startsInFlight == 0 {
+		a.startsDrained = make(chan struct{})
+	}
+	a.startsInFlight++
+	return true
+}
+
+func (a *Application) finishStart() {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	a.startsInFlight--
+	if a.startsInFlight == 0 {
+		close(a.startsDrained)
+		a.startsDrained = nil
+	}
 }
 
 func (a *Application) get(id string) (*session, error) {
@@ -254,22 +380,17 @@ func (a *Application) get(id string) (*session, error) {
 	return s, nil
 }
 
-func (a *Application) remove(id string) (*session, error) {
-	if a == nil || !a.enabled {
-		return nil, ErrDisabled
+func (a *Application) deleteSession(id string, expected *session) {
+	if a == nil || expected == nil {
+		return
 	}
 	id = strings.TrimSpace(id)
-	if id == "" {
-		return nil, validation("terminal id is required")
-	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s, ok := a.sessions[id]
-	if !ok {
-		return nil, ErrNotFound
+	if ok && s == expected {
+		delete(a.sessions, id)
 	}
-	delete(a.sessions, id)
-	return s, nil
 }
 
 func (s *session) watch() {
@@ -287,7 +408,74 @@ func (s *session) watch() {
 	s.done = true
 	s.updatedAt = time.Now().UTC()
 	s.mu.Unlock()
+	s.releaseWorkspace()
 	close(s.doneCh)
+}
+
+func (s *session) close(ctx context.Context) error {
+	select {
+	case <-s.doneCh:
+		return nil
+	default:
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		s.forceClose()
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		s.forceClose()
+		return ctx.Err()
+	case <-s.closeGate:
+	}
+	defer func() { s.closeGate <- struct{}{} }()
+	if err := s.terminal.Close(ctx); err != nil {
+		return err
+	}
+	// Close success means the terminal implementation stopped and reclaimed
+	// the process, but the watcher remains the sole lease authority. Waiting
+	// for it prevents a buggy or delayed Close path from opening an exclusive
+	// mutation window before process exit has actually been observed.
+	select {
+	case <-s.doneCh:
+		return nil
+	default:
+	}
+	select {
+	case <-s.doneCh:
+		return nil
+	case <-ctx.Done():
+		s.forceClose()
+		return ctx.Err()
+	}
+}
+
+func (s *session) forceClose() {
+	if s == nil || s.terminal == nil {
+		return
+	}
+	forceCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = s.terminal.Kill(forceCtx)
+	_ = s.terminal.Close(forceCtx)
+}
+
+func newLifecycleGate() chan struct{} {
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	return gate
+}
+
+func (s *session) releaseWorkspace() {
+	if s == nil {
+		return
+	}
+	s.workspaceReleaseOnce.Do(func() {
+		s.workspaceLease.Release()
+	})
 }
 
 func (s *session) snapshot() Snapshot {

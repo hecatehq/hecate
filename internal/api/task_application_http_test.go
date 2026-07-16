@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,6 +47,27 @@ func TestWriteTaskAppError(t *testing.T) {
 			status:  http.StatusConflict,
 			code:    errCodeInvalidRequest,
 			message: "task already has another active run",
+		},
+		{
+			name:    "origin_admission_closed",
+			err:     taskapp.ErrOriginRunAdmissionClosed,
+			status:  http.StatusConflict,
+			code:    errCodeInvalidRequest,
+			message: "task origin is closed to new runs",
+		},
+		{
+			name:    "origin_unavailable",
+			err:     taskapp.ErrOriginUnavailable,
+			status:  http.StatusConflict,
+			code:    errCodeInvalidRequest,
+			message: "task origin is unavailable",
+		},
+		{
+			name:    "origin_validation_failed",
+			err:     fmt.Errorf("%w: hidden store detail", taskapp.ErrOriginValidationFailed),
+			status:  http.StatusInternalServerError,
+			code:    errCodeGatewayError,
+			message: "task origin validation failed",
 		},
 		{
 			name:    "turn_retry_nonterminal",

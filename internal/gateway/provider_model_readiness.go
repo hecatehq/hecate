@@ -57,6 +57,29 @@ func providerModelReadiness(entries []catalog.Entry, provider, model string) Pro
 		Provider: provider,
 		Model:    model,
 	}
+	providerEntries := entries
+	providerFound := false
+	var providerEntry catalog.Entry
+	if provider != "" {
+		identities := make([]catalog.ProviderIdentity, 0, len(entries))
+		for _, entry := range entries {
+			identities = append(identities, catalog.EntryProviderIdentity(entry))
+		}
+		resolution := catalog.ResolveProviderIdentity(identities, provider)
+		if resolution.Ambiguous {
+			out.Reason = "provider_ambiguous"
+			out.Message = fmt.Sprintf("Provider %q matches multiple configured providers.", provider)
+			out.OperatorAction = "Choose the provider by its canonical runtime name, or remove the conflicting alias in Connections."
+			return out
+		}
+		if resolution.Found {
+			providerEntry = entries[resolution.Index]
+			providerEntries = []catalog.Entry{providerEntry}
+			providerFound = true
+		} else {
+			providerEntries = nil
+		}
+	}
 	if model == "" {
 		if provider == "" {
 			out.Provider = "auto"
@@ -64,19 +87,17 @@ func providerModelReadiness(entries []catalog.Entry, provider, model string) Pro
 		out.Reason = "model_required"
 		out.Message = "No model is selected."
 		out.OperatorAction = "Choose a discovered model before sending a chat message."
-		out.SuggestedModels = suggestedModels(entries, provider)
+		out.SuggestedModels = suggestedModels(providerEntries)
 		return out
 	}
 	if provider != "" {
-		for _, entry := range entries {
-			if catalog.EntryMatchesProvider(entry, provider) {
-				return providerModelReadinessForEntry(entry, entry.Name, model)
-			}
+		if providerFound {
+			return providerModelReadinessForEntry(providerEntry, providerEntry.Name, model)
 		}
 		out.Reason = "provider_missing"
 		out.Message = fmt.Sprintf("Provider %q is not configured.", provider)
 		out.OperatorAction = "Choose Auto routing, select a configured provider, or add this provider in Connections."
-		out.SuggestedModels = suggestedModels(entries, "")
+		out.SuggestedModels = suggestedModels(entries)
 		return out
 	}
 
@@ -108,14 +129,14 @@ func providerModelReadiness(entries []catalog.Entry, provider, model string) Pro
 		out.OperatorAction = providerModelReadinessOperatorAction(entry, reason, model)
 		out.ProviderStatus = entry.Status
 		out.ProviderBlockedReason = reason
-		out.SuggestedModels = suggestedModels(entries, "")
+		out.SuggestedModels = suggestedModels(entries)
 		return out
 	}
 	out.Provider = "auto"
 	out.Reason = "model_not_discovered"
 	out.Message = fmt.Sprintf("No routable provider reports model %q.", model)
 	out.OperatorAction = "Pick one of the discovered models, refresh provider discovery, or load this model in a local provider."
-	out.SuggestedModels = suggestedModels(entries, "")
+	out.SuggestedModels = suggestedModels(entries)
 	return out
 }
 
@@ -131,7 +152,7 @@ func providerModelReadinessForEntry(entry catalog.Entry, provider, model string)
 		out.Message = fmt.Sprintf("Provider %q is not routable for model %q.", entry.Name, model)
 		out.OperatorAction = providerModelReadinessOperatorAction(entry, reason, model)
 		out.ProviderBlockedReason = reason
-		out.SuggestedModels = suggestedModels([]catalog.Entry{entry}, "")
+		out.SuggestedModels = suggestedModels([]catalog.Entry{entry})
 		return out
 	}
 	out.RoutingReady = true
@@ -144,7 +165,7 @@ func providerModelReadinessForEntry(entry catalog.Entry, provider, model string)
 	out.Reason = "model_not_discovered"
 	out.Message = fmt.Sprintf("Provider %q does not report model %q.", entry.Name, model)
 	out.OperatorAction = providerModelReadinessOperatorAction(entry, out.Reason, model)
-	out.SuggestedModels = suggestedModels([]catalog.Entry{entry}, "")
+	out.SuggestedModels = suggestedModels([]catalog.Entry{entry})
 	return out
 }
 
@@ -157,12 +178,9 @@ func providerModelAvailable(entry catalog.Entry, model string) bool {
 	return false
 }
 
-func suggestedModels(entries []catalog.Entry, provider string) []string {
+func suggestedModels(entries []catalog.Entry) []string {
 	out := make([]string, 0, 8)
 	for _, entry := range entries {
-		if provider != "" && !catalog.EntryMatchesProvider(entry, provider) {
-			continue
-		}
 		out = appendUniqueStrings(out, entry.Models...)
 		if len(out) >= 5 {
 			break

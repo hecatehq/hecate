@@ -126,6 +126,7 @@ export function HecateTaskApprovalsBanner({
   taskID,
   runID,
   busyID,
+  disabled = false,
   onOpenTask,
   onResolve,
 }: {
@@ -133,6 +134,7 @@ export function HecateTaskApprovalsBanner({
   taskID: string;
   runID?: string;
   busyID: string;
+  disabled?: boolean;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onResolve: (approvalID: string, decision: "approve" | "reject") => void;
 }) {
@@ -165,7 +167,7 @@ export function HecateTaskApprovalsBanner({
       {visible.map((approval) => {
         const approveBusy = busyID === `${approval.approvalID}:approve`;
         const rejectBusy = busyID === `${approval.approvalID}:reject`;
-        const disabled = busyID !== "";
+        const actionDisabled = disabled || busyID !== "";
         const label = describeTaskApprovalKind(approval.kind || approval.title);
         return (
           <ChatNoticeRow
@@ -224,7 +226,7 @@ export function HecateTaskApprovalsBanner({
                 type="button"
                 className="btn btn-primary btn-sm"
                 aria-label={`Approve ${label}`}
-                disabled={disabled}
+                disabled={actionDisabled}
                 onClick={() => onResolve(approval.approvalID, "approve")}
               >
                 {approveBusy ? "Approving..." : "Approve"}
@@ -233,7 +235,7 @@ export function HecateTaskApprovalsBanner({
                 type="button"
                 className="btn btn-danger btn-sm"
                 aria-label={`Reject ${label}`}
-                disabled={disabled}
+                disabled={actionDisabled}
                 onClick={() => onResolve(approval.approvalID, "reject")}
               >
                 {rejectBusy ? "Rejecting..." : "Reject"}

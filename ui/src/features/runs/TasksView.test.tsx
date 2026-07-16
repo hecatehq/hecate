@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,7 +17,7 @@ import {
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
-import type { ProjectRecord } from "../../types/project";
+import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
 import type { TaskRecord, TaskRunRecord } from "../../types/task";
 import { streamTurnCostKey, TasksView } from "./TasksView";
 
@@ -181,6 +181,67 @@ describe("TasksView empty state", () => {
     await waitFor(() => {
       expect(vi.mocked(getTasks)).toHaveBeenCalledWith(30, project.id);
     });
+  });
+
+  it("keeps project deletion modal and ownership locked while deletion is pending", async () => {
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    let finishDelete: ((value: ProjectDeleteRecord | null) => void) | undefined;
+    const deleteProject = vi.fn(
+      () =>
+        new Promise<ProjectDeleteRecord | null>((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<TasksView />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteProject },
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByText("Start a task")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Project Hecate" }));
+    const projectButton = screen.getByRole("button", { name: "Project Hecate" });
+    fireEvent.mouseEnter(projectButton.parentElement as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Delete project" });
+    const pendingButton = screen.getByRole("button", { name: "Working…" });
+    expect(pendingButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    fireEvent.click(pendingButton);
+    expect(deleteProject).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toBe(dialog);
+
+    await act(async () => {
+      finishDelete?.({
+        project_id: project.id,
+        project_name: project.name,
+        chat_sessions_deleted: 0,
+        project_work_rows_deleted: 0,
+        project_skills_deleted: 0,
+        memory_entries_deleted: 0,
+        memory_candidates_deleted: 0,
+      });
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete project" })).toBeNull(),
+    );
   });
 
   it("switches the visible task list when the selected project changes", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ChatChangedFileDiffRecord,
@@ -71,6 +71,42 @@ export type ChatWorkspaceChange = {
   diff?: string;
 };
 
+type WorkspacePanelOwner = {
+  sessionID: string;
+  workspace: string;
+  generation: number;
+  controller: AbortController;
+};
+
+type WorkspaceReadFence = {
+  owner: WorkspacePanelOwner;
+  generation: number;
+  controller: AbortController;
+  detachOwnerAbort: () => void;
+};
+
+type WorkspaceFileDiffReadResult =
+  | { status: "ready"; value: ChatChangedFileDiffRecord | null }
+  | { status: "stale" };
+
+type WorkspaceFileDiffReadFence = WorkspaceReadFence & {
+  path: string;
+  promise?: Promise<WorkspaceFileDiffReadResult>;
+};
+
+type WorkspaceRevertIntent = {
+  owner: WorkspacePanelOwner;
+  snapshot: ChatWorkspaceDiffRecord;
+  revision: string;
+  paths: string[];
+  label: string;
+};
+
+type WorkspaceOperationFence = {
+  owner: WorkspacePanelOwner;
+  generation: number;
+};
+
 export function collectChatWorkspaceChanges(messages: VisibleChatMessage[]): ChatWorkspaceChange[] {
   return messages.flatMap((message) => {
     if (message.role !== "assistant" || (!message.diff_stat && !message.diff)) return [];
@@ -105,6 +141,7 @@ export function ChatWorkspaceChangesPanel({
   sessionID,
   workspace,
   refreshSignal = 0,
+  revertDisabled = false,
   onGetWorkspaceDiff,
   onGetWorkspaceFiles,
   onGetWorkspaceFileDiff,
@@ -113,6 +150,7 @@ export function ChatWorkspaceChangesPanel({
   sessionID: string;
   workspace: string;
   refreshSignal?: number;
+  revertDisabled?: boolean;
   onGetWorkspaceDiff: (sessionID: string) => Promise<ChatWorkspaceDiffRecord | null>;
   onGetWorkspaceFiles: (sessionID: string) => Promise<ChatWorkspaceFilesRecord | null>;
   onGetWorkspaceFileDiff: (
@@ -122,6 +160,7 @@ export function ChatWorkspaceChangesPanel({
   onRevertWorkspaceFiles: (
     sessionID: string,
     paths: string[],
+    expectedRevision: string,
   ) => Promise<ChatWorkspaceDiffRecord | null>;
 }) {
   const [activeView, setActiveView] = useState<"review" | "files">("review");
@@ -140,185 +179,570 @@ export function ChatWorkspaceChangesPanel({
   const [copyingPath, setCopyingPath] = useState("");
   const [copiedKey, setCopiedKey] = useState("");
   const [revertingPath, setRevertingPath] = useState("");
-  const [confirmRevertPath, setConfirmRevertPath] = useState("");
+  const [revertIntent, setRevertIntentState] = useState<WorkspaceRevertIntent | null>(null);
   const [reviewFailed, setReviewFailed] = useState(false);
   const [filesFailed, setFilesFailed] = useState(false);
   const [localError, setLocalError] = useState("");
+  const ownerRef = useRef<WorkspacePanelOwner | null>(null);
+  const ownerGenerationRef = useRef(0);
+  const operationGenerationRef = useRef(0);
   const copiedTimerRef = useRef<number | null>(null);
   const filesLoadedRef = useRef(false);
+  const snapshotOwnerRef = useRef<WorkspacePanelOwner | null>(null);
+  const snapshotValueRef = useRef<ChatWorkspaceDiffRecord | null>(null);
+  const workspaceFilesOwnerRef = useRef<WorkspacePanelOwner | null>(null);
   const fileDiffsRef = useRef<Record<string, ChatChangedFileDiffRecord>>({});
   const failedFileDiffPathsRef = useRef<Set<string>>(new Set());
+  const reviewReadRef = useRef<WorkspaceReadFence | null>(null);
+  const filesReadRef = useRef<WorkspaceReadFence | null>(null);
+  const fileDiffReadsRef = useRef<Map<string, WorkspaceFileDiffReadFence>>(new Map());
+  const loadingFileDiffRef = useRef<WorkspaceFileDiffReadFence | null>(null);
+  const copyOperationRef = useRef<WorkspaceOperationFence | null>(null);
+  const revertOperationRef = useRef<WorkspaceOperationFence | null>(null);
+  const revertIntentRef = useRef<WorkspaceRevertIntent | null>(null);
   const refreshSignalRef = useRef(refreshSignal);
 
-  function replaceFileDiffs(next: Record<string, ChatChangedFileDiffRecord>) {
+  if (ownerRef.current === null) {
+    ownerGenerationRef.current = 1;
+    ownerRef.current = {
+      sessionID,
+      workspace,
+      generation: ownerGenerationRef.current,
+      controller: new AbortController(),
+    };
+  }
+
+  function isCurrentOwner(owner: WorkspacePanelOwner) {
+    const current = ownerRef.current;
+    return (
+      current === owner &&
+      current.generation === owner.generation &&
+      !owner.controller.signal.aborted
+    );
+  }
+
+  function currentOwnerForProps() {
+    const owner = ownerRef.current;
+    if (
+      !owner ||
+      owner.sessionID !== sessionID ||
+      owner.workspace !== workspace ||
+      !isCurrentOwner(owner)
+    ) {
+      return null;
+    }
+    return owner;
+  }
+
+  function createReadFence(owner: WorkspacePanelOwner): WorkspaceReadFence | null {
+    if (!isCurrentOwner(owner)) return null;
+    const controller = new AbortController();
+    const abortWithOwner = () => controller.abort();
+    owner.controller.signal.addEventListener("abort", abortWithOwner, { once: true });
+    if (owner.controller.signal.aborted) controller.abort();
+    operationGenerationRef.current += 1;
+    return {
+      owner,
+      generation: operationGenerationRef.current,
+      controller,
+      detachOwnerAbort: () => owner.controller.signal.removeEventListener("abort", abortWithOwner),
+    };
+  }
+
+  function abortReadFence(fence: WorkspaceReadFence | null) {
+    if (!fence) return;
+    fence.detachOwnerAbort();
+    fence.controller.abort();
+  }
+
+  function awaitFencedRead<T>(fence: WorkspaceReadFence, pending: Promise<T>): Promise<T> {
+    if (fence.controller.signal.aborted) {
+      return Promise.reject(new Error("Workspace read was aborted."));
+    }
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => reject(new Error("Workspace read was aborted."));
+      fence.controller.signal.addEventListener("abort", abort, { once: true });
+      pending.then(
+        (value) => {
+          fence.controller.signal.removeEventListener("abort", abort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          fence.controller.signal.removeEventListener("abort", abort);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  function beginRead(
+    slot: { current: WorkspaceReadFence | null },
+    owner: WorkspacePanelOwner,
+  ): WorkspaceReadFence | null {
+    if (!isCurrentOwner(owner)) return null;
+    abortReadFence(slot.current);
+    const fence = createReadFence(owner);
+    slot.current = fence;
+    return fence;
+  }
+
+  function isCurrentRead(slot: { current: WorkspaceReadFence | null }, fence: WorkspaceReadFence) {
+    return (
+      slot.current === fence &&
+      slot.current.generation === fence.generation &&
+      isCurrentOwner(fence.owner) &&
+      !fence.controller.signal.aborted
+    );
+  }
+
+  function finishRead(slot: { current: WorkspaceReadFence | null }, fence: WorkspaceReadFence) {
+    fence.detachOwnerAbort();
+    if (slot.current === fence) slot.current = null;
+  }
+
+  function abortReadSlot(slot: { current: WorkspaceReadFence | null }) {
+    abortReadFence(slot.current);
+    slot.current = null;
+  }
+
+  function abortFileDiffReads() {
+    for (const fence of fileDiffReadsRef.current.values()) abortReadFence(fence);
+    fileDiffReadsRef.current.clear();
+    loadingFileDiffRef.current = null;
+  }
+
+  function isCurrentFileDiffRead(fence: WorkspaceFileDiffReadFence) {
+    const current = fileDiffReadsRef.current.get(fence.path);
+    return (
+      current === fence &&
+      current.generation === fence.generation &&
+      isCurrentOwner(fence.owner) &&
+      !fence.controller.signal.aborted
+    );
+  }
+
+  function finishFileDiffRead(fence: WorkspaceFileDiffReadFence) {
+    fence.detachOwnerAbort();
+    if (fileDiffReadsRef.current.get(fence.path) === fence) {
+      fileDiffReadsRef.current.delete(fence.path);
+    }
+  }
+
+  function beginOperation(
+    slot: { current: WorkspaceOperationFence | null },
+    owner: WorkspacePanelOwner,
+  ): WorkspaceOperationFence | null {
+    if (!isCurrentOwner(owner)) return null;
+    operationGenerationRef.current += 1;
+    const operation = { owner, generation: operationGenerationRef.current };
+    slot.current = operation;
+    return operation;
+  }
+
+  function isCurrentOperation(
+    slot: { current: WorkspaceOperationFence | null },
+    operation: WorkspaceOperationFence,
+  ) {
+    return (
+      slot.current === operation &&
+      slot.current.generation === operation.generation &&
+      isCurrentOwner(operation.owner)
+    );
+  }
+
+  function finishOperation(
+    slot: { current: WorkspaceOperationFence | null },
+    operation: WorkspaceOperationFence,
+  ) {
+    if (slot.current === operation) slot.current = null;
+  }
+
+  function clearCopiedTimer() {
+    if (copiedTimerRef.current === null) return;
+    window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = null;
+  }
+
+  function updateRevertIntent(next: WorkspaceRevertIntent | null) {
+    revertIntentRef.current = next;
+    setRevertIntentState(next);
+  }
+
+  function replaceFileDiffs(
+    owner: WorkspacePanelOwner,
+    next: Record<string, ChatChangedFileDiffRecord>,
+  ) {
+    if (!isCurrentOwner(owner)) return;
     fileDiffsRef.current = next;
     setFileDiffs(next);
   }
 
-  function rememberFileDiff(path: string, diff: ChatChangedFileDiffRecord) {
+  function rememberFileDiff(
+    owner: WorkspacePanelOwner,
+    path: string,
+    diff: ChatChangedFileDiffRecord,
+  ) {
+    if (!isCurrentOwner(owner)) return;
     failedFileDiffPathsRef.current.delete(path);
     setFileDiffs((current) => {
+      if (!isCurrentOwner(owner)) return current;
       const next = { ...current, [path]: diff };
       fileDiffsRef.current = next;
       return next;
     });
   }
 
-  async function loadFileDiff(
-    file: ChatChangedFileRecord,
-  ): Promise<ChatChangedFileDiffRecord | null> {
-    const cached = fileDiffsRef.current[file.path];
-    if (cached) return cached;
-    const next = await onGetWorkspaceFileDiff(sessionID, file.path);
-    if (next) rememberFileDiff(file.path, next);
-    return next;
+  function commitSnapshot(owner: WorkspacePanelOwner, next: ChatWorkspaceDiffRecord | null) {
+    if (!isCurrentOwner(owner)) return false;
+    snapshotOwnerRef.current = owner;
+    snapshotValueRef.current = next;
+    setSnapshot(next);
+    const intent = revertIntentRef.current;
+    if (intent && (intent.owner !== owner || intent.snapshot !== next)) updateRevertIntent(null);
+    return true;
   }
 
-  async function ensureFileDiff(file: ChatChangedFileRecord) {
+  function commitWorkspaceFiles(owner: WorkspacePanelOwner, next: ChatWorkspaceFilesRecord | null) {
+    if (!isCurrentOwner(owner)) return false;
+    workspaceFilesOwnerRef.current = owner;
+    setWorkspaceFiles(next);
+    return true;
+  }
+
+  async function loadFileDiff(
+    owner: WorkspacePanelOwner,
+    file: ChatChangedFileRecord,
+  ): Promise<WorkspaceFileDiffReadResult> {
+    if (!isCurrentOwner(owner)) return { status: "stale" };
+    const cached = fileDiffsRef.current[file.path];
+    if (cached) return { status: "ready", value: cached };
+    const existing = fileDiffReadsRef.current.get(file.path);
+    if (existing && isCurrentFileDiffRead(existing) && existing.promise) {
+      return existing.promise;
+    }
+
+    if (existing) abortReadFence(existing);
+    const baseFence = createReadFence(owner);
+    if (!baseFence) return { status: "stale" };
+    const fence: WorkspaceFileDiffReadFence = { ...baseFence, path: file.path };
+    fileDiffReadsRef.current.set(file.path, fence);
+    loadingFileDiffRef.current = fence;
+    if (isCurrentFileDiffRead(fence)) setLoadingPath(file.path);
+
+    fence.promise = (async () => {
+      try {
+        const next = await awaitFencedRead(
+          fence,
+          onGetWorkspaceFileDiff(owner.sessionID, file.path),
+        );
+        if (!isCurrentFileDiffRead(fence)) return { status: "stale" };
+        if (next) rememberFileDiff(owner, file.path, next);
+        return { status: "ready", value: next };
+      } catch (error: unknown) {
+        if (!isCurrentFileDiffRead(fence)) return { status: "stale" };
+        throw error;
+      } finally {
+        const canWrite = isCurrentFileDiffRead(fence);
+        if (loadingFileDiffRef.current === fence) {
+          loadingFileDiffRef.current = null;
+          if (canWrite) setLoadingPath("");
+        }
+        finishFileDiffRead(fence);
+      }
+    })();
+    return fence.promise;
+  }
+
+  async function ensureFileDiff(owner: WorkspacePanelOwner, file: ChatChangedFileRecord) {
+    if (!isCurrentOwner(owner) || snapshotOwnerRef.current !== owner) return;
     if (fileDiffsRef.current[file.path]) return;
-    setLoadingPath(file.path);
     setLocalError("");
     try {
-      const next = await loadFileDiff(file);
-      if (!next) {
+      const result = await loadFileDiff(owner, file);
+      if (result.status === "stale" || !isCurrentOwner(owner)) return;
+      if (!result.value) {
         failedFileDiffPathsRef.current.add(file.path);
         setLocalError("Could not load that file diff.");
       }
     } catch {
+      if (!isCurrentOwner(owner)) return;
       failedFileDiffPathsRef.current.add(file.path);
       setLocalError("Could not load that file diff.");
-    } finally {
-      setLoadingPath("");
     }
   }
 
-  async function refreshReview() {
+  async function refreshReview(owner: WorkspacePanelOwner) {
+    if (revertOperationRef.current && isCurrentOwner(revertOperationRef.current.owner)) return;
+    const read = beginRead(reviewReadRef, owner);
+    if (!read) return;
+    abortFileDiffReads();
+    if (!isCurrentRead(reviewReadRef, read)) return;
     setLoadingReview(true);
     setReviewFailed(false);
     setLocalError("");
     setLoadingPath("");
+    updateRevertIntent(null);
     try {
-      const next = await onGetWorkspaceDiff(sessionID);
-      setSnapshot(next);
+      const next = await awaitFencedRead(read, onGetWorkspaceDiff(owner.sessionID));
+      if (!isCurrentRead(reviewReadRef, read)) return;
+      commitSnapshot(owner, next);
       failedFileDiffPathsRef.current = new Set();
-      replaceFileDiffs({});
+      replaceFileDiffs(owner, {});
       setReviewFailed(next === null);
+      let nestedReadBecameStale = false;
       const firstSelection = await findInitialDiffFile(
         next?.files ?? EMPTY_CHANGED_FILES,
         next?.diff ?? "",
         async (file) => {
-          setLoadingPath(file.path);
-          try {
-            const fileDiff = await onGetWorkspaceFileDiff(sessionID, file.path);
-            if (fileDiff) {
-              rememberFileDiff(file.path, fileDiff);
-            }
-            return fileDiff?.diff ?? "";
-          } finally {
-            setLoadingPath("");
+          const result = await loadFileDiff(owner, file);
+          if (result.status === "stale") {
+            nestedReadBecameStale = true;
+            return "";
           }
+          return result.value?.diff ?? "";
         },
       );
+      if (nestedReadBecameStale || !isCurrentRead(reviewReadRef, read)) return;
       setExpandedDiffPaths(firstSelection.file ? [firstSelection.file.path] : []);
       if (firstSelection.loadFailed) setLocalError("Could not load that file diff.");
     } catch {
-      setSnapshot(null);
+      if (!isCurrentRead(reviewReadRef, read)) return;
+      commitSnapshot(owner, null);
       failedFileDiffPathsRef.current = new Set();
-      replaceFileDiffs({});
+      replaceFileDiffs(owner, {});
       setExpandedDiffPaths([]);
       setReviewFailed(true);
     } finally {
-      setLoadingReview(false);
+      const canWrite = isCurrentRead(reviewReadRef, read);
+      finishRead(reviewReadRef, read);
+      if (canWrite) setLoadingReview(false);
     }
   }
 
-  async function refreshFiles() {
+  async function refreshFiles(owner: WorkspacePanelOwner) {
+    if (revertOperationRef.current && isCurrentOwner(revertOperationRef.current.owner)) return;
+    const read = beginRead(filesReadRef, owner);
+    if (!read) return;
     setLoadingFiles(true);
     setFilesFailed(false);
     setLocalError("");
     try {
-      const next = await onGetWorkspaceFiles(sessionID);
-      setWorkspaceFiles(next);
+      const next = await awaitFencedRead(read, onGetWorkspaceFiles(owner.sessionID));
+      if (!isCurrentRead(filesReadRef, read)) return;
+      commitWorkspaceFiles(owner, next);
       setFilesFailed(next === null);
       filesLoadedRef.current = Boolean(next);
     } catch {
-      setWorkspaceFiles(null);
+      if (!isCurrentRead(filesReadRef, read)) return;
+      commitWorkspaceFiles(owner, null);
       setFilesFailed(true);
     } finally {
-      setLoadingFiles(false);
+      const canWrite = isCurrentRead(filesReadRef, read);
+      finishRead(filesReadRef, read);
+      if (canWrite) setLoadingFiles(false);
     }
   }
 
-  async function copyText(text: string, key: string) {
+  async function writeClipboard(operation: WorkspaceOperationFence, text: string, key: string) {
     if (!navigator.clipboard?.writeText) {
-      setLocalError("Clipboard access is not available in this environment.");
+      if (isCurrentOperation(copyOperationRef, operation)) {
+        setLocalError("Clipboard access is not available in this environment.");
+      }
       return;
     }
     try {
       await navigator.clipboard.writeText(text);
+      if (!isCurrentOperation(copyOperationRef, operation)) return;
       setCopiedKey(key);
-      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = window.setTimeout(() => {
+      clearCopiedTimer();
+      const timer = window.setTimeout(() => {
+        if (copiedTimerRef.current !== timer || !isCurrentOwner(operation.owner)) return;
         setCopiedKey("");
         copiedTimerRef.current = null;
       }, 1500);
+      copiedTimerRef.current = timer;
     } catch {
-      setLocalError("Could not copy that diff.");
+      if (isCurrentOperation(copyOperationRef, operation)) {
+        setLocalError("Could not copy that diff.");
+      }
+    }
+  }
+
+  async function copyText(text: string, key: string) {
+    const owner = currentOwnerForProps();
+    if (!owner || snapshotOwnerRef.current !== owner) return;
+    const operation = beginOperation(copyOperationRef, owner);
+    if (!operation) return;
+    setCopyingPath("");
+    setLocalError("");
+    try {
+      await writeClipboard(operation, text, key);
+    } finally {
+      const canWrite = isCurrentOperation(copyOperationRef, operation);
+      finishOperation(copyOperationRef, operation);
+      if (canWrite) setCopyingPath("");
     }
   }
 
   async function copyFileDiff(file: ChatChangedFileRecord) {
+    const owner = currentOwnerForProps();
+    const snapshotAtStart = snapshotValueRef.current;
+    if (!owner || snapshotOwnerRef.current !== owner || !snapshotAtStart) return;
+    const operation = beginOperation(copyOperationRef, owner);
+    if (!operation) return;
     setCopyingPath(file.path);
     setLocalError("");
     try {
-      const next = await loadFileDiff(file);
+      const result = await loadFileDiff(owner, file);
+      if (
+        result.status === "stale" ||
+        !isCurrentOperation(copyOperationRef, operation) ||
+        snapshotValueRef.current !== snapshotAtStart
+      ) {
+        return;
+      }
       const patch =
-        next?.diff || extractFilePatchFromWorkspaceDiff(snapshot?.diff ?? "", file.path);
+        result.value?.diff ||
+        extractFilePatchFromWorkspaceDiff(snapshotAtStart.diff ?? "", file.path);
       if (patch) {
-        await copyText(patch, `file:${file.path}`);
+        await writeClipboard(operation, patch, `file:${file.path}`);
       } else {
         setLocalError("Could not load that file diff.");
       }
     } catch {
-      setLocalError("Could not load that file diff.");
+      if (isCurrentOperation(copyOperationRef, operation)) {
+        setLocalError("Could not load that file diff.");
+      }
     } finally {
-      setCopyingPath("");
+      const canWrite = isCurrentOperation(copyOperationRef, operation);
+      finishOperation(copyOperationRef, operation);
+      if (canWrite) setCopyingPath("");
     }
   }
 
-  async function confirmRevert(paths: string[], label: string) {
-    setRevertingPath(label);
+  function requestRevert(paths: string[], label: string) {
+    const owner = currentOwnerForProps();
+    const currentSnapshot = snapshotValueRef.current;
+    const revision = currentSnapshot?.revision?.trim() ?? "";
+    if (
+      revertDisabled ||
+      !owner ||
+      snapshotOwnerRef.current !== owner ||
+      !currentSnapshot ||
+      !revision ||
+      paths.some((path) => !currentSnapshot.files.some((file) => file.path === path))
+    ) {
+      return;
+    }
+    updateRevertIntent({
+      owner,
+      snapshot: currentSnapshot,
+      revision,
+      paths: [...paths],
+      label,
+    });
+  }
+
+  function cancelRevert() {
+    const intent = revertIntentRef.current;
+    if (!intent || !isCurrentOwner(intent.owner) || revertOperationRef.current) return;
+    updateRevertIntent(null);
+  }
+
+  async function confirmRevert() {
+    const activeRevert = revertOperationRef.current;
+    if (activeRevert && isCurrentOperation(revertOperationRef, activeRevert)) return;
+    const intent = revertIntentRef.current;
+    if (
+      revertDisabled ||
+      !intent ||
+      !isCurrentOwner(intent.owner) ||
+      snapshotOwnerRef.current !== intent.owner ||
+      snapshotValueRef.current !== intent.snapshot ||
+      intent.snapshot.revision !== intent.revision
+    ) {
+      if (intent && isCurrentOwner(intent.owner)) updateRevertIntent(null);
+      return;
+    }
+    const operation = beginOperation(revertOperationRef, intent.owner);
+    if (!operation) return;
+    const refreshFilesAfterRevert = filesLoadedRef.current;
+    let shouldRefreshFiles = false;
+    abortReadSlot(reviewReadRef);
+    abortReadSlot(filesReadRef);
+    abortFileDiffReads();
+    setLoadingReview(false);
+    setLoadingFiles(false);
+    setLoadingPath("");
+    setRevertingPath(intent.label);
     setLocalError("");
     try {
-      const next = await onRevertWorkspaceFiles(sessionID, paths);
+      const next = await onRevertWorkspaceFiles(
+        intent.owner.sessionID,
+        [...intent.paths],
+        intent.revision,
+      );
+      if (!isCurrentOperation(revertOperationRef, operation)) return;
       if (next) {
-        setSnapshot(next);
+        commitSnapshot(intent.owner, next);
         setFileDiffs((current) => {
-          if (paths.length === 0) {
+          if (!isCurrentOperation(revertOperationRef, operation)) return current;
+          if (intent.paths.length === 0) {
             fileDiffsRef.current = {};
             return {};
           }
           const nextDiffs = { ...current };
-          for (const path of paths) delete nextDiffs[path];
+          for (const path of intent.paths) delete nextDiffs[path];
           fileDiffsRef.current = nextDiffs;
           return nextDiffs;
         });
-        setExpandedDiffPaths((current) =>
-          paths.length === 0 ? [] : current.filter((path) => !paths.includes(path)),
-        );
-        if (filesLoadedRef.current) void refreshFiles();
+        setExpandedDiffPaths((current) => {
+          if (!isCurrentOperation(revertOperationRef, operation)) return current;
+          return intent.paths.length === 0
+            ? []
+            : current.filter((path) => !intent.paths.includes(path));
+        });
+        if (intent.paths.length === 0) {
+          failedFileDiffPathsRef.current = new Set();
+        } else {
+          for (const path of intent.paths) failedFileDiffPathsRef.current.delete(path);
+        }
+        shouldRefreshFiles = refreshFilesAfterRevert;
       } else {
+        // A failed destructive request can mean the reviewed revision is
+        // stale, staged state appeared, or another writer owns the workspace.
+        // The callback deliberately hides transport details, so invalidate all
+        // mutation authority on every null result and require a fresh review.
+        commitSnapshot(intent.owner, null);
+        failedFileDiffPathsRef.current = new Set();
+        replaceFileDiffs(intent.owner, {});
+        setExpandedDiffPaths([]);
+        setReviewFailed(true);
         setLocalError("Could not discard those workspace changes.");
       }
     } catch {
-      setLocalError("Could not discard those workspace changes.");
+      if (isCurrentOperation(revertOperationRef, operation)) {
+        commitSnapshot(intent.owner, null);
+        failedFileDiffPathsRef.current = new Set();
+        replaceFileDiffs(intent.owner, {});
+        setExpandedDiffPaths([]);
+        setReviewFailed(true);
+        setLocalError("Could not discard those workspace changes.");
+      }
     } finally {
-      setConfirmRevertPath("");
-      setRevertingPath("");
+      const canWrite = isCurrentOperation(revertOperationRef, operation);
+      finishOperation(revertOperationRef, operation);
+      if (canWrite) {
+        updateRevertIntent(null);
+        setRevertingPath("");
+        if (shouldRefreshFiles) void refreshFiles(intent.owner);
+      }
     }
   }
 
   function toggleFileDiff(file: ChatChangedFileRecord) {
+    const owner = currentOwnerForProps();
+    if (!owner || snapshotOwnerRef.current !== owner) return;
     const isExpanding = !expandedDiffPaths.includes(file.path);
     setExpandedDiffPaths((current) =>
       current.includes(file.path)
@@ -328,54 +752,121 @@ export function ChatWorkspaceChangesPanel({
     if (!isExpanding) return;
     const hasWorkspacePatch = Boolean(extractFilePatchFromWorkspaceDiff(diff, file.path).trim());
     if (!hasWorkspacePatch && !failedFileDiffPathsRef.current.has(file.path)) {
-      void ensureFileDiff(file);
+      void ensureFileDiff(owner, file);
     }
   }
 
-  useEffect(() => {
-    filesLoadedRef.current = false;
-    setWorkspaceFiles(null);
-    failedFileDiffPathsRef.current = new Set();
-    replaceFileDiffs({});
-    setExpandedDiffPaths([]);
-    setExpandedFileDirs([]);
-    void refreshReview();
+  useLayoutEffect(() => {
+    let owner = ownerRef.current!;
+    if (
+      owner.sessionID !== sessionID ||
+      owner.workspace !== workspace ||
+      owner.controller.signal.aborted
+    ) {
+      owner.controller.abort();
+      abortReadSlot(reviewReadRef);
+      abortReadSlot(filesReadRef);
+      abortFileDiffReads();
+      ownerGenerationRef.current += 1;
+      owner = {
+        sessionID,
+        workspace,
+        generation: ownerGenerationRef.current,
+        controller: new AbortController(),
+      };
+      ownerRef.current = owner;
+      snapshotOwnerRef.current = null;
+      snapshotValueRef.current = null;
+      workspaceFilesOwnerRef.current = null;
+      filesLoadedRef.current = false;
+      fileDiffsRef.current = {};
+      failedFileDiffPathsRef.current = new Set();
+      loadingFileDiffRef.current = null;
+      copyOperationRef.current = null;
+      revertOperationRef.current = null;
+      revertIntentRef.current = null;
+      clearCopiedTimer();
+      setSnapshot(null);
+      setWorkspaceFiles(null);
+      setFileDiffs({});
+      setExpandedDiffPaths([]);
+      setExpandedFileDirs([]);
+      setReviewQuery("");
+      setFileQuery("");
+      setLoadingReview(false);
+      setLoadingFiles(false);
+      setLoadingPath("");
+      setCopyingPath("");
+      setCopiedKey("");
+      setRevertingPath("");
+      setRevertIntentState(null);
+      setReviewFailed(false);
+      setFilesFailed(false);
+      setLocalError("");
+    }
+    refreshSignalRef.current = refreshSignal;
+    return () => {
+      owner.controller.abort();
+      clearCopiedTimer();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionID, workspace]);
 
   useEffect(() => {
-    if (activeView === "files" && !filesLoadedRef.current && !loadingFiles) {
-      void refreshFiles();
+    const owner = currentOwnerForProps();
+    if (owner) void refreshReview(owner);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionID, workspace]);
+
+  useEffect(() => {
+    const owner = currentOwnerForProps();
+    if (
+      owner &&
+      activeView === "files" &&
+      !filesLoadedRef.current &&
+      !(filesReadRef.current && isCurrentRead(filesReadRef, filesReadRef.current))
+    ) {
+      void refreshFiles(owner);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, sessionID, workspace]);
+  }, [activeView, revertingPath, sessionID, workspace]);
 
   useEffect(() => {
     if (refreshSignalRef.current === refreshSignal) return;
     refreshSignalRef.current = refreshSignal;
-    void refreshReview();
-    if (filesLoadedRef.current) void refreshFiles();
+    const owner = currentOwnerForProps();
+    if (!owner) return;
+    void refreshReview(owner);
+    if (filesLoadedRef.current) void refreshFiles(owner);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSignal]);
 
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
-    };
-  }, []);
-
-  const files = snapshot?.files ?? EMPTY_CHANGED_FILES;
-  const diffStat = snapshot?.diff_stat?.trim() ?? "";
-  const diff = snapshot?.diff?.trim() ?? "";
-  const hasChanges = Boolean(snapshot?.has_changes || files.length > 0 || diffStat || diff);
+  const renderedOwner = currentOwnerForProps();
+  const visibleSnapshot =
+    renderedOwner && snapshotOwnerRef.current === renderedOwner ? snapshot : null;
+  const visibleWorkspaceFiles =
+    renderedOwner && workspaceFilesOwnerRef.current === renderedOwner ? workspaceFiles : null;
+  const visibleFileDiffs = renderedOwner ? fileDiffs : {};
+  const visibleRevertIntent =
+    renderedOwner &&
+    revertIntent?.owner === renderedOwner &&
+    revertIntent.snapshot === visibleSnapshot
+      ? revertIntent
+      : null;
+  const confirmRevertPath = visibleRevertIntent?.label ?? "";
+  const files = visibleSnapshot?.files ?? EMPTY_CHANGED_FILES;
+  const diffStat = visibleSnapshot?.diff_stat?.trim() ?? "";
+  const diff = visibleSnapshot?.diff?.trim() ?? "";
+  const hasChanges = Boolean(visibleSnapshot?.has_changes || files.length > 0 || diffStat || diff);
+  const workspaceRevertDisabled = revertDisabled || !visibleSnapshot?.revision?.trim();
   const reviewSummary = summarizeChangedFiles(files, diffStat);
   const filteredChangedFiles = useMemo(
     () => prioritizeDiffCandidates(filterChangedFiles(files, reviewQuery), diff),
     [files, reviewQuery, diff],
   );
   const fileTree = useMemo(
-    () => buildWorkspaceFileTree(workspaceFiles?.files ?? EMPTY_WORKSPACE_FILES, fileQuery),
-    [workspaceFiles, fileQuery],
+    () => buildWorkspaceFileTree(visibleWorkspaceFiles?.files ?? EMPTY_WORKSPACE_FILES, fileQuery),
+    [visibleWorkspaceFiles, fileQuery],
   );
 
   useEffect(() => {
@@ -462,8 +953,16 @@ export function ChatWorkspaceChangesPanel({
             <button
               aria-label="Refresh"
               className="btn btn-ghost btn-sm"
-              disabled={activeView === "review" ? loadingReview : loadingFiles}
-              onClick={() => void (activeView === "review" ? refreshReview() : refreshFiles())}
+              disabled={
+                !renderedOwner ||
+                Boolean(revertingPath) ||
+                (activeView === "review" ? loadingReview : loadingFiles)
+              }
+              onClick={() => {
+                const owner = currentOwnerForProps();
+                if (!owner) return;
+                void (activeView === "review" ? refreshReview(owner) : refreshFiles(owner));
+              }}
               title={activeView === "review" ? "Refresh workspace diff" : "Refresh workspace files"}
               type="button"
             >
@@ -491,34 +990,35 @@ export function ChatWorkspaceChangesPanel({
         {activeView === "review" ? (
           <WorkspaceReviewView
             confirmRevertPath={confirmRevertPath}
-            copiedKey={copiedKey}
-            copyingPath={copyingPath}
+            copiedKey={renderedOwner ? copiedKey : ""}
+            copyingPath={renderedOwner ? copyingPath : ""}
             diff={diff}
             expandedDiffPaths={expandedDiffPaths}
-            fileDiffs={fileDiffs}
+            fileDiffs={visibleFileDiffs}
             files={filteredChangedFiles}
             hasChanges={hasChanges}
-            loading={loadingReview}
-            loadingPath={loadingPath}
+            loading={Boolean(renderedOwner && loadingReview)}
+            loadingPath={renderedOwner ? loadingPath : ""}
             query={reviewQuery}
-            revertingPath={revertingPath}
-            reviewFailed={reviewFailed}
+            revertingPath={renderedOwner ? revertingPath : ""}
+            revertDisabled={workspaceRevertDisabled}
+            reviewFailed={Boolean(renderedOwner && reviewFailed)}
             summary={reviewSummary}
-            onCancelRevert={() => setConfirmRevertPath("")}
+            onCancelRevert={cancelRevert}
             onChangeQuery={setReviewQuery}
-            onConfirmRevert={(paths, label) => void confirmRevert(paths, label)}
+            onConfirmRevert={() => void confirmRevert()}
             onCopyAll={() => void copyText(diff, "full")}
             onCopyFileDiff={(file) => void copyFileDiff(file)}
-            onRequestRevert={setConfirmRevertPath}
-            onRequestRevertAll={() => setConfirmRevertPath("__all__")}
+            onRequestRevert={(path) => requestRevert([path], path)}
+            onRequestRevertAll={() => requestRevert([], "__all__")}
             onToggleDiff={toggleFileDiff}
           />
         ) : (
           <WorkspaceFilesView
             expandedDirPaths={expandedFileDirs}
-            files={workspaceFiles}
-            filesFailed={filesFailed}
-            loading={loadingFiles}
+            files={visibleWorkspaceFiles}
+            filesFailed={Boolean(renderedOwner && filesFailed)}
+            loading={Boolean(renderedOwner && loadingFiles)}
             query={fileQuery}
             tree={fileTree}
             onChangeQuery={setFileQuery}
@@ -531,7 +1031,7 @@ export function ChatWorkspaceChangesPanel({
             }
           />
         )}
-        {localError && <InlineError message={localError} />}
+        {renderedOwner && localError && <InlineError message={localError} />}
       </div>
     </div>
   );
@@ -600,6 +1100,7 @@ function WorkspaceReviewView({
   loadingPath,
   query,
   revertingPath,
+  revertDisabled,
   reviewFailed,
   summary,
   onCancelRevert,
@@ -623,11 +1124,12 @@ function WorkspaceReviewView({
   loadingPath: string;
   query: string;
   revertingPath: string;
+  revertDisabled: boolean;
   reviewFailed: boolean;
   summary: string;
   onCancelRevert: () => void;
   onChangeQuery: (query: string) => void;
-  onConfirmRevert: (paths: string[], label: string) => void;
+  onConfirmRevert: () => void;
   onCopyAll: () => void;
   onCopyFileDiff: (file: ChatChangedFileRecord) => void;
   onRequestRevert: (path: string) => void;
@@ -734,17 +1236,18 @@ function WorkspaceReviewView({
               {confirmRevertPath === "__all__" ? (
                 <ConfirmInline
                   busy={revertingPath === "__all__"}
+                  disabled={revertDisabled}
                   cancelAriaLabel="Cancel discard all workspace changes"
                   confirmAriaLabel="Confirm discard all workspace changes"
                   confirmLabel="Discard all"
                   onCancel={onCancelRevert}
-                  onConfirm={() => onConfirmRevert([], "__all__")}
+                  onConfirm={onConfirmRevert}
                 />
               ) : (
                 <button
                   aria-label="Discard all workspace changes"
                   className="btn btn-ghost btn-sm"
-                  disabled={Boolean(revertingPath)}
+                  disabled={revertDisabled || Boolean(revertingPath)}
                   onClick={onRequestRevertAll}
                   title="Discard all workspace changes"
                   type="button"
@@ -798,6 +1301,7 @@ function WorkspaceReviewView({
                   hasTextPatch={hasTextDiffHunks(filePatch.trim())}
                   loading={loadingPath === file.path}
                   revertingPath={revertingPath}
+                  revertDisabled={revertDisabled}
                   summary={summarizeDiffAvailability(file, filePatch)}
                   onCancelRevert={onCancelRevert}
                   onConfirmRevert={onConfirmRevert}
@@ -824,6 +1328,7 @@ function ChangedFileReviewItem({
   hasTextPatch,
   loading,
   revertingPath,
+  revertDisabled,
   summary,
   onCancelRevert,
   onConfirmRevert,
@@ -840,9 +1345,10 @@ function ChangedFileReviewItem({
   hasTextPatch: boolean;
   loading: boolean;
   revertingPath: string;
+  revertDisabled: boolean;
   summary: string;
   onCancelRevert: () => void;
-  onConfirmRevert: (paths: string[], label: string) => void;
+  onConfirmRevert: () => void;
   onCopyFileDiff: (file: ChatChangedFileRecord) => void;
   onRequestRevert: (path: string) => void;
   onToggleDiff: (file: ChatChangedFileRecord) => void;
@@ -935,11 +1441,12 @@ function ChangedFileReviewItem({
         {confirmRevertPath === file.path ? (
           <ConfirmInline
             busy={revertingPath === file.path}
+            disabled={revertDisabled}
             cancelAriaLabel={`Cancel discard ${file.path}`}
             confirmAriaLabel={`Confirm discard ${file.path}`}
             confirmLabel="Discard"
             onCancel={onCancelRevert}
-            onConfirm={() => onConfirmRevert([file.path], file.path)}
+            onConfirm={onConfirmRevert}
           />
         ) : (
           <div
@@ -963,7 +1470,7 @@ function ChangedFileReviewItem({
             <button
               aria-label={`Discard ${file.path}`}
               className="btn btn-ghost btn-sm"
-              disabled={Boolean(revertingPath)}
+              disabled={revertDisabled || Boolean(revertingPath)}
               onClick={() => onRequestRevert(file.path)}
               title={`Discard ${file.path}`}
               type="button"
@@ -1362,6 +1869,7 @@ function SearchBox({
 
 function ConfirmInline({
   busy,
+  disabled,
   cancelAriaLabel,
   confirmAriaLabel,
   confirmLabel,
@@ -1369,6 +1877,7 @@ function ConfirmInline({
   onConfirm,
 }: {
   busy: boolean;
+  disabled: boolean;
   cancelAriaLabel: string;
   confirmAriaLabel: string;
   confirmLabel: string;
@@ -1380,7 +1889,7 @@ function ConfirmInline({
       <button
         aria-label={confirmAriaLabel}
         className="btn btn-ghost btn-sm"
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={onConfirm}
         type="button"
       >

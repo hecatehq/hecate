@@ -415,20 +415,28 @@ type ProvidersConfig struct {
 }
 
 type OpenAICompatibleProviderConfig struct {
-	Name         string        `json:"name"`
-	Aliases      []string      `json:"aliases,omitempty"`
-	Kind         string        `json:"kind"`
-	Protocol     string        `json:"protocol"`
-	BaseURL      string        `json:"base_url"`
-	APIKey       string        `json:"api_key"`
-	APIVersion   string        `json:"api_version"`
-	ChatPath     string        `json:"chat_path,omitempty"`
-	ModelsPath   string        `json:"models_path,omitempty"`
-	Timeout      time.Duration `json:"timeout"`
-	StubMode     bool          `json:"stub_mode"`
-	StubResponse string        `json:"stub_response"`
-	DefaultModel string        `json:"default_model"`
-	Enabled      bool          `json:"enabled"`
+	Name    string   `json:"name"`
+	Aliases []string `json:"aliases,omitempty"`
+	// InstanceGeneration is an internal, persisted control-plane generation
+	// seed. Runtime providers fold it into an opaque configuration fingerprint;
+	// it is never sent upstream or exposed through provider APIs.
+	InstanceGeneration string `json:"-"`
+	// ProviderFamily is the canonical built-in identity used only for
+	// provider-specific discovery and model-capability inference. Runtime
+	// routing and operator-facing metadata continue to use Name.
+	ProviderFamily string        `json:"-"`
+	Kind           string        `json:"kind"`
+	Protocol       string        `json:"protocol"`
+	BaseURL        string        `json:"base_url"`
+	APIKey         string        `json:"api_key"`
+	APIVersion     string        `json:"api_version"`
+	ChatPath       string        `json:"chat_path,omitempty"`
+	ModelsPath     string        `json:"models_path,omitempty"`
+	Timeout        time.Duration `json:"timeout"`
+	StubMode       bool          `json:"stub_mode"`
+	StubResponse   string        `json:"stub_response"`
+	DefaultModel   string        `json:"default_model"`
+	Enabled        bool          `json:"enabled"`
 	// KnownModels is an operator-supplied static catalog override. Populated only
 	// via PROVIDER_<NAME>_MODELS env (comma-separated), it populates the static
 	// capabilities when no API key is set and live discovery is skipped. Empty

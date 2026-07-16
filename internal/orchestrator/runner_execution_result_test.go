@@ -2,14 +2,27 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+type failingTerminalTransitionStore struct {
+	taskstate.Store
+	err error
+}
+
+func (s failingTerminalTransitionStore) ApplyRunTerminalTransition(context.Context, taskstate.TerminalRunTransition) (taskstate.TerminalRunTransitionResult, error) {
+	return taskstate.TerminalRunTransitionResult{}, s.err
+}
 
 func TestExecutionResultPersister_PersistsStepsArtifactsAndTerminalCounts(t *testing.T) {
 	t.Parallel()
@@ -121,6 +134,148 @@ func TestExecutionResultPersister_EmitsTurnCostsAndPersistsTotalCost(t *testing.
 	assertEventData(t, event.Data, "run_cumulative_cost_micros_usd", int64(250))
 	assertEventData(t, event.Data, "task_cumulative_cost_micros_usd", int64(1_250))
 	assertEventData(t, event.Data, "tool_calls", 3)
+}
+
+func TestExecutionResultPersister_ReportsDurableCancellationWinner(t *testing.T) {
+	ctx := t.Context()
+	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "durable-winner-metrics")
+	metrics, reader := newMetricsForTest(t)
+	runner.SetMetrics(metrics)
+	winnerFinishedAt := run.StartedAt.Add(250 * time.Millisecond)
+	winner, err := runner.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(
+		task,
+		run,
+		"run cancelled: operator winner",
+		run.RequestID,
+		trace.TraceID,
+		trace,
+		winnerFinishedAt,
+	))
+	if err != nil {
+		t.Fatalf("apply cancellation winner: %v", err)
+	}
+	if winner.Run.Status != "cancelled" {
+		t.Fatalf("winner run status = %q, want cancelled", winner.Run.Status)
+	}
+
+	result, err := newExecutionResultPersister(runner, trace, task, run, run.RequestID).persist(ctx, &ExecutionResult{
+		Status:        "completed",
+		Provider:      "actual-provider",
+		ProviderKind:  "openai",
+		Model:         "actual-model",
+		CostMicrosUSD: 325,
+	})
+	if err != nil {
+		t.Fatalf("persist completed loser: %v", err)
+	}
+	if result.Run.Status != "cancelled" || result.Run.Model != "actual-model" || result.Run.TotalCostMicrosUSD != 325 ||
+		!result.Run.FinishedAt.Equal(winnerFinishedAt) {
+		t.Fatalf("durable result run = %+v, want cancellation winner enriched with executor metadata", result.Run)
+	}
+	storedTask, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found || storedTask.Status != "cancelled" {
+		t.Fatalf("stored task = %+v found=%t err=%v, want cancelled", storedTask, found, err)
+	}
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(ctx, &collected); err != nil {
+		t.Fatalf("Collect metrics: %v", err)
+	}
+	var runs metricdata.Sum[int64]
+	var duration metricdata.Histogram[int64]
+	for _, scope := range collected.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			switch metric.Name {
+			case telemetry.MetricOrchestratorRunsTotal:
+				runs, _ = metric.Data.(metricdata.Sum[int64])
+			case telemetry.MetricOrchestratorRunDuration:
+				duration, _ = metric.Data.(metricdata.Histogram[int64])
+			}
+		}
+	}
+	if len(runs.DataPoints) != 1 || runs.DataPoints[0].Value != 1 {
+		t.Fatalf("run counter = %+v, want one durable terminal record", runs.DataPoints)
+	}
+	if got := metricAttribute(runs.DataPoints[0].Attributes, telemetry.AttrHecateRunStatus); got != "cancelled" {
+		t.Fatalf("run metric status = %q, want cancelled", got)
+	}
+	if got := metricAttribute(runs.DataPoints[0].Attributes, telemetry.AttrGenAIRequestModel); got != "actual-model" {
+		t.Fatalf("run metric model = %q, want actual-model", got)
+	}
+	if len(duration.DataPoints) != 1 || duration.DataPoints[0].Sum != 250 {
+		t.Fatalf("run duration = %+v, want durable winner duration 250ms", duration.DataPoints)
+	}
+
+	runFinished := 0
+	taskFinished := 0
+	for _, event := range trace.Events() {
+		switch event.Name {
+		case telemetry.EventOrchestratorRunFinished:
+			runFinished++
+			if event.Attributes[telemetry.AttrHecateResult] != telemetry.ResultError ||
+				event.Attributes[telemetry.AttrHecateRunDurationMS] != int64(250) {
+				t.Fatalf("run finished trace = %+v, want cancelled winner result/duration", event)
+			}
+		case telemetry.EventOrchestratorTaskFinished:
+			taskFinished++
+			if event.Attributes[telemetry.AttrHecateResult] != telemetry.ResultError {
+				t.Fatalf("task finished trace = %+v, want error result", event)
+			}
+		}
+	}
+	if runFinished != 1 || taskFinished != 1 {
+		t.Fatalf("terminal trace events = run:%d task:%d, want one each", runFinished, taskFinished)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	for _, event := range events {
+		if event.EventType == "run.finished" {
+			t.Fatalf("completed loser emitted terminal event: %+v", event)
+		}
+	}
+}
+
+func TestExecutionResultPersister_TransitionErrorEmitsNoTerminalTelemetry(t *testing.T) {
+	ctx := t.Context()
+	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "terminal-error-metrics")
+	metrics, reader := newMetricsForTest(t)
+	runner.SetMetrics(metrics)
+	terminalErr := errors.New("terminal transition failed")
+	runner.store = failingTerminalTransitionStore{Store: store, err: terminalErr}
+
+	_, err := newExecutionResultPersister(runner, trace, task, run, run.RequestID).persist(ctx, &ExecutionResult{Status: "completed"})
+	if !errors.Is(err, terminalErr) {
+		t.Fatalf("persist error = %v, want %v", err, terminalErr)
+	}
+	for _, event := range trace.Events() {
+		if event.Name == telemetry.EventOrchestratorRunFinished || event.Name == telemetry.EventOrchestratorTaskFinished {
+			t.Fatalf("failed terminal transition emitted terminal trace event: %+v", event)
+		}
+	}
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(ctx, &collected); err != nil {
+		t.Fatalf("Collect metrics: %v", err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != telemetry.MetricOrchestratorRunsTotal {
+				continue
+			}
+			if runs, ok := metric.Data.(metricdata.Sum[int64]); ok && len(runs.DataPoints) != 0 {
+				t.Fatalf("failed terminal transition emitted run metric: %+v", runs.DataPoints)
+			}
+		}
+	}
+}
+
+func metricAttribute(attributes attribute.Set, key string) string {
+	value, ok := attributes.Value(attribute.Key(key))
+	if !ok {
+		return ""
+	}
+	return value.AsString()
 }
 
 func TestExecutionResultPersister_PersistsPendingApprovalAndRequestedEvent(t *testing.T) {

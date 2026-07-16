@@ -344,18 +344,46 @@ function AuthenticatedShell({
     onSelectWorkspace("runs");
   }
 
-  function openChatFromProject(request: ProjectChatRequest) {
+  function projectChatOwnershipBlockReason(): string {
+    if (chat.actions.hasPendingChatAttachments()) {
+      return "Remove attached files before opening a chat from Projects.";
+    }
+    if (chat.actions.hasChatAttachmentTurn()) {
+      return "Wait for the attachment response before opening a chat from Projects.";
+    }
+    if (chat.actions.isChatOwnershipMutationInFlight()) {
+      return chat.actions.chatOwnershipMutationBlockReason();
+    }
+    return "";
+  }
+
+  async function openChatFromProject(request: ProjectChatRequest) {
+    const ownershipBlockReason = projectChatOwnershipBlockReason();
+    if (ownershipBlockReason) {
+      settingsActions.setNoticeMessage("error", ownershipBlockReason);
+      return;
+    }
     if (request.chatSessionID) {
+      const selected = await (request.draft === undefined
+        ? chatActions.selectChatSession(request.chatSessionID)
+        : chatActions.selectChatSession(request.chatSessionID, { draft: request.draft }));
+      if (!selected) return;
+      const lateOwnershipBlockReason = projectChatOwnershipBlockReason();
+      if (lateOwnershipBlockReason) {
+        settingsActions.setNoticeMessage("error", lateOwnershipBlockReason);
+        return;
+      }
       if (request.projectID) {
         void projects.actions.selectProject(request.projectID);
       }
-      void (request.draft === undefined
-        ? chatActions.selectChatSession(request.chatSessionID)
-        : chatActions.selectChatSession(request.chatSessionID, { draft: request.draft }));
       onSelectWorkspace("chats");
       return;
     }
-    if (chat.state.chatCreating || chat.actions.isChatCreationActive()) {
+    if (
+      chat.state.chatCreating ||
+      chat.actions.isChatCreationActive() ||
+      chat.actions.isChatSessionCreateInFlight()
+    ) {
       settingsActions.setNoticeMessage(
         "error",
         "A chat is already starting. Wait for it to finish before opening another.",

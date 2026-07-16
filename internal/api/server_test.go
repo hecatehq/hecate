@@ -29,6 +29,7 @@ import (
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/eventprotocol"
 	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
@@ -1433,6 +1434,93 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestAgentChatLateTerminalActivityStaysWithOriginatingTurn(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{
+		output:          "done\n",
+		nativeSessionID: "native_terminal_origin",
+		terminalActivities: [][]agentadapters.Activity{{{
+			ID:     "terminal:late_origin",
+			Type:   "terminal",
+			Status: "running",
+			Kind:   "execute",
+			Title:  "Terminal command",
+		}}},
+	}
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, dir))
+	first := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"first turn"}`)
+	if len(first.Data.Messages) != 2 || len(runner.runRequests) != 1 {
+		t.Fatalf("first turn messages=%d requests=%d, want 2 and 1", len(first.Data.Messages), len(runner.runRequests))
+	}
+	firstAssistantID := first.Data.Messages[1].ID
+	firstTerminalSink := runner.runRequests[0].OnTerminalActivity
+	if firstTerminalSink == nil {
+		t.Fatal("first RunRequest.OnTerminalActivity = nil")
+	}
+	firstTerminalClosed := runner.runRequests[0].OnTerminalClosed
+	if firstTerminalClosed == nil {
+		t.Fatal("first RunRequest.OnTerminalClosed = nil")
+	}
+
+	second := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"second turn"}`)
+	if len(second.Data.Messages) != 4 {
+		t.Fatalf("second turn messages = %d, want 4", len(second.Data.Messages))
+	}
+	secondAssistantID := second.Data.Messages[3].ID
+
+	firstTerminalSink(agentadapters.Activity{
+		ID:              "terminal:late_origin",
+		Type:            "terminal",
+		Status:          "completed",
+		Kind:            "execute",
+		Title:           "Terminal command",
+		Detail:          "exit code 0",
+		ArtifactPreview: "late output",
+	})
+	firstTerminalClosed("late_origin")
+
+	var hydrated ChatSessionResponse
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		hydrated = mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
+		if len(hydrated.Data.Messages) >= 2 {
+			if activity := findChatActivityByType(hydrated.Data.Messages[1], "terminal"); activity.Status == "completed" {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for late terminal settlement: %+v", hydrated.Data.Messages)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	var firstAssistant, secondAssistant *ChatMessageItem
+	for i := range hydrated.Data.Messages {
+		message := &hydrated.Data.Messages[i]
+		switch message.ID {
+		case firstAssistantID:
+			firstAssistant = message
+		case secondAssistantID:
+			secondAssistant = message
+		}
+	}
+	if firstAssistant == nil || secondAssistant == nil {
+		t.Fatalf("hydrated messages = %+v, want both assistant ids", hydrated.Data.Messages)
+	}
+	if activity := findChatActivityByType(*firstAssistant, "terminal"); activity.ID != "terminal:late_origin" || activity.Status != "completed" || activity.ArtifactPreview != "late output" {
+		t.Fatalf("first assistant terminal activity = %+v, want late completion", activity)
+	}
+	if activity := findChatActivityByType(*secondAssistant, "terminal"); activity.ID != "" {
+		t.Fatalf("second assistant terminal activity = %+v, want none", activity)
+	}
+}
+
 func TestAgentChatSurfacesExternalAgentStopReason(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -1893,6 +1981,43 @@ diff --git a/src/app.go b/src/app.go
 	}
 }
 
+type fixedChatWorkspaceGitRunner struct {
+	snapshot gitrunner.DiffSnapshot
+}
+
+func (r *fixedChatWorkspaceGitRunner) IsWorkTree(context.Context, string) bool {
+	return true
+}
+
+func (r *fixedChatWorkspaceGitRunner) SnapshotDiff(context.Context, string, int64) (gitrunner.DiffSnapshot, error) {
+	return r.snapshot, nil
+}
+
+func (r *fixedChatWorkspaceGitRunner) StatusPorcelain(context.Context, string, int64) (string, error) {
+	return "", nil
+}
+
+func (r *fixedChatWorkspaceGitRunner) ReverseApplySnapshot(context.Context, string, gitrunner.DiffSnapshot, []string) (gitrunner.Result, error) {
+	return gitrunner.Result{ExitCode: -1}, errors.New("unexpected reverse apply")
+}
+
+type blockingChatWorkspaceGitRunner struct {
+	chatWorkspaceGitRunner
+	restoreStarted chan struct{}
+	restoreRelease chan struct{}
+	startOnce      sync.Once
+}
+
+func (r *blockingChatWorkspaceGitRunner) ReverseApplySnapshot(ctx context.Context, workspace string, snapshot gitrunner.DiffSnapshot, paths []string) (gitrunner.Result, error) {
+	r.startOnce.Do(func() { close(r.restoreStarted) })
+	select {
+	case <-r.restoreRelease:
+		return r.chatWorkspaceGitRunner.ReverseApplySnapshot(ctx, workspace, snapshot, paths)
+	case <-ctx.Done():
+		return gitrunner.Result{ExitCode: -1}, ctx.Err()
+	}
+}
+
 func TestChatWorkspaceDiffReturnsCurrentGitDiff(t *testing.T) {
 	workspace := t.TempDir()
 	runTestGit(t, workspace, "init")
@@ -1948,6 +2073,9 @@ func TestChatWorkspaceDiffReturnsCurrentGitDiff(t *testing.T) {
 	if !resp.Data.HasChanges {
 		t.Fatalf("has_changes = false, want true")
 	}
+	if !strings.HasPrefix(resp.Data.Revision, "sha256:") {
+		t.Fatalf("revision = %q, want typed SHA-256 digest", resp.Data.Revision)
+	}
 	if !strings.Contains(resp.Data.DiffStat, "README.md") {
 		t.Fatalf("diff_stat = %q, want current README diff", resp.Data.DiffStat)
 	}
@@ -1971,6 +2099,57 @@ func TestChatWorkspaceDiffReturnsCurrentGitDiff(t *testing.T) {
 	nestedDiff := mustRequestJSON[ChatChangedFileDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/files/"+url.PathEscape("src/app.go"), "")
 	if nestedDiff.Data.Path != "src/app.go" || !strings.Contains(nestedDiff.Data.Diff, "func main") {
 		t.Fatalf("nested file diff = %#v, want src/app.go diff", nestedDiff.Data)
+	}
+}
+
+func TestChatWorkspaceDiffReturnsDeterministicRevisionWithoutWorkspace(t *testing.T) {
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_diff_empty"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:      sessionID,
+		Title:   "No workspace",
+		AgentID: "codex",
+		Status:  "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+
+	if resp.Data.Revision != gitrunner.DiffRevision("") || resp.Data.HasChanges || len(resp.Data.Files) != 0 {
+		t.Fatalf("empty workspace diff = %+v, want deterministic clean revision", resp.Data)
+	}
+}
+
+func TestChatWorkspaceDiffDoesNotAuthorizeStatOnlyObservation(t *testing.T) {
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_diff_stat_only"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:        sessionID,
+		Title:     "Raced stat",
+		AgentID:   "codex",
+		Workspace: "/tmp/stat-observation",
+		Status:    "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.chatWorkspaceGit = &fixedChatWorkspaceGitRunner{snapshot: gitrunner.DiffSnapshot{
+		Stat:     "unreviewed.txt | 1 +\n1 file changed, 1 insertion(+)",
+		Revision: gitrunner.DiffRevision(""),
+	}}
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+
+	if resp.Data.HasChanges || resp.Data.DiffStat != "" || len(resp.Data.Files) != 0 {
+		t.Fatalf("stat-only workspace diff = %+v, want clean non-authoritative snapshot", resp.Data)
 	}
 }
 
@@ -2004,6 +2183,43 @@ func TestChatWorkspaceDiffRejectsInvalidWorkspaces(t *testing.T) {
 				t.Fatalf("body = %s, want git worktree error", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestChatWorkspaceDiffFailsClosedWhenCompletePatchExceedsReviewLimit(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	path := filepath.Join(workspace, "large.txt")
+	if err := os.WriteFile(path, []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+	runTestGit(t, workspace, "add", "large.txt")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(path, []byte(strings.Repeat("changed line\n", 350_000)), 0o644); err != nil {
+		t.Fatalf("write oversized diff: %v", err)
+	}
+	store := chat.NewMemoryStore()
+	const sessionID = "chat_workspace_diff_too_large"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:        sessionID,
+		Title:     "Large diff",
+		AgentID:   "codex",
+		Workspace: workspace,
+		Status:    "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+
+	if !strings.Contains(recorder.Body.String(), "too large to review and revert safely") {
+		t.Fatalf("oversized diff body = %s", recorder.Body.String())
 	}
 }
 
@@ -2192,9 +2408,39 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	apiHandler.SetAgentChatStore(store)
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
 
-	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", `{"paths":["README.md"]}`)
+	missingRevision := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", `{"paths":["README.md"]}`)
+	if !strings.Contains(missingRevision.Body.String(), "expected_revision is required") {
+		t.Fatalf("missing revision body = %s", missingRevision.Body.String())
+	}
+
+	reviewed := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld \n"), 0o644); err != nil {
+		t.Fatalf("drift README: %v", err)
+	}
+	staleBody := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, reviewed.Data.Revision)
+	stale := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", staleBody)
+	if !strings.Contains(stale.Body.String(), "workspace diff changed after it was reviewed") {
+		t.Fatalf("stale revision body = %s", stale.Body.String())
+	}
+	readmeAfterConflict, err := os.ReadFile(filepath.Join(workspace, "README.md"))
+	if err != nil {
+		t.Fatalf("read README after conflict: %v", err)
+	}
+	if got := string(readmeAfterConflict); got != "hello\nworld \n" {
+		t.Fatalf("README changed after stale revert = %q", got)
+	}
+
+	current := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if current.Data.Revision == reviewed.Data.Revision {
+		t.Fatalf("revision did not change for trailing-whitespace drift: %q", current.Data.Revision)
+	}
+	body := fmt.Sprintf(`{"paths":["README.md"],"expected_revision":%q}`, current.Data.Revision)
+	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", body)
 	if resp.Object != "chat_workspace_diff" {
 		t.Fatalf("object = %q, want chat_workspace_diff", resp.Object)
+	}
+	if resp.Data.Revision == current.Data.Revision || !strings.HasPrefix(resp.Data.Revision, "sha256:") {
+		t.Fatalf("post-revert revision = %q, want refreshed typed revision distinct from %q", resp.Data.Revision, current.Data.Revision)
 	}
 	if strings.Contains(resp.Data.DiffStat, "README.md") {
 		t.Fatalf("diff_stat still contains reverted path: %q", resp.Data.DiffStat)
@@ -2216,104 +2462,111 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	if got := string(notes); got != "note\nmore\n" {
 		t.Fatalf("notes after revert = %q, want untouched modification", got)
 	}
-}
 
-func TestRevertChatMessageFilesRestoresSelectedPaths(t *testing.T) {
-	workspace := t.TempDir()
-	runTestGit(t, workspace, "init")
-	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
-	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
-	if err := os.MkdirAll(filepath.Join(workspace, "src"), 0o755); err != nil {
-		t.Fatalf("mkdir src: %v", err)
+	for _, status := range []string{"queued", "running", "awaiting_approval"} {
+		if _, err := store.UpdateSession(context.Background(), sessionID, func(item *chat.Session) {
+			item.Status = status
+		}); err != nil {
+			t.Fatalf("set session status %q: %v", status, err)
+		}
+		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
+		busy := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
+		if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
+			t.Fatalf("busy status %q body = %s", status, busy.Body.String())
+		}
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\n"), 0o644); err != nil {
-		t.Fatalf("write README: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\nvar value = 1\n"), 0o644); err != nil {
-		t.Fatalf("write app: %v", err)
-	}
-	runTestGit(t, workspace, "add", ".")
-	runTestGit(t, workspace, "commit", "-m", "initial")
-	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
-		t.Fatalf("modify README: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\nvar value = 2\n"), 0o644); err != nil {
-		t.Fatalf("modify app: %v", err)
-	}
-	diff := runTestGit(t, workspace, "diff", "--binary")
-	diffStat := runTestGit(t, workspace, "diff", "--stat")
-
-	store := chat.NewMemoryStore()
-	sessionID := "chat_revert"
-	messageID := "msg_revert"
-	if _, err := store.Create(context.Background(), chat.Session{
-		ID:        sessionID,
-		Title:     "Revert",
-		AgentID:   "codex",
-		Workspace: workspace,
-		Status:    "completed",
-		Messages:  []chat.Message{{ID: messageID, Role: "assistant", Status: "completed", Diff: diff, DiffStat: diffStat}},
+	if _, err := store.UpdateSession(context.Background(), sessionID, func(item *chat.Session) {
+		item.Status = "completed"
 	}); err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("set stale terminal session status: %v", err)
 	}
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
-	apiHandler.SetAgentChatStore(store)
-	client := newAPITestClient(t, NewServer(logger, apiHandler))
-
-	resp := mustRequestJSON[ChatRevertResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/messages/"+messageID+"/revert", `{"paths":["src/app.go"]}`)
-	if !resp.Data.Reverted || len(resp.Data.Paths) != 1 || resp.Data.Paths[0] != "src/app.go" {
-		t.Fatalf("revert response = %#v", resp.Data)
-	}
-	appContent, err := os.ReadFile(filepath.Join(workspace, "src", "app.go"))
-	if err != nil {
-		t.Fatalf("read app: %v", err)
-	}
-	if string(appContent) != "package main\nvar value = 1\n" {
-		t.Fatalf("app content = %q, want reverted", string(appContent))
-	}
-	readmeContent, err := os.ReadFile(filepath.Join(workspace, "README.md"))
-	if err != nil {
-		t.Fatalf("read README: %v", err)
-	}
-	if string(readmeContent) != "hello\nworld\n" {
-		t.Fatalf("README content = %q, want still modified", string(readmeContent))
-	}
-	if len(resp.Data.Files) != 1 || resp.Data.Files[0].Path != "README.md" {
-		t.Fatalf("remaining files = %#v, want README only", resp.Data.Files)
-	}
-	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID, "")
-	assistant := got.Data.Messages[0]
-	if !agentChatActivitiesContain(assistant.Activities, "files_reverted") {
-		t.Fatalf("activities = %#v, want files_reverted", assistant.Activities)
-	}
-	if strings.Contains(assistant.Diff, "src/app.go") {
-		t.Fatalf("updated message diff still contains reverted path: %q", assistant.Diff)
-	}
-}
-
-func TestRevertChatMessageFilesRequiresGitWorkspace(t *testing.T) {
-	store := chat.NewMemoryStore()
-	sessionID := "chat_revert_nongit"
-	messageID := "msg_revert"
-	if _, err := store.Create(context.Background(), chat.Session{
-		ID:        sessionID,
-		Title:     "Revert",
-		AgentID:   "codex",
-		Workspace: t.TempDir(),
-		Status:    "completed",
-		Messages:  []chat.Message{{ID: messageID, Role: "assistant", Status: "completed", DiffStat: "README.md | 1 +"}},
+	func() {
+		lifecycle := apiHandler.agentChatLive.snapshotLifecycle(sessionID)
+		defer lifecycle.release()
+		if got := apiHandler.agentChatLive.registerRun(lifecycle, func() {}); got != agentChatRunAccepted {
+			t.Fatalf("register live run = %v, want accepted", got)
+		}
+		defer apiHandler.agentChatLive.clearRun(sessionID)
+		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
+		busy := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
+		if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
+			t.Fatalf("live run body = %s", busy.Body.String())
+		}
+	}()
+	if _, err := store.UpdateSession(context.Background(), sessionID, func(item *chat.Session) {
+		item.Status = "completed"
+		item.Messages = []chat.Message{{
+			ID:     "active_turn",
+			Role:   "assistant",
+			Status: "running",
+		}}
 	}); err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("set active turn: %v", err)
 	}
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
-	apiHandler.SetAgentChatStore(store)
-	client := newAPITestClient(t, NewServer(logger, apiHandler))
+	busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
+	busyTurn := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
+	if !strings.Contains(busyTurn.Body.String(), errCodeAgentSessionBusy) {
+		t.Fatalf("active turn body = %s", busyTurn.Body.String())
+	}
+	notes, err = os.ReadFile(filepath.Join(workspace, "notes.md"))
+	if err != nil {
+		t.Fatalf("read notes after busy conflicts: %v", err)
+	}
+	if got := string(notes); got != "note\nmore\n" {
+		t.Fatalf("notes changed while session busy = %q", got)
+	}
 
-	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/messages/"+messageID+"/revert", `{"paths":["README.md"]}`)
-	if !strings.Contains(rec.Body.String(), "requires a git workspace") {
-		t.Fatalf("body = %s, want git workspace error", rec.Body.String())
+	if _, err := store.UpdateSession(context.Background(), sessionID, func(item *chat.Session) {
+		item.Status = "completed"
+		item.Messages = nil
+	}); err != nil {
+		t.Fatalf("reset session before lifecycle test: %v", err)
+	}
+	blockingRunner := &blockingChatWorkspaceGitRunner{
+		chatWorkspaceGitRunner: gitrunner.NewLocalRunner(),
+		restoreStarted:         make(chan struct{}),
+		restoreRelease:         make(chan struct{}),
+	}
+	apiHandler.chatWorkspaceGit = blockingRunner
+	revertDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert",
+			strings.NewReader(fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)),
+		)
+		client.handler.ServeHTTP(recorder, request)
+		revertDone <- recorder
+	}()
+	select {
+	case <-blockingRunner.restoreStarted:
+	case recorder := <-revertDone:
+		t.Fatalf("revert completed before restore fence: status=%d body=%s", recorder.Code, recorder.Body.String())
+	case <-time.After(3 * time.Second):
+		close(blockingRunner.restoreRelease)
+		t.Fatal("revert did not reach blocked restore")
+	}
+	lifecycle := apiHandler.agentChatLive.snapshotLifecycle(sessionID)
+	registration := apiHandler.agentChatLive.registerRun(lifecycle, func() {})
+	lifecycle.release()
+	if registration == agentChatRunAccepted {
+		apiHandler.agentChatLive.clearRun(sessionID)
+	}
+	close(blockingRunner.restoreRelease)
+	recorder := <-revertDone
+	if registration != agentChatRunAdmissionClosed {
+		t.Fatalf("run registration during restore = %v, want lifecycle admission closed", registration)
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("fenced revert status = %d, want 200, body=%s", recorder.Code, recorder.Body.String())
+	}
+	notes, err = os.ReadFile(filepath.Join(workspace, "notes.md"))
+	if err != nil {
+		t.Fatalf("read notes after fenced revert: %v", err)
+	}
+	if got := string(notes); got != "note\n" {
+		t.Fatalf("notes after fenced revert = %q, want original", got)
 	}
 }
 
@@ -2470,6 +2723,28 @@ func TestAgentChatModelResolutionRequiredErrorUsesValidationContract(t *testing.
 	}
 	if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
 		t.Fatalf("error missing operator metadata: %+v", payload.Error)
+	}
+}
+
+func TestAgentChatModelResolutionAmbiguousProviderUsesClientErrorContract(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeAgentChatModelResolutionError(rec, modelapp.ProviderAmbiguityError{Provider: "shared-provider"})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusUnprocessableEntity, rec.Body.String())
+	}
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type           string `json:"type"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			Provider       string `json:"provider"`
+		} `json:"error"`
+	}](t, rec)
+	if payload.Error.Type != errCodeProviderAmbiguous {
+		t.Fatalf("error.type = %q, want %q", payload.Error.Type, errCodeProviderAmbiguous)
+	}
+	if payload.Error.Provider != "shared-provider" || payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
+		t.Fatalf("ambiguous provider error missing stable operator details: %+v", payload.Error)
 	}
 }
 
@@ -2855,6 +3130,7 @@ type fakeAgentChatRunner struct {
 	finalOutput            string
 	chunks                 []string
 	activities             []agentadapters.Activity
+	terminalActivities     [][]agentadapters.Activity
 	delay                  time.Duration
 	waitForCancel          bool
 	nativeSessionID        string
@@ -2914,12 +3190,20 @@ func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapt
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
 	started := time.Now().UTC()
+	runIndex := len(r.runRequests)
 	r.runRequests = append(r.runRequests, req)
 	r.seenPreviousID = req.PreviousNativeSessionID
 	output := r.output
 	for _, activity := range r.activities {
 		if req.OnActivity != nil {
 			req.OnActivity(activity)
+		}
+	}
+	if runIndex < len(r.terminalActivities) {
+		for _, activity := range r.terminalActivities[runIndex] {
+			if req.OnTerminalActivity != nil {
+				req.OnTerminalActivity(activity)
+			}
 		}
 	}
 	for _, chunk := range r.chunks {
@@ -3867,8 +4151,8 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
 	cancelled := false
-	if ok := live.registerRun("session_1", func() { cancelled = true }); !ok {
-		t.Fatal("registerRun = false, want true")
+	if got := live.registerRun(live.snapshotLifecycle("session_1"), func() { cancelled = true }); got != agentChatRunAccepted {
+		t.Fatalf("registerRun = %v, want accepted", got)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
@@ -3886,6 +4170,30 @@ func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
 	}
 }
 
+func TestAgentChatLiveRunAdmissionClosureIsRefcounted(t *testing.T) {
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	firstClosure := live.closeSessionLifecycle("session_1")
+	secondClosure := live.closeSessionLifecycle("session_1")
+	duringClosure := live.snapshotLifecycle("session_1")
+
+	if got := live.registerRun(duringClosure, func() {}); got != agentChatRunAdmissionClosed {
+		t.Fatalf("registerRun with two closures = %v, want admission closed", got)
+	}
+	firstClosure.release()
+	firstClosure.release()
+	if got := live.registerRun(duringClosure, func() {}); got != agentChatRunAdmissionClosed {
+		t.Fatalf("registerRun after one release = %v, want admission closed", got)
+	}
+	secondClosure.release()
+	if got := live.registerRun(duringClosure, func() {}); got != agentChatRunAdmissionClosed {
+		t.Fatalf("registerRun with snapshot captured during closure = %v, want admission closed", got)
+	}
+	if got := live.registerRun(live.snapshotLifecycle("session_1"), func() {}); got != agentChatRunAccepted {
+		t.Fatalf("registerRun after final release = %v, want accepted", got)
+	}
+	live.clearRun("session_1")
+}
+
 // TestAgentChatLiveCancelReasonForOperatorPath pins the reason
 // classification used by the agent-chat-cancelled counter:
 // cancelRun and cancelRunAndWait both stamp "operator", and a
@@ -3893,7 +4201,7 @@ func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
 // (the handler maps empty -> "request_cancelled").
 func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
-	live.registerRun("session_explicit_cancel", func() {})
+	live.registerRun(live.snapshotLifecycle("session_explicit_cancel"), func() {})
 	if !live.cancelRun("session_explicit_cancel") {
 		t.Fatal("cancelRun = false, want true")
 	}
@@ -3901,7 +4209,7 @@ func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
 		t.Errorf("cancelReasonFor after cancelRun = %q, want %q", got, "operator")
 	}
 
-	live.registerRun("session_wait_cancel", func() {})
+	live.registerRun(live.snapshotLifecycle("session_wait_cancel"), func() {})
 	go func() { _ = live.cancelRunAndWait(context.Background(), "session_wait_cancel") }()
 	// Wait briefly for cancelRunAndWait to mark the reason; clearRun
 	// closes done so the goroutine returns. The reason itself must
@@ -3913,7 +4221,7 @@ func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
 	}
 	live.clearRun("session_wait_cancel")
 
-	live.registerRun("session_never_cancelled", func() {})
+	live.registerRun(live.snapshotLifecycle("session_never_cancelled"), func() {})
 	if got := live.cancelReasonFor("session_never_cancelled"); got != "" {
 		t.Errorf("cancelReasonFor on uncancelled session = %q, want empty (handler maps to request_cancelled)", got)
 	}
@@ -7231,6 +7539,10 @@ func newTestHTTPHandlerWithSettings(logger *slog.Logger, items []providers.Provi
 
 func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
 	registry := providers.NewRegistry(items...)
+	return newTestAPIHandlerWithRegistry(logger, registry, items, cfg, cpStore)
+}
+
+func newTestAPIHandlerWithRegistry(logger *slog.Logger, registry providers.Registry, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
 	providerHistoryStore := providers.NewMemoryHealthHistoryStore()
 	healthTracker := providers.NewMemoryHealthTrackerWithHistory(
 		cfg.Provider.HealthThreshold,
@@ -7380,6 +7692,7 @@ func tryDecodeRecorder[T any](recorder *httptest.ResponseRecorder) (T, bool) {
 type fakeProvider struct {
 	mu           sync.Mutex
 	name         string
+	aliases      []string
 	defaultModel string
 	response     *types.ChatResponse
 	responses    []*types.ChatResponse
@@ -7405,6 +7718,10 @@ func (p *fakeProvider) Name() string {
 		return "openai"
 	}
 	return p.name
+}
+
+func (p *fakeProvider) Aliases() []string {
+	return append([]string(nil), p.aliases...)
 }
 
 func (p *fakeProvider) Kind() providers.Kind {

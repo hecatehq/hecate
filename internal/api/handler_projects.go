@@ -106,6 +106,13 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	mutationCtx, releaseProjectMutation, err := h.projectMutationGate.begin(r.Context(), project.ID)
+	if err != nil {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
+	defer releaseProjectMutation()
+	r = r.WithContext(mutationCtx)
 	if h.projectIdentityWritesUseCairnlineAuthority() {
 		project, err = h.createProjectWithCairnlineAuthority(r.Context(), project)
 		if errors.Is(err, projects.ErrInvalid) || errors.Is(err, cairnline.ErrInvalid) {
@@ -459,6 +466,25 @@ func (h *Handler) HandleDeleteProjectContextSource(w http.ResponseWriter, r *htt
 }
 
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	// The process-wide destructive closure is always acquired before the
+	// project key. Nested cleanup callbacks inherit the project lease; ordinary
+	// multi-project operations acquire their complete key set atomically.
+	releaseMutation, err := h.stateMutationGate.beginDestructive(r.Context())
+	if errors.Is(err, errDestructiveStateMutationInProgress) {
+		err = fmt.Errorf("%w: another project deletion is already in progress", projectapp.ErrProjectDeleteConflict)
+	}
+	if err != nil {
+		h.writeProjectDeleteResponse(w, projectapp.DeleteProjectResult{}, err)
+		return
+	}
+	defer releaseMutation()
+	mutationCtx, releaseProjectMutation, err := h.projectMutationGate.beginDestructive(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.writeProjectDeleteResponse(w, projectapp.DeleteProjectResult{}, err)
+		return
+	}
+	defer releaseProjectMutation()
+	r = r.WithContext(mutationCtx)
 	if h.projectIdentityWritesUseCairnlineAuthority() {
 		result, err := h.deleteProjectWithCairnlineAuthority(r.Context(), r.PathValue("id"))
 		h.writeProjectDeleteResponse(w, result, err)
@@ -476,7 +502,9 @@ func (h *Handler) writeProjectDeleteResponse(w http.ResponseWriter, result proje
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
 	}
-	if errors.Is(err, projectapp.ErrProjectDeleteConflict) {
+	if errors.Is(err, projectapp.ErrProjectDeleteConflict) ||
+		errors.Is(err, errProjectMutationClosed) ||
+		errors.Is(err, errProjectMutationFenceOrder) {
 		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 		return
 	}
@@ -814,6 +842,10 @@ func (h *Handler) renderStrictEmbeddedCairnlineProject(ctx context.Context, proj
 }
 
 func writeProjectReadRenderError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errProjectMutationClosed) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
 	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 }
 

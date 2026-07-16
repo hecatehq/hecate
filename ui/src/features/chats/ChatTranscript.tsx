@@ -3,13 +3,13 @@ import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { useChat } from "../../app/state/chat";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useChatTarget } from "../../app/state/derived";
-import { useProjects } from "../../app/state/projects";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { getTaskRunArtifact } from "../../lib/api";
 import { formatDurationMs } from "../../lib/format";
 import { writeProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
 import type {
   ChatActivityRecord,
+  ChatAttachmentRecord,
   ChatContextPacketRecord,
   ChatMessageRecord,
   ChatSegmentRecord,
@@ -21,6 +21,7 @@ import { CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 
 import { compactID } from "./ChatComposer";
+import { ChatAttachmentGallery } from "./ChatImageAttachments";
 import {
   compactWorkspaceChangeLabel,
   workspaceChangeSummaryLabel,
@@ -40,6 +41,7 @@ export type VisibleChatMessage = {
   native_session_id?: string;
   role: string;
   content: string | null;
+  attachments?: ChatAttachmentRecord[];
   created_at?: string;
   produced_by_call_id?: string;
   agent_id?: string;
@@ -84,6 +86,8 @@ type Props = {
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onOpenWorkspaceChanges?: () => void;
+  canOpenProject: () => boolean;
+  onOpenProject: (projectID: string) => boolean;
   openExternalAgentSetup: (adapterID?: string) => void;
 };
 
@@ -155,10 +159,11 @@ export function ChatTranscript({
   onOpenTask,
   onOpenTrace,
   onOpenWorkspaceChanges,
+  canOpenProject,
+  onOpenProject,
   openExternalAgentSetup,
 }: Props) {
   const chat = useChat();
-  const projects = useProjects();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
   const chatActions = useChatActions({
@@ -256,6 +261,7 @@ export function ChatTranscript({
         );
         return;
       }
+      if (!canOpenProject()) return;
       try {
         const artifact = await getTaskRunArtifact(taskID, runID, artifactID);
         const payload = parseProjectAssistantProposalArtifact(artifact.data.content_text ?? "");
@@ -266,6 +272,7 @@ export function ChatTranscript({
           );
           return;
         }
+        if (!canOpenProject()) return;
         const projectID = payload.project_id.trim();
         const handoffWritten = writeProjectAssistantChatHandoff({
           project_id: projectID,
@@ -281,8 +288,7 @@ export function ChatTranscript({
           );
           return;
         }
-        void projects.actions.selectProject(projectID);
-        onNavigate?.("projects");
+        if (!onOpenProject(projectID)) return;
         settingsActions.setNoticeMessage(
           "success",
           "Project Assistant proposal loaded. Review it in Projects.",
@@ -521,6 +527,7 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
       model={agentModel}
       brand={messageBrand(m, isHecateAgentChat)}
       content={content}
+      contentPrefix={<ChatAttachmentGallery attachments={m.attachments} />}
       diffStat={role === "assistant" ? m.diff_stat : undefined}
       diff={role === "assistant" ? m.diff : undefined}
       time={time}
@@ -641,6 +648,7 @@ function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessa
     native_session_id: m.native_session_id,
     role: m.role,
     content: m.content,
+    attachments: m.attachments,
     created_at: m.created_at,
     agent_id: m.agent_id,
     agent_name: m.agent_name,

@@ -280,7 +280,12 @@ For stale selected models, Hecate Chat returns
 `422 model_not_configured` with the same readiness vocabulary: the selected
 provider/model, a stable reason such as `provider_missing`,
 `provider_not_ready`, or `model_not_discovered`, suggested replacement models,
-and an `operator_action` that can be shown directly in the UI.
+and an `operator_action` that can be shown directly in the UI. Provider identity
+resolves by exact canonical runtime name, then a unique normalized canonical
+name, then a unique stable alias. Alias collisions return
+`422 provider_ambiguous`; readiness reports `provider_ambiguous` without
+catalog-order suggestions. Disabled and zero-model providers still participate
+in identity resolution even though they contribute no `/v1/models` rows.
 
 Route reports in the trace inspector reuse the same readiness vocabulary when
 they explain why a provider/model candidate was skipped.

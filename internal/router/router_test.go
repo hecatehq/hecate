@@ -2,11 +2,15 @@ package router
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -240,6 +244,216 @@ func TestRuleRouterHonorsExplicitProvider(t *testing.T) {
 	}
 }
 
+func TestRuleRouterFiltersImageInputCandidatesAndFallbacks(t *testing.T) {
+	t.Parallel()
+
+	capabilities := func(name, imageInput string) providers.Capabilities {
+		return providers.Capabilities{
+			Name:            name,
+			Kind:            providers.KindCloud,
+			DefaultModel:    "shared-model",
+			Models:          []string{"shared-model"},
+			DiscoverySource: "provider",
+			ModelCapabilities: map[string]types.ModelCapabilities{
+				"shared-model": {ImageInput: imageInput, Source: "provider"},
+			},
+		}
+	}
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "a-text", kind: providers.KindCloud, defaultModel: "shared-model", supportedModels: []string{"shared-model"}, capabilities: capabilities("a-text", "none")},
+		&fakeProvider{name: "b-vision", kind: providers.KindCloud, defaultModel: "shared-model", supportedModels: []string{"shared-model"}, capabilities: capabilities("b-vision", "supported")},
+		&fakeProvider{name: "c-vision", kind: providers.KindCloud, defaultModel: "shared-model", supportedModels: []string{"shared-model"}, capabilities: capabilities("c-vision", "supported")},
+	)
+	router := NewRuleRouter("shared-model", catalog.NewRegistryCatalog(registry, nil))
+	req := types.ChatRequest{
+		Model:        "shared-model",
+		Requirements: types.ChatRequestRequirements{ImageInput: true},
+		Messages: []types.Message{{
+			Role: "user",
+			ContentBlocks: []types.ContentBlock{{
+				Type:  "image_url",
+				Image: &types.ContentImage{URL: "data:image/png;base64,aW1hZ2U="},
+			}},
+		}},
+	}
+
+	got, err := router.Route(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Route() error = %v", err)
+	}
+	if got.Provider != "b-vision" {
+		t.Fatalf("Route() provider = %q, want b-vision", got.Provider)
+	}
+	fallbacks := router.Fallbacks(context.Background(), req, got)
+	if len(fallbacks) != 1 || fallbacks[0].Provider != "c-vision" {
+		t.Fatalf("Fallbacks() = %+v, want only c-vision", fallbacks)
+	}
+
+	req.Scope.ProviderHint = "a-text"
+	if _, err := router.Route(context.Background(), req); err == nil {
+		t.Fatal("Route() pinned text-only provider error = nil")
+	}
+}
+
+func TestRuleRouterRejectsExpectedProviderInstanceAfterSameNameReplacement(t *testing.T) {
+	t.Parallel()
+
+	newVisionProvider := func() *fakeProvider {
+		return &fakeProvider{
+			name:            "vision",
+			kind:            providers.KindCloud,
+			defaultModel:    "vision-model",
+			supportedModels: []string{"vision-model"},
+			capabilities: providers.Capabilities{
+				Name:            "vision",
+				Kind:            providers.KindCloud,
+				DefaultModel:    "vision-model",
+				Models:          []string{"vision-model"},
+				DiscoverySource: "provider",
+				ModelCapabilities: map[string]types.ModelCapabilities{
+					"vision-model": {ImageInput: "supported", Source: "provider"},
+				},
+			},
+		}
+	}
+	registry := providers.NewMutableRegistry(newVisionProvider())
+	router := NewRuleRouter("", catalog.NewRegistryCatalog(registry, nil))
+	request := types.ChatRequest{
+		Model: "vision-model",
+		Scope: types.RequestScope{ProviderHint: "vision"},
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:    true,
+			ExactProvider: true,
+		},
+	}
+	admitted, err := router.Route(context.Background(), request)
+	if err != nil {
+		t.Fatalf("initial Route() error = %v", err)
+	}
+	if !admitted.ProviderInstance.Valid() {
+		t.Fatalf("initial provider instance = %+v, want execution fence", admitted.ProviderInstance)
+	}
+
+	request.Requirements.ProviderInstance = admitted.ProviderInstance
+	registry.Replace(newVisionProvider())
+	if _, err := router.Route(context.Background(), request); err == nil || !strings.Contains(err.Error(), "configuration changed during image admission") {
+		t.Fatalf("Route() error = %v, want expected-instance rejection", err)
+	}
+}
+
+func TestRuleRouterUsesCanonicalProviderFamilyForImageInput(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	openAI := providers.NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:           "OpenAI Production",
+		ProviderFamily: "openai",
+		Kind:           "cloud",
+		Protocol:       "openai",
+		StubMode:       true,
+		KnownModels:    []string{"gpt-4o"},
+		DefaultModel:   "gpt-4o",
+		Enabled:        true,
+	}, logger)
+	anthropic := providers.NewAnthropicProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "Anthropic Production",
+		Kind:         "cloud",
+		Protocol:     "anthropic",
+		StubMode:     true,
+		KnownModels:  []string{"claude-sonnet-4-6"},
+		DefaultModel: "claude-sonnet-4-6",
+		Enabled:      true,
+	}, logger)
+	router := NewRuleRouter("", catalog.NewRegistryCatalog(providers.NewRegistry(openAI, anthropic), nil))
+
+	for _, tt := range []struct {
+		name     string
+		provider string
+		model    string
+	}{
+		{name: "renamed OpenAI preset", provider: "OpenAI Production", model: "gpt-4o"},
+		{name: "renamed Anthropic protocol", provider: "Anthropic Production", model: "claude-sonnet-4-6"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := router.Route(context.Background(), types.ChatRequest{
+				Model:        tt.model,
+				Scope:        types.RequestScope{ProviderHint: tt.provider},
+				Requirements: types.ChatRequestRequirements{ImageInput: true},
+			})
+			if err != nil {
+				t.Fatalf("Route() error = %v", err)
+			}
+			if got.Provider != tt.provider {
+				t.Fatalf("Route() provider = %q, want configured routing id %q", got.Provider, tt.provider)
+			}
+		})
+	}
+}
+
+func TestRuleRouterDoesNotTreatGenericOpenAIEndpointAsOpenAIFamily(t *testing.T) {
+	t.Parallel()
+
+	provider := providers.NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "openai",
+		Kind:         "cloud",
+		Protocol:     "openai",
+		StubMode:     true,
+		KnownModels:  []string{"gpt-4o"},
+		DefaultModel: "gpt-4o",
+		Enabled:      true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := NewRuleRouter("", catalog.NewRegistryCatalog(providers.NewRegistry(provider), nil))
+
+	_, err := router.Route(context.Background(), types.ChatRequest{
+		Model:        "gpt-4o",
+		Scope:        types.RequestScope{ProviderHint: "openai"},
+		Requirements: types.ChatRequestRequirements{ImageInput: true},
+	})
+	if err == nil {
+		t.Fatal("Route() error = nil, want generic OpenAI-compatible endpoint to remain image-input unknown")
+	}
+}
+
+func TestRuleRouterPreservesRichContentPassthroughWithoutInternalImageRequirement(t *testing.T) {
+	t.Parallel()
+
+	capabilities := func(name string) providers.Capabilities {
+		return providers.Capabilities{
+			Name:            name,
+			Kind:            providers.KindCloud,
+			DefaultModel:    "custom-multimodal",
+			Models:          []string{"custom-multimodal"},
+			DiscoverySource: "provider",
+		}
+	}
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "a-custom", kind: providers.KindCloud, defaultModel: "custom-multimodal", supportedModels: []string{"custom-multimodal"}, capabilities: capabilities("a-custom")},
+		&fakeProvider{name: "b-custom", kind: providers.KindCloud, defaultModel: "custom-multimodal", supportedModels: []string{"custom-multimodal"}, capabilities: capabilities("b-custom")},
+	)
+	router := NewRuleRouter("custom-multimodal", catalog.NewRegistryCatalog(registry, nil))
+	req := types.ChatRequest{
+		Model: "custom-multimodal",
+		Messages: []types.Message{{
+			Role: "user",
+			ContentBlocks: []types.ContentBlock{{
+				Type:  "image_url",
+				Image: &types.ContentImage{URL: "https://example.com/image.png"},
+			}},
+		}},
+	}
+
+	got, err := router.Route(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Route() error = %v, want public rich-content passthrough", err)
+	}
+	if got.Provider != "a-custom" {
+		t.Fatalf("Route() provider = %q, want normal ordering without capability filtering", got.Provider)
+	}
+	if fallbacks := router.Fallbacks(context.Background(), req, got); len(fallbacks) != 1 || fallbacks[0].Provider != "b-custom" {
+		t.Fatalf("Fallbacks() = %+v, want unknown-capability passthrough fallback", fallbacks)
+	}
+}
+
 func TestRuleRouterHonorsExplicitProviderAlias(t *testing.T) {
 	t.Parallel()
 
@@ -258,6 +472,76 @@ func TestRuleRouterHonorsExplicitProviderAlias(t *testing.T) {
 	}
 	if got.Provider != "Fake Dogfood" || got.Model != "dogfood-model" || got.Reason != "pinned_provider" {
 		t.Fatalf("Route() = %+v, want Fake Dogfood default model via alias", got)
+	}
+}
+
+func TestRuleRouterExactProviderDoesNotFallBackToNormalizedNameOrAlias(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		provider *fakeProvider
+	}{
+		{
+			name:     "normalized canonical name",
+			provider: &fakeProvider{name: "VISION-A", kind: providers.KindCloud, defaultModel: "vision-model"},
+		},
+		{
+			name:     "provider alias",
+			provider: &fakeProvider{name: "vision-b", aliases: []string{"vision-a"}, kind: providers.KindCloud, defaultModel: "vision-model"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			router := NewRuleRouter("fallback-model", catalog.NewRegistryCatalog(providers.NewRegistry(tt.provider), nil))
+
+			_, err := router.Route(context.Background(), types.ChatRequest{
+				Requirements: types.ChatRequestRequirements{ExactProvider: true},
+				Scope:        types.RequestScope{ProviderHint: "vision-a"},
+			})
+			if err == nil || err.Error() != `provider "vision-a" not found` {
+				t.Fatalf("Route() error = %v, want exact-provider not-found error", err)
+			}
+		})
+	}
+}
+
+func TestRuleRouterCanonicalProviderNameWinsAliasCollision(t *testing.T) {
+	t.Parallel()
+
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "vision-a", aliases: []string{"vision-b"}, kind: providers.KindCloud, defaultModel: "alias-model"},
+		&fakeProvider{name: "vision-b", kind: providers.KindCloud, defaultModel: "canonical-model"},
+	)
+	router := NewRuleRouter("fallback-model", catalog.NewRegistryCatalog(registry, nil))
+
+	got, err := router.Route(context.Background(), types.ChatRequest{
+		Scope: types.RequestScope{ProviderHint: "vision-b"},
+	})
+	if err != nil {
+		t.Fatalf("Route() error = %v", err)
+	}
+	if got.Provider != "vision-b" || got.Model != "canonical-model" {
+		t.Fatalf("Route() = %+v, want exact canonical provider rather than alias owner", got)
+	}
+}
+
+func TestRuleRouterRejectsAmbiguousProviderAlias(t *testing.T) {
+	t.Parallel()
+
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "vision-a", aliases: []string{"shared-vision"}, kind: providers.KindCloud, defaultModel: "vision-model"},
+		&fakeProvider{name: "vision-b", aliases: []string{"shared-vision"}, kind: providers.KindCloud, defaultModel: "vision-model"},
+	)
+	router := NewRuleRouter("fallback-model", catalog.NewRegistryCatalog(registry, nil))
+
+	_, err := router.Route(context.Background(), types.ChatRequest{
+		Scope: types.RequestScope{ProviderHint: "shared-vision"},
+	})
+	if err == nil || err.Error() != `provider "shared-vision" matches multiple configured providers` {
+		t.Fatalf("Route() error = %v, want ambiguous provider alias error", err)
 	}
 }
 

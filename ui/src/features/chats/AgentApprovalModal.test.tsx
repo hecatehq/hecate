@@ -286,4 +286,28 @@ describe("AgentApprovalModal", () => {
       }),
     );
   });
+
+  it("disables every decision mutation while the session is stopping", async () => {
+    const { fetchApproval, onResolve, onCancel, onClose } = setup();
+    render(
+      <AgentApprovalModal
+        sessionID="s"
+        approvalID="ap-1"
+        disabled
+        onClose={onClose}
+        fetchApproval={fetchApproval}
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+    await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
+
+    expect(screen.getByTestId("agent-approval-modal-submit")).toBeDisabled();
+    expect(screen.getByTestId("agent-approval-modal-cancel")).toBeDisabled();
+    expect(screen.getByTestId("agent-approval-modal-decision-allow")).toBeDisabled();
+    expect(screen.getByTestId("agent-approval-modal-scope-once")).toBeDisabled();
+    expect(screen.getByTestId("agent-approval-modal-note")).toBeDisabled();
+    expect(onResolve).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
 });

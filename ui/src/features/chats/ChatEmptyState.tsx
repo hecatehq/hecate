@@ -16,6 +16,7 @@ type Props = {
   setupRepair: ChatSetupRepairState | null;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
+  modelMutationDisabled?: boolean;
   agentRouteUnavailable: boolean;
   nothingRunnable: boolean;
   agentAdapters: AgentAdapterRecord[];
@@ -49,6 +50,7 @@ export function ChatEmptyState({
   setupRepair,
   modelRouteUnavailable,
   selectedModelIssue,
+  modelMutationDisabled = false,
   agentRouteUnavailable,
   nothingRunnable,
   agentAdapters,
@@ -163,6 +165,7 @@ export function ChatEmptyState({
         <SelectedModelReadinessNotice
           issue={selectedModelIssue}
           compact
+          disabled={modelMutationDisabled}
           onUseSuggestedModel={onUseSuggestedModel}
         />
       )}
@@ -188,6 +191,7 @@ export function ChatEmptyState({
           {showPrimaryRepairAction && emptyRepairAction && (
             <button
               className="btn btn-primary btn-sm"
+              disabled={modelMutationDisabled && emptyRepairAction.action === "use_suggested_model"}
               onClick={runEmptyRepairAction}
               type="button"
               style={{ display: "flex", alignItems: "center", gap: 4 }}

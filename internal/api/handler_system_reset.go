@@ -13,29 +13,44 @@ import (
 	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
-// HandleSystemResetData removes local operator state without restarting the
-// gateway. Chat sessions are deleted through the normal chat path so live
-// external-agent sessions are closed before their rows disappear.
+// HandleSystemResetData fails closed until the runtime has a process-wide
+// quiescence protocol for every durable writer. Deleting only the stores known
+// to this handler could report success while queue workers, retention, gateway
+// finalizers, or external-agent callbacks repopulate state immediately after
+// it was cleared.
 func (h *Handler) HandleSystemResetData(w http.ResponseWriter, r *http.Request) {
 	if !requireLoopbackClient(w, r, "system reset") {
 		return
 	}
-	stats, err := h.resetSystemData(r.Context())
-	if errors.Is(err, errChatSessionDeleteConflict) || errors.Is(err, errSystemResetConflict) {
-		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
-		return
-	}
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	WriteJSON(w, http.StatusOK, SystemResetDataResponse{Object: "system_reset", Data: stats})
+	WriteErrorDetails(w, http.StatusConflict, errCodeConflict, errSystemResetUnavailable.Error(), ErrorDetails{
+		UserMessage:    systemResetUnavailableUserMessage,
+		OperatorAction: systemResetUnavailableOperatorAction,
+	})
 }
 
-var errSystemResetConflict = errors.New("system reset conflict")
+const (
+	systemResetUnavailableUserMessage    = "In-process data reset is unavailable."
+	systemResetUnavailableOperatorAction = "Stop the runtime completely, then follow the deployment-specific state reset procedure."
+)
 
+var (
+	errSystemResetConflict    = errors.New("system reset conflict")
+	errSystemResetUnavailable = errors.New("in-process data reset is unavailable until runtime-wide write quiescence is implemented; stop the runtime before clearing its configured state")
+)
+
+// resetSystemData contains the ordered cleanup sequence for a future caller
+// that has already quiesced every runtime writer. It must not be called by a
+// live HTTP endpoint until that process-wide precondition is enforceable.
 func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseItem, error) {
 	var stats SystemResetDataResponseItem
+	releaseMutation, err := h.stateMutationGate.beginDestructive(ctx)
+	if errors.Is(err, errDestructiveStateMutationInProgress) {
+		return stats, fmt.Errorf("%w: destructive cleanup is already in progress", errSystemResetConflict)
+	}
+	if err != nil {
+		return stats, err
+	}
+	defer releaseMutation()
 
 	chatDeleted, err := h.resetChatSessions(ctx)
 	if err != nil {
