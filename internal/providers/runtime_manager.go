@@ -256,6 +256,8 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			cfg.ProviderFamily = builtIn.ID
 			cfg.ChatPath = builtIn.ChatPath
 			cfg.ModelsPath = builtIn.ModelsPath
+			cfg.TranscriptionPath = builtIn.TranscriptionPath
+			cfg.DefaultTranscriptionModel = builtIn.DefaultTranscriptionModel
 			if builtIn.ID == "fireworks" {
 				cfg.ModelsPath = config.FireworksModelsPath(item.AccountID)
 			}

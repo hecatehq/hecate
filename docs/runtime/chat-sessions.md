@@ -200,6 +200,29 @@ blocked/unload-protected; persistent failures require clearing Hecate site data
 through browser settings. The running system-reset endpoint does not touch
 server or browser state because it fails closed before mutation.
 
+### Dictation
+
+The chat composer can turn a short microphone recording into editable draft
+text for Hecate Chat, direct-model chat, or an External Agent chat. Dictation is
+not part of the chat execution route: the operator chooses a transcription
+provider independently, sees whether it is local or cloud, and can change that
+choice before recording. Hecate prefers the first available local route when no
+saved choice is available.
+
+Recording is capped at two minutes in the UI and 10 MiB at the API boundary.
+The composer stops every microphone track when recording ends, the active chat
+changes, or the component unmounts. Hecate sends the audio only to the selected
+provider generation, with no cross-provider retry or failover, and does not
+retain the audio. The transcript is inserted at the current textarea selection
+with readable boundary spacing. It remains an ordinary editable draft and is
+never sent automatically.
+
+The built-in transcription routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
+(`whisper-large-v3-turbo`), and LocalAI (`whisper-1`). Operators can also opt an
+env-configured OpenAI-compatible provider into the same typed contract. See
+[Providers](../operator/providers.md#dictation-providers) and the
+[Runtime API](runtime-api.md#dictation-api).
+
 ### File attachments
 
 Chat attachments have two execution-specific admission modes:

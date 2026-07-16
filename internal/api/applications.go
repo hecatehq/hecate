@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hecatehq/hecate/internal/chatapp"
+	"github.com/hecatehq/hecate/internal/dictationapp"
 	"github.com/hecatehq/hecate/internal/modelapp"
 	"github.com/hecatehq/hecate/internal/pluginregistryapp"
 	"github.com/hecatehq/hecate/internal/projectapp"
@@ -14,6 +15,13 @@ import (
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
 )
+
+func (h *Handler) dictationApplication() *dictationapp.Application {
+	if h == nil {
+		return dictationapp.New(dictationapp.Options{})
+	}
+	return dictationapp.New(dictationapp.Options{Registry: h.dictationRegistry})
+}
 
 func (h *Handler) taskApplication() *taskapp.Application {
 	if h == nil {

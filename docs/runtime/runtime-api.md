@@ -94,6 +94,40 @@ Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404
 rather than falling through to the embedded UI shell.
 
+## Dictation API
+
+Dictation is a Hecate-native composer capability, separate from chat model
+routing:
+
+- `GET /hecate/v1/dictation/options` returns only provider instances with an
+  explicitly configured OpenAI-compatible transcription path and default
+  transcription model. Available local routes sort before available cloud
+  routes; unavailable routes include a bounded reason for operator repair.
+- `POST /hecate/v1/dictation/transcriptions` accepts multipart form data with
+  exactly one `provider`, one `file`, and at most one optional `model`. The
+  response is
+  `{object:"dictation_transcription",data:{provider,provider_kind,model,text}}`.
+
+The upload accepts WebM, Ogg, M4A/MP4, MP3, or WAV audio. Hecate checks the
+declared type against the file signature, permits at most 10 MiB of audio plus
+bounded multipart overhead, applies a 60-second body-read deadline, admits at
+most two dictation requests per process, and bounds the selected provider call
+to five minutes. Both endpoints return `Cache-Control: no-store`.
+
+The provider name is mandatory. Hecate captures that provider's opaque runtime
+generation after reading and validating the upload, rechecks the same
+generation immediately before the upstream call, and never fails over to a
+different provider. This prevents a route replacement from silently changing
+the audio destination. Audio and transcript bodies do not enter Hecate
+persistence, usage events, traces, metrics, or logs; the UI inserts the returned
+text into the editable composer draft and never submits it automatically.
+
+Stable dictation error types are `dictation.invalid`, `dictation.too_large`,
+`dictation.unsupported_media`, `dictation.busy`, `dictation.body_timeout`,
+`dictation.unavailable`, `dictation.route_unavailable`,
+`dictation.route_changed`, `dictation.timeout`, and
+`dictation.upstream_failure`.
+
 ## Error envelope
 
 Hecate-native JSON errors use one stable envelope:

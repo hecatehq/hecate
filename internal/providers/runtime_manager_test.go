@@ -298,6 +298,29 @@ func TestControlPlaneRuntimeManagerHydratesPresetEndpointPaths(t *testing.T) {
 	if openaiProvider.config.ModelsPath != "/v1/models" {
 		t.Fatalf("models path = %q, want /v1/models", openaiProvider.config.ModelsPath)
 	}
+
+	if _, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:       "openai-primary",
+		Name:     "OpenAI",
+		PresetID: "openai",
+		Enabled:  true,
+	}, "openai-secret"); err != nil {
+		t.Fatalf("Upsert(openai) error = %v", err)
+	}
+	provider, ok = registry.Get("openai")
+	if !ok {
+		t.Fatal("expected openai provider in registry")
+	}
+	openaiProvider, ok = provider.(*OpenAICompatibleProvider)
+	if !ok {
+		t.Fatalf("provider type = %T, want *OpenAICompatibleProvider", provider)
+	}
+	if capability := openaiProvider.TranscriptionCapability(); capability.DefaultModel != "gpt-4o-mini-transcribe" {
+		t.Fatalf("transcription capability = %+v", capability)
+	}
+	if openaiProvider.config.TranscriptionPath != "/v1/audio/transcriptions" {
+		t.Fatalf("transcription path = %q, want /v1/audio/transcriptions", openaiProvider.config.TranscriptionPath)
+	}
 }
 
 func TestControlPlaneRuntimeManagerStampsProviderIDAlias(t *testing.T) {

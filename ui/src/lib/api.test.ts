@@ -16,6 +16,7 @@ import {
   createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
+  createDictationTranscription,
   deleteChatAttachment,
   deleteChatGrant,
   deletePolicyRule,
@@ -35,6 +36,7 @@ import {
   getChatWorkspaceDiff,
   getChatWorkspaceFileDiff,
   getChatWorkspaceFiles,
+  getDictationOptions,
   getChatApproval,
   getProjectAssignmentContext,
   getProjectAssignmentLaunchReadiness,
@@ -154,6 +156,54 @@ describe("api client", () => {
       "/hecate/v1/chat/sessions/chat%2F1/attachments/att%2F1",
       expect.objectContaining({ method: "DELETE" }),
     ]);
+  });
+
+  it("loads dictation routes and uploads audio without setting multipart content-type", async () => {
+    fetchMock.mockClear();
+    const optionsPayload = {
+      object: "dictation_options",
+      data: [
+        {
+          provider: "localai",
+          provider_kind: "local",
+          default_model: "whisper-1",
+          available: true,
+        },
+      ],
+    } as const;
+    const transcription = {
+      provider: "localai",
+      provider_kind: "local",
+      model: "whisper-1",
+      text: "voice draft",
+    } as const;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(optionsPayload))
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "dictation_transcription", data: transcription }),
+      );
+    const controller = new AbortController();
+
+    await expect(getDictationOptions(controller.signal)).resolves.toEqual(optionsPayload);
+    const file = new File(["audio"], "dictation.webm", { type: "audio/webm" });
+    await expect(createDictationTranscription("localai", file, controller.signal)).resolves.toEqual(
+      transcription,
+    );
+
+    expect(fetchMock.mock.calls[0]).toEqual([
+      "/hecate/v1/dictation/options",
+      expect.objectContaining({ signal: controller.signal }),
+    ]);
+    const uploadOptions = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(fetchMock.mock.calls[1][0]).toBe("/hecate/v1/dictation/transcriptions");
+    expect(uploadOptions.method).toBe("POST");
+    expect(uploadOptions.signal).toBe(controller.signal);
+    expect(new Headers(uploadOptions.headers).has("Content-Type")).toBe(false);
+    expect((uploadOptions.body as FormData).get("provider")).toBe("localai");
+    expect((uploadOptions.body as FormData).get("file")).toMatchObject({
+      name: "dictation.webm",
+      type: "audio/webm",
+    });
   });
 
   it("preserves arbitrary file metadata in chat attachment uploads", async () => {

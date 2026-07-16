@@ -7,50 +7,60 @@ import (
 )
 
 const (
-	errCodeUnauthorized            = "unauthorized"
-	errCodeInvalidRequest          = "invalid_request"
-	errCodeProjectSetupNoInputs    = "project_setup_no_inputs"
-	errCodeForbidden               = "forbidden"
-	errCodeGatewayError            = "gateway_error"
-	errCodeInternalError           = "internal_error"
-	errCodeUpstreamError           = "upstream_error"
-	errCodeNotFound                = "not_found"
-	errCodeConflict                = "conflict"
-	errCodeRateLimitExceeded       = "rate_limit_exceeded"
-	errCodeRequestTooLarge         = "request_too_large"
-	errCodeRequestBodyTimeout      = "request_body_timeout"
-	errCodeSessionLimitExceeded    = "chat.session_limit_exceeded"
-	errCodeSessionDurationLimit    = "chat.session_duration_limit_exceeded"
-	errCodeSessionIdleTimeout      = "chat.session_idle_timeout"
-	errCodeAgentSessionBusy        = "chat.agent_session_busy"
-	errCodeSessionCreateConflict   = "chat.session_create_conflict"
-	errCodeClientRequestConflict   = "chat.client_request_conflict"
-	errCodeModelCapability         = "chat.model_capability_required"
-	errCodeModelNotConfigured      = "model_not_configured"
-	errCodeProviderAmbiguous       = "provider_ambiguous"
-	errCodeWorkspaceRequired       = "chat.workspace_required"
-	errCodeModelRequired           = "chat.model_required"
-	errCodeAgentIDInvalid          = "chat.agent_id_invalid"
-	errCodeExecutionModeInvalid    = "chat.execution_mode_invalid"
-	errCodeRuntimeMismatch         = "chat.runtime_mismatch"
-	errCodeAgentAdapterNotFound    = "chat.adapter_not_found"
-	errCodeAgentAdapterUnavailable = "chat.adapter_unavailable"
-	errCodeSessionStopping         = "chat.session_stopping"
-	errCodeSessionNotRunning       = "chat.session_not_running"
-	errCodeAttachmentInvalid       = "chat.attachment_invalid"
-	errCodeAttachmentTooLarge      = "chat.attachment_too_large"
-	errCodeAttachmentNotFound      = "chat.attachment_not_found"
-	errCodeAttachmentUnsupported   = "chat.attachment_unsupported"
-	errCodeAttachmentInUse         = "chat.attachment_in_use"
-	errCodeAttachmentDraftQuota    = "chat.attachment_draft_quota_exceeded"
-	errCodeAttachmentSessionQuota  = "chat.attachment_session_quota_exceeded"
-	errCodeAttachmentTotalQuota    = "chat.attachment_total_quota_exceeded"
-	errCodeAttachmentUploadBusy    = "chat.attachment_upload_busy"
-	errCodeAttachmentUploadTimeout = "chat.attachment_upload_timeout"
-	errCodeAttachmentContentBusy   = "chat.attachment_content_busy"
-	errCodeImageCapability         = "chat.image_capability_required"
-	errCodeImageTurnBusy           = "chat.image_turn_busy"
-	errCodeExternalFileTurnBusy    = "chat.external_file_turn_busy"
+	errCodeUnauthorized              = "unauthorized"
+	errCodeInvalidRequest            = "invalid_request"
+	errCodeProjectSetupNoInputs      = "project_setup_no_inputs"
+	errCodeForbidden                 = "forbidden"
+	errCodeGatewayError              = "gateway_error"
+	errCodeInternalError             = "internal_error"
+	errCodeUpstreamError             = "upstream_error"
+	errCodeNotFound                  = "not_found"
+	errCodeConflict                  = "conflict"
+	errCodeRateLimitExceeded         = "rate_limit_exceeded"
+	errCodeRequestTooLarge           = "request_too_large"
+	errCodeRequestBodyTimeout        = "request_body_timeout"
+	errCodeSessionLimitExceeded      = "chat.session_limit_exceeded"
+	errCodeSessionDurationLimit      = "chat.session_duration_limit_exceeded"
+	errCodeSessionIdleTimeout        = "chat.session_idle_timeout"
+	errCodeAgentSessionBusy          = "chat.agent_session_busy"
+	errCodeSessionCreateConflict     = "chat.session_create_conflict"
+	errCodeClientRequestConflict     = "chat.client_request_conflict"
+	errCodeModelCapability           = "chat.model_capability_required"
+	errCodeModelNotConfigured        = "model_not_configured"
+	errCodeProviderAmbiguous         = "provider_ambiguous"
+	errCodeWorkspaceRequired         = "chat.workspace_required"
+	errCodeModelRequired             = "chat.model_required"
+	errCodeAgentIDInvalid            = "chat.agent_id_invalid"
+	errCodeExecutionModeInvalid      = "chat.execution_mode_invalid"
+	errCodeRuntimeMismatch           = "chat.runtime_mismatch"
+	errCodeAgentAdapterNotFound      = "chat.adapter_not_found"
+	errCodeAgentAdapterUnavailable   = "chat.adapter_unavailable"
+	errCodeSessionStopping           = "chat.session_stopping"
+	errCodeSessionNotRunning         = "chat.session_not_running"
+	errCodeAttachmentInvalid         = "chat.attachment_invalid"
+	errCodeAttachmentTooLarge        = "chat.attachment_too_large"
+	errCodeAttachmentNotFound        = "chat.attachment_not_found"
+	errCodeAttachmentUnsupported     = "chat.attachment_unsupported"
+	errCodeAttachmentInUse           = "chat.attachment_in_use"
+	errCodeAttachmentDraftQuota      = "chat.attachment_draft_quota_exceeded"
+	errCodeAttachmentSessionQuota    = "chat.attachment_session_quota_exceeded"
+	errCodeAttachmentTotalQuota      = "chat.attachment_total_quota_exceeded"
+	errCodeAttachmentUploadBusy      = "chat.attachment_upload_busy"
+	errCodeAttachmentUploadTimeout   = "chat.attachment_upload_timeout"
+	errCodeAttachmentContentBusy     = "chat.attachment_content_busy"
+	errCodeImageCapability           = "chat.image_capability_required"
+	errCodeImageTurnBusy             = "chat.image_turn_busy"
+	errCodeExternalFileTurnBusy      = "chat.external_file_turn_busy"
+	errCodeDictationInvalid          = "dictation.invalid"
+	errCodeDictationTooLarge         = "dictation.too_large"
+	errCodeDictationUnsupported      = "dictation.unsupported_media"
+	errCodeDictationBusy             = "dictation.busy"
+	errCodeDictationBodyTimeout      = "dictation.body_timeout"
+	errCodeDictationUnavailable      = "dictation.unavailable"
+	errCodeDictationRouteUnavailable = "dictation.route_unavailable"
+	errCodeDictationRouteChanged     = "dictation.route_changed"
+	errCodeDictationTimeout          = "dictation.timeout"
+	errCodeDictationUpstream         = "dictation.upstream_failure"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
@@ -219,6 +229,26 @@ func defaultErrorUserMessage(code string) string {
 		return "This chat is still stopping."
 	case errCodeSessionNotRunning:
 		return "There is no active run to stop."
+	case errCodeDictationInvalid:
+		return "The dictation request is invalid."
+	case errCodeDictationTooLarge:
+		return "The dictation recording is too large."
+	case errCodeDictationUnsupported:
+		return "This audio format is not supported for dictation."
+	case errCodeDictationBusy:
+		return "Dictation is busy."
+	case errCodeDictationBodyTimeout:
+		return "The dictation recording took too long to upload."
+	case errCodeDictationUnavailable:
+		return "Dictation is not configured."
+	case errCodeDictationRouteUnavailable:
+		return "The selected dictation provider is unavailable."
+	case errCodeDictationRouteChanged:
+		return "The selected dictation provider changed before transcription started."
+	case errCodeDictationTimeout:
+		return "The dictation provider took too long to respond."
+	case errCodeDictationUpstream:
+		return "The dictation provider could not transcribe this recording."
 	default:
 		return ""
 	}
@@ -305,6 +335,26 @@ func defaultErrorAction(code string) string {
 		return "Wait a moment, then retry the action."
 	case errCodeSessionNotRunning:
 		return "Send a new message if you want to start another run."
+	case errCodeDictationInvalid:
+		return "Record a new clip, select a configured provider, and retry."
+	case errCodeDictationTooLarge:
+		return "Record a shorter clip under 10 MiB and retry."
+	case errCodeDictationUnsupported:
+		return "Record in WebM, Ogg, M4A/MP4, MP3, or WAV format and retry."
+	case errCodeDictationBusy:
+		return "Wait briefly, then retry the recording."
+	case errCodeDictationBodyTimeout:
+		return "Retry on a stable connection that can upload the recording within 60 seconds."
+	case errCodeDictationUnavailable:
+		return "Configure an OpenAI, Groq, or LocalAI transcription route in Connections."
+	case errCodeDictationRouteUnavailable:
+		return "Refresh the dictation providers, choose an available route, and retry."
+	case errCodeDictationRouteChanged:
+		return "Review the selected provider and retry so Hecate can re-confirm the audio destination."
+	case errCodeDictationTimeout:
+		return "Retry, or choose another configured transcription provider."
+	case errCodeDictationUpstream:
+		return "Check the selected provider connection, then retry or choose another provider."
 	default:
 		return ""
 	}

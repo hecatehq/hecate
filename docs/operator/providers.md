@@ -120,6 +120,28 @@ Providers whose endpoint is account-, gateway-, deployment-, or header-specific 
 
 `llamacpp` and `localai` share the same default port (`127.0.0.1:8080`); only one of them can be added to the gateway at a time, since the base URL conflict is rejected at create time. Operators who run both should change the port on one of them via the Custom flow or `PROVIDER_*_BASE_URL`.
 
+### Dictation providers
+
+Three built-in presets advertise a separately verified audio-transcription
+contract:
+
+| Provider | Transcription path         | Default model            |
+| -------- | -------------------------- | ------------------------ |
+| OpenAI   | `/v1/audio/transcriptions` | `gpt-4o-mini-transcribe` |
+| Groq     | `/audio/transcriptions`    | `whisper-large-v3-turbo` |
+| LocalAI  | `/audio/transcriptions`    | `whisper-1`              |
+
+These models are deliberately separate from chat model discovery. A provider
+appears in the composer dictation selector only when both its transcription
+path and default transcription model are configured. Missing credentials,
+disabled providers, and invalid provider configuration remain visible as
+unavailable choices so the operator can repair the intended route.
+
+Hecate sends each recording to the explicitly selected provider only. It does
+not use Auto routing or fail over dictation audio to another provider. The
+provider's name and opaque configuration generation are revalidated immediately
+before disclosure.
+
 ## Env-configured providers
 
 Setting `PROVIDER_<NAME>_API_KEY` or `PROVIDER_<NAME>_BASE_URL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Connections view so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Connections view, so operator edits made via the UI are never overwritten by environment values.
@@ -131,6 +153,20 @@ PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
 PROVIDER_OPENAI_API_KEY=sk-...
 PROVIDER_PERPLEXITY_API_KEY=pplx-...
 ```
+
+An env-preconfigured OpenAI-compatible provider can opt into dictation with:
+
+```bash
+PROVIDER_SPEECH_PRECONFIGURED=1
+PROVIDER_SPEECH_BASE_URL=https://speech.example.test/v1
+PROVIDER_SPEECH_API_KEY=...
+PROVIDER_SPEECH_TRANSCRIPTION_PATH=/audio/transcriptions
+PROVIDER_SPEECH_TRANSCRIPTION_MODEL=whisper-1
+```
+
+Those variables are an explicit operator assertion that the endpoint accepts
+the OpenAI-compatible multipart transcription contract. They do not add the
+transcription model to the provider's chat catalog.
 
 Perplexity's Sonar API is OpenAI Chat Completions-compatible but uses a
 provider-specific endpoint layout: Hecate sends chat traffic to

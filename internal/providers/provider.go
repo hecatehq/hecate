@@ -72,6 +72,34 @@ type Streamer interface {
 	ChatStream(ctx context.Context, req types.ChatRequest, w io.Writer) error
 }
 
+// TranscriptionCapability describes an explicitly verified audio
+// transcription contract. Transcription models are deliberately not folded
+// into chat capabilities: many upstreams do not list them in chat catalogs,
+// and accepting every OpenAI-shaped provider would disclose microphone audio
+// to an endpoint Hecate has not verified.
+type TranscriptionCapability struct {
+	DefaultModel string
+}
+
+type TranscriptionRequest struct {
+	Audio     []byte
+	Filename  string
+	MediaType string
+	Model     string
+}
+
+type TranscriptionResponse struct {
+	Text  string
+	Model string
+}
+
+// Transcriber is optional. Only provider instances with an explicitly
+// configured transcription path and default model advertise the capability.
+type Transcriber interface {
+	TranscriptionCapability() TranscriptionCapability
+	Transcribe(ctx context.Context, req TranscriptionRequest) (*TranscriptionResponse, error)
+}
+
 // Validator is an optional interface for providers to surface configuration problems
 // (e.g. missing API key) before any response bytes are written.
 type Validator interface {

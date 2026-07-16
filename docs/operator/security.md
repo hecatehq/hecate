@@ -167,6 +167,31 @@ Hecate stores local configuration and operational state on disk.
   apply there. The self-hosted warning is conservative advisory output and can
   still appear behind an authenticating reverse proxy.
 
+### Dictation audio
+
+Microphone audio is sensitive operator input. Hecate accepts dictation only on
+the Hecate-native runtime API, bounds it to 10 MiB, validates its declared media
+type against its file signature, and holds at most two requests in process at a
+time. The body exists only in transient request/provider memory: Hecate does not
+write audio to the chat attachment store, transcript rows, usage events,
+traces, metrics, logs, or artifacts.
+
+The operator must select one transcription provider. Hecate captures that
+provider's opaque generation and revalidates it immediately before the upstream
+call; provider removal, endpoint/account replacement, or capability removal
+fails closed before disclosure. Dictation has no Auto route and no
+cross-provider failover. A configured cloud provider receives the recording;
+the `local` label describes provider configuration and is not a network egress
+firewall. Use a local LocalAI endpoint when audio must stay on the operator's
+machine, and enforce destination policy outside Hecate for non-loopback custom
+URLs.
+
+The returned transcript becomes ordinary editable composer text. It is not
+auto-sent, but once the operator sends it, normal chat transcript retention and
+provider/agent disclosure rules apply. The desktop app requests OS microphone
+permission only when recording starts; browser deployments are subject to the
+browser and origin's microphone permission policy.
+
 ### Chat attachment data
 
 Files attached to Hecate Chat are operator data and can be sensitive. Hecate

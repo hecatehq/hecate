@@ -67,6 +67,8 @@ func configurationProviderInstanceIdentity(cfg config.OpenAICompatibleProviderCo
 		APIVersion             string
 		ChatPath               string
 		ModelsPath             string
+		TranscriptionPath      string
+		TranscriptionModel     string
 		TimeoutNanoseconds     int64
 		StubMode               bool
 		StubResponse           string
@@ -85,6 +87,8 @@ func configurationProviderInstanceIdentity(cfg config.OpenAICompatibleProviderCo
 		APIVersion:             cfg.APIVersion,
 		ChatPath:               cfg.ChatPath,
 		ModelsPath:             cfg.ModelsPath,
+		TranscriptionPath:      cfg.TranscriptionPath,
+		TranscriptionModel:     cfg.DefaultTranscriptionModel,
 		TimeoutNanoseconds:     int64(cfg.Timeout),
 		StubMode:               cfg.StubMode,
 		StubResponse:           cfg.StubResponse,

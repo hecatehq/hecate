@@ -37,6 +37,7 @@ import {
   HecateProviderConfigControl,
   LockedHecateModelSnapshot,
 } from "./ChatAgentControls";
+import { ChatDictationControl } from "./ChatDictationControl";
 import { ChatNoticeInline } from "./ChatNotice";
 import {
   appendChatFiles,
@@ -502,6 +503,27 @@ export function ChatComposer(props: ChatComposerProps) {
     messageHistoryCursorRef.current = null;
     messageHistoryPendingTextRef.current = value;
     runtime.actions.setMessage(value);
+  }
+
+  function insertDictationTranscript(transcript: string) {
+    const node = textareaRef.current;
+    const selectionStart = node?.selectionStart ?? message.length;
+    const selectionEnd = node?.selectionEnd ?? selectionStart;
+    const insertion = insertTranscriptAtSelection(
+      message,
+      transcript,
+      selectionStart,
+      selectionEnd,
+    );
+    messageHistoryCursorRef.current = null;
+    messageHistoryPendingTextRef.current = insertion.value;
+    runtime.actions.setMessage(insertion.value);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(insertion.cursor, insertion.cursor);
+    });
   }
 
   function addPendingFiles(files: File[]) {
@@ -1077,6 +1099,11 @@ export function ChatComposer(props: ChatComposerProps) {
               onRemove={removePendingFile}
             />
           </div>
+          <ChatDictationControl
+            key={activeSessionID || "new-chat"}
+            disabled={composerInputDisabled}
+            onTranscript={insertDictationTranscript}
+          />
           <div
             role="combobox"
             aria-controls={commandPickerVisible ? commandListboxID : undefined}
@@ -1955,4 +1982,28 @@ export function compactID(id: string, prefixes: string[], length: number): strin
     trimmed,
   );
   return withoutPrefix.slice(0, length);
+}
+
+export function insertTranscriptAtSelection(
+  current: string,
+  transcript: string,
+  selectionStart: number,
+  selectionEnd: number,
+): { value: string; cursor: number } {
+  const start = Math.max(0, Math.min(current.length, selectionStart));
+  const end = Math.max(start, Math.min(current.length, selectionEnd));
+  const before = current.slice(0, start);
+  const after = current.slice(end);
+  let insertion = transcript.trim();
+  if (insertion === "") return { value: current, cursor: start };
+  if (before !== "" && !/\s$/.test(before) && !/^[,.;:!?)}\]]/.test(insertion)) {
+    insertion = ` ${insertion}`;
+  }
+  if (after !== "" && !/^\s/.test(after) && !/[({[]$/.test(insertion)) {
+    insertion = `${insertion} `;
+  }
+  return {
+    value: before + insertion + after,
+    cursor: before.length + insertion.length,
+  };
 }
