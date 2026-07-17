@@ -101,8 +101,9 @@ fingerprints include the transcription path and default model but exclude
 credentials. The UI stops microphone tracks on stop/unmount/chat switch,
 inserts returned text at the current selection, and never submits it. On Linux,
 the desktop host grants WebKitGTK user-media requests only when they are
-audio-only and the active document matches the exact loopback sidecar origin;
-camera, mismatched-origin, and pre-readiness requests fail closed.
+audio-only, the active document matches the exact loopback sidecar origin, and
+the owned gateway child is still running; camera, mismatched-origin,
+stale-sidecar, and pre-readiness requests fail closed.
 
 ## Chat attachment flow
 

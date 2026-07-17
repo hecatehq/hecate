@@ -219,10 +219,11 @@ never sent automatically.
 
 Browser dictation requires a secure context (HTTPS or the loopback Hecate URL),
 `getUserMedia`, and `MediaRecorder`. The macOS, Windows, and Linux desktop apps
-use those same web APIs through their platform webviews. The composer reports
-an unsupported context separately from an unconfigured transcription provider,
-and a denied microphone request leaves the draft and the rest of the composer
-usable.
+integrate those same web APIs through their platform webviews. Linux and Windows
+desktop capture remain experimental pending real-machine microphone smokes. The
+composer reports an unsupported context separately from an unconfigured
+transcription provider, and a denied microphone request leaves the draft and
+the rest of the composer usable.
 
 The built-in transcription routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
 (`whisper-large-v3-turbo`), and LocalAI (`whisper-1`). Operators can also opt an
