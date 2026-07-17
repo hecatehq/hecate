@@ -87,6 +87,114 @@ func TestAgentLoopConversation_ResumePendingToolCallsClearAfterToolResult(t *tes
 	}
 }
 
+func TestAgentLoopConversation_ContinuationAppendsRichInputMessage(t *testing.T) {
+	saved := []types.Message{
+		{Role: "user", Content: "first prompt"},
+		{Role: "assistant", Content: "first answer"},
+	}
+	raw, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatalf("marshal saved conversation: %v", err)
+	}
+	richInput := types.Message{
+		Role:    "user",
+		Content: "inspect the new image",
+		ContentBlocks: []types.ContentBlock{
+			{Type: "text", Text: "inspect the new image"},
+			{Type: "image", Image: &types.ContentImage{URL: "data:image/png;base64,cG5n"}},
+		},
+	}
+	spec := newAgentLoopSpec(t)
+	spec.InputMessage = &richInput
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		AgentConversation: raw,
+		AppendUserPrompt:  "plain fallback must not be appended",
+	}
+
+	conversation := newAgentLoopConversation(spec)
+	messages := conversation.Messages()
+	if len(messages) != 3 {
+		t.Fatalf("messages = %d, want saved history plus rich input: %+v", len(messages), messages)
+	}
+	got := messages[2]
+	if got.Role != "user" || got.Content != richInput.Content || len(got.ContentBlocks) != 2 || got.ContentBlocks[1].Image == nil {
+		t.Fatalf("appended message = %+v, want rich input message", got)
+	}
+}
+
+func TestAgentLoopConversation_SameRunResumeRestoresRichInputInPlace(t *testing.T) {
+	saved := []types.Message{
+		{
+			Role:    "user",
+			Content: "inspect the image",
+			ContentBlocks: []types.ContentBlock{
+				{Type: "text", Text: "inspect the image"},
+				{Type: "text", Text: artifactImageOmissionText("image/png")},
+			},
+		},
+		{Role: "assistant", ToolCalls: []types.ToolCall{agentLoopToolCall("call-1", "shell_exec", `{"command":"ls"}`)}},
+	}
+	raw, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatalf("marshal saved conversation: %v", err)
+	}
+	richInput := types.Message{
+		Role:    "user",
+		Content: "inspect the image",
+		ContentBlocks: []types.ContentBlock{
+			{Type: "text", Text: "inspect the image"},
+			{Type: "image", Image: &types.ContentImage{URL: "data:image/png;base64,cG5n"}},
+		},
+	}
+	spec := newAgentLoopSpec(t)
+	spec.InputMessage = &richInput
+	spec.ResumeCheckpoint = &ResumeCheckpoint{AgentConversation: raw}
+
+	conversation := newAgentLoopConversation(spec)
+	messages := conversation.Messages()
+	if len(messages) != 2 {
+		t.Fatalf("messages = %d, want restored history without a duplicate user turn: %+v", len(messages), messages)
+	}
+	if image := messages[0].ContentBlocks[1].Image; image == nil || image.URL != richInput.ContentBlocks[1].Image.URL {
+		t.Fatalf("restored user message = %+v, want hydrated image block", messages[0])
+	}
+	pending := conversation.PendingToolCallsForResume()
+	if len(pending) != 1 || pending[0].ID != "call-1" {
+		t.Fatalf("pending tool calls = %+v, want approval-resume call-1", pending)
+	}
+}
+
+func TestAgentLoopConversation_ArtifactSanitizesImageBodiesAndURLs(t *testing.T) {
+	messages := []types.Message{{
+		Role:    "user",
+		Content: "compare images",
+		ContentBlocks: []types.ContentBlock{
+			{Type: "text", Text: "compare images"},
+			{Type: "image_url", Image: &types.ContentImage{URL: "data:image/png;base64,cG5n", MediaType: "image/png"}},
+			{Type: "image", Image: &types.ContentImage{Data: "anBlZw==", MediaType: "image/jpeg"}},
+			{Type: "image_url", Image: &types.ContentImage{URL: "https://example.com/public.png", MediaType: "image/png"}},
+		},
+	}}
+
+	sanitized := conversationMessagesForArtifact(messages)
+	blocks := sanitized[0].ContentBlocks
+	if len(blocks) != 4 {
+		t.Fatalf("sanitized blocks = %d, want 4: %+v", len(blocks), blocks)
+	}
+	if blocks[1].Image != nil || blocks[1].Text != artifactImageOmissionText("image/png") {
+		t.Fatalf("data URL block = %+v, want omission marker", blocks[1])
+	}
+	if blocks[2].Image != nil || blocks[2].Text != artifactImageOmissionText("image/jpeg") {
+		t.Fatalf("inline data block = %+v, want omission marker", blocks[2])
+	}
+	if blocks[3].Image != nil || blocks[3].Text != artifactImageOmissionText("image/png") {
+		t.Fatalf("remote URL block = %+v, want omission marker", blocks[3])
+	}
+	if messages[0].ContentBlocks[1].Image == nil {
+		t.Fatal("sanitizer mutated the live conversation")
+	}
+}
+
 func TestAgentLoopConversation_UpsertArtifactPersistsCurrentMessages(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	var got types.TaskArtifact

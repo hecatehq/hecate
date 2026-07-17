@@ -1232,14 +1232,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function setChatToolsEnabled(enabled: boolean) {
     if (blockWhileChatOwnershipMutationRuns("changing Tools")) return;
-    if (enabled && hasChatAttachmentTurn()) {
-      params.setNoticeMessage("error", "Wait for the attachment response before turning Tools on.");
-      return;
-    }
-    if (enabled && pendingChatAttachments.length > 0) {
-      params.setNoticeMessage("error", "Remove attached files before turning Tools on.");
-      return;
-    }
     if (activeChatSessionID) {
       setChatToolsEnabledBySessionID((current) => {
         const next = new Map(current);
@@ -1277,9 +1269,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function pendingFilesHecateBlockReason(): string {
-    if (defaultChatToolsEnabled) {
-      return "Remove attached files before switching to Hecate with Tools on.";
-    }
     if (
       pendingChatAttachments.some((attachment) => {
         const mediaType = attachment.file.type.trim().toLowerCase();
@@ -1784,16 +1773,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ),
       );
       settleQueuedLocalFailure();
-      return;
-    }
-    if (attachmentDrafts.length > 0 && !isDirectModelTurn && !isExternalAgent) {
-      setChatErrorState(
-        new ApiError(
-          "Attachments are not available in Hecate Chat with Tools on.",
-          400,
-          "chat.attachments_not_supported",
-        ),
-      );
       return;
     }
     if (

@@ -225,7 +225,17 @@ composer reports an unsupported context separately from an unconfigured
 transcription provider, and a denied microphone request leaves the draft and
 the rest of the composer usable.
 
-The built-in transcription routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
+When permission was denied, browser users should open the current site's
+controls in the address bar, change **Microphone** to **Allow**, and reload the
+page. Desktop users should enable Hecate in the operating system's microphone
+privacy settings and restart the app. On macOS that control is **System
+Settings → Privacy & Security → Microphone**; on Windows it is **Settings →
+Privacy & security → Microphone**, including desktop-app access.
+
+The transcription route is independent of the selected chat model or External
+Agent. A Claude/Anthropic chat therefore still needs one configured
+speech-to-text route; the returned text is then an ordinary draft that Claude
+can receive. The built-in routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
 (`whisper-large-v3-turbo`), and LocalAI (`whisper-1`). Operators can also opt an
 env-configured OpenAI-compatible provider into the same typed contract. See
 [Providers](../operator/providers.md#dictation-providers) and the
@@ -233,19 +243,21 @@ env-configured OpenAI-compatible provider into the same typed contract. See
 
 ### File attachments
 
-Chat attachments have two execution-specific admission modes:
+Chat attachments have two ownership-specific admission modes:
 
-- A Hecate-owned direct-model turn requires Tools off, PNG/JPEG/WebP input, and
+- A Hecate-owned turn accepts PNG/JPEG/WebP input with Tools on or off, and
   at least one matching routable provider/model route with effective
   `image_input="supported"`. `unknown`, `none`, and support reported only by a
-  blocked route fail closed.
+  blocked route fail closed. Tools-on agent loops keep only an opaque input
+  reference in task state, hydrate the body immediately before execution, and
+  replace image blocks with a non-sensitive marker in conversation artifacts.
+  Same-input approval resumes and retries rehydrate that marker through the
+  opaque reference; a later chat prompt replaces or clears the reference.
 - An External Agent turn accepts arbitrary non-empty files once its normal
   workspace, adapter, and required launch controls are ready. ACP resource links
   are the baseline. Hecate uses an inline image or embedded resource only when
   the live ACP session reports that capability; otherwise it privately stages
-  the file and sends a resource link. Task-backed Tools-on turns reject
-  attachment ids instead of silently dropping them or changing runtime
-  ownership.
+  the file and sends a resource link.
 
 The direct-model rule is an explicit Hecate Chat runtime requirement;
 provider-compatible `/v1` multimodal requests retain upstream passthrough when
@@ -255,16 +267,16 @@ selected provider instance immediately before dispatch. Their encoded JSON body
 is limited to 32 MiB with a 60-second read deadline.
 
 Both chat modes accept at most four files per message. Each upload is limited to
-5 MiB, and the combined files on one message are limited to 12 MiB. Direct-model
+5 MiB, and the combined files on one message are limited to 12 MiB. Hecate-owned
 images are also limited to 8000 pixels on either axis and 16 megapixels. Hecate
 checks their magic bytes, declared media type, and decoded dimensions, fully
 decodes the bounded image, then records a server-generated id and SHA-256
 digest. External Agent files retain their bounded bytes and declared media type
 without being interpreted as active content by the operator UI. The composer
 supports file selection, drop, and paste. An attachment-bearing draft cannot be
-queued while the chat is busy. Switching from Hecate image mode into an
-External Agent keeps compatible drafts; switching into Tools on or into a
-Hecate route that cannot accept every selected file remains blocked.
+queued while the chat is busy. Switching between Hecate Tools modes or into an
+External Agent keeps compatible drafts; switching into a Hecate route that
+cannot accept every selected file remains blocked.
 Because the browser keeps those local `File` drafts in memory only, it also
 requests confirmation before a page reload or close would discard them. On
 submit, the UI atomically transfers the exact prompt and `File` values out of
@@ -461,15 +473,17 @@ flowchart LR
     Lifecycle -->|"counted binary persistence"| Bodies["Chat attachment store"]
     Destructive["Delete or native close"] -->|"advance generation + drain"| Lifecycle
     Draft -->|"message + attachment ids"| API
-    API -->|"direct-model image"| TurnGate["Image-turn admission"]
+    API -->|"Hecate image"| TurnGate["Image-turn admission"]
     TurnGate -->|"claim drafts"| Bodies
     API -->|"append metadata, then link bodies"| Transcript["Chat transcript metadata"]
-    Transcript --> Hydrate["Direct-model history builder"]
+    Transcript --> Hydrate["Direct-model history or agent-input resolver"]
     Bodies -->|"bounded transient hydration"| Hydrate
     Hydrate -->|"canonical image blocks"| Router["Capability-aware router"]
     Router -->|"name + opaque generation"| Fence["Live provider fence"]
     Fence -->|"exact instance only"| Provider["Selected provider"]
     TurnGate -. "permit held until provider returns" .-> Provider
+    Hydrate -->|"tools-on rich prompt"| AgentLoop["Task-backed agent loop"]
+    AgentLoop -->|"artifact marker; no image body"| TaskArtifacts["Task conversation artifacts"]
     API -->|"External Agent files"| ExternalGate["External file-turn admission"]
     ExternalGate -->|"claim drafts"| Bodies
     Transcript -->|"External Agent turn"| ACP["Live ACP session capabilities"]

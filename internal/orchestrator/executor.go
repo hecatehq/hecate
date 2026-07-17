@@ -68,6 +68,14 @@ type ExecutionSpec struct {
 	// typed runtime events.
 	ToolCallID string
 	ToolName   string
+	// InputMessage is a runtime-hydrated replacement for the fresh or appended
+	// user prompt. It can carry rich content such as an image attachment. The
+	// resolver owns its storage boundary; executors must not persist inline
+	// binary bodies in artifacts.
+	InputMessage *types.Message
+	// ChatRequirements fences every model turn that retains InputMessage in
+	// conversation context (for example, image-capability and provider bounds).
+	ChatRequirements types.ChatRequestRequirements
 }
 
 type ResumeCheckpoint struct {

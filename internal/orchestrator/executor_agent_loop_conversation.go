@@ -149,7 +149,13 @@ func hydrateConversation(spec ExecutionSpec) []types.Message {
 		var saved []types.Message
 		if err := json.Unmarshal(spec.ResumeCheckpoint.AgentConversation, &saved); err == nil && len(saved) > 0 {
 			if prompt := strings.TrimSpace(spec.ResumeCheckpoint.AppendUserPrompt); prompt != "" {
-				saved = append(saved, types.Message{Role: "user", Content: prompt})
+				if spec.InputMessage != nil {
+					saved = append(saved, *spec.InputMessage)
+				} else {
+					saved = append(saved, types.Message{Role: "user", Content: prompt})
+				}
+			} else if spec.InputMessage != nil {
+				restoreArtifactInputMessage(saved, *spec.InputMessage)
 			}
 			return saved
 		}
@@ -173,7 +179,11 @@ func hydrateConversation(spec ExecutionSpec) []types.Message {
 	if strings.TrimSpace(spec.SystemPrompt) != "" {
 		messages = append(messages, types.Message{Role: "system", Content: spec.SystemPrompt})
 	}
-	messages = append(messages, types.Message{Role: "user", Content: spec.Task.Prompt})
+	if spec.InputMessage != nil {
+		messages = append(messages, *spec.InputMessage)
+	} else {
+		messages = append(messages, types.Message{Role: "user", Content: spec.Task.Prompt})
+	}
 	return messages
 }
 
@@ -220,7 +230,7 @@ func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.
 	if spec.UpsertArtifact == nil {
 		return nil, nil
 	}
-	payload, err := json.Marshal(messages)
+	payload, err := json.Marshal(conversationMessagesForArtifact(messages))
 	if err != nil {
 		// Marshal failures here are fatal — every Message field is
 		// JSON-marshalable by construction; a failure would be a
@@ -247,4 +257,61 @@ func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.
 		return nil, err
 	}
 	return &art, nil
+}
+
+// conversationMessagesForArtifact removes image blocks before a task
+// conversation snapshot is persisted. This avoids retaining inline bodies or
+// credential-bearing remote URLs. The live executor retains the original
+// blocks for subsequent turns in the same run. Persisted checkpoints carry an
+// explicit marker; same-input resumes can restore that block from the opaque
+// run reference without copying private binary payloads into task artifacts.
+func conversationMessagesForArtifact(messages []types.Message) []types.Message {
+	result := make([]types.Message, len(messages))
+	for i, message := range messages {
+		result[i] = message
+		if len(message.ContentBlocks) == 0 {
+			continue
+		}
+		blocks := make([]types.ContentBlock, 0, len(message.ContentBlocks))
+		for _, block := range message.ContentBlocks {
+			if block.Image == nil {
+				blocks = append(blocks, block)
+				continue
+			}
+			mediaType := strings.TrimSpace(block.Image.MediaType)
+			if mediaType == "" {
+				mediaType = "image"
+			}
+			blocks = append(blocks, types.ContentBlock{
+				Type: "text",
+				Text: artifactImageOmissionText(mediaType),
+			})
+		}
+		result[i].ContentBlocks = blocks
+	}
+	return result
+}
+
+func restoreArtifactInputMessage(messages []types.Message, input types.Message) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if message.Role != "user" || strings.TrimSpace(message.Content) != strings.TrimSpace(input.Content) || !hasArtifactImageOmission(message.ContentBlocks) {
+			continue
+		}
+		messages[i] = input
+		return
+	}
+}
+
+func hasArtifactImageOmission(blocks []types.ContentBlock) bool {
+	for _, block := range blocks {
+		if block.Type == "text" && strings.HasSuffix(block.Text, " attachment supplied for this turn; binary body not retained in task artifacts]") {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactImageOmissionText(mediaType string) string {
+	return "[" + mediaType + " attachment supplied for this turn; binary body not retained in task artifacts]"
 }

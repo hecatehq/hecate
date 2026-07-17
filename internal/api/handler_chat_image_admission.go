@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ const (
 
 type chatAttachmentTurnAdmission interface {
 	TryAcquire() bool
+	Acquire(context.Context) bool
 	Release()
 }
 
@@ -53,6 +55,15 @@ func (g *fixedChatAttachmentTurnAdmission) TryAcquire() bool {
 	case g.permits <- struct{}{}:
 		return true
 	default:
+		return false
+	}
+}
+
+func (g *fixedChatAttachmentTurnAdmission) Acquire(ctx context.Context) bool {
+	select {
+	case g.permits <- struct{}{}:
+		return true
+	case <-ctx.Done():
 		return false
 	}
 }

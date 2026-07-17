@@ -63,6 +63,10 @@ What works:
   Browser capture has automated end-to-end coverage; Linux and Windows native
   capture are permission-logic- and bundle-tested but remain experimental until
   exercised with real microphones on those platforms.
+  If access was denied, enable Hecate in the operating system's microphone
+  privacy settings and restart the app. On macOS use **System Settings →
+  Privacy & Security → Microphone**. On Windows use **Settings → Privacy &
+  security → Microphone** and enable desktop-app microphone access.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,

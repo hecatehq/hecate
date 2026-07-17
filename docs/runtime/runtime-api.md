@@ -4905,12 +4905,16 @@ the user message and assistant output.
   rows.
 - `attachment_ids` — up to four ids returned by the staging endpoint. The ids
   must belong to this session and total no more than 12 MiB. Hecate-owned
-  `tools_enabled=false` turns accept supported raster images only and require a
+  turns accept supported raster images with tools on or off and require a
   currently routable matching route whose effective capability is
-  `image_input="supported"`. External Agent turns accept the staged files;
-  text may be empty when at least one attachment is present. Hecate persists
-  only immutable attachment metadata on the user message and hydrates the
-  binary bodies transiently for the selected provider or ACP session. ACP rich
+  `image_input="supported"`. A tools-on task run persists only an opaque input
+  reference, hydrates the body immediately before agent-loop execution, and
+  replaces image blocks with omission markers in its conversation artifact.
+  Same-input resumes and retries inherit the reference. External Agent
+  turns accept the staged files; text may be empty when at least one attachment
+  is present. Hecate persists only immutable attachment metadata on the user
+  message and hydrates the binary bodies transiently for the selected provider
+  or ACP session. ACP rich
   blocks share a cumulative 768 KiB encoded wire budget below the supported
   adapters' 1 MiB JSON-RPC line limit. Actual serialized prompt text, base64
   expansion, and JSON escaping consume that budget; a file that would overflow

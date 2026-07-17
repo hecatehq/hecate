@@ -425,7 +425,8 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 		ID:               "task-resume-context",
 		Title:            "resume context",
 		Prompt:           "resume me",
-		ExecutionKind:    "stub",
+		ExecutionKind:    "agent_loop",
+		RequestedModel:   "test-model",
 		WorkingDirectory: t.TempDir(),
 		Status:           "completed",
 		CreatedAt:        now,
@@ -438,6 +439,7 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 		Status:     "completed",
 		StartedAt:  now,
 		FinishedAt: now,
+		InputRef:   "msg_resume_input",
 		ContextPacket: json.RawMessage(`{
 			"id":"ctx_old",
 			"refs":{"session_id":"chat_1","run_id":"run-resume-source"},
@@ -460,6 +462,9 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
 	}
 	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
+	if stored.InputRef != run.InputRef {
+		t.Fatalf("InputRef = %q, want inherited %q", stored.InputRef, run.InputRef)
+	}
 }
 
 func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
@@ -479,7 +484,8 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 		ID:               "task-retry-context",
 		Title:            "retry context",
 		Prompt:           "retry me",
-		ExecutionKind:    "stub",
+		ExecutionKind:    "agent_loop",
+		RequestedModel:   "test-model",
 		WorkingDirectory: t.TempDir(),
 		Status:           "completed",
 		CreatedAt:        now,
@@ -492,6 +498,7 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 		Status:     "completed",
 		StartedAt:  now,
 		FinishedAt: now,
+		InputRef:   "msg_retry_input",
 		ContextPacket: json.RawMessage(`{
 			"id":"ctx_old_retry",
 			"refs":{"session_id":"chat_2","run_id":"run-retry-source"},
@@ -526,6 +533,9 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
 	}
 	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
+	if stored.InputRef != run.InputRef {
+		t.Fatalf("InputRef = %q, want inherited %q", stored.InputRef, run.InputRef)
+	}
 }
 
 func assertCopiedRunContextPacket(t *testing.T, raw json.RawMessage, taskID, runID string) {

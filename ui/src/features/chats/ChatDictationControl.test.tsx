@@ -51,6 +51,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   if (originalMediaDevices) {
@@ -81,15 +82,19 @@ describe("ChatDictationControl", () => {
       object: "dictation_options",
       data: [],
     });
-    render(<ChatDictationControl onTranscript={vi.fn()} />);
+    const onOpenConnections = vi.fn();
+    const user = userEvent.setup();
+    render(<ChatDictationControl onOpenConnections={onOpenConnections} onTranscript={vi.fn()} />);
 
     const button = await screen.findByRole("button", { name: "Start dictation" });
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription(
-      "Connect OpenAI, Groq, or LocalAI in Connections to use dictation.",
+      "Dictation uses a separate speech-to-text provider, independent of the selected chat model or agent. Connect OpenAI, Groq, or LocalAI in Connections.",
     );
     expect(button).toHaveAttribute("title", expect.stringContaining("Connections"));
     expect(screen.queryByRole("combobox", { name: "Dictation provider" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Set up dictation provider" }));
+    expect(onOpenConnections).toHaveBeenCalledOnce();
   });
 
   it("surfaces the configured provider's readiness reason", async () => {
@@ -108,7 +113,7 @@ describe("ChatDictationControl", () => {
     const button = await screen.findByRole("button", { name: "Start dictation" });
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription(
-      "openai is unavailable: provider credentials are missing. Open Connections to fix it.",
+      "Dictation uses a separate speech-to-text route. openai is unavailable: provider credentials are missing. Open Connections to fix it.",
     );
   });
 
@@ -189,7 +194,29 @@ describe("ChatDictationControl", () => {
 
     await user.click(screen.getByRole("button", { name: "Start dictation" }));
 
-    expect(await screen.findByText(/Microphone access was denied/)).toBeVisible();
+    expect(await screen.findByText(/Open this site's controls in the address bar/)).toBeVisible();
+  });
+
+  it("points desktop users to the operating-system microphone permission", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")),
+      },
+    });
+    const user = userEvent.setup();
+    render(<ChatDictationControl onTranscript={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Dictation provider" })).toHaveValue("localai"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Start dictation" }));
+
+    expect(
+      await screen.findByText(/System Settings → Privacy & Security → Microphone/),
+    ).toBeVisible();
   });
 });
 

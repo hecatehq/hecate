@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type MutableRefObject } from "react
 
 import { ApiError, createDictationTranscription, getDictationOptions } from "../../lib/api";
 import { parseStoredString, usePersistedState } from "../../lib/persistedState";
+import { isTauriRuntime } from "../../lib/tauri";
 import type { DictationProviderOption } from "../../types/dictation";
 import { Icon, Icons } from "../shared/ui";
 
@@ -23,11 +24,13 @@ type DictationCaptureSupport =
 
 export type ChatDictationControlProps = {
   disabled?: boolean;
+  onOpenConnections?: () => void;
   onTranscript: (text: string) => void;
 };
 
 export function ChatDictationControl({
   disabled = false,
+  onOpenConnections,
   onTranscript,
 }: ChatDictationControlProps) {
   const [options, setOptions] = useState<DictationProviderOption[]>([]);
@@ -104,6 +107,7 @@ export function ChatDictationControl({
           ? dictationProviderUnavailableMessage(options)
           : "";
   const unavailable = unavailableMessage !== "";
+  const providerSetupNeeded = optionsPhase === "failed" || noAvailableProvider;
 
   async function startRecording() {
     if (disabled || active || !selectedOption?.available) return;
@@ -305,6 +309,18 @@ export function ChatDictationControl({
             ? unavailableMessage
             : `Audio goes only to ${selectedOption?.provider ?? selectedProvider}; Hecate does not retain it.`)}
       </span>
+      {providerSetupNeeded && onOpenConnections && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-label="Set up dictation provider"
+          onClick={onOpenConnections}
+          style={{ padding: "3px 5px", flexShrink: 0 }}
+          title="Open Connections to configure a speech-to-text provider"
+        >
+          Set up
+        </button>
+      )}
     </div>
   );
 }
@@ -327,9 +343,11 @@ function dictationCaptureSupport(): DictationCaptureSupport {
 
 function dictationProviderUnavailableMessage(options: DictationProviderOption[]): string {
   const option = options.find((candidate) => !candidate.available);
-  if (!option) return "Connect OpenAI, Groq, or LocalAI in Connections to use dictation.";
+  if (!option) {
+    return "Dictation uses a separate speech-to-text provider, independent of the selected chat model or agent. Connect OpenAI, Groq, or LocalAI in Connections.";
+  }
   const reason = option.unavailable_reason?.trim().replace(/[.\s]+$/, "");
-  return `${option.provider} is unavailable${reason ? `: ${reason}` : ""}. Open Connections to fix it.`;
+  return `Dictation uses a separate speech-to-text route. ${option.provider} is unavailable${reason ? `: ${reason}` : ""}. Open Connections to fix it.`;
 }
 
 function preferredRecorderMimeType(): string {
@@ -372,7 +390,10 @@ function dictationErrorMessage(cause: unknown, fallback: string): string {
     return [cause.userMessage || cause.message, cause.operatorAction].filter(Boolean).join(" ");
   }
   if (cause instanceof DOMException && cause.name === "NotAllowedError") {
-    return "Microphone access was denied. Allow it for this Hecate site or app in system settings, then try again.";
+    if (isTauriRuntime()) {
+      return desktopMicrophonePermissionMessage();
+    }
+    return "Microphone access is blocked. Open this site's controls in the address bar, set Microphone to Allow, reload Hecate, and try again.";
   }
   if (cause instanceof DOMException && cause.name === "NotFoundError") {
     return "No microphone was found. Connect one and try again.";
@@ -381,6 +402,17 @@ function dictationErrorMessage(cause: unknown, fallback: string): string {
     return "The microphone is unavailable. Close other apps using it and try again.";
   }
   return cause instanceof Error && cause.message ? cause.message : fallback;
+}
+
+function desktopMicrophonePermissionMessage(): string {
+  const platform = navigator.platform.toLowerCase();
+  if (platform.includes("mac")) {
+    return "Microphone access is blocked. Open System Settings → Privacy & Security → Microphone, enable Hecate, then restart Hecate.";
+  }
+  if (platform.includes("win")) {
+    return "Microphone access is blocked. Open Windows Settings → Privacy & security → Microphone, allow microphone access for desktop apps and Hecate, then restart Hecate.";
+  }
+  return "Microphone access is blocked. Allow Hecate microphone access in your system privacy settings, verify the input device is enabled, then restart Hecate.";
 }
 
 function formatElapsed(seconds: number): string {

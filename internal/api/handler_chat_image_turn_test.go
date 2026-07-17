@@ -30,11 +30,86 @@ import (
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type failImageUserAppendStore struct {
 	chat.Store
+}
+
+func TestHecateAgentChatToolsOnHydratesImageWithoutPersistingBodyInTaskArtifacts(t *testing.T) {
+	provider := imageTurnTestProvider(modelcaps.ImageInputSupported)
+	caps := provider.capabilities.ModelCapabilities["llama-vision"]
+	caps.ToolCalling = modelcaps.ToolCallingParallel
+	provider.capabilities.ModelCapabilities["llama-vision"] = caps
+	apiHandler := imageTurnTestHandler(provider)
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"ollama","model":"llama-vision"}`, workspace))
+	imageBytes := imageTurnTestPNG(t)
+	attachment := imageTurnTestUpload(t, handler, session.Data.ID, "tools-on.png", imageBytes)
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"ollama","model":"llama-vision","content":"Inspect this image with tools available.","attachment_ids":["`+attachment.Data.ID+`"]}`)
+
+	if response.Data.Status != "completed" || response.Data.TaskID == "" || response.Data.LatestRunID == "" {
+		t.Fatalf("tools-on image response = %+v, want completed task-backed turn", response.Data)
+	}
+	user := imageTurnFindResponseUserMessage(t, response.Data.Messages, "Inspect this image with tools available.")
+	imageTurnAssertAttachmentMetadata(t, session.Data.ID, attachment.Data, user.Attachments)
+	request := provider.LastRequest()
+	if len(request.Tools) == 0 {
+		t.Fatal("agent-loop request had no tools")
+	}
+	if !request.Requirements.ImageInput || !request.Requirements.NoProviderFailover || !request.Requirements.ExactProvider || !request.Requirements.ProviderInstance.Valid() {
+		t.Fatalf("agent-loop image requirements = %+v, want exact instance-fenced image route", request.Requirements)
+	}
+	modelUser := imageTurnFindUserMessage(t, request.Messages, "Inspect this image with tools available.")
+	if len(modelUser.ContentBlocks) != 2 || modelUser.ContentBlocks[1].Image == nil || !strings.HasPrefix(modelUser.ContentBlocks[1].Image.URL, "data:image/png;base64,") {
+		t.Fatalf("agent-loop user blocks = %+v, want text plus hydrated PNG", modelUser.ContentBlocks)
+	}
+
+	run, found, err := apiHandler.taskStore.GetRun(t.Context(), response.Data.TaskID, response.Data.LatestRunID)
+	if err != nil || !found {
+		t.Fatalf("GetRun() = found %v, error %v", found, err)
+	}
+	if run.InputRef == "" {
+		t.Fatal("task run did not retain the opaque rich-input reference")
+	}
+	artifacts, err := apiHandler.taskStore.ListArtifacts(t.Context(), taskstate.ArtifactFilter{
+		TaskID: response.Data.TaskID,
+		RunID:  response.Data.LatestRunID,
+	})
+	if err != nil {
+		t.Fatalf("ListArtifacts() error = %v", err)
+	}
+	encodedBody := base64.StdEncoding.EncodeToString(imageBytes)
+	foundConversation := false
+	for _, artifact := range artifacts {
+		if artifact.Kind != "agent_conversation" {
+			continue
+		}
+		foundConversation = true
+		if strings.Contains(artifact.ContentText, encodedBody) || strings.Contains(artifact.ContentText, "data:image/") {
+			t.Fatalf("agent conversation retained private image body: %s", artifact.ContentText)
+		}
+		if !strings.Contains(artifact.ContentText, "binary body not retained in task artifacts") {
+			t.Fatalf("agent conversation missing image omission marker: %s", artifact.ContentText)
+		}
+	}
+	if !foundConversation {
+		t.Fatal("agent conversation artifact not found")
+	}
+	for range maxConcurrentChatImageTurns {
+		if !apiHandler.chatImageTurnAdmission.TryAcquire() {
+			t.Fatal("image turn permit was not released after agent-loop execution")
+		}
+		defer apiHandler.chatImageTurnAdmission.Release()
+	}
 }
 
 func (s failImageUserAppendStore) AppendMessage(ctx context.Context, sessionID string, message chat.Message) (chat.Session, error) {
@@ -146,6 +221,14 @@ type observingImageTurnAdmission struct {
 
 func (g *observingImageTurnAdmission) TryAcquire() bool {
 	if !g.delegate.TryAcquire() {
+		return false
+	}
+	g.held.Add(1)
+	return true
+}
+
+func (g *observingImageTurnAdmission) Acquire(ctx context.Context) bool {
+	if !g.delegate.Acquire(ctx) {
 		return false
 	}
 	g.held.Add(1)

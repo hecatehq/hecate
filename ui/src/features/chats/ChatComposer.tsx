@@ -1296,6 +1296,7 @@ export function ChatComposer(props: ChatComposerProps) {
               <ChatDictationControl
                 key={activeSessionID || "new-chat"}
                 disabled={composerInputDisabled}
+                onOpenConnections={onNavigate ? () => onNavigate("connections") : undefined}
                 onTranscript={insertDictationTranscript}
               />
               <span aria-hidden="true" style={{ flex: 1 }} />

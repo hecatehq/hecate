@@ -525,8 +525,6 @@ func writeChatAttachmentAppError(w http.ResponseWriter, err error, internalFailu
 				"max_message_attachment_bytes": chatapp.MaxMessageAttachmentBytes,
 			},
 		})
-	case errors.Is(err, chatapp.ErrAttachmentsDirectOnly):
-		writeChatAttachmentSurfaceError(w)
 	case errors.Is(err, chatapp.ErrTooManyAttachments), errors.Is(err, chatapp.ErrDuplicateAttachmentID), errors.Is(err, chatapp.ErrAttachmentIDRequired):
 		WriteError(w, http.StatusUnprocessableEntity, errCodeAttachmentInvalid, err.Error())
 	case chatapp.IsValidationError(err):
@@ -534,10 +532,6 @@ func writeChatAttachmentAppError(w http.ResponseWriter, err error, internalFailu
 	default:
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, internalFailureMessage)
 	}
-}
-
-func writeChatAttachmentSurfaceError(w http.ResponseWriter) {
-	WriteError(w, http.StatusUnprocessableEntity, errCodeAttachmentUnsupported, chatapp.ErrAttachmentsDirectOnly.Error())
 }
 
 func formatInt64(value int64) string {

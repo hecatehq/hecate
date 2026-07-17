@@ -136,21 +136,36 @@ type ShellNetworkPolicy struct {
 // initial message.
 type SystemPromptResolver func(ctx context.Context, tenantID, perTaskPrompt, workspacePath string) string
 
+// AgentInput is rich, execution-time input resolved from an opaque TaskRun
+// reference. Release drops any admission permit or other transient resource
+// held while the executor retains the hydrated body.
+type AgentInput struct {
+	Message      types.Message
+	Requirements types.ChatRequestRequirements
+	Release      func()
+}
+
+// AgentInputResolver keeps application-owned binary storage outside the task
+// runtime. It is invoked only for agent_loop runs with a non-empty InputRef,
+// immediately before execution.
+type AgentInputResolver func(ctx context.Context, task types.Task, run types.TaskRun) (AgentInput, error)
+
 type Runner struct {
-	logger           *slog.Logger
-	store            taskstate.Store
-	tracer           profiler.Tracer
-	exec             Executor
-	shell            Executor
-	file             Executor
-	git              Executor
-	agent            Executor
-	workspaces       *WorkspaceManager
-	config           Config
-	queueCoordinator *runQueueCoordinator
-	policies         map[string]struct{}
-	metrics          *telemetry.OrchestratorMetrics
-	resolveSysPrompt SystemPromptResolver
+	logger            *slog.Logger
+	store             taskstate.Store
+	tracer            profiler.Tracer
+	exec              Executor
+	shell             Executor
+	file              Executor
+	git               Executor
+	agent             Executor
+	workspaces        *WorkspaceManager
+	config            Config
+	queueCoordinator  *runQueueCoordinator
+	policies          map[string]struct{}
+	metrics           *telemetry.OrchestratorMetrics
+	resolveSysPrompt  SystemPromptResolver
+	resolveAgentInput AgentInputResolver
 	// mcpHostFactory is the factory used when building or rebuilding the
 	// agent_loop executor. Stored here so SetAgentLLMClient (which
 	// rebuilds the executor from scratch) can re-bind the same factory
@@ -323,6 +338,12 @@ func (r *Runner) SetGitExecutor(exec Executor) {
 // composition (agent_loop runs with no system prompt).
 func (r *Runner) SetSystemPromptResolver(resolver SystemPromptResolver) {
 	r.resolveSysPrompt = resolver
+}
+
+// SetAgentInputResolver wires application-owned rich prompt hydration. Call it
+// before queue workers start; nil keeps ordinary text-only task behavior.
+func (r *Runner) SetAgentInputResolver(resolver AgentInputResolver) {
+	r.resolveAgentInput = resolver
 }
 
 // SetAgentLLMClient wires the LLM seam into the agent_loop executor.
@@ -763,6 +784,9 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			run.WorkspacePath = prior.WorkspacePath
 			run.WorkspaceID = firstNonEmpty(prior.WorkspaceID, run.WorkspaceID)
 		}
+		if task.ExecutionKind == "agent_loop" && strings.TrimSpace(options.AppendPrompt) == "" {
+			run.InputRef = strings.TrimSpace(prior.InputRef)
+		}
 		// Inherit cumulative cost from the source run so the per-task
 		// cost ceiling holds across the entire resume chain. Source's
 		// PriorCost (chain so far excluding source) + Total (source's
@@ -1056,6 +1080,23 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		}
 		systemPrompt = r.resolveSysPrompt(ctx, "", task.SystemPrompt, workspacePromptPath)
 	}
+	var agentInput AgentInput
+	if task.ExecutionKind == "agent_loop" && strings.TrimSpace(run.InputRef) != "" {
+		if r.resolveAgentInput == nil {
+			return nil, fmt.Errorf("agent input resolver is not configured for run %q", run.ID)
+		}
+		agentInput, err = r.resolveAgentInput(ctx, task, run)
+		if err != nil {
+			return nil, fmt.Errorf("resolve agent input: %w", err)
+		}
+		if agentInput.Release != nil {
+			defer agentInput.Release()
+		}
+	}
+	var inputMessage *types.Message
+	if task.ExecutionKind == "agent_loop" && strings.TrimSpace(run.InputRef) != "" {
+		inputMessage = &agentInput.Message
+	}
 	execution, err := executor.Execute(ctx, ExecutionSpec{
 		Task:             taskForRun(task, run),
 		Run:              run,
@@ -1077,6 +1118,8 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		SystemPrompt:                systemPrompt,
 		ShellNetworkAllowedHosts:    r.config.ShellNetwork.AllowedHosts,
 		ShellNetworkAllowPrivateIPs: r.config.ShellNetwork.AllowPrivateIPs,
+		InputMessage:                inputMessage,
+		ChatRequirements:            agentInput.Requirements,
 	})
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, run.ID, "executor_failed", err)

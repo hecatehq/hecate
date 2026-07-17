@@ -361,6 +361,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   turns. Put the fallback state in the chat header/status line, not as a noisy
   composer warning. Connections shows observed provider/catalog capability
   metadata, not a global "tools on/off" override editor.
+- Hecate image attachments are independent of the Tools toggle. Keep the
+  PNG/JPEG/WebP and confirmed `image_input` gates in both direct-model and
+  task-backed modes; never reintroduce UI copy that asks operators to disable
+  tools merely to attach an image.
 - Stale selected-model readiness is a composition blocker, not a post-send
   error toast. If the selected model is not in the current model picker for the
   selected route, hide/disable send and show the selected model, provider route,
@@ -605,6 +609,10 @@ these boundaries when changing dictation:
   enabling capture. Keep client capture failures distinct from provider
   readiness failures so “unsupported browser,” “permission denied,” and
   “connect a transcription provider” remain actionable states;
+- explain that speech-to-text routing is independent of the selected chat
+  model or External Agent. A Claude-only setup still needs a transcription
+  route. Permission-denied copy must point browser users to site controls and
+  desktop users to the operating-system microphone privacy settings;
 - show the exact provider and local/cloud kind before recording, and never
   silently select a different route after a failure;
 - cap recording duration and client-side bytes, stop every `MediaStreamTrack`
