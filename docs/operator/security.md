@@ -193,9 +193,10 @@ permission only when recording starts; browser deployments are subject to the
 browser and origin's microphone permission policy. Browser capture requires
 HTTPS or a loopback Hecate URL. The Linux desktop host handles WebKitGTK's media
 permission signal but grants only audio-only requests from the exact active
-sidecar origin; it denies camera, mismatched-origin, and pre-readiness requests.
-macOS retains its native purpose-string prompt, and Windows retains WebView2's
-site permission prompt.
+sidecar origin while the owned gateway child is still running; it denies camera,
+mismatched-origin, stale-sidecar, and pre-readiness requests. macOS retains its
+native purpose-string prompt, and Windows retains WebView2's site permission
+prompt.
 
 ### Chat attachment data
 

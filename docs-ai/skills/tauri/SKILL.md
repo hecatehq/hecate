@@ -163,10 +163,11 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   WebView2's site permission flow. WebKitGTK denies unhandled user-media
   requests, so `webview_media` installs a native signal handler that grants only
   audio-only requests while the active document matches the exact sidecar
-  origin stored in `GatewayBaseURL`. Do not broaden this to camera, wildcard
-  loopback ports, the splash origin, or arbitrary permissions, and do not move
-  audio through Tauri IPC. Tauri merges the macOS plist into the bundle; keep
-  its purpose string user-facing and verify generated bundles when platform
+  origin stored in `GatewayBaseURL` and the owned `GatewayChild` is still
+  running. Do not broaden this to camera, wildcard loopback ports, the splash
+  origin, stale child state, or arbitrary permissions, and do not move audio
+  through Tauri IPC. Tauri merges the macOS plist into the bundle; keep its
+  purpose string user-facing and verify generated bundles when platform
   behavior changes.
 
 ## Capabilities / ACL

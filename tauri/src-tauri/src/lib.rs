@@ -66,6 +66,19 @@ const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 /// Wrapped in Mutex<Option<…>> so the exit handler can take() it exactly once.
 struct GatewayChild(Mutex<Option<std::process::Child>>);
 
+#[cfg(any(test, target_os = "linux"))]
+impl GatewayChild {
+    fn is_running(&self) -> bool {
+        let Ok(mut slot) = self.0.lock() else {
+            return false;
+        };
+        let Some(child) = slot.as_mut() else {
+            return false;
+        };
+        matches!(child.try_wait(), Ok(None))
+    }
+}
+
 /// Tauri managed state: the gateway base URL (e.g. http://127.0.0.1:54321).
 /// Stored after spawn_and_wait succeeds so the close-window handler can
 /// reach /hecate/v1/system/stats (to count running tasks for the
@@ -957,11 +970,41 @@ pub fn run() {
 mod tests {
     use super::{
         format_running_tasks_message, parse_running_runs, remaining_splash_delay,
-        startup_failure_hint, validate_workspace_open_request, WorkspaceOpenTarget,
+        startup_failure_hint, validate_workspace_open_request, GatewayChild, WorkspaceOpenTarget,
         MIN_SPLASH_DURATION,
     };
     use std::fs;
+    use std::process::{Command, Stdio};
+    use std::sync::Mutex;
     use std::time::Duration;
+
+    #[test]
+    fn test_gateway_child_reports_process_liveness() {
+        #[cfg(unix)]
+        let child = Command::new("sleep")
+            .arg("30")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn liveness probe");
+        #[cfg(windows)]
+        let child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn liveness probe");
+
+        let state = GatewayChild(Mutex::new(Some(child)));
+        assert!(state.is_running());
+        {
+            let mut slot = state.0.lock().expect("lock child state");
+            let child = slot.as_mut().expect("child remains owned");
+            child.kill().expect("kill liveness probe");
+            child.wait().expect("reap liveness probe");
+        }
+        assert!(!state.is_running());
+    }
 
     #[test]
     fn test_remaining_splash_delay_waits_for_unelapsed_minimum() {
