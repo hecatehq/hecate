@@ -11,7 +11,7 @@ import {
 import { getChatAttachmentContentBlob } from "../../lib/api";
 import type { PendingChatAttachment } from "../../app/state/_shared";
 import type { ChatAttachmentRecord } from "../../types/chat";
-import { Icon, Icons } from "../shared/ui";
+import { Icon, Icons, Modal } from "../shared/ui";
 
 export const MAX_CHAT_IMAGE_ATTACHMENTS = 4;
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -559,11 +559,12 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
   const loadButtonRef = useRef<HTMLButtonElement>(null);
   const loadingStatusRef = useRef<HTMLDivElement>(null);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
-  const imageLinkRef = useRef<HTMLAnchorElement>(null);
+  const imageButtonRef = useRef<HTMLButtonElement>(null);
   const focusTransferSourceRef = useRef<HTMLElement | null>(null);
   const nearViewport = useNearViewport(viewportRef);
   const [loadRequested, setLoadRequested] = useState(false);
-  const shouldLoad = nearViewport || loadRequested;
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const shouldLoad = nearViewport || loadRequested || previewOpen;
   const [src, setSrc] = useState("");
   const [failed, setFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -617,7 +618,7 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
       return;
     }
     const target = src
-      ? imageLinkRef.current
+      ? imageButtonRef.current
       : failed
         ? retryButtonRef.current
         : !shouldLoad
@@ -743,19 +744,23 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
     );
   } else {
     preview = (
-      <a
-        ref={imageLinkRef}
-        href={src}
-        target="_blank"
-        rel="noreferrer"
+      <button
+        ref={imageButtonRef}
+        type="button"
         aria-label={`Open ${attachment.filename}`}
+        aria-haspopup="dialog"
+        aria-expanded={previewOpen}
         title={`${attachment.filename} · ${formatBytes(attachment.size_bytes)}`}
+        onClick={() => setPreviewOpen(true)}
         onFocus={(event) => rememberFocusSource(event.currentTarget)}
         onBlur={releaseFocusSource}
         style={{
           ...STORED_IMAGE_PREVIEW_FRAME_STYLE,
           display: "block",
           overflow: "hidden",
+          padding: 0,
+          color: "inherit",
+          cursor: "zoom-in",
         }}
       >
         <img
@@ -771,21 +776,65 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
             objectFit: "contain",
           }}
         />
-      </a>
+      </button>
     );
   }
 
   return (
-    <div
-      ref={viewportRef}
-      style={{
-        width: STORED_IMAGE_PREVIEW_WIDTH,
-        height: STORED_IMAGE_PREVIEW_HEIGHT,
-        maxWidth: "100%",
-      }}
-    >
-      {preview}
-    </div>
+    <>
+      <div
+        ref={viewportRef}
+        style={{
+          width: STORED_IMAGE_PREVIEW_WIDTH,
+          height: STORED_IMAGE_PREVIEW_HEIGHT,
+          maxWidth: "100%",
+        }}
+      >
+        {preview}
+      </div>
+      {previewOpen && src && (
+        <Modal
+          title={attachment.filename}
+          ariaLabel={`Image preview: ${attachment.filename}`}
+          width={960}
+          returnFocusRef={imageButtonRef}
+          onClose={() => setPreviewOpen(false)}
+          footer={
+            <span
+              style={{
+                color: "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+              }}
+            >
+              {formatBytes(attachment.size_bytes)} · {attachment.media_type || "unknown type"}
+            </span>
+          }
+        >
+          <div
+            style={{
+              display: "grid",
+              placeItems: "center",
+              minHeight: 160,
+              background: "var(--bg0)",
+              borderRadius: "var(--radius-sm)",
+              overflow: "hidden",
+            }}
+          >
+            <img
+              src={src}
+              alt={attachment.filename}
+              style={{
+                display: "block",
+                maxWidth: "100%",
+                maxHeight: "calc(80dvh - 150px)",
+                objectFit: "contain",
+              }}
+            />
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
