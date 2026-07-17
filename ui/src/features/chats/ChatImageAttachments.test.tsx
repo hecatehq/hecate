@@ -517,6 +517,28 @@ describe("stored chat image attachments", () => {
   });
 
   it("opens an accessible in-app preview and returns focus when dismissed", async () => {
+    let notify: IntersectionObserverCallback = () => {};
+    class MockIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "240px 0px";
+      readonly scrollMargin = "0px";
+      readonly thresholds = [0];
+
+      constructor(callback: IntersectionObserverCallback) {
+        notify = callback;
+      }
+
+      observe() {}
+      disconnect() {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+      unobserve() {}
+    }
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      value: MockIntersectionObserver,
+    });
     defineURLMethod(
       "createObjectURL",
       vi.fn(() => "blob:preview"),
@@ -529,6 +551,12 @@ describe("stored chat image attachments", () => {
 
     render(<ChatImageAttachmentGallery attachments={[storedAttachment()]} />);
 
+    act(() => {
+      notify(
+        [{ isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
     const trigger = await screen.findByRole("button", { name: "Open map.png" });
     await user.click(trigger);
 
@@ -540,6 +568,13 @@ describe("stored chat image attachments", () => {
     );
     expect(within(dialog).getByRole("button", { name: "Close" })).toHaveFocus();
     expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    act(() => {
+      notify(
+        [{ isIntersecting: false, intersectionRatio: 0 } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
 
     await user.keyboard("{Escape}");
 

@@ -653,6 +653,13 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
     setLoadAttempt((current) => current + 1);
   }
 
+  function closePreview() {
+    // Keep the opener mounted long enough for the dialog to restore focus when
+    // its thumbnail moved outside the observer range while the preview was open.
+    if (!nearViewport) setLoadRequested(true);
+    setPreviewOpen(false);
+  }
+
   let preview;
   if (!shouldLoad) {
     preview = (
@@ -798,7 +805,7 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
           ariaLabel={`Image preview: ${attachment.filename}`}
           width={960}
           returnFocusRef={imageButtonRef}
-          onClose={() => setPreviewOpen(false)}
+          onClose={closePreview}
           footer={
             <span
               style={{
