@@ -25,6 +25,7 @@ func TestNormalizeErrorKindPassesThroughKnownValues(t *testing.T) {
 		ErrorKindRetryBackoff,
 		ErrorKindProviderHealth,
 		ErrorKindUsageRecord,
+		ErrorKindRichInputRouteFence,
 		ErrorKindOther,
 	}
 	for _, kind := range known {
@@ -329,15 +330,16 @@ func TestErrorKindConstantsCoverKnownSet(t *testing.T) {
 
 	// Build the set of all exported error kind constants.
 	exported := map[string]bool{
-		ErrorKindInvalidRequest:     true,
-		ErrorKindRequestDenied:      true,
-		ErrorKindRouterFailed:       true,
-		ErrorKindRouteDenied:        true,
-		ErrorKindProviderCallFailed: true,
-		ErrorKindRetryBackoff:       true,
-		ErrorKindProviderHealth:     true,
-		ErrorKindUsageRecord:        true,
-		ErrorKindOther:              true,
+		ErrorKindInvalidRequest:      true,
+		ErrorKindRequestDenied:       true,
+		ErrorKindRouterFailed:        true,
+		ErrorKindRouteDenied:         true,
+		ErrorKindProviderCallFailed:  true,
+		ErrorKindRetryBackoff:        true,
+		ErrorKindProviderHealth:      true,
+		ErrorKindUsageRecord:         true,
+		ErrorKindRichInputRouteFence: true,
+		ErrorKindOther:               true,
 	}
 
 	// Every value in knownErrorKinds must be reachable via an exported constant.

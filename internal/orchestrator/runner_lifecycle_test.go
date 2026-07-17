@@ -421,6 +421,7 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 	)
 
 	now := time.Now().UTC()
+	inputProviderInstance := types.ProviderInstanceIdentity{ID: "runtime-resume-input", Kind: types.ProviderInstanceIdentityRuntime}
 	task := types.Task{
 		ID:               "task-resume-context",
 		Title:            "resume context",
@@ -433,13 +434,18 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 		UpdatedAt:        now,
 	}
 	run := types.TaskRun{
-		ID:         "run-resume-source",
-		TaskID:     task.ID,
-		Number:     1,
-		Status:     "completed",
-		StartedAt:  now,
-		FinishedAt: now,
-		InputRef:   "msg_resume_input",
+		ID:                            "run-resume-source",
+		TaskID:                        task.ID,
+		Number:                        1,
+		Status:                        "completed",
+		StartedAt:                     now,
+		FinishedAt:                    now,
+		InputRef:                      "msg_resume_input",
+		Provider:                      "vision-resume",
+		ProviderKind:                  "cloud",
+		Model:                         "resolved-vision-resume",
+		InputProviderInstance:         inputProviderInstance,
+		InputProviderDispatchRecorded: true,
 		ContextPacket: json.RawMessage(`{
 			"id":"ctx_old",
 			"refs":{"session_id":"chat_1","run_id":"run-resume-source"},
@@ -465,6 +471,9 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 	if stored.InputRef != run.InputRef {
 		t.Fatalf("InputRef = %q, want inherited %q", stored.InputRef, run.InputRef)
 	}
+	if stored.Provider != run.Provider || stored.ProviderKind != run.ProviderKind || stored.Model != run.Model || stored.InputProviderInstance != inputProviderInstance || !stored.InputProviderDispatchRecorded {
+		t.Fatalf("inherited input route = provider %q kind %q model %q instance %+v dispatched=%t, want %q/%q/%q/%+v/true", stored.Provider, stored.ProviderKind, stored.Model, stored.InputProviderInstance, stored.InputProviderDispatchRecorded, run.Provider, run.ProviderKind, run.Model, inputProviderInstance)
+	}
 }
 
 func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
@@ -480,6 +489,7 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 	)
 
 	now := time.Now().UTC()
+	inputProviderInstance := types.ProviderInstanceIdentity{ID: "runtime-retry-input", Kind: types.ProviderInstanceIdentityRuntime}
 	task := types.Task{
 		ID:               "task-retry-context",
 		Title:            "retry context",
@@ -492,13 +502,18 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 		UpdatedAt:        now,
 	}
 	run := types.TaskRun{
-		ID:         "run-retry-source",
-		TaskID:     task.ID,
-		Number:     1,
-		Status:     "completed",
-		StartedAt:  now,
-		FinishedAt: now,
-		InputRef:   "msg_retry_input",
+		ID:                            "run-retry-source",
+		TaskID:                        task.ID,
+		Number:                        1,
+		Status:                        "completed",
+		StartedAt:                     now,
+		FinishedAt:                    now,
+		InputRef:                      "msg_retry_input",
+		Provider:                      "vision-retry",
+		ProviderKind:                  "cloud",
+		Model:                         "resolved-vision-retry",
+		InputProviderInstance:         inputProviderInstance,
+		InputProviderDispatchRecorded: true,
 		ContextPacket: json.RawMessage(`{
 			"id":"ctx_old_retry",
 			"refs":{"session_id":"chat_2","run_id":"run-retry-source"},
@@ -535,6 +550,9 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
 	if stored.InputRef != run.InputRef {
 		t.Fatalf("InputRef = %q, want inherited %q", stored.InputRef, run.InputRef)
+	}
+	if stored.Provider != run.Provider || stored.ProviderKind != run.ProviderKind || stored.Model != run.Model || stored.InputProviderInstance != inputProviderInstance || !stored.InputProviderDispatchRecorded {
+		t.Fatalf("inherited input route = provider %q kind %q model %q instance %+v dispatched=%t, want %q/%q/%q/%+v/true", stored.Provider, stored.ProviderKind, stored.Model, stored.InputProviderInstance, stored.InputProviderDispatchRecorded, run.Provider, run.ProviderKind, run.Model, inputProviderInstance)
 	}
 }
 

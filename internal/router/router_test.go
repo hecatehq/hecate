@@ -295,6 +295,79 @@ func TestRuleRouterFiltersImageInputCandidatesAndFallbacks(t *testing.T) {
 	}
 }
 
+func TestRuleRouterRequiresImageAndToolCapabilitiesOnSameCandidate(t *testing.T) {
+	t.Parallel()
+
+	capabilities := func(name, imageInput, toolCalling string) providers.Capabilities {
+		return providers.Capabilities{
+			Name:            name,
+			Kind:            providers.KindCloud,
+			DefaultModel:    "shared-model",
+			Models:          []string{"shared-model"},
+			DiscoverySource: "provider",
+			ModelCapabilities: map[string]types.ModelCapabilities{
+				"shared-model": {
+					ImageInput:  imageInput,
+					ToolCalling: toolCalling,
+					Source:      "provider",
+				},
+			},
+		}
+	}
+	newProvider := func(name, imageInput, toolCalling string) *fakeProvider {
+		return &fakeProvider{
+			name:            name,
+			kind:            providers.KindCloud,
+			defaultModel:    "shared-model",
+			supportedModels: []string{"shared-model"},
+			capabilities:    capabilities(name, imageInput, toolCalling),
+		}
+	}
+	req := types.ChatRequest{
+		Model: "shared-model",
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:  true,
+			ToolCalling: true,
+		},
+	}
+
+	t.Run("selects only the capability intersection", func(t *testing.T) {
+		t.Parallel()
+
+		registry := providers.NewRegistry(
+			newProvider("a-tools-only", "none", "parallel"),
+			newProvider("b-image-only", "supported", "none"),
+			newProvider("c-image-tools", "supported", "basic"),
+		)
+		router := NewRuleRouter("shared-model", catalog.NewRegistryCatalog(registry, nil))
+
+		got, err := router.Route(context.Background(), req)
+		if err != nil {
+			t.Fatalf("Route() error = %v", err)
+		}
+		if got.Provider != "c-image-tools" {
+			t.Fatalf("Route() provider = %q, want c-image-tools", got.Provider)
+		}
+		if fallbacks := router.Fallbacks(context.Background(), req, got); len(fallbacks) != 0 {
+			t.Fatalf("Fallbacks() = %+v, want no split-capability candidates", fallbacks)
+		}
+	})
+
+	t.Run("rejects split capabilities across providers", func(t *testing.T) {
+		t.Parallel()
+
+		registry := providers.NewRegistry(
+			newProvider("a-tools-only", "none", "parallel"),
+			newProvider("b-image-only", "supported", "none"),
+		)
+		router := NewRuleRouter("shared-model", catalog.NewRegistryCatalog(registry, nil))
+
+		if _, err := router.Route(context.Background(), req); err == nil {
+			t.Fatal("Route() error = nil, want split capabilities rejected")
+		}
+	})
+}
+
 func TestRuleRouterRejectsExpectedProviderInstanceAfterSameNameReplacement(t *testing.T) {
 	t.Parallel()
 

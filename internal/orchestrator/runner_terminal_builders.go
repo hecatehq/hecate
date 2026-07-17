@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
@@ -56,6 +57,13 @@ func executionResultTerminalTransition(input executionResultTerminalTransitionIn
 	run.Provider = firstNonEmpty(input.Execution.Provider, run.Provider)
 	run.ProviderKind = firstNonEmpty(input.Execution.ProviderKind, run.ProviderKind)
 	run.Model = firstNonEmpty(input.Execution.Model, run.Model)
+	if strings.TrimSpace(run.InputRef) != "" && input.Execution.ProviderInstance.Valid() {
+		if !run.InputProviderInstance.Valid() {
+			run.InputProviderInstance = input.Execution.ProviderInstance
+		}
+		run.InputProviderDispatchRecorded = true
+		run.InputProviderDisclosedInstance = input.Execution.ProviderInstance
+	}
 	run.Status = firstNonEmpty(input.Execution.Status, "completed")
 	run.StepCount = len(input.PersistedSteps)
 	run.ArtifactCount = len(input.PersistedArtifacts)
@@ -81,16 +89,22 @@ func executionResultTerminalTransition(input executionResultTerminalTransitionIn
 		Now:                    input.FinishedAt,
 		SuppressDuplicateEvent: true,
 		TrustedSupplementalRunMetadata: &taskstate.TerminalRunSupplementalMetadata{
-			Provider:           run.Provider,
-			ProviderKind:       run.ProviderKind,
-			Model:              run.Model,
-			StepCount:          run.StepCount,
-			ArtifactCount:      run.ArtifactCount,
-			TotalCostMicrosUSD: run.TotalCostMicrosUSD,
+			Provider:                       run.Provider,
+			ProviderKind:                   run.ProviderKind,
+			InputProviderInstance:          run.InputProviderInstance,
+			InputProviderDispatchRecorded:  run.InputProviderDispatchRecorded,
+			InputProviderDisclosedInstance: run.InputProviderDisclosedInstance,
+			Model:                          run.Model,
+			StepCount:                      run.StepCount,
+			ArtifactCount:                  run.ArtifactCount,
+			TotalCostMicrosUSD:             run.TotalCostMicrosUSD,
 		},
 		UpdateRun: func(target *types.TaskRun) {
 			target.Provider = run.Provider
 			target.ProviderKind = run.ProviderKind
+			target.InputProviderInstance = run.InputProviderInstance
+			target.InputProviderDispatchRecorded = run.InputProviderDispatchRecorded
+			target.InputProviderDisclosedInstance = run.InputProviderDisclosedInstance
 			target.Model = run.Model
 			target.StepCount = run.StepCount
 			target.ArtifactCount = run.ArtifactCount

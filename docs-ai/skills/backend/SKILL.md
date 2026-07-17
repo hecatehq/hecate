@@ -753,7 +753,14 @@ attempted provider/model/generation and trace so the durable transcript records
 the disclosure boundary. Do not stamp an attachment-bearing user row with a
 provider generation during admission: only attempted-call metadata may make its
 bytes eligible for later history hydration, and pre-call failures must leave the
-generation empty. Durable attachment claims use the intended user-message id
+user-row generation empty. At the final gateway dispatch boundary, a tools-on task must
+atomically persist the exact resolved provider/model/generation beside its
+opaque `InputRef` before provider I/O. Keep that final-dispatch marker separate
+from admission: its first model may be governor-rewritten, while recovery and
+same-input retries must replay the persisted exact route. This may-disclose
+recovery fence is not transcript disclosure metadata. Preserve it through stale
+state transitions, cancellation, and requeueing, and fail closed when it cannot
+be written. Durable attachment claims use the intended user-message id
 as a fence: exact transcript metadata links,
 absence releases, deleted owners purge, and conflicts remain fail-closed. Do
 the idempotent linked transition again before returning a same-payload keyed

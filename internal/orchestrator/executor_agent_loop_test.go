@@ -75,6 +75,7 @@ func (s *scriptedLLM) Chat(ctx context.Context, req types.ChatRequest) (*types.C
 type streamingScriptedLLM struct {
 	response      *types.ChatResponse
 	chunks        []string
+	err           error
 	chatCalls     atomic.Int32
 	streamCalls   atomic.Int32
 	lastStreamReq types.ChatRequest
@@ -91,7 +92,7 @@ func (s *streamingScriptedLLM) ChatStream(_ context.Context, req types.ChatReque
 	for _, chunk := range s.chunks {
 		onContentDelta(chunk)
 	}
-	return s.response, nil
+	return s.response, s.err
 }
 
 // erroringLLM returns the same canned error on every call. Used by

@@ -119,13 +119,38 @@ describe("ChatDictationControl", () => {
 
   it("disables capture with a precise message when browser recording is unsupported", async () => {
     vi.stubGlobal("MediaRecorder", undefined);
-    render(<ChatDictationControl onTranscript={vi.fn()} />);
+    vi.mocked(getDictationOptions).mockResolvedValue({
+      object: "dictation_options",
+      data: [],
+    });
+    render(<ChatDictationControl onOpenConnections={vi.fn()} onTranscript={vi.fn()} />);
 
     const button = await screen.findByRole("button", { name: "Start dictation" });
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription(
       "This browser or app webview cannot record microphone audio.",
     );
+    expect(screen.queryByRole("button", { name: "Set up dictation provider" })).toBeNull();
+  });
+
+  it("offers a retry instead of provider setup when provider status cannot be loaded", async () => {
+    vi.mocked(getDictationOptions)
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce({
+        object: "dictation_options",
+        data: [localOption],
+      });
+    const user = userEvent.setup();
+    render(<ChatDictationControl onOpenConnections={vi.fn()} onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start dictation" });
+    expect(button).toBeDisabled();
+    expect(await screen.findByRole("status")).toHaveTextContent("network unavailable");
+    expect(screen.queryByRole("button", { name: "Set up dictation provider" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Retry dictation provider check" }));
+    await waitFor(() => expect(getDictationOptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(screen.getByRole("combobox", { name: "Dictation provider" })).toHaveValue("localai");
   });
 
   it("explains that non-secure web origins cannot request a microphone", async () => {
@@ -160,6 +185,21 @@ describe("ChatDictationControl", () => {
     expect(file.name).toBe("dictation.webm");
     expect(file.type).toBe("audio/webm");
     expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("keeps recording duration out of live status announcements", async () => {
+    installRecorderMocks();
+    const user = userEvent.setup();
+    render(<ChatDictationControl onTranscript={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Dictation provider" })).toHaveValue("localai"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Start dictation" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Recording");
+    expect(screen.getByRole("status")).not.toHaveTextContent("0:00");
+    expect(screen.getByLabelText("Recording duration 0:00")).toHaveAttribute("aria-live", "off");
   });
 
   it("stops the microphone and does not disclose audio after unmount", async () => {

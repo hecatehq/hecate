@@ -41,6 +41,7 @@ export function ChatDictationControl({
   );
   const [phase, setPhase] = useState<DictationPhase>("idle");
   const [optionsPhase, setOptionsPhase] = useState<DictationOptionsPhase>("loading");
+  const [optionsRefresh, setOptionsRefresh] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
   const statusID = useId();
@@ -51,16 +52,23 @@ export function ChatDictationControl({
   const stopTimerRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+  const selectedProviderRef = useRef(selectedProvider);
+
+  useEffect(() => {
+    selectedProviderRef.current = selectedProvider;
+  }, [selectedProvider]);
 
   useEffect(() => {
     const controller = new AbortController();
+    setOptionsPhase("loading");
+    setError("");
     void getDictationOptions(controller.signal)
       .then((response) => {
         if (!mountedRef.current) return;
         setOptions(response.data);
         setOptionsPhase("ready");
         const selectedAvailable = response.data.some(
-          (option) => option.provider === selectedProvider && option.available,
+          (option) => option.provider === selectedProviderRef.current && option.available,
         );
         if (!selectedAvailable) {
           setSelectedProvider(response.data.find((option) => option.available)?.provider ?? "");
@@ -75,7 +83,7 @@ export function ChatDictationControl({
     return () => controller.abort();
     // Options are a capability snapshot for this mount. Provider changes are
     // re-fenced by the server immediately before audio disclosure.
-  }, []);
+  }, [optionsRefresh, setSelectedProvider]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -107,7 +115,8 @@ export function ChatDictationControl({
           ? dictationProviderUnavailableMessage(options)
           : "";
   const unavailable = unavailableMessage !== "";
-  const providerSetupNeeded = optionsPhase === "failed" || noAvailableProvider;
+  const providerSetupNeeded = captureSupport.available && noAvailableProvider;
+  const providerStatusRetryNeeded = captureSupport.available && optionsPhase === "failed";
 
   async function startRecording() {
     if (disabled || active || !selectedOption?.available) return;
@@ -166,6 +175,12 @@ export function ChatDictationControl({
     }
   }
 
+  function retryOptions() {
+    setError("");
+    setOptionsPhase("loading");
+    setOptionsRefresh((attempt) => attempt + 1);
+  }
+
   async function transcribeRecording(recorder: MediaRecorder) {
     recorderRef.current = null;
     stopStream();
@@ -216,7 +231,7 @@ export function ChatDictationControl({
     phase === "requesting"
       ? "Requesting microphone…"
       : phase === "recording"
-        ? `Recording ${formatElapsed(elapsedSeconds)}`
+        ? "Recording"
         : phase === "transcribing"
           ? "Transcribing…"
           : "";
@@ -309,6 +324,29 @@ export function ChatDictationControl({
             ? unavailableMessage
             : `Audio goes only to ${selectedOption?.provider ?? selectedProvider}; Hecate does not retain it.`)}
       </span>
+      {phase === "recording" && (
+        <span
+          aria-label={`Recording duration ${formatElapsed(elapsedSeconds)}`}
+          aria-live="off"
+          style={{ flexShrink: 0 }}
+          title={`Recording duration ${formatElapsed(elapsedSeconds)}`}
+        >
+          {formatElapsed(elapsedSeconds)}
+        </span>
+      )}
+      {providerStatusRetryNeeded && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-label="Retry dictation provider check"
+          disabled={disabled}
+          onClick={retryOptions}
+          style={{ padding: "3px 5px", flexShrink: 0 }}
+          title="Retry loading dictation provider status"
+        >
+          Retry
+        </button>
+      )}
       {providerSetupNeeded && onOpenConnections && (
         <button
           type="button"

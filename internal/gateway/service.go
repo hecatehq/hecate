@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/catalog"
@@ -18,6 +19,7 @@ import (
 	"github.com/hecatehq/hecate/internal/models"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/prompttokens"
+	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/retention"
 	"github.com/hecatehq/hecate/internal/router"
@@ -394,13 +396,18 @@ func withResolvedModel(req types.ChatRequest, model string) types.ChatRequest {
 
 // StreamHandle holds everything needed to execute a stream after routing succeeds.
 type StreamHandle struct {
-	Metadata ResponseMetadata
-	stream   func(w io.Writer) error
+	Metadata  ResponseMetadata
+	stream    func(w io.Writer) error
+	attempted *atomic.Bool
 }
 
 // Execute writes the SSE stream to w.
 func (h *StreamHandle) Execute(w io.Writer) error {
 	return h.stream(w)
+}
+
+func (h *StreamHandle) providerCallAttempted() bool {
+	return h != nil && h.attempted != nil && h.attempted.Load()
 }
 
 // StreamedContent holds the text accumulated during a streaming response.
@@ -587,7 +594,10 @@ func (s *Service) HandleChatStreamCapture(ctx context.Context, req types.ChatReq
 	}
 	captured, err := handle.ExecuteAndCaptureDeltas(io.Discard, onContentDelta)
 	if err != nil {
-		return nil, err
+		if !handle.providerCallAttempted() {
+			return nil, err
+		}
+		return streamRouteResponse(handle.Metadata, req.Model), err
 	}
 	model := captured.Model
 	if model == "" {
@@ -622,6 +632,23 @@ func (s *Service) HandleChatStreamCapture(ctx context.Context, req types.ChatReq
 			FinishReason: finishReason,
 		}},
 	}, nil
+}
+
+func streamRouteResponse(metadata ResponseMetadata, fallbackModel string) *types.ChatResponse {
+	model := metadata.Model
+	if model == "" {
+		model = fallbackModel
+	}
+	return &types.ChatResponse{
+		Model: model,
+		Route: types.RouteDecision{
+			Provider:         metadata.Provider,
+			ProviderKind:     metadata.ProviderKind,
+			ProviderInstance: metadata.ProviderInstance,
+			Model:            model,
+			Reason:           metadata.RouteReason,
+		},
+	}
 }
 
 // RouteForStream runs governor/routing checks and returns a StreamHandle ready to
@@ -680,14 +707,18 @@ func (s *Service) RouteForStream(ctx context.Context, req types.ChatRequest) (*S
 		SpanID:           trace.RootSpanID(),
 	}
 
+	attempted := &atomic.Bool{}
 	handle := &StreamHandle{
-		Metadata: meta,
+		Metadata:  meta,
+		attempted: attempted,
 		stream: func(w io.Writer) error {
 			defer trace.Finalize()
 
+			dispatchInstance := instance
 			dispatchStreamer := streamer
 			if requiresProviderInstanceFence(streamReq) {
-				dispatchInstance, err := providerInstanceForDispatch(s.providers, streamReq, plan.Route)
+				var err error
+				dispatchInstance, err = providerInstanceForDispatch(s.providers, streamReq, plan.Route)
 				if err != nil {
 					recordProviderCallBlocked(trace, plan.Route, 0, err)
 					return err
@@ -703,7 +734,16 @@ func (s *Service) RouteForStream(ctx context.Context, req types.ChatRequest) (*S
 				}
 				dispatchStreamer = currentStreamer
 			}
+			dispatchRoute := plan.Route
+			dispatchRoute.ProviderKind = plan.ProviderKind
+			dispatchRoute.ProviderInstance = dispatchInstance.Identity
+			if err := providerdispatch.RecordAttempt(ctx, dispatchRoute); err != nil {
+				err = fmt.Errorf("record provider dispatch: %w", err)
+				recordRichInputRouteFenceBlocked(trace, dispatchRoute, 0, err)
+				return err
+			}
 
+			attempted.Store(true)
 			return dispatchStreamer.ChatStream(ctx, streamReq, w)
 		},
 	}

@@ -252,7 +252,10 @@ Chat attachments have two ownership-specific admission modes:
   reference in task state, hydrate the body immediately before execution, and
   replace image blocks with a non-sensitive marker in conversation artifacts.
   Same-input approval resumes and retries rehydrate that marker through the
-  opaque reference; a later chat prompt replaces or clears the reference.
+  opaque reference and stay pinned to the admitted provider generation after
+  first dispatch; a later chat prompt replaces or clears the reference. A
+  failure before dispatch does not make the transcript eligible to rehydrate
+  that image as prior provider context.
 - An External Agent turn accepts arbitrary non-empty files once its normal
   workspace, adapter, and required launch controls are ready. ACP resource links
   are the baseline. Hecate uses an inline image or embedded resource only when
@@ -441,16 +444,28 @@ delete-and-recreate changes it. Legacy transcript rows without a generation and
 runtime-only providers that have been recreated receive an omission marker, as
 do provider switches and unresolved Auto boundaries. The identity contains no
 secret-derived material and is not exposed by the chat or model APIs,
-telemetry, logs, or errors. Once bytes are hydrated, dispatch is pinned to the
-canonical provider and generation resolved during admission. The executor
-rechecks both against the live registry immediately before the provider call.
-A same-name replacement, live alias reassignment, normalized-name takeover, or
-removal therefore fails the turn without disclosing bytes to the replacement.
+telemetry, logs, or errors. For an explicit provider, admission pins that
+provider generation while policy may still rewrite the requested model. The
+executor rechecks the generation against the live registry immediately before
+the provider call. A same-name replacement, live alias reassignment,
+normalized-name takeover, or removal therefore fails the turn without
+disclosing bytes to the replacement.
 Image-bearing requests may retry on the selected provider, but Hecate disables
 cross-provider failover. If an Auto-routed provider receives bytes and then
 fails, the failed transcript still records that attempted provider/model and
 trace correlation. Context compaction keeps original transcript rows but
 replaces the older model-facing window with the normal context summary.
+
+For tools-on Hecate Chat image turns, the task runtime atomically records the
+exact provider/model/generation on the run at the final gateway dispatch
+boundary, immediately before provider I/O. This distinct final-dispatch marker
+allows the first policy-rewritten model while making later recovery and
+same-input retries exact. It is preserved through cancellation and stale-run
+requeueing, so recovery cannot send the image to a different provider. It is
+intentionally not a transcript disclosure marker: Hecate stamps the user row
+only after a dispatched provider call returns attempted-route metadata. A
+final pre-dispatch validation or durability failure leaves the transcript
+marker empty.
 
 A process-wide two-slot image-turn gate bounds the transient memory held by
 attachment claims, historical body hydration, base64 expansion, provider
@@ -483,6 +498,8 @@ flowchart LR
     Fence -->|"exact instance only"| Provider["Selected provider"]
     TurnGate -. "permit held until provider returns" .-> Provider
     Hydrate -->|"tools-on rich prompt"| AgentLoop["Task-backed agent loop"]
+    AgentLoop -->|"atomic final-route record before I/O"| TaskFence["Durable rich-input dispatch fence"]
+    TaskFence -->|"exact route on retry"| Provider
     AgentLoop -->|"artifact marker; no image body"| TaskArtifacts["Task conversation artifacts"]
     API -->|"External Agent files"| ExternalGate["External file-turn admission"]
     ExternalGate -->|"claim drafts"| Bodies

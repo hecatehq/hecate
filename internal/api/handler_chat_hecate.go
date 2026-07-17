@@ -62,6 +62,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		session.Model = model
 		session.Capabilities = types.ModelCapabilities{}
 	}
+	admittedInputProviderInstance := types.ProviderInstanceIdentity{}
 	if len(req.AttachmentIDs) > 0 {
 		if strings.TrimSpace(session.Model) == "" {
 			writeAgentChatModelRequired(w, "model")
@@ -81,6 +82,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 			if resolvedRoute.Name != "" {
 				session.Provider = resolvedRoute.Name
 			}
+			admittedInputProviderInstance = resolvedRoute.Instance
 		}
 		imageCapable, imageErr := h.modelApplication().SupportsImageInput(r.Context(), session.Provider, session.Model)
 		if imageErr != nil {
@@ -295,13 +297,14 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		inputRef = userID
 	}
 	task, run, err := h.hecateAgentTaskOrchestrator().StartOrContinue(runCtx, hecateAgentTaskRunCommand{
-		Session:       session,
-		Prompt:        content,
-		InputRef:      inputRef,
-		SystemPrompt:  taskSystemPrompt,
-		ForceNewTask:  forceNewTask,
-		MCPServers:    mcpServers,
-		ContextPacket: contextPacket,
+		Session:               session,
+		Prompt:                content,
+		InputRef:              inputRef,
+		InputProviderInstance: admittedInputProviderInstance,
+		SystemPrompt:          taskSystemPrompt,
+		ForceNewTask:          forceNewTask,
+		MCPServers:            mcpServers,
+		ContextPacket:         contextPacket,
 	})
 	if err != nil {
 		completedAt := time.Now().UTC()
@@ -518,6 +521,19 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		}
 		return
+	}
+	// The watcher snapshots this marker while the run is live, but the terminal
+	// path gets one bounded reconciliation pass as well. A transient transcript
+	// write failure must not make an already-completed provider turn fail, yet
+	// leaving the marker behind forever would conservatively omit a legitimately
+	// disclosed image from later same-route history.
+	if routeErr := h.persistHecateAgentInputRouteWithRetry(terminalCtx, session.ID, finalRun); routeErr != nil {
+		h.logger.WarnContext(terminalCtx, "chat.hecate.input_route_terminal_reconcile_failed",
+			"session_id", session.ID,
+			"message_id", finalRun.InputRef,
+			"run_id", finalRun.ID,
+			"error", routeErr,
+		)
 	}
 	if inc, incErr := h.agentChat.UpdateSession(terminalCtx, session.ID, func(item *chat.Session) {
 		item.TurnsUsed++
@@ -737,6 +753,7 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 	var lastStatus string
 	var lastActivitySignature string
 	var lastContent string
+	lastInputProviderInstance := types.ProviderInstanceIdentity{}
 	for {
 		run, found, err := h.taskStore.GetRun(ctx, taskID, runID)
 		if err != nil {
@@ -744,6 +761,18 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 		}
 		if !found {
 			return types.TaskRun{}, fmt.Errorf("task run %q not found", runID)
+		}
+		if run.InputProviderDisclosedInstance.Valid() && run.InputProviderDisclosedInstance != lastInputProviderInstance {
+			if routeErr := h.persistHecateAgentInputRoute(ctx, sessionID, run); routeErr != nil {
+				h.logger.WarnContext(ctx, "chat.hecate.input_route_snapshot_update_failed",
+					"session_id", sessionID,
+					"message_id", run.InputRef,
+					"run_id", run.ID,
+					"error", routeErr,
+				)
+			} else {
+				lastInputProviderInstance = run.InputProviderDisclosedInstance
+			}
 		}
 		taskActivities := []chat.Activity(nil)
 		activitySignature := ""
@@ -792,6 +821,50 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 		case <-ticker.C:
 		}
 	}
+}
+
+func (h *Handler) persistHecateAgentInputRoute(ctx context.Context, sessionID string, run types.TaskRun) error {
+	inputRef := strings.TrimSpace(run.InputRef)
+	provider := strings.TrimSpace(run.Provider)
+	if inputRef == "" || provider == "" || !run.InputProviderDisclosedInstance.Valid() {
+		return nil
+	}
+	conflict := false
+	_, err := h.agentChat.UpdateMessage(ctx, sessionID, inputRef, func(message *chat.Message) {
+		if (strings.TrimSpace(message.Provider) != "" && strings.TrimSpace(message.Provider) != provider) ||
+			(message.ProviderInstance.Valid() && message.ProviderInstance != run.InputProviderDisclosedInstance) {
+			conflict = true
+			return
+		}
+		message.Provider = provider
+		message.ProviderInstance = run.InputProviderDisclosedInstance
+		message.Model = firstNonEmpty(run.Model, message.Model)
+	})
+	if err != nil {
+		return err
+	}
+	if conflict {
+		return fmt.Errorf("stored rich-input route conflicts with the execution route")
+	}
+	return nil
+}
+
+func (h *Handler) persistHecateAgentInputRouteWithRetry(ctx context.Context, sessionID string, run types.TaskRun) error {
+	const attempts = 3
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		persistCtx, cancel := newAgentChatPersistenceContext(ctx)
+		err := h.persistHecateAgentInputRoute(persistCtx, sessionID, run)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return lastErr
 }
 
 func (h *Handler) finalHecateAgentAnswer(ctx context.Context, taskID, runID string) string {
@@ -923,6 +996,11 @@ func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messa
 			message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
 			message.CostMode = "hecate"
 			message.Timing = timing
+			message.Provider = firstNonEmpty(run.Provider, message.Provider)
+			if run.InputProviderDisclosedInstance.Valid() {
+				message.ProviderInstance = run.InputProviderDisclosedInstance
+			}
+			message.Model = firstNonEmpty(run.Model, message.Model)
 		}
 		message.Activities = append(message.Activities, newChatActivity(message.Status, message.Status, finalChatActivityTitle(message.Status), errorText))
 	})

@@ -478,7 +478,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 
 	finishedAt := terminalTransitionFinishedAt(tr)
 	task := tr.Task
-	run := tr.Run
+	run := mergeStoredRichInputRoute(tr.Run, storedRun)
 	terminalEvent := tr.TerminalEvent
 	taskUpdatedEvent := tr.TaskUpdatedEvent
 	activeStepError := tr.ActiveStepError

@@ -33,13 +33,14 @@ type hecateAgentTaskOrchestrator struct {
 }
 
 type hecateAgentTaskRunCommand struct {
-	Session       chat.Session
-	Prompt        string
-	InputRef      string
-	SystemPrompt  string
-	ForceNewTask  bool
-	MCPServers    []types.MCPServerConfig
-	ContextPacket chat.ContextPacket
+	Session               chat.Session
+	Prompt                string
+	InputRef              string
+	InputProviderInstance types.ProviderInstanceIdentity
+	SystemPrompt          string
+	ForceNewTask          bool
+	MCPServers            []types.MCPServerConfig
+	ContextPacket         chat.ContextPacket
 }
 
 func (h *Handler) hecateAgentTaskOrchestrator() hecateAgentTaskOrchestrator {
@@ -127,6 +128,10 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 	}
 	result, err := o.runner.StartTaskWithRunInitializer(ctx, task, o.resourceID, func(run *types.TaskRun) {
 		run.InputRef = strings.TrimSpace(cmd.InputRef)
+		run.InputProviderDispatchRecorded = false
+		if run.InputRef != "" {
+			run.InputProviderInstance = cmd.InputProviderInstance
+		}
 		packet := cmd.ContextPacket
 		packet.Workspace = run.WorkspacePath
 		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(packet, chatcontext.MergeRefs(
@@ -157,6 +162,12 @@ func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecat
 	}
 	result, err := o.runner.ContinueAgentTaskWithRunInitializer(ctx, task, run, cmd.Prompt, o.resourceID, func(nextRun *types.TaskRun) {
 		nextRun.InputRef = strings.TrimSpace(cmd.InputRef)
+		nextRun.InputProviderDispatchRecorded = false
+		if nextRun.InputRef != "" {
+			nextRun.InputProviderInstance = cmd.InputProviderInstance
+		} else {
+			nextRun.InputProviderInstance = types.ProviderInstanceIdentity{}
+		}
 		packet := cmd.ContextPacket
 		packet.Workspace = nextRun.WorkspacePath
 		nextRun.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(packet, chatcontext.MergeRefs(

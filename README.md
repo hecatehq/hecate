@@ -285,8 +285,16 @@ fail over or follow a same-name replacement. Tools-on turns hydrate images from
 an opaque run input reference immediately before the agent loop starts; task
 conversation artifacts retain an omission marker, never the binary body. Image
 blocks and remote image URLs are not persisted in those artifacts. Same-input
-resume and retry runs rehydrate through the opaque reference. Image drafts never enter the local busy-message queue, and the UI keeps submitted
-in-memory `File` values owned by their turn until it settles.
+resume and retry runs rehydrate through the opaque reference. At the final
+provider-dispatch boundary, Hecate atomically records the exact resolved route
+on the run before provider I/O, so a worker restart cannot Auto-route the image
+elsewhere; the first model may be policy-rewritten, then every later tool turn
+stays on that same route and instance. This private may-disclose fence is
+distinct from the transcript marker, which is set only after a dispatched
+provider call reports its route. A pre-dispatch failure does not mark the
+transcript as having disclosed the image. Image drafts never enter the local busy-message queue, and
+the UI keeps submitted in-memory `File` values owned by their turn until it
+settles.
 
 External Agent chats accept up to four non-empty files of any type, with the
 same 5 MiB per-file and 12 MiB per-message limits. Hecate resolves those inputs

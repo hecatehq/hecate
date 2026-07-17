@@ -80,21 +80,25 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 	trace := profiler.NewInMemoryTracer(nil).Start("request-result-builder")
 	defer trace.Finalize()
 	task := types.Task{ID: "task-result"}
+	inputProviderInstance := types.ProviderInstanceIdentity{ID: "runtime-terminal-input", Kind: types.ProviderInstanceIdentityRuntime}
 	run := types.TaskRun{
-		ID:                 "run-result",
-		TaskID:             task.ID,
-		Provider:           "fallback-provider",
-		ProviderKind:       "fallback-kind",
-		Model:              "fallback-model",
-		TotalCostMicrosUSD: 99,
-		OtelStatusCode:     "old",
-		OtelStatusMessage:  "old message",
-		PriorCostMicrosUSD: 10,
-		WorkspacePath:      "/tmp/workspace",
+		ID:                    "run-result",
+		TaskID:                task.ID,
+		Provider:              "fallback-provider",
+		ProviderKind:          "fallback-kind",
+		Model:                 "fallback-model",
+		TotalCostMicrosUSD:    99,
+		OtelStatusCode:        "old",
+		OtelStatusMessage:     "old message",
+		PriorCostMicrosUSD:    10,
+		WorkspacePath:         "/tmp/workspace",
+		InputRef:              "msg_terminal_input",
+		InputProviderInstance: inputProviderInstance,
 	}
 	execution := &ExecutionResult{
 		Status:            "completed",
 		ProviderKind:      "openai",
+		ProviderInstance:  inputProviderInstance,
 		Model:             "gpt-4.1",
 		CostMicrosUSD:     250,
 		OtelStatusCode:    "ok",
@@ -128,12 +132,18 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 	}
 	metadata := transition.TrustedSupplementalRunMetadata
 	if metadata == nil || metadata.Provider != transition.Run.Provider || metadata.ProviderKind != transition.Run.ProviderKind ||
+		metadata.InputProviderInstance != transition.Run.InputProviderInstance ||
+		metadata.InputProviderDispatchRecorded != transition.Run.InputProviderDispatchRecorded ||
+		metadata.InputProviderDisclosedInstance != transition.Run.InputProviderDisclosedInstance ||
 		metadata.Model != transition.Run.Model || metadata.StepCount != transition.Run.StepCount ||
 		metadata.ArtifactCount != transition.Run.ArtifactCount || metadata.TotalCostMicrosUSD != transition.Run.TotalCostMicrosUSD {
 		t.Fatalf("trusted supplemental metadata = %+v, want execution-result fields from %+v", metadata, transition.Run)
 	}
 	if transition.Run.Provider != "fallback-provider" || transition.Run.ProviderKind != "openai" || transition.Run.Model != "gpt-4.1" {
 		t.Fatalf("route = provider:%q kind:%q model:%q, want fallback provider + execution kind/model", transition.Run.Provider, transition.Run.ProviderKind, transition.Run.Model)
+	}
+	if transition.Run.InputProviderInstance != inputProviderInstance || !transition.Run.InputProviderDispatchRecorded || transition.Run.InputProviderDisclosedInstance != inputProviderInstance {
+		t.Fatalf("input provider route = admitted %+v dispatched=%t disclosed %+v, want %+v/true/%+v", transition.Run.InputProviderInstance, transition.Run.InputProviderDispatchRecorded, transition.Run.InputProviderDisclosedInstance, inputProviderInstance, inputProviderInstance)
 	}
 	if transition.Run.StepCount != 2 || transition.Run.ArtifactCount != 1 || transition.Run.TotalCostMicrosUSD != 250 {
 		t.Fatalf("counts/cost = steps:%d artifacts:%d cost:%d, want 2/1/250", transition.Run.StepCount, transition.Run.ArtifactCount, transition.Run.TotalCostMicrosUSD)
@@ -144,7 +154,7 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 
 	targetRun := types.TaskRun{}
 	transition.UpdateRun(&targetRun)
-	if targetRun.Provider != transition.Run.Provider || targetRun.ProviderKind != transition.Run.ProviderKind || targetRun.Model != transition.Run.Model {
+	if targetRun.Provider != transition.Run.Provider || targetRun.ProviderKind != transition.Run.ProviderKind || targetRun.InputProviderInstance != transition.Run.InputProviderInstance || targetRun.InputProviderDispatchRecorded != transition.Run.InputProviderDispatchRecorded || targetRun.InputProviderDisclosedInstance != transition.Run.InputProviderDisclosedInstance || targetRun.Model != transition.Run.Model {
 		t.Fatalf("UpdateRun route = %+v, want route from transition run %+v", targetRun, transition.Run)
 	}
 	if targetRun.StepCount != transition.Run.StepCount || targetRun.ArtifactCount != transition.Run.ArtifactCount || targetRun.TotalCostMicrosUSD != transition.Run.TotalCostMicrosUSD {
@@ -185,5 +195,33 @@ func TestTerminalRunTransitionBuilders_ExecutionResultPreservesExistingTotalCost
 	}
 	if transition.Run.OtelStatusCode != "ok" {
 		t.Fatalf("otel status code = %q, want ok default", transition.Run.OtelStatusCode)
+	}
+}
+
+func TestTerminalRunTransitionBuilders_BackfillsAutoRichInputFenceAfterDispatch(t *testing.T) {
+	t.Parallel()
+
+	trace := profiler.NewInMemoryTracer(nil).Start("request-auto-rich-input")
+	defer trace.Finalize()
+	instance := types.ProviderInstanceIdentity{ID: "runtime-auto-rich-input", Kind: types.ProviderInstanceIdentityRuntime}
+	run := types.TaskRun{
+		ID:       "run-auto-rich-input",
+		TaskID:   "task-auto-rich-input",
+		InputRef: "msg-auto-rich-input",
+	}
+	transition := executionResultTerminalTransition(executionResultTerminalTransitionInput{
+		Task:       types.Task{ID: run.TaskID},
+		Run:        run,
+		Execution:  &ExecutionResult{Status: "completed", Provider: "vision-auto", ProviderInstance: instance},
+		RequestID:  trace.RequestID,
+		Trace:      trace,
+		FinishedAt: time.Now().UTC(),
+	})
+
+	if transition.Run.InputProviderInstance != instance || !transition.Run.InputProviderDispatchRecorded || transition.Run.InputProviderDisclosedInstance != instance {
+		t.Fatalf("Auto rich input route = admitted %+v dispatched=%t disclosed %+v, want %v/true/%v", transition.Run.InputProviderInstance, transition.Run.InputProviderDispatchRecorded, transition.Run.InputProviderDisclosedInstance, instance, instance)
+	}
+	if transition.TrustedSupplementalRunMetadata == nil || transition.TrustedSupplementalRunMetadata.InputProviderInstance != instance || !transition.TrustedSupplementalRunMetadata.InputProviderDispatchRecorded || transition.TrustedSupplementalRunMetadata.InputProviderDisclosedInstance != instance {
+		t.Fatalf("trusted metadata = %+v, want both Auto rich-input instances", transition.TrustedSupplementalRunMetadata)
 	}
 }

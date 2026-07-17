@@ -15,15 +15,18 @@ import (
 // constants in the telemetry package. All recording sites in this package use
 // these aliases so that refactoring the constants requires one change here.
 const (
-	errorKindInvalidRequest     = telemetry.ErrorKindInvalidRequest
-	errorKindRequestDenied      = telemetry.ErrorKindRequestDenied
-	errorKindRouterFailed       = telemetry.ErrorKindRouterFailed
-	errorKindRouteDenied        = telemetry.ErrorKindRouteDenied
-	errorKindProviderCallFailed = telemetry.ErrorKindProviderCallFailed
-	errorKindRetryBackoffFailed = telemetry.ErrorKindRetryBackoff
-	errorKindProviderHealth     = telemetry.ErrorKindProviderHealth
-	errorKindUsageRecordFailed  = telemetry.ErrorKindUsageRecord
+	errorKindInvalidRequest      = telemetry.ErrorKindInvalidRequest
+	errorKindRequestDenied       = telemetry.ErrorKindRequestDenied
+	errorKindRouterFailed        = telemetry.ErrorKindRouterFailed
+	errorKindRouteDenied         = telemetry.ErrorKindRouteDenied
+	errorKindProviderCallFailed  = telemetry.ErrorKindProviderCallFailed
+	errorKindRetryBackoffFailed  = telemetry.ErrorKindRetryBackoff
+	errorKindProviderHealth      = telemetry.ErrorKindProviderHealth
+	errorKindUsageRecordFailed   = telemetry.ErrorKindUsageRecord
+	errorKindRichInputRouteFence = telemetry.ErrorKindRichInputRouteFence
 )
+
+const richInputRouteFenceSkipReason = "rich_input_route_fence_failed"
 
 func tracePhaseAttrs(phase string, attrs map[string]any) map[string]any {
 	out := cloneTraceAttrs(attrs)
@@ -78,6 +81,15 @@ func recordProviderCallBlocked(trace *profiler.Trace, decision types.RouteDecisi
 		telemetry.AttrGenAIRequestModel:     decision.Model,
 		telemetry.AttrHecateProviderIndex:   providerIndex,
 		telemetry.AttrHecateRouteSkipReason: reason,
+	})
+}
+
+func recordRichInputRouteFenceBlocked(trace *profiler.Trace, decision types.RouteDecision, providerIndex int, err error) {
+	recordTraceError(trace, "provider.call.blocked", "provider", errorKindRichInputRouteFence, err, map[string]any{
+		telemetry.AttrGenAIProviderName:     decision.Provider,
+		telemetry.AttrGenAIRequestModel:     decision.Model,
+		telemetry.AttrHecateProviderIndex:   providerIndex,
+		telemetry.AttrHecateRouteSkipReason: richInputRouteFenceSkipReason,
 	})
 }
 

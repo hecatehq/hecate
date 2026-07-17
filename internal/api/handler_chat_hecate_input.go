@@ -52,6 +52,23 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 	}
 
 	provider := strings.TrimSpace(run.Provider)
+	messageProvider := strings.TrimSpace(inputMessage.Provider)
+	if provider == "" {
+		provider = messageProvider
+	}
+	if provider != "" && messageProvider != "" && provider != messageProvider {
+		return orchestrator.AgentInput{}, fmt.Errorf("image provider does not match the admitted input route")
+	}
+	providerInstance := run.InputProviderInstance
+	if inputMessage.ProviderInstance.Valid() {
+		if providerInstance.Valid() && providerInstance != inputMessage.ProviderInstance {
+			return orchestrator.AgentInput{}, fmt.Errorf("image provider instance does not match the admitted input route")
+		}
+		providerInstance = inputMessage.ProviderInstance
+	}
+	if provider != "" && !providerInstance.Valid() {
+		return orchestrator.AgentInput{}, fmt.Errorf("image provider instance fence is missing")
+	}
 	model := strings.TrimSpace(run.Model)
 	route, err := h.modelApplication().ResolveProviderRoute(ctx, provider, model)
 	if err != nil {
@@ -59,6 +76,9 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 	}
 	if route.Name != "" && route.Name != provider {
 		return orchestrator.AgentInput{}, fmt.Errorf("image provider route changed before execution")
+	}
+	if providerInstance.Valid() && route.Instance != providerInstance {
+		return orchestrator.AgentInput{}, fmt.Errorf("image provider instance changed before execution")
 	}
 	imageCapable, err := h.modelApplication().SupportsImageInput(ctx, provider, model)
 	if err != nil {
@@ -103,7 +123,7 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 			ImageInput:         true,
 			NoProviderFailover: true,
 			ExactProvider:      provider != "",
-			ProviderInstance:   route.Instance,
+			ProviderInstance:   providerInstance,
 		},
 		Release: release,
 	}, nil

@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -135,8 +136,8 @@ func TestServiceHandleChatStreamCaptureRejectsPartialProviderStream(t *testing.T
 	}, func(delta string) {
 		deltas = append(deltas, delta)
 	})
-	if response != nil {
-		t.Fatalf("HandleChatStreamCapture() response = %+v, want nil for a partial provider stream", response)
+	if response == nil || response.Route.Provider != "fake" || len(response.Choices) != 0 {
+		t.Fatalf("HandleChatStreamCapture() response = %+v, want route-only attempted-provider metadata", response)
 	}
 	var upstreamErr *providers.UpstreamError
 	if !errors.As(err, &upstreamErr) {
@@ -149,6 +150,102 @@ func TestServiceHandleChatStreamCaptureRejectsPartialProviderStream(t *testing.T
 	if strings.Join(deltas, "") != "partial" {
 		t.Fatalf("content deltas = %#v, want already-observed partial delta without a synthesized success", deltas)
 	}
+}
+
+func TestServiceHandleChatStreamCaptureKeepsPreDispatchValidationFailureUndisclosed(t *testing.T) {
+	t.Parallel()
+
+	provider := &validationFailBeforeStreamProvider{
+		streamingSequenceProvider: streamingSequenceProvider{
+			sequenceProvider: sequenceProvider{name: "vision", kind: providers.KindCloud},
+		},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance("vision")
+	if !ok {
+		t.Fatal("provider instance not found")
+	}
+	store := governor.NewMemoryUsageStore()
+	service := NewService(Dependencies{
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Router: staticFallbackRouter{
+			route: types.RouteDecision{Provider: "vision", ProviderInstance: instance.Identity, Model: "model-a"},
+		},
+		Governor:   governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
+		Providers:  registry,
+		Tracer:     profiler.NewInMemoryTracer(nil),
+		Metrics:    telemetry.NewMetrics(),
+		Resilience: ResilienceOptions{MaxAttempts: 1, RetryBackoff: time.Millisecond},
+	})
+
+	response, err := service.HandleChatStreamCapture(context.Background(), types.ChatRequest{
+		RequestID: "req-stream-validation-before-dispatch",
+		Model:     "model-a",
+		Messages:  []types.Message{{Role: "user", Content: "private image"}},
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:         true,
+			NoProviderFailover: true,
+			ProviderInstance:   instance.Identity,
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "stream validator not ready") {
+		t.Fatalf("HandleChatStreamCapture() error = %v, want pre-dispatch validation failure", err)
+	}
+	if response != nil {
+		t.Fatalf("HandleChatStreamCapture() response = %+v, want no attempted-provider metadata before dispatch", response)
+	}
+	if provider.streamCallCount != 0 {
+		t.Fatalf("stream calls = %d, want no provider dispatch", provider.streamCallCount)
+	}
+}
+
+func TestServiceHandleChatStreamCaptureDoesNotDispatchWhenAttemptRecorderFails(t *testing.T) {
+	t.Parallel()
+
+	provider := &streamingSequenceProvider{
+		sequenceProvider: sequenceProvider{name: "vision", kind: providers.KindCloud},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance("vision")
+	if !ok {
+		t.Fatal("provider instance not found")
+	}
+	store := governor.NewMemoryUsageStore()
+	tracer := profiler.NewInMemoryTracer(nil)
+	service := NewService(Dependencies{
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Router: staticFallbackRouter{
+			route: types.RouteDecision{Provider: "vision", ProviderInstance: instance.Identity, Model: "model-a"},
+		},
+		Governor:   governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
+		Providers:  registry,
+		Tracer:     tracer,
+		Metrics:    telemetry.NewMetrics(),
+		Resilience: ResilienceOptions{MaxAttempts: 1, RetryBackoff: time.Millisecond},
+	})
+
+	response, err := service.HandleChatStreamCapture(providerdispatch.WithAttemptRecorder(context.Background(), func(types.RouteDecision) error {
+		return errors.New("durable rich-input fence unavailable")
+	}), types.ChatRequest{
+		RequestID: "req-stream-attempt-recorder-failed",
+		Model:     "model-a",
+		Messages:  []types.Message{{Role: "user", Content: "private image"}},
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:         true,
+			NoProviderFailover: true,
+			ProviderInstance:   instance.Identity,
+		},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "durable rich-input fence unavailable") {
+		t.Fatalf("HandleChatStreamCapture() error = %v, want recorder failure", err)
+	}
+	if response != nil {
+		t.Fatalf("HandleChatStreamCapture() response = %+v, want no attempted-route metadata before dispatch", response)
+	}
+	if provider.streamCallCount != 0 {
+		t.Fatalf("stream calls = %d, want no provider dispatch", provider.streamCallCount)
+	}
+	assertRichInputRouteFenceBlocked(t, tracer, "req-stream-attempt-recorder-failed")
 }
 
 func TestRouteForStreamRejectsProviderReplacementForProviderBoundRequest(t *testing.T) {
@@ -306,6 +403,30 @@ func assertStreamProviderCallBlocked(
 	}
 }
 
+func assertRichInputRouteFenceBlocked(t *testing.T, tracer *profiler.InMemoryTracer, requestID string) {
+	t.Helper()
+	trace, ok := tracer.Get(requestID)
+	if !ok {
+		t.Fatalf("trace %q not found", requestID)
+	}
+	var blocked []types.TraceEvent
+	for _, event := range trace.Events() {
+		if event.Name == "provider.call.blocked" {
+			blocked = append(blocked, event)
+		}
+	}
+	if len(blocked) != 1 {
+		t.Fatalf("provider.call.blocked events = %+v, want exactly one", blocked)
+	}
+	attrs := blocked[0].Attributes
+	if got := attrs[telemetry.AttrHecateErrorKind]; got != telemetry.ErrorKindRichInputRouteFence {
+		t.Fatalf("blocked error kind = %v, want %q", got, telemetry.ErrorKindRichInputRouteFence)
+	}
+	if got := attrs[telemetry.AttrHecateRouteSkipReason]; got != richInputRouteFenceSkipReason {
+		t.Fatalf("blocked skip reason = %v, want %q", got, richInputRouteFenceSkipReason)
+	}
+}
+
 type streamingSequenceProvider struct {
 	sequenceProvider
 	streamCallCount int
@@ -313,6 +434,19 @@ type streamingSequenceProvider struct {
 
 type truncatedStreamingProvider struct {
 	sequenceProvider
+}
+
+type validationFailBeforeStreamProvider struct {
+	streamingSequenceProvider
+	validateCalls int
+}
+
+func (p *validationFailBeforeStreamProvider) Validate() error {
+	p.validateCalls++
+	if p.validateCalls > 1 {
+		return errors.New("stream validator not ready")
+	}
+	return nil
 }
 
 func (p *truncatedStreamingProvider) ChatStream(_ context.Context, _ types.ChatRequest, w io.Writer) error {

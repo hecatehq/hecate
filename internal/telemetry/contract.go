@@ -323,20 +323,24 @@ const (
 	ErrorKindRetryBackoff       = "retry_backoff_failed"
 	ErrorKindProviderHealth     = "provider_health_degraded"
 	ErrorKindUsageRecord        = "usage_record_failed"
+	// ErrorKindRichInputRouteFence records a local durability or route-fence
+	// failure that blocks rich-input provider I/O before a provider call starts.
+	ErrorKindRichInputRouteFence = "rich_input_route_fence_failed"
 	// ErrorKindOther is the fallback for any value not in the known set.
 	ErrorKindOther = "other"
 )
 
 var knownErrorKinds = map[string]struct{}{
-	ErrorKindInvalidRequest:     {},
-	ErrorKindRequestDenied:      {},
-	ErrorKindRouterFailed:       {},
-	ErrorKindRouteDenied:        {},
-	ErrorKindProviderCallFailed: {},
-	ErrorKindRetryBackoff:       {},
-	ErrorKindProviderHealth:     {},
-	ErrorKindUsageRecord:        {},
-	ErrorKindOther:              {},
+	ErrorKindInvalidRequest:      {},
+	ErrorKindRequestDenied:       {},
+	ErrorKindRouterFailed:        {},
+	ErrorKindRouteDenied:         {},
+	ErrorKindProviderCallFailed:  {},
+	ErrorKindRetryBackoff:        {},
+	ErrorKindProviderHealth:      {},
+	ErrorKindUsageRecord:         {},
+	ErrorKindRichInputRouteFence: {},
+	ErrorKindOther:               {},
 }
 
 var knownResults = map[string]struct{}{

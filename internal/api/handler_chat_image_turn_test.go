@@ -65,7 +65,7 @@ func TestHecateAgentChatToolsOnHydratesImageWithoutPersistingBodyInTaskArtifacts
 	if len(request.Tools) == 0 {
 		t.Fatal("agent-loop request had no tools")
 	}
-	if !request.Requirements.ImageInput || !request.Requirements.NoProviderFailover || !request.Requirements.ExactProvider || !request.Requirements.ProviderInstance.Valid() {
+	if !request.Requirements.ImageInput || !request.Requirements.ToolCalling || !request.Requirements.NoProviderFailover || !request.Requirements.ExactProvider || !request.Requirements.ProviderInstance.Valid() {
 		t.Fatalf("agent-loop image requirements = %+v, want exact instance-fenced image route", request.Requirements)
 	}
 	modelUser := imageTurnFindUserMessage(t, request.Messages, "Inspect this image with tools available.")
@@ -79,6 +79,15 @@ func TestHecateAgentChatToolsOnHydratesImageWithoutPersistingBodyInTaskArtifacts
 	}
 	if run.InputRef == "" {
 		t.Fatal("task run did not retain the opaque rich-input reference")
+	}
+	if run.InputProviderInstance != request.Requirements.ProviderInstance {
+		t.Fatalf("task run input provider instance = %+v, want dispatched fence %+v", run.InputProviderInstance, request.Requirements.ProviderInstance)
+	}
+	if !run.InputProviderDispatchRecorded {
+		t.Fatal("task run did not retain the final rich-input dispatch fence")
+	}
+	if run.InputProviderDisclosedInstance != request.Requirements.ProviderInstance {
+		t.Fatalf("task run disclosed provider instance = %+v, want dispatched fence %+v", run.InputProviderDisclosedInstance, request.Requirements.ProviderInstance)
 	}
 	artifacts, err := apiHandler.taskStore.ListArtifacts(t.Context(), taskstate.ArtifactFilter{
 		TaskID: response.Data.TaskID,
@@ -109,6 +118,107 @@ func TestHecateAgentChatToolsOnHydratesImageWithoutPersistingBodyInTaskArtifacts
 			t.Fatal("image turn permit was not released after agent-loop execution")
 		}
 		defer apiHandler.chatImageTurnAdmission.Release()
+	}
+}
+
+func TestHecateAgentChatToolsOnReconcilesTransientInputRouteSnapshotFailure(t *testing.T) {
+	provider := imageTurnTestProvider(modelcaps.ImageInputSupported)
+	caps := provider.capabilities.ModelCapabilities["llama-vision"]
+	caps.ToolCalling = modelcaps.ToolCallingParallel
+	provider.capabilities.ModelCapabilities["llama-vision"] = caps
+	apiHandler := imageTurnTestHandler(provider)
+	baseStore := apiHandler.agentChat
+	store := &failFirstUserMessageUpdateStore{Store: baseStore}
+	apiHandler.SetAgentChatStore(store)
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"ollama","model":"llama-vision"}`, t.TempDir()))
+	attachment := imageTurnTestUpload(t, handler, session.Data.ID, "retry-route.png", imageTurnTestPNG(t))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"ollama","model":"llama-vision","content":"Remember this image route.","attachment_ids":["`+attachment.Data.ID+`"]}`)
+
+	if store.failureCount() != 1 {
+		t.Fatalf("injected user route update failures = %d, want 1", store.failureCount())
+	}
+	persisted, found, err := baseStore.Get(t.Context(), session.Data.ID)
+	if err != nil || !found {
+		t.Fatalf("Get() = found %t err %v", found, err)
+	}
+	user := imageTurnFindStoredUserMessage(t, persisted.Messages, "Remember this image route.")
+	if !user.ProviderInstance.Valid() || user.Provider != "ollama" || user.Model != "llama-vision" {
+		t.Fatalf("user route after terminal reconciliation = %+v, want disclosed ollama image route", user)
+	}
+	if response.Data.Status != "completed" {
+		t.Fatalf("response status = %q, want completed", response.Data.Status)
+	}
+	if provider.CallCount() != 1 {
+		t.Fatalf("provider calls = %d, want one successful image dispatch", provider.CallCount())
+	}
+}
+
+func TestHecateAgentChatToolsOnRejectsSameNameProviderReplacementBeforeHydration(t *testing.T) {
+	original := imageTurnNamedTestProvider("vision-a", modelcaps.ImageInputSupported)
+	originalCaps := original.capabilities.ModelCapabilities["llama-vision"]
+	originalCaps.ToolCalling = modelcaps.ToolCallingParallel
+	original.capabilities.ModelCapabilities["llama-vision"] = originalCaps
+	replacement := imageTurnNamedTestProvider("vision-a", modelcaps.ImageInputSupported)
+	replacementCaps := replacement.capabilities.ModelCapabilities["llama-vision"]
+	replacementCaps.ToolCalling = modelcaps.ToolCallingParallel
+	replacement.capabilities.ModelCapabilities["llama-vision"] = replacementCaps
+	registry := providers.NewMutableRegistry(original)
+	apiHandler := newTestAPIHandlerWithRegistry(
+		imageTurnTestLogger(),
+		registry,
+		[]providers.Provider{original},
+		config.Config{},
+		controlplane.NewMemoryStore(),
+	)
+	apiHandler.SetAgentChatStore(&replaceProviderRegistryOnRunningAssistantStore{
+		Store: apiHandler.agentChat,
+		replace: func() {
+			registry.Replace(replacement)
+		},
+	})
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"vision-a","model":"llama-vision"}`, workspace))
+	attachment := imageTurnTestUpload(t, handler, session.Data.ID, "private.png", imageTurnTestPNG(t))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"vision-a","model":"llama-vision","content":"Inspect without retargeting.","attachment_ids":["`+attachment.Data.ID+`"]}`)
+
+	if original.CallCount() != 0 || replacement.CallCount() != 0 {
+		t.Fatalf("provider calls original=%d replacement=%d, want fail-closed before image dispatch", original.CallCount(), replacement.CallCount())
+	}
+	var assistant ChatMessageItem
+	for _, message := range response.Data.Messages {
+		if message.Role == "assistant" {
+			assistant = message
+		}
+	}
+	if assistant.Status != "failed" || !strings.Contains(assistant.Error, "provider instance changed before execution") {
+		t.Fatalf("assistant = %+v, want provider-instance replacement failure", assistant)
+	}
+	persisted, ok, err := apiHandler.agentChat.Get(t.Context(), session.Data.ID)
+	if err != nil || !ok || len(persisted.Messages) < 1 {
+		t.Fatalf("Get() = found %v error %v messages %+v", ok, err, persisted.Messages)
+	}
+	user := persisted.Messages[0]
+	if user.ProviderInstance.Valid() {
+		t.Fatalf("pre-dispatch user message instance = %+v, want empty disclosure marker", user.ProviderInstance)
+	}
+	run, found, err := apiHandler.taskStore.GetRun(t.Context(), response.Data.TaskID, response.Data.LatestRunID)
+	if err != nil || !found {
+		t.Fatalf("GetRun() = found %v error %v", found, err)
+	}
+	if run.InputRef != user.ID || !run.InputProviderInstance.Valid() || run.InputProviderDispatchRecorded || run.InputProviderDisclosedInstance.Valid() {
+		t.Fatalf("run input fence = ref %q admitted %+v dispatched=%t disclosed %+v, want admitted-but-undispatched input", run.InputRef, run.InputProviderInstance, run.InputProviderDispatchRecorded, run.InputProviderDisclosedInstance)
 	}
 }
 
@@ -1011,6 +1121,75 @@ func TestHecateChatFailedImageTurnPersistsGovernorRewrittenModel(t *testing.T) {
 		if message.Role == "assistant" && (message.Status != "failed" || message.TraceID == "") {
 			t.Fatalf("failed assistant = status %q trace %q, want correlated rewritten attempt", message.Status, message.TraceID)
 		}
+	}
+}
+
+func TestHecateChatToolsOnImageTurnFencesGovernorRewrittenModelAtDispatch(t *testing.T) {
+	const (
+		requestedModel = "vision-tools-requested"
+		rewrittenModel = "vision-tools-rewritten"
+	)
+	capability := types.ModelCapabilities{
+		ToolCalling: modelcaps.ToolCallingBasic,
+		ImageInput:  modelcaps.ImageInputSupported,
+		Streaming:   true,
+		Source:      modelcaps.SourceProvider,
+	}
+	provider := &fakeProvider{
+		name: "vision-tools",
+		capabilities: providers.Capabilities{
+			Name:         "vision-tools",
+			Kind:         providers.KindCloud,
+			DefaultModel: requestedModel,
+			Models:       []string{requestedModel, rewrittenModel},
+			ModelCapabilities: map[string]types.ModelCapabilities{
+				requestedModel: capability,
+				rewrittenModel: capability,
+			},
+		},
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-rewritten-tools-image",
+			Model:     rewrittenModel,
+			CreatedAt: time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "I can inspect the image with tools available."},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(imageTurnTestLogger(), []providers.Provider{provider}, config.Config{
+		Governor: config.GovernorConfig{PolicyRules: []config.PolicyRuleConfig{{
+			ID:             "rewrite-tools-image-model",
+			Action:         "rewrite_model",
+			Models:         []string{requestedModel},
+			RewriteModelTo: rewrittenModel,
+		}}},
+	}, controlplane.NewMemoryStore())
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"vision-tools","model":"%s"}`, workspace, requestedModel))
+	attachment := imageTurnTestUpload(t, handler, session.Data.ID, "rewrite-tools-image.png", imageTurnTestPNG(t))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"vision-tools","model":"`+requestedModel+`","content":"Inspect this rewritten image with tools.","attachment_ids":["`+attachment.Data.ID+`"]}`)
+
+	if response.Data.Status != "completed" || response.Data.TaskID == "" || response.Data.LatestRunID == "" {
+		t.Fatalf("tools-on rewritten image response = %+v, want completed task-backed turn", response.Data)
+	}
+	request := provider.LastRequest()
+	if request.Model != rewrittenModel || len(request.Tools) == 0 || !request.Requirements.ImageInput || !request.Requirements.ToolCalling {
+		t.Fatalf("provider request = model %q tools=%d requirements=%+v, want rewritten tools-on image dispatch", request.Model, len(request.Tools), request.Requirements)
+	}
+	run, found, err := apiHandler.taskStore.GetRun(t.Context(), response.Data.TaskID, response.Data.LatestRunID)
+	if err != nil || !found {
+		t.Fatalf("GetRun() = found %v, error %v", found, err)
+	}
+	if !run.InputProviderDispatchRecorded || run.Provider != "vision-tools" || run.Model != rewrittenModel || run.InputProviderInstance != request.Requirements.ProviderInstance {
+		t.Fatalf("rewritten rich-input fence = %+v, want provider vision-tools model %q and the dispatched instance", run, rewrittenModel)
 	}
 }
 

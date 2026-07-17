@@ -786,6 +786,13 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		}
 		if task.ExecutionKind == "agent_loop" && strings.TrimSpace(options.AppendPrompt) == "" {
 			run.InputRef = strings.TrimSpace(prior.InputRef)
+			if run.InputRef != "" && prior.InputProviderInstance.Valid() {
+				run.InputProviderInstance = prior.InputProviderInstance
+				run.InputProviderDispatchRecorded = prior.InputProviderDispatchRecorded
+				run.Provider = strings.TrimSpace(prior.Provider)
+				run.ProviderKind = strings.TrimSpace(prior.ProviderKind)
+				run.Model = firstNonEmpty(strings.TrimSpace(prior.Model), run.Model)
+			}
 		}
 		// Inherit cumulative cost from the source run so the per-task
 		// cost ceiling holds across the entire resume chain. Source's
@@ -1120,6 +1127,9 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		ShellNetworkAllowPrivateIPs: r.config.ShellNetwork.AllowPrivateIPs,
 		InputMessage:                inputMessage,
 		ChatRequirements:            agentInput.Requirements,
+		RecordProviderAttempt: func(route types.RouteDecision) error {
+			return r.recordAgentInputProviderAttempt(ctx, task, run, route)
+		},
 	})
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, run.ID, "executor_failed", err)

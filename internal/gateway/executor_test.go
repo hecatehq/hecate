@@ -11,7 +11,9 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -175,6 +177,79 @@ func TestResilientExecutorDoesNotCrossProviderBoundaryWhenFailoverIsDisabledForR
 	}
 	if primary.callCount != 1 || fallback.callCount != 0 {
 		t.Fatalf("provider calls primary=%d fallback=%d, want 1/0", primary.callCount, fallback.callCount)
+	}
+}
+
+func TestResilientExecutorDoesNotDispatchWhenAttemptRecorderFails(t *testing.T) {
+	t.Parallel()
+
+	provider := &sequenceProvider{
+		name:      "vision",
+		kind:      providers.KindCloud,
+		responses: []providerResponse{{response: &types.ChatResponse{Model: "model-a"}}},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance("vision")
+	if !ok {
+		t.Fatal("provider instance not found")
+	}
+	store := governor.NewMemoryUsageStore()
+	executor := NewResilientExecutor(
+		staticFallbackRouter{},
+		NewDefaultRoutePreflight(governor.NewStaticGovernor(config.GovernorConfig{}, store, store), registry),
+		registry,
+		nil,
+		nil,
+		nil,
+		ResilienceOptions{MaxAttempts: 1},
+	)
+	trace := profiler.NewTrace("req-attempt-recorder-failed", nil)
+	defer trace.Finalize()
+	var recorded types.RouteDecision
+	ctx := providerdispatch.WithAttemptRecorder(context.Background(), func(route types.RouteDecision) error {
+		recorded = route
+		return errors.New("durable rich-input fence unavailable")
+	})
+	result, err := executor.Execute(ctx, trace, types.ChatRequest{
+		Model: "model-a",
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:         true,
+			NoProviderFailover: true,
+			ProviderInstance:   instance.Identity,
+		},
+		Messages: []types.Message{{Role: "user", Content: "private image"}},
+	}, types.RouteDecision{
+		Provider:         "vision",
+		ProviderInstance: instance.Identity,
+		Model:            "model-a",
+		Reason:           "auto_image",
+	})
+	if err == nil || !strings.Contains(err.Error(), "durable rich-input fence unavailable") {
+		t.Fatalf("Execute() error = %v, want recorder failure", err)
+	}
+	if result != nil {
+		t.Fatalf("Execute() result = %+v, want nil before provider dispatch", result)
+	}
+	if provider.callCount != 0 {
+		t.Fatalf("provider calls = %d, want no dispatch after recorder failure", provider.callCount)
+	}
+	if recorded.Provider != "vision" || recorded.ProviderInstance != instance.Identity || recorded.Model != "model-a" {
+		t.Fatalf("recorded route = %+v, want final vision route", recorded)
+	}
+	var blocked []types.TraceEvent
+	for _, event := range trace.Events() {
+		if event.Name == "provider.call.blocked" {
+			blocked = append(blocked, event)
+		}
+	}
+	if len(blocked) != 1 {
+		t.Fatalf("provider.call.blocked events = %+v, want one", blocked)
+	}
+	if got := blocked[0].Attributes[telemetry.AttrHecateErrorKind]; got != telemetry.ErrorKindRichInputRouteFence {
+		t.Fatalf("blocked error kind = %v, want %q", got, telemetry.ErrorKindRichInputRouteFence)
+	}
+	if got := blocked[0].Attributes[telemetry.AttrHecateRouteSkipReason]; got != richInputRouteFenceSkipReason {
+		t.Fatalf("blocked skip reason = %v, want %q", got, richInputRouteFenceSkipReason)
 	}
 }
 
