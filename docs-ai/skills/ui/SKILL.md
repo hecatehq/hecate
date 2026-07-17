@@ -601,6 +601,10 @@ these boundaries when changing dictation:
 
 - load the typed `/hecate/v1/dictation/options` capability snapshot and default
   to the first available route (the backend orders local first);
+- detect secure-context, `getUserMedia`, and `MediaRecorder` support before
+  enabling capture. Keep client capture failures distinct from provider
+  readiness failures so “unsupported browser,” “permission denied,” and
+  “connect a transcription provider” remain actionable states;
 - show the exact provider and local/cloud kind before recording, and never
   silently select a different route after a failure;
 - cap recording duration and client-side bytes, stop every `MediaStreamTrack`
@@ -610,6 +614,9 @@ these boundaries when changing dictation:
   spacing, restore focus/cursor, and never call submit automatically;
 - keep MediaRecorder/getUserMedia/API mocks in focused component tests. Test
   track cleanup and unmount-before-disclosure, not just the happy transcript.
+  Keep one Playwright path for the browser capture-to-editable-draft contract;
+  mock the device stream and recorder rather than depending on CI audio
+  hardware.
 
 The API owns real media sniffing, size/read/concurrency limits, and the provider
 generation fence. The UI disclosure copy must not claim a `kind=local` custom

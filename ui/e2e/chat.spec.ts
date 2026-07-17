@@ -127,6 +127,99 @@ test("renders the message textarea and send button", async ({ page }) => {
   await expect(page.locator("button[type='submit']")).toBeVisible();
 });
 
+test("browser dictation records and inserts an editable draft", async ({ page }) => {
+  let transcriptionContentType = "";
+  await page.route("/hecate/v1/dictation/options", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "dictation_options",
+        data: [
+          {
+            provider: "localai",
+            provider_kind: "local",
+            default_model: "whisper-1",
+            available: true,
+          },
+        ],
+      }),
+    }),
+  );
+  await page.route("/hecate/v1/dictation/transcriptions", async (route) => {
+    transcriptionContentType = route.request().headers()["content-type"] ?? "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "dictation_transcription",
+        data: {
+          provider: "localai",
+          provider_kind: "local",
+          model: "whisper-1",
+          text: "browser dictation draft",
+        },
+      }),
+    });
+  });
+  await page.evaluate(() => {
+    const stream = {
+      getTracks: () => [{ stop() {} }],
+    } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: async () => stream },
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: class BrowserRecorder extends EventTarget {
+        static isTypeSupported(type: string) {
+          return type === "audio/webm;codecs=opus";
+        }
+
+        readonly stream: MediaStream;
+        readonly mimeType: string;
+        state: RecordingState = "inactive";
+
+        constructor(input: MediaStream, options?: MediaRecorderOptions) {
+          super();
+          this.stream = input;
+          this.mimeType = options?.mimeType ?? "audio/webm";
+        }
+
+        start() {
+          this.state = "recording";
+        }
+
+        stop() {
+          this.state = "inactive";
+          const event = new Event("dataavailable");
+          Object.defineProperty(event, "data", {
+            value: new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])], {
+              type: "audio/webm",
+            }),
+          });
+          this.dispatchEvent(event);
+          this.dispatchEvent(new Event("stop"));
+        }
+      },
+    });
+  });
+
+  await startHecateChat(page);
+  const start = page.getByRole("button", { name: "Start dictation" });
+  await expect(start).toBeEnabled();
+  await start.click();
+  const stop = page.getByRole("button", { name: "Stop dictation recording" });
+  await expect(stop).toBeEnabled();
+  await stop.click();
+
+  await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue(
+    "browser dictation draft",
+  );
+  expect(transcriptionContentType).toContain("multipart/form-data; boundary=");
+});
+
 test("send button is disabled when message is empty", async ({ page }) => {
   await startHecateChat(page);
   await page.locator("textarea").fill("");

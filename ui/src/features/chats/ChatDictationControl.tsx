@@ -15,6 +15,11 @@ const RECORDER_MIME_TYPES = [
 ] as const;
 
 type DictationPhase = "idle" | "requesting" | "recording" | "transcribing";
+type DictationOptionsPhase = "loading" | "ready" | "failed";
+
+type DictationCaptureSupport =
+  | { available: true; reason: "" }
+  | { available: false; reason: string };
 
 export type ChatDictationControlProps = {
   disabled?: boolean;
@@ -32,6 +37,7 @@ export function ChatDictationControl({
     "",
   );
   const [phase, setPhase] = useState<DictationPhase>("idle");
+  const [optionsPhase, setOptionsPhase] = useState<DictationOptionsPhase>("loading");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState("");
   const statusID = useId();
@@ -49,6 +55,7 @@ export function ChatDictationControl({
       .then((response) => {
         if (!mountedRef.current) return;
         setOptions(response.data);
+        setOptionsPhase("ready");
         const selectedAvailable = response.data.some(
           (option) => option.provider === selectedProvider && option.available,
         );
@@ -58,6 +65,7 @@ export function ChatDictationControl({
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted && mountedRef.current) {
+          setOptionsPhase("failed");
           setError(dictationErrorMessage(cause, "Could not load dictation providers."));
         }
       });
@@ -83,8 +91,19 @@ export function ChatDictationControl({
 
   const selectedOption = options.find((option) => option.provider === selectedProvider);
   const availableOptions = options.filter((option) => option.available);
+  const captureSupport = dictationCaptureSupport();
   const active = phase !== "idle";
-  const unavailable = availableOptions.length === 0;
+  const noAvailableProvider = optionsPhase === "ready" && availableOptions.length === 0;
+  const unavailableMessage = !captureSupport.available
+    ? captureSupport.reason
+    : optionsPhase === "loading"
+      ? "Checking dictation providers…"
+      : optionsPhase === "failed"
+        ? "Dictation provider status could not be loaded."
+        : noAvailableProvider
+          ? dictationProviderUnavailableMessage(options)
+          : "";
+  const unavailable = unavailableMessage !== "";
 
   async function startRecording() {
     if (disabled || active || !selectedOption?.available) return;
@@ -92,8 +111,9 @@ export function ChatDictationControl({
     setElapsedSeconds(0);
     setPhase("requesting");
     try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-        throw new Error("This browser does not support microphone recording.");
+      const currentCaptureSupport = dictationCaptureSupport();
+      if (!currentCaptureSupport.available) {
+        throw new Error(currentCaptureSupport.reason);
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!mountedRef.current) {
@@ -226,7 +246,7 @@ export function ChatDictationControl({
         }}
         title={
           unavailable
-            ? "Configure OpenAI, Groq, or LocalAI in Connections to use dictation"
+            ? unavailableMessage
             : phase === "recording"
               ? "Stop dictation recording"
               : "Start dictation"
@@ -234,7 +254,7 @@ export function ChatDictationControl({
       >
         <Icon d={phase === "recording" ? Icons.stop : Icons.microphone} size={13} />
       </button>
-      {!unavailable && (
+      {optionsPhase === "ready" && availableOptions.length > 0 && (
         <label style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 }}>
           <span className="sr-only">Dictation provider</span>
           <select
@@ -282,14 +302,38 @@ export function ChatDictationControl({
         {error ||
           phaseLabel ||
           (unavailable
-            ? "Dictation unavailable"
+            ? unavailableMessage
             : `Audio goes only to ${selectedOption?.provider ?? selectedProvider}; Hecate does not retain it.`)}
       </span>
     </div>
   );
 }
 
+function dictationCaptureSupport(): DictationCaptureSupport {
+  if (window.isSecureContext === false) {
+    return {
+      available: false,
+      reason: "Dictation needs HTTPS or a loopback Hecate URL for microphone access.",
+    };
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    return {
+      available: false,
+      reason: "This browser or app webview cannot record microphone audio.",
+    };
+  }
+  return { available: true, reason: "" };
+}
+
+function dictationProviderUnavailableMessage(options: DictationProviderOption[]): string {
+  const option = options.find((candidate) => !candidate.available);
+  if (!option) return "Connect OpenAI, Groq, or LocalAI in Connections to use dictation.";
+  const reason = option.unavailable_reason?.trim().replace(/[.\s]+$/, "");
+  return `${option.provider} is unavailable${reason ? `: ${reason}` : ""}. Open Connections to fix it.`;
+}
+
 function preferredRecorderMimeType(): string {
+  if (typeof MediaRecorder.isTypeSupported !== "function") return "";
   return RECORDER_MIME_TYPES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
 }
 
@@ -328,7 +372,13 @@ function dictationErrorMessage(cause: unknown, fallback: string): string {
     return [cause.userMessage || cause.message, cause.operatorAction].filter(Boolean).join(" ");
   }
   if (cause instanceof DOMException && cause.name === "NotAllowedError") {
-    return "Microphone access was denied. Allow microphone access and try again.";
+    return "Microphone access was denied. Allow it for this Hecate site or app in system settings, then try again.";
+  }
+  if (cause instanceof DOMException && cause.name === "NotFoundError") {
+    return "No microphone was found. Connect one and try again.";
+  }
+  if (cause instanceof DOMException && cause.name === "NotReadableError") {
+    return "The microphone is unavailable. Close other apps using it and try again.";
   }
   return cause instanceof Error && cause.message ? cause.message : fallback;
 }

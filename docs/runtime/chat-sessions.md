@@ -217,6 +217,13 @@ retain the audio. The transcript is inserted at the current textarea selection
 with readable boundary spacing. It remains an ordinary editable draft and is
 never sent automatically.
 
+Browser dictation requires a secure context (HTTPS or the loopback Hecate URL),
+`getUserMedia`, and `MediaRecorder`. The macOS, Windows, and Linux desktop apps
+use those same web APIs through their platform webviews. The composer reports
+an unsupported context separately from an unconfigured transcription provider,
+and a denied microphone request leaves the draft and the rest of the composer
+usable.
+
 The built-in transcription routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
 (`whisper-large-v3-turbo`), and LocalAI (`whisper-1`). Operators can also opt an
 env-configured OpenAI-compatible provider into the same typed contract. See
