@@ -6,10 +6,13 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/browserrunner"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -117,6 +120,13 @@ type ServerConfig struct {
 	// the agent can reach. Empty = all public hosts allowed (still
 	// blocks private IPs unless TaskHTTPAllowPrivateIPs is true).
 	TaskHTTPAllowedHosts []string
+	// TaskBrowserExecutable is the absolute path to a local Chromium-compatible
+	// executable for the native, read-only browser evidence tool. Empty keeps
+	// the tool unavailable; Hecate never downloads a browser or attaches to an
+	// operator's profile.
+	TaskBrowserExecutable      string
+	TaskBrowserTimeout         time.Duration
+	TaskBrowserAllowPrivateIPs bool
 	// TaskWebSearch* knobs govern the optional agent_loop `web_search`
 	// tool. Empty provider disables the tool. Supported providers are
 	// Brave Search, Tavily, and Exa; all use operator-owned API keys.
@@ -522,6 +532,9 @@ func LoadFromEnv() Config {
 			TaskHTTPMaxResponseBytes:       getEnvInt("HECATE_TASK_HTTP_MAX_RESPONSE_BYTES", 256*1024),
 			TaskHTTPAllowPrivateIPs:        getEnvBool("HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS", false),
 			TaskHTTPAllowedHosts:           splitCSV(getEnv("HECATE_TASK_HTTP_ALLOWED_HOSTS", "")),
+			TaskBrowserExecutable:          getEnv("HECATE_TASK_BROWSER_EXECUTABLE", ""),
+			TaskBrowserTimeout:             getEnvDuration("HECATE_TASK_BROWSER_TIMEOUT", browserrunner.DefaultTimeout),
+			TaskBrowserAllowPrivateIPs:     getEnvBool("HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS", false),
 			TaskWebSearchProvider:          getEnv("HECATE_TASK_WEB_SEARCH_PROVIDER", ""),
 			TaskWebSearchAPIKey:            firstNonEmptyEnv("HECATE_TASK_WEB_SEARCH_API_KEY", "BRAVE_SEARCH_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY"),
 			TaskWebSearchEndpoint:          getEnv("HECATE_TASK_WEB_SEARCH_ENDPOINT", ""),
@@ -686,6 +699,21 @@ func (c Config) Validate() error {
 		if c.Server.OperatorTerminals {
 			errs = append(errs, errors.New("HECATE_OPERATOR_TERMINALS cannot be enabled in remote runtime mode"))
 		}
+		if strings.TrimSpace(c.Server.TaskBrowserExecutable) != "" {
+			errs = append(errs, errors.New("HECATE_TASK_BROWSER_EXECUTABLE cannot be enabled in remote runtime mode"))
+		}
+	}
+	if executable := strings.TrimSpace(c.Server.TaskBrowserExecutable); executable != "" {
+		if !filepath.IsAbs(executable) {
+			errs = append(errs, errors.New("HECATE_TASK_BROWSER_EXECUTABLE must be an absolute path"))
+		} else if info, err := os.Stat(executable); err != nil || info.IsDir() {
+			errs = append(errs, errors.New("HECATE_TASK_BROWSER_EXECUTABLE must name an existing browser executable"))
+		} else if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+			errs = append(errs, errors.New("HECATE_TASK_BROWSER_EXECUTABLE must be executable"))
+		}
+		if c.Server.TaskBrowserTimeout <= 0 {
+			errs = append(errs, errors.New("HECATE_TASK_BROWSER_TIMEOUT must be positive when browser evidence is enabled"))
+		}
 	}
 
 	validPolicies := map[string]struct{}{
@@ -818,6 +846,7 @@ func durationEnvKeys() []string {
 		"HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL",
 		"HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT",
 		"HECATE_TASK_HTTP_TIMEOUT",
+		"HECATE_TASK_BROWSER_TIMEOUT",
 		"HECATE_TASK_WEB_SEARCH_TIMEOUT",
 		"HECATE_PROVIDER_RETRY_BACKOFF",
 		"HECATE_PROVIDER_HEALTH_COOLDOWN",

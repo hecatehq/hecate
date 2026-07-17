@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/browserrunner"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -21,6 +22,7 @@ type agentLoopToolDispatcher struct {
 	httpPolicy                HTTPRequestPolicy
 	httpClient                *http.Client
 	webSearch                 websearch.Client
+	browserInspector          browserrunner.Inspector
 	projectAssistantDraftTool ProjectAssistantDraftTool
 	metrics                   *telemetry.OrchestratorMetrics
 }
@@ -73,6 +75,17 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			"sandbox_network",
 			"network access is disabled by the resolved agent preset",
 			"choose a non-network path or ask the operator to use a network-enabled preset",
+		), nil
+	}
+	if agentPresetBlocksBrowser(spec.Task, call.Function.Name) {
+		return blockedNativeToolCall(
+			spec,
+			call,
+			stepIndex,
+			startedAt,
+			"agent_preset_browser",
+			"browser evidence is disabled by the resolved agent preset",
+			"choose a non-browser path or ask the operator to use a browser-enabled preset with the required origin",
 		), nil
 	}
 	if agentReadOnlyBlocksTool(spec.Task, call.Function.Name) {
@@ -258,6 +271,15 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for web_search: %v", err)}, nil
 		}
 		return d.webSearchTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case AgentToolBrowserInspect:
+		args, _, err := decodeBrowserInspectionArgs(call.Function.Arguments)
+		if err != nil {
+			// Never echo browser arguments: even rejected JSON may contain a
+			// query-string credential or another private value.
+			return agentLoopToolDispatchResult{Text: "invalid arguments for " + AgentToolBrowserInspect}, nil
+		}
+		return d.browserInspectTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
 
 	case AgentToolDraftProjectProposal:
 		var args projectAssistantDraftArgs

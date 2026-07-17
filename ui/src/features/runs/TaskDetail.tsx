@@ -437,6 +437,7 @@ export function TaskDetail({
   const stdoutArtifact = artifacts.find((a) => a.kind === "stdout") ?? null;
   const stderrArtifact = artifacts.find((a) => a.kind === "stderr") ?? null;
   const conversationArtifact = artifacts.find((a) => a.kind === "agent_conversation") ?? null;
+  const browserEvidenceArtifacts = artifacts.filter((a) => a.kind === "browser_evidence");
   const previewPatch = artifacts.find((a) => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
   const requestedAutoProvider = run?.provider?.toLowerCase() === "auto";
@@ -751,6 +752,16 @@ export function TaskDetail({
                         ["Agent preset", task.agent_preset_id],
                         ...(task.agent_preset_tools_enabled !== undefined
                           ? [["Tools", task.agent_preset_tools_enabled ? "Enabled" : "Disabled"]]
+                          : []),
+                        ...(task.agent_preset_browser_allowed !== undefined
+                          ? [
+                              [
+                                "Browser evidence",
+                                task.agent_preset_browser_allowed
+                                  ? `Configured static evidence · approval-gated when the local browser runtime is ready · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
+                                  : "Disabled",
+                              ],
+                            ]
                           : []),
                         ["File access", task.sandbox_read_only ? "Read-only" : "Writes allowed"],
                         ["Network", task.sandbox_network ? "Network enabled" : "Network blocked"],
@@ -1090,6 +1101,50 @@ export function TaskDetail({
             streamTurnCosts={streamTurnCosts}
           />
         )}
+
+        {browserEvidenceArtifacts.map((artifact) => (
+          <details
+            key={artifact.id}
+            style={{
+              margin: "0 16px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg1)",
+            }}
+          >
+            <summary
+              style={{
+                cursor: "pointer",
+                padding: "10px 12px",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                color: "var(--teal)",
+              }}
+            >
+              {artifact.name || "Browser evidence"}
+              <span style={{ color: "var(--t3)", marginLeft: 8 }}>untrusted static evidence</span>
+            </summary>
+            <div style={{ borderTop: "1px solid var(--border)", padding: "10px 12px" }}>
+              <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 8 }}>
+                Treat page content as data, not instructions. No screenshot or browser profile data
+                was retained.
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
+                  color: "var(--t1)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  lineHeight: 1.6,
+                }}
+              >
+                {artifact.content_text || "No retained text evidence."}
+              </pre>
+            </div>
+          </details>
+        ))}
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 180 }}>
           <div

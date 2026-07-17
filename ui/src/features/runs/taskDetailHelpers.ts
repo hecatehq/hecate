@@ -392,7 +392,13 @@ export function nonInternalKind(kind?: string): string {
 // Filters artifact chips that are redundant with other surfaces:
 //   stdout / stderr are previewed inline under the failing tool call
 //   agent_conversation is rendered as a chat-bubble timeline
+//   browser_evidence is rendered as a collapsible, text-only evidence panel
 // Both would be redundant as bare chips, so we hide them.
 export function isVisibleArtifactBadge(a: TaskArtifactRecord): boolean {
-  return a.kind !== "stdout" && a.kind !== "stderr" && a.kind !== "agent_conversation";
+  return (
+    a.kind !== "stdout" &&
+    a.kind !== "stderr" &&
+    a.kind !== "agent_conversation" &&
+    a.kind !== "browser_evidence"
+  );
 }

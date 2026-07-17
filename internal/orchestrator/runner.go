@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/browserrunner"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
@@ -82,6 +83,9 @@ type Config struct {
 	// WebSearch enables the optional agent_loop `web_search` tool.
 	// Nil means the tool is omitted from the LLM catalog.
 	WebSearch websearch.Client
+	// BrowserInspector enables the deliberately narrow native browser evidence
+	// tool. Nil keeps it out of every agent catalog.
+	BrowserInspector browserrunner.Inspector
 	// ShellNetwork mirrors HTTPPolicy's host/IP rules onto shell_exec
 	// and git_exec when SandboxNetwork is enabled on the task. The
 	// master gate is still task.SandboxNetwork — these only refine
@@ -281,7 +285,7 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	// Gated tools come from the same approval policies as
 	// task-level gating, so an operator who approves shell at the
 	// task layer also approves it inside agent_loop tool calls.
-	agent := NewAgentLoopExecutor(nil, runner.shell, runner.file, runner.git, cfg.AgentLoopMaxTurns, agentLoopGatedTools(runner.policies), cfg.HTTPPolicy, WithWebSearchClient(cfg.WebSearch))
+	agent := NewAgentLoopExecutor(nil, runner.shell, runner.file, runner.git, cfg.AgentLoopMaxTurns, agentLoopGatedTools(runner.policies), cfg.HTTPPolicy, WithWebSearchClient(cfg.WebSearch), WithBrowserInspector(cfg.BrowserInspector))
 	agent.SetMCPHostFactory(DefaultMCPHostFactory)
 	runner.mcpHostFactory = DefaultMCPHostFactory
 	runner.agent = agent
@@ -351,7 +355,7 @@ func (r *Runner) SetAgentInputResolver(resolver AgentInputResolver) {
 // service is constructed, since the chat path needs its own deps that
 // the runner doesn't otherwise know about. Nil unwires the loop.
 func (r *Runner) SetAgentLLMClient(llm AgentLLMClient) {
-	agent := NewAgentLoopExecutor(llm, r.shell, r.file, r.git, r.config.AgentLoopMaxTurns, agentLoopGatedTools(r.policies), r.config.HTTPPolicy, WithWebSearchClient(r.config.WebSearch))
+	agent := NewAgentLoopExecutor(llm, r.shell, r.file, r.git, r.config.AgentLoopMaxTurns, agentLoopGatedTools(r.policies), r.config.HTTPPolicy, WithWebSearchClient(r.config.WebSearch), WithBrowserInspector(r.config.BrowserInspector))
 	// Re-bind the stored MCP factory — the executor is rebuilt from
 	// scratch above so the prior binding is gone. Fall back to the
 	// no-cipher default if SetMCPHostFactory was never called.

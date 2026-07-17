@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -15,6 +16,14 @@ type SQLiteStore struct {
 	client  storage.SQLClient
 	backend string
 	table   string
+}
+
+type profileQueryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type profileExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
@@ -57,6 +66,8 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
     tools_enabled INTEGER NOT NULL DEFAULT 0,
     writes_allowed INTEGER NOT NULL DEFAULT 0,
     network_allowed INTEGER NOT NULL DEFAULT 0,
+	browser_allowed INTEGER NOT NULL DEFAULT 0,
+	browser_allowed_origins TEXT NOT NULL DEFAULT '[]',
     approval_policy TEXT NOT NULL DEFAULT 'inherit',
     project_memory_policy TEXT NOT NULL DEFAULT 'inherit',
     context_source_policy TEXT NOT NULL DEFAULT 'inherit',
@@ -66,7 +77,30 @@ CREATE TABLE IF NOT EXISTS `+s.table+` (
     created_at `+timestampColumn+`,
     updated_at `+timestampColumn+`
 )`)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "browser_allowed", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "browser_allowed_origins", definition: "TEXT NOT NULL DEFAULT '[]'"},
+	} {
+		exists, err := storage.ColumnExists(ctx, s.client, s.client.TableName("agent_profiles"), column.name)
+		if err != nil {
+			return fmt.Errorf("inspect %s agent profile %s column: %w", s.backend, column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(
+			`ALTER TABLE %s ADD COLUMN %s %s`, s.table, column.name, column.definition,
+		)); err != nil {
+			return fmt.Errorf("migrate %s agent profile %s column: %w", s.backend, column.name, err)
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) Create(ctx context.Context, profile Profile) (Profile, error) {
@@ -88,7 +122,18 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (Profile, bool, error)
 	if profile, ok := BuiltInProfile(id); ok {
 		return profile, true, nil
 	}
-	row := s.client.DB().QueryRowContext(ctx, selectAgentProfileSQL(s.table)+" WHERE id = ?", id)
+	return s.getWith(ctx, s.client.DB(), id, false)
+}
+
+func (s *SQLiteStore) getWith(ctx context.Context, queryer profileQueryer, id string, lock bool) (Profile, bool, error) {
+	query := selectAgentProfileSQL(s.table) + " WHERE id = ?"
+	// SQLite transactions acquire a writer lock up front through the client's
+	// _txlock=immediate configuration. PostgreSQL needs an explicit row lock to
+	// give Update the same read-modify-write serialization.
+	if lock && s.client.Dialect() == storage.DialectPostgres {
+		query += " FOR UPDATE"
+	}
+	row := queryer.QueryRowContext(ctx, query, id)
 	profile, err := scanAgentProfile(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, false, nil
@@ -124,10 +169,17 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Profile, error) {
 }
 
 func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Profile)) (Profile, error) {
+	id = strings.TrimSpace(id)
 	if IsBuiltInProfileID(id) {
 		return Profile{}, ErrBuiltIn
 	}
-	profile, ok, err := s.Get(ctx, id)
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return Profile{}, fmt.Errorf("begin %s agent profile update: %w", s.backend, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	profile, ok, err := s.getWith(ctx, tx, id, true)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -146,8 +198,11 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Profil
 	if err := validateProfile(profile); err != nil {
 		return Profile{}, err
 	}
-	if err := s.upsert(ctx, profile); err != nil {
+	if err := s.upsertWith(ctx, tx, profile); err != nil {
 		return Profile{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Profile{}, fmt.Errorf("commit %s agent profile update: %w", s.backend, err)
 	}
 	return cloneProfile(profile), nil
 }
@@ -172,6 +227,10 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 }
 
 func (s *SQLiteStore) upsert(ctx context.Context, profile Profile) error {
+	return s.upsertWith(ctx, s.client.DB(), profile)
+}
+
+func (s *SQLiteStore) upsertWith(ctx context.Context, executor profileExecutor, profile Profile) error {
 	skills, err := json.Marshal(profile.SkillIDs)
 	if err != nil {
 		return err
@@ -180,13 +239,18 @@ func (s *SQLiteStore) upsert(ctx context.Context, profile Profile) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.client.DB().ExecContext(ctx, `
+	browserOrigins, err := json.Marshal(profile.BrowserAllowedOrigins)
+	if err != nil {
+		return err
+	}
+	_, err = executor.ExecContext(ctx, `
 INSERT INTO `+s.table+` (
     id, name, description, instructions, surface, provider_hint, model_hint,
     execution_profile, tools_enabled, writes_allowed, network_allowed,
+    browser_allowed, browser_allowed_origins,
     approval_policy, project_memory_policy, context_source_policy, skill_ids,
     external_agent_kind, external_agent_options, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     description = excluded.description,
@@ -198,6 +262,8 @@ ON CONFLICT(id) DO UPDATE SET
     tools_enabled = excluded.tools_enabled,
     writes_allowed = excluded.writes_allowed,
     network_allowed = excluded.network_allowed,
+	browser_allowed = excluded.browser_allowed,
+	browser_allowed_origins = excluded.browser_allowed_origins,
     approval_policy = excluded.approval_policy,
     project_memory_policy = excluded.project_memory_policy,
     context_source_policy = excluded.context_source_policy,
@@ -216,6 +282,8 @@ ON CONFLICT(id) DO UPDATE SET
 		boolInt(profile.ToolsEnabled),
 		boolInt(profile.WritesAllowed),
 		boolInt(profile.NetworkAllowed),
+		boolInt(profile.BrowserAllowed),
+		string(browserOrigins),
 		profile.ApprovalPolicy,
 		profile.ProjectMemoryPolicy,
 		profile.ContextSourcePolicy,
@@ -230,7 +298,8 @@ ON CONFLICT(id) DO UPDATE SET
 
 func selectAgentProfileSQL(table string) string {
 	return `SELECT id, name, description, instructions, surface, provider_hint, model_hint,
-execution_profile, tools_enabled, writes_allowed, network_allowed, approval_policy,
+execution_profile, tools_enabled, writes_allowed, network_allowed, browser_allowed,
+browser_allowed_origins, approval_policy,
 project_memory_policy, context_source_policy, skill_ids, external_agent_kind,
 external_agent_options, created_at, updated_at FROM ` + table
 }
@@ -241,8 +310,8 @@ type scanner interface {
 
 func scanAgentProfile(row scanner) (Profile, error) {
 	var profile Profile
-	var tools, writes, network int
-	var skillsRaw, optionsRaw string
+	var tools, writes, network, browser int
+	var skillsRaw, optionsRaw, browserOriginsRaw string
 	var createdAt, updatedAt string
 	if err := row.Scan(
 		&profile.ID,
@@ -256,6 +325,8 @@ func scanAgentProfile(row scanner) (Profile, error) {
 		&tools,
 		&writes,
 		&network,
+		&browser,
+		&browserOriginsRaw,
 		&profile.ApprovalPolicy,
 		&profile.ProjectMemoryPolicy,
 		&profile.ContextSourcePolicy,
@@ -270,7 +341,9 @@ func scanAgentProfile(row scanner) (Profile, error) {
 	profile.ToolsEnabled = tools != 0
 	profile.WritesAllowed = writes != 0
 	profile.NetworkAllowed = network != 0
+	profile.BrowserAllowed = browser != 0
 	_ = json.Unmarshal([]byte(skillsRaw), &profile.SkillIDs)
+	_ = json.Unmarshal([]byte(browserOriginsRaw), &profile.BrowserAllowedOrigins)
 	_ = json.Unmarshal([]byte(optionsRaw), &profile.ExternalAgentOptions)
 	profile.CreatedAt = parseTime(createdAt)
 	profile.UpdatedAt = parseTime(updatedAt)

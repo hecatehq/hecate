@@ -131,16 +131,18 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	}
 
 	profile := mustRequestJSONStatus[AgentPresetResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/agent-presets", projectJourneyJSON(t, map[string]any{
-		"id":                    "prof_backend",
-		"name":                  "Backend implementer",
-		"surface":               "hecate_task",
-		"execution_profile":     "implementation",
-		"tools_enabled":         false,
-		"writes_allowed":        false,
-		"network_allowed":       false,
-		"project_memory_policy": "include",
-		"context_source_policy": "include_enabled",
-		"skill_ids":             []string{"backend"},
+		"id":                      "prof_backend",
+		"name":                    "Backend implementer",
+		"surface":                 "hecate_task",
+		"execution_profile":       "implementation",
+		"tools_enabled":           true,
+		"writes_allowed":          false,
+		"network_allowed":         false,
+		"browser_allowed":         true,
+		"browser_allowed_origins": []string{"https://qa.example.test"},
+		"project_memory_policy":   "include",
+		"context_source_policy":   "include_enabled",
+		"skill_ids":               []string{"backend"},
 	}))
 	if profile.Data.ID != "prof_backend" {
 		t.Fatalf("profile = %+v, want prof_backend", profile.Data)
@@ -190,8 +192,8 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	if task.ProjectID != projectID || task.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude {
 		t.Fatalf("task project/prompt policy = %q/%q, want project id and excluded workspace prompt layer", task.ProjectID, task.WorkspaceSystemPromptPolicy)
 	}
-	if task.AgentPresetID != "prof_backend" || task.AgentPresetToolsEnabled == nil || *task.AgentPresetToolsEnabled || !task.SandboxReadOnly || task.SandboxNetwork {
-		t.Fatalf("task runtime policy = preset %q tools=%v read_only=%v network=%v, want prof_backend/false/true/false", task.AgentPresetID, task.AgentPresetToolsEnabled, task.SandboxReadOnly, task.SandboxNetwork)
+	if task.AgentPresetID != "prof_backend" || task.AgentPresetToolsEnabled == nil || !*task.AgentPresetToolsEnabled || task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || len(task.AgentPresetBrowserAllowedOrigins) != 1 || task.AgentPresetBrowserAllowedOrigins[0] != "https://qa.example.test" || !task.SandboxReadOnly || task.SandboxNetwork {
+		t.Fatalf("task runtime policy = preset %q tools=%v browser=%v browser_origins=%v read_only=%v network=%v, want prof_backend/true/true/[https://qa.example.test]/true/false", task.AgentPresetID, task.AgentPresetToolsEnabled, task.AgentPresetBrowserAllowed, task.AgentPresetBrowserAllowedOrigins, task.SandboxReadOnly, task.SandboxNetwork)
 	}
 	for _, want := range []string{"Project memory: Runtime preference", "Prefer focused backend tests before handoff.", "Workspace instruction: AGENTS.md", "Use small changes."} {
 		if !strings.Contains(task.SystemPrompt, want) {

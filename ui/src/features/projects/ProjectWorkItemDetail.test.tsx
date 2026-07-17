@@ -225,6 +225,9 @@ function launchReadiness(
       tools_enabled: true,
       writes_allowed: true,
       network_allowed: false,
+      browser_evidence_status: "enabled",
+      browser_allowed: true,
+      browser_allowed_origins: ["https://qa.example.test"],
       approval_policy: "require",
       project_memory_policy: "include",
       context_source_policy: "include_enabled",
@@ -1274,6 +1277,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(readiness).getByText("openai / gpt-5")).toBeTruthy();
     expect(within(readiness).getByText("implementation")).toBeTruthy();
     expect(within(readiness).getByText("tools on · writes on · network off")).toBeTruthy();
+    expect(within(readiness).getByText("Enabled · https://qa.example.test")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -1315,6 +1319,17 @@ describe("ProjectWorkItemDetail", () => {
         driver_kind: "external_agent",
         provider: "",
         model: "",
+        profile_posture: {
+          id: "implementation",
+          name: "Implementation",
+          source: "role_default",
+          tools_enabled: true,
+          writes_allowed: true,
+          network_allowed: false,
+          browser_evidence_status: "not_applicable",
+          browser_allowed: false,
+          browser_allowed_origins: [],
+        },
         external_agent: "Codex",
         external_agent_id: "codex",
         session_title: "Implementation follow-up",
@@ -1344,6 +1359,7 @@ describe("ProjectWorkItemDetail", () => {
     expect(within(posture).getByText("Codex (codex)")).toBeTruthy();
     expect(within(posture).getByText("Implementation follow-up")).toBeTruthy();
     expect(within(posture).getByText("tools on · writes on · network off")).toBeTruthy();
+    expect(within(posture).getByText("Not available for External Agent assignments")).toBeTruthy();
     expect(
       within(preflight).getByRole("status", {
         name: "Launch readiness warnings",

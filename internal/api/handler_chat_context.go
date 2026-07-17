@@ -610,7 +610,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		Included:        true,
 		InclusionReason: includedReason,
 	})
-	appendResolvedAgentProfile(&packet, profile)
+	appendResolvedAgentProfile(&packet, profile, driverKind)
 	appendResolvedProjectSkills(&packet, skills)
 	appendProjectAssignmentPromptContext(&packet, promptContext)
 	if driverKind == projectwork.AssignmentDriverExternalAgent {
@@ -979,7 +979,7 @@ func effectiveContextSourcePolicy(policy string) string {
 	}
 }
 
-func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworkapp.ResolvedAgentProfile) {
+func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworkapp.ResolvedAgentProfile, driverKind string) {
 	if strings.TrimSpace(profile.ID) == "" {
 		return
 	}
@@ -997,6 +997,14 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile projectworka
 		"Approval policy: " + firstNonEmptyString(profile.ApprovalPolicy, "inherit"),
 		"Project memory policy: " + firstNonEmptyString(profile.ProjectMemoryPolicy, "inherit"),
 		"Context source policy: " + firstNonEmptyString(profile.ContextSourcePolicy, "inherit"),
+	}
+	if driverKind != projectwork.AssignmentDriverHecateTask {
+		body = append(body, "Browser evidence: not available for External Agent assignments")
+	} else {
+		body = append(body, "Browser evidence allowed: "+boolLabel(profile.BrowserAllowed))
+		if profile.BrowserAllowed && len(profile.BrowserAllowedOrigins) > 0 {
+			body = append(body, "Browser evidence origins: "+strings.Join(profile.BrowserAllowedOrigins, ", "))
+		}
 	}
 	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" && !profile.Missing {
 		body = append(body, "Instructions:\n"+instructions)

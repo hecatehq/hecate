@@ -18,6 +18,8 @@ export type AgentPresetForm = {
   toolsEnabled: boolean;
   writesAllowed: boolean;
   networkAllowed: boolean;
+  browserAllowed: boolean;
+  browserAllowedOrigins: string;
   approvalPolicy: string;
   projectMemoryPolicy: string;
   contextSourcePolicy: string;
@@ -64,6 +66,8 @@ export function emptyAgentPresetForm(): AgentPresetForm {
     toolsEnabled: true,
     writesAllowed: false,
     networkAllowed: false,
+    browserAllowed: false,
+    browserAllowedOrigins: "",
     approvalPolicy: "inherit",
     projectMemoryPolicy: "inherit",
     contextSourcePolicy: "inherit",
@@ -85,6 +89,8 @@ export function presetFormFromRecord(preset: AgentPresetRecord): AgentPresetForm
     toolsEnabled: preset.tools_enabled,
     writesAllowed: preset.writes_allowed,
     networkAllowed: preset.network_allowed,
+    browserAllowed: preset.browser_allowed ?? false,
+    browserAllowedOrigins: (preset.browser_allowed_origins ?? []).join("\n"),
     approvalPolicy: preset.approval_policy || "inherit",
     projectMemoryPolicy: preset.project_memory_policy || "inherit",
     contextSourcePolicy: preset.context_source_policy || "inherit",
@@ -112,6 +118,10 @@ export function presetUpdatePayloadFromForm(form: AgentPresetForm): UpdateAgentP
     tools_enabled: form.toolsEnabled,
     writes_allowed: form.writesAllowed,
     network_allowed: form.networkAllowed,
+    browser_allowed: form.browserAllowed,
+    browser_allowed_origins: form.browserAllowed
+      ? splitBrowserOrigins(form.browserAllowedOrigins)
+      : [],
     approval_policy: form.approvalPolicy.trim() || "inherit",
     project_memory_policy: form.projectMemoryPolicy.trim() || "inherit",
     context_source_policy: form.contextSourcePolicy.trim() || "inherit",
@@ -216,4 +226,46 @@ export function projectSkillStatusRank(status: string): number {
 
 export function uniqueSkillIDs(ids: string[]): string[] {
   return Array.from(new Set(ids));
+}
+
+export function splitBrowserOrigins(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+// The backend remains authoritative, but validating this exact browser
+// capability shape in the form avoids a generic save error for common copied
+// URLs. Do not normalize the value here: the API owns canonical persistence.
+export function browserAllowedOriginsValidationError(value: string): string | null {
+  const origins = splitBrowserOrigins(value);
+  if (origins.length === 0) {
+    return "Add at least one exact origin before saving this browser-enabled preset.";
+  }
+  for (const origin of origins) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      return "Use exact http(s) origins only, without paths, query strings, fragments, credentials, or wildcards.";
+    }
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.pathname !== "" && parsed.pathname !== "/") ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.hostname.includes("*")
+    ) {
+      return "Use exact http(s) origins only, without paths, query strings, fragments, credentials, or wildcards.";
+    }
+  }
+  return null;
 }

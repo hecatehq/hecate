@@ -36,6 +36,10 @@ func (e *AgentLoopExecutor) runLLMTurn(ctx context.Context, spec ExecutionSpec, 
 	}
 
 	assistantMsg := resp.Choices[0].Message
+	// Browser targets intentionally exclude query strings and fragments. Strip
+	// any invalid raw arguments before the assistant message is emitted or
+	// checkpointed, where a query could otherwise be retained as operator data.
+	assistantMsg = sanitizeBrowserInspectionToolCalls(assistantMsg)
 	emitAssistantMessageEvents(spec, turn, assistantMsg)
 
 	turnCost := runState.AccumulateCost(resp)

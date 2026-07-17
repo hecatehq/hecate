@@ -4114,6 +4114,7 @@ export function ProjectsView({
 
         {selectedProject && presetsModalOpen && (
           <AgentPresetsModal
+            browserEvidenceReadiness={settings.state.config?.browser_evidence}
             error={presetsError}
             pending={presetsPending}
             presets={agentPresets}

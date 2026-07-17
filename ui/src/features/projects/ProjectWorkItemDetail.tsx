@@ -2375,6 +2375,10 @@ function assignmentLaunchPostureRows(
   if (capabilities) {
     rows.push({ label: "Capabilities", value: capabilities });
   }
+  const browserEvidence = assignmentLaunchBrowserEvidencePosture(readiness);
+  if (browserEvidence) {
+    rows.push({ label: "Browser evidence", value: browserEvidence });
+  }
   if (
     readiness.driver_kind === "external_agent" ||
     readiness.external_agent ||
@@ -2425,6 +2429,23 @@ function assignmentLaunchCapabilityPosture(
     `writes ${posture.writes_allowed ? "on" : "off"}`,
     `network ${posture.network_allowed ? "on" : "off"}`,
   ].join(" · ");
+}
+
+function assignmentLaunchBrowserEvidencePosture(
+  readiness: ProjectAssignmentLaunchReadinessRecord,
+): string {
+  const posture = readiness.profile_posture;
+  if (!posture) return "";
+  if (
+    posture.browser_evidence_status === "not_applicable" ||
+    readiness.driver_kind === "external_agent"
+  ) {
+    return "Not available for External Agent assignments";
+  }
+  const enabled = posture.browser_evidence_status === "enabled" || posture.browser_allowed === true;
+  if (!enabled) return "Disabled";
+  const origins = posture.browser_allowed_origins ?? [];
+  return origins.length > 0 ? `Enabled · ${origins.join(", ")}` : "Enabled";
 }
 
 function assignmentLaunchReadinessNotice(

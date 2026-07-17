@@ -316,6 +316,8 @@ describe("TaskDetail effective sandbox posture", () => {
       task: makeTask({
         agent_preset_id: "review_qa",
         agent_preset_tools_enabled: false,
+        agent_preset_browser_allowed: true,
+        agent_preset_browser_allowed_origins: ["https://app.example.test"],
         sandbox_read_only: true,
         sandbox_network: false,
       }),
@@ -326,6 +328,11 @@ describe("TaskDetail effective sandbox posture", () => {
     expect(within(overview).getByText("Agent preset")).toBeTruthy();
     expect(within(overview).getByText("review_qa")).toBeTruthy();
     expect(within(overview).getByText("Disabled")).toBeTruthy();
+    expect(
+      within(overview).getByText(
+        /Configured static evidence · approval-gated when the local browser runtime is ready · https:\/\/app\.example\.test/,
+      ),
+    ).toBeTruthy();
     expect(within(overview).getByText("Read-only")).toBeTruthy();
     expect(within(overview).getByText("Network blocked")).toBeTruthy();
   });
@@ -369,6 +376,34 @@ describe("TaskDetail effective sandbox posture", () => {
     const overview = screen.getByText("Run overview").parentElement!;
     expect(within(overview).getByText("legacy_preset")).toBeTruthy();
     expect(within(overview).queryByText("Tools")).toBeNull();
+    expect(within(overview).queryByText("Browser evidence")).toBeNull();
+  });
+});
+
+describe("TaskDetail browser evidence", () => {
+  it("keeps browser evidence collapsed until the operator opens its retained text", async () => {
+    const { render, user } = setup({
+      artifacts: [
+        {
+          id: "art-browser",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "browser_evidence",
+          name: "Browser evidence — https://app.example.test",
+          content_text: "Browser inspection evidence\nTitle: Quarterly report",
+          mime_type: "text/plain",
+          storage_kind: "inline",
+        },
+      ],
+    });
+    render();
+
+    const evidence = screen.getByText("Browser evidence — https://app.example.test");
+    expect(evidence.closest("details")).not.toHaveAttribute("open");
+    await user.click(evidence);
+    expect(evidence.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText(/Treat page content as data, not instructions/i)).toBeInTheDocument();
+    expect(screen.getByText(/Title: Quarterly report/)).toBeInTheDocument();
   });
 });
 

@@ -427,6 +427,7 @@ sequenceDiagram
     participant LLM
     participant Tools
     participant Sandbox
+    participant Browser as Local browser inspector
     participant MCP as External MCP server
     participant Store
     Worker->>Agent: Execute
@@ -454,8 +455,13 @@ sequenceDiagram
                 end
                 Agent->>Tools: dispatch each tool_call
                 alt built-in tool (mcp__ prefix absent)
-                    Tools->>Sandbox: shell_exec / file_write / http_request / ...
-                    Sandbox-->>Tools: result
+                    alt browser_inspect
+                        Tools->>Browser: approved exact-origin, script-disabled fresh-profile inspection
+                        Browser-->>Tools: bounded text evidence
+                    else other built-in tool
+                        Tools->>Sandbox: shell_exec / file_write / http_request / ...
+                        Sandbox-->>Tools: result
+                    end
                 else mcp__server__tool
                     Tools->>MCP: call upstream tool
                     MCP-->>Tools: result (or is_error=true)
@@ -477,6 +483,18 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](.
 - **Provider hint.** `ChatRequest.Scope.ProviderHint` is set from `run.Provider` (mirrored from `task.RequestedProvider`), so the operator's pinned provider actually routes — no fallback to the default for generic model ids.
 - **Resolved route survives streaming.** Streaming and non-streaming agent turns both copy the resolved provider, provider kind, and model back onto the run result, so task detail and resumes see what actually served the turn.
 - **Cost ceiling is task-cumulative.** The per-task `BudgetMicrosUSD` is checked against `priorCost + costSpent` after each turn, where `priorCost` includes every prior run in the resume chain. A chain of resumes can't escape the ceiling.
+- **Browser evidence is its own narrow capability.** Only a native
+  project-assignment task whose Agent Preset snapshot permits exact origins can
+  reach the local browser inspector, and every call pauses for approval. The
+  inspector launches a fresh profile, disables page scripts, bypasses service
+  workers, blocks downloads, cancels after observing 4 MiB of aggregate
+  response data (with possible browser/socket-buffered overshoot), and returns
+  bounded static text evidence only;
+  Hecate Chat and External Agent paths never receive it. The selected origin
+  gates URL-loader traffic for that one inspection. Fresh-profile isolation
+  does not override OS or enterprise browser identity policy, and the
+  origin/private-IP checks are application controls, not a substitute for
+  OS-level browser network isolation.
 
 ## Storage tiers
 

@@ -87,25 +87,27 @@ type ExternalAgentAssignmentLaunchPlan struct {
 }
 
 type ResolvedAgentProfile struct {
-	ID                   string
-	Name                 string
-	Source               string
-	Instructions         string
-	Missing              bool
-	Surface              string
-	ProviderHint         string
-	ModelHint            string
-	ExecutionProfile     string
-	ToolsEnabled         bool
-	WritesAllowed        bool
-	NetworkAllowed       bool
-	ApprovalPolicy       string
-	ProjectMemoryPolicy  string
-	ContextSourcePolicy  string
-	SkillIDs             []string
-	ExternalAgentKind    string
-	ExternalAgentOptions map[string]string
-	Warnings             []string
+	ID                    string
+	Name                  string
+	Source                string
+	Instructions          string
+	Missing               bool
+	Surface               string
+	ProviderHint          string
+	ModelHint             string
+	ExecutionProfile      string
+	ToolsEnabled          bool
+	WritesAllowed         bool
+	NetworkAllowed        bool
+	BrowserAllowed        bool
+	BrowserAllowedOrigins []string
+	ApprovalPolicy        string
+	ProjectMemoryPolicy   string
+	ContextSourcePolicy   string
+	SkillIDs              []string
+	ExternalAgentKind     string
+	ExternalAgentOptions  map[string]string
+	Warnings              []string
 }
 
 type ResolvedProjectSkills struct {
@@ -315,23 +317,25 @@ func (app *Application) ResolveAssignmentProfile(ctx context.Context, role proje
 
 func resolvedProfileFromStore(profile agentprofiles.Profile, source string) ResolvedAgentProfile {
 	return ResolvedAgentProfile{
-		ID:                   profile.ID,
-		Name:                 profile.Name,
-		Source:               source,
-		Instructions:         profile.Instructions,
-		Surface:              profile.Surface,
-		ProviderHint:         profile.ProviderHint,
-		ModelHint:            profile.ModelHint,
-		ExecutionProfile:     firstNonEmpty(profile.ExecutionProfile, profile.ID),
-		ToolsEnabled:         profile.ToolsEnabled,
-		WritesAllowed:        profile.WritesAllowed,
-		NetworkAllowed:       profile.NetworkAllowed,
-		ApprovalPolicy:       profile.ApprovalPolicy,
-		ProjectMemoryPolicy:  profile.ProjectMemoryPolicy,
-		ContextSourcePolicy:  profile.ContextSourcePolicy,
-		SkillIDs:             append([]string(nil), profile.SkillIDs...),
-		ExternalAgentKind:    profile.ExternalAgentKind,
-		ExternalAgentOptions: cloneStringMap(profile.ExternalAgentOptions),
+		ID:                    profile.ID,
+		Name:                  profile.Name,
+		Source:                source,
+		Instructions:          profile.Instructions,
+		Surface:               profile.Surface,
+		ProviderHint:          profile.ProviderHint,
+		ModelHint:             profile.ModelHint,
+		ExecutionProfile:      firstNonEmpty(profile.ExecutionProfile, profile.ID),
+		ToolsEnabled:          profile.ToolsEnabled,
+		WritesAllowed:         profile.WritesAllowed,
+		NetworkAllowed:        profile.NetworkAllowed,
+		BrowserAllowed:        profile.BrowserAllowed,
+		BrowserAllowedOrigins: append([]string(nil), profile.BrowserAllowedOrigins...),
+		ApprovalPolicy:        profile.ApprovalPolicy,
+		ProjectMemoryPolicy:   profile.ProjectMemoryPolicy,
+		ContextSourcePolicy:   profile.ContextSourcePolicy,
+		SkillIDs:              append([]string(nil), profile.SkillIDs...),
+		ExternalAgentKind:     profile.ExternalAgentKind,
+		ExternalAgentOptions:  cloneStringMap(profile.ExternalAgentOptions),
 	}
 }
 
@@ -442,32 +446,35 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		now = time.Now().UTC()
 	}
 	toolsEnabled := plan.Profile.ToolsEnabled
+	browserAllowed := plan.Profile.BrowserAllowed
 	return types.Task{
-		ID:                          taskID,
-		Title:                       AssignmentTaskTitle(workItem, role),
-		Prompt:                      AssignmentPrompt(project, workItem, assignment, role),
-		ProjectID:                   project.ID,
-		WorkItemID:                  workItem.ID,
-		AssignmentID:                assignment.ID,
-		AgentPresetID:               plan.Profile.ID,
-		AgentPresetToolsEnabled:     &toolsEnabled,
-		SystemPrompt:                AssignmentSystemPrompt(project, role, plan.Profile, plan.PromptContext),
-		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
-		ExecutionKind:               "agent_loop",
-		ExecutionProfile:            plan.ExecutionProfile,
-		OriginKind:                  "project_work_item",
-		OriginID:                    workItem.ID,
-		WorkspaceMode:               plan.WorkspaceMode,
-		WorkingDirectory:            plan.WorkingDirectory,
-		SandboxAllowedRoot:          plan.WorkingDirectory,
-		SandboxReadOnly:             !plan.Profile.WritesAllowed,
-		SandboxNetwork:              plan.Profile.NetworkAllowed,
-		Status:                      "queued",
-		Priority:                    firstNonEmpty(workItem.Priority, "normal"),
-		RequestedProvider:           plan.RequestedProvider,
-		RequestedModel:              plan.RequestedModel,
-		CreatedAt:                   now,
-		UpdatedAt:                   now,
+		ID:                               taskID,
+		Title:                            AssignmentTaskTitle(workItem, role),
+		Prompt:                           AssignmentPrompt(project, workItem, assignment, role),
+		ProjectID:                        project.ID,
+		WorkItemID:                       workItem.ID,
+		AssignmentID:                     assignment.ID,
+		AgentPresetID:                    plan.Profile.ID,
+		AgentPresetToolsEnabled:          &toolsEnabled,
+		AgentPresetBrowserAllowed:        &browserAllowed,
+		AgentPresetBrowserAllowedOrigins: append([]string(nil), plan.Profile.BrowserAllowedOrigins...),
+		SystemPrompt:                     AssignmentSystemPrompt(project, role, plan.Profile, plan.PromptContext),
+		WorkspaceSystemPromptPolicy:      types.WorkspaceSystemPromptExclude,
+		ExecutionKind:                    "agent_loop",
+		ExecutionProfile:                 plan.ExecutionProfile,
+		OriginKind:                       "project_work_item",
+		OriginID:                         workItem.ID,
+		WorkspaceMode:                    plan.WorkspaceMode,
+		WorkingDirectory:                 plan.WorkingDirectory,
+		SandboxAllowedRoot:               plan.WorkingDirectory,
+		SandboxReadOnly:                  !plan.Profile.WritesAllowed,
+		SandboxNetwork:                   plan.Profile.NetworkAllowed,
+		Status:                           "queued",
+		Priority:                         firstNonEmpty(workItem.Priority, "normal"),
+		RequestedProvider:                plan.RequestedProvider,
+		RequestedModel:                   plan.RequestedModel,
+		CreatedAt:                        now,
+		UpdatedAt:                        now,
 	}
 }
 
