@@ -65,10 +65,11 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	// Empty hint preserves the existing auto-route behavior for
 	// tasks that didn't specify a provider.
 	return types.ChatRequest{
-		RequestID: spec.RequestID,
-		Model:     spec.Run.Model,
-		Messages:  messages,
-		Tools:     tools,
+		RequestID:    spec.RequestID,
+		Model:        spec.Run.Model,
+		Messages:     messages,
+		Tools:        tools,
+		Requirements: spec.ChatRequirements,
 		Scope: types.RequestScope{
 			ProviderHint: spec.Run.Provider,
 		},

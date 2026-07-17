@@ -1341,6 +1341,47 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
+  it("accepts pasted images for a confirmed vision model with Hecate tools on", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: true,
+      providerScopedModels: [
+        {
+          id: "gpt-4o-mini",
+          owned_by: "openai",
+          metadata: {
+            provider: "openai",
+            provider_kind: "cloud",
+            capabilities: { tool_calling: "basic", image_input: "supported" },
+          },
+        },
+      ],
+      activeChatSession: {
+        id: "chat_1",
+        title: "Vision agent chat",
+        agent_id: "hecate",
+        status: "idle",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic", image_input: "supported" },
+        tools_enabled: true,
+        workspace: "/tmp/hecate",
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByRole("button", { name: "Image" })).toBeEnabled();
+    const file = new File(["image"], "tools-on.png", { type: "image/png" });
+    fireEvent.paste(screen.getByRole("textbox", { name: "Message" }), {
+      clipboardData: { files: [file] },
+    });
+
+    expect(screen.getByRole("button", { name: "Remove tools-on.png" })).toBeVisible();
+    expect(await screen.findByText("tools-on.png added. 1 image ready to attach.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
   it("clears a stale image selection error when submission consumes the drafts", async () => {
     const pendingFile = new File(["image"], "map.png", { type: "image/png" });
     const submitChat = vi.fn(async () => undefined);

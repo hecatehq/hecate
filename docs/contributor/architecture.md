@@ -126,6 +126,7 @@ sequenceDiagram
     participant API as Chat API
     participant Transcript as Chat store
     participant Bodies as Attachment store
+    participant Tasks as Task state
     participant Recovery as Startup reconciler
     participant Gateway as Gateway/router
     participant ACP as External Agent ACP session
@@ -143,6 +144,12 @@ sequenceDiagram
         API->>Gateway: transient text + image blocks + provider generation
         Gateway->>Gateway: revalidate live name + generation
         Gateway-->>API: provider response
+    else Hecate tools-on image turn
+        API->>Tasks: persist opaque chat-message input reference
+        API->>Gateway: hydrate transient image blocks at agent-loop execution
+        Gateway->>Gateway: require image capability + no failover; fence known generation
+        Gateway-->>API: provider response with tools available
+        API->>API: replace image blocks with artifact omission markers
     else External Agent file turn
         API->>ACP: inline image/embedded resource only when live capability allows
         API->>API: otherwise verify retained stage handles + register body-free namespace/redactor

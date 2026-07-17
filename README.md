@@ -153,17 +153,17 @@ matters.
 
 ## Current Capabilities
 
-| Surface            | What works today                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Model gateway**  | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                                                                                                                                            |
-| **Connections**    | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, external-agent readiness, and durable approval grants.                                                                                                                                                                                                      |
-| **Chats**          | Provider-routed dictation, direct model turns with image attachments, External Agent turns with arbitrary file inputs, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs. |
-| **Projects**       | Cairnline-backed project identity, roots, context and skill metadata, roles, work items, assignments, handoffs, project memory, review artifacts, and memory candidates, presented through Hecate's native operator cockpit and execution links.                                                                                                                                      |
-| **Tasks**          | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, and MCP registry discovery.                                                                                                                                                                                 |
-| **External Agent** | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including file inputs, readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.                                                                                                         |
-| **Observability**  | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                                                                                                                                           |
-| **Desktop app**    | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                                                                                                                                              |
-| **Sandbox policy** | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                                                                                                                                         |
+| Surface            | What works today                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model gateway**  | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                                                                                                                                      |
+| **Connections**    | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, external-agent readiness, and durable approval grants.                                                                                                                                                                                                |
+| **Chats**          | Provider-routed dictation, Hecate turns with image attachments, External Agent turns with arbitrary file inputs, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs. |
+| **Projects**       | Cairnline-backed project identity, roots, context and skill metadata, roles, work items, assignments, handoffs, project memory, review artifacts, and memory candidates, presented through Hecate's native operator cockpit and execution links.                                                                                                                                |
+| **Tasks**          | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, and MCP registry discovery.                                                                                                                                                                           |
+| **External Agent** | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including file inputs, readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.                                                                                                   |
+| **Observability**  | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                                                                                                                                     |
+| **Desktop app**    | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                                                                                                                                        |
+| **Sandbox policy** | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                                                                                                                                   |
 
 Design direction that is not yet a runtime contract:
 
@@ -275,15 +275,18 @@ chat cannot silently switch execution boundaries.
 If the selected model cannot call tools, Hecate keeps the chat usable as direct
 model chat and makes the tools-unavailable state visible.
 
-With tools off, image-capable models accept PNG, JPEG, and WebP attachments by
-picker, drag-and-drop, or paste. Hecate stores the image body outside the
+Image-capable models accept PNG, JPEG, and WebP attachments with tools on or
+off, by picker, drag-and-drop, or paste. Hecate stores the image body outside the
 transcript, loads its preview through the normal Hecate-native API path
 (including the runtime-token header when that optional guard is configured),
 and sends it only through an explicitly image-capable provider route.
 Image-bearing requests may retry on that exact provider generation but never
-fail over or follow a same-name replacement. Image drafts never enter the local
-busy-message queue, and the UI keeps submitted in-memory `File` values owned by
-their turn until it settles.
+fail over or follow a same-name replacement. Tools-on turns hydrate images from
+an opaque run input reference immediately before the agent loop starts; task
+conversation artifacts retain an omission marker, never the binary body. Image
+blocks and remote image URLs are not persisted in those artifacts. Same-input
+resume and retry runs rehydrate through the opaque reference. Image drafts never enter the local busy-message queue, and the UI keeps submitted
+in-memory `File` values owned by their turn until it settles.
 
 External Agent chats accept up to four non-empty files of any type, with the
 same 5 MiB per-file and 12 MiB per-message limits. Hecate resolves those inputs
@@ -302,9 +305,11 @@ records for at most two minutes, sends the bounded audio to that route only,
 does not retain the audio, and inserts the returned transcript at the cursor as
 an editable draft. Capture uses standard secure-context browser APIs, with
 native permission integration for the macOS, Windows, and Linux desktop
-webviews; the browser or operating system controls microphone access. Linux and
-Windows desktop capture remain experimental until they have real-machine audio
-smoke coverage. Dictation never sends the chat message automatically.
+webviews; the browser or operating system controls microphone access. The
+transcription route is independent of the selected chat model or External
+Agent, so the editable draft works with Claude and every other target. Linux
+and Windows desktop capture remain experimental until they have real-machine
+audio smoke coverage. Dictation never sends the chat message automatically.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 

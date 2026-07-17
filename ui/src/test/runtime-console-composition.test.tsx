@@ -239,7 +239,7 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatTarget).toBe("agent");
   });
 
-  it("carries image drafts into External Agent mode but still blocks Tools on", async () => {
+  it("keeps image drafts when enabling Hecate tools or switching to External Agent mode", async () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     const { result } = renderRuntimeConsoleHook();
@@ -252,10 +252,9 @@ describe("useRuntimeConsole", () => {
     await waitFor(() => expect(result.current.state.pendingChatAttachments).toHaveLength(1));
 
     act(() => result.current.actions.setChatToolsEnabled(true));
-    expect(result.current.state.defaultChatToolsEnabled).toBe(false);
-    expect(result.current.state.notice?.message).toBe(
-      "Remove attached files before turning Tools on.",
-    );
+    expect(result.current.state.defaultChatToolsEnabled).toBe(true);
+    expect(result.current.state.pendingChatAttachments).toHaveLength(1);
+    expect(result.current.state.notice).toBeNull();
 
     act(() => result.current.actions.setChatTarget("external_agent"));
     expect(result.current.state.chatTarget).toBe("external_agent");

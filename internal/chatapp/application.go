@@ -47,7 +47,6 @@ var (
 	ErrAttachmentSessionCleanup = errors.New("chat attachment session cleanup failed")
 	ErrDuplicateAttachmentID    = errors.New("duplicate attachment id")
 	ErrTooManyAttachments       = errors.New("a chat message supports at most 4 attachments")
-	ErrAttachmentsDirectOnly    = errors.New("attachments are available in External Agent chats or Hecate Chat with Tools Off")
 	ErrClientRequestIDInvalid   = errors.New("client_request_id must be 1-128 ASCII letters, digits, dots, underscores, colons, or hyphens")
 	ErrUserMessageRequired      = errors.New("message role must be user")
 )
@@ -1029,9 +1028,6 @@ func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResu
 	}
 	if cmd.AttachmentCount < 0 || cmd.AttachmentCount > MaxMessageAttachments {
 		return nil, Validation(ErrTooManyAttachments)
-	}
-	if cmd.AttachmentCount > 0 && executionMode == chat.ExecutionModeHecateTask && toolsEnabled {
-		return nil, Validation(ErrAttachmentsDirectOnly)
 	}
 	return &AdmitMessageResult{
 		Content:       content,

@@ -1285,14 +1285,18 @@ func TestApplication_AdmitMessageAllowsImageOnlyDirectTurns(t *testing.T) {
 	}
 }
 
-func TestApplication_AdmitMessageAllowsExternalAgentAttachmentsAndRejectsHecateToolsOn(t *testing.T) {
+func TestApplication_AdmitMessageAllowsHecateToolsOnAndExternalAgentAttachments(t *testing.T) {
 	t.Parallel()
 
 	toolsOn := true
 	toolsOff := false
 	cmd := AdmitMessageCommand{Session: chat.Session{AgentID: chat.DefaultAgentID}, ToolsEnabled: &toolsOn, AttachmentCount: 1}
-	if _, err := New(Options{}).AdmitMessage(cmd); !errors.Is(err, ErrAttachmentsDirectOnly) || !IsValidationError(err) {
-		t.Fatalf("AdmitMessage(%+v) error = %v, want tools-on validation", cmd, err)
+	hecate, err := New(Options{}).AdmitMessage(cmd)
+	if err != nil {
+		t.Fatalf("AdmitMessage(Hecate tools-on attachment) error = %v", err)
+	}
+	if !hecate.ToolsEnabled || hecate.ExecutionMode != chat.ExecutionModeHecateTask {
+		t.Fatalf("Hecate admission = %+v, want tools-on Hecate task", hecate)
 	}
 	external, err := New(Options{}).AdmitMessage(AdmitMessageCommand{
 		Session:         chat.Session{AgentID: "codex"},

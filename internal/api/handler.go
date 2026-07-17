@@ -412,6 +412,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	taskOriginRunGate.SetValidator("chat", h.validateTaskRunOrigin)
 	h.wireAgentChatRunnerHooks(agentChatRunner)
 	runner.SetProjectAssistantDraftTool(h)
+	runner.SetAgentInputResolver(h.resolveHecateAgentInput)
 	h.startAgentChatIdleSweeper()
 	return h
 }

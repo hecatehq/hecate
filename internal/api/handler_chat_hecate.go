@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/taskapp"
@@ -60,6 +61,36 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	if model := strings.TrimSpace(req.Model); model != "" {
 		session.Model = model
 		session.Capabilities = types.ModelCapabilities{}
+	}
+	if len(req.AttachmentIDs) > 0 {
+		if strings.TrimSpace(session.Model) == "" {
+			writeAgentChatModelRequired(w, "model")
+			return
+		}
+		requestedProvider := strings.TrimSpace(session.Provider)
+		if strings.EqualFold(requestedProvider, "auto") {
+			requestedProvider = ""
+			session.Provider = ""
+		}
+		if requestedProvider != "" {
+			resolvedRoute, resolveErr := h.modelApplication().ResolveProviderRoute(r.Context(), requestedProvider, session.Model)
+			if resolveErr != nil {
+				writeAgentChatModelResolutionError(w, resolveErr)
+				return
+			}
+			if resolvedRoute.Name != "" {
+				session.Provider = resolvedRoute.Name
+			}
+		}
+		imageCapable, imageErr := h.modelApplication().SupportsImageInput(r.Context(), session.Provider, session.Model)
+		if imageErr != nil {
+			writeAgentChatModelResolutionError(w, imageErr)
+			return
+		}
+		if !imageCapable {
+			writeAgentChatImageCapabilityRequired(w)
+			return
+		}
 	}
 	caps := session.Capabilities
 	if !modelcaps.ToolCapable(caps) {
@@ -119,6 +150,44 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	defer cancel()
 
 	userID := newChatID("msg")
+	claimRef := chatattachments.ClaimRef{
+		SessionID:     session.ID,
+		MessageID:     userID,
+		AttachmentIDs: req.AttachmentIDs,
+	}
+	var resolvedAttachments []chatattachments.StoredAttachment
+	attachmentClaimPending := false
+	appendAttempted := false
+	if len(req.AttachmentIDs) > 0 {
+		resolvedAttachments, err = h.chatApplication().ClaimAttachments(r.Context(), claimRef)
+		if err != nil {
+			writeChatAttachmentAppError(w, err, chatAttachmentClaimFailureMessage)
+			return
+		}
+		claimRef.AttachmentIDs = make([]string, 0, len(resolvedAttachments))
+		for _, attachment := range resolvedAttachments {
+			claimRef.AttachmentIDs = append(claimRef.AttachmentIDs, attachment.ID)
+			if err := validateStoredChatImageAttachment(attachment); err != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "stored image attachment failed integrity validation")
+				return
+			}
+		}
+		attachmentClaimPending = true
+		defer func() {
+			if !attachmentClaimPending || appendAttempted {
+				return
+			}
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
+			defer cleanupCancel()
+			if err := h.chatApplication().ResolveAttachmentClaim(cleanupCtx, claimRef, chatattachments.ClaimReleased); err != nil {
+				h.logger.WarnContext(cleanupCtx, "chat.attachment_claim_release_failed",
+					"session_id", session.ID,
+					"message_id", userID,
+					"error", err,
+				)
+			}
+		}()
+	}
 	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model) || len(mcpServers) > 0
 	segmentID := hecateAgentSegmentID(session)
 	messageSnapshotSession := session
@@ -131,6 +200,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		messageSnapshotSession.LatestRunID = ""
 	}
 	messageSnapshot := hecateAgentMessageSnapshot(messageSnapshotSession, caps, segmentID)
+	appendAttempted = true
 	updated, err := requestGuard.appendUserMessage(r.Context(), session.ID, chat.Message{
 		ID:            userID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
@@ -146,12 +216,34 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Capabilities: messageSnapshot.Capabilities,
 		Role:         "user",
 		Content:      content,
+		Attachments:  chatMessageAttachments(resolvedAttachments),
 		CreatedAt:    startedAt,
 	})
 	if err != nil {
+		if attachmentClaimPending {
+			if reconcileErr := h.reconcileChatAttachmentClaim(r.Context(), claimRef, resolvedAttachments); reconcileErr != nil {
+				h.logger.WarnContext(r.Context(), "chat.attachment_claim_reconcile_failed",
+					"session_id", session.ID,
+					"message_id", userID,
+					"error", reconcileErr,
+				)
+			} else {
+				attachmentClaimPending = false
+			}
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	finalizeCtx, finalizeCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
+	finalizeErr := h.chatApplication().ResolveAttachmentClaim(finalizeCtx, claimRef, chatattachments.ClaimLinked)
+	finalizeCancel()
+	if finalizeErr != nil {
+		if reconcileErr := h.reconcileChatAttachmentClaim(r.Context(), claimRef, resolvedAttachments); reconcileErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, chatAttachmentFinalizeFailureMessage)
+			return
+		}
+	}
+	attachmentClaimPending = false
 	h.agentChatLive.publishSession(updated)
 	trace.Record(telemetry.EventAgentChatRunStarted, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
 		telemetry.AttrHecateRunStatus: "running",
@@ -198,9 +290,14 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	h.agentChatLive.publishSession(updated)
 
+	inputRef := ""
+	if len(resolvedAttachments) > 0 {
+		inputRef = userID
+	}
 	task, run, err := h.hecateAgentTaskOrchestrator().StartOrContinue(runCtx, hecateAgentTaskRunCommand{
 		Session:       session,
 		Prompt:        content,
+		InputRef:      inputRef,
 		SystemPrompt:  taskSystemPrompt,
 		ForceNewTask:  forceNewTask,
 		MCPServers:    mcpServers,

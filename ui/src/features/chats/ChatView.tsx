@@ -94,7 +94,6 @@ function chatAttachmentsDisabledReason({
   workspaceModePending,
   isExternalAgentChat,
   externalAgentReady,
-  toolsEnabled,
   agentBusy,
   capability,
   model,
@@ -103,7 +102,6 @@ function chatAttachmentsDisabledReason({
   workspaceModePending: boolean;
   isExternalAgentChat: boolean;
   externalAgentReady: boolean;
-  toolsEnabled: boolean;
   agentBusy: boolean;
   capability: ImageInputCapability;
   model: string;
@@ -118,7 +116,6 @@ function chatAttachmentsDisabledReason({
   if (isExternalAgentChat) {
     return externalAgentReady ? "" : "Complete External Agent setup before attaching files.";
   }
-  if (toolsEnabled) return "Turn Tools off to attach images.";
   if (capability === "none") return `${model || "This model"} does not support image input.`;
   if (capability !== "supported") {
     return `Image input has not been confirmed for ${model || "the selected model"}.`;
@@ -712,7 +709,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     Boolean(activeWorkspacePath.trim());
   const attachmentModeAllowed = isExternalAgentChat
     ? externalAgentAttachmentsReady
-    : isHecateChat && state.chatTarget === "agent" && !hecateChatToolsEnabled;
+    : isHecateChat && state.chatTarget === "agent";
   const selectedModeAcceptsAttachments =
     isExternalAgentChat || selectedImageInputCapability === "supported";
   const attachmentsEnabled =
@@ -728,7 +725,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     workspaceModePending,
     isExternalAgentChat,
     externalAgentReady: externalAgentAttachmentsReady,
-    toolsEnabled: hecateChatToolsEnabled,
     agentBusy: agentBusy || anotherChatTurnActive || chatCreationPending,
     capability: selectedImageInputCapability,
     model: hecateChatModelValue,

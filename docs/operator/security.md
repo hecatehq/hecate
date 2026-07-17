@@ -176,7 +176,9 @@ time. The body exists only in transient request/provider memory: Hecate does not
 write audio to the chat attachment store, transcript rows, usage events,
 traces, metrics, logs, or artifacts.
 
-The operator must select one transcription provider. Hecate captures that
+The operator must select one transcription provider independently of the chat
+model or External Agent that will receive the editable transcript. Anthropic
+chat credentials alone do not configure speech-to-text. Hecate captures that
 provider's opaque generation and revalidates it immediately before the upstream
 call; provider removal, endpoint/account replacement, or capability removal
 fails closed before disclosure. Dictation has no Auto route and no
@@ -285,7 +287,7 @@ route-local 30-second socket deadline. Content delivery is also a counted chat
 lifecycle operation, so chat deletion waits for an admitted lookup and write
 instead of deleting the body while it is being served.
 
-Hecate-owned Tools-off direct-model turns accept PNG, JPEG, and WebP images;
+Hecate-owned turns accept PNG, JPEG, and WebP images with Tools on or off;
 External Agent turns also accept arbitrary files as opaque inputs. Both modes
 accept at most four files per message, with a 5 MiB per-file limit and a 12 MiB
 combined-message limit. Direct-model rasters require MIME/magic-byte agreement,
@@ -307,8 +309,12 @@ digest as proof of secrecy or ownership. Protect session API responses,
 database snapshots, and backups as sensitive metadata even when attachment
 bodies are handled separately. SVG and other arbitrary formats are not
 direct-model image inputs; an External Agent receives them only as files.
-Remote image URLs, filesystem paths supplied by the client, and Tools-on Hecate
-turns remain outside this attachment surface.
+Remote image URLs and filesystem paths supplied by the client remain outside
+this attachment surface. Tools-on task state persists only an opaque chat
+message reference; the runtime hydrates the body under the image-turn gate and
+replaces image blocks (including remote URLs) with an omission marker before
+writing conversation artifacts. Same-input resumes and retries rehydrate from
+the reference instead of persisting the body.
 A fixed two-slot gate per Hecate process bounds concurrent upload body reads and
 image decodes; a saturated upload is rejected with `429` before
 its body is read. Each admitted body must finish reading within 60 seconds;

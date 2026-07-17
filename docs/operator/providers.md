@@ -137,6 +137,12 @@ path and default transcription model are configured. Missing credentials,
 disabled providers, and invalid provider configuration remain visible as
 unavailable choices so the operator can repair the intended route.
 
+The dictation choice is independent of the chat target. Claude and other
+External Agents receive the returned text normally, but an Anthropic-only
+connection does not provide speech-to-text; configure OpenAI, Groq, LocalAI, or
+an explicitly compatible transcription endpoint as the separate dictation
+route.
+
 Hecate sends each recording to the explicitly selected provider only. It does
 not use Auto routing or fail over dictation audio to another provider. The
 provider's name and opaque configuration generation are revalidated immediately

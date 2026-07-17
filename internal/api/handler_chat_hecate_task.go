@@ -35,6 +35,7 @@ type hecateAgentTaskOrchestrator struct {
 type hecateAgentTaskRunCommand struct {
 	Session       chat.Session
 	Prompt        string
+	InputRef      string
 	SystemPrompt  string
 	ForceNewTask  bool
 	MCPServers    []types.MCPServerConfig
@@ -125,6 +126,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, err
 	}
 	result, err := o.runner.StartTaskWithRunInitializer(ctx, task, o.resourceID, func(run *types.TaskRun) {
+		run.InputRef = strings.TrimSpace(cmd.InputRef)
 		packet := cmd.ContextPacket
 		packet.Workspace = run.WorkspacePath
 		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(packet, chatcontext.MergeRefs(
@@ -154,6 +156,7 @@ func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("latest task run %q not found", cmd.Session.LatestRunID)
 	}
 	result, err := o.runner.ContinueAgentTaskWithRunInitializer(ctx, task, run, cmd.Prompt, o.resourceID, func(nextRun *types.TaskRun) {
+		nextRun.InputRef = strings.TrimSpace(cmd.InputRef)
 		packet := cmd.ContextPacket
 		packet.Workspace = nextRun.WorkspacePath
 		nextRun.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(packet, chatcontext.MergeRefs(

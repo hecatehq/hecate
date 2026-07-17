@@ -215,6 +215,12 @@ type TaskRun struct {
 	OtelStatusCode     string
 	OtelStatusMessage  string
 	ContextPacket      json.RawMessage
+	// InputRef is an opaque, application-owned reference to rich input that
+	// must be hydrated immediately before execution. The task runtime persists
+	// the reference, never the referenced binary body. Same-input resume and
+	// retry runs inherit it; chat continuations replace or clear it. Public
+	// task-run renderers intentionally omit it.
+	InputRef string
 }
 
 type TaskStep struct {
