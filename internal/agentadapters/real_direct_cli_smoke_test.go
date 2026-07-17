@@ -29,30 +29,41 @@ func TestRealDirectACPCLIsSmoke(t *testing.T) {
 		requested = "cursor_agent,grok_build"
 	}
 
+	adapterIDs := make([]string, 0, len(cases))
+	seen := make(map[string]struct{}, len(cases))
 	for _, adapterID := range strings.Split(requested, ",") {
 		adapterID = strings.TrimSpace(adapterID)
-		testCase, ok := cases[adapterID]
+		_, ok := cases[adapterID]
 		if !ok {
-			t.Fatalf("HECATE_ACP_REAL_ADAPTERS contains unsupported direct adapter %q", adapterID)
+			t.Fatal("HECATE_ACP_REAL_ADAPTERS contains an unsupported direct adapter")
 		}
+		if _, duplicate := seen[adapterID]; duplicate {
+			continue
+		}
+		seen[adapterID] = struct{}{}
+		adapterIDs = append(adapterIDs, adapterID)
+	}
+
+	for _, adapterID := range adapterIDs {
+		testCase := cases[adapterID]
 		t.Run(adapterID, func(t *testing.T) {
 			probeCtx, cancelProbe := context.WithTimeout(t.Context(), 30*time.Second)
 			probe := Probe(probeCtx, adapterID)
 			cancelProbe()
 			if probe.Status != ProbeStatusReady || probe.Stage != ProbeStageReady {
-				t.Fatalf("Probe(%s) = status %q at stage %q: %s\n%s", adapterID, probe.Status, probe.Stage, probe.Error, probe.Stderr)
+				t.Fatalf("Probe(%s) = status %q at stage %q", adapterID, probe.Status, probe.Stage)
 			}
 
+			workspace := t.TempDir()
 			manager := NewSessionManager()
 			t.Cleanup(func() {
 				shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancelShutdown()
 				if err := manager.Shutdown(shutdownCtx); err != nil {
-					t.Errorf("Shutdown(%s): %v", adapterID, err)
+					t.Errorf("Shutdown(%s) failed", adapterID)
 				}
 			})
 
-			workspace := t.TempDir()
 			sessionID := "real_direct_" + adapterID
 			prepareCtx, cancelPrepare := context.WithTimeout(t.Context(), 60*time.Second)
 			prepared, err := manager.PrepareSession(prepareCtx, PrepareSessionRequest{
@@ -62,10 +73,10 @@ func TestRealDirectACPCLIsSmoke(t *testing.T) {
 			})
 			cancelPrepare()
 			if err != nil {
-				t.Fatalf("PrepareSession(%s): %v", adapterID, err)
+				t.Fatalf("PrepareSession(%s) failed", adapterID)
 			}
 			if prepared.DriverKind != DriverKindACP || prepared.NativeSessionID == "" || !prepared.SessionStarted {
-				t.Fatalf("PrepareSession(%s) = %#v, want a new ACP session", adapterID, prepared)
+				t.Fatalf("PrepareSession(%s) did not return a new ACP session", adapterID)
 			}
 
 			runCtx, cancelRun := context.WithTimeout(t.Context(), 4*time.Minute)
@@ -80,13 +91,13 @@ func TestRealDirectACPCLIsSmoke(t *testing.T) {
 			})
 			cancelRun()
 			if err != nil {
-				t.Fatalf("Run(%s): %v", adapterID, err)
+				t.Fatalf("Run(%s) failed", adapterID)
 			}
 			if result.DriverKind != DriverKindACP || result.SessionStarted || result.NativeSessionID != prepared.NativeSessionID {
-				t.Fatalf("Run(%s) = %#v, want prepared ACP session %q reused", adapterID, result, prepared.NativeSessionID)
+				t.Fatalf("Run(%s) did not reuse the prepared ACP session", adapterID)
 			}
-			if !strings.Contains(result.Output, testCase.token) {
-				t.Fatalf("Run(%s) output = %q, want token %q", adapterID, result.Output, testCase.token)
+			if strings.TrimSpace(result.Output) != testCase.token {
+				t.Fatalf("Run(%s) returned unexpected output", adapterID)
 			}
 		})
 	}
