@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -429,10 +429,12 @@ describe("stored chat image attachments", () => {
         expect.any(AbortSignal),
       ),
     );
-    await waitFor(() => expect(screen.getByRole("img", { name: "map.png" })).toBeVisible());
-    expect(screen.getByRole("link", { name: "Open map.png" })).toHaveAttribute(
-      "href",
-      "blob:stored-1",
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "map.png" })).toHaveAttribute("src", "blob:stored-1"),
+    );
+    expect(screen.getByRole("button", { name: "Open map.png" })).toHaveAttribute(
+      "aria-haspopup",
+      "dialog",
     );
     expect(disconnect).not.toHaveBeenCalled();
 
@@ -453,10 +455,7 @@ describe("stored chat image attachments", () => {
     });
     await waitFor(() => expect(getChatAttachmentContentBlob).toHaveBeenCalledTimes(2));
     await waitFor(() =>
-      expect(screen.getByRole("link", { name: "Open map.png" })).toHaveAttribute(
-        "href",
-        "blob:stored-2",
-      ),
+      expect(screen.getByRole("img", { name: "map.png" })).toHaveAttribute("src", "blob:stored-2"),
     );
 
     unmount();
@@ -481,10 +480,7 @@ describe("stored chat image attachments", () => {
       "att-1",
       expect.any(AbortSignal),
     );
-    expect(screen.getByRole("link", { name: "Open map.png" })).toHaveAttribute(
-      "href",
-      "blob:stored",
-    );
+    expect(screen.getByRole("img", { name: "map.png" })).toHaveAttribute("src", "blob:stored");
 
     unmount();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:stored");
@@ -514,10 +510,42 @@ describe("stored chat image attachments", () => {
     expect(image).toHaveAttribute("width", "132");
     expect(image).toHaveAttribute("height", "96");
     expect(image).toHaveStyle({ width: "100%", height: "100%" });
-    expect(screen.getByRole("link", { name: "Open map.png" })).toHaveStyle({
+    expect(screen.getByRole("button", { name: "Open map.png" })).toHaveStyle({
       width: "132px",
       height: "96px",
     });
+  });
+
+  it("opens an accessible in-app preview and returns focus when dismissed", async () => {
+    defineURLMethod(
+      "createObjectURL",
+      vi.fn(() => "blob:preview"),
+    );
+    defineURLMethod("revokeObjectURL", vi.fn());
+    vi.mocked(getChatAttachmentContentBlob).mockResolvedValue(
+      new Blob(["image"], { type: "image/png" }),
+    );
+    const user = userEvent.setup();
+
+    render(<ChatImageAttachmentGallery attachments={[storedAttachment()]} />);
+
+    const trigger = await screen.findByRole("button", { name: "Open map.png" });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "Image preview: map.png" });
+    expect(dialog).toBeVisible();
+    expect(within(dialog).getByRole("img", { name: "map.png" })).toHaveAttribute(
+      "src",
+      "blob:preview",
+    );
+    expect(within(dialog).getByRole("button", { name: "Close" })).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Image preview: map.png" })).toBeNull();
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("lets the operator load a deferred image before it intersects the viewport", async () => {
@@ -562,7 +590,7 @@ describe("stored chat image attachments", () => {
     expect(screen.getByRole("status", { name: "Loading map.png" })).toHaveFocus();
     act(() => resolveBlob?.(new Blob(["image"], { type: "image/png" })));
     expect(await screen.findByRole("img", { name: "map.png" })).toBeVisible();
-    await waitFor(() => expect(screen.getByRole("link", { name: "Open map.png" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open map.png" })).toHaveFocus());
   });
 
   it("does not reclaim focus when the operator leaves a manually loading preview", async () => {
@@ -608,7 +636,7 @@ describe("stored chat image attachments", () => {
     await user.click(screen.getByRole("button", { name: "Elsewhere" }));
 
     act(() => resolveBlob?.(new Blob(["image"], { type: "image/png" })));
-    expect(await screen.findByRole("link", { name: "Open map.png" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Open map.png" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
   });
 
@@ -759,7 +787,7 @@ describe("stored chat image attachments", () => {
     expect(screen.getByRole("status", { name: "Loading map.png" })).toHaveFocus();
     act(() => resolveRetry?.(new Blob(["image"], { type: "image/png" })));
     expect(await screen.findByRole("img", { name: "map.png" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Open map.png" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Open map.png" })).toHaveFocus();
   });
 });
 
