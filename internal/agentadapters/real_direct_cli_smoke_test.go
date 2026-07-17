@@ -19,12 +19,13 @@ func TestRealACPCLIsSmoke(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		token string
+		token     string
+		fileToken string
 	}{
-		"codex":        {token: "HECATE_CODEX_EMBEDDED_OK"},
-		"claude_code":  {token: "HECATE_CLAUDE_EMBEDDED_OK"},
-		"cursor_agent": {token: "HECATE_CURSOR_ACP_OK"},
-		"grok_build":   {token: "HECATE_GROK_ACP_OK"},
+		"codex":        {token: "HECATE_CODEX_EMBEDDED_OK", fileToken: "HECATE_CODEX_FILE_OK"},
+		"claude_code":  {token: "HECATE_CLAUDE_EMBEDDED_OK", fileToken: "HECATE_CLAUDE_FILE_OK"},
+		"cursor_agent": {token: "HECATE_CURSOR_ACP_OK", fileToken: "HECATE_CURSOR_FILE_OK"},
+		"grok_build":   {token: "HECATE_GROK_ACP_OK", fileToken: "HECATE_GROK_FILE_OK"},
 	}
 	requested := strings.TrimSpace(os.Getenv("HECATE_ACP_REAL_ADAPTERS"))
 	if requested == "" {
@@ -100,6 +101,31 @@ func TestRealACPCLIsSmoke(t *testing.T) {
 			}
 			if strings.TrimSpace(result.Output) != testCase.token {
 				t.Fatalf("Run(%s) returned unexpected output", adapterID)
+			}
+
+			fileRunCtx, cancelFileRun := context.WithTimeout(t.Context(), 4*time.Minute)
+			fileResult, err := manager.Run(fileRunCtx, RunRequest{
+				SessionID: sessionID,
+				AdapterID: adapterID,
+				Workspace: workspace,
+				Prompt: PromptInput{
+					Text: "Read the attached input.txt file. Reply with exactly the token it contains and nothing else.",
+					Files: []PromptFile{
+						promptTestFile("input.txt", "text/plain", []byte(testCase.fileToken+"\n")),
+					},
+				},
+				Timeout:        3 * time.Minute,
+				MaxOutputBytes: 64 * 1024,
+			})
+			cancelFileRun()
+			if err != nil {
+				t.Fatalf("Run(%s) with file failed", adapterID)
+			}
+			if fileResult.DriverKind != DriverKindACP || fileResult.SessionStarted || fileResult.NativeSessionID != prepared.NativeSessionID {
+				t.Fatalf("Run(%s) with file did not reuse the prepared ACP session", adapterID)
+			}
+			if strings.TrimSpace(fileResult.Output) != testCase.fileToken {
+				t.Fatalf("Run(%s) with file returned %q, want %q", adapterID, strings.TrimSpace(fileResult.Output), testCase.fileToken)
 			}
 		})
 	}
