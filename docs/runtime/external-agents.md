@@ -343,7 +343,10 @@ agent runtime, while authentication and billing stay with the provider.
    delayed approval requests, command/config updates, and direct config-write
    responses still redact display metadata and drop entries whose protocol
    identifiers or values would change; original typed-update raw records are
-   withheld. Hecate also redacts complete
+   withheld. Built-in command bridges include a resource-link URI only in the
+   originating provider command; their bounded transcript retains attachment
+   name and MIME metadata without replaying the ephemeral path on later turns.
+   Hecate also redacts complete
    temporary path aliases and ordinary accumulated ACP chunking from
    operator-visible output, approvals, activities, errors, and late terminal
    previews. Staged-turn raw ACP diagnostics are withheld when present, and
