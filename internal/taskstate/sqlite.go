@@ -664,7 +664,7 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 
 	finishedAt := terminalTransitionFinishedAt(tr)
 	task := tr.Task
-	run := tr.Run
+	run := mergeStoredRichInputRoute(tr.Run, storedRun)
 	terminalEvent := tr.TerminalEvent
 	taskUpdatedEvent := tr.TaskUpdatedEvent
 	activeStepError := tr.ActiveStepError

@@ -71,13 +71,15 @@ func TestAgentLoopRunState_TrackInitialConversationArtifactOnce(t *testing.T) {
 func TestAgentLoopRunState_RecordRouteAndAttachAccounting(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	state := newAgentLoopRunState(spec, 4)
+	providerInstance := types.ProviderInstanceIdentity{ID: "runtime-route", Kind: types.ProviderInstanceIdentityRuntime}
 
 	resp := &types.ChatResponse{
 		Model: "fallback-model",
 		Route: types.RouteDecision{
-			Provider:     "ollama",
-			ProviderKind: "local",
-			Model:        "resolved-model",
+			Provider:         "ollama",
+			ProviderKind:     "local",
+			ProviderInstance: providerInstance,
+			Model:            "resolved-model",
 		},
 		Cost: types.CostBreakdown{TotalMicrosUSD: 125},
 	}
@@ -86,7 +88,7 @@ func TestAgentLoopRunState_RecordRouteAndAttachAccounting(t *testing.T) {
 	state.AddTurnCost(2, "step-1", turnCost, 3)
 
 	res := state.Result("completed")
-	if res.Provider != "ollama" || res.ProviderKind != "local" || res.Model != "resolved-model" {
+	if res.Provider != "ollama" || res.ProviderKind != "local" || res.ProviderInstance != providerInstance || res.Model != "resolved-model" {
 		t.Fatalf("route = provider %q kind %q model %q, want resolved ollama/local/resolved-model", res.Provider, res.ProviderKind, res.Model)
 	}
 	if res.CostMicrosUSD != 125 {

@@ -90,13 +90,22 @@ func terminalTransitionFinishedAt(tr TerminalRunTransition) time.Time {
 func mergeTrustedTerminalRunMetadata(winner types.TaskRun, supplemental *TerminalRunSupplementalMetadata) types.TaskRun {
 	merged := winner
 	if supplemental == nil {
-		return merged
+		return mergeStoredRichInputRoute(merged, winner)
 	}
 	if strings.TrimSpace(supplemental.Provider) != "" {
 		merged.Provider = supplemental.Provider
 	}
 	if strings.TrimSpace(supplemental.ProviderKind) != "" {
 		merged.ProviderKind = supplemental.ProviderKind
+	}
+	if supplemental.InputProviderInstance.Valid() {
+		merged.InputProviderInstance = supplemental.InputProviderInstance
+	}
+	if supplemental.InputProviderDispatchRecorded {
+		merged.InputProviderDispatchRecorded = true
+	}
+	if supplemental.InputProviderDisclosedInstance.Valid() {
+		merged.InputProviderDisclosedInstance = supplemental.InputProviderDisclosedInstance
 	}
 	if strings.TrimSpace(supplemental.Model) != "" {
 		merged.Model = supplemental.Model
@@ -109,6 +118,38 @@ func mergeTrustedTerminalRunMetadata(winner types.TaskRun, supplemental *Termina
 	}
 	if supplemental.TotalCostMicrosUSD > merged.TotalCostMicrosUSD {
 		merged.TotalCostMicrosUSD = supplemental.TotalCostMicrosUSD
+	}
+	return mergeStoredRichInputRoute(merged, winner)
+}
+
+// mergeStoredRichInputRoute keeps the authoritative rich-input fence when a
+// terminal transition was built from an older run snapshot. The dispatch
+// boundary writes this metadata independently of finalization, so cancellation
+// and cleanup paths must never erase it while settling the winning status.
+func mergeStoredRichInputRoute(candidate, stored types.TaskRun) types.TaskRun {
+	if strings.TrimSpace(stored.InputRef) == "" {
+		return candidate
+	}
+	merged := candidate
+	merged.InputRef = stored.InputRef
+	if stored.InputProviderInstance.Valid() {
+		merged.InputProviderInstance = stored.InputProviderInstance
+	}
+	if stored.InputProviderDispatchRecorded {
+		merged.InputProviderDispatchRecorded = true
+		merged.Provider = firstNonEmptyString(stored.Provider, merged.Provider)
+		merged.ProviderKind = firstNonEmptyString(stored.ProviderKind, merged.ProviderKind)
+		merged.Model = firstNonEmptyString(stored.Model, merged.Model)
+	}
+	// A stale terminal or state-transition candidate may have captured an
+	// unrelated disclosure marker before the dispatch fence committed. Keep
+	// the marker empty unless it belongs to the authoritative admitted route;
+	// actual provider-call metadata may fill it below.
+	if stored.InputProviderInstance.Valid() && merged.InputProviderDisclosedInstance.Valid() && merged.InputProviderDisclosedInstance != stored.InputProviderInstance {
+		merged.InputProviderDisclosedInstance = types.ProviderInstanceIdentity{}
+	}
+	if stored.InputProviderDisclosedInstance.Valid() {
+		merged.InputProviderDisclosedInstance = stored.InputProviderDisclosedInstance
 	}
 	return merged
 }

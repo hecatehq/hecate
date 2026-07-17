@@ -15,6 +15,9 @@ var (
 	// ErrBudgetLower protects the durable per-task ceiling from stale or
 	// concurrent resume requests that would lower it.
 	ErrBudgetLower = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
+	// ErrRichInputProviderRouteConflict prevents a provider-bound rich input
+	// from being sent through a different durable route after admission.
+	ErrRichInputProviderRouteConflict = errors.New("rich input provider route conflicts with the admitted route")
 )
 
 type TaskFilter struct {
@@ -125,16 +128,42 @@ type RunStateTransitionResult struct {
 	Applied  bool
 }
 
+// RichInputProviderAttempt records the concrete provider route immediately
+// before it can receive a provider-bound input. The store owns the
+// empty-or-equal route invariant so concurrent workers cannot overwrite one
+// another's rich-input fence with stale run snapshots.
+type RichInputProviderAttempt struct {
+	TaskID           string
+	RunID            string
+	Provider         string
+	ProviderKind     string
+	Model            string
+	ProviderInstance types.ProviderInstanceIdentity
+}
+
+// RichInputProviderAttemptResult returns the authoritative run. Applied is
+// true only when the run was still eligible for provider dispatch; callers
+// must not send the rich input when it is false.
+type RichInputProviderAttemptResult struct {
+	Run     types.TaskRun
+	Applied bool
+}
+
 // TerminalRunSupplementalMetadata contains executor-observed fields that may
 // safely enrich an already-terminal run without changing its winning status,
-// reason, timestamps, task projection, or events.
+// reason, timestamps, task projection, or events. It is used both at normal
+// execution finalization and when an observed rich-input provider attempt
+// races a terminal transition.
 type TerminalRunSupplementalMetadata struct {
-	Provider           string
-	ProviderKind       string
-	Model              string
-	StepCount          int
-	ArtifactCount      int
-	TotalCostMicrosUSD int64
+	Provider                       string
+	ProviderKind                   string
+	InputProviderInstance          types.ProviderInstanceIdentity
+	InputProviderDispatchRecorded  bool
+	InputProviderDisclosedInstance types.ProviderInstanceIdentity
+	Model                          string
+	StepCount                      int
+	ArtifactCount                  int
+	TotalCostMicrosUSD             int64
 }
 
 // TerminalRunTransition atomically settles a run and its parent projection.
@@ -152,8 +181,8 @@ type TerminalRunTransition struct {
 	// run.cancelled, task.updated, and approval.resolved events. Immutable
 	// approval request provenance comes from the locked stored row.
 	ApprovalResolution *PendingApprovalResolution
-	// TrustedSupplementalRunMetadata may be set only by execution-result
-	// finalization. Operator cancellation and cleanup replays must leave it nil
+	// TrustedSupplementalRunMetadata may be set only by trusted executor
+	// observation. Operator cancellation and cleanup replays must leave it nil
 	// so stale run snapshots cannot replace the actual provider route.
 	TrustedSupplementalRunMetadata *TerminalRunSupplementalMetadata
 	// PreserveTaskProjection applies run-child cleanup without overwriting the
@@ -202,6 +231,7 @@ type Store interface {
 	UpdateRun(ctx context.Context, run types.TaskRun) (types.TaskRun, error)
 	ApplyRunStartTransition(ctx context.Context, transition RunStartTransition) (RunStartTransitionResult, error)
 	ApplyRunStateTransition(ctx context.Context, transition RunStateTransition) (RunStateTransitionResult, error)
+	RecordRichInputProviderAttempt(ctx context.Context, attempt RichInputProviderAttempt) (RichInputProviderAttemptResult, error)
 
 	AppendStep(ctx context.Context, step types.TaskStep) (types.TaskStep, error)
 	GetStep(ctx context.Context, runID, stepID string) (types.TaskStep, bool, error)

@@ -76,6 +76,10 @@ type ExecutionSpec struct {
 	// ChatRequirements fences every model turn that retains InputMessage in
 	// conversation context (for example, image-capability and provider bounds).
 	ChatRequirements types.ChatRequestRequirements
+	// RecordProviderAttempt durably records the final rich-input route before
+	// gateway I/O. The runner supplies it for task-backed inputs so crash
+	// recovery cannot reroute bytes that may have been disclosed.
+	RecordProviderAttempt func(types.RouteDecision) error
 }
 
 type ResumeCheckpoint struct {
@@ -142,7 +146,11 @@ type ExecutionResult struct {
 	// happened.
 	Provider     string
 	ProviderKind string
-	Model        string
+	// ProviderInstance is the opaque runtime instance that received the
+	// provider-bound input. The runner persists it only for rich-input runs so
+	// later turns and same-input resumes cannot cross a same-name replacement.
+	ProviderInstance types.ProviderInstanceIdentity
+	Model            string
 	// PendingApprovals are approval records the executor produced
 	// during this run that the runner should persist. The agent loop
 	// emits these mid-loop when it pauses on a gated tool call —

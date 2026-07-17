@@ -89,6 +89,22 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreApplyRunStateTransitionResolvesApprovalAtomically(t, factory(t))
 	})
+	t.Run(name+"/RecordRichInputProviderAttempt", func(t *testing.T) {
+		t.Parallel()
+		runStoreRecordRichInputProviderAttempt(t, factory(t))
+	})
+	t.Run(name+"/RecordRichInputProviderAttemptConcurrent", func(t *testing.T) {
+		t.Parallel()
+		runStoreRecordRichInputProviderAttemptConcurrent(t, factory(t))
+	})
+	t.Run(name+"/StateTransitionPreservesRichInputAttempt", func(t *testing.T) {
+		t.Parallel()
+		runStoreStateTransitionPreservesRichInputAttempt(t, factory(t))
+	})
+	t.Run(name+"/TerminalTransitionPreservesRichInputAttempt", func(t *testing.T) {
+		t.Parallel()
+		runStoreTerminalTransitionPreservesRichInputAttempt(t, factory(t))
+	})
 	t.Run(name+"/ApplyRunTerminalTransitionRejectsApprovalAtomically", func(t *testing.T) {
 		t.Parallel()
 		runStoreApplyRunTerminalTransitionRejectsApprovalAtomically(t, factory(t))
@@ -324,6 +340,252 @@ func runStoreApplyRunStateTransitionCompareAndSwap(t *testing.T, store Store) {
 		if event.EventType == "gap.should_not_exist" {
 			t.Fatalf("stale transition appended event: %+v", event)
 		}
+	}
+}
+
+func runStoreRecordRichInputProviderAttempt(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-rich-input-attempt", Status: "running", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{
+		ID: "run-rich-input-attempt", TaskID: task.ID, Status: "running", StartedAt: now, InputRef: "msg-rich-input",
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	routed := richInputProviderAttempt(task.ID, "run-rich-input-requested-route", "vision-a", "routed-model", "instance-routed")
+	requested := types.TaskRun{
+		ID:           "run-rich-input-requested-route",
+		TaskID:       task.ID,
+		Status:       "running",
+		StartedAt:    now,
+		InputRef:     "msg-rich-input-requested-route",
+		Provider:     "requested-provider",
+		ProviderKind: "requested-kind",
+		Model:        "requested-model",
+		// An explicit-provider attachment has an admission identity before
+		// policy rewrites the requested model at final dispatch.
+		InputProviderInstance: routed.ProviderInstance,
+	}
+	if _, err := store.CreateRun(ctx, requested); err != nil {
+		t.Fatalf("CreateRun(requested route): %v", err)
+	}
+	if result, err := store.RecordRichInputProviderAttempt(ctx, routed); err != nil || !result.Applied || !result.Run.InputProviderDispatchRecorded || result.Run.Provider != routed.Provider || result.Run.ProviderKind != routed.ProviderKind || result.Run.Model != routed.Model {
+		t.Fatalf("RecordRichInputProviderAttempt(first routed attempt) result=%+v err=%v, want policy-resolved route", result, err)
+	}
+	first := richInputProviderAttempt(task.ID, run.ID, "vision-a", "model-a", "instance-a")
+	result, err := store.RecordRichInputProviderAttempt(ctx, first)
+	if err != nil || !result.Applied {
+		t.Fatalf("RecordRichInputProviderAttempt(first) applied=%t err=%v", result.Applied, err)
+	}
+	if !result.Run.InputProviderDispatchRecorded || result.Run.Provider != first.Provider || result.Run.ProviderKind != first.ProviderKind || result.Run.Model != first.Model || result.Run.InputProviderInstance != first.ProviderInstance {
+		t.Fatalf("recorded rich-input route = %+v, want %+v", result.Run, first)
+	}
+	if result.Run.InputProviderDisclosedInstance.Valid() {
+		t.Fatalf("recorded rich-input attempt disclosed=%+v, want empty before provider I/O", result.Run.InputProviderDisclosedInstance)
+	}
+	if replay, err := store.RecordRichInputProviderAttempt(ctx, first); err != nil || !replay.Applied || !replay.Run.InputProviderDispatchRecorded || replay.Run.InputProviderInstance != first.ProviderInstance {
+		t.Fatalf("RecordRichInputProviderAttempt(replay) result=%+v err=%v", replay, err)
+	}
+	differentModel := first
+	differentModel.Model = "model-b"
+	if _, err := store.RecordRichInputProviderAttempt(ctx, differentModel); !errors.Is(err, ErrRichInputProviderRouteConflict) {
+		t.Fatalf("RecordRichInputProviderAttempt(model conflict) error=%v, want ErrRichInputProviderRouteConflict", err)
+	}
+	differentKind := first
+	differentKind.ProviderKind = "local"
+	if _, err := store.RecordRichInputProviderAttempt(ctx, differentKind); !errors.Is(err, ErrRichInputProviderRouteConflict) {
+		t.Fatalf("RecordRichInputProviderAttempt(kind conflict) error=%v, want ErrRichInputProviderRouteConflict", err)
+	}
+	conflicting := richInputProviderAttempt(task.ID, run.ID, "vision-b", "model-b", "instance-b")
+	if _, err := store.RecordRichInputProviderAttempt(ctx, conflicting); !errors.Is(err, ErrRichInputProviderRouteConflict) {
+		t.Fatalf("RecordRichInputProviderAttempt(conflict) error=%v, want ErrRichInputProviderRouteConflict", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%v err=%v", found, err)
+	}
+	if !stored.InputProviderDispatchRecorded || stored.Provider != first.Provider || stored.InputProviderInstance != first.ProviderInstance {
+		t.Fatalf("conflicting attempt replaced stored route: %+v", stored)
+	}
+
+	stored.Status = "cancelled"
+	stored.FinishedAt = now.Add(time.Second)
+	if _, err := store.UpdateRun(ctx, stored); err != nil {
+		t.Fatalf("UpdateRun(cancelled): %v", err)
+	}
+	if terminal, err := store.RecordRichInputProviderAttempt(ctx, first); err != nil || terminal.Applied || terminal.Run.Status != "cancelled" {
+		t.Fatalf("RecordRichInputProviderAttempt(terminal) result=%+v err=%v, want unapplied cancelled run", terminal, err)
+	}
+	withoutRef := types.TaskRun{ID: "run-rich-input-missing-ref", TaskID: task.ID, Status: "running", StartedAt: now}
+	if _, err := store.CreateRun(ctx, withoutRef); err != nil {
+		t.Fatalf("CreateRun(missing ref): %v", err)
+	}
+	missingRef := richInputProviderAttempt(task.ID, withoutRef.ID, "vision-a", "model-a", "instance-a")
+	if result, err := store.RecordRichInputProviderAttempt(ctx, missingRef); !errors.Is(err, ErrRichInputProviderRouteConflict) || result.Applied {
+		t.Fatalf("RecordRichInputProviderAttempt(missing ref) result=%+v err=%v, want unapplied route conflict", result, err)
+	}
+}
+
+func runStoreRecordRichInputProviderAttemptConcurrent(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-rich-input-race", Status: "running", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{ID: "run-rich-input-race", TaskID: task.ID, Status: "running", StartedAt: now, InputRef: "msg-rich-input"}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	attempts := []RichInputProviderAttempt{
+		richInputProviderAttempt(task.ID, run.ID, "vision-a", "model-a", "instance-a"),
+		richInputProviderAttempt(task.ID, run.ID, "vision-b", "model-b", "instance-b"),
+	}
+	start := make(chan struct{})
+	results := make([]RichInputProviderAttemptResult, len(attempts))
+	errs := make([]error, len(attempts))
+	var wg sync.WaitGroup
+	for index := range attempts {
+		index := index
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[index], errs[index] = store.RecordRichInputProviderAttempt(ctx, attempts[index])
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	applied, conflicts := 0, 0
+	for index, err := range errs {
+		switch {
+		case err == nil && results[index].Applied:
+			applied++
+		case errors.Is(err, ErrRichInputProviderRouteConflict):
+			conflicts++
+		default:
+			t.Fatalf("concurrent rich-input result[%d]=%+v err=%v", index, results[index], err)
+		}
+	}
+	if applied != 1 || conflicts != 1 {
+		t.Fatalf("concurrent rich-input results=%+v errors=%v, want one applied and one conflict", results, errs)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%v err=%v", found, err)
+	}
+	if stored.Provider != "vision-a" && stored.Provider != "vision-b" {
+		t.Fatalf("stored provider=%q, want one contender", stored.Provider)
+	}
+	if !stored.InputProviderInstance.Valid() {
+		t.Fatalf("stored rich-input instance=%+v, want one contender", stored.InputProviderInstance)
+	}
+}
+
+func runStoreStateTransitionPreservesRichInputAttempt(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-rich-input-state", Status: "running", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{ID: "run-rich-input-state", TaskID: task.ID, Status: "running", StartedAt: now, InputRef: "msg-rich-input"}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	// Reconciliation can prepare a running->queued candidate from a snapshot
+	// captured before final dispatch. The atomic transition must merge the
+	// persisted fence instead of erasing it with that stale candidate.
+	staleTask := task
+	staleTask.Status = "queued"
+	staleTask.UpdatedAt = now.Add(time.Second)
+	staleRun := run
+	staleRun.Status = "queued"
+	staleRun.InputProviderDisclosedInstance = types.ProviderInstanceIdentity{ID: "instance-b", Kind: types.ProviderInstanceIdentityRuntime}
+	if _, err := store.RecordRichInputProviderAttempt(ctx, richInputProviderAttempt(task.ID, run.ID, "vision-a", "model-a", "instance-a")); err != nil {
+		t.Fatalf("RecordRichInputProviderAttempt: %v", err)
+	}
+	result, err := store.ApplyRunStateTransition(ctx, RunStateTransition{
+		Task:                staleTask,
+		Run:                 staleRun,
+		ExpectedRunStatuses: []string{"running"},
+	})
+	if err != nil || !result.Applied {
+		t.Fatalf("ApplyRunStateTransition(stale requeue) applied=%t err=%v", result.Applied, err)
+	}
+	if result.Run.Status != "queued" || !result.Run.InputProviderDispatchRecorded || result.Run.Provider != "vision-a" || result.Run.ProviderKind != "cloud" || result.Run.Model != "model-a" || result.Run.InputProviderInstance.ID != "instance-a" || result.Run.InputProviderDisclosedInstance.Valid() {
+		t.Fatalf("state transition lost rich-input route: %+v", result.Run)
+	}
+}
+
+func runStoreTerminalTransitionPreservesRichInputAttempt(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-rich-input-terminal", Status: "running", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{ID: "run-rich-input-terminal", TaskID: task.ID, Status: "running", StartedAt: now, InputRef: "msg-rich-input"}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	// Capture the cancellation candidate before the dispatch boundary updates
+	// the stored route. A terminal write must retain that later fence.
+	staleTask := task
+	staleTask.Status = "cancelled"
+	staleTask.FinishedAt = now.Add(time.Second)
+	staleTask.UpdatedAt = staleTask.FinishedAt
+	staleRun := run
+	staleRun.Status = "cancelled"
+	staleRun.FinishedAt = staleTask.FinishedAt
+	if _, err := store.RecordRichInputProviderAttempt(ctx, richInputProviderAttempt(task.ID, run.ID, "vision-a", "model-a", "instance-a")); err != nil {
+		t.Fatalf("RecordRichInputProviderAttempt: %v", err)
+	}
+	if _, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task:       staleTask,
+		Run:        staleRun,
+		FinishedAt: staleRun.FinishedAt,
+	}); err != nil {
+		t.Fatalf("ApplyRunTerminalTransition(stale cancellation): %v", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%v err=%v", found, err)
+	}
+	if stored.Status != "cancelled" || !stored.InputProviderDispatchRecorded || stored.InputProviderInstance.ID != "instance-a" || stored.Provider != "vision-a" || stored.Model != "model-a" {
+		t.Fatalf("terminal run lost rich-input route: %+v", stored)
+	}
+}
+
+func richInputProviderAttempt(taskID, runID, provider, model, instanceID string) RichInputProviderAttempt {
+	return RichInputProviderAttempt{
+		TaskID:       taskID,
+		RunID:        runID,
+		Provider:     provider,
+		ProviderKind: "cloud",
+		Model:        model,
+		ProviderInstance: types.ProviderInstanceIdentity{
+			ID:   instanceID,
+			Kind: types.ProviderInstanceIdentityRuntime,
+		},
 	}
 }
 
@@ -1141,6 +1403,16 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 		Number:       1,
 		Status:       "running",
 		StartedAt:    time.Now().UTC(),
+		InputRef:     "msg-rich-input",
+		InputProviderInstance: types.ProviderInstanceIdentity{
+			ID:   "runtime-rich-input",
+			Kind: types.ProviderInstanceIdentityRuntime,
+		},
+		InputProviderDispatchRecorded: true,
+		InputProviderDisclosedInstance: types.ProviderInstanceIdentity{
+			ID:   "runtime-rich-input-disclosed",
+			Kind: types.ProviderInstanceIdentityRuntime,
+		},
 	}
 	if _, err := store.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -1154,6 +1426,9 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 	if gotRun.ProjectID != "proj-1" || gotRun.WorkItemID != "work-1" || gotRun.AssignmentID != "asgn-1" {
 		t.Fatalf("GetRun linkage = project %q work %q assignment %q, want proj-1/work-1/asgn-1", gotRun.ProjectID, gotRun.WorkItemID, gotRun.AssignmentID)
+	}
+	if gotRun.InputRef != run.InputRef || gotRun.InputProviderInstance != run.InputProviderInstance || gotRun.InputProviderDispatchRecorded != run.InputProviderDispatchRecorded || gotRun.InputProviderDisclosedInstance != run.InputProviderDisclosedInstance {
+		t.Fatalf("GetRun rich-input fence = ref %q admitted %+v dispatched %t disclosed %+v, want %q/%+v/%t/%+v", gotRun.InputRef, gotRun.InputProviderInstance, gotRun.InputProviderDispatchRecorded, gotRun.InputProviderDisclosedInstance, run.InputRef, run.InputProviderInstance, run.InputProviderDispatchRecorded, run.InputProviderDisclosedInstance)
 	}
 
 	for i, status := range []string{"running", "completed"} {

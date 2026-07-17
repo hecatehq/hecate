@@ -340,8 +340,10 @@ even when a later provider recovers the request.
 For Hecate-owned image turns, `provider.call.blocked` records a final
 execution-time provider fence failure before any upstream call. Its
 `hecate.route.skip_reason` is `provider_not_found` or
-`provider_instance_changed`; the event includes the normal provider name/model
-and candidate index, but never the opaque provider generation or image data.
+`provider_instance_changed`. A local rich-input durability or route-fence
+failure instead uses `rich_input_route_fence_failed`; the event includes the
+normal provider name/model and candidate index, but never the opaque provider
+generation or image data.
 
 When `HECATE_TRACE_BODIES=true`, the gateway also records trace events named:
 
@@ -534,6 +536,10 @@ Two operational response classes are worth calling out:
 When rate limiting is enabled, the token-bucket limiter also exposes reset and remaining-quota information through the `X-RateLimit-*` headers above.
 
 The `hecate.error.kind` attribute on error events is clamped to a closed set of known values. Any value outside this set is normalized to `other` to prevent high-cardinality label explosions in metric exporters and trace backends.
+`rich_input_route_fence_failed` distinguishes a local rich-input route or
+durability failure that blocked provider I/O; its accompanying
+`hecate.route.skip_reason` has the same fixed value and does not include a
+provider generation or attachment content.
 
 ## Local Debugging Workflow
 

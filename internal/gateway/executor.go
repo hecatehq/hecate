@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/policy"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/router"
 	"github.com/hecatehq/hecate/internal/safetext"
@@ -227,9 +228,10 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 
 		attemptReq := withResolvedModel(req, candidate.Model)
 		for attempt := 1; attempt <= e.options.MaxAttempts; attempt++ {
-			dispatchProvider := provider
+			dispatchInstance := instance
 			if requiresProviderInstanceFence(req) {
-				dispatchInstance, dispatchErr := providerInstanceForDispatch(e.providers, req, candidate)
+				var dispatchErr error
+				dispatchInstance, dispatchErr = providerInstanceForDispatch(e.providers, req, candidate)
 				if dispatchErr != nil {
 					lastErr = dispatchErr
 					recordProviderCallBlocked(trace, candidate, index, dispatchErr)
@@ -239,7 +241,15 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 					}
 					return lastAttempt, dispatchErr
 				}
-				dispatchProvider = dispatchInstance.Provider
+			}
+			dispatchProvider := dispatchInstance.Provider
+			dispatchRoute := candidate
+			dispatchRoute.ProviderKind = preflight.ProviderKind
+			dispatchRoute.ProviderInstance = dispatchInstance.Identity
+			if dispatchErr := providerdispatch.RecordAttempt(ctx, dispatchRoute); dispatchErr != nil {
+				lastErr = fmt.Errorf("record provider dispatch: %w", dispatchErr)
+				recordRichInputRouteFenceBlocked(trace, dispatchRoute, index, lastErr)
+				return lastAttempt, lastErr
 			}
 			totalAttempts++
 			lastAttempt = &providerCallResult{

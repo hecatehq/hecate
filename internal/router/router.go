@@ -167,7 +167,7 @@ func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRe
 		return types.RouteDecision{}, fmt.Errorf("provider %q configuration changed during image admission", explicitProvider)
 	}
 	if !supportsRequest(entry, routedModel, req) {
-		return types.RouteDecision{}, fmt.Errorf("provider %q model %q does not declare image-input support", explicitProvider, routedModel)
+		return types.RouteDecision{}, fmt.Errorf("provider %q model %q does not satisfy required %s support", explicitProvider, routedModel, requestCapabilityLabel(req.Requirements))
 	}
 
 	return types.RouteDecision{
@@ -273,7 +273,7 @@ func supportsRequest(entry catalog.Entry, model string, req types.ChatRequest) b
 	if req.Requirements.ProviderInstance.Valid() && entry.ProviderInstance != req.Requirements.ProviderInstance {
 		return false
 	}
-	if !req.Requirements.ImageInput {
+	if !req.Requirements.ImageInput && !req.Requirements.ToolCalling {
 		return true
 	}
 	providerCap := types.ModelCapabilities{}
@@ -281,7 +281,21 @@ func supportsRequest(entry catalog.Entry, model string, req types.ChatRequest) b
 		providerCap = entry.ModelCapabilities[model]
 	}
 	capability := modelcaps.ResolveWithProviderCapability(entry.ProviderFamily, string(entry.Kind), model, entry.DiscoverySource, providerCap)
-	return modelcaps.ImageCapable(capability)
+	if req.Requirements.ImageInput && !modelcaps.ImageCapable(capability) {
+		return false
+	}
+	return !req.Requirements.ToolCalling || modelcaps.ToolCapable(capability)
+}
+
+func requestCapabilityLabel(requirements types.ChatRequestRequirements) string {
+	switch {
+	case requirements.ImageInput && requirements.ToolCalling:
+		return "image-input and tool-calling"
+	case requirements.ToolCalling:
+		return "tool-calling"
+	default:
+		return "image-input"
+	}
 }
 
 func (r *RuleRouter) orderedProviders() []catalog.Entry {

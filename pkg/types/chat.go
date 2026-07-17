@@ -92,6 +92,12 @@ type ChatRequest struct {
 // opting into Hecate's stricter runtime admission policy.
 type ChatRequestRequirements struct {
 	ImageInput bool
+	// ToolCalling requires each route candidate to declare tool-call support.
+	// Rich-input agent turns set this alongside ImageInput so Auto routing cannot
+	// combine image support from one provider with tool support from another.
+	// Ordinary tool turns may leave it false to retain their established
+	// optimistic behavior for providers with unknown capability discovery.
+	ToolCalling bool
 	// NoProviderFailover keeps retries on the selected provider but prevents a
 	// request from crossing into another provider. It also requires the gateway
 	// to revalidate the selected provider instance immediately before every

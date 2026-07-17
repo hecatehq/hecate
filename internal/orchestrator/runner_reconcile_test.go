@@ -157,6 +157,71 @@ func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	}
 }
 
+func TestRequeueDisconnectedRunPreservesRecordedAutoRichInputRoute(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	queue := &recordingQueue{}
+	runner := &Runner{
+		logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store:    store,
+		policies: make(map[string]struct{}),
+	}
+	attachTestQueueCoordinator(runner, queue)
+	now := time.Now().UTC()
+	task := types.Task{ID: "task-auto-rich-recovery", Status: "running", CreatedAt: now, UpdatedAt: now}
+	run := types.TaskRun{
+		ID:        "run-auto-rich-recovery",
+		TaskID:    task.ID,
+		Status:    "running",
+		Model:     "shared-vision",
+		InputRef:  "msg-auto-rich-recovery",
+		StartedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	instance := types.ProviderInstanceIdentity{ID: "runtime-vision-a", Kind: types.ProviderInstanceIdentityRuntime}
+	if err := runner.recordAgentInputProviderAttempt(ctx, task, run, types.RouteDecision{
+		Provider: "vision-a", ProviderKind: "cloud", ProviderInstance: instance, Model: "shared-vision",
+	}); err != nil {
+		t.Fatalf("recordAgentInputProviderAttempt: %v", err)
+	}
+	// This is the stale snapshot a boot reconciler could have loaded before
+	// the first worker crossed the provider-dispatch boundary.
+	if err := runner.requeueDisconnectedRun(ctx, task, run, disconnectedRunRequeueOptions{
+		Reason: "boot_reconcile", RecoveryStrategy: "requeue",
+	}); err != nil {
+		t.Fatalf("requeueDisconnectedRun: %v", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%t err=%v", found, err)
+	}
+	if stored.Status != "queued" || stored.Provider != "vision-a" || stored.ProviderKind != "cloud" || stored.InputProviderInstance != instance {
+		t.Fatalf("requeued rich-input run = %+v, want queued vision-a route", stored)
+	}
+	if len(queue.enqueued) != 1 {
+		t.Fatalf("enqueued jobs = %+v, want one recovered run", queue.enqueued)
+	}
+	req := agentLoopChatRequest(ExecutionSpec{
+		Run: stored,
+		ChatRequirements: types.ChatRequestRequirements{
+			ImageInput:         true,
+			NoProviderFailover: true,
+			ExactProvider:      true,
+			ProviderInstance:   instance,
+		},
+	}, []types.Message{{Role: "user", Content: "inspect image"}}, nil)
+	if req.Scope.ProviderHint != "vision-a" || req.Requirements.ProviderInstance != instance || !req.Requirements.ExactProvider {
+		t.Fatalf("recovered request = hint %q requirements %+v, want the recorded Auto route", req.Scope.ProviderHint, req.Requirements)
+	}
+}
+
 func TestReconcilePendingRunsPaginatesEveryQueuedRun(t *testing.T) {
 	t.Parallel()
 

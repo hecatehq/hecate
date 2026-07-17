@@ -221,6 +221,24 @@ type TaskRun struct {
 	// retry runs inherit it; chat continuations replace or clear it. Public
 	// task-run renderers intentionally omit it.
 	InputRef string
+	// InputProviderInstance is the opaque provider instance admitted for
+	// InputRef. Admission can resolve it before the final gateway route, so it
+	// protects the provider generation while policy and routing resolve the
+	// concrete model. It contains no credential or endpoint data and public
+	// task-run renderers intentionally omit it.
+	InputProviderInstance ProviderInstanceIdentity
+	// InputProviderDispatchRecorded marks the final gateway route as durable
+	// immediately before provider I/O. Unlike InputProviderInstance, it is not
+	// set during admission. Once true, the provider, kind, model, and instance
+	// are immutable for this rich input across recovery and same-input retries.
+	// Public task-run renderers intentionally omit it.
+	InputProviderDispatchRecorded bool
+	// InputProviderDisclosedInstance records the provider instance that actually
+	// received InputRef. It remains empty when admission failed before a
+	// provider dispatch, so transcript history cannot mistake an admission
+	// fence for a disclosure boundary. Public task-run renderers intentionally
+	// omit it.
+	InputProviderDisclosedInstance ProviderInstanceIdentity
 }
 
 type TaskStep struct {

@@ -112,7 +112,15 @@ unresolved Auto routing. Carry the generation through catalog, routing, gateway
 metadata, and chat persistence, and revalidate it against the live registry
 immediately before dispatch. Derive durable generations only from non-secret
 control-plane generation/configuration data and never expose them through APIs,
-telemetry, logs, or errors.
+telemetry, logs, or errors. A tools-on task may retain an admitted generation
+only beside its opaque run input reference; at final provider-dispatch
+admission, atomically persist the exact resolved route there before provider
+I/O. Keep that final-dispatch marker separate from admission: its first model
+may be governor-rewritten, while later tool turns, approval continuations, and
+same-input retries must replay the persisted route and instance. Do not treat
+that fence as proof of disclosure. Mark the transcript only after a dispatched
+provider call returns attempted-route metadata. A durability or final-validation
+failure must block provider I/O and leave the transcript marker empty.
 Do not derive provider-native capability provenance from model discovery alone,
 and do not apply Hecate's strict attachment requirement to ordinary
 provider-compatible `/v1` rich-content passthrough. Keep that compatibility

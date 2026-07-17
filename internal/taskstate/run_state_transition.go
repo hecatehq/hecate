@@ -91,7 +91,7 @@ func (s *MemoryStore) ApplyRunStateTransition(_ context.Context, tr RunStateTran
 	}
 
 	task := cloneTask(tr.Task)
-	run := tr.Run
+	run := mergeStoredRichInputRoute(tr.Run, storedRun)
 	s.tasks[task.ID] = task
 	s.runs[run.ID] = run
 	if tr.ApprovalResolution != nil {
@@ -154,11 +154,12 @@ func (s *SQLiteStore) ApplyRunStateTransition(ctx context.Context, tr RunStateTr
 		}
 	}
 
-	payload, err := json.Marshal(tr.Run)
+	run := mergeStoredRichInputRoute(tr.Run, storedRun)
+	payload, err := json.Marshal(run)
 	if err != nil {
 		return RunStateTransitionResult{}, err
 	}
-	args := []any{tr.Run.Status, tr.Run.StartedAt, string(payload), tr.Run.ID, tr.Task.ID}
+	args := []any{run.Status, run.StartedAt, string(payload), run.ID, tr.Task.ID}
 	for _, status := range tr.ExpectedRunStatuses {
 		args = append(args, status)
 	}
@@ -196,24 +197,24 @@ func (s *SQLiteStore) ApplyRunStateTransition(ctx context.Context, tr RunStateTr
 	var steps []types.TaskStep
 	var artifacts []types.TaskArtifact
 	if tr.ApprovalResolution != nil || runEventSpecsNeedSnapshot(tr.Events) {
-		steps, err = s.sqliteListStepsTx(ctx, tx, tr.Run.ID)
+		steps, err = s.sqliteListStepsTx(ctx, tx, run.ID)
 		if err != nil {
 			return RunStateTransitionResult{}, err
 		}
-		artifacts, err = s.sqliteListArtifactsTx(ctx, tx, ArtifactFilter{TaskID: tr.Task.ID, RunID: tr.Run.ID}, "")
+		artifacts, err = s.sqliteListArtifactsTx(ctx, tx, ArtifactFilter{TaskID: tr.Task.ID, RunID: run.ID}, "")
 		if err != nil {
 			return RunStateTransitionResult{}, err
 		}
 	}
 	events := make([]types.TaskRunEvent, 0, len(tr.Events)+2)
 	if tr.ApprovalResolution != nil {
-		event := approvalResolutionEvent(tr.Task.ID, *tr.ApprovalResolution, resolvedApproval, tr.Run, steps, artifacts)
+		event := approvalResolutionEvent(tr.Task.ID, *tr.ApprovalResolution, resolvedApproval, run, steps, artifacts)
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
 			return RunStateTransitionResult{}, err
 		}
 		events = append(events, inserted)
-		queued := approvalRunQueuedEvent(tr.Task.ID, *tr.ApprovalResolution, tr.Run, steps, artifacts)
+		queued := approvalRunQueuedEvent(tr.Task.ID, *tr.ApprovalResolution, run, steps, artifacts)
 		inserted, err = s.sqliteInsertRunEventTx(ctx, tx, queued)
 		if err != nil {
 			return RunStateTransitionResult{}, err
@@ -221,7 +222,7 @@ func (s *SQLiteStore) ApplyRunStateTransition(ctx context.Context, tr RunStateTr
 		events = append(events, inserted)
 	}
 	for _, spec := range tr.Events {
-		event := runStateEventFromSpec(spec, tr.Task.ID, tr.Run, steps, artifacts, time.Now().UTC())
+		event := runStateEventFromSpec(spec, tr.Task.ID, run, steps, artifacts, time.Now().UTC())
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
 			return RunStateTransitionResult{}, err
@@ -231,8 +232,8 @@ func (s *SQLiteStore) ApplyRunStateTransition(ctx context.Context, tr RunStateTr
 	if err := tx.Commit(); err != nil {
 		return RunStateTransitionResult{}, err
 	}
-	s.signalRun(tr.Run.ID)
-	return RunStateTransitionResult{Task: tr.Task, Run: tr.Run, Approval: resolvedApproval, Events: events, Applied: true}, nil
+	s.signalRun(run.ID)
+	return RunStateTransitionResult{Task: tr.Task, Run: run, Approval: resolvedApproval, Events: events, Applied: true}, nil
 }
 
 func (s *SQLiteStore) sqliteGetTaskTx(ctx context.Context, tx interface {

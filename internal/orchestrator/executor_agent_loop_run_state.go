@@ -12,9 +12,10 @@ type agentLoopRunState struct {
 	steps     []types.TaskStep
 	artifacts []types.TaskArtifact
 
-	provider     string
-	providerKind string
-	model        string
+	provider         string
+	providerKind     string
+	providerInstance types.ProviderInstanceIdentity
+	model            string
 
 	costCeiling int64
 	priorCost   int64
@@ -102,6 +103,9 @@ func (s *agentLoopRunState) RecordRoute(resp *types.ChatResponse) {
 	if resp.Route.ProviderKind != "" {
 		s.providerKind = resp.Route.ProviderKind
 	}
+	if resp.Route.ProviderInstance.Valid() {
+		s.providerInstance = resp.Route.ProviderInstance
+	}
 	if resp.Route.Model != "" {
 		s.model = resp.Route.Model
 	} else if resp.Model != "" {
@@ -154,8 +158,23 @@ func (s *agentLoopRunState) attachAccounting(res *ExecutionResult) *ExecutionRes
 	}
 	res.Provider = firstNonEmpty(res.Provider, s.provider)
 	res.ProviderKind = firstNonEmpty(res.ProviderKind, s.providerKind)
+	if !res.ProviderInstance.Valid() {
+		res.ProviderInstance = s.providerInstance
+	}
 	res.Model = firstNonEmpty(res.Model, s.model)
 	res.CostMicrosUSD = s.costSpent
 	res.TurnCosts = s.turnCosts
 	return res
+}
+
+func (s *agentLoopRunState) fenceProviderBoundRequest(req *types.ChatRequest) {
+	if req == nil || !req.Requirements.NoProviderFailover || !s.providerInstance.Valid() || s.provider == "" {
+		return
+	}
+	req.Scope.ProviderHint = s.provider
+	req.Requirements.ExactProvider = true
+	req.Requirements.ProviderInstance = s.providerInstance
+	if s.model != "" {
+		req.Model = s.model
+	}
 }

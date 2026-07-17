@@ -125,6 +125,127 @@ func TestAgentLoopLLMTurn_ErrorPreservesExistingAccounting(t *testing.T) {
 	assertResolvedRoute(t, failed)
 }
 
+func TestAgentLoopLLMTurn_PinsAutoImageRouteAcrossToolTurns(t *testing.T) {
+	instance := types.ProviderInstanceIdentity{ID: "runtime-image-route", Kind: types.ProviderInstanceIdentityRuntime}
+	toolCall := types.ToolCall{
+		ID:   "call-route",
+		Type: "function",
+		Function: types.ToolCallFunction{
+			Name:      "shell_exec",
+			Arguments: `{"command":"pwd"}`,
+		},
+	}
+	first := makeChatResp(makeAssistantMsg("I will inspect.", toolCall))
+	first.Route = types.RouteDecision{
+		Provider:         "vision-a",
+		ProviderKind:     "cloud",
+		ProviderInstance: instance,
+		Model:            "shared-vision",
+	}
+	second := makeChatResp(makeAssistantMsg("Done."))
+	second.Route = first.Route
+	llm := &scriptedLLM{responses: []*types.ChatResponse{first, second}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Run.Provider = ""
+	spec.Run.ProviderKind = ""
+	// The first Auto route can normalize the requested model. Every later turn
+	// that still retains the image must use the resolved model, not this stale
+	// request value.
+	spec.Run.Model = "requested-vision"
+	spec.ChatRequirements = types.ChatRequestRequirements{
+		ImageInput:         true,
+		NoProviderFailover: true,
+	}
+	conversation := newAgentLoopConversation(spec)
+	runState := newAgentLoopRunState(spec, 4)
+	tools := agentToolDefinitions()
+
+	if _, failed, err := loop.runLLMTurn(context.Background(), spec, &conversation, runState, tools, 1, time.Now().UTC()); err != nil || failed != nil {
+		t.Fatalf("first runLLMTurn = failed %+v, error %v", failed, err)
+	}
+	if _, failed, err := loop.runLLMTurn(context.Background(), spec, &conversation, runState, tools, 2, time.Now().UTC()); err != nil || failed != nil {
+		t.Fatalf("second runLLMTurn = failed %+v, error %v", failed, err)
+	}
+	if len(llm.lastReqs) != 2 {
+		t.Fatalf("LLM requests = %d, want 2", len(llm.lastReqs))
+	}
+	if firstReq := llm.lastReqs[0]; firstReq.Model != "requested-vision" || firstReq.Scope.ProviderHint != "" || firstReq.Requirements.ExactProvider || firstReq.Requirements.ProviderInstance.Valid() || !firstReq.Requirements.ToolCalling {
+		t.Fatalf("first Auto request = %+v, want capability-only route selection", firstReq.Requirements)
+	}
+	secondReq := llm.lastReqs[1]
+	if secondReq.Scope.ProviderHint != "vision-a" || secondReq.Model != "shared-vision" || !secondReq.Requirements.ExactProvider || !secondReq.Requirements.NoProviderFailover || secondReq.Requirements.ProviderInstance != instance || !secondReq.Requirements.ToolCalling {
+		t.Fatalf("second request hint=%q requirements=%+v, want exact first-turn provider instance", secondReq.Scope.ProviderHint, secondReq.Requirements)
+	}
+	result := runState.Result("completed")
+	if result.Provider != "vision-a" || result.ProviderInstance != instance {
+		t.Fatalf("result route = provider %q instance %+v, want vision-a/%+v", result.Provider, result.ProviderInstance, instance)
+	}
+}
+
+func TestAgentLoopChatRequestLeavesUnknownToolCapabilitiesRoutableWithoutRichInput(t *testing.T) {
+	spec := newAgentLoopSpec(t)
+	request := agentLoopChatRequest(spec, nil, agentToolDefinitions())
+	if request.Requirements.ToolCalling {
+		t.Fatalf("ordinary tool request requirements = %+v, want no hard tool-capability requirement", request.Requirements)
+	}
+
+	spec.ChatRequirements.ImageInput = true
+	richRequest := agentLoopChatRequest(spec, nil, agentToolDefinitions())
+	if !richRequest.Requirements.ToolCalling {
+		t.Fatalf("rich tool request requirements = %+v, want hard tool-capability requirement", richRequest.Requirements)
+	}
+}
+
+func TestAgentLoopLLMTurn_ErrorRecordsAttemptedProviderInstance(t *testing.T) {
+	instance := types.ProviderInstanceIdentity{ID: "runtime-failed-route", Kind: types.ProviderInstanceIdentityRuntime}
+	llm := AgentLLMClientFunc(func(context.Context, types.ChatRequest) (*types.ChatResponse, error) {
+		return &types.ChatResponse{Route: types.RouteDecision{
+			Provider:         "vision-a",
+			ProviderKind:     "cloud",
+			ProviderInstance: instance,
+			Model:            "shared-vision",
+		}}, errors.New("upstream rejected request")
+	})
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	runState := newAgentLoopRunState(spec, 4)
+	conversation := newAgentLoopConversation(spec)
+
+	_, failed, err := loop.runLLMTurn(context.Background(), spec, &conversation, runState, agentToolDefinitions(), 1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("runLLMTurn error = %v", err)
+	}
+	if failed == nil || failed.Provider != "vision-a" || failed.ProviderInstance != instance {
+		t.Fatalf("failed result = %+v, want attempted provider instance", failed)
+	}
+}
+
+func TestAgentLoopLLMTurn_StreamingErrorRecordsAttemptedProviderInstance(t *testing.T) {
+	instance := types.ProviderInstanceIdentity{ID: "runtime-stream-failed-route", Kind: types.ProviderInstanceIdentityRuntime}
+	llm := &streamingScriptedLLM{
+		response: &types.ChatResponse{Route: types.RouteDecision{
+			Provider:         "vision-a",
+			ProviderKind:     "cloud",
+			ProviderInstance: instance,
+			Model:            "shared-vision",
+		}},
+		err: errors.New("upstream stream reset"),
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	runState := newAgentLoopRunState(spec, 4)
+	conversation := newAgentLoopConversation(spec)
+
+	_, failed, err := loop.runLLMTurn(context.Background(), spec, &conversation, runState, agentToolDefinitions(), 1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("runLLMTurn error = %v", err)
+	}
+	if failed == nil || failed.Provider != "vision-a" || failed.ProviderInstance != instance {
+		t.Fatalf("failed result = %+v, want attempted streaming provider instance", failed)
+	}
+}
+
 func assertEventTypes(t *testing.T, got []string, want ...string) {
 	t.Helper()
 	seen := make(map[string]bool, len(got))

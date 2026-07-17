@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/providerdispatch"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -18,14 +19,16 @@ type agentLoopLLMTurn struct {
 func (e *AgentLoopExecutor) runLLMTurn(ctx context.Context, spec ExecutionSpec, conversation *agentLoopConversation, runState *agentLoopRunState, tools []types.Tool, turn int, startedAt time.Time) (agentLoopLLMTurn, *ExecutionResult, error) {
 	messages := conversation.Messages()
 	req := agentLoopChatRequest(spec, messages, tools)
+	runState.fenceProviderBoundRequest(&req)
 	emitAgentTurnStarted(spec, turn, req)
 
-	resp, err := e.chatTurn(ctx, spec, conversation.ArtifactID(), messages, turn, req)
+	turnCtx := providerdispatch.WithAttemptRecorder(ctx, spec.RecordProviderAttempt)
+	resp, err := e.chatTurn(turnCtx, spec, conversation.ArtifactID(), messages, turn, req)
+	runState.RecordRoute(resp)
 	if err != nil {
 		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, llmTurnErrorMessage(spec, turn, len(tools) > 0, err))
 		return agentLoopLLMTurn{}, runState.attachAccounting(failed), ferr
 	}
-	runState.RecordRoute(resp)
 	if resp == nil || len(resp.Choices) == 0 {
 		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt,
 			fmt.Sprintf("LLM returned empty response on turn %d", turn))
@@ -64,12 +67,18 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	// operator had only configured a local provider like Ollama.
 	// Empty hint preserves the existing auto-route behavior for
 	// tasks that didn't specify a provider.
+	requirements := spec.ChatRequirements
+	// Rich input needs one candidate that is explicitly capable of both the
+	// image and the tool catalog. Ordinary agent runs retain their established
+	// optimistic behavior for providers whose capability discovery is unknown;
+	// the provider remains the authority for a normal tool-call rejection.
+	requirements.ToolCalling = requirements.ImageInput && len(tools) > 0
 	return types.ChatRequest{
 		RequestID:    spec.RequestID,
 		Model:        spec.Run.Model,
 		Messages:     messages,
 		Tools:        tools,
-		Requirements: spec.ChatRequirements,
+		Requirements: requirements,
 		Scope: types.RequestScope{
 			ProviderHint: spec.Run.Provider,
 		},
@@ -123,10 +132,13 @@ func (e *AgentLoopExecutor) chatTurn(ctx context.Context, spec ExecutionSpec, co
 	})
 	persistPartial(true)
 	if err != nil {
-		return nil, err
+		// Streaming providers can return the route that received an attempted
+		// request alongside a transport error. Preserve it so a rich-input run
+		// records the disclosure fence even though no complete reply exists.
+		return resp, err
 	}
 	if persistErr != nil {
-		return nil, persistErr
+		return resp, persistErr
 	}
 	return resp, nil
 }
