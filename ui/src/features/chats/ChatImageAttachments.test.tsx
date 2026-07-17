@@ -543,7 +543,8 @@ describe("stored chat image attachments", () => {
       "createObjectURL",
       vi.fn(() => "blob:preview"),
     );
-    defineURLMethod("revokeObjectURL", vi.fn());
+    const revokeObjectURL = vi.fn();
+    defineURLMethod("revokeObjectURL", revokeObjectURL);
     vi.mocked(getChatAttachmentContentBlob).mockResolvedValue(
       new Blob(["image"], { type: "image/png" }),
     );
@@ -579,8 +580,9 @@ describe("stored chat image attachments", () => {
     await user.keyboard("{Escape}");
 
     expect(screen.queryByRole("dialog", { name: "Image preview: map.png" })).toBeNull();
-    expect(trigger).toHaveFocus();
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load map.png" })).toHaveFocus());
+    expect(screen.queryByRole("img", { name: "map.png" })).toBeNull();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview");
   });
 
   it("lets the operator load a deferred image before it intersects the viewport", async () => {
