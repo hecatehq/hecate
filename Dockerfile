@@ -6,13 +6,13 @@
 # Run:     docker run --rm -p 8765:8765 hecate:dev
 #
 # The image embeds the React UI, the Hecate binary, git/ssh, and the supported
-# External Agent CLIs/ACP adapters. Local mode can use mounted CLI login homes
+# External Agent CLIs and built-in ACP adapter libraries. Local mode can use
+# mounted CLI login homes
 # or API keys. Remote runtime mode ignores local login files and accepts only the
 # remote-safe credential env families declared by the adapters.
 
 ARG GO_VERSION=1.26.5
 ARG BUN_VERSION=1.3.13
-ARG ALPINE_VERSION=3.22
 ARG NODE_IMAGE=node:24-trixie-slim
 ARG HECATE_VERSION=dev
 
@@ -29,48 +29,7 @@ RUN bun install --frozen-lockfile
 COPY ui/ ./
 RUN bun run build
 
-# ── 2. ACP adapter release downloads ────────────────────────────────────────
-
-FROM alpine:${ALPINE_VERSION} AS adapter-downloader
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-ARG CODEX_ACP_ADAPTER_VERSION=v0.1.0
-ARG CLAUDE_CODE_ACP_ADAPTER_VERSION=v0.1.0
-
-RUN apk add --no-cache ca-certificates curl tar \
-    && set -eux; \
-    os="${TARGETOS:-linux}"; \
-    arch="${TARGETARCH:-amd64}"; \
-    if [ "$os" != "linux" ]; then \
-      echo "unsupported adapter target OS: ${os}" >&2; \
-      exit 1; \
-    fi; \
-    case "$arch" in \
-      amd64|arm64) ;; \
-      *) echo "unsupported adapter target arch: ${arch}" >&2; exit 1 ;; \
-    esac; \
-    mkdir -p /adapter-bin; \
-    download_adapter() { \
-      repo="$1"; \
-      binary="$2"; \
-      version="$3"; \
-      release_version="${version#v}"; \
-      archive="${binary}_${release_version}_${os}_${arch}.tar.gz"; \
-      release_url="https://github.com/hecatehq/${repo}/releases/download/${version}"; \
-      workdir="/tmp/${binary}"; \
-      mkdir -p "$workdir"; \
-      curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$release_url/checksums.txt" -o "$workdir/checksums.txt"; \
-      curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$release_url/$archive" -o "$workdir/$archive"; \
-      grep "  ${archive}$" "$workdir/checksums.txt" > "$workdir/${archive}.sha256"; \
-      (cd "$workdir" && sha256sum -c "${archive}.sha256"); \
-      tar -xzf "$workdir/$archive" -C /adapter-bin "$binary"; \
-      chmod 0755 "/adapter-bin/$binary"; \
-      rm -rf "$workdir"; \
-    }; \
-    download_adapter codex-acp-adapter codex-acp-adapter "$CODEX_ACP_ADAPTER_VERSION"; \
-    download_adapter claude-code-acp-adapter claude-code-acp-adapter "$CLAUDE_CODE_ACP_ADAPTER_VERSION"
-
-# ── 3. Go build ─────────────────────────────────────────────────────────────
+# -- 2. Go build ------------------------------------------------------------
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
 ARG HECATE_VERSION=dev
@@ -91,7 +50,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/hecate \
     ./cmd/hecate
 
-# ── 4. Runtime ──────────────────────────────────────────────────────────────
+# -- 3. Runtime -------------------------------------------------------------
 
 FROM ${NODE_IMAGE} AS runtime
 
@@ -119,7 +78,7 @@ RUN apt-get update \
 ARG OPENAI_CODEX_VERSION=0.139.0
 ARG CLAUDE_CODE_VERSION=2.1.177
 ARG GROK_VERSION=0.2.51
-ARG CURSOR_INSTALL_SHA256=e27c6e233b58ab5ce83e684f451e618e4224deb201a4cb38abbe3c097c415dc3
+ARG CURSOR_INSTALL_SHA256=d15e655a16bf4cd5551003d41e428c330bdca3a6904c1cd4e0a279e3d50f73e5
 ARG CURSOR_INSTALL_URL=https://cursor.com/install
 
 RUN npm install -g \
@@ -127,9 +86,6 @@ RUN npm install -g \
       @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
       @xai-official/grok@${GROK_VERSION} \
     && npm cache clean --force
-
-COPY --from=adapter-downloader /adapter-bin/codex-acp-adapter /usr/local/bin/codex-acp-adapter
-COPY --from=adapter-downloader /adapter-bin/claude-code-acp-adapter /usr/local/bin/claude-code-acp-adapter
 
 RUN mkdir -p /opt/cursor-agent \
     && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \

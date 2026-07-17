@@ -318,7 +318,8 @@ describe("ChatView input", () => {
           id: "codex",
           name: "Codex",
           kind: "acp",
-          command: "codex-acp-adapter",
+          command: "codex",
+          embedded: true,
           available: false,
           status: "missing",
           cost_mode: "external",
@@ -4851,7 +4852,7 @@ describe("ChatView external-agent target", () => {
           command: "codex-acp-adapter",
           available: false,
           status: "missing",
-          error: "exec: codex-acp-adapter not found",
+          error: "exec: codex not found",
           cost_mode: "external",
         },
       ],
@@ -4861,12 +4862,10 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Codex is unavailable")).toBeTruthy();
     expect(screen.getByText(/could not start Codex/)).toBeTruthy();
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
-    expect(
-      screen.getByText(/Install Codex CLI plus the Codex ACP adapter, then sign in with Codex/),
-    ).toBeTruthy();
+    expect(screen.getByText(/Install Codex CLI, then sign in with Codex/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Install/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Auth/ })).toBeTruthy();
-    expect(screen.getByText(/codex-acp-adapter not found/)).toBeTruthy();
+    expect(screen.getByText(/codex not found/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add selected/i })).toBeNull();
   });

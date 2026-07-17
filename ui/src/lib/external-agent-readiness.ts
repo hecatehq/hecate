@@ -191,10 +191,10 @@ export function externalAgentSignInHint(adapter: AgentAdapterRecord): string {
 
 export function externalAgentSetupHint(adapter: AgentAdapterRecord): string {
   if (adapter.id === "codex") {
-    return "Install Codex CLI and codex-acp-adapter, ensure both are on PATH, then run codex login.";
+    return "Install Codex CLI, ensure codex is on PATH, then run codex login. The ACP adapter is built into Hecate.";
   }
   if (adapter.id === "claude_code") {
-    return "Install Claude Code and claude-code-acp-adapter, ensure both are on PATH, then run claude /login.";
+    return "Install Claude Code, ensure claude is on PATH, then run claude /login. The ACP adapter is built into Hecate.";
   }
   if (adapter.id === "cursor_agent") {
     return "Install Cursor's command-line agent, confirm cursor-agent is on PATH, then run cursor-agent login.";

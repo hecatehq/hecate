@@ -80,7 +80,8 @@ async function mockAvailableAgentAdapters(page: Page) {
             id: "codex",
             name: "Codex",
             kind: "acp",
-            command: "codex-acp-adapter",
+            command: "codex",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -89,7 +90,8 @@ async function mockAvailableAgentAdapters(page: Page) {
             id: "claude_code",
             name: "Claude Code",
             kind: "acp",
-            command: "claude-code-acp-adapter",
+            command: "claude",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -298,7 +300,8 @@ test("New chat creates an external-agent session with controls before the first 
             id: "codex",
             name: "Codex",
             kind: "acp",
-            command: "codex-acp-adapter",
+            command: "codex",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -307,7 +310,8 @@ test("New chat creates an external-agent session with controls before the first 
             id: "claude_code",
             name: "Claude Code",
             kind: "acp",
-            command: "claude-code-acp-adapter",
+            command: "claude",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -513,7 +517,8 @@ test("New external-agent chat asks for workspace without flashing an inline erro
             id: "codex",
             name: "Codex",
             kind: "acp",
-            command: "codex-acp-adapter",
+            command: "codex",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -772,7 +777,8 @@ test("New chat falls back to Hecate when the remembered external agent needs set
             id: "codex",
             name: "Codex",
             kind: "acp",
-            command: "codex-acp-adapter",
+            command: "codex",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -781,7 +787,8 @@ test("New chat falls back to Hecate when the remembered external agent needs set
             id: "claude_code",
             name: "Claude Code",
             kind: "acp",
-            command: "claude-code-acp-adapter",
+            command: "claude",
+            embedded: true,
             available: true,
             status: "available",
             cost_mode: "external",
@@ -3506,12 +3513,13 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
     id: "claude_code",
     name: "Claude Code",
     kind: "acp",
-    command: "claude-code-acp-adapter",
+    command: "claude",
+    embedded: true,
     available: fixture.available ?? true,
     status: fixture.available === false ? "missing" : "available",
     error: fixture.available === false ? "claude command not found" : undefined,
     description:
-      "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
+      "Run Claude Code through Hecate's built-in Go ACP adapter as an external coding-agent session supervised by Hecate.",
     cost_mode: "external",
     auth_status: fixture.authStatus ?? "unknown",
     auth_error: fixture.authStatus === "unauthenticated" ? "Run claude /login" : undefined,
@@ -3546,8 +3554,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
                   : status === "not_installed"
                     ? "lookup"
                     : "new_session",
-              path:
-                fixture.available === false ? undefined : "/usr/local/bin/claude-code-acp-adapter",
+              path: fixture.available === false ? undefined : "/usr/local/bin/claude",
               hint: status === "auth_required" ? "Claude Code isn't signed in." : undefined,
               error: status === "not_installed" ? "claude command not found" : undefined,
               duration_ms: 20,
@@ -3663,11 +3670,7 @@ test("Claude Code setup appears when the adapter is not installed", async ({ pag
   await openClaudeExternalAgent(page, { available: false, healthStatus: "not_installed" });
 
   await expect(page.getByText("Claude Code is unavailable")).toBeVisible();
-  await expect(
-    page.getByText(
-      /Install Claude Code plus the Claude ACP adapter, then sign in with Claude Code/,
-    ),
-  ).toBeVisible();
+  await expect(page.getByText(/Install Claude Code, then sign in with Claude Code/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Install" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Auth" })).toBeVisible();
   await page.locator("textarea").fill("hello from Claude Code");

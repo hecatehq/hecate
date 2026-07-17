@@ -706,7 +706,7 @@ function AnthropicProviderKeyCard({
 }
 
 // AdapterStatusSection lists the configured external agents.
-// Manual checks spawn the adapter bridge, complete the ACP handshake, and
+// Manual checks start the adapter runtime, complete the ACP handshake, and
 // return a typed health classification. That handshake is also the auth check:
 // auth failures surface as `auth_required`.
 //
@@ -744,7 +744,7 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Checks local agent readiness and auth by starting the agent bridge, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
+        description="Checks local agent readiness and auth by starting the agent runtime, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
       />
       <div className="card" style={{ overflow: "hidden" }}>
@@ -880,6 +880,14 @@ function AdapterStatusRow({
             {adapter.name}
           </span>
           <span className={`badge ${badgeClassForTone(readiness.tone)}`}>{readiness.label}</span>
+          {adapter.embedded && (
+            <span
+              className="badge badge-neutral"
+              data-testid={`external-agents-adapter-${adapter.id}-embedded`}
+            >
+              built in
+            </span>
+          )}
           {adapter.version_outside_range && (
             <span
               className="badge badge-amber"
@@ -909,7 +917,7 @@ function AdapterStatusRow({
           </span>
           {adapter.adapter_version && (
             <span>
-              bridge <span style={{ color: "var(--t1)" }}>{adapter.adapter_version}</span>
+              adapter <span style={{ color: "var(--t1)" }}>{adapter.adapter_version}</span>
             </span>
           )}
           {adapter.agent_version && (

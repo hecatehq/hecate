@@ -27,7 +27,7 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		found[item.ID] = item
 	}
 
-	if got := found["codex"]; got.Command != "codex-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
+	if got := found["codex"]; got.Command != "codex" || !got.Embedded || got.TestProcessCommand != "codex-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
 	if got := found["codex"]; got.SupportedRange != ">=0.1.0" {
@@ -53,7 +53,7 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		CapabilityAuthenticate:     CapabilityStatusSupported,
 		CapabilityLogout:           CapabilityStatusSupported,
 	})
-	if got := found["claude_code"]; got.Command != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
+	if got := found["claude_code"]; got.Command != "claude" || !got.Embedded || got.TestProcessCommand != "claude-code-acp-adapter" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
 	if got := found["claude_code"]; got.SupportedRange != ">=0.1.0" {
@@ -247,7 +247,7 @@ func TestLimitedBufferDisableAndClearWipesStartupDiagnostics(t *testing.T) {
 	}
 }
 
-func TestBuiltInGoAdaptersUseReleasedBinaries(t *testing.T) {
+func TestBuiltInGoAdaptersUseEmbeddedLibrariesAndProviderCLIs(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -258,13 +258,13 @@ func TestBuiltInGoAdaptersUseReleasedBinaries(t *testing.T) {
 	}{
 		{
 			id:           "codex",
-			command:      "codex-acp-adapter",
+			command:      "codex",
 			agentCommand: "codex",
 			docsURL:      "https://github.com/hecatehq/codex-acp-adapter",
 		},
 		{
 			id:           "claude_code",
-			command:      "claude-code-acp-adapter",
+			command:      "claude",
 			agentCommand: "claude",
 			docsURL:      "https://github.com/hecatehq/claude-code-acp-adapter",
 		},
@@ -273,8 +273,8 @@ func TestBuiltInGoAdaptersUseReleasedBinaries(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing built-in adapter %q", tc.id)
 		}
-		if adapter.Command != tc.command || len(adapter.Args) != 0 {
-			t.Fatalf("%s command = %q args=%#v, want released Go adapter binary without wrapper args", tc.id, adapter.Command, adapter.Args)
+		if adapter.Command != tc.command || len(adapter.Args) != 0 || !adapter.Embedded || adapter.TestProcessCommand == "" {
+			t.Fatalf("%s adapter = %#v, want embedded adapter with provider CLI and standalone compatibility command", tc.id, adapter)
 		}
 		if adapter.AgentVersion.Command != tc.agentCommand || len(adapter.AgentVersion.Args) != 1 || adapter.AgentVersion.Args[0] != "--version" {
 			t.Fatalf("%s agent version probe = %#v, want native provider CLI version probe", tc.id, adapter.AgentVersion)
@@ -430,8 +430,8 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	t.Parallel()
 
 	response := ListWithLookup(context.Background(), func(file string) (string, error) {
-		if file == "codex-acp-adapter" {
-			return "/usr/local/bin/codex-acp-adapter", nil
+		if file == "codex" {
+			return "/usr/local/bin/codex", nil
 		}
 		return "", errors.New("not found")
 	})
@@ -442,7 +442,7 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	}
 
 	codex := byID["codex"]
-	if !codex.Available || codex.Status != StatusAvailable || codex.Path != "/usr/local/bin/codex-acp-adapter" {
+	if !codex.Available || codex.Status != StatusAvailable || codex.Path != "/usr/local/bin/codex" {
 		t.Fatalf("codex status = %#v", codex)
 	}
 
@@ -1117,8 +1117,6 @@ func TestClaudeStatusDoesNotUseLocalCandidatePathForRemoteRuntime(t *testing.T) 
 		func(file string) (string, error) {
 			switch file {
 			case adapter.Command:
-				return filepath.Join(home, "bin", adapter.Command), nil
-			case adapter.AgentVersion.Command:
 				return "", errors.New("not found on remote PATH")
 			case localCandidate:
 				t.Fatalf("remote status probed local candidate %q", file)
@@ -1142,7 +1140,6 @@ func TestExplicitRemoteClaudeStatusDoesNotUseLocalAgentCandidatePath(t *testing.
 	if !ok {
 		t.Fatal("missing Claude Code adapter")
 	}
-	adapterBinary := writeFakeBinary(t, t.TempDir(), adapter.Command, "adapter 1.2.3")
 	localCandidate := filepath.Join(home, ".volta", "bin", "claude")
 
 	status, ok := StatusForAdapterAfterExplicitProbe(
@@ -1151,8 +1148,6 @@ func TestExplicitRemoteClaudeStatusDoesNotUseLocalAgentCandidatePath(t *testing.
 		func(file string) (string, error) {
 			switch file {
 			case adapter.Command:
-				return adapterBinary, nil
-			case adapter.AgentVersion.Command:
 				return "", errors.New("not found on remote PATH")
 			case localCandidate:
 				t.Fatalf("explicit remote status probed local candidate %q", file)

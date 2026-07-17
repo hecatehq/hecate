@@ -72,6 +72,13 @@ func TestSemverRegexParsesPreRelease(t *testing.T) {
 	}
 }
 
+func TestSatisfiesRangeTreatsEmbeddedDevelopmentVersionAsUnknown(t *testing.T) {
+	t.Parallel()
+	if !satisfiesRange("embedded", ">=0.1.0") {
+		t.Fatal("satisfiesRange rejected non-semver embedded development version")
+	}
+}
+
 func TestDetectVersionGarbageOutputReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

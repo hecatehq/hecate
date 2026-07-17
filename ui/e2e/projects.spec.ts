@@ -990,7 +990,7 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
             adapter_id: "codex",
             status: "ready",
             stage: "ready",
-            path: "/usr/local/bin/codex-acp-adapter",
+            path: "/usr/local/bin/codex",
             duration_ms: 12,
           },
         },

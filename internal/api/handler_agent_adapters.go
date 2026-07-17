@@ -129,6 +129,7 @@ func renderAgentAdapterItemWithOptions(ctx context.Context, item agentadapters.S
 		Kind:                 item.Kind,
 		Command:              item.Command,
 		Args:                 item.Args,
+		Embedded:             item.Embedded,
 		Available:            item.Available,
 		Status:               item.Status,
 		Path:                 item.Path,

@@ -295,9 +295,9 @@ version                 # build-time version metadata
 
 ## External-agent adapter smoke states
 
-External-agent onboarding depends on local tools (`codex-acp-adapter`,
-`claude-code-acp-adapter`, `cursor-agent`, `grok`) and the underlying agent
-CLIs/auth that may already be installed on your machine. For manual UI smoke
+External-agent onboarding depends on vendor CLIs (`codex`, `claude`,
+`cursor-agent`, `grok`) and their local authentication. The Codex and Claude
+ACP adapters are Go libraries compiled into Hecate. For manual UI smoke
 tests and Playwright fixtures, you can force the visual state without
 uninstalling anything. These
 fixture env vars are intentionally not listed in `.env.example`; keep them in
@@ -327,28 +327,21 @@ The backing env var is `HECATE_AGENT_ADAPTER_DEV_OVERRIDES`. It accepts
 - `billing` or `error` — billing/usage-limit or generic probe failure.
 
 This is visual-only: it changes Connections and Chats readiness UI and fake
-probe results, but it does not create adapter processes or make a chat send
+probe results, but it does not start adapter runtimes or make a chat send
 succeed.
 
-Packaged Go ACP adapter releases can be checked without importing adapter
-source modules into Hecate:
+The built-in Go ACP adapters can be checked against authenticated local vendor
+CLIs:
 
 ```bash
-just test-acp-release-smoke
+just test-acp-real-embedded
 ```
 
-That opt-in smoke downloads the Codex and Claude Code adapter versions pinned in
-the Dockerfiles, verifies their release checksums, puts fake `codex` / `claude`
-CLIs on `PATH`, and runs Hecate's probe/auth/logout/session/run path against
-the real adapter binaries, including session config selector changes and
-session-level MCP propagation, command-backed prompt execution, prompt
-auth-required mapping, structured activity mapping, prompt-mode permission
-approval, session-scoped grant reuse, repeated prompt continuation, and native
-session reload/recovery. Its fake CLIs are strict about auth-error wording and
-native continuation flags so packaging bumps catch drift before an operator hits
-it. It requires network access and is intentionally not part of the normal
-unit-test ladder. The same check is available from GitHub Actions as the manual
-**ACP adapter release smoke** workflow.
+That opt-in smoke runs Hecate's built-in adapter, probe, session preparation,
+and prompt path against the installed `codex` and `claude` CLIs. It uses local
+vendor authentication, may consume provider quota, and is intentionally outside
+the normal unit-test ladder. Hermetic integration coverage uses strict fake
+vendor CLIs and includes private image/file links and environment isolation.
 
 Cursor and Grok expose ACP directly from their vendor CLIs. To verify Hecate's
 live probe, session creation, prompt, and prepared-session reuse against both

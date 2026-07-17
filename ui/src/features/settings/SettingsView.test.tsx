@@ -720,7 +720,8 @@ describe("Connections external-agent panel", () => {
               id: "codex",
               name: "Codex",
               kind: "acp",
-              command: "codex-acp-adapter",
+              command: "codex",
+              embedded: true,
               available: true,
               status: "available",
               cost_mode: "external",
@@ -733,8 +734,11 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       const row = await screen.findByTestId("external-agents-adapter-codex");
-      expect(row).toHaveTextContent("bridge 1.2.3");
+      expect(row).toHaveTextContent("adapter 1.2.3");
       expect(row).toHaveTextContent("agent 0.48.0");
+      expect(within(row).getByTestId("external-agents-adapter-codex-embedded")).toHaveTextContent(
+        "built in",
+      );
     });
 
     it("renders compact local sign-in when the cached probe says auth is missing", async () => {

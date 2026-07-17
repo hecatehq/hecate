@@ -72,19 +72,23 @@ Putting Codex, Claude Code, Cursor Agent, or Grok Build in the provider/model dr
 
 Start with **ACP session adapters**.
 
-```text
-Hecate Chats
-  -> Target: External Agent
-  -> Agent adapter: Codex / Claude Code / Cursor Agent / Grok Build
-  -> Workspace
-  -> Prompt
-  -> Native ACP session
-  -> Streamed output + captured diff
+```mermaid
+flowchart LR
+    Chat["Hecate Chats"] --> Client["Typed ACP client + supervision"]
+    Client --> Owned{"Hecate-owned adapter?"}
+    Owned -->|"yes"| Embedded["In-process Go ACP server"]
+    Embedded --> Vendor["Vendor CLI child process"]
+    Owned -->|"no"| Direct["Direct ACP CLI child process"]
+    Vendor --> Workspace["Selected workspace"]
+    Direct --> Workspace
+    Workspace --> Evidence["Streamed activity, approvals, diagnostics, and diff"]
 ```
 
-The implementation keeps one adapter process and one native ACP session alive
-per External Agent chat session. Each prompt becomes the next ACP turn in that
-session.
+The implementation keeps one adapter runtime and one native ACP session alive
+per External Agent chat session. Hecate-owned adapter servers run in-process;
+their provider CLIs remain supervised child processes. Direct ACP CLIs run as
+supervised child processes. Each prompt becomes the next ACP turn in the same
+typed client contract.
 
 ## UI Model
 
@@ -129,9 +133,9 @@ The current runtime shape is ACP-first:
 - `registry.go` declares built-in adapters, direct commands, tested version
   ranges, and lightweight auth hints.
 - `probe.go` performs the explicit "can this adapter really start?" check by
-  spawning the adapter, completing ACP `initialize`, opening a no-op session,
-  and classifying the result.
-- `acp_session.go` owns the long-lived adapter process, native ACP session,
+  starting the adapter runtime, completing ACP `initialize`, opening a no-op
+  session, and classifying the result.
+- `acp_session.go` owns the long-lived adapter runtime, native ACP session,
   prompt turns, streaming update normalization, cancellation, shutdown, usage
   updates, raw diagnostics, and Git diff capture.
 - `approvals.go` maps ACP `RequestPermission` into Hecate's external-agent
@@ -198,13 +202,16 @@ transcript intact.
 
 When an External Agent chat session is created:
 
-1. Resolve the adapter command. Codex and Claude Code use standalone Go ACP
-   adapter binaries, Cursor comes from `cursor-agent acp`, and Grok comes from
+1. Resolve the provider/runtime command. Codex and Claude Code use Go ACP
+   adapter libraries compiled into Hecate and resolve `codex` / `claude`;
+   Cursor comes from `cursor-agent acp`, and Grok comes from
    `grok agent ... stdio`.
 2. Validate and canonicalize the workspace path.
 3. Build a sanitized process environment. Gateway/provider secrets are not
    forwarded by default.
-4. Spawn the ACP adapter in the selected workspace.
+4. Start the ACP runtime. Built-in adapters get an in-memory ACP transport and
+   launch provider commands through the host-supplied environment; direct ACP
+   agents are supervised child processes in the selected workspace.
 5. Complete ACP `initialize` and `session/new`.
 6. Store the native ACP session id on the Hecate chat session.
 
@@ -219,7 +226,7 @@ For each prompt in that chat, Hecate:
   when the workspace is a Git repo.
 
 For later prompts in the same External Agent chat session, Hecate reuses the same
-adapter process and native ACP session. If the gateway restarts and SQLite chat
+adapter runtime and native ACP session. If the gateway restarts and SQLite chat
 storage is enabled, Hecate keeps the transcript and saved native session id. On
 the next prompt it asks the adapter to load that native session when the adapter
 advertises load-session support; otherwise it starts a fresh native ACP session

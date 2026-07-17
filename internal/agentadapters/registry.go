@@ -66,24 +66,32 @@ const (
 )
 
 type Adapter struct {
-	ID                   string
-	Name                 string
-	Command              string
-	Args                 []string
-	CandidatePaths       []string
-	AgentVersion         VersionProbe
-	LaunchSuffixArgs     []string
-	LaunchModel          LaunchModelConfig
-	LaunchOptions        []LaunchSelectConfig
-	Kind                 string
-	Description          string
-	CostMode             string
-	DocsURL              string
-	SupportedRange       string
-	SupportsAuthenticate bool
-	SupportsLogout       bool
+	ID             string
+	Name           string
+	Command        string
+	Args           []string
+	CandidatePaths []string
+	// Embedded means Hecate serves this adapter in-process. Command and
+	// CandidatePaths then identify the provider CLI used by the embedded
+	// adapter. TestProcess* exists only for hermetic protocol fixtures; it is not
+	// a supported product runtime mode.
+	Embedded                  bool
+	TestProcessCommand        string
+	TestProcessArgs           []string
+	TestProcessCandidatePaths []string
+	AgentVersion              VersionProbe
+	LaunchSuffixArgs          []string
+	LaunchModel               LaunchModelConfig
+	LaunchOptions             []LaunchSelectConfig
+	Kind                      string
+	Description               string
+	CostMode                  string
+	DocsURL                   string
+	SupportedRange            string
+	SupportsAuthenticate      bool
+	SupportsLogout            bool
 	// NativeSessionScope describes whether a stored ACP session id can be
-	// restored after the adapter process exits. Process-scoped adapters require
+	// restored after the adapter runtime exits. Process-scoped adapters require
 	// an explicit fresh-session replacement after restart; the zero value fails
 	// closed when session/load fails.
 	NativeSessionScope NativeSessionScope
@@ -353,8 +361,16 @@ func BuiltIns() []Adapter {
 		{
 			ID:      "codex",
 			Name:    "Codex",
-			Command: "codex-acp-adapter",
+			Command: "codex",
 			CandidatePaths: []string{
+				"${HOME}/.local/bin/codex",
+				"${HOME}/.volta/bin/codex",
+				"/opt/homebrew/bin/codex",
+				"/usr/local/bin/codex",
+			},
+			Embedded:           true,
+			TestProcessCommand: "codex-acp-adapter",
+			TestProcessCandidatePaths: []string{
 				"${HOME}/.local/bin/codex-acp-adapter",
 				"/opt/homebrew/bin/codex-acp-adapter",
 				"/usr/local/bin/codex-acp-adapter",
@@ -370,7 +386,7 @@ func BuiltIns() []Adapter {
 				},
 			},
 			Kind:                 "acp",
-			Description:          "Run Codex through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
+			Description:          "Run Codex through Hecate's built-in Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:             "external",
 			DocsURL:              "https://github.com/hecatehq/codex-acp-adapter",
 			SupportedRange:       ">=0.1.0",
@@ -399,8 +415,16 @@ func BuiltIns() []Adapter {
 		{
 			ID:      "claude_code",
 			Name:    "Claude Code",
-			Command: "claude-code-acp-adapter",
+			Command: "claude",
 			CandidatePaths: []string{
+				"${HOME}/.local/bin/claude",
+				"${HOME}/.volta/bin/claude",
+				"/opt/homebrew/bin/claude",
+				"/usr/local/bin/claude",
+			},
+			Embedded:           true,
+			TestProcessCommand: "claude-code-acp-adapter",
+			TestProcessCandidatePaths: []string{
 				"${HOME}/.local/bin/claude-code-acp-adapter",
 				"/opt/homebrew/bin/claude-code-acp-adapter",
 				"/usr/local/bin/claude-code-acp-adapter",
@@ -416,7 +440,7 @@ func BuiltIns() []Adapter {
 				},
 			},
 			Kind:                 "acp",
-			Description:          "Run Claude Code through the standalone Go ACP adapter as an external coding-agent session supervised by Hecate.",
+			Description:          "Run Claude Code through Hecate's built-in Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:             "external",
 			DocsURL:              "https://github.com/hecatehq/claude-code-acp-adapter",
 			SupportedRange:       ">=0.1.0",
@@ -807,7 +831,7 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 	if override, ok := adapterDiscoveryOverride(item.ID); ok {
 		return applyAdapterDiscoveryOverride(status, override)
 	}
-	path, err := resolveExecutableForStatus(item, lookup)
+	path, err := resolveExecutableForStatus(ctx, item, lookup)
 	if err != nil {
 		status.Error = err.Error()
 		return status
@@ -824,6 +848,13 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 }
 
 func detectAdapterAndAgentVersionsForStatus(ctx context.Context, adapter Adapter, path string, lookup LookupFunc) (string, string) {
+	if adapterUsesEmbeddedServer(adapter) {
+		agentVersion := ""
+		if shouldProbeVersion(path) {
+			agentVersion = detectVersionCommand(ctx, path, adapter.AgentVersion.Args...)
+		}
+		return embeddedAdapterVersion(adapter.ID), agentVersion
+	}
 	if adapter.AgentVersion.Command != "" {
 		adapterVersion := ""
 		if shouldProbeVersion(path) {
@@ -1038,8 +1069,8 @@ func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
 	return "", firstErr
 }
 
-func resolveExecutableForStatus(adapter Adapter, lookup LookupFunc) (string, error) {
-	return resolveExecutable(adapter, lookup)
+func resolveExecutableForStatus(ctx context.Context, adapter Adapter, lookup LookupFunc) (string, error) {
+	return resolveAdapterPeerExecutable(ctx, adapter, lookup)
 }
 
 func Run(ctx context.Context, req RunRequest) (RunResult, error) {

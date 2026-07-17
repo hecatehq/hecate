@@ -91,12 +91,12 @@ describe("resolveExternalAgentReadiness", () => {
     });
   });
 
-  it("names the Claude Go ACP adapter in setup guidance", () => {
+  it("explains that the Claude ACP adapter is built in", () => {
     const readiness = resolveExternalAgentReadiness(
       adapter({
         id: "claude_code",
         name: "Claude Code",
-        command: "claude-code-acp-adapter",
+        command: "claude",
         available: false,
         status: "missing",
       }),
@@ -107,7 +107,8 @@ describe("resolveExternalAgentReadiness", () => {
       kind: "setup",
       needsRepair: true,
     });
-    expect(readiness.setupHint).toContain("claude-code-acp-adapter");
+    expect(readiness.setupHint).toContain("built into Hecate");
+    expect(readiness.setupHint).toContain("claude is on PATH");
     expect(readiness.setupHint).toContain("claude /login");
   });
 
