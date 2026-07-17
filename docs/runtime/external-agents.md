@@ -503,14 +503,16 @@ in the standalone adapter repositories.
 
 For the built-in adapters, operators can run `just test-acp-real-embedded` (or
 pass one adapter id as its argument). The opt-in smoke uses the installed,
-authenticated vendor CLI and may consume provider quota.
+authenticated vendor CLI, verifies a minimal text turn, then verifies that the
+same prepared native session can read a privately staged text-file input. It may
+consume provider quota.
 
 For the direct ACP implementations bundled with Cursor and Grok, operators can
 run `just test-acp-real-direct` (or pass one adapter id as its argument). The
 opt-in smoke starts the installed vendor CLI, checks Hecate's live probe and
-session preparation, sends one minimal prompt, and verifies that the prepared
-native session handled the turn. It uses local vendor authentication and may
-consume provider quota.
+session preparation, sends a minimal text turn, then verifies that the same
+prepared native session can read a privately staged text-file input. It uses
+local vendor authentication and may consume provider quota.
 
 ## Setup checks
 

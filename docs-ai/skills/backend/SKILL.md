@@ -568,7 +568,9 @@ implemented by the probe client against its temporary workspace rather than
 returning "not supported" during `session/new`.
 Use opt-in real CLI smokes for both embedded and direct runtimes when a change
 needs verification against authenticated vendor CLIs. Keep real
-provider prompts minimal, workspace-local, and outside the default test ladder.
+provider prompts minimal and outside the default test ladder. Preserve the
+shared smoke's privately staged text-file turn so every supported adapter proves
+that Hecate's file-input boundary works against the authenticated vendor CLI.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
