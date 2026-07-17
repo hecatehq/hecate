@@ -15,3 +15,9 @@ test-docker-smoke: _go-cache
 # Smoke test packaged Go ACP adapter release binaries.
 test-acp-release-smoke: _go-cache
 	{{go_env}} go test -tags acp_release -count=1 -run TestACPAdapterReleaseBinaries -timeout 5m ./internal/agentadapters
+
+# Exercise Cursor and Grok's direct ACP modes with authenticated local CLIs.
+# Successful prompts may consume operator quota, so this stays opt-in.
+# Smoke test authenticated direct ACP vendor CLIs.
+test-acp-real-direct adapters='cursor_agent,grok_build': _go-cache
+	HECATE_ACP_REAL_CLI_SMOKE=1 HECATE_ACP_REAL_ADAPTERS='{{adapters}}' {{go_env}} go test -tags real_cli -count=1 -run TestRealDirectACPCLIsSmoke -timeout 10m ./internal/agentadapters
