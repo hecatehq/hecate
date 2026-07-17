@@ -300,7 +300,10 @@ The composer also supports dictation through an explicitly selected OpenAI,
 Groq, LocalAI, or env-configured OpenAI-compatible transcription route. Hecate
 records for at most two minutes, sends the bounded audio to that route only,
 does not retain the audio, and inserts the returned transcript at the cursor as
-an editable draft. Dictation never sends the chat message automatically.
+an editable draft. Dictation works in secure browser deployments and the
+macOS, Windows, and Linux desktop webviews; the browser or operating system
+controls microphone access. Dictation never sends the chat message
+automatically.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 

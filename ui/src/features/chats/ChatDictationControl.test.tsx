@@ -6,6 +6,7 @@ import { createDictationTranscription, getDictationOptions } from "../../lib/api
 import { ChatDictationControl } from "./ChatDictationControl";
 
 const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+const originalSecureContext = Object.getOwnPropertyDescriptor(window, "isSecureContext");
 
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
@@ -31,6 +32,12 @@ const cloudOption = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: { getUserMedia: vi.fn() },
+  });
+  vi.stubGlobal("MediaRecorder", MockMediaRecorder);
   vi.mocked(getDictationOptions).mockResolvedValue({
     object: "dictation_options",
     data: [localOption, cloudOption],
@@ -50,6 +57,11 @@ afterEach(() => {
     Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
   } else {
     Reflect.deleteProperty(navigator, "mediaDevices");
+  }
+  if (originalSecureContext) {
+    Object.defineProperty(window, "isSecureContext", originalSecureContext);
+  } else {
+    Reflect.deleteProperty(window, "isSecureContext");
   }
 });
 
@@ -73,9 +85,53 @@ describe("ChatDictationControl", () => {
 
     const button = await screen.findByRole("button", { name: "Start dictation" });
     expect(button).toBeDisabled();
-    expect(button).toHaveAccessibleDescription("Dictation unavailable");
+    expect(button).toHaveAccessibleDescription(
+      "Connect OpenAI, Groq, or LocalAI in Connections to use dictation.",
+    );
     expect(button).toHaveAttribute("title", expect.stringContaining("Connections"));
     expect(screen.queryByRole("combobox", { name: "Dictation provider" })).toBeNull();
+  });
+
+  it("surfaces the configured provider's readiness reason", async () => {
+    vi.mocked(getDictationOptions).mockResolvedValue({
+      object: "dictation_options",
+      data: [
+        {
+          ...cloudOption,
+          available: false,
+          unavailable_reason: "provider credentials are missing",
+        },
+      ],
+    });
+    render(<ChatDictationControl onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start dictation" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "openai is unavailable: provider credentials are missing. Open Connections to fix it.",
+    );
+  });
+
+  it("disables capture with a precise message when browser recording is unsupported", async () => {
+    vi.stubGlobal("MediaRecorder", undefined);
+    render(<ChatDictationControl onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start dictation" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "This browser or app webview cannot record microphone audio.",
+    );
+  });
+
+  it("explains that non-secure web origins cannot request a microphone", async () => {
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+    render(<ChatDictationControl onTranscript={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start dictation" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "Dictation needs HTTPS or a loopback Hecate URL for microphone access.",
+    );
   });
 
   it("records, stops tracks, transcribes through the selected route, and returns draft text", async () => {

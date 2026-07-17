@@ -13,6 +13,7 @@
 //      closes, the RunEvent::Exit handler kills hecate before the process exits.
 
 mod sidecar;
+mod webview_media;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -803,6 +804,12 @@ pub fn run() {
                 log_path: diagnostics.log_path.clone(),
                 state_path: diagnostics.state_path.clone(),
             });
+
+            // WebKitGTK denies getUserMedia requests when the embedding app
+            // does not handle its permission signal. Install the handler only
+            // after GatewayBaseURL exists so Linux can grant audio capture to
+            // the exact sidecar origin and fail closed everywhere else.
+            webview_media::install(&win, app.handle().clone())?;
 
             let app_handle = app.handle().clone();
             let splash_started = Instant::now();

@@ -59,14 +59,17 @@ Key invariants:
 ## Dictation flow
 
 Dictation is a narrow Hecate-native application seam, not a chat-router mode.
-The browser records audio, the API owns binary admission and media validation,
-`dictationapp` owns provider selection and the exact-instance disclosure fence,
-and the provider adapter owns the OpenAI-compatible multipart call. No chat
-handler or provider failover path receives the audio.
+The browser or desktop webview records audio, the API owns binary admission and
+media validation, `dictationapp` owns provider selection and the exact-instance
+disclosure fence, and the provider adapter owns the OpenAI-compatible multipart
+call. The Tauri layer handles only native webview permission integration; audio
+does not cross Tauri IPC. No chat handler or provider failover path receives the
+audio.
 
 ```mermaid
 sequenceDiagram
     participant UI as Chat composer / MediaRecorder
+    participant Media as Browser or desktop webview
     participant API as Dictation API
     participant App as dictationapp
     participant Registry as Provider registry
@@ -75,6 +78,8 @@ sequenceDiagram
     API->>App: list explicit transcription capabilities
     App->>Registry: snapshot available instances (local first)
     Registry-->>UI: provider, kind, default model, availability
+    UI->>Media: request audio-only microphone stream
+    Media-->>UI: stream after site / OS permission
     UI->>API: POST multipart audio + explicit provider
     API->>API: 10 MiB + 60s + signature + two-slot admission
     API->>App: resolve route after bounded upload
@@ -94,7 +99,10 @@ Audio and transcript bodies are transient and must not enter Hecate storage,
 usage events, traces, metrics, logs, or artifacts. Provider configuration
 fingerprints include the transcription path and default model but exclude
 credentials. The UI stops microphone tracks on stop/unmount/chat switch,
-inserts returned text at the current selection, and never submits it.
+inserts returned text at the current selection, and never submits it. On Linux,
+the desktop host grants WebKitGTK user-media requests only when they are
+audio-only and the active document matches the exact loopback sidecar origin;
+camera, mismatched-origin, and pre-readiness requests fail closed.
 
 ## Chat attachment flow
 
