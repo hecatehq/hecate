@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -39,14 +37,13 @@ type acpSession struct {
 	adapter             Adapter
 	workspace           string
 	mcpServers          []types.MCPServerConfig
-	cmd                 *exec.Cmd
+	peer                *acpPeer
 	conn                *acp.ClientSideConnection
 	client              *acpChatClient
 	nativeID            string
 	agentInfo           *agentcontrols.ImplementationInfo
 	promptCapabilities  acp.PromptCapabilities
 	logger              *slog.Logger
-	envCleanup          func()
 	onAvailableCommands func(AvailableCommandsUpdate)
 
 	configMu      sync.Mutex
@@ -76,11 +73,12 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	if terminalSupport && workspaceCoordinator == nil {
 		return nil, false, "", fmt.Errorf("workspace coordination is required when ACP terminal support is enabled")
 	}
-	command, err := resolveExecutable(adapter, exec.LookPath)
+	command, err := resolveAdapterPeerExecutable(ctx, adapter, nil)
 	if err != nil {
 		return nil, false, "", err
 	}
-	args := append([]string(nil), adapter.Args...)
+	runtime := runtimeAdapter(adapter)
+	args := append([]string(nil), runtime.Args...)
 	sessionLogger := logger
 	if sessionLogger != nil {
 		sessionLogger = sessionLogger.With(
@@ -89,45 +87,30 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			slog.String("session_id", sessionID),
 			slog.String("workspace", workspace),
 		)
-		sessionLogger.Info("starting ACP adapter process",
+		sessionLogger.Info("starting ACP adapter runtime",
 			slog.String("command", command),
 			slog.Any("args", args),
+			slog.Bool("embedded", adapterUsesEmbeddedServer(adapter)),
 			slog.Bool("resume_requested", strings.TrimSpace(previousNativeSessionID) != ""),
 		)
 	}
-	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
+	peer, err := launchACPAdapterPeer(ctx, adapter, workspace, command)
 	if err != nil {
 		return nil, false, "", err
 	}
-	cleanupEnvOnError := true
+	peerOwnedBySession := false
 	defer func() {
-		if cleanupEnvOnError && processEnv.cleanup != nil {
-			processEnv.cleanup()
+		if !peerOwnedBySession {
+			closeCtx, cancel := context.WithTimeout(context.Background(), acpShutdownCloseTimeout)
+			_ = peer.Close(closeCtx)
+			cancel()
 		}
 	}()
-
-	cmd := exec.CommandContext(context.Background(), command, args...)
-	configureCommandProcessGroup(cmd)
-	cmd.Dir = workspace
-	cmd.Env = processEnv.values
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, false, "", fmt.Errorf("create ACP stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, false, "", fmt.Errorf("create ACP stdout pipe: %w", err)
-	}
-	var stderr limitedBuffer
-	stderr.limit = 256 * 1024
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, false, "", fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
-	}
 	if sessionLogger != nil {
-		sessionLogger.Info("ACP adapter process started", slog.Int("pid", cmd.Process.Pid))
+		sessionLogger.Info("ACP adapter runtime started",
+			slog.String("runtime_kind", peer.Kind()),
+			slog.Int("pid", peer.PID()),
+		)
 	}
 
 	client := &acpChatClient{
@@ -144,10 +127,9 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		adapter:             adapter,
 		workspace:           workspace,
 		mcpServers:          cloneMCPServerConfigs(mcpServers),
-		cmd:                 cmd,
+		peer:                peer,
 		client:              client,
 		logger:              sessionLogger,
-		envCleanup:          processEnv.cleanup,
 		onAvailableCommands: onAvailableCommands,
 		commandUpdate:       make(chan struct{}),
 		promptStageOwner:    processACPPromptStageCleanupOwner,
@@ -163,7 +145,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			slog.String("workspace", workspace),
 		)
 	}
-	conn := newGuardedACPClientSideConnection(client, stdin, stdout, protocolLogger)
+	conn := newGuardedACPClientSideConnection(client, peer.stdin, peer.stdout, protocolLogger)
 	session.conn = conn
 	initCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -188,8 +170,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		if sessionLogger != nil {
 			sessionLogger.Warn("ACP adapter initialize failed", slog.Any("error", err))
 		}
-		terminateProcess(cmd)
-		return nil, false, "", fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		return nil, false, "", fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(peer.Stderr()))
 	}
 	if sessionLogger != nil {
 		sessionLogger.Info("ACP adapter initialized",
@@ -211,7 +192,6 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	if previousNativeSessionID != "" {
 		if !initResp.AgentCapabilities.LoadSession {
 			if adapter.NativeSessionScope != NativeSessionScopeProcess {
-				terminateProcess(cmd)
 				return nil, false, "", fmt.Errorf("restore ACP session %s: adapter %q does not support session/load", previousNativeSessionID, adapter.ID)
 			}
 			recovery = processScopedSessionRecoveryReason(previousNativeSessionID)
@@ -235,8 +215,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 							slog.Any("error", loadErr),
 						)
 					}
-					terminateProcess(cmd)
-					return nil, false, "", fmt.Errorf("restore ACP session %s: %w%s", previousNativeSessionID, loadErr, stderrSuffix(stderr.String()))
+					return nil, false, "", fmt.Errorf("restore ACP session %s: %w%s", previousNativeSessionID, loadErr, stderrSuffix(peer.Stderr()))
 				}
 				recovery = processScopedSessionRecoveryReason(previousNativeSessionID)
 			} else {
@@ -251,8 +230,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 				cancel()
 				if loadErr != nil {
 					closeNativeACPSession(ctx, conn, nativeID, sessionLogger)
-					terminateProcess(cmd)
-					return nil, false, "", fmt.Errorf("restore ACP session %s configuration: %w%s", previousNativeSessionID, loadErr, stderrSuffix(stderr.String()))
+					return nil, false, "", fmt.Errorf("restore ACP session %s configuration: %w%s", previousNativeSessionID, loadErr, stderrSuffix(peer.Stderr()))
 				}
 			}
 		}
@@ -277,8 +255,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session creation failed", slog.Any("error", err))
 			}
-			terminateProcess(cmd)
-			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(peer.Stderr()))
 		}
 		nativeID = string(created.SessionId)
 		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
@@ -290,8 +267,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session model selection failed", slog.Any("error", err))
 			}
-			terminateProcess(cmd)
-			return nil, false, "", fmt.Errorf("select ACP model for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+			return nil, false, "", fmt.Errorf("select ACP model for %q: %w%s", adapter.ID, err, stderrSuffix(peer.Stderr()))
 		}
 		configOptions, err = applySelectedACPConfigOptions(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
 		if err != nil {
@@ -300,8 +276,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session config selection failed", slog.Any("error", err))
 			}
-			terminateProcess(cmd)
-			return nil, false, "", fmt.Errorf("select ACP config for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+			return nil, false, "", fmt.Errorf("select ACP config for %q: %w%s", adapter.ID, err, stderrSuffix(peer.Stderr()))
 		}
 		cancel()
 		if sessionLogger != nil {
@@ -316,11 +291,11 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	session.managedConfig = managedConfig
 	// Startup stderr is useful only while initialization and session/config
 	// selection can still fail. Wipe the bounded capture and turn its live
-	// process sink into a discard writer before any prompt content can reach the
+	// runtime sink into a discard writer before any prompt content can reach the
 	// long-lived adapter.
-	stderr.disableAndClear()
+	peer.DisableAndClearStderr()
 	session.waitForInitialAvailableCommands(ctx)
-	cleanupEnvOnError = false
+	peerOwnedBySession = true
 	return session, resumed, recovery, nil
 }
 
@@ -980,14 +955,11 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 	}
 	s.closeTurnAdmission()
 	if s.logger != nil {
-		pid := 0
-		if s.cmd != nil && s.cmd.Process != nil {
-			pid = s.cmd.Process.Pid
-		}
 		s.logger.Info("shutting down ACP adapter session",
 			slog.String("mode", string(mode)),
 			slog.String("native_session_id", s.nativeID),
-			slog.Int("pid", pid),
+			slog.String("runtime_kind", s.peer.Kind()),
+			slog.Int("pid", s.peer.PID()),
 		)
 	}
 	cancelCtx, cancel := context.WithTimeout(ctx, acpShutdownCancelTimeout)
@@ -1009,34 +981,41 @@ func (s *acpSession) shutdown(ctx context.Context, mode acpSessionShutdownMode) 
 			closeNativeACPSession(ctx, s.conn, s.nativeID, s.logger)
 		}
 	}
-	if s.cmd != nil {
-		terminateProcess(s.cmd)
+	var peerErr error
+	if s.peer != nil {
+		peerCtx, peerCancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
+		peerErr = s.peer.Close(peerCtx)
+		peerCancel()
 		if s.logger != nil {
-			s.logger.Info("ACP adapter process terminated",
+			log := s.logger.Info
+			message := "ACP adapter runtime stopped"
+			if peerErr != nil {
+				log = s.logger.Warn
+				message = "ACP adapter runtime stop failed"
+			}
+			log(message,
 				slog.String("mode", string(mode)),
 				slog.String("native_session_id", s.nativeID),
+				slog.String("runtime_kind", s.peer.Kind()),
+				slog.Any("error", peerErr),
 			)
 		}
 	}
-	// The first cancellation wait is deliberately short so process termination
+	// The first cancellation wait is deliberately short so runtime termination
 	// can release a provider stuck in I/O. After termination, wait once more for
 	// the full RunTurn owner to drain before treating the stage backlog snapshot
 	// as complete.
 	turnCtx, turnCancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
 	turnErr := s.waitForActiveTurn(turnCtx)
 	turnCancel()
-	// A provider process may have kept a restrictive read handle briefly after
-	// Prompt returned. Process termination releases it; wake the process-owned
+	// A provider runtime may have kept a restrictive read handle briefly after
+	// Prompt returned. Runtime shutdown releases it; wake the runtime-owned
 	// janitor so this session's quarantined private inputs retry immediately.
 	s.wakePromptStageCleanup()
 	cleanupCtx, cleanupCancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
 	cleanupErr := s.waitForPromptStageCleanup(cleanupCtx)
 	cleanupCancel()
-	if s.envCleanup != nil {
-		s.envCleanup()
-		s.envCleanup = nil
-	}
-	return errors.Join(turnErr, cleanupErr)
+	return errors.Join(peerErr, turnErr, cleanupErr)
 }
 
 func closeNativeACPSession(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, logger *slog.Logger) {

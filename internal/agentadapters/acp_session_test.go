@@ -2727,8 +2727,15 @@ func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
 func TestSessionManagerShutdownClosesSnapshottedSessionsWhenStartWaitExpires(t *testing.T) {
 	manager := NewSessionManager()
 	cleaned := make(chan struct{})
+	peerDone := make(chan struct{})
 	manager.sessions["existing"] = &acpSession{
-		envCleanup: func() { close(cleaned) },
+		peer: &acpPeer{
+			done: peerDone,
+			close: func() {
+				close(cleaned)
+				close(peerDone)
+			},
+		},
 	}
 	startDone := make(chan struct{})
 	manager.starts["starting"] = &sessionStart{
@@ -2743,7 +2750,7 @@ func TestSessionManagerShutdownClosesSnapshottedSessionsWhenStartWaitExpires(t *
 	}
 	select {
 	case <-cleaned:
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("Shutdown skipped Close for a session snapshotted before start wait expired")
 	}
 	close(startDone)
@@ -4260,6 +4267,12 @@ func TestACPTurnKeepsFullToolOutputPreview(t *testing.T) {
 
 func installFakeACPExecutable(t *testing.T, name string) {
 	t.Helper()
+	switch name {
+	case "codex-acp-adapter":
+		setAdapterProcessOverrideForTest(t, "codex")
+	case "claude-code-acp-adapter":
+		setAdapterProcessOverrideForTest(t, "claude_code")
+	}
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatalf("mkdir fake bin: %v", err)
@@ -4305,6 +4318,20 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		t.Fatalf("write fake ACP executable: %v", err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func setAdapterProcessOverrideForTest(t *testing.T, adapterID string) {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv(adapterTestProcessOverridesEnv))
+	for _, value := range strings.Split(raw, ",") {
+		if strings.TrimSpace(value) == adapterID || strings.TrimSpace(value) == "all" {
+			return
+		}
+	}
+	if raw != "" {
+		raw += ","
+	}
+	t.Setenv(adapterTestProcessOverridesEnv, raw+adapterID)
 }
 
 type fakeACPAgent struct {

@@ -72,6 +72,7 @@ func TestExternalAgentChatDeleteDeletesNativeACPSessionE2E(t *testing.T) {
 
 	baseURL := gatewayServer(t,
 		"HECATE_BACKEND=sqlite",
+		"HECATE_AGENT_ADAPTER_TEST_PROCESS_OVERRIDES=codex",
 		"HOME="+t.TempDir(),
 		"PATH="+adapterDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)

@@ -10,14 +10,14 @@
 test-docker-smoke: _go-cache
 	{{go_env}} go test -tags 'e2e docker' -count=1 -timeout 10m ./e2e/...
 
-# Download the pinned Codex/Claude Go ACP adapter release binaries and smoke
-# them through Hecate's ACP boundary with fake vendor CLIs. Requires network.
-# Smoke test packaged Go ACP adapter release binaries.
-test-acp-release-smoke: _go-cache
-	{{go_env}} go test -tags acp_release -count=1 -run TestACPAdapterReleaseBinaries -timeout 5m ./internal/agentadapters
+# Exercise the built-in Go adapters with authenticated local provider CLIs.
+# Successful prompts may consume operator quota, so this stays opt-in.
+# Smoke test authenticated built-in adapter vendor CLIs.
+test-acp-real-embedded adapters='codex,claude_code': _go-cache
+	HECATE_ACP_REAL_CLI_SMOKE=1 HECATE_ACP_REAL_ADAPTERS='{{adapters}}' {{go_env}} go test -tags real_cli -count=1 -run TestRealACPCLIsSmoke -timeout 10m ./internal/agentadapters
 
 # Exercise Cursor and Grok's direct ACP modes with authenticated local CLIs.
 # Successful prompts may consume operator quota, so this stays opt-in.
 # Smoke test authenticated direct ACP vendor CLIs.
 test-acp-real-direct adapters='cursor_agent,grok_build': _go-cache
-	HECATE_ACP_REAL_CLI_SMOKE=1 HECATE_ACP_REAL_ADAPTERS='{{adapters}}' {{go_env}} go test -tags real_cli -count=1 -run TestRealDirectACPCLIsSmoke -timeout 10m ./internal/agentadapters
+	HECATE_ACP_REAL_CLI_SMOKE=1 HECATE_ACP_REAL_ADAPTERS='{{adapters}}' {{go_env}} go test -tags real_cli -count=1 -run TestRealACPCLIsSmoke -timeout 10m ./internal/agentadapters

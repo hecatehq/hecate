@@ -51,7 +51,8 @@ authenticating reverse proxy is your access-control boundary.
 
 The Docker runtime image is shared by local/self-host deployments and remote
 runtimes. It includes the Hecate binary, embedded UI, git/ssh, and the supported
-External Agent CLIs/ACP adapters. The image defaults to local/self-host mode;
+External Agent CLIs; Hecate-owned ACP adapters are compiled into the binary.
+The image defaults to local/self-host mode;
 remote deployments opt into the remote security posture with runtime env. Start
 the runtime with:
 
@@ -86,10 +87,8 @@ Remote deployments using the published image must supply container- or
 VM-level isolation around each instance. The image intentionally includes a
 POSIX shell, git/ssh, common project-dependency tools (`build-essential`,
 Python/pip/venv, `pkg-config`, `ripgrep`, `jq`, and archive/process helpers),
-and External Agent CLIs. The Codex and Claude Code ACP bridges are bundled as
-release-built Go binaries verified against their release checksums. The
-container build args `CODEX_ACP_ADAPTER_VERSION` and
-`CLAUDE_CODE_ACP_ADAPTER_VERSION` select those adapter releases. The image does
+and External Agent CLIs. The Codex and Claude Code ACP bridges are compiled
+into the Hecate binary; the image only needs their vendor CLIs. The image does
 not install `bwrap` by default; Hecate still applies its process policy, env
 sanitisation, and approval gates, but filesystem/network isolation inside the
 container is normally reported as `none`.
@@ -143,7 +142,8 @@ credentials, enterprise tokens, or future vendor auth flows.
 `v*` tag. A fresh host can `docker compose pull` and start without a build step.
 The published image has the same runtime posture as local source builds from
 `Dockerfile`: Hecate plus a shell, git/ssh, common dependency-install tooling,
-and the supported External Agent CLIs/ACP adapters. Local/self-host behavior
+and the supported External Agent CLIs; Hecate-owned ACP adapters are compiled
+into that binary. Local/self-host behavior
 remains the default unless `HECATE_REMOTE_RUNTIME_MODE=1` is set.
 
 To pin to a specific release, replace `:latest` with the published tag (no `v` prefix — goreleaser uses the bare semver as the docker tag). Example for the current alpha:
@@ -291,9 +291,9 @@ environment.
 | `HECATE_CHAT_MAX_SESSION_DURATION`  | `0s`    | Wall-clock age ceiling before new turns are rejected |
 | `HECATE_CHAT_IDLE_TIMEOUT`          | `0s`    | Background idle auto-close sweeper                   |
 
-External Agent integrations now use direct ACP binaries only. Codex and Claude
-Code use standalone Go adapter binaries, while Cursor Agent and Grok Build use
-ACP modes built into their vendor CLIs.
+Codex and Claude Code use Hecate's built-in Go ACP adapter libraries, which
+launch their vendor CLIs as supervised child processes. Cursor Agent and Grok
+Build expose ACP modes directly in their vendor CLIs.
 Connections probes External Agent integrations when the workspace opens; the probe calls
 `POST /hecate/v1/agent-adapters/{id}/probe`, which re-runs discovery and
 performs the ACP handshake so login/billing problems are visible before a chat

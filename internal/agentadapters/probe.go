@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -28,7 +27,7 @@ const (
 	ProbeStatusError        = "error"
 )
 
-// Probe stages. Track which step in the spawn-and-handshake sequence
+// Probe stages. Track which step in the runtime-and-handshake sequence
 // failed so the UI can give a concrete next-action hint without the
 // operator having to read the raw error.
 const (
@@ -68,7 +67,7 @@ type ProbeAgentInfo = agentcontrols.ImplementationInfo
 
 // ProbeAuthMethod is the non-secret subset of ACP Initialize authMethods that
 // Hecate can safely surface in health responses. Env var names and terminal env
-// payloads intentionally stay inside the adapter process boundary.
+// payloads intentionally stay inside the adapter runtime boundary.
 type ProbeAuthMethod struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
@@ -76,7 +75,7 @@ type ProbeAuthMethod struct {
 	Description string `json:"description,omitempty"`
 }
 
-// probeTimeout caps the spawn + Initialize + NewSession + cleanup
+// probeTimeout caps runtime startup + Initialize + NewSession + cleanup
 // round-trip. Real ACP startup uses 20s per call; we run two calls
 // back-to-back and want to surface a "stuck adapter" failure in
 // roughly the time an operator will wait staring at a button.
@@ -99,7 +98,7 @@ func SetProbeMetrics(metrics *telemetry.AgentAdapterMetrics) {
 // Probe attempts a minimal start-and-handshake against the named
 // adapter to determine whether it can serve a chat turn today.
 //
-// Sequence: resolve binary → spawn → ACP Initialize → ACP NewSession
+// Sequence: resolve provider/runtime command → start runtime → ACP Initialize → ACP NewSession
 // (against a temporary workspace) → terminate. On any failure, the
 // stage that failed is recorded and the error + captured stderr are
 // surfaced as-is. We deliberately do NOT issue a chat prompt — the
@@ -146,7 +145,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		return probeResultForDevOverride(adapter, override, start)
 	}
 
-	path, err := resolveExecutable(adapter, exec.LookPath)
+	path, err := resolveAdapterPeerExecutable(ctx, adapter, nil)
 	if err != nil {
 		res.Status = ProbeStatusNotInstalled
 		res.Error = err.Error()
@@ -171,56 +170,25 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	}
 	defer func() { _ = os.RemoveAll(workspace) }()
 
-	args := append([]string(nil), adapter.Args...)
-	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
-	if err != nil {
-		res.Stage = ProbeStageSpawn
-		res.Status = ProbeStatusAuthRequired
-		res.Error = err.Error()
-		res.Hint = remoteCredentialHint(adapter)
-		res.DurationMS = elapsedMS(start)
-		return res
-	}
-	if processEnv.cleanup != nil {
-		defer processEnv.cleanup()
-	}
-	cmd := exec.CommandContext(context.Background(), path, args...)
-	configureCommandProcessGroup(cmd)
-	cmd.Dir = workspace
-	cmd.Env = processEnv.values
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		res.Stage = ProbeStageSpawn
-		res.Status = ProbeStatusError
-		res.Error = fmt.Sprintf("create stdin pipe: %v", err)
-		res.DurationMS = elapsedMS(start)
-		return res
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		res.Stage = ProbeStageSpawn
-		res.Status = ProbeStatusError
-		res.Error = fmt.Sprintf("create stdout pipe: %v", err)
-		res.DurationMS = elapsedMS(start)
-		return res
-	}
-	var stderr limitedBuffer
-	stderr.limit = 256 * 1024
-	cmd.Stderr = &stderr
-
 	res.Stage = ProbeStageSpawn
-	if err := cmd.Start(); err != nil {
+	peer, err := launchACPAdapterPeer(ctx, adapter, workspace, path)
+	if err != nil {
 		res.Status = ProbeStatusError
-		res.Error = fmt.Sprintf("start adapter: %v", err)
-		res.Stderr = strings.TrimSpace(stderr.String())
+		if errors.Is(err, ErrRemoteCredentialRequired) {
+			res.Status = ProbeStatusAuthRequired
+			res.Hint = remoteCredentialHint(adapter)
+		}
+		res.Error = fmt.Sprintf("start adapter runtime: %v", err)
 		res.DurationMS = elapsedMS(start)
 		return res
 	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), acpShutdownCloseTimeout)
+		_ = peer.Close(closeCtx)
+		closeCancel()
+	}()
 
-	defer terminateProcess(cmd)
-
-	conn := newGuardedACPProbeConnection(workspace, stdin, stdout)
+	conn := newGuardedACPProbeConnection(workspace, peer.stdin, peer.stdout)
 
 	res.Stage = ProbeStageInitialize
 	initCtx, initCancel := context.WithTimeout(probeCtx, 10*time.Second)
@@ -240,7 +208,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	})
 	initCancel()
 	if err != nil {
-		res.Stderr = strings.TrimSpace(stderr.String())
+		res.Stderr = strings.TrimSpace(peer.Stderr())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
 			res.Hint = adapterSignInHint(adapter)
@@ -259,7 +227,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	})
 	newCancel()
 	if err != nil {
-		res.Stderr = strings.TrimSpace(stderr.String())
+		res.Stderr = strings.TrimSpace(peer.Stderr())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
 			res.Hint = adapterSignInHint(adapter)
@@ -271,7 +239,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 
 	res.Stage = ProbeStageReady
 	res.Status = ProbeStatusReady
-	res.Stderr = strings.TrimSpace(stderr.String())
+	res.Stderr = strings.TrimSpace(peer.Stderr())
 	res.DurationMS = elapsedMS(start)
 	return res
 }

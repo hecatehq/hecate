@@ -1181,10 +1181,11 @@ GET /hecate/v1/agent-adapters
       "id": "codex",
       "name": "Codex",
       "kind": "acp",
-      "command": "codex-acp-adapter",
+      "command": "codex",
+      "embedded": true,
       "available": true,
       "status": "available",
-      "path": "/Users/alice/.local/bin/codex-acp-adapter",
+      "path": "/Users/alice/.local/bin/codex",
       "cost_mode": "external",
       "supported_range": ">=0.1.0",
       "version_outside_range": false,
@@ -1258,10 +1259,11 @@ GET /hecate/v1/agent-adapters
       "id": "claude_code",
       "name": "Claude Code",
       "kind": "acp",
-      "command": "claude-code-acp-adapter",
+      "command": "claude",
+      "embedded": true,
       "available": false,
       "status": "missing",
-      "error": "exec: \"claude-code-acp-adapter\": executable file not found in $PATH",
+      "error": "exec: \"claude\": executable file not found in $PATH",
       "cost_mode": "external",
       "supported_range": ">=0.1.0",
       "supports_authenticate": true,
@@ -1299,6 +1301,11 @@ They are populated by the explicit probe response after Hecate starts the ACP
 adapter and runs the live diagnostics. `version_outside_range` remains `false`
 until a probed version is known to fall outside `supported_range`.
 
+`embedded=true` means the ACP server implementation is compiled into Hecate;
+`command` and `path` then identify the vendor CLI that implementation launches.
+When `embedded=false`, `command`, `args`, and `path` identify the direct ACP
+process Hecate supervises.
+
 `auth_status` is `unknown` on the cheap catalog path unless a dev or remote
 runtime override can classify it without spawning a CLI. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake and login /
@@ -1307,7 +1314,7 @@ billing classification.
 `supports_authenticate` and `supports_logout` tell clients whether Hecate can
 call ACP `authenticate` or `logout` for this adapter. UIs should use these
 catalog fields instead of hard-coding adapter IDs; the actions are currently
-enabled for the standalone Go Codex and Claude Code adapters.
+enabled for the built-in Go Codex and Claude Code adapters.
 
 `capabilities` is Hecate's catalog-level ACP contract for the row. It describes
 the features Hecate knows how to supervise for that adapter family, such as
@@ -1387,7 +1394,8 @@ POST /hecate/v1/agent-adapters/codex/probe
       "id": "codex",
       "name": "Codex",
       "kind": "acp",
-      "command": "codex-acp-adapter",
+      "command": "codex",
+      "embedded": true,
       "available": true,
       "status": "available",
       "supports_authenticate": true,
@@ -1431,10 +1439,10 @@ that is the method the local `/authenticate` endpoint invokes.
 ### `GET /hecate/v1/agent-adapters/{id}/health`
 
 Probes a single adapter end-to-end and classifies the outcome so operators can
-distinguish "binary missing" from "binary on PATH but auth failing" without
-reading raw error text. The probe does spawn → ACP `Initialize` → ACP
-`NewSession` against a temporary workspace → terminate; it never issues a
-chat prompt.
+distinguish "provider CLI missing" from "runtime available but auth failing"
+without reading raw error text. The probe starts the selected ACP runtime,
+performs ACP `Initialize` and `NewSession` against a temporary workspace, then
+stops it; it never issues a chat prompt.
 
 ```json
 GET /hecate/v1/agent-adapters/codex/health
@@ -1445,7 +1453,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "adapter_id": "codex",
     "status": "auth_required",
     "stage": "initialize",
-    "path": "/Users/alice/.local/bin/codex-acp-adapter",
+    "path": "/Users/alice/.local/bin/codex",
     "error": "Authentication required",
     "hint": "Adapter started but failed authentication. Try the adapter's CLI login flow or set its API-key env var.",
     "capabilities_known": true,
@@ -1500,9 +1508,9 @@ on prompt completion see no charge.
 ### `POST /hecate/v1/agent-adapters/{id}/authenticate`
 
 Asks one registered ACP adapter to start its own local login flow. Hecate
-spawns the adapter, performs ACP `Initialize`, verifies that the adapter
+starts the adapter runtime, performs ACP `Initialize`, verifies that the adapter
 advertised agent auth method id `agent-login`, calls ACP `authenticate` with
-that method id, and then terminates the process. This is an adapter-account
+that method id, and then stops the runtime. This is an adapter-account
 action: it does not create or mutate Hecate chat sessions, approvals, or
 transcripts. Remote runtime mode treats this as local-only; hosted deployments
 should use the adapter's declared remote-safe env-key credential modes instead.
@@ -1516,7 +1524,7 @@ POST /hecate/v1/agent-adapters/codex/authenticate
     "adapter_id": "codex",
     "status": "authenticated",
     "method_id": "agent-login",
-    "path": "/Users/alice/.local/bin/codex-acp-adapter",
+    "path": "/Users/alice/.local/bin/codex",
     "duration_ms": 328
   }
 }
@@ -1526,16 +1534,16 @@ Status codes:
 
 - `200 OK` when the adapter accepted ACP `authenticate`.
 - `404 not_found` when the adapter id is not registered.
-- `502 chat.adapter_unavailable` when the adapter binary cannot start,
+- `502 chat.adapter_unavailable` when the adapter runtime cannot start,
   initialize, does not advertise ACP `agent-login`, or cannot complete ACP
   `authenticate`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/logout`
 
 Asks one registered ACP adapter to clear its own account/session state. Hecate
-spawns the adapter, performs ACP `Initialize`, verifies that the adapter
-advertised ACP `auth.logout`, calls ACP `logout`, and then terminates the
-process. This is an adapter-account action: it does not delete Hecate chat
+starts the adapter runtime, performs ACP `Initialize`, verifies that the adapter
+advertised ACP `auth.logout`, calls ACP `logout`, and then stops the runtime.
+This is an adapter-account action: it does not delete Hecate chat
 sessions, close live adapter sessions, revoke approvals, or mutate transcripts.
 
 ```json
@@ -1546,7 +1554,7 @@ POST /hecate/v1/agent-adapters/codex/logout
   "data": {
     "adapter_id": "codex",
     "status": "logged_out",
-    "path": "/Users/alice/.local/bin/codex-acp-adapter",
+    "path": "/Users/alice/.local/bin/codex",
     "duration_ms": 328
   }
 }
@@ -1556,7 +1564,7 @@ Status codes:
 
 - `200 OK` when the adapter accepted ACP `logout`.
 - `404 not_found` when the adapter id is not registered.
-- `502 chat.adapter_unavailable` when the adapter binary cannot start,
+- `502 chat.adapter_unavailable` when the adapter runtime cannot start,
   initialize, does not advertise ACP `auth.logout`, or cannot complete ACP
   `logout`.
 
@@ -4354,7 +4362,7 @@ starting the agent process. After the ACP session exists, agent-owned
 `config_options` are returned with the session so clients can render them before
 the first prompt. If the agent reports ACP `initialize.agentInfo`, Hecate returns
 the trimmed implementation metadata as `agent_info` on the chat session and on
-assistant messages produced by that session. If the adapter binary is missing,
+assistant messages produced by that session. If the selected provider/runtime command is missing,
 unauthenticated, missing a required launch option, or fails its ACP handshake,
 session creation fails and Hecate removes the empty chat record.
 
@@ -5016,10 +5024,10 @@ without changing permissions through an unverified pathname and preserves the
 retained identity for retry. Successful removal enters a separate bounded
 proof-only state; retries never restart pathname work after the name may be
 gone. After exhausted synchronous cleanup, the turn reports an error and
-transfers the stage to one process-owned background janitor that outlives the
+transfers the stage to one runtime-owned background janitor that outlives the
 ACP session. The janitor accepts at most four failed stages per session and 16
 file-turn reservations or failed stages process-wide, and is woken again after
-agent-process termination. File-bearing turns fail closed when either bound is
+agent-runtime termination. File-bearing turns fail closed when either bound is
 full while text-only turns remain available. A protected remnant can still
 remain while another same-user process holds it. Body-free alias redactors mask
 complete staged path/URI aliases and ordinary accumulated ACP chunking from
@@ -5138,7 +5146,7 @@ a new External Agent chat. Attachments on an authorized retry pass through the
 same live ACP capability checks, size limits, private staging, and cancellation
 checks as the original attempt.
 Process-scoped adapters may also replace an id that cannot be loaded after the
-adapter process restarts. That catalog-declared path uses the same durable-id
+adapter runtime restarts. That catalog-declared path uses the same durable-id
 callback and `session_recovery` activity before the first fresh-session prompt;
 durable or unknown scopes fail closed on `session/load` errors.
 

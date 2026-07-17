@@ -444,7 +444,7 @@ disappeared. Cleanup never changes permissions through the
 advertised pathname; substitution or identity drift fails closed and preserves
 the retained identity for a later retry. If every synchronous attempt fails,
 the turn reports an error and transfers the exact identities to one
-process-owned cleanup quarantine. Its single background janitor retries them,
+runtime-owned cleanup quarantine. Its single background janitor retries them,
 including after the originating ACP session has retired, and session shutdown
 wakes it again after the agent process releases its handles. At most four
 failed stages are retained for one session and at most 16 file-turn
@@ -458,7 +458,7 @@ Each turn owns that lifecycle from before workspace-diff capture through final
 result settlement. After bounded cancellation and provider-process termination,
 shutdown drains that full-turn owner again before it snapshots or waits for the
 cleanup backlog. A stubborn turn or stage returns an explicit close error while
-the process-owned bounded janitor keeps the retained identity for later cleanup.
+the runtime-owned bounded janitor keeps the retained identity for later cleanup.
 After the final handle-bound identity audit, Hecate rechecks turn cancellation
 immediately before `session/prompt`. If cancellation won during that audit, it
 clears the in-memory prompt files and removes or retains cleanup ownership

@@ -105,12 +105,20 @@ func satisfiesRange(v, constraint string) bool {
 	if constraint == "" || v == "" {
 		return true
 	}
+	if semverRe.FindString(v) == "" {
+		// Development builds can identify an in-process adapter as "embedded".
+		// Treat that as unknown instead of incorrectly ordering it below 0.0.0.
+		return true
+	}
 	constraint = strings.TrimSpace(constraint)
 	if !strings.HasPrefix(constraint, ">=") {
 		// Unknown operator — don't block.
 		return true
 	}
 	bound := strings.TrimSpace(strings.TrimPrefix(constraint, ">="))
+	if semverRe.FindString(bound) == "" {
+		return true
+	}
 	return semverCmp(v, bound) >= 0
 }
 

@@ -1108,7 +1108,7 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	foundCursor := false
 	foundGrok := false
 	for _, item := range response.Data {
-		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp-adapter" && item.CostMode == "external" {
+		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex" && item.Embedded && item.CostMode == "external" {
 			foundCodex = true
 			if !item.SupportsAuthenticate {
 				t.Fatalf("codex supports_authenticate = false, want true")
@@ -1117,7 +1117,7 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 				t.Fatalf("codex supports_logout = false, want true")
 			}
 		}
-		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-code-acp-adapter" && item.CostMode == "external" {
+		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude" && item.Embedded && item.CostMode == "external" {
 			foundClaude = true
 			if !item.SupportsAuthenticate {
 				t.Fatalf("claude_code supports_authenticate = false, want true")
@@ -1126,7 +1126,7 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 				t.Fatalf("claude_code supports_logout = false, want true")
 			}
 		}
-		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
+		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && !item.Embedded && item.CostMode == "external" {
 			foundCursor = true
 			if item.SupportsAuthenticate {
 				t.Fatalf("cursor_agent supports_authenticate = true, want false")
@@ -1135,7 +1135,7 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 				t.Fatalf("cursor_agent supports_logout = true, want false")
 			}
 		}
-		if item.ID == "grok_build" && item.Kind == "acp" && item.Command == "grok" && item.CostMode == "external" {
+		if item.ID == "grok_build" && item.Kind == "acp" && item.Command == "grok" && !item.Embedded && item.CostMode == "external" {
 			foundGrok = true
 			if item.SupportsAuthenticate {
 				t.Fatalf("grok_build supports_authenticate = true, want false")
@@ -1378,7 +1378,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		telemetry.AttrHecateExecutionKind:        "chat",
 		telemetry.AttrHecateAgentAdapterID:       "codex",
 		telemetry.AttrHecateAgentAdapterName:     "Codex",
-		telemetry.AttrHecateAgentAdapterCommand:  "codex-acp-adapter",
+		telemetry.AttrHecateAgentAdapterCommand:  "codex",
 		telemetry.AttrHecateAgentDriverKind:      agentadapters.DriverKindACP,
 		telemetry.AttrHecateAgentNativeSessionID: "native_codex_1",
 		telemetry.AttrHecateWorkspacePath:        assistant.Workspace,

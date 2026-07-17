@@ -186,7 +186,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   temporary path fails this check, launch Hecate with `TMPDIR` on an allowlisted
   local filesystem whose canonical ancestors also pass. Rich inputs can still
   overflow into resource-link staging, so advertised image/resource support is
-  not a reliable workaround. Cleanup transfers to a process-owned janitor that
+  not a reliable workaround. Cleanup transfers to a runtime-owned janitor that
   outlives the ACP session. Four persistent protected remnants block further
   file-bearing turns for that session; 16 reserved or retained stages block
   file-bearing turns process-wide. Text-only turns remain available.

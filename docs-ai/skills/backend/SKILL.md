@@ -553,20 +553,21 @@ HTTP policy. When adding or changing a provider, pin the provider-specific
 HTTP contract with `internal/websearch` unit tests and keep the fake-provider
 e2e path covering the shared `web_search` dispatcher behavior.
 
-Hecate owns the ACP process/session boundary, not provider-specific adapter
-implementation parity. Tests in this repository should use the repo-local fake
-ACP peer to cover probing, auth/logout, session prepare/load, config options,
+Hecate owns the ACP runtime/session boundary, not provider-specific adapter
+implementation parity. Hecate may import the owned Go adapter modules and the
+provider-neutral adapter kit for its production embedded runtime. Behavioral
+unit tests should still use the repo-local fake ACP peer to cover probing,
+auth/logout, session prepare/load, config options,
 commands, usage, structured activity mapping, auth-required prompt errors,
-native session reload/recovery, and run output. Do not import standalone adapter
-source modules or
-`acp-adapter-kit` into Hecate just to test Codex/Claude adapter behavior; that
-parity belongs in the adapter repositories, with optional release-binary smokes
-(`just test-acp-release-smoke`) when packaging drift needs coverage. Keep probe
+native session reload/recovery, and run output. Provider-specific command,
+stream, and auth parity belongs in the adapter repositories. Add focused Hecate
+integration tests for the embedded transport, exact provider path, host-owned
+environment, private file links, and shutdown lifecycle. Keep probe
 clients honest: any ACP client capability the probe advertises should be
 implemented by the probe client against its temporary workspace rather than
 returning "not supported" during `session/new`.
-Use the opt-in `just test-acp-real-direct` smoke when a change needs verification
-against the authenticated direct ACP modes shipped by Cursor and Grok. Keep real
+Use opt-in real CLI smokes for both embedded and direct runtimes when a change
+needs verification against authenticated vendor CLIs. Keep real
 provider prompts minimal, workspace-local, and outside the default test ladder.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.

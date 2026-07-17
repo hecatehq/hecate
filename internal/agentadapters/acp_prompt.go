@@ -319,7 +319,7 @@ func (stage *acpPromptStage) write(index int, filename string, data []byte) (str
 	path := filepath.Join(stage.dir, stagedName)
 	// Record the intended child before exclusive creation. If creation or a
 	// later write/seal step partially succeeds and the immediate best-effort
-	// delete also fails, process-owned cleanup must still know the exact
+	// delete also fails, runtime-owned cleanup must still know the exact
 	// handle-relative name to remove.
 	stage.fileNames = append(stage.fileNames, stagedName)
 	file, err := openPrivateACPPromptStageFile(stage.identity, stagedName)

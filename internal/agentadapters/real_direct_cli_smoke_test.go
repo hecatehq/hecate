@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-// This opt-in smoke reaches the direct ACP modes shipped by vendor CLIs. The
-// default suite stays hermetic; run it only with disposable prompts and an
-// operator-owned authenticated CLI because a successful turn may consume quota.
-func TestRealDirectACPCLIsSmoke(t *testing.T) {
+// This opt-in smoke reaches both Hecate's built-in adapters and direct ACP modes
+// through vendor CLIs. The default suite stays hermetic; run it only with
+// disposable prompts and operator-owned authentication because turns consume quota.
+func TestRealACPCLIsSmoke(t *testing.T) {
 	if os.Getenv("HECATE_ACP_REAL_CLI_SMOKE") != "1" {
 		t.Skip("set HECATE_ACP_REAL_CLI_SMOKE=1 to exercise authenticated direct ACP CLIs")
 	}
@@ -21,12 +21,14 @@ func TestRealDirectACPCLIsSmoke(t *testing.T) {
 	cases := map[string]struct {
 		token string
 	}{
+		"codex":        {token: "HECATE_CODEX_EMBEDDED_OK"},
+		"claude_code":  {token: "HECATE_CLAUDE_EMBEDDED_OK"},
 		"cursor_agent": {token: "HECATE_CURSOR_ACP_OK"},
 		"grok_build":   {token: "HECATE_GROK_ACP_OK"},
 	}
 	requested := strings.TrimSpace(os.Getenv("HECATE_ACP_REAL_ADAPTERS"))
 	if requested == "" {
-		requested = "cursor_agent,grok_build"
+		requested = "codex,claude_code,cursor_agent,grok_build"
 	}
 
 	adapterIDs := make([]string, 0, len(cases))
@@ -35,7 +37,7 @@ func TestRealDirectACPCLIsSmoke(t *testing.T) {
 		adapterID = strings.TrimSpace(adapterID)
 		_, ok := cases[adapterID]
 		if !ok {
-			t.Fatal("HECATE_ACP_REAL_ADAPTERS contains an unsupported direct adapter")
+			t.Fatal("HECATE_ACP_REAL_ADAPTERS contains an unsupported adapter")
 		}
 		if _, duplicate := seen[adapterID]; duplicate {
 			continue
@@ -64,7 +66,7 @@ func TestRealDirectACPCLIsSmoke(t *testing.T) {
 				}
 			})
 
-			sessionID := "real_direct_" + adapterID
+			sessionID := "real_cli_" + adapterID
 			prepareCtx, cancelPrepare := context.WithTimeout(t.Context(), 60*time.Second)
 			prepared, err := manager.PrepareSession(prepareCtx, PrepareSessionRequest{
 				SessionID: sessionID,

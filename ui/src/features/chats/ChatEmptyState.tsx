@@ -110,7 +110,7 @@ export function ChatEmptyState({
     isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isExternalAgentChat && agentRouteUnavailable
-        ? "Hecate did not find any supported coding-agent CLI or ACP adapter binary in the known operator locations."
+        ? "Hecate did not find any supported coding-agent CLI in the known operator locations."
         : nothingRunnable
           ? "Add a model provider or install a supported coding-agent CLI before sending a message."
           : selectedModelIssue
@@ -460,34 +460,25 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     case "codex":
       return {
         label: "Codex",
-        action: "Install Codex CLI plus the Codex ACP adapter, then sign in with Codex.",
+        action: "Install Codex CLI, then sign in with Codex.",
         commands: [
           { label: "Install", command: "npm install -g @openai/codex" },
-          {
-            label: "Adapter",
-            command:
-              "go install github.com/hecatehq/codex-acp-adapter/cmd/codex-acp-adapter@latest",
-          },
           { label: "Auth", command: "codex login" },
         ],
+        note: "The ACP adapter is built into Hecate. Hecate uses the CLI's local auth and does not store provider tokens.",
       };
     case "claude_code":
       return {
         label: "Claude Code",
-        action: "Install Claude Code plus the Claude ACP adapter, then sign in with Claude Code.",
+        action: "Install Claude Code, then sign in with Claude Code.",
         commands: [
           {
             label: "Install",
             command: "npm install -g @anthropic-ai/claude-code",
           },
-          {
-            label: "Adapter",
-            command:
-              "go install github.com/hecatehq/claude-code-acp-adapter/cmd/claude-code-acp-adapter@latest",
-          },
           { label: "Auth", command: "claude /login" },
         ],
-        note: "Hecate launches claude-code-acp-adapter. Hecate uses Claude Code's local auth and does not store Claude tokens.",
+        note: "The ACP adapter is built into Hecate. Hecate uses Claude Code's local auth and does not store Claude tokens.",
       };
     case "cursor_agent":
       return {
@@ -522,7 +513,7 @@ function agentReadyLabel(adapter: AgentAdapterRecord): string {
     return adapter.auth_error || `Auth status: ${adapter.auth_status}`;
   }
   if (adapter.agent_version) return `Ready · agent ${adapter.agent_version}`;
-  if (adapter.adapter_version) return `Ready · bridge ${adapter.adapter_version}`;
+  if (adapter.adapter_version) return `Ready · adapter ${adapter.adapter_version}`;
   return "Ready";
 }
 

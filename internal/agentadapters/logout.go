@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -100,7 +99,7 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	}
 	res := acpAuthActionResult{Adapter: adapter}
 
-	path, err := resolveExecutable(adapter, exec.LookPath)
+	path, err := resolveAdapterPeerExecutable(ctx, adapter, nil)
 	if err != nil {
 		res.DurationMS = elapsedMS(start)
 		return res, err
@@ -117,49 +116,19 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	}
 	defer func() { _ = os.RemoveAll(workspace) }()
 
-	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
+	peer, err := launchACPAdapterPeer(ctx, adapter, workspace, path)
 	if err != nil {
 		res.DurationMS = elapsedMS(start)
-		return res, err
+		return res, fmt.Errorf("start ACP adapter runtime %q: %w", adapter.ID, err)
 	}
-	if processEnv.cleanup != nil {
-		defer processEnv.cleanup()
+	cleanupPeer := func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), acpShutdownCloseTimeout)
+		_ = peer.Close(closeCtx)
+		closeCancel()
 	}
+	defer cleanupPeer()
 
-	cmd := exec.CommandContext(context.Background(), path, append([]string(nil), adapter.Args...)...)
-	configureCommandProcessGroup(cmd)
-	cmd.Dir = workspace
-	cmd.Env = processEnv.values
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("create ACP stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("create ACP stdout pipe: %w", err)
-	}
-	var stderr limitedBuffer
-	stderr.limit = 256 * 1024
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
-	}
-	processTerminated := false
-	cleanupProcess := func() {
-		if processTerminated {
-			return
-		}
-		processTerminated = true
-		terminateProcess(cmd)
-	}
-	defer cleanupProcess()
-
-	conn := newGuardedACPProbeConnection(workspace, stdin, stdout)
+	conn := newGuardedACPProbeConnection(workspace, peer.stdin, peer.stdout)
 	initCtx, initCancel := context.WithTimeout(ctx, acpAuthInitializeTimeout)
 	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
@@ -177,18 +146,18 @@ func runACPAuthAction(ctx context.Context, adapterID, operation, workspacePatter
 	})
 	initCancel()
 	if err != nil {
-		cleanupProcess()
+		cleanupPeer()
 		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		return res, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(peer.Stderr()))
 	}
 
 	callCtx, callCancel := context.WithTimeout(ctx, actionTimeout)
 	err = action(callCtx, conn, initResp)
 	callCancel()
 	if err != nil {
-		cleanupProcess()
+		cleanupPeer()
 		res.DurationMS = elapsedMS(start)
-		return res, fmt.Errorf("%s ACP adapter %q: %w%s", operation, adapter.ID, err, stderrSuffix(stderr.String()))
+		return res, fmt.Errorf("%s ACP adapter %q: %w%s", operation, adapter.ID, err, stderrSuffix(peer.Stderr()))
 	}
 	res.DurationMS = elapsedMS(start)
 	return res, nil
