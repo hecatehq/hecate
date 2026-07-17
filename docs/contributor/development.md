@@ -350,6 +350,19 @@ it. It requires network access and is intentionally not part of the normal
 unit-test ladder. The same check is available from GitHub Actions as the manual
 **ACP adapter release smoke** workflow.
 
+Cursor and Grok expose ACP directly from their vendor CLIs. To verify Hecate's
+live probe, session creation, prompt, and prepared-session reuse against both
+installed CLIs, run:
+
+```bash
+just test-acp-real-direct
+```
+
+Pass `cursor_agent` or `grok_build` as the optional argument to select one.
+This smoke uses the operator's local CLI authentication and sends one small real
+prompt per selected adapter, so it may consume provider quota and remains
+outside the default verification ladder.
+
 There is also a narrower discovery-only fixture env var,
 `HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
 need catalog states (`all=missing`, `codex=available`). Prefer

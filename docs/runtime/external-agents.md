@@ -499,6 +499,13 @@ prompt continuation, and native session reload/recovery with fake `codex` and
 as Codex's 401 auth wording and Claude Code's first-prompt versus resume flags,
 so adapter bumps prove Hecate still sees the same operator-facing behavior.
 
+For the direct ACP implementations bundled with Cursor and Grok, operators can
+run `just test-acp-real-direct` (or pass one adapter id as its argument). The
+opt-in smoke starts the installed vendor CLI, checks Hecate's live probe and
+session preparation, sends one minimal prompt, and verifies that the prepared
+native session handled the turn. It uses local vendor authentication and may
+consume provider quota.
+
 ## Setup checks
 
 External Agent chat does not use Hecate model providers. It needs the selected

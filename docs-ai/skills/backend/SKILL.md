@@ -565,6 +565,9 @@ parity belongs in the adapter repositories, with optional release-binary smokes
 clients honest: any ACP client capability the probe advertises should be
 implemented by the probe client against its temporary workspace rather than
 returning "not supported" during `session/new`.
+Use the opt-in `just test-acp-real-direct` smoke when a change needs verification
+against the authenticated direct ACP modes shipped by Cursor and Grok. Keep real
+provider prompts minimal, workspace-local, and outside the default test ladder.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
