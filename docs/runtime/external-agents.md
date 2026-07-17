@@ -143,10 +143,14 @@ Codex adapter `v0.1.0-alpha.33` carries tool title/kind metadata from start
 events onto sparse completion updates, so Hecate can keep rendering MCP and
 provider tool timeline entries with stable labels even when the completion event
 only carries the result payload.
-Codex adapter `v0.1.0` is the stable supported floor for Hecate's bundled Codex
+Codex adapter `v0.1.0` is the stable supported floor for Hecate's built-in Codex
 adapter path. It keeps the alpha.33 behavior, pins the shared ACP adapter kit to
 its first stable release, and documents draft ACP RFD work as non-blocking
-future work.
+future work. Codex adapter `v0.2.0` is the stable embedded-library release used
+by Hecate. It adds the versioned Go server/runner API, private resource-link
+delivery for file and image attachments, hardened provider-process containment,
+and the concurrent permission/cancellation transport required by the embedded
+host.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
@@ -213,10 +217,14 @@ Claude Code adapter `v0.1.0-alpha.33` expands the opt-in real CLI smoke suite
 to verify a local stdio MCP echo tool call, delimits Claude's variadic
 `--mcp-config` option before prompt text, and preserves provider tool metadata
 on matching result updates.
-Claude Code adapter `v0.1.0` is the stable supported floor for Hecate's bundled
+Claude Code adapter `v0.1.0` is the stable supported floor for Hecate's built-in
 Claude Code adapter path. It keeps the alpha.33 behavior, pins the shared ACP
 adapter kit to its first stable release, and documents draft ACP RFD work as
-non-blocking future work.
+non-blocking future work. Claude Code adapter `v0.2.0` is the stable
+embedded-library release used by Hecate. It adds the versioned Go server/runner
+API, private resource-link staging for file and image attachments, hardened
+provider-process containment, and native-session-loss classification for
+host-coordinated recovery.
 
 ## Supported External Agents
 
