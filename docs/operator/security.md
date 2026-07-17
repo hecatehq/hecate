@@ -353,6 +353,10 @@ expansion, and JSON escaping all consume that budget; an overflow file is
 staged even when the corresponding rich capability is advertised, while prompt
 text that exceeds the budget fails before ACP dispatch. Hecate preflights raw
 payload size before allocating base64 or serialized rich-block copies.
+Built-in command bridges render the staged URI only into the originating
+provider command. Their bounded transcript records attachment name and MIME
+metadata, never the ephemeral URI, so a deleted path is not replayed in a later
+turn.
 An already-cancelled turn also fails before prompt construction, and the
 runtime rechecks cancellation immediately before `session/prompt`. Hecate's ACP
 filesystem callback allows only that exact staged path, never widens the

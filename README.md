@@ -314,7 +314,8 @@ files without digging through transcript noise.
 
 ### Supervise External Agents
 
-External Agent sessions run through local ACP-compatible CLIs. Hecate supervises
+External Agent sessions use Hecate's built-in ACP adapters for owned
+integrations and direct local ACP CLIs for Cursor and Grok. Hecate supervises
 the session but does not proxy or pool those vendors' credentials.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)

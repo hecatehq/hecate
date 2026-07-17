@@ -104,6 +104,34 @@ func TestEmbeddedAdaptersRunProviderCLIsWithPrivateFileLinks(t *testing.T) {
 					t.Fatalf("private prompt stage %q still exists after provider command: %v", path, err)
 				}
 			}
+
+			followUp, err := manager.Run(context.Background(), RunRequest{
+				SessionID:      sessionID,
+				AdapterID:      tt.adapterID,
+				Workspace:      workspace,
+				Prompt:         PromptInput{Text: "Summarize what you found."},
+				Timeout:        10 * time.Second,
+				MaxOutputBytes: 64 * 1024,
+			})
+			if err != nil {
+				t.Fatalf("follow-up Run(%s): %v", tt.adapterID, err)
+			}
+			if !strings.Contains(followUp.Output, tt.output) {
+				t.Fatalf("follow-up Run(%s) output = %q, want %q", tt.adapterID, followUp.Output, tt.output)
+			}
+			followUpPrompt, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatalf("read captured follow-up provider prompt: %v", err)
+			}
+			followUpText := string(followUpPrompt)
+			if strings.Contains(followUpText, "file://") {
+				t.Fatalf("follow-up provider prompt replayed ephemeral resource link: %q", followUpText)
+			}
+			for _, want := range []string{"screen.png", "image/png", "notes.txt", "text/plain", "Summarize what you found."} {
+				if !strings.Contains(followUpText, want) {
+					t.Fatalf("follow-up provider prompt = %q, want retained metadata %q", followUpText, want)
+				}
+			}
 		})
 	}
 }
@@ -136,19 +164,16 @@ esac
 prompt=""
 for arg in "$@"; do prompt="$arg"; done
 printf '%%s' "$prompt" > %q
-links=0
 while IFS= read -r line; do
   case "$line" in
     file://*)
       path=${line#file://}
       [ -r "$path" ] || exit 91
-      links=$((links + 1))
       ;;
   esac
 done <<HECATE_PROMPT
 $prompt
 HECATE_PROMPT
-[ "$links" -eq 2 ] || exit 92
 %s`, command, capture, providerOutput)
 	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
 		t.Fatalf("write provider CLI: %v", err)

@@ -4,10 +4,10 @@ go 1.26.5
 
 require (
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/hecatehq/acp-adapter-kit v0.1.1-0.20260717061217-d5005f23702c
+	github.com/hecatehq/acp-adapter-kit v0.1.1-0.20260717070335-a04ce4f027d0
 	github.com/hecatehq/cairnline v0.1.0-alpha.6.0.20260714141709-b1fb0b039ef8
-	github.com/hecatehq/claude-code-acp-adapter v0.1.1-0.20260717061404-8fa3103e2d72
-	github.com/hecatehq/codex-acp-adapter v0.1.1-0.20260717061404-d4bed5f78295
+	github.com/hecatehq/claude-code-acp-adapter v0.1.1-0.20260717070608-85a3940ac17b
+	github.com/hecatehq/codex-acp-adapter v0.1.1-0.20260717070608-9e755f3ace9e
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/cobra v1.10.2
