@@ -2232,8 +2232,18 @@ test("Hecate Chat stages and renders an image through the browser attachment flo
       ),
     )
     .toBe(true);
-  await expect(page.getByRole("link", { name: "Open browser-vision.png" })).toBeVisible();
+  const previewButton = page.getByRole("button", { name: "Open browser-vision.png" });
+  await expect(previewButton).toBeVisible();
   await expect(page.getByRole("img", { name: "browser-vision.png" })).toBeVisible();
+  await previewButton.click();
+  const previewDialog = page.getByRole("dialog", {
+    name: "Image preview: browser-vision.png",
+  });
+  await expect(previewDialog).toBeVisible();
+  await expect(previewDialog.getByRole("img", { name: "browser-vision.png" })).toBeVisible();
+  await previewDialog.getByRole("button", { name: "Close" }).click();
+  await expect(previewDialog).toHaveCount(0);
+  await expect(previewButton).toBeFocused();
   await expect(page.locator("body")).toContainText("Direct response to: Describe this image");
 });
 
