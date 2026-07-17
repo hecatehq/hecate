@@ -33,6 +33,8 @@ func TestAgentPresetsAPI_CRUD(t *testing.T) {
 		"tools_enabled":true,
 		"writes_allowed":true,
 		"network_allowed":false,
+		"browser_allowed":true,
+		"browser_allowed_origins":["https://app.example.test/"],
 		"approval_policy":"require",
 		"project_memory_policy":"visible_only",
 		"context_source_policy":"include_enabled",
@@ -56,11 +58,15 @@ func TestAgentPresetsAPI_CRUD(t *testing.T) {
 	if !created.Data.ToolsEnabled || !created.Data.WritesAllowed || created.Data.NetworkAllowed {
 		t.Fatalf("posture = tools=%v writes=%v network=%v, want true/true/false", created.Data.ToolsEnabled, created.Data.WritesAllowed, created.Data.NetworkAllowed)
 	}
+	if !created.Data.BrowserAllowed || len(created.Data.BrowserAllowedOrigins) != 1 || created.Data.BrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("browser posture = %+v, want enabled exact normalized origin", created.Data)
+	}
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/prof_backend", bytes.NewReader([]byte(`{
 		"name":"Backend reviewer",
 		"writes_allowed":false,
+		"browser_allowed_origins":["https://console.example.test"],
 		"approval_policy":"block"
 	}`))))
 	if rec.Code != http.StatusOK {
@@ -70,7 +76,7 @@ func TestAgentPresetsAPI_CRUD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
 		t.Fatalf("decode patch response: %v", err)
 	}
-	if updated.Data.Name != "Backend reviewer" || updated.Data.WritesAllowed || updated.Data.ApprovalPolicy != "block" {
+	if updated.Data.Name != "Backend reviewer" || updated.Data.WritesAllowed || updated.Data.ApprovalPolicy != "block" || !updated.Data.BrowserAllowed || len(updated.Data.BrowserAllowedOrigins) != 1 || updated.Data.BrowserAllowedOrigins[0] != "https://console.example.test" {
 		t.Fatalf("updated = %+v, want patched preset", updated.Data)
 	}
 
@@ -91,6 +97,72 @@ func TestAgentPresetsAPI_CRUD(t *testing.T) {
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/agent-presets/prof_backend", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentPresetsAPI_PatchClearsIneligibleBrowserPosture(t *testing.T) {
+	t.Parallel()
+	server := newAgentPresetsTestServer()
+	tests := []struct {
+		name   string
+		patch  string
+		assert func(t *testing.T, profile AgentPresetResponseItem)
+	}{
+		{
+			name:  "browser disabled",
+			patch: `{"browser_allowed":false}`,
+			assert: func(t *testing.T, profile AgentPresetResponseItem) {
+				t.Helper()
+				if profile.BrowserAllowed {
+					t.Fatalf("browser_allowed = true, want false")
+				}
+			},
+		},
+		{
+			name:  "tools disabled",
+			patch: `{"tools_enabled":false}`,
+			assert: func(t *testing.T, profile AgentPresetResponseItem) {
+				t.Helper()
+				if profile.ToolsEnabled {
+					t.Fatalf("tools_enabled = true, want false")
+				}
+			},
+		},
+		{
+			name:  "surface changed",
+			patch: `{"surface":"hecate_chat"}`,
+			assert: func(t *testing.T, profile AgentPresetResponseItem) {
+				t.Helper()
+				if profile.Surface != "hecate_chat" {
+					t.Fatalf("surface = %q, want hecate_chat", profile.Surface)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			id := "prof_browser_patch_" + strings.ReplaceAll(test.name, " ", "_")
+			create := `{"id":"` + id + `","name":"Browser preset","surface":"hecate_task","tools_enabled":true,"browser_allowed":true,"browser_allowed_origins":["https://app.example.test"]}`
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/agent-presets", bytes.NewReader([]byte(create))))
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+			}
+
+			rec = httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/agent-presets/"+id, bytes.NewReader([]byte(test.patch))))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
+			}
+			var updated AgentPresetResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+				t.Fatalf("decode patch response: %v", err)
+			}
+			test.assert(t, updated.Data)
+			if updated.Data.BrowserAllowed || len(updated.Data.BrowserAllowedOrigins) != 0 {
+				t.Fatalf("browser posture = %+v, want disabled with no stale origins", updated.Data)
+			}
+		})
 	}
 }
 

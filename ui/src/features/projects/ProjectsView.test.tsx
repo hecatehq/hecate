@@ -11830,6 +11830,8 @@ describe("ProjectsView cockpit", () => {
       tools_enabled: true,
       writes_allowed: true,
       network_allowed: false,
+      browser_allowed: false,
+      browser_allowed_origins: [],
       approval_policy: "require",
       project_memory_policy: "include",
       context_source_policy: "visible_only",

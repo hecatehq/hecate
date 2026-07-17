@@ -19,6 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/hecatehq/hecate/internal/browserrunner"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -162,6 +163,19 @@ func WithWebSearchClient(client websearch.Client) AgentLoopExecutorOption {
 	}
 }
 
+// WithBrowserInspector wires Hecate's native, approval-gated browser evidence
+// seam. A nil inspector deliberately leaves browser_inspect out of the model
+// catalog; there is no fallback to a host browser or external agent adapter.
+func WithBrowserInspector(inspector browserrunner.Inspector) AgentLoopExecutorOption {
+	return func(e *AgentLoopExecutor) {
+		if e == nil || e.toolDispatcher == nil {
+			return
+		}
+		e.toolDispatcher.browserInspector = inspector
+		e.approvalGate.browserInspectionAvailable = inspector != nil
+	}
+}
+
 // SetMetrics wires an OrchestratorMetrics instance for MCP-tool-call
 // telemetry. Safe to call after construction; nil clears any
 // previously-set metrics. Production wires this once at runner setup
@@ -218,6 +232,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 	tools := agentToolDefinitionsForTask(spec.Task, agentToolDefinitionOptions{
 		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
 		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
+		IncludeBrowserInspection:     e.toolDispatcher != nil && e.toolDispatcher.browserInspector != nil,
 	})
 	terminals := e.terminalSessionsForRun(spec.Run.ID)
 	defer func() {
@@ -487,6 +502,7 @@ func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool 
 type agentToolDefinitionOptions struct {
 	IncludeProjectAssistantDraft bool
 	IncludeWebSearch             bool
+	IncludeBrowserInspection     bool
 }
 
 func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.Tool {
@@ -789,6 +805,22 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 			},
 		})
 	}
+	if opts.IncludeBrowserInspection {
+		tools = append(tools, types.Tool{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        AgentToolBrowserInspect,
+				Description: "Inspect one permitted web page in a fresh temporary browser profile and return bounded, text-only static evidence. Page scripts and service workers are disabled, so scripts, workers, WebSockets, and other dynamic browser activity do not run. This is read-only: it cannot click, type, upload, download, access saved browser state, or use clipboard/device permissions. A fresh profile does not override OS or enterprise browser identity policy. Every inspection requires operator approval.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"url": {"type": "string", "description": "Absolute http:// or https:// page URL on an origin enabled by the resolved Agent Preset."}
+					},
+					"required": ["url"]
+				}`),
+			},
+		})
+	}
 	if opts.IncludeProjectAssistantDraft {
 		tools = append(tools, types.Tool{
 			Type: "function",
@@ -818,7 +850,7 @@ func agentToolDefinitionsForTask(task types.Task, opts agentToolDefinitionOption
 	tools := agentToolDefinitionsWithOptions(opts)
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {
-		if agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
+		if agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentPresetBlocksBrowser(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
 			continue
 		}
 		filtered = append(filtered, tool)
@@ -836,13 +868,14 @@ type shellExecArgs struct {
 }
 
 const (
-	AgentToolHTTPRequest   = "http_request"
-	AgentToolWebSearch     = "web_search"
-	AgentToolTerminalOpen  = "terminal_open"
-	AgentToolTerminalWrite = "terminal_write"
-	AgentToolTerminalRead  = "terminal_read"
-	AgentToolTerminalWait  = "terminal_wait"
-	AgentToolTerminalKill  = "terminal_kill"
+	AgentToolHTTPRequest    = "http_request"
+	AgentToolWebSearch      = "web_search"
+	AgentToolBrowserInspect = "browser_inspect"
+	AgentToolTerminalOpen   = "terminal_open"
+	AgentToolTerminalWrite  = "terminal_write"
+	AgentToolTerminalRead   = "terminal_read"
+	AgentToolTerminalWait   = "terminal_wait"
+	AgentToolTerminalKill   = "terminal_kill"
 )
 
 func agentToolRequiresNetwork(name string) bool {
@@ -851,6 +884,28 @@ func agentToolRequiresNetwork(name string) bool {
 
 func agentPresetBlocksNativeNetwork(task types.Task, name string) bool {
 	return strings.TrimSpace(task.AgentPresetID) != "" && !task.SandboxNetwork && agentToolRequiresNetwork(name)
+}
+
+// agentPresetBlocksBrowser is deliberately independent from SandboxNetwork.
+// Browser evidence is opt-in through a snapshotted Hecate Agent Preset and a
+// non-empty exact origin allowlist. Legacy/manual tasks have a nil snapshot and
+// therefore fail closed.
+func agentPresetBlocksBrowser(task types.Task, name string) bool {
+	if name != AgentToolBrowserInspect {
+		return false
+	}
+	// Browser evidence is a project-assignment capability, not a generic task
+	// field that Hecate Chat or a manually constructed task can activate. A
+	// resolved preset ID is the additional snapshot marker emitted by the
+	// project-assignment launch path; direct task creation cannot set it.
+	if task.OriginKind != "project_work_item" || strings.TrimSpace(task.AgentPresetID) == "" {
+		return true
+	}
+	if task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed {
+		return true
+	}
+	origins, err := browserrunner.NormalizeAllowedOrigins(task.AgentPresetBrowserAllowedOrigins)
+	return err != nil || len(origins) == 0
 }
 
 func agentReadOnlyBlocksTool(task types.Task, name string) bool {

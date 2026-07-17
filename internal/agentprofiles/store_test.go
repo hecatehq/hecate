@@ -12,17 +12,22 @@ func TestMemoryStore_ProfileRoundTrip(t *testing.T) {
 	store := NewMemoryStore()
 
 	created, err := store.Create(ctx, Profile{
-		ID:                  "prof_backend",
-		Name:                "Backend reviewer",
-		Description:         "Reviews backend changes",
-		Instructions:        "Prefer small, tested changes.",
-		Surface:             SurfaceHecateTask,
-		ProviderHint:        "anthropic",
-		ModelHint:           "claude-sonnet-4",
-		ExecutionProfile:    "review",
-		ToolsEnabled:        true,
-		WritesAllowed:       false,
-		NetworkAllowed:      false,
+		ID:               "prof_backend",
+		Name:             "Backend reviewer",
+		Description:      "Reviews backend changes",
+		Instructions:     "Prefer small, tested changes.",
+		Surface:          SurfaceHecateTask,
+		ProviderHint:     "anthropic",
+		ModelHint:        "claude-sonnet-4",
+		ExecutionProfile: "review",
+		ToolsEnabled:     true,
+		WritesAllowed:    false,
+		NetworkAllowed:   false,
+		BrowserAllowed:   true,
+		BrowserAllowedOrigins: []string{
+			"https://app.example.test/",
+			"https://app.example.test",
+		},
 		ApprovalPolicy:      ApprovalRequire,
 		ProjectMemoryPolicy: MemoryVisibleOnly,
 		ContextSourcePolicy: ContextIncludeEnabled,
@@ -48,6 +53,14 @@ func TestMemoryStore_ProfileRoundTrip(t *testing.T) {
 	}
 	if got.Name != "Backend reviewer" || got.ExecutionProfile != "review" || !got.ToolsEnabled {
 		t.Fatalf("profile = %+v, want persisted fields", got)
+	}
+	if !got.BrowserAllowed || len(got.BrowserAllowedOrigins) != 1 || got.BrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("browser profile posture = %+v, want normalized exact origin", got)
+	}
+	got.BrowserAllowedOrigins[0] = "https://mutated.example.test"
+	fresh, ok, err := store.Get(ctx, "prof_backend")
+	if err != nil || !ok || fresh.BrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("browser origin slice alias leaked: profile=%+v ok=%v err=%v", fresh, ok, err)
 	}
 
 	updated, err := store.Update(ctx, "prof_backend", func(profile *Profile) {
@@ -133,6 +146,21 @@ func TestMemoryStore_Validation(t *testing.T) {
 	}
 	if _, err := store.Create(ctx, Profile{ID: "prof_bad_policy", Name: "Bad", ApprovalPolicy: "sometimes"}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create bad policy error = %v, want ErrInvalid", err)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "prof_browser_without_origin", Name: "Bad", BrowserAllowed: true}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create browser without origin error = %v, want ErrInvalid", err)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "prof_browser_path", Name: "Bad", BrowserAllowed: true, BrowserAllowedOrigins: []string{"https://example.test/path"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create browser path origin error = %v, want ErrInvalid", err)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "prof_browser_origins_without_capability", Name: "Bad", BrowserAllowedOrigins: []string{"https://example.test"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create browser origins without capability error = %v, want ErrInvalid", err)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "prof_browser_external", Name: "Bad", Surface: SurfaceExternalAgent, BrowserAllowed: true, BrowserAllowedOrigins: []string{"https://example.test"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create browser on external surface error = %v, want ErrInvalid", err)
+	}
+	if _, err := store.Create(ctx, Profile{ID: "prof_browser_tools_disabled", Name: "Bad", Surface: SurfaceHecateTask, BrowserAllowed: true, BrowserAllowedOrigins: []string{"https://example.test"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create browser with tools disabled error = %v, want ErrInvalid", err)
 	}
 }
 

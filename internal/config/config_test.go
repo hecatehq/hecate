@@ -651,6 +651,30 @@ func TestValidateRejectsRemoteRuntimeACPTerminalsWithoutRemoteOptIn(t *testing.T
 	}
 }
 
+func TestValidateRejectsBrowserEvidenceInRemoteRuntime(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.RemoteRuntimeMode = true
+	cfg.Server.RemoteRuntimeSecret = "cloud-runtime-secret-123456"
+	cfg.Server.TaskBrowserExecutable = "/bin/sh"
+	cfg.Server.TaskBrowserTimeout = time.Second
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_BROWSER_EXECUTABLE cannot be enabled in remote runtime mode") {
+		t.Fatalf("Validate() error = %v, want remote browser evidence rejection", err)
+	}
+}
+
+func TestValidateRejectsInvalidBrowserEvidenceExecutable(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.TaskBrowserExecutable = "relative-browser"
+	cfg.Server.TaskBrowserTimeout = time.Second
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_TASK_BROWSER_EXECUTABLE must be an absolute path") {
+		t.Fatalf("Validate() error = %v, want absolute browser executable rejection", err)
+	}
+}
+
 func TestValidateAllowsRemoteRuntimeACPTerminalsWithRemoteOptIn(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.RemoteRuntimeMode = true

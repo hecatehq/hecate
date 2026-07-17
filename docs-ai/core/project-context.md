@@ -80,10 +80,20 @@ dispatch. Preset-backed native
 HTTP/search tools fail closed when that snapshot disables network access;
 read-only tasks omit and reject broad shell, Git, file-write, and interactive
 terminal surfaces while retaining structured inspection and proposal-only
-edits. Legacy/manual tasks without a tools snapshot keep their prior tool
-behavior, and tasks without a preset snapshot keep their prior native
-network-tool behavior, so do not infer policy from an absent snapshot or a
-zero-valued sandbox flag. Persist
+edits. Browser evidence is separate from generic network: a native-task preset
+may opt into it only with exact origins, and the launch task snapshots both the
+boolean and normalized origin list. It is never inferred from
+`sandbox_network`, later preset edits, or a legacy/manual task; every allowed
+call requires operator approval, shows the safe approved page path, and uses a
+fresh script-disabled local browser profile to produce bounded static text-only
+evidence. One timeout spans preflight, startup, and capture; Hecate cancels
+after observing 4 MiB of aggregate response data, including unknown-length
+streams, though browser/socket buffering can overshoot before cancellation. Do
+not expose it to Hecate Chat or External Agents, and do not treat
+private-IP preflight as an OS/network sandbox. Legacy/
+manual tasks without a tools snapshot keep their prior tool behavior, and tasks
+without a preset snapshot keep their prior native network-tool behavior, so do
+not infer policy from an absent snapshot or a zero-valued sandbox flag. Persist
 task/run or chat-session references in the Hecate project-runtime overlay,
 while assignment lifecycle state remains in Cairnline. Linked External Agent
 reconciliation follows the same split.
@@ -166,6 +176,8 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
+internal/browserrunner/    narrow local Chromium inspection seam for native,
+                             approval-gated, script-disabled text evidence
 internal/workspacefs/      shared workspace path resolver for file/search/write
                              operations owned by Hecate
 internal/processrunner/    bounded local subprocess seam: cwd, env, timeout,

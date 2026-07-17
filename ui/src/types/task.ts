@@ -15,6 +15,8 @@ export type TaskRecord = {
   execution_profile?: string;
   agent_preset_id?: string;
   agent_preset_tools_enabled?: boolean;
+  agent_preset_browser_allowed?: boolean;
+  agent_preset_browser_allowed_origins?: string[];
   origin_kind?: string;
   origin_id?: string;
   shell_command?: string;

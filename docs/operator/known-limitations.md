@@ -102,12 +102,37 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   retain their prior native-network behavior. Preset-wide `approval_policy`
   remains inspection metadata in this alpha; global task approval policy and
   per-MCP-server policy remain authoritative and cannot be weakened by a preset.
+- Native browser evidence is a deliberately narrow alpha capability, not
+  browser automation. It is available only to a local native project-assignment
+  task whose Agent Preset snapshots an exact-origin allowlist and only when the
+  operator configured a local Chromium-compatible executable. Every call needs
+  approval and creates a fresh script-disabled browser profile; Hecate does not import host
+  cookies, reuse logins, keep profile state, allow downloads, or retain
+  screenshots. The artifact is bounded text evidence only. Hecate Chat,
+  External Agent sessions, legacy/manual tasks, and remote runtime do not get
+  this tool.
+- A fresh Hecate browser profile does not prevent machine or enterprise
+  Chromium policy from supplying integrated authentication or a client
+  certificate outside profile storage. For identity-sensitive sites, use a
+  dedicated unmanaged browser/container with the required OS/network controls.
+- Browser evidence permits only selected-origin `GET`/`HEAD` URL-loader
+  requests with page scripts and service workers disabled; it exposes no
+  WebSocket/WebTransport/WebRTC, click/type/upload/device-control primitive.
+  Capture has one timeout across preflight, startup, and page load, and
+  cancels after CDP observes 4 MiB of aggregate streamed response data
+  (including unknown-length streams). Browser/socket buffering can overshoot
+  before Chromium receives that cancellation. That prevents ordinary browser writes, but it cannot make an
+  application-specific `GET` endpoint side-effect-free. Private-IP rejection is an initial application-level
+  preflight (with an explicit opt-in), and hostname origins are pinned to that
+  selected address for one inspection. Neither is an OS/network firewall, VM,
+  or complete browser-process sandbox. Treat an approval as permission to load
+  the requested page and rely on host/network controls for stronger isolation.
 - Hecate has a registry-only plugin metadata slice for native manifests. It can
   validate and show plugin-declared MCP server mount candidates, but it does not
   execute plugin code, start plugin-declared MCP servers, mount plugin tools,
-  grant plugin secrets, or call connector APIs yet. Browser automation, WASM
-  plugins, arbitrary plugin hooks, and broad tool marketplaces remain out of
-  scope for the current alpha. Design notes live in
+  grant plugin secrets, or call connector APIs yet. Interactive browser
+  automation, WASM plugins, arbitrary plugin hooks, and broad tool
+  marketplaces remain out of scope for the current alpha. Design notes live in
   `docs/design/proposals/plugin-architecture.md`.
 
 ## Hecate Chat

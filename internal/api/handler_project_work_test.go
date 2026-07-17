@@ -5177,16 +5177,20 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		WithoutRoleDefaults: true,
 	})
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
-		ID:                  "prof_role",
-		Name:                "Role profile",
-		Instructions:        "Use the profile-specific review checklist.",
-		Surface:             agentprofiles.SurfaceHecateTask,
-		ProviderHint:        "anthropic",
-		ModelHint:           "claude-sonnet-4",
-		ExecutionProfile:    "role_profile",
-		ToolsEnabled:        true,
-		WritesAllowed:       true,
-		NetworkAllowed:      false,
+		ID:               "prof_role",
+		Name:             "Role profile",
+		Instructions:     "Use the profile-specific review checklist.",
+		Surface:          agentprofiles.SurfaceHecateTask,
+		ProviderHint:     "anthropic",
+		ModelHint:        "claude-sonnet-4",
+		ExecutionProfile: "role_profile",
+		ToolsEnabled:     true,
+		WritesAllowed:    true,
+		NetworkAllowed:   false,
+		BrowserAllowed:   true,
+		BrowserAllowedOrigins: []string{
+			"https://qa.example.test",
+		},
 		ApprovalPolicy:      agentprofiles.ApprovalRequire,
 		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
 		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
@@ -5261,6 +5265,9 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "role_profile" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want role profile hints", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
+	if task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || !reflect.DeepEqual(task.AgentPresetBrowserAllowedOrigins, []string{"https://qa.example.test"}) {
+		t.Fatalf("task browser snapshot = allowed %v origins %v, want enabled role preset evidence", task.AgentPresetBrowserAllowed, task.AgentPresetBrowserAllowedOrigins)
+	}
 	if !strings.Contains(task.SystemPrompt, "Agent preset instructions:\nUse the profile-specific review checklist.") {
 		t.Fatalf("task system prompt = %q, want profile instructions", task.SystemPrompt)
 	}
@@ -5282,6 +5289,8 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		"Provider hint: anthropic",
 		"Model hint: claude-sonnet-4",
 		"Runtime profile: role_profile",
+		"Browser evidence allowed: true",
+		"Browser evidence origins: https://qa.example.test",
 		"Instructions:\nUse the profile-specific review checklist.",
 		"Skills: backend, review",
 	} {
@@ -5623,11 +5632,14 @@ func TestProjectWorkAPI_PreflightExternalAgentAssignmentShowsSessionTargetWithou
 		WithoutRoleDefaults: true,
 	})
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
-		ID:                "prof_external",
-		Name:              "External implementer",
-		Surface:           agentprofiles.SurfaceExternalAgent,
-		ExecutionProfile:  "external_implementation",
-		ExternalAgentKind: "codex",
+		ID:                    "prof_external",
+		Name:                  "External implementer",
+		Surface:               agentprofiles.SurfaceAny,
+		ExecutionProfile:      "external_implementation",
+		ToolsEnabled:          true,
+		BrowserAllowed:        true,
+		BrowserAllowedOrigins: []string{"https://qa.example.test"},
+		ExternalAgentKind:     "codex",
 	}); err != nil {
 		t.Fatalf("Create external profile: %v", err)
 	}
@@ -5635,6 +5647,10 @@ func TestProjectWorkAPI_PreflightExternalAgentAssignmentShowsSessionTargetWithou
 		role.DefaultAgentProfile = "prof_external"
 	}); err != nil {
 		t.Fatalf("Update role profile: %v", err)
+	}
+	readiness := mustRequestJSON[ProjectAssignmentLaunchReadinessEnvelope](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/launch-readiness", "")
+	if readiness.Data.ProfilePosture == nil || readiness.Data.ProfilePosture.BrowserEvidenceStatus != projectAssignmentBrowserEvidenceStatusNotApplicable || readiness.Data.ProfilePosture.BrowserAllowed || len(readiness.Data.ProfilePosture.BrowserAllowedOrigins) != 0 {
+		t.Fatalf("external profile posture = %+v, want browser evidence explicitly not applicable", readiness.Data.ProfilePosture)
 	}
 
 	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
@@ -5652,6 +5668,10 @@ func TestProjectWorkAPI_PreflightExternalAgentAssignmentShowsSessionTargetWithou
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("preflight body = %q, want %q", item.Body, want)
 		}
+	}
+	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_external")
+	if profileItem == nil || !strings.Contains(profileItem.Body, "Browser evidence: not available for External Agent assignments") {
+		t.Fatalf("profile item = %+v, want external-agent browser boundary", profileItem)
 	}
 	if len(runner.prepareRequests) != 0 || len(runner.runRequests) != 0 {
 		t.Fatalf("runner requests = prepare %d run %d, want no external-agent side effects", len(runner.prepareRequests), len(runner.runRequests))

@@ -27,6 +27,10 @@ import (
 const (
 	projectAssignmentLaunchReadinessStatusReady   = "ready"
 	projectAssignmentLaunchReadinessStatusBlocked = "blocked"
+
+	projectAssignmentBrowserEvidenceStatusEnabled       = "enabled"
+	projectAssignmentBrowserEvidenceStatusDisabled      = "disabled"
+	projectAssignmentBrowserEvidenceStatusNotApplicable = "not_applicable"
 )
 
 type ProjectAssignmentLaunchReadinessEnvelope struct {
@@ -61,16 +65,22 @@ type ProjectAssignmentLaunchReadinessResponse struct {
 }
 
 type ProjectAssignmentLaunchProfilePostureResponseItem struct {
-	ID                  string `json:"id,omitempty"`
-	Name                string `json:"name,omitempty"`
-	Source              string `json:"source,omitempty"`
-	Missing             bool   `json:"missing,omitempty"`
-	ToolsEnabled        bool   `json:"tools_enabled"`
-	WritesAllowed       bool   `json:"writes_allowed"`
-	NetworkAllowed      bool   `json:"network_allowed"`
-	ApprovalPolicy      string `json:"approval_policy,omitempty"`
-	ProjectMemoryPolicy string `json:"project_memory_policy,omitempty"`
-	ContextSourcePolicy string `json:"context_source_policy,omitempty"`
+	ID             string `json:"id,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Missing        bool   `json:"missing,omitempty"`
+	ToolsEnabled   bool   `json:"tools_enabled"`
+	WritesAllowed  bool   `json:"writes_allowed"`
+	NetworkAllowed bool   `json:"network_allowed"`
+	// Browser evidence is Hecate-native task-only. External Agent readiness
+	// deliberately reports not_applicable rather than exposing an Agent Preset
+	// capability that its adapter will never receive.
+	BrowserEvidenceStatus string   `json:"browser_evidence_status"`
+	BrowserAllowed        bool     `json:"browser_allowed"`
+	BrowserAllowedOrigins []string `json:"browser_allowed_origins,omitempty"`
+	ApprovalPolicy        string   `json:"approval_policy,omitempty"`
+	ProjectMemoryPolicy   string   `json:"project_memory_policy,omitempty"`
+	ContextSourcePolicy   string   `json:"context_source_policy,omitempty"`
 }
 
 func (h *Handler) HandleProjectWorkAssignmentLaunchReadiness(w http.ResponseWriter, r *http.Request) {
@@ -499,7 +509,7 @@ func (h *Handler) populateTaskAssignmentLaunchReadiness(ctx context.Context, pro
 	readiness.Provider = plan.RequestedProvider
 	readiness.Model = plan.RequestedModel
 	readiness.ExecutionProfile = plan.ExecutionProfile
-	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile)
+	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile, projectwork.AssignmentDriverHecateTask)
 	readiness.Warnings = append(readiness.Warnings, projectAssignmentLaunchPlanWarnings(plan.Profile, plan.ResolvedSkills)...)
 	if h.service == nil {
 		return nil
@@ -526,7 +536,7 @@ func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Con
 	readiness.RootID = plan.Root.ID
 	readiness.RootPath = plan.Root.Path
 	readiness.ExecutionProfile = plan.ExecutionProfile
-	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile)
+	readiness.ProfilePosture = renderProjectAssignmentLaunchProfilePosture(plan.Profile, projectwork.AssignmentDriverExternalAgent)
 	readiness.ExternalAgentID = plan.AdapterID
 	readiness.ExternalAgent = firstNonEmptyString(plan.Adapter.Name, plan.AdapterID)
 	readiness.SessionTitle = plan.SessionTitle
@@ -536,19 +546,31 @@ func (h *Handler) populateExternalAgentAssignmentLaunchReadiness(ctx context.Con
 	return nil
 }
 
-func renderProjectAssignmentLaunchProfilePosture(profile projectworkapp.ResolvedAgentProfile) *ProjectAssignmentLaunchProfilePostureResponseItem {
-	return &ProjectAssignmentLaunchProfilePostureResponseItem{
-		ID:                  profile.ID,
-		Name:                profile.Name,
-		Source:              profile.Source,
-		Missing:             profile.Missing,
-		ToolsEnabled:        profile.ToolsEnabled,
-		WritesAllowed:       profile.WritesAllowed,
-		NetworkAllowed:      profile.NetworkAllowed,
-		ApprovalPolicy:      profile.ApprovalPolicy,
-		ProjectMemoryPolicy: profile.ProjectMemoryPolicy,
-		ContextSourcePolicy: profile.ContextSourcePolicy,
+func renderProjectAssignmentLaunchProfilePosture(profile projectworkapp.ResolvedAgentProfile, driverKind string) *ProjectAssignmentLaunchProfilePostureResponseItem {
+	item := &ProjectAssignmentLaunchProfilePostureResponseItem{
+		ID:                    profile.ID,
+		Name:                  profile.Name,
+		Source:                profile.Source,
+		Missing:               profile.Missing,
+		ToolsEnabled:          profile.ToolsEnabled,
+		WritesAllowed:         profile.WritesAllowed,
+		NetworkAllowed:        profile.NetworkAllowed,
+		BrowserEvidenceStatus: projectAssignmentBrowserEvidenceStatusNotApplicable,
+		ApprovalPolicy:        profile.ApprovalPolicy,
+		ProjectMemoryPolicy:   profile.ProjectMemoryPolicy,
+		ContextSourcePolicy:   profile.ContextSourcePolicy,
 	}
+	if driverKind != projectwork.AssignmentDriverHecateTask {
+		return item
+	}
+	item.BrowserEvidenceStatus = projectAssignmentBrowserEvidenceStatusDisabled
+	if !profile.BrowserAllowed {
+		return item
+	}
+	item.BrowserEvidenceStatus = projectAssignmentBrowserEvidenceStatusEnabled
+	item.BrowserAllowed = true
+	item.BrowserAllowedOrigins = append([]string(nil), profile.BrowserAllowedOrigins...)
+	return item
 }
 
 func projectAssignmentLaunchPlanBlocker(err error) string {

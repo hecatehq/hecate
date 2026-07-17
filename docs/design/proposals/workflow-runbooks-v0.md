@@ -6,6 +6,14 @@
 > [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
 > [Agent memory](agent-memory.md), and [Security](../../operator/security.md)
 > for today's task, context, approval, artifact, memory, and sandbox behavior.
+> **Implemented prerequisite:** Hecate now has a small native
+> `browser_inspect` evidence capability for browser-enabled native
+> project-assignment tasks. It is local-only, approval-gated, exact-origin,
+> fresh-profile, script-disabled, `GET`/`HEAD`-only, and produces bounded
+> static text evidence. It is
+> not this proposal's runbook engine and is not interactive browser automation,
+> visual capture, persistent browser state, Hecate Chat, or External Agent
+> support.
 > **Next action:** prototype a report-only `qa` workflow using existing task
 > runs, context packets, artifacts, approvals, memory candidates, and traces
 > before adding a standalone workflow engine.
@@ -201,7 +209,7 @@ Common workflow inputs:
 - `risk_level`
 - `allowed_mutations`
 - `test_commands`
-- `browser_profile`
+- `browser_evidence_target`
 - `deployment_target`
 
 Permission vocabulary should reuse existing Hecate concepts first:
@@ -210,7 +218,9 @@ Permission vocabulary should reuse existing Hecate concepts first:
 - ProcessRunner/GitRunner execution through sandbox policy.
 - MCP server approval policy.
 - Network egress policy.
-- Future browser access as a separate permission bit.
+- Implemented browser evidence as a separate, approval-gated task capability
+  with exact origins; future stateful or interactive browser access needs a
+  separate permission model.
 - Future GitHub/deploy actions as explicit approval gates.
 
 Approval gates should be ordinary blocking approvals. Workflow-specific detail
@@ -245,36 +255,53 @@ reports evidence and stops rather than attempting a fix.
 
 ## Browser Support
 
-Browser support should start as a hybrid design with an ephemeral v0:
+The first implementation is intentionally smaller than a workflow browser
+worker: `browser_inspect` lets a native project-assignment task load one
+approved exact-origin page through an explicitly configured local
+Chromium-compatible executable. Each call creates a fresh temporary profile,
+requires a blocking approval, limits URL-loader traffic to the selected exact
+origin using `GET`/`HEAD`, disables page scripts and service workers, blocks
+downloads, and emits bounded static text evidence.
+It accepts a page path but rejects credentials, query strings, and fragments so
+those values do not enter task records. It does not attach to the operator's
+browser, import cookies, reuse a logged-in session, click, type, upload, use a
+device, or expose raw CDP.
 
-1. **V0:** ephemeral per-run browser worker, isolated storage, explicit
-   teardown, no cookie import, no logged-in session reuse.
-2. **V1:** optional project-scoped browser profile with explicit operator
-   approval and owner-only local storage.
-3. **Later:** persistent local browser daemon for lower latency, idle shutdown,
-   scoped bearer tokens, and audit events.
+The Agent Preset owns the exact origin list and Hecate snapshots it to the
+native task at assignment launch. A preset can make several origins eligible,
+but each approved call permits only its selected origin; another configured
+origin is not a cross-origin subresource destination. Browser evidence is not inherited from
+generic `network_allowed`, is not exposed to Hecate Chat or External Agents,
+and is unavailable in remote runtime. Private-IP checking is initial
+application-level preflight, not an OS-level network sandbox; stronger egress
+controls remain an operator deployment responsibility. Even a `GET` request
+can have an application-specific side effect, so each call remains explicitly
+approval-gated.
 
-This gives Hecate the safety profile of per-run isolation first while leaving
-room for persistent browser convenience once artifact capture, redaction, and
-operator controls are mature.
+Future workflow work should build on that narrow primitive in this order:
+
+1. **Near-term:** use text evidence in report-only QA/runbook experiments and
+   validate its approval and artifact UX.
+2. **Later, if justified:** independently review visual capture or additional
+   read-only evidence types with their own redaction and retention model.
+3. **Much later:** consider stateful or interactive browser work only with a
+   separate permission model and a clearly stronger isolation story.
 
 ### Browser Artifacts
 
-Capture first:
+The implemented artifact is `browser_evidence` (`text/plain`): redacted final
+URL/origin, page title, a small accessibility summary, bounded console lines,
+and network counters. It is intentionally not a screenshot, DOM dump, HAR,
+browser profile, cookie export, storage export, request/response body, or raw
+CDP transcript.
 
-- screenshots
-- accessibility snapshots
-- console errors/warnings
-- redacted network summaries
-- capped DOM snapshots only when needed
+Potential future evidence types need separate review rather than piggybacking
+on the current tool:
 
-Defer:
-
-- full CDP trace
-- video replay
-- HAR bodies
-- cookie/localStorage/sessionStorage exports
-- remote browser sharing
+- screenshots or visual-diff artifacts
+- fuller accessibility evidence
+- capped DOM evidence when it is demonstrably safe and useful
+- video replay, HAR bodies, or remote browser sharing
 
 The first browser API should prefer narrow operations over raw CDP. Raw CDP
 methods need a deny-default allowlist with per-method rationale.
@@ -284,17 +311,19 @@ methods need a deny-default allowlist with per-method rationale.
 Browser workflows are high-risk because they can observe logged-in state.
 Initial rules:
 
-1. No host browser profile import in v0.
-2. No cookie import in v0.
-3. No persisted browser storage unless the project explicitly enables it.
-4. Redact `Authorization`, `Cookie`, `Set-Cookie`, API keys, bearer tokens,
-   JWTs, and known secret patterns from network artifacts.
-5. Do not send cookies, localStorage, sessionStorage, request bodies, response
-   bodies, or screenshots containing secrets to a model by default.
-6. Logged-in session use requires a visible approval and an audit event.
-7. Browser artifacts obey retention controls.
-8. Browser workers run under the same local-first threat model as other Hecate
-   tools: useful isolation, not a VM boundary.
+1. The implemented capability creates a new temporary profile per inspection;
+   it never imports a host profile, cookies, extensions, or saved logins.
+   That is not a hard identity-isolation boundary: OS or enterprise Chromium
+   policy can still provide integrated authentication or client certificates.
+2. It retains no browser storage or downloads and exposes no cookie, storage,
+   request body, response body, screenshot, or raw-CDP artifact.
+3. Requested URLs with credentials, queries, or fragments are rejected before
+   tool-call persistence. Text evidence redacts final URLs and is bounded.
+4. A future stateful or visual browser feature must not reuse this approval as
+   authorization. It needs explicit state ownership, redaction, retention,
+   audit events, and a separate permission decision.
+5. Browser workers remain in Hecate's local-first threat model: useful
+   application controls, not a VM boundary or complete network sandbox.
 
 ## Memory Candidates
 
@@ -335,8 +364,9 @@ The smallest useful experiment is a report-only `qa` runbook:
 - optional input: `base_ref` and `head_ref`
 - optional input: one `test_command`
 - context: project memory, repo guidance metadata, diff summary if available
-- browser evidence: screenshot, accessibility snapshot, console log, redacted
-  network summary
+- browser evidence: the existing approval-gated text-only `browser_evidence`
+  artifact (redacted final URL/origin, title, small accessibility summary,
+  bounded console lines, and network counters)
 - output: final `workflow_report`
 - optional output: project memory candidates
 - mutation policy: no file writes, no Git writes, no deploys, no memory writes
@@ -351,6 +381,8 @@ trust before Hecate grows a full workflow engine.
 - Replacing context assembly, memory, artifacts, or OTel with workflow-specific
   subsystems.
 - Supporting user-authenticated browser state in v0.
+- Interactive navigation, clicking, typing, form submission, uploads, or
+  downloads through the browser-evidence capability.
 - Remote browser sharing or hosted browser sessions.
 - Auto-fixing during `review`, `qa`, `security-audit`, or `design-review`.
 - Auto-pushing, deploying, or opening ready PRs from `ship`.
@@ -364,8 +396,8 @@ trust before Hecate grows a full workflow engine.
   stream snapshots.
 - Artifact tests proving report and browser evidence artifacts carry
   `task_id`, `run_id`, `step_id`, `workflow_mode`, and `trace_id`.
-- Redaction tests for browser network logs and console output.
-- Browser-worker smoke tests against a static local page.
+- Redaction and privacy tests for browser text evidence and tool-call inputs.
+- Fresh-profile browser smoke tests against a static local page.
 - OTel tests proving workflow and step spans are correlated with task events.
 - Memory-candidate tests proving generated lessons remain pending until an
   explicit promotion call.
@@ -378,9 +410,10 @@ trust before Hecate grows a full workflow engine.
   `workflow_manifest` artifact for v0?
 - Which UI surface should show workflow reports: task detail, project activity,
   or a dedicated workflow tab?
-- How should Hecate distinguish report-only browser access from mutating
-  browser access?
-- Which browser engine should be the first supported local worker?
+- What evidence, if any, is worth adding beyond the current text-only,
+  report-only browser inspection?
+- What isolation and explicit permissions would interactive or stateful
+  browser work require?
 - Should `ship` integrate with GitHub connector flows or stay a checklist until
   PR/deploy permissions are better modeled?
 
@@ -391,5 +424,5 @@ Implement no broad framework first. Add a narrow design-backed experiment:
 1. Define a built-in `qa` runbook spec in tests or an internal package.
 2. Create one task/run metadata path for `workflow_mode=qa`.
 3. Produce a `workflow_report` artifact from existing task infrastructure.
-4. Add browser evidence only after the report-only skeleton is visible in the
-   operator UI.
+4. Use the implemented browser evidence only as an optional report input; do
+   not add interactive or persistent browser behavior to the runbook skeleton.

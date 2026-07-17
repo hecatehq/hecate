@@ -660,6 +660,11 @@ func cloneTask(task types.Task) types.Task {
 		toolsEnabled := *task.AgentPresetToolsEnabled
 		task.AgentPresetToolsEnabled = &toolsEnabled
 	}
+	if task.AgentPresetBrowserAllowed != nil {
+		browserAllowed := *task.AgentPresetBrowserAllowed
+		task.AgentPresetBrowserAllowed = &browserAllowed
+	}
+	task.AgentPresetBrowserAllowedOrigins = append([]string(nil), task.AgentPresetBrowserAllowedOrigins...)
 	if task.MCPServers != nil {
 		task.MCPServers = append([]types.MCPServerConfig(nil), task.MCPServers...)
 		for index := range task.MCPServers {

@@ -18,10 +18,11 @@ func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
 	payload := SettingsResponse{
 		Object: "settings",
 		Data: SettingsResponseItem{
-			Backend:     result.Backend,
-			Providers:   []SettingsProviderRecord{},
-			PolicyRules: []SettingsPolicyRuleRecord{},
-			Events:      []SettingsAuditEventRecord{},
+			Backend:         result.Backend,
+			Providers:       []SettingsProviderRecord{},
+			PolicyRules:     []SettingsPolicyRuleRecord{},
+			Events:          []SettingsAuditEventRecord{},
+			BrowserEvidence: h.browserEvidenceReadiness,
 		},
 	}
 	for _, record := range result.Providers {

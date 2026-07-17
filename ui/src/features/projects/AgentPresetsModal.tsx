@@ -2,9 +2,11 @@ import { useState } from "react";
 
 import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ProjectRecord, ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
+import type { BrowserEvidenceRuntimeReadiness } from "../../types/provider";
 import { ConfirmModal, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import { ProjectSkillPicker } from "./ProjectSkillPicker";
 import {
+  browserAllowedOriginsValidationError,
   emptyAgentPresetForm,
   presetFormFromRecord,
   presetReferenceSummary,
@@ -23,6 +25,7 @@ const AGENT_PRESET_MEMORY_POLICIES = ["inherit", "include", "visible_only", "exc
 const AGENT_PRESET_CONTEXT_POLICIES = ["inherit", "include_enabled", "visible_only", "exclude"];
 
 type AgentPresetsModalProps = {
+  browserEvidenceReadiness?: BrowserEvidenceRuntimeReadiness;
   error: string;
   pending: boolean;
   presets: AgentPresetRecord[];
@@ -41,6 +44,7 @@ type AgentPresetsModalProps = {
 };
 
 export function AgentPresetsModal({
+  browserEvidenceReadiness,
   error,
   pending,
   presets,
@@ -72,7 +76,11 @@ export function AgentPresetsModal({
     setForm(presetFormFromRecord(preset));
   }
 
-  const canSave = !editingBuiltIn && form.name.trim().length > 0;
+  const browserUsesNativeTaskSurface = form.surface === "any" || form.surface === "hecate_task";
+  const browserOriginsError = form.browserAllowed
+    ? browserAllowedOriginsValidationError(form.browserAllowedOrigins)
+    : null;
+  const canSave = !editingBuiltIn && form.name.trim().length > 0 && !browserOriginsError;
   const submit = async () => {
     if (pending || !canSave) return;
     if (editingNew) {
@@ -250,9 +258,21 @@ export function AgentPresetsModal({
                   className="input"
                   value={form.surface}
                   disabled={pending || editingBuiltIn}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, surface: event.target.value }))
-                  }
+                  onChange={(event) => {
+                    const surface = event.target.value;
+                    setForm((current) => ({
+                      ...current,
+                      surface,
+                      browserAllowed:
+                        surface === "any" || surface === "hecate_task"
+                          ? current.browserAllowed
+                          : false,
+                      browserAllowedOrigins:
+                        surface === "any" || surface === "hecate_task"
+                          ? current.browserAllowedOrigins
+                          : "",
+                    }));
+                  }}
                 >
                   {AGENT_PRESET_SURFACES.map((surface) => (
                     <option key={surface} value={surface}>
@@ -305,7 +325,14 @@ export function AgentPresetsModal({
                   checked={form.toolsEnabled}
                   disabled={pending || editingBuiltIn}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, toolsEnabled: event.target.checked }))
+                    setForm((current) => ({
+                      ...current,
+                      toolsEnabled: event.target.checked,
+                      browserAllowed: event.target.checked ? current.browserAllowed : false,
+                      browserAllowedOrigins: event.target.checked
+                        ? current.browserAllowedOrigins
+                        : "",
+                    }))
                   }
                 />
                 Tools enabled
@@ -332,7 +359,88 @@ export function AgentPresetsModal({
                 />
                 Network allowed
               </label>
+              <label style={presetRoleCheckboxLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={form.browserAllowed}
+                  disabled={
+                    pending || editingBuiltIn || !browserUsesNativeTaskSurface || !form.toolsEnabled
+                  }
+                  aria-describedby="browser-evidence-help"
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      browserAllowed: event.target.checked,
+                      browserAllowedOrigins: event.target.checked
+                        ? current.browserAllowedOrigins
+                        : "",
+                    }))
+                  }
+                />
+                Browser evidence allowed
+              </label>
             </div>
+            <div id="browser-evidence-help" style={presetRoleSubtleTextStyle}>
+              Browser evidence is approval-gated static evidence: a fresh temporary browser profile
+              can inspect only the exact origins below. Page scripts and service workers are
+              disabled, so it cannot inspect script-rendered content or run workers, WebSockets, or
+              other dynamic browser activity. It cannot click, type, upload, download, use saved
+              browser state, or access clipboard/device permissions. A temporary profile does not
+              override OS or enterprise browser identity or network policy. It applies only to
+              Hecate-native task launches; External Agents and Hecate Chat do not receive browser
+              evidence. Each approved inspection is limited to its selected origin.
+              {!browserUsesNativeTaskSurface && " Select any or hecate_task to enable it."}
+              {!form.toolsEnabled && " Enable Tools to configure browser evidence."}
+            </div>
+            {browserUsesNativeTaskSurface && (
+              <div id="browser-evidence-runtime" style={presetRoleSubtleTextStyle} role="status">
+                {browserEvidenceReadiness?.available
+                  ? `Browser runtime ready: ${browserEvidenceReadiness.message}`
+                  : browserEvidenceReadiness
+                    ? `Browser runtime unavailable: ${browserEvidenceReadiness.message}${browserEvidenceReadiness.operator_action ? ` ${browserEvidenceReadiness.operator_action}` : ""}`
+                    : "Browser runtime status has not loaded. This preset records capability intent; task runs still require a configured local browser runtime."}
+              </div>
+            )}
+            {form.browserAllowed && (
+              <div style={presetRoleFieldStyle}>
+                <label htmlFor="browser-allowed-origins" style={presetRoleFieldLabelStyle}>
+                  Allowed browser origins
+                </label>
+                <textarea
+                  id="browser-allowed-origins"
+                  className="input"
+                  value={form.browserAllowedOrigins}
+                  disabled={pending || editingBuiltIn}
+                  rows={3}
+                  placeholder={"https://app.example.com\nhttps://status.example.com"}
+                  aria-describedby={
+                    browserOriginsError
+                      ? "browser-origins-help browser-origins-error"
+                      : "browser-origins-help"
+                  }
+                  aria-invalid={Boolean(browserOriginsError) || undefined}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      browserAllowedOrigins: event.target.value,
+                    }))
+                  }
+                />
+                <span id="browser-origins-help" style={presetRoleSubtleTextStyle}>
+                  One exact http(s) origin per line or comma-separated. Paths, query strings,
+                  fragments, credentials, and wildcard subdomains are not allowed.
+                </span>
+                {browserOriginsError && (
+                  <span
+                    id="browser-origins-error"
+                    role="alert"
+                    style={{ color: "var(--red)", fontSize: 12 }}
+                  >
+                    {browserOriginsError}
+                  </span>
+                )}
+              </div>
+            )}
             <div
               className="agent-presets-form-grid"
               style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}

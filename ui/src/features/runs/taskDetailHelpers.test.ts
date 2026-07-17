@@ -791,6 +791,7 @@ describe("isVisibleArtifactBadge", () => {
     expect(isVisibleArtifactBadge(artifact({ kind: "stdout" }))).toBe(false);
     expect(isVisibleArtifactBadge(artifact({ kind: "stderr" }))).toBe(false);
     expect(isVisibleArtifactBadge(artifact({ kind: "agent_conversation" }))).toBe(false);
+    expect(isVisibleArtifactBadge(artifact({ kind: "browser_evidence" }))).toBe(false);
   });
 
   it("shows other artifact kinds", () => {

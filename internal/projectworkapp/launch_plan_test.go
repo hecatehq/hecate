@@ -142,6 +142,8 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 		wantTools    bool
 		wantReadOnly bool
 		wantNetwork  bool
+		wantBrowser  bool
+		wantOrigins  []string
 		wantPresetID string
 	}{
 		{
@@ -152,9 +154,11 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 		},
 		{
 			name:         "implementation preset permits writes and network",
-			profile:      ResolvedAgentProfile{ID: "implementation", ToolsEnabled: true, WritesAllowed: true, NetworkAllowed: true},
+			profile:      ResolvedAgentProfile{ID: "implementation", ToolsEnabled: true, WritesAllowed: true, NetworkAllowed: true, BrowserAllowed: true, BrowserAllowedOrigins: []string{"https://app.example.test"}},
 			wantTools:    true,
 			wantNetwork:  true,
+			wantBrowser:  true,
+			wantOrigins:  []string{"https://app.example.test"},
 			wantPresetID: "implementation",
 		},
 		{
@@ -188,6 +192,18 @@ func TestNewAssignmentTask_SnapshotsAgentPresetSandboxPolicy(t *testing.T) {
 			}
 			if task.AgentPresetToolsEnabled == nil || *task.AgentPresetToolsEnabled != test.wantTools {
 				t.Fatalf("task tools snapshot = %v, want explicit %v", task.AgentPresetToolsEnabled, test.wantTools)
+			}
+			if task.AgentPresetBrowserAllowed == nil || *task.AgentPresetBrowserAllowed != test.wantBrowser {
+				t.Fatalf("task browser snapshot = %v, want explicit %v", task.AgentPresetBrowserAllowed, test.wantBrowser)
+			}
+			if strings.Join(task.AgentPresetBrowserAllowedOrigins, ",") != strings.Join(test.wantOrigins, ",") {
+				t.Fatalf("task browser origins = %v, want %v", task.AgentPresetBrowserAllowedOrigins, test.wantOrigins)
+			}
+			if len(task.AgentPresetBrowserAllowedOrigins) > 0 {
+				task.AgentPresetBrowserAllowedOrigins[0] = "https://mutated.example.test"
+				if test.profile.BrowserAllowedOrigins[0] != "https://app.example.test" {
+					t.Fatal("task browser origins alias profile state")
+				}
 			}
 		})
 	}

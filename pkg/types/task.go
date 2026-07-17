@@ -28,6 +28,16 @@ type Task struct {
 	// the snapshot and preserves their existing tool behavior; false is an
 	// explicit all-tools denial for new preset-backed assignments.
 	AgentPresetToolsEnabled *bool `json:",omitempty"`
+	// AgentPresetBrowserAllowed snapshots whether the resolved Hecate Agent
+	// Preset permits the native, read-only browser evidence tool. nil marks
+	// legacy/manual tasks and fails closed: browser evidence is never inferred
+	// from SandboxNetwork or a later preset edit.
+	AgentPresetBrowserAllowed *bool `json:",omitempty"`
+	// AgentPresetBrowserAllowedOrigins is the exact normalized origin allowlist
+	// snapshotted with AgentPresetBrowserAllowed. It is deliberately distinct
+	// from generic network policy so browser navigation cannot broaden with a
+	// task's HTTP settings or a later preset change.
+	AgentPresetBrowserAllowedOrigins []string `json:",omitempty"`
 	// SystemPrompt is the per-task agent system prompt. When set, it
 	// becomes the narrowest layer in the composition: global default →
 	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest

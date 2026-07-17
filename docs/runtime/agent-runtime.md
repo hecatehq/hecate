@@ -147,35 +147,36 @@ Three things bound the loop:
 
 ## Built-in tools
 
-The agent gets up to eighteen tools by default. None require operator config beyond
-the approval policies; `http_request` reads the network policy from env.
-When `HECATE_TASK_WEB_SEARCH_PROVIDER` is `brave`, `tavily`, or `exa` and an API
-key is configured, the agent gets one additional built-in web-search tool.
-Project-linked Hecate Chat task-backed runs receive one additional
-proposal-only tool.
+The agent gets its standard workspace tools by default. None require operator
+config beyond the approval policies; `http_request` reads the network policy
+from env. A configured web-search provider can add `web_search`; the separate
+native browser-evidence capability is opt-in, local-only, and much narrower.
+Project-linked Hecate Chat task-backed runs receive one additional proposal-only
+tool.
 
-| Tool                     | What it does                                                          | Policy                                                                                                                                                                                                                                                           |
-| ------------------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shell_exec`             | Run a shell command in the workspace through ProcessRunner            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), with env sanitisation + output cap + timeout and optional OS wrapper (see [`sandbox.md`](sandbox.md))                                 |
-| `terminal_open`          | Open a long-lived terminal process in the workspace                   | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), using `LocalWorkspace.OpenTerminal`, static command policy, env sanitisation, workspace root, and optional OS wrapper                 |
-| `terminal_write`         | Write stdin to an open native agent-loop terminal                     | Gated by `shell_exec` or `all_tools` policy (default on); terminal handles are scoped to the current run and preserved across same-run approval requeues                                                                                                         |
-| `terminal_read`          | Read the retained output tail from an open native agent-loop terminal | Gated by `shell_exec` or `all_tools` policy (default on); output returned to the model is bounded                                                                                                                                                                |
-| `terminal_wait`          | Wait for an open native agent-loop terminal to exit                   | Gated by `shell_exec` or `all_tools` policy (default on); wait calls are bounded by `timeout_ms`, and a timeout leaves the terminal running                                                                                                                      |
-| `terminal_kill`          | Terminate an open native agent-loop terminal                          | Gated by `shell_exec` or `all_tools` policy (default on)                                                                                                                                                                                                         |
-| `git_exec`               | Run a Git subcommand in the workspace through the sandbox executor    | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `git_exec` or `all_tools` policy (default on)                                                                                                                                          |
-| `file_write`             | Write or append a file under the workspace                            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `file_write` or `all_tools` policy (default on)                                                                                                                                        |
-| `file_edit`              | Replace exact text in an existing workspace file                      | Gated by `file_write` or `all_tools` policy (default on); read-only tasks may propose a patch but cannot apply it                                                                                                                                                |
-| `apply_patch`            | Apply or propose structured multi-file patches                        | Gated by `file_write` or `all_tools` policy (default on); emits patch artifacts; read-only tasks may propose but cannot apply                                                                                                                                    |
-| `read_file`              | Read a file under the workspace, optionally by line range             | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                 |
-| `grep`                   | Search workspace text files with a bounded regular-expression search  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                 |
-| `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                 |
-| `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                        |
-| `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                               |
-| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed                                 |
-| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed  |
-| `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                           |
-| `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                      |
-| `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to task-backed Hecate Chat runs with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything. |
+| Tool                     | What it does                                                          | Policy                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shell_exec`             | Run a shell command in the workspace through ProcessRunner            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), with env sanitisation + output cap + timeout and optional OS wrapper (see [`sandbox.md`](sandbox.md))                                                                                                                                                                                                          |
+| `terminal_open`          | Open a long-lived terminal process in the workspace                   | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `shell_exec` or `all_tools` policy (default on), using `LocalWorkspace.OpenTerminal`, static command policy, env sanitisation, workspace root, and optional OS wrapper                                                                                                                                                                                          |
+| `terminal_write`         | Write stdin to an open native agent-loop terminal                     | Gated by `shell_exec` or `all_tools` policy (default on); terminal handles are scoped to the current run and preserved across same-run approval requeues                                                                                                                                                                                                                                                                                  |
+| `terminal_read`          | Read the retained output tail from an open native agent-loop terminal | Gated by `shell_exec` or `all_tools` policy (default on); output returned to the model is bounded                                                                                                                                                                                                                                                                                                                                         |
+| `terminal_wait`          | Wait for an open native agent-loop terminal to exit                   | Gated by `shell_exec` or `all_tools` policy (default on); wait calls are bounded by `timeout_ms`, and a timeout leaves the terminal running                                                                                                                                                                                                                                                                                               |
+| `terminal_kill`          | Terminate an open native agent-loop terminal                          | Gated by `shell_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                                                                                  |
+| `git_exec`               | Run a Git subcommand in the workspace through the sandbox executor    | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `git_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                   |
+| `file_write`             | Write or append a file under the workspace                            | Omitted and fail-closed when `sandbox_read_only=true`; otherwise gated by `file_write` or `all_tools` policy (default on)                                                                                                                                                                                                                                                                                                                 |
+| `file_edit`              | Replace exact text in an existing workspace file                      | Gated by `file_write` or `all_tools` policy (default on); read-only tasks may propose a patch but cannot apply it                                                                                                                                                                                                                                                                                                                         |
+| `apply_patch`            | Apply or propose structured multi-file patches                        | Gated by `file_write` or `all_tools` policy (default on); emits patch artifacts; read-only tasks may propose but cannot apply                                                                                                                                                                                                                                                                                                             |
+| `read_file`              | Read a file under the workspace, optionally by line range             | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
+| `grep`                   | Search workspace text files with a bounded regular-expression search  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
+| `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
+| `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                                                                                                                                                                                                 |
+| `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                                        |
+| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed                                                                                                                                                                                                          |
+| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed                                                                                                                                                                           |
+| `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                                                                                                                                                                                                    |
+| `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                                                                                                                                                                                               |
+| `browser_inspect`        | Load one approved static page and return bounded, text-only evidence  | Available only to native project-assignment tasks whose Agent Preset snapshot explicitly enables browser evidence with exact origins, and only when a local executable is configured. Every call requires an `agent_loop_tool_call` approval even if global tool approvals are disabled. Page scripts are disabled. It is not controlled by `sandbox_network`, and is omitted from Hecate Chat, External Agent, legacy, and manual tasks. |
+| `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to task-backed Hecate Chat runs with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                                          |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
 
@@ -205,6 +206,77 @@ When preset network is enabled, global approval and host/private-IP policies
 still apply. When the master tools gate is enabled, external MCP servers are
 separately configured trusted tool sources and keep their own per-server
 approval policy.
+
+### Browser evidence
+
+`browser_inspect` is a deliberately narrow local inspection tool, not general
+browser automation. It is exposed only when all of the following are true:
+
+- The gateway is running locally and an operator configured an absolute path to
+  a Chromium-compatible executable with `HECATE_TASK_BROWSER_EXECUTABLE`.
+  Hecate does not search `PATH`, download a browser, attach to an existing
+  browser, or enable this capability in remote-runtime mode.
+- The native project-assignment task has a resolved `hecate_task` (or `any`)
+  Agent Preset with tools enabled, `browser_allowed=true`, and one or more
+  exact `browser_allowed_origins`. Those normalized origins are copied to the
+  output-only task snapshot fields
+  `agent_preset_browser_allowed` and
+  `agent_preset_browser_allowed_origins`; later preset edits cannot expand an
+  existing task's browser scope.
+- The model requests an absolute HTTP(S) page URL at one of those origins. URLs
+  containing credentials, a query string, or a fragment are rejected rather
+  than recorded or redacted later. A path is allowed. This keeps query-borne
+  secrets out of tool-call records and conversation artifacts.
+
+Each request pauses for explicit operator approval. This is unconditional:
+empty `HECATE_TASK_APPROVAL_POLICIES` and the absence of `all_tools` do not
+make browser inspection automatic. The approval describes the requested safe
+page target (origin plus path). Credentials, queries, and fragments were
+already rejected, and a target that cannot fit in the approval display is
+rejected before it reaches task records or the browser. This keeps every
+approval bound to the complete page it authorizes.
+
+For every inspection Hecate launches a fresh temporary profile and removes it
+after the browser exits. It imports no host cookies, saved logins, extensions,
+clipboard, or device permissions; it blocks downloads and retains no browser
+profile data. The evidence is a bounded `browser_evidence` `text/plain`
+artifact containing a redacted final URL/origin, page title, small
+accessibility summary, bounded console lines, and network counters. It never
+contains screenshots, downloaded bytes, raw CDP traffic, cookies, storage, or
+request/response bodies.
+
+One `HECATE_TASK_BROWSER_TIMEOUT` wall-clock budget covers origin preflight,
+browser startup, and page capture together. The inspector also disables its
+network cache and cancels the capture once CDP observes aggregate streamed
+response data beyond 4 MiB, including chunked or other unknown-length
+responses. This is a cancellation threshold, not a hard wire-byte limit:
+browser, socket, and peer buffers can add bytes before cancellation reaches
+Chromium.
+
+A fresh Hecate profile is not a hard identity-isolation boundary. Machine or
+enterprise Chromium policy can still supply integrated authentication or a
+client certificate outside profile storage. Do not use this capability against
+identity-sensitive sites unless the configured executable runs in a dedicated,
+unmanaged browser environment with the required OS/network isolation.
+
+The inspector disables page JavaScript before navigation, bypasses service
+workers, and uses an allow-first browser URL gate plus `GET`/`HEAD` interception
+for the selected exact origin. It therefore captures static server-rendered
+content only: no scripts, workers, WebSockets, WebTransport, WebRTC, click,
+type, form-submit, upload, download, clipboard, or device-control primitive is
+available. This makes ordinary browser writes unavailable, but HTTP does not
+guarantee that a `GET` endpoint is semantically safe. Treat every approval as
+permission to load that origin and page, and do not enable it for an application
+whose read route can cause a side effect.
+
+Before launch, Hecate resolves configured origins and rejects loopback,
+private, link-local, multicast, and otherwise non-public addresses unless
+`HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS=true` is set. For hostname origins, it
+passes the preflight-selected numeric address to Chromium for that inspection,
+which reduces the DNS-rebinding window. That defense in depth and the
+exact-origin check are application-level guardrails, not an OS-level egress
+firewall or a sandbox boundary for the browser process. Operators who need a
+hard network boundary must provide it outside Hecate.
 
 When `sandbox_read_only=true`, the agent loop removes broad subprocess and
 interactive surfaces that cannot provide a hard read-only workspace guarantee:
@@ -359,8 +431,9 @@ included project memory and workspace-instruction bodies are sent to that
 provider as normal task prompt content. The task also snapshots the resolved
 preset id and `tools_enabled`, maps `writes_allowed=false` to
 `sandbox_read_only=true`, and maps `network_allowed` to `sandbox_network`;
-retries and resumes reuse that task snapshot rather than resolving a mutable
-preset again.
+when the preset enables browser evidence, it separately snapshots the exact
+browser-origin allowlist. Retries and resumes reuse those task snapshots rather
+than resolving a mutable preset again.
 
 Project-linked Hecate Chat uses a separate bounded project prelude in the chat
 system prompt. It may include project identity, root metadata, role hints,
@@ -390,6 +463,12 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 - `read_file` → pauses on `read_file`, `grep`, `glob`, and `artifact_read` tool calls
 - `network_egress` → pauses on `http_request` and configured `web_search` tool calls
 - `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`)
+
+`browser_inspect` is intentionally not in that policy mapping: every otherwise
+permitted browser-inspection call pauses for `agent_loop_tool_call` approval,
+regardless of `HECATE_TASK_APPROVAL_POLICIES`. That extra gate is required
+because loading even a read-only page can disclose operator-visible content or
+trigger an application-specific `GET` side effect.
 
 Approval never grants a capability denied by the resolved runtime policy. In
 particular, unexpected calls on a task whose Agent Preset snapshot sets
@@ -436,26 +515,29 @@ The conversation viewer in the run-replay UI shows a `↻ retry from here` butto
 
 Env vars that affect agent_loop runs:
 
-| Variable                              | Default            | What it does                                                                                                          |
-| ------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `HECATE_TASK_AGENT_LOOP_MAX_TURNS`    | `8`                | Hard ceiling on LLM round-trips per run                                                                               |
-| `HECATE_TASK_AGENT_SYSTEM_PROMPT`     | `""`               | Global (broadest) layer of the three-layer system prompt                                                              |
-| `HECATE_TASK_HTTP_TIMEOUT`            | `30s`              | Timeout for the `http_request` tool                                                                                   |
-| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                                  |
-| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                     |
-| `HECATE_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                        |
-| `HECATE_TASK_WEB_SEARCH_PROVIDER`     | `""`               | Empty disables native web search. Supported values: `brave`, `tavily`, `exa`                                          |
-| `HECATE_TASK_WEB_SEARCH_API_KEY`      | `""`               | API key for the configured search provider. Provider aliases: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY` |
-| `HECATE_TASK_WEB_SEARCH_ENDPOINT`     | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                              |
-| `HECATE_TASK_WEB_SEARCH_TIMEOUT`      | `15s`              | Timeout for the search-provider request                                                                               |
-| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`  | `5`                | Maximum results returned per `web_search` call, capped by Hecate and the provider                                     |
-| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`  | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                               |
-| `HECATE_TASK_WEB_SEARCH_COUNTRY`      | `""`               | Optional default country code for searches                                                                            |
-| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`  | `""`               | Optional default search language                                                                                      |
-| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`     |
-| `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                              |
+| Variable                                | Default            | What it does                                                                                                                                                                                                  |
+| --------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HECATE_TASK_AGENT_LOOP_MAX_TURNS`      | `8`                | Hard ceiling on LLM round-trips per run                                                                                                                                                                       |
+| `HECATE_TASK_AGENT_SYSTEM_PROMPT`       | `""`               | Global (broadest) layer of the three-layer system prompt                                                                                                                                                      |
+| `HECATE_TASK_HTTP_TIMEOUT`              | `30s`              | Timeout for the `http_request` tool                                                                                                                                                                           |
+| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES`   | `262144` (256 KiB) | Response size cap for `http_request`                                                                                                                                                                          |
+| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`    | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                                                                                                             |
+| `HECATE_TASK_HTTP_ALLOWED_HOSTS`        | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                                                                                                                |
+| `HECATE_TASK_BROWSER_EXECUTABLE`        | `""`               | Absolute path to a local Chromium-compatible executable for optional native browser evidence. Empty disables it; Hecate never finds or downloads a browser automatically, and remote-runtime mode rejects it. |
+| `HECATE_TASK_BROWSER_TIMEOUT`           | `20s`              | Positive wall-clock limit for one browser inspection, including preflight, browser startup, and page capture                                                                                                  |
+| `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS` | `false`            | Allows private/local destinations after an explicit operator opt-in. The inspector pins hostname resolution for the inspection, but this is still not an OS/network isolation boundary.                       |
+| `HECATE_TASK_WEB_SEARCH_PROVIDER`       | `""`               | Empty disables native web search. Supported values: `brave`, `tavily`, `exa`                                                                                                                                  |
+| `HECATE_TASK_WEB_SEARCH_API_KEY`        | `""`               | API key for the configured search provider. Provider aliases: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`                                                                                         |
+| `HECATE_TASK_WEB_SEARCH_ENDPOINT`       | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                                                                                                                      |
+| `HECATE_TASK_WEB_SEARCH_TIMEOUT`        | `15s`              | Timeout for the search-provider request                                                                                                                                                                       |
+| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`    | `5`                | Maximum results returned per `web_search` call, capped by Hecate and the provider                                                                                                                             |
+| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`    | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                                                                                                                       |
+| `HECATE_TASK_WEB_SEARCH_COUNTRY`        | `""`               | Optional default country code for searches                                                                                                                                                                    |
+| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`    | `""`               | Optional default search language                                                                                                                                                                              |
+| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS`   | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`                                                                                             |
+| `HECATE_TASK_SHELL_ALLOWED_HOSTS`       | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                                                                                                                      |
 
-For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
+For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. Browser evidence is different: `browser_inspect` always requires its own explicit approval and cannot be enabled by changing this list. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
 Hecate Chat can opt a session into RTK command-output compaction from
 the chat settings panel. The setting is off by default. Hecate only
@@ -487,5 +569,16 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - **`escapes allowed root`** — the LLM picked a path outside the workspace. The env system message normally prevents this; if you see it, check that `task.WorkingDirectory` matches what the model is using, or switch to `workspace_mode=in_place` to align them.
 - **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`).
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent. Native Tasks require a tool-capable model when their effective catalog is non-empty; preset-backed model-only tasks send no tools.
+- **`browser inspection is unavailable`** — this is expected unless the local
+  gateway has an explicit `HECATE_TASK_BROWSER_EXECUTABLE`, the task came from
+  a browser-enabled native Agent Preset, and the model requested the tool after
+  approval. It is never offered to Hecate Chat or External Agent sessions.
+- **`browser inspection URL is invalid`** or **`browser inspection origin is
+not allowed`** — use an absolute HTTP(S) URL without credentials, a query
+  string, or a fragment, and add only its exact origin (not a path) to the
+  native Agent Preset. Keep the origin-plus-path short enough to appear in
+  full in the approval. Do not use this capability for a private/local origin
+  unless the operator deliberately enabled
+  `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS`.
 - **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was exceeded across the run + prior chain. Raise the ceiling and resume to continue.
 - **`agent loop hit maxTurns=N without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_TURNS`, narrow the prompt, or resume to give it more turns.

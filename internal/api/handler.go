@@ -87,6 +87,7 @@ type Handler struct {
 	projectAssistantApplyMu           sync.Mutex
 	projectAssistant                  *projectassistantapp.Application
 	agentProfiles                     agentprofiles.Store
+	browserEvidenceReadiness          BrowserEvidenceRuntimeReadinessResponse
 	agentChatRunner                   agentadapters.Runner
 	agentChatLive                     *agentChatLive
 	agentChatSettlements              agentChatSettlementRegistry
@@ -230,6 +231,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 
 	taskOriginRunGate := taskruncoord.NewOriginGate()
 	workspaceCoordinator := workspacecoord.NewRegistry()
+	browserInspector, browserEvidenceReadiness := browserInspectorFromConfig(cfg, logger)
 	runner := orchestrator.NewRunner(logger, taskStore, tracer, orchestrator.Config{
 		DefaultModel:           cfg.Router.DefaultModel,
 		ApprovalPolicies:       cfg.Server.TaskApprovalPolicies,
@@ -247,7 +249,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			AllowPrivateIPs:  cfg.Server.TaskHTTPAllowPrivateIPs,
 			AllowedHosts:     cfg.Server.TaskHTTPAllowedHosts,
 		},
-		WebSearch: webSearchClientFromConfig(cfg, logger),
+		WebSearch:        webSearchClientFromConfig(cfg, logger),
+		BrowserInspector: browserInspector,
 		ShellNetwork: orchestrator.ShellNetworkPolicy{
 			AllowPrivateIPs: cfg.Server.TaskShellAllowPrivateIPs,
 			AllowedHosts:    cfg.Server.TaskShellAllowedHosts,
@@ -399,6 +402,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		projectAssistantProposals:         projectAssistantProposalStore,
 		pluginRegistry:                    pluginregistry.NewMemoryStore(),
 		agentProfiles:                     agentprofiles.NewMemoryStore(),
+		browserEvidenceReadiness:          browserEvidenceReadiness,
 		agentChatRunner:                   agentChatRunner,
 		agentChatLive:                     agentChatLive,
 		operatorTerminals: terminalapp.New(terminalapp.Options{

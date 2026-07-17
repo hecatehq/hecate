@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hecatehq/hecate/internal/browserrunner"
 )
 
 var (
@@ -38,26 +40,31 @@ const (
 )
 
 type Profile struct {
-	ID                   string
-	Name                 string
-	Description          string
-	Instructions         string
-	Surface              string
-	ProviderHint         string
-	ModelHint            string
-	ExecutionProfile     string
-	ToolsEnabled         bool
-	WritesAllowed        bool
-	NetworkAllowed       bool
-	ApprovalPolicy       string
-	ProjectMemoryPolicy  string
-	ContextSourcePolicy  string
-	SkillIDs             []string
-	ExternalAgentKind    string
-	ExternalAgentOptions map[string]string
-	BuiltIn              bool
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID               string
+	Name             string
+	Description      string
+	Instructions     string
+	Surface          string
+	ProviderHint     string
+	ModelHint        string
+	ExecutionProfile string
+	ToolsEnabled     bool
+	WritesAllowed    bool
+	NetworkAllowed   bool
+	// BrowserAllowed enables only Hecate's native, approval-gated,
+	// read-only browser evidence tool. It does not grant external agents or
+	// generic network tools browser access.
+	BrowserAllowed        bool
+	BrowserAllowedOrigins []string
+	ApprovalPolicy        string
+	ProjectMemoryPolicy   string
+	ContextSourcePolicy   string
+	SkillIDs              []string
+	ExternalAgentKind     string
+	ExternalAgentOptions  map[string]string
+	BuiltIn               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type Store interface {
@@ -190,6 +197,11 @@ func normalizeProfile(profile Profile, now time.Time) Profile {
 		profile.ContextSourcePolicy = ContextInherit
 	}
 	profile.SkillIDs = normalizeStringSlice(profile.SkillIDs)
+	if origins, err := browserrunner.NormalizeAllowedOrigins(profile.BrowserAllowedOrigins); err == nil {
+		profile.BrowserAllowedOrigins = origins
+	} else {
+		profile.BrowserAllowedOrigins = normalizeStringSlice(profile.BrowserAllowedOrigins)
+	}
 	profile.ExternalAgentOptions = normalizeStringMap(profile.ExternalAgentOptions)
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -222,11 +234,26 @@ func validateProfile(profile Profile) error {
 	if !oneOf(profile.ContextSourcePolicy, ContextInherit, ContextIncludeEnabled, ContextVisibleOnly, ContextExclude) {
 		return ErrInvalid
 	}
+	if profile.BrowserAllowed {
+		if !profile.ToolsEnabled {
+			return ErrInvalid
+		}
+		if profile.Surface != SurfaceAny && profile.Surface != SurfaceHecateTask {
+			return ErrInvalid
+		}
+		origins, err := browserrunner.NormalizeAllowedOrigins(profile.BrowserAllowedOrigins)
+		if err != nil || len(origins) == 0 {
+			return ErrInvalid
+		}
+	} else if len(profile.BrowserAllowedOrigins) != 0 {
+		return ErrInvalid
+	}
 	return nil
 }
 
 func cloneProfile(profile Profile) Profile {
 	profile.SkillIDs = append([]string(nil), profile.SkillIDs...)
+	profile.BrowserAllowedOrigins = append([]string(nil), profile.BrowserAllowedOrigins...)
 	profile.ExternalAgentOptions = cloneStringMap(profile.ExternalAgentOptions)
 	return profile
 }

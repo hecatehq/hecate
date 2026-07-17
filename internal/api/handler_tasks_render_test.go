@@ -76,16 +76,19 @@ func TestRenderTaskRunUsesContextPacketProjectLinkageFallback(t *testing.T) {
 func TestRenderTaskItem_ExposesAgentPresetRuntimePolicySnapshot(t *testing.T) {
 	t.Parallel()
 	toolsEnabled := false
+	browserAllowed := true
 
 	item := renderTaskItem(types.Task{
-		ID:                      "task_1",
-		AgentPresetID:           "review_qa",
-		AgentPresetToolsEnabled: &toolsEnabled,
-		SandboxReadOnly:         true,
-		SandboxNetwork:          false,
-		Status:                  "queued",
+		ID:                               "task_1",
+		AgentPresetID:                    "review_qa",
+		AgentPresetToolsEnabled:          &toolsEnabled,
+		AgentPresetBrowserAllowed:        &browserAllowed,
+		AgentPresetBrowserAllowedOrigins: []string{"https://app.example.test"},
+		SandboxReadOnly:                  true,
+		SandboxNetwork:                   false,
+		Status:                           "queued",
 	})
-	if item.AgentPresetID != "review_qa" || item.AgentPresetToolsEnabled == nil || *item.AgentPresetToolsEnabled || !item.SandboxReadOnly || item.SandboxNetwork {
-		t.Fatalf("rendered policy snapshot = preset %q tools=%v read_only=%v network=%v, want review_qa/false/true/false", item.AgentPresetID, item.AgentPresetToolsEnabled, item.SandboxReadOnly, item.SandboxNetwork)
+	if item.AgentPresetID != "review_qa" || item.AgentPresetToolsEnabled == nil || *item.AgentPresetToolsEnabled || item.AgentPresetBrowserAllowed == nil || !*item.AgentPresetBrowserAllowed || len(item.AgentPresetBrowserAllowedOrigins) != 1 || item.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || !item.SandboxReadOnly || item.SandboxNetwork {
+		t.Fatalf("rendered policy snapshot = %+v, want independent browser snapshot and review posture", item)
 	}
 }

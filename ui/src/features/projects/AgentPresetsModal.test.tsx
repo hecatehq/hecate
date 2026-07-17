@@ -138,6 +138,172 @@ describe("AgentPresetsModal", () => {
     );
   });
 
+  it("requires exact origins before saving browser evidence and clears them when disabled", async () => {
+    const onCreate = vi.fn(async (form) => preset({ id: form.id, name: form.name }));
+
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText("Preset id"), "browser-review");
+    await userEvent.type(screen.getByLabelText("Name"), "Browser review");
+    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+
+    expect(screen.getByLabelText("Allowed browser origins")).toBeInTheDocument();
+    expect(screen.getByText(/Add at least one exact origin/i)).toHaveAttribute("role", "alert");
+    expect(screen.getByRole("button", { name: "Create preset" })).toBeDisabled();
+
+    await userEvent.type(
+      screen.getByLabelText("Allowed browser origins"),
+      "https://app.example.test",
+    );
+    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    expect(screen.queryByLabelText("Allowed browser origins")).toBeNull();
+    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    expect(screen.getByLabelText("Allowed browser origins")).toHaveValue("");
+    await userEvent.type(
+      screen.getByLabelText("Allowed browser origins"),
+      "https://app.example.test",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create preset" }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browserAllowed: true,
+        browserAllowedOrigins: "https://app.example.test",
+      }),
+    );
+  });
+
+  it("shows unavailable browser-runtime guidance without blocking a valid preset", async () => {
+    render(
+      <AgentPresetsModal
+        browserEvidenceReadiness={{
+          available: false,
+          status: "not_configured",
+          message: "Native browser evidence is not configured on this runtime.",
+          operator_action: "Set HECATE_TASK_BROWSER_EXECUTABLE, then restart Hecate.",
+        }}
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText("Preset id"), "browser-review");
+    await userEvent.type(screen.getByLabelText("Name"), "Browser review");
+    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.type(
+      screen.getByLabelText("Allowed browser origins"),
+      "https://app.example.test/",
+    );
+
+    expect(screen.getByText(/Browser runtime unavailable/i)).toHaveTextContent(
+      "Set HECATE_TASK_BROWSER_EXECUTABLE",
+    );
+    expect(screen.getByRole("button", { name: "Create preset" })).toBeEnabled();
+  });
+
+  it("rejects malformed browser origins in the form before save", async () => {
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText("Preset id"), "browser-review");
+    await userEvent.type(screen.getByLabelText("Name"), "Browser review");
+    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    const origins = screen.getByLabelText("Allowed browser origins");
+    await userEvent.type(origins, "https://operator:secret@app.example.test/path?token=secret");
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Use exact http(s) origins only");
+    expect(screen.getByRole("button", { name: "Create preset" })).toBeDisabled();
+    expect(origins).toHaveAttribute("aria-invalid", "true");
+
+    await userEvent.clear(origins);
+    await userEvent.type(origins, "https://app.example.test/");
+    expect(screen.getByRole("button", { name: "Create preset" })).toBeEnabled();
+  });
+
+  it("keeps browser evidence unavailable for an external-agent-only preset", async () => {
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("Surface"), "external_agent");
+    expect(screen.getByLabelText("Browser evidence allowed")).toBeDisabled();
+    expect(
+      screen.getByText(/External Agents and Hecate Chat do not receive browser evidence/i),
+    ).toBeInTheDocument();
+  });
+
+  it("clears browser evidence when tools are disabled", async () => {
+    render(
+      <AgentPresetsModal
+        error=""
+        pending={false}
+        presets={[]}
+        project={project()}
+        projectSkills={[]}
+        roles={[]}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.type(
+      screen.getByLabelText("Allowed browser origins"),
+      "https://app.example.test",
+    );
+    await userEvent.click(screen.getByLabelText("Tools enabled"));
+
+    expect(screen.getByLabelText("Browser evidence allowed")).toBeDisabled();
+    expect(screen.queryByLabelText("Allowed browser origins")).toBeNull();
+    expect(screen.getByText(/Enable Tools to configure browser evidence/i)).toBeInTheDocument();
+  });
+
   it("shows built-in presets as read-only", () => {
     render(
       <AgentPresetsModal

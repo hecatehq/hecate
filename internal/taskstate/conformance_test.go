@@ -1352,18 +1352,21 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
 	toolsEnabled := false
+	browserAllowed := true
 
 	task := types.Task{
-		ID:                      "task-1",
-		Title:                   "demo",
-		ProjectID:               "proj-1",
-		WorkItemID:              "work-1",
-		AssignmentID:            "asgn-1",
-		AgentPresetID:           "review_qa",
-		AgentPresetToolsEnabled: &toolsEnabled,
-		SandboxReadOnly:         true,
-		SandboxNetwork:          false,
-		Status:                  "queued",
+		ID:                               "task-1",
+		Title:                            "demo",
+		ProjectID:                        "proj-1",
+		WorkItemID:                       "work-1",
+		AssignmentID:                     "asgn-1",
+		AgentPresetID:                    "review_qa",
+		AgentPresetToolsEnabled:          &toolsEnabled,
+		AgentPresetBrowserAllowed:        &browserAllowed,
+		AgentPresetBrowserAllowedOrigins: []string{"https://app.example.test"},
+		SandboxReadOnly:                  true,
+		SandboxNetwork:                   false,
+		Status:                           "queued",
 	}
 	saved, err := store.CreateTask(ctx, task)
 	if err != nil {
@@ -1377,6 +1380,8 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 		t.Fatal("CreateTask response omitted tools snapshot")
 	}
 	*saved.AgentPresetToolsEnabled = true
+	*saved.AgentPresetBrowserAllowed = false
+	saved.AgentPresetBrowserAllowedOrigins[0] = "https://mutated.example.test"
 
 	got, ok, err := store.GetTask(ctx, "task-1")
 	if err != nil || !ok {
@@ -1385,13 +1390,15 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	if got.Title != "demo" {
 		t.Fatalf("GetTask round-trip mismatch: %+v", got)
 	}
-	if got.AgentPresetID != "review_qa" || got.AgentPresetToolsEnabled == nil || *got.AgentPresetToolsEnabled || !got.SandboxReadOnly || got.SandboxNetwork {
-		t.Fatalf("GetTask runtime policy snapshot = preset %q tools=%v read_only=%v network=%v, want review_qa/false/true/false", got.AgentPresetID, got.AgentPresetToolsEnabled, got.SandboxReadOnly, got.SandboxNetwork)
+	if got.AgentPresetID != "review_qa" || got.AgentPresetToolsEnabled == nil || *got.AgentPresetToolsEnabled || got.AgentPresetBrowserAllowed == nil || !*got.AgentPresetBrowserAllowed || len(got.AgentPresetBrowserAllowedOrigins) != 1 || got.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || !got.SandboxReadOnly || got.SandboxNetwork {
+		t.Fatalf("GetTask runtime policy snapshot = %+v, want independent browser enabled/origin snapshot and review posture", got)
 	}
 	*got.AgentPresetToolsEnabled = true
+	*got.AgentPresetBrowserAllowed = false
+	got.AgentPresetBrowserAllowedOrigins[0] = "https://mutated.example.test"
 	gotAgain, ok, err := store.GetTask(ctx, "task-1")
-	if err != nil || !ok || gotAgain.AgentPresetToolsEnabled == nil || *gotAgain.AgentPresetToolsEnabled {
-		t.Fatalf("GetTask tools snapshot alias leaked into store: task=%+v ok=%v err=%v", gotAgain, ok, err)
+	if err != nil || !ok || gotAgain.AgentPresetToolsEnabled == nil || *gotAgain.AgentPresetToolsEnabled || gotAgain.AgentPresetBrowserAllowed == nil || !*gotAgain.AgentPresetBrowserAllowed || len(gotAgain.AgentPresetBrowserAllowedOrigins) != 1 || gotAgain.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" {
+		t.Fatalf("GetTask policy snapshot alias leaked into store: task=%+v ok=%v err=%v", gotAgain, ok, err)
 	}
 
 	run := types.TaskRun{
