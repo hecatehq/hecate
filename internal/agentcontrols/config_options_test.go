@@ -116,6 +116,18 @@ func TestFromACPCommands_NormalizesAvailableCommands(t *testing.T) {
 	}
 }
 
+func TestFromACPCommands_PreservesExplicitEmptyCatalog(t *testing.T) {
+	if got := FromACPCommands(nil); got != nil {
+		t.Fatalf("FromACPCommands(nil) = %#v, want nil", got)
+	}
+	if got := FromACPCommands([]acp.AvailableCommand{}); got == nil || len(got) != 0 {
+		t.Fatalf("FromACPCommands(empty) = %#v, want explicit empty catalog", got)
+	}
+	if got := FromACPCommands([]acp.AvailableCommand{{Name: " "}}); got == nil || len(got) != 0 {
+		t.Fatalf("FromACPCommands(invalid) = %#v, want explicit empty catalog", got)
+	}
+}
+
 func TestFromACPImplementation_TrimsAndOmitsEmptyValues(t *testing.T) {
 	if got := FromACPImplementation(nil); got != nil {
 		t.Fatalf("FromACPImplementation(nil) = %#v, want nil", got)

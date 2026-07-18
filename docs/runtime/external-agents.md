@@ -149,12 +149,13 @@ its first stable release, and documents draft ACP RFD work as non-blocking
 future work.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
-Claude-native `--session-id` reload after adapter restarts. Claude Code adapter
-`v0.1.0-alpha.13` advertises `/init` through the normal `claude --print` prompt
-path so operators can ask Claude Code to inspect the workspace and create or
-update `CLAUDE.md` from Hecate. Claude Code adapter `v0.1.0-alpha.14` also
-advertises `/review`, `/code-review`, and `/security-review` as normal prompt
-commands backed by Claude Code's native slash-command handling.
+Claude-native `--session-id` reload after adapter restarts. Early alpha releases
+also supplied a small adapter-maintained set of prompt suggestions. Claude Code
+adapter `v0.3.0` replaces that fixed list with a live Claude CLI command
+catalog: the adapter discovers a provider-owned bare/minimal inventory and
+publishes it as an ACP replacement snapshot. Hecate therefore does not promise
+that a particular slash command, alias, workspace skill, or plugin command is
+available; it renders only what the installed provider actually advertises.
 Claude Code adapter `v0.1.0-alpha.15` exposes Claude Code's
 `bypassPermissions` permission mode as an ACP session config option for
 operators who intentionally want the full-access Claude Code boundary.
@@ -420,18 +421,22 @@ controls before the session is created. Session-level MCP config is fixed at
 ACP session start; existing chats show the configured servers in Chat settings.
 
 ACP agents may also advertise **available slash commands** with
-`available_commands_update`. Hecate stores the latest advertised command
-metadata on the chat session as `available_commands` so clients can render
-agent-native command hints. Commands are still submitted as normal
-`session/prompt` text such as `/web agent client protocol`; ACP does not define
-a separate execute-command RPC. The operator UI can surface the advertised list
-when the composer starts with `/`, but choosing an item only inserts the command
-text. These are external-agent-native commands, not Hecate-owned project
-mutations. Hecate Chat shortcuts such as `/proposal` are separate local UI
-commands, not ACP commands. Project-shaping shortcuts such as `/plan`, `/work`,
-`/handoff`, and `/review` should remain intent hints that go through the usual
-proposal, validation, and operator-apply boundaries instead of directly
-mutating project records.
+`available_commands_update`. Each update is a complete provider-owned
+replacement snapshot, including an explicit empty snapshot when the provider
+no longer offers any commands. Hecate persists the latest live snapshot as
+`available_commands`; it never merges it with an adapter-maintained allowlist
+or assumes a command exists for every external agent. A later asynchronous ACP
+update wins over an older session-create, prompt-result, or config-result
+snapshot, so aliases and workspace-provided commands remain provider-defined.
+Commands are still submitted as normal `session/prompt` text such as `/web
+agent client protocol`; ACP does not define a separate execute-command RPC. The
+operator UI can surface the advertised list when the composer starts with `/`,
+but choosing an item only inserts the command text. These are
+external-agent-native commands, not Hecate-owned project mutations. Hecate Chat
+shortcuts such as `/proposal` are separate local UI commands, not ACP commands.
+Project-shaping shortcuts such as `/plan`, `/work`, `/handoff`, and `/review`
+should remain intent hints that go through the usual proposal, validation, and
+operator-apply boundaries instead of directly mutating project records.
 The composer picker labels ACP-advertised commands as **External Agent**.
 Hecate-owned local shortcuts use **Project** for proposal-oriented project
 commands and **Hecate** for local navigation/runtime commands.

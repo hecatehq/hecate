@@ -94,9 +94,9 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		fmt.Sprintf(
 			`INSERT INTO %s (
 				id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_mode, workspace_branch,
-				status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
+				status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, available_commands_authoritative, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 )
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   project_id = excluded.project_id,
@@ -115,6 +115,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 			   capabilities = excluded.capabilities,
 			   config_options = excluded.config_options,
 			   available_commands = excluded.available_commands,
+			   available_commands_authoritative = excluded.available_commands_authoritative,
 			   mcp_servers = excluded.mcp_servers,
 			   rtk_enabled = excluded.rtk_enabled,
 			   context_summary = excluded.context_summary,
@@ -139,6 +140,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
 		marshalCommands(session.AvailableCommands),
+		boolToSQLiteInt(session.AvailableCommandsAuthoritative),
 		marshalMCPServers(session.MCPServers),
 		boolToSQLiteInt(session.RTKEnabled),
 		session.TurnsUsed,
@@ -168,12 +170,12 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		ctx,
 		fmt.Sprintf(
 			`SELECT s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_mode, s.workspace_branch,
-			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at,
+			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.available_commands_authoritative, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
 			 GROUP BY s.id, s.title, s.project_id, s.agent_id, s.driver_kind, s.native_session_id, s.agent_info, s.workspace, s.workspace_mode, s.workspace_branch,
-			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at
+			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.available_commands, s.available_commands_authoritative, s.mcp_servers, s.rtk_enabled, s.turns_used, s.context_summary, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
 			s.messagesTable,
@@ -191,6 +193,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		var capabilities string
 		var configOptions string
 		var availableCommands string
+		var availableCommandsAuthoritative int
 		var agentInfo string
 		var mcpServers string
 		var contextSummary string
@@ -214,6 +217,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&capabilities,
 			&configOptions,
 			&availableCommands,
+			&availableCommandsAuthoritative,
 			&mcpServers,
 			&rtkEnabled,
 			&session.TurnsUsed,
@@ -227,6 +231,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		session.Capabilities = unmarshalModelCapabilities(capabilities)
 		session.ConfigOptions = unmarshalConfigOptions(configOptions)
 		session.AvailableCommands = unmarshalCommands(availableCommands)
+		session.AvailableCommandsAuthoritative = availableCommandsAuthoritative != 0
 		session.AgentInfo = unmarshalImplementationInfo(agentInfo)
 		session.MCPServers = unmarshalMCPServers(mcpServers)
 		session.ContextSummary = unmarshalContextSummary(contextSummary)
@@ -357,7 +362,7 @@ func (s *SQLiteStore) updateSessionRecord(ctx context.Context, runner execRunner
 		fmt.Sprintf(
 			`UPDATE %s SET
 			   title = ?, project_id = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, agent_info = ?, workspace = ?, workspace_mode = ?, workspace_branch = ?,
-			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, available_commands = ?, mcp_servers = ?, rtk_enabled = ?, turns_used = ?, context_summary = ?, updated_at = ?
+			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, available_commands = ?, available_commands_authoritative = ?, mcp_servers = ?, rtk_enabled = ?, turns_used = ?, context_summary = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -378,6 +383,7 @@ func (s *SQLiteStore) updateSessionRecord(ctx context.Context, runner execRunner
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
 		marshalCommands(session.AvailableCommands),
+		boolToSQLiteInt(session.AvailableCommandsAuthoritative),
 		marshalMCPServers(session.MCPServers),
 		boolToSQLiteInt(session.RTKEnabled),
 		session.TurnsUsed,
@@ -665,6 +671,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				capabilities TEXT NOT NULL DEFAULT '{}',
 				config_options TEXT NOT NULL DEFAULT '[]',
 				available_commands TEXT NOT NULL DEFAULT '[]',
+				available_commands_authoritative INTEGER NOT NULL DEFAULT 0,
 				mcp_servers TEXT NOT NULL DEFAULT '[]',
 				context_summary TEXT NOT NULL DEFAULT '{}',
 				rtk_enabled INTEGER NOT NULL DEFAULT 0,
@@ -780,6 +787,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "capabilities", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "config_options", definition: "TEXT NOT NULL DEFAULT '[]'"},
 		{name: "available_commands", definition: "TEXT NOT NULL DEFAULT '[]'"},
+		{name: "available_commands_authoritative", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "mcp_servers", definition: "TEXT NOT NULL DEFAULT '[]'"},
 		{name: "context_summary", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "rtk_enabled", definition: "INTEGER NOT NULL DEFAULT 0"},
@@ -852,6 +860,7 @@ func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, i
 	var capabilities string
 	var configOptions string
 	var availableCommands string
+	var availableCommandsAuthoritative int
 	var agentInfo string
 	var mcpServers string
 	var contextSummary string
@@ -860,7 +869,7 @@ func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, i
 		ctx,
 		fmt.Sprintf(
 			`SELECT id, title, project_id, agent_id, driver_kind, native_session_id, agent_info, workspace, workspace_mode, workspace_branch,
-			        status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
+			        status, task_id, latest_run_id, provider, model, capabilities, config_options, available_commands, available_commands_authoritative, mcp_servers, rtk_enabled, turns_used, context_summary, created_at, updated_at
 			 FROM %s WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -884,6 +893,7 @@ func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, i
 		&capabilities,
 		&configOptions,
 		&availableCommands,
+		&availableCommandsAuthoritative,
 		&mcpServers,
 		&rtkEnabled,
 		&session.TurnsUsed,
@@ -903,6 +913,7 @@ func (s *SQLiteStore) loadSessionFrom(ctx context.Context, runner queryRunner, i
 	session.Capabilities = unmarshalModelCapabilities(capabilities)
 	session.ConfigOptions = unmarshalConfigOptions(configOptions)
 	session.AvailableCommands = unmarshalCommands(availableCommands)
+	session.AvailableCommandsAuthoritative = availableCommandsAuthoritative != 0
 	session.AgentInfo = unmarshalImplementationInfo(agentInfo)
 	session.MCPServers = unmarshalMCPServers(mcpServers)
 	session.ContextSummary = unmarshalContextSummary(contextSummary)

@@ -3417,6 +3417,9 @@ func TestAgentChatAvailableCommandsUpdateHookPersistsAndPublishes(t *testing.T) 
 	if got := got.AvailableCommands; len(got) != 2 || got[0].Name != "web" || got[1].Name != "plan" {
 		t.Fatalf("stored commands = %#v, want web and plan", got)
 	}
+	if !got.AvailableCommandsAuthoritative {
+		t.Fatal("stored command snapshot is not authoritative")
+	}
 	select {
 	case event := <-updates:
 		if event.Type != AgentChatLiveEventSessionUpdate || event.SessionUpdate == nil {
@@ -3427,6 +3430,36 @@ func TestAgentChatAvailableCommandsUpdateHookPersistsAndPublishes(t *testing.T) 
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for session update")
+	}
+}
+
+func TestAgentChatAvailableCommandsUpdateHookMakesEmptyCatalogAuthoritative(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	session, err := apiHandler.agentChat.Create(context.Background(), chat.Session{
+		ID:                "chat_commands_empty",
+		Title:             "Claude chat",
+		AgentID:           "claude_code",
+		DriverKind:        agentadapters.DriverKindACP,
+		Workspace:         t.TempDir(),
+		AvailableCommands: []agentcontrols.Command{{Name: "stale"}},
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	apiHandler.handleAgentChatAvailableCommandsUpdate(agentadapters.AvailableCommandsUpdate{
+		SessionID: session.ID,
+		AdapterID: "claude_code",
+		Commands:  []agentcontrols.Command{},
+	})
+
+	got, ok, err := apiHandler.agentChat.Get(context.Background(), session.ID)
+	if err != nil || !ok {
+		t.Fatalf("get session: ok=%v err=%v", ok, err)
+	}
+	if !got.AvailableCommandsAuthoritative || got.AvailableCommands == nil || len(got.AvailableCommands) != 0 {
+		t.Fatalf("stored commands = %#v authoritative=%v, want authoritative empty catalog", got.AvailableCommands, got.AvailableCommandsAuthoritative)
 	}
 }
 

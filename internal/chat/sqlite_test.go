@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -72,6 +73,44 @@ func TestSQLiteStoreMigratesProviderInstanceColumn(t *testing.T) {
 	}
 	if len(got.Messages) != 1 || got.Messages[0].Content != "preserve me" || got.Messages[0].ProviderInstance.Valid() {
 		t.Fatalf("legacy message after migration = %+v, want preserved row with empty provider instance", got.Messages)
+	}
+}
+
+func TestSQLiteStoreMigratesAvailableCommandsAuthorityColumn(t *testing.T) {
+	t.Parallel()
+
+	store := newSQLiteTestStore(t)
+	if _, err := store.Create(context.Background(), Session{
+		ID:                "chat_legacy_commands",
+		Title:             "Legacy commands",
+		AgentID:           "claude_code",
+		Workspace:         "/tmp/hecate",
+		AvailableCommands: []agentcontrols.Command{{Name: "goal"}},
+	}); err != nil {
+		t.Fatalf("Create legacy session: %v", err)
+	}
+	if _, err := store.client.DB().ExecContext(context.Background(), "ALTER TABLE "+store.sessionsTable+" DROP COLUMN available_commands_authoritative"); err != nil {
+		t.Fatalf("drop available_commands_authoritative test column: %v", err)
+	}
+	exists, err := store.columnExists(context.Background(), store.sessionsTable, "available_commands_authoritative")
+	if err != nil || exists {
+		t.Fatalf("column before migration exists=%v err=%v, want absent", exists, err)
+	}
+
+	migrated, err := newSQLStore(context.Background(), store.client)
+	if err != nil {
+		t.Fatalf("newSQLStore migration: %v", err)
+	}
+	exists, err = migrated.columnExists(context.Background(), migrated.sessionsTable, "available_commands_authoritative")
+	if err != nil || !exists {
+		t.Fatalf("column after migration exists=%v err=%v, want present", exists, err)
+	}
+	got, ok, err := migrated.Get(context.Background(), "chat_legacy_commands")
+	if err != nil || !ok {
+		t.Fatalf("Get legacy session after migration: found=%v err=%v", ok, err)
+	}
+	if got.AvailableCommandsAuthoritative || len(got.AvailableCommands) != 1 || got.AvailableCommands[0].Name != "goal" {
+		t.Fatalf("legacy session after migration = %#v, want commands preserved with non-authoritative default", got)
 	}
 }
 

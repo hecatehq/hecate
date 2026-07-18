@@ -512,12 +512,16 @@ flowchart LR
 ```
 
 External Agent sessions may expose ACP-advertised `available_commands` on the
-session snapshot. These are agent-native slash command hints, not Hecate
-project commands; selecting one still sends ordinary prompt text to the
-external agent. The operator UI may show these hints while the composer starts
-with `/`; choosing a hint only inserts the slash command text. Hecate-owned
-chat commands are separate local shortcuts and must still route through
-Hecate's proposal, validation, and operator-apply boundaries.
+session snapshot. This is the latest complete, provider-owned replacement
+snapshot, not a Hecate command registry: it can contain aliases or
+workspace-provided commands, and an explicit empty list clears older hints. A
+live ACP notification takes precedence over an older session-create,
+prompt-result, or config-result snapshot. These are agent-native slash command
+hints, not Hecate project commands; selecting one still sends ordinary prompt
+text to the external agent. The operator UI may show these hints while the
+composer starts with `/`; choosing a hint only inserts the slash command text.
+Hecate-owned chat commands are separate local shortcuts and must still route
+through Hecate's proposal, validation, and operator-apply boundaries.
 The composer picker labels command provenance as **External Agent** for
 ACP-advertised external commands, **Project** for Hecate-owned project proposal
 shortcuts, and **Hecate** for local navigation/runtime shortcuts.

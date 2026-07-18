@@ -41,6 +41,10 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreAvailableCommandsRoundTrip(t, factory(t))
 	})
+	t.Run(name+"/AvailableCommandsAuthorityRoundTrip", func(t *testing.T) {
+		t.Parallel()
+		runStoreAvailableCommandsAuthorityRoundTrip(t, factory(t))
+	})
 	t.Run(name+"/AgentInfoRoundTrip", func(t *testing.T) {
 		t.Parallel()
 		runStoreAgentInfoRoundTrip(t, factory(t))

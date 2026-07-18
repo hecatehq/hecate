@@ -17,17 +17,19 @@ import (
 )
 
 type recordingAgentRunner struct {
-	prepareCalls    int
-	closeCalls      int
-	deleteCalls     int
-	prepareErr      error
-	setCalls        int
-	setErr          error
-	prepareReq      agentadapters.PrepareSessionRequest
-	setReq          agentadapters.SetSessionConfigOptionRequest
-	closedSessions  []string
-	deletedSessions []string
-	configOptions   []agentcontrols.ConfigOption
+	prepareCalls           int
+	closeCalls             int
+	deleteCalls            int
+	prepareErr             error
+	setCalls               int
+	setErr                 error
+	prepareReq             agentadapters.PrepareSessionRequest
+	setReq                 agentadapters.SetSessionConfigOptionRequest
+	closedSessions         []string
+	deletedSessions        []string
+	configOptions          []agentcontrols.ConfigOption
+	availableCommands      []agentcontrols.Command
+	availableCommandsKnown bool
 }
 
 type blockingAttachmentCreateStore struct {
@@ -152,7 +154,9 @@ func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapte
 			Title:   "Codex ACP Adapter",
 			Version: "0.1.0-alpha.28",
 		},
-		ConfigOptions: r.configOptions,
+		ConfigOptions:          r.configOptions,
+		AvailableCommands:      r.availableCommands,
+		AvailableCommandsKnown: r.availableCommandsKnown,
 	}, nil
 }
 
@@ -162,7 +166,11 @@ func (r *recordingAgentRunner) SetSessionConfigOption(_ context.Context, req age
 	if r.setErr != nil {
 		return agentadapters.SetSessionConfigOptionResult{}, r.setErr
 	}
-	return agentadapters.SetSessionConfigOptionResult{ConfigOptions: r.configOptions}, nil
+	return agentadapters.SetSessionConfigOptionResult{
+		ConfigOptions:          r.configOptions,
+		AvailableCommands:      r.availableCommands,
+		AvailableCommandsKnown: r.availableCommandsKnown,
+	}, nil
 }
 
 func (r *recordingAgentRunner) CloseSession(_ context.Context, sessionID string) error {
@@ -365,6 +373,8 @@ func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 			Name:         "Model",
 			CurrentValue: "sonnet",
 		}},
+		availableCommands:      []agentcontrols.Command{{Name: "review"}},
+		availableCommandsKnown: true,
 	}
 	app := New(Options{Store: store, Runner: runner, PrepareTimeout: time.Second})
 
@@ -408,6 +418,9 @@ func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 	if len(result.Session.ConfigOptions) != 1 || result.Session.ConfigOptions[0].CurrentValue != "sonnet" {
 		t.Fatalf("config options = %+v, want prepared options", result.Session.ConfigOptions)
 	}
+	if result.Session.AvailableCommandsAuthoritative || len(result.Session.AvailableCommands) != 1 || result.Session.AvailableCommands[0].Name != "review" {
+		t.Fatalf("available commands = %#v authoritative=%v, want bootstrap review catalog", result.Session.AvailableCommands, result.Session.AvailableCommandsAuthoritative)
+	}
 }
 
 func TestApplication_ReplaceNativeSessionPersistsWithCompareAndSwap(t *testing.T) {
@@ -415,7 +428,12 @@ func TestApplication_ReplaceNativeSessionPersistsWithCompareAndSwap(t *testing.T
 
 	ctx := context.Background()
 	store := chat.NewMemoryStore()
-	if _, err := store.Create(ctx, chat.Session{ID: "chat_ext", NativeSessionID: "native_stale"}); err != nil {
+	if _, err := store.Create(ctx, chat.Session{
+		ID:                             "chat_ext",
+		NativeSessionID:                "native_stale",
+		AvailableCommands:              []agentcontrols.Command{{Name: "goal"}},
+		AvailableCommandsAuthoritative: true,
+	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	app := New(Options{Store: store})
@@ -427,8 +445,8 @@ func TestApplication_ReplaceNativeSessionPersistsWithCompareAndSwap(t *testing.T
 	if err != nil {
 		t.Fatalf("ReplaceNativeSession: %v", err)
 	}
-	if result.Session.NativeSessionID != "native_fresh" {
-		t.Fatalf("native session = %q, want native_fresh", result.Session.NativeSessionID)
+	if result.Session.NativeSessionID != "native_fresh" || result.Session.AvailableCommandsAuthoritative || len(result.Session.AvailableCommands) != 0 {
+		t.Fatalf("replaced session = %#v, want fresh native id and reset command authority", result.Session)
 	}
 	_, err = app.ReplaceNativeSession(ctx, ReplaceNativeSessionCommand{
 		SessionID:               "chat_ext",
@@ -560,11 +578,13 @@ func TestApplication_DeleteSessionDeletesNativeSessionWhenRequested(t *testing.T
 	runner := &recordingAgentRunner{}
 	app := New(Options{Store: store, Runner: runner})
 	session, err := store.Create(ctx, chat.Session{
-		ID:              "chat_ext",
-		AgentID:         "codex",
-		DriverKind:      agentadapters.DriverKindACP,
-		NativeSessionID: "native_chat_ext",
-		AgentInfo:       &agentcontrols.ImplementationInfo{Name: "codex-acp-adapter"},
+		ID:                             "chat_ext",
+		AgentID:                        "codex",
+		DriverKind:                     agentadapters.DriverKindACP,
+		NativeSessionID:                "native_chat_ext",
+		AvailableCommands:              []agentcontrols.Command{{Name: "goal"}},
+		AvailableCommandsAuthoritative: true,
+		AgentInfo:                      &agentcontrols.ImplementationInfo{Name: "codex-acp-adapter"},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -1007,10 +1027,12 @@ func TestApplication_CloseNativeSessionClearsRuntimeHandles(t *testing.T) {
 	runner := &recordingAgentRunner{}
 	app := New(Options{Store: store, Runner: runner})
 	session, err := store.Create(ctx, chat.Session{
-		ID:              "chat_ext",
-		AgentID:         "codex",
-		DriverKind:      agentadapters.DriverKindACP,
-		NativeSessionID: "native_chat_ext",
+		ID:                             "chat_ext",
+		AgentID:                        "codex",
+		DriverKind:                     agentadapters.DriverKindACP,
+		NativeSessionID:                "native_chat_ext",
+		AvailableCommands:              []agentcontrols.Command{{Name: "goal"}},
+		AvailableCommandsAuthoritative: true,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -1023,7 +1045,7 @@ func TestApplication_CloseNativeSessionClearsRuntimeHandles(t *testing.T) {
 	if runner.closeCalls != 1 || runner.closedSessions[0] != "chat_ext" {
 		t.Fatalf("closed sessions = %+v closeCalls=%d, want chat_ext closed once", runner.closedSessions, runner.closeCalls)
 	}
-	if result.Session.DriverKind != "" || result.Session.NativeSessionID != "" || result.Session.AgentInfo != nil {
+	if result.Session.DriverKind != "" || result.Session.NativeSessionID != "" || result.Session.AgentInfo != nil || result.Session.AvailableCommandsAuthoritative || len(result.Session.AvailableCommands) != 0 {
 		t.Fatalf("session runtime handles = %q/%q/%#v, want cleared", result.Session.DriverKind, result.Session.NativeSessionID, result.Session.AgentInfo)
 	}
 }
@@ -1052,9 +1074,16 @@ func TestApplication_SetConfigOptionPersistsRunnerOptions(t *testing.T) {
 			Type:         agentcontrols.ConfigOptionTypeSelect,
 			CurrentValue: "sonnet",
 		}},
+		availableCommands:      []agentcontrols.Command{{Name: "stale"}},
+		availableCommandsKnown: true,
 	}
 	app := New(Options{Store: store, Runner: runner, ConfigOptionTimeout: time.Second})
-	session, err := store.Create(ctx, chat.Session{ID: "chat_ext", AgentID: "codex"})
+	session, err := store.Create(ctx, chat.Session{
+		ID:                             "chat_ext",
+		AgentID:                        "codex",
+		AvailableCommands:              []agentcontrols.Command{{Name: "goal"}},
+		AvailableCommandsAuthoritative: true,
+	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -1072,6 +1101,9 @@ func TestApplication_SetConfigOptionPersistsRunnerOptions(t *testing.T) {
 	}
 	if len(result.Session.ConfigOptions) != 1 || result.Session.ConfigOptions[0].CurrentValue != "sonnet" {
 		t.Fatalf("config options = %+v, want runner options persisted", result.Session.ConfigOptions)
+	}
+	if !result.Session.AvailableCommandsAuthoritative || len(result.Session.AvailableCommands) != 1 || result.Session.AvailableCommands[0].Name != "goal" {
+		t.Fatalf("available commands = %#v authoritative=%v, want live goal catalog preserved", result.Session.AvailableCommands, result.Session.AvailableCommandsAuthoritative)
 	}
 }
 

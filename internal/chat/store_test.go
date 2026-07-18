@@ -818,6 +818,52 @@ func runStoreAvailableCommandsRoundTrip(t *testing.T, store Store) {
 	}
 }
 
+func runStoreAvailableCommandsAuthorityRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:                             "chat_commands_authoritative",
+		Title:                          "Commands authority",
+		AgentID:                        "claude_code",
+		Workspace:                      "/tmp/hecate",
+		AvailableCommands:              []agentcontrols.Command{},
+		AvailableCommandsAuthoritative: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !created.AvailableCommandsAuthoritative || created.AvailableCommands == nil {
+		t.Fatalf("created session = %#v, want authoritative explicit empty catalog", created)
+	}
+	updated, err := store.UpdateSession(ctx, created.ID, func(item *Session) {
+		ResetAvailableCommandsAuthority(item)
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+	if updated.AvailableCommandsAuthoritative || len(updated.AvailableCommands) != 0 {
+		t.Fatalf("updated session = %#v, want reset authority and empty catalog", updated)
+	}
+	updated, err = store.UpdateSession(ctx, created.ID, func(item *Session) {
+		ApplyAvailableCommandsLive(item, []agentcontrols.Command{{Name: "goal"}})
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession live catalog: %v", err)
+	}
+	if !updated.AvailableCommandsAuthoritative || len(updated.AvailableCommands) != 1 || updated.AvailableCommands[0].Name != "goal" {
+		t.Fatalf("updated session = %#v, want authoritative goal catalog", updated)
+	}
+	updated, err = store.UpdateSession(ctx, created.ID, func(item *Session) {
+		ApplyAvailableCommandsBootstrap(item, []agentcontrols.Command{{Name: "stale"}}, true)
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession bootstrap catalog: %v", err)
+	}
+	if !updated.AvailableCommandsAuthoritative || len(updated.AvailableCommands) != 1 || updated.AvailableCommands[0].Name != "goal" {
+		t.Fatalf("updated session = %#v, want live goal catalog to win over bootstrap", updated)
+	}
+}
+
 func runStoreAgentInfoRoundTrip(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
