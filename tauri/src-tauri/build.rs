@@ -12,7 +12,12 @@ fn main() {
     // is rejected with "not allowed. Plugin not found" on the gateway
     // origin (http://127.0.0.1:*) — Tauri 2's ACL needs an explicit
     // permission entry per command for any non-local URL.
-    let attributes = tauri_build::Attributes::new()
-        .app_manifest(tauri_build::AppManifest::new().commands(&["set_update_badge"]));
+    let attributes =
+        tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+            "set_update_badge",
+            "cloud_connection_status",
+            "cloud_connection_start",
+            "cloud_connection_stop",
+        ]));
     tauri_build::try_build(attributes).expect("tauri-build failed");
 }

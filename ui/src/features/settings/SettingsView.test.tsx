@@ -11,6 +11,12 @@ import {
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
+const tauriInvokeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (cmd: string, args?: unknown) => tauriInvokeMock(cmd, args),
+}));
+
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   getPlugins: vi.fn(),
@@ -33,6 +39,9 @@ function capability(id: string, name: string, status = "supported") {
 }
 
 beforeEach(() => {
+  Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+  Reflect.deleteProperty(window, "__TAURI__");
+  tauriInvokeMock.mockReset();
   vi.mocked(getPlugins).mockReset();
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
   sessionStorage.removeItem("hecate.settingsFocus");
@@ -54,6 +63,7 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("button", { name: "Pricing" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Model capabilities" })).toBeNull();
+    expect(screen.queryByTestId("desktop-cloud-connection")).toBeNull();
   });
 
   it("starts on the cleanup controls", () => {
@@ -136,6 +146,70 @@ describe("SettingsView", () => {
       screen.getByText(/MCP github · stdio: npx -y @modelcontextprotocol\/server-github/i),
     ).toBeTruthy();
     expect(screen.getByText(/Unresolved auth: github_token/i)).toBeTruthy();
+  });
+
+  it("shows desktop cloud connection controls inside the native app", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    tauriInvokeMock
+      .mockResolvedValueOnce({
+        available: true,
+        running: false,
+        gateway_ready: true,
+        auto_start_enabled: false,
+        hec_path: "/Users/alice/.local/bin/hec",
+        base_url: "http://127.0.0.1:54321",
+        message: "Ready to connect. Sign in or approve in the browser when prompted.",
+        last_exit_status: null,
+      })
+      .mockResolvedValueOnce({
+        available: true,
+        running: true,
+        gateway_ready: true,
+        auto_start_enabled: true,
+        hec_path: "/Users/alice/.local/bin/hec",
+        base_url: "http://127.0.0.1:54321",
+        message: "Connected to Hecate Cloud. Keep this app open for remote access.",
+        last_exit_status: null,
+      });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-connection");
+    expect(within(section).getAllByText("Remote access").length).toBeGreaterThan(0);
+    expect(within(section).getByText(/Sign in or approve in the browser/i)).toBeTruthy();
+    expect(within(section).getByText("hec CLI")).toBeTruthy();
+    expect(within(section).getByText("Local runtime")).toBeTruthy();
+    expect(within(section).getByText(/Remote access is off until you connect/i)).toBeTruthy();
+
+    await user.click(within(section).getByRole("button", { name: "Connect to Hecate Cloud" }));
+
+    expect(tauriInvokeMock).toHaveBeenNthCalledWith(1, "cloud_connection_status", undefined);
+    expect(tauriInvokeMock).toHaveBeenNthCalledWith(2, "cloud_connection_start", undefined);
+    expect(await within(section).findByText("Connected")).toBeTruthy();
+    expect(within(section).getByText(/will reconnect when this app opens/i)).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+  });
+
+  it("shows a CLI install hint when the native connector cannot find hec", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    tauriInvokeMock.mockResolvedValueOnce({
+      available: false,
+      running: false,
+      gateway_ready: true,
+      auto_start_enabled: false,
+      hec_path: null,
+      base_url: "http://127.0.0.1:54321",
+      message: "Install the hec CLI before connecting to Hecate Cloud.",
+      last_exit_status: null,
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-connection");
+    expect(within(section).getByText("CLI required")).toBeTruthy();
+    expect(within(section).getByText(/from Hecate Cloud, then refresh this panel/i)).toBeTruthy();
+    expect(within(section).getByText("hec")).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Connect to Hecate Cloud" })).toBeDisabled();
   });
 });
 

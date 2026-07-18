@@ -61,6 +61,8 @@ tauri/
       lib.rs                Tauri builder, setup hook, GatewayChild managed state,
                             RunEvent::Exit → kill
       sidecar.rs            resolve_binary(), resolve_data_dir(), spawn_and_wait()
+      cloud_connection.rs   desktop-only Hecate Cloud connector supervisor;
+                            starts/stops the external `hec connect` CLI
 ```
 
 ## Just recipes
@@ -129,9 +131,10 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
 - The hecate child is spawned with `stdin = null` and `stdout = null` so it doesn't fight the Tauri process for the terminal in dev mode; `stderr` is redirected to `<data_dir>/gateway.log` (truncated per launch) so startup failures stay diagnosable instead of vanishing.
 - The native wrapper writes lifecycle breadcrumbs to `app.log`: app startup,
   sidecar spawn/readiness, navigation, update-check dispatch, badge failures,
-  graceful drain, fallback kill, runtime-state cleanup, and ACP adapter
-  process/session lifecycle. When debugging desktop issues, inspect `app.log`
-  for wrapper behavior and `gateway.log` for gateway stderr.
+  Cloud connector start/stop, graceful drain, fallback kill, runtime-state
+  cleanup, and ACP adapter process/session lifecycle. When debugging desktop
+  issues, inspect `app.log` for wrapper behavior and `gateway.log` for gateway
+  stderr.
 - The `Child` handle is stored in `GatewayChild` managed state; the gateway's base URL is stored alongside it in `GatewayBaseURL` so the close-window flow can reach the gateway HTTP surface.
 - The splash remains visible for at least 2 s before navigating to the gateway UI; keep this native-side so fast startups don't create a flash.
 - `tauri-plugin-window-state` restores size and position between launches.
@@ -143,6 +146,15 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   - `QUIT_IN_PROGRESS` atomic latch keeps `app.exit(0)`'s re-entrant `ExitRequested` from re-prompting.
 - `RunEvent::Exit` is the final cleanup: `child.try_wait()` for up to 2 s (graceful path leaves nothing to wait on) and then `child.kill()` as a fallback if the gateway never exited (drain timed out, /system/shutdown unreachable, etc.). Also removes `hecate.runtime.json` from the data dir.
 - If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.
+- Desktop remote access is a supervised `hec connect` subprocess, not a second
+  Cloud implementation in the open-source app. The Tauri command passes the
+  actual dynamic sidecar URL via `--local-url`; `hec` owns browser login,
+  desktop host registration, token storage, and Cloud protocol details. After a
+  successful manual connect, Tauri persists only an on/off preference at
+  `<app_data_dir>/cloud-connection.json` and auto-starts `hec connect` after the
+  next sidecar `/healthz` success. Disconnecting clears that preference. Do not
+  store Cloud session tokens, host tokens, approval URLs, or browser-login state
+  in the native app.
 
 ## Tauri-specific rules
 

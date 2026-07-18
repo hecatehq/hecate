@@ -9,6 +9,9 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "allow-cloud-connection-start",
+    "allow-cloud-connection-status",
+    "allow-cloud-connection-stop",
     "allow-open-workspace-target",
     "allow-set-update-badge",
     "log:default",
