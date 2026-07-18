@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
 import { useSettings } from "../../app/state/settings";
+import {
+  canUseDesktopCloudConnection,
+  getDesktopCloudConnectionStatus,
+  startDesktopCloudConnection,
+  stopDesktopCloudConnection,
+  type DesktopCloudConnectionStatus,
+} from "../../lib/cloud-connection";
 import { getPlugins } from "../../lib/api";
 import type { PluginRecord } from "../../types/plugin";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
@@ -51,6 +58,7 @@ export function SettingsView() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        {canUseDesktopCloudConnection() && <DesktopCloudConnectionSettings />}
         <PluginRegistrySettings
           error={pluginsError}
           loading={pluginsLoading}
@@ -65,6 +73,272 @@ export function SettingsView() {
         />
       </div>
     </div>
+  );
+}
+
+const HCLOUD_CONSOLE_URL = "https://console.hecatehq.com/console";
+
+function DesktopCloudConnectionSettings() {
+  const [status, setStatus] = useState<DesktopCloudConnectionStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<"connect" | "disconnect" | "refresh" | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void refreshStatus("initial");
+  }, []);
+
+  async function refreshStatus(reason: "initial" | "manual" = "manual") {
+    if (reason === "initial") setLoading(true);
+    else setBusy("refresh");
+    setError("");
+    try {
+      setStatus(await getDesktopCloudConnectionStatus());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to read Hecate Cloud status.");
+    } finally {
+      setLoading(false);
+      setBusy(null);
+    }
+  }
+
+  async function connect() {
+    setBusy("connect");
+    setError("");
+    try {
+      setStatus(await startDesktopCloudConnection());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect to Hecate Cloud.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function disconnect() {
+    setBusy("disconnect");
+    setError("");
+    try {
+      setStatus(await stopDesktopCloudConnection());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disconnect from Hecate Cloud.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const title = loading
+    ? "Checking"
+    : status?.running
+      ? "Connected"
+      : status?.available && status.gateway_ready
+        ? status.auto_start_enabled
+          ? "Reconnect needed"
+          : "Ready"
+        : status?.available
+          ? "Starting"
+          : "CLI required";
+  const badgeStatus = status?.running
+    ? "healthy"
+    : status?.auto_start_enabled && status.available && status.gateway_ready
+      ? "warn"
+      : status?.available && status.gateway_ready
+        ? "disabled"
+        : "degraded";
+  const description =
+    status?.message ??
+    "Connect this desktop Hecate to Hecate Cloud so you can control it from another device.";
+  const canConnect = Boolean(status?.available && status.gateway_ready && !status.running);
+  const canDisconnect = Boolean(status?.running);
+  const actionDisabled = loading || busy !== null;
+  const accessMode = status?.running
+    ? "Remote access is on and will reconnect when this app opens."
+    : status?.auto_start_enabled
+      ? "Remote access is on, but the connector is not running."
+      : "Remote access is off until you connect.";
+
+  return (
+    <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-connection">
+      <SectionHeader
+        title="Remote access"
+        description="Connect this desktop app to Hecate Cloud for phone and browser access."
+        meta={status?.running ? "connected" : "desktop app"}
+        actions={
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={actionDisabled}
+            onClick={() => void refreshStatus("manual")}
+          >
+            <Icon d={Icons.refresh} size={13} /> {busy === "refresh" ? "Checking…" : "Refresh"}
+          </button>
+        }
+      />
+      <div className="card" style={{ padding: "15px 16px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 18,
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", gap: 11, minWidth: 0 }}>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: status?.running
+                  ? "var(--teal)"
+                  : status?.available
+                    ? "var(--yellow)"
+                    : "var(--border-strong)",
+                boxShadow: status?.running ? "0 0 0 3px var(--teal-bg)" : undefined,
+                flexShrink: 0,
+                marginTop: 5,
+              }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 650, color: "var(--t0)" }}>{title}</div>
+                {!loading && (
+                  <Badge
+                    status={badgeStatus}
+                    label={status?.running ? "on" : status?.auto_start_enabled ? "check" : "off"}
+                  />
+                )}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
+                {loading ? "Checking Hecate Cloud connection…" : description}
+              </div>
+              {!loading && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginTop: 10,
+                  }}
+                  aria-label="Remote access readiness"
+                >
+                  <RemoteAccessReadinessChip
+                    label="hec CLI"
+                    state={status?.available ? "ready" : "missing"}
+                  />
+                  <RemoteAccessReadinessChip
+                    label="Local runtime"
+                    state={status?.gateway_ready ? "ready" : "starting"}
+                  />
+                  <RemoteAccessReadinessChip
+                    label="Remote access"
+                    state={status?.running ? "connected" : "off"}
+                  />
+                </div>
+              )}
+              {status?.last_exit_status && (
+                <div
+                  style={{
+                    marginTop: 9,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--t3)",
+                  }}
+                >
+                  {status.last_exit_status}
+                </div>
+              )}
+              {status?.hec_path && (
+                <div
+                  style={{
+                    marginTop: 9,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--t3)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={status.hec_path}
+                >
+                  {status.hec_path}
+                </div>
+              )}
+              {!loading && (
+                <div style={{ marginTop: 9, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+                  {accessMode}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {canDisconnect ? (
+              <button className="btn btn-ghost" disabled={actionDisabled} onClick={disconnect}>
+                {busy === "disconnect" ? "Disconnecting…" : "Disconnect"}
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                disabled={!canConnect || actionDisabled}
+                onClick={connect}
+              >
+                {busy === "connect" ? "Connecting…" : "Connect to Hecate Cloud"}
+              </button>
+            )}
+            <a className="btn btn-ghost" href={HCLOUD_CONSOLE_URL} rel="noreferrer" target="_blank">
+              Open Cloud
+            </a>
+          </div>
+        </div>
+        {!status?.available && !loading && (
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            Install <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>hec</span>{" "}
+            from Hecate Cloud, then refresh this panel.
+          </div>
+        )}
+        {error && (
+          <div style={{ marginTop: 10 }}>
+            <InlineError message={error} />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RemoteAccessReadinessChip({
+  label,
+  state,
+}: {
+  label: string;
+  state: "ready" | "missing" | "starting" | "connected" | "off";
+}) {
+  const status = state === "ready" || state === "connected" ? "healthy" : "disabled";
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        minHeight: 24,
+        border: "1px solid var(--border)",
+        borderRadius: 999,
+        padding: "3px 8px",
+        background: "var(--bg2)",
+        color: "var(--t2)",
+        fontSize: 11,
+        fontWeight: 600,
+      }}
+    >
+      <span style={{ color: "var(--t1)" }}>{label}</span>
+      <Badge status={status} label={state} />
+    </span>
   );
 }
 

@@ -12,9 +12,11 @@
 //   4. The Child handle is stored in Tauri managed state. When the window
 //      closes, the RunEvent::Exit handler kills hecate before the process exits.
 
+mod cloud_connection;
 mod sidecar;
 mod webview_media;
 
+use cloud_connection::{CloudConnectionStatus, CloudConnectionSupervisor};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -58,6 +60,30 @@ fn set_update_badge(window: tauri::WebviewWindow, visible: bool) -> Result<(), S
         log::warn!("set update badge failed visible={visible}: {err}");
     }
     result
+}
+
+#[tauri::command]
+fn cloud_connection_status(
+    gateway_base_url: tauri::State<'_, GatewayBaseURL>,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+) -> CloudConnectionStatus {
+    cloud_connection.status(gateway_base_url.snapshot())
+}
+
+#[tauri::command]
+fn cloud_connection_start(
+    gateway_base_url: tauri::State<'_, GatewayBaseURL>,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+) -> Result<CloudConnectionStatus, String> {
+    cloud_connection.start(gateway_base_url.snapshot())
+}
+
+#[tauri::command]
+fn cloud_connection_stop(
+    gateway_base_url: tauri::State<'_, GatewayBaseURL>,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+) -> CloudConnectionStatus {
+    cloud_connection.stop(gateway_base_url.snapshot())
 }
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
@@ -683,7 +709,10 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             set_update_badge,
-            open_workspace_target
+            open_workspace_target,
+            cloud_connection_status,
+            cloud_connection_start,
+            cloud_connection_stop
         ])
         .on_menu_event(|app, event| match event.id().as_ref() {
             "check-for-updates" => {
@@ -808,6 +837,9 @@ pub fn run() {
             // Seed managed state with an empty child slot. The background
             // task fills it once hecate is spawned.
             app.manage(GatewayChild(Mutex::new(None)));
+            app.manage(CloudConnectionSupervisor::new(
+                diagnostics.data_dir.join("cloud-connection.json"),
+            ));
             // Seed an empty base URL slot. Filled by the spawn task once
             // /healthz returns 200; read by handle_quit_request to reach
             // /system/stats and /system/shutdown.
@@ -846,6 +878,9 @@ pub fn run() {
                             if let Ok(mut slot) = state.0.lock() {
                                 *slot = Some(handle.base_url.clone());
                             }
+                        }
+                        if let Some(state) = app_handle.try_state::<CloudConnectionSupervisor>() {
+                            state.start_if_enabled(Some(handle.base_url.clone()));
                         }
                         if let Some(delay) = remaining_splash_delay(splash_started.elapsed()) {
                             tokio::time::sleep(delay).await;
@@ -960,6 +995,9 @@ pub fn run() {
                         paths.state_path.display()
                     );
                     sidecar::remove_gateway_state(&paths.state_path);
+                }
+                if let Some(connection) = app_handle.try_state::<CloudConnectionSupervisor>() {
+                    connection.kill_for_exit();
                 }
             }
             _ => {}

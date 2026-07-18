@@ -387,6 +387,24 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the cloud_connection_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-connection-start",
+          "markdownDescription": "Enables the cloud_connection_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloud_connection_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-connection-status",
+          "markdownDescription": "Enables the cloud_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cloud_connection_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-connection-stop",
+          "markdownDescription": "Enables the cloud_connection_stop command without any pre-configured scope."
+        },
+        {
           "description": "Enables opening the active workspace in a local editor, terminal, or file manager.",
           "type": "string",
           "const": "allow-open-workspace-target",
@@ -397,6 +415,24 @@
           "type": "string",
           "const": "allow-set-update-badge",
           "markdownDescription": "Enables the set_update_badge command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_connection_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-connection-start",
+          "markdownDescription": "Denies the cloud_connection_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_connection_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-connection-status",
+          "markdownDescription": "Denies the cloud_connection_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_connection_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-connection-stop",
+          "markdownDescription": "Denies the cloud_connection_stop command without any pre-configured scope."
         },
         {
           "description": "Denies opening the active workspace in a local editor, terminal, or file manager.",

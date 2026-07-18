@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloud-connection-status"
+description = "Enables the cloud_connection_status command without any pre-configured scope."
+commands.allow = ["cloud_connection_status"]
+
+[[permission]]
+identifier = "deny-cloud-connection-status"
+description = "Denies the cloud_connection_status command without any pre-configured scope."
+commands.deny = ["cloud_connection_status"]

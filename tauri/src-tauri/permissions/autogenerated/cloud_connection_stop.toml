@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloud-connection-stop"
+description = "Enables the cloud_connection_stop command without any pre-configured scope."
+commands.allow = ["cloud_connection_stop"]
+
+[[permission]]
+identifier = "deny-cloud-connection-stop"
+description = "Denies the cloud_connection_stop command without any pre-configured scope."
+commands.deny = ["cloud_connection_stop"]
