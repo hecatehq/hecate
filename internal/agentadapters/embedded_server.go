@@ -44,7 +44,22 @@ func (r providerProcessRunner) RunStream(ctx context.Context, spec adapterproces
 	return r.runner.RunStream(ctx, r.bindCommand(spec), onStdout)
 }
 
+// Start lets embedded adapters run short-lived discovery exchanges through the
+// same resolved provider binary and constrained base environment as prompts.
+// It is intentionally separate from Run because discovery needs stdin/stdout
+// pipes while retaining the host's executable binding.
+func (r providerProcessRunner) Start(ctx context.Context, spec adapterprocess.StartSpec) (*adapterprocess.Child, error) {
+	return r.runner.Start(ctx, r.bindStartCommand(spec))
+}
+
 func (r providerProcessRunner) bindCommand(spec adapterprocess.Spec) adapterprocess.Spec {
+	if strings.TrimSpace(spec.Command) == r.command && r.path != "" {
+		spec.Command = r.path
+	}
+	return spec
+}
+
+func (r providerProcessRunner) bindStartCommand(spec adapterprocess.StartSpec) adapterprocess.StartSpec {
 	if strings.TrimSpace(spec.Command) == r.command && r.path != "" {
 		spec.Command = r.path
 	}

@@ -331,6 +331,17 @@ External Agent has two live/persistence layers:
    parallel implementation-metadata shape.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
+ACP `available_commands_update` is a complete provider-owned replacement
+snapshot, not a Hecate-maintained command list. Retain updates received during
+`session/new` until the exact live peer is installed, then republish the latest
+snapshot through the manager's identity fence. A live update (including an
+explicit empty list) is authoritative over older prepare, prompt-result, and
+config-result snapshots; persist that authority with the session so a full
+record update cannot restore stale commands. Reset the authority and catalog
+when the native session is replaced or closed. Do not turn provider skills or
+other non-command metadata into slash commands without a provider-defined,
+side-effect-free invocation contract.
+
 Native-session recovery crosses both layers and must remain fail-closed.
 Provider-specific adapters may classify an exact prompt failure as
 `native_session_missing`, but they must not retry or replace the id. Hecate may

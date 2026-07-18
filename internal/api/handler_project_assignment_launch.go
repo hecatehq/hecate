@@ -1374,9 +1374,7 @@ func (h *Handler) startStrictEmbeddedCairnlineExternalAgentAssignment(
 		item.NativeSessionID = prepared.NativeSessionID
 		item.AgentInfo = prepared.AgentInfo
 		item.ConfigOptions = prepared.ConfigOptions
-		if prepared.AvailableCommandsKnown {
-			item.AvailableCommands = prepared.AvailableCommands
-		}
+		chat.ApplyAvailableCommandsBootstrap(item, prepared.AvailableCommands, prepared.AvailableCommandsKnown)
 	})
 	if err != nil {
 		h.cleanupStrictEmbeddedExternalAgentSession(session.ID)

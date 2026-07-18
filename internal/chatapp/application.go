@@ -464,6 +464,7 @@ func (app *Application) ReplaceNativeSession(ctx context.Context, cmd ReplaceNat
 			return
 		}
 		item.NativeSessionID = nativeID
+		chat.ResetAvailableCommandsAuthority(item)
 	})
 	if err != nil {
 		return nil, err
@@ -564,9 +565,7 @@ func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionComm
 		item.NativeSessionID = prepared.NativeSessionID
 		item.AgentInfo = prepared.AgentInfo
 		item.ConfigOptions = prepared.ConfigOptions
-		if prepared.AvailableCommandsKnown {
-			item.AvailableCommands = prepared.AvailableCommands
-		}
+		chat.ApplyAvailableCommandsBootstrap(item, prepared.AvailableCommands, prepared.AvailableCommandsKnown)
 	})
 	if err != nil {
 		app.cleanupExternalSession(sessionID)
@@ -857,6 +856,7 @@ func (app *Application) CloseNativeSession(ctx context.Context, cmd CloseNativeS
 		item.DriverKind = ""
 		item.NativeSessionID = ""
 		item.AgentInfo = nil
+		chat.ResetAvailableCommandsAuthority(item)
 	})
 	if err != nil {
 		return nil, err
@@ -907,9 +907,7 @@ func (app *Application) SetConfigOption(ctx context.Context, cmd SetConfigOption
 	}
 	session, err := app.store.UpdateSession(ctx, cmd.Session.ID, func(item *chat.Session) {
 		item.ConfigOptions = result.ConfigOptions
-		if result.AvailableCommandsKnown {
-			item.AvailableCommands = result.AvailableCommands
-		}
+		chat.ApplyAvailableCommandsBootstrap(item, result.AvailableCommands, result.AvailableCommandsKnown)
 	})
 	if err != nil {
 		return nil, err

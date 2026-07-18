@@ -50,10 +50,17 @@ type acpSession struct {
 	configOptions []agentcontrols.ConfigOption
 	managedConfig map[string]struct{}
 
-	commandMu              sync.Mutex
-	availableCommands      []agentcontrols.Command
-	availableCommandsKnown bool
-	commandUpdate          chan struct{}
+	commandMu                 sync.Mutex
+	commandPublishMu          sync.Mutex
+	availableCommands         []agentcontrols.Command
+	availableCommandsKnown    bool
+	availableCommandsRevision uint64
+	// availableCommandsPublishing stays false until SessionManager has installed
+	// this exact session. ACP peers may notify during session/new; retaining the
+	// snapshot here avoids both dropping that update and publishing it through a
+	// stale session identity.
+	availableCommandsPublishing bool
+	commandUpdate               chan struct{}
 
 	turnMu sync.Mutex
 
@@ -69,7 +76,7 @@ type acpSession struct {
 	verifyPromptStage  func(*acpPromptStage) error
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, onAvailableCommands func(AvailableCommandsUpdate), workspaceCoordinator *workspacecoord.Registry, terminalSupport bool) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, mcpServers []types.MCPServerConfig, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, workspaceCoordinator *workspacecoord.Registry, terminalSupport bool) (*acpSession, bool, string, error) {
 	if terminalSupport && workspaceCoordinator == nil {
 		return nil, false, "", fmt.Errorf("workspace coordination is required when ACP terminal support is enabled")
 	}
@@ -123,16 +130,15 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	}
 	client.terminalsEnabled = terminalSupport
 	session := &acpSession{
-		sessionID:           sessionID,
-		adapter:             adapter,
-		workspace:           workspace,
-		mcpServers:          cloneMCPServerConfigs(mcpServers),
-		peer:                peer,
-		client:              client,
-		logger:              sessionLogger,
-		onAvailableCommands: onAvailableCommands,
-		commandUpdate:       make(chan struct{}),
-		promptStageOwner:    processACPPromptStageCleanupOwner,
+		sessionID:        sessionID,
+		adapter:          adapter,
+		workspace:        workspace,
+		mcpServers:       cloneMCPServerConfigs(mcpServers),
+		peer:             peer,
+		client:           client,
+		logger:           sessionLogger,
+		commandUpdate:    make(chan struct{}),
+		promptStageOwner: processACPPromptStageCleanupOwner,
 	}
 	client.onAvailableCommands = session.setAvailableCommands
 	client.onConfigOptions = session.applyConfigOptionsUpdate
@@ -677,18 +683,68 @@ func (s *acpSession) setAvailableCommands(commands []agentcontrols.Command) {
 	s.commandMu.Lock()
 	s.availableCommands = commands
 	s.availableCommandsKnown = true
+	s.availableCommandsRevision++
 	if s.commandUpdate != nil {
 		close(s.commandUpdate)
 	}
 	s.commandUpdate = make(chan struct{})
+	publish := s.availableCommandsPublishing && s.onAvailableCommands != nil
+	callback := s.onAvailableCommands
+	update := AvailableCommandsUpdate{
+		SessionID: s.sessionID,
+		AdapterID: s.adapter.ID,
+		Commands:  cloneCommands(commands),
+		revision:  s.availableCommandsRevision,
+	}
 	s.commandMu.Unlock()
 
-	if s.onAvailableCommands != nil {
-		s.onAvailableCommands(AvailableCommandsUpdate{
-			SessionID: s.sessionID,
-			AdapterID: s.adapter.ID,
-			Commands:  cloneCommands(commands),
-		})
+	if publish {
+		callback(update)
+	}
+}
+
+// activateAvailableCommands opens publication only after SessionManager has
+// associated the peer with its durable Hecate session. It republishes the
+// latest retained snapshot so an ACP notification received during session/new
+// cannot be lost before the manager installs this session.
+func (s *acpSession) activateAvailableCommands(callback func(AvailableCommandsUpdate)) {
+	if s == nil {
+		return
+	}
+	s.commandMu.Lock()
+	s.onAvailableCommands = callback
+	s.availableCommandsPublishing = true
+	publish := s.availableCommandsKnown && callback != nil
+	update := AvailableCommandsUpdate{
+		SessionID: s.sessionID,
+		AdapterID: s.adapter.ID,
+		Commands:  cloneCommands(s.availableCommands),
+		revision:  s.availableCommandsRevision,
+	}
+	s.commandMu.Unlock()
+	if publish {
+		callback(update)
+	}
+}
+
+// publishAvailableCommands serializes persistence of this peer's replacement
+// snapshots. A new notification may arrive after activation snapshots a
+// retained catalog but before that catalog reaches SessionManager; rechecking
+// the revision under this gate drops the older publication. The gate remains
+// held through callback so a newer snapshot is persisted immediately after,
+// never before, the snapshot it supersedes.
+func (s *acpSession) publishAvailableCommands(update AvailableCommandsUpdate, callback func(AvailableCommandsUpdate)) {
+	if s == nil || callback == nil {
+		return
+	}
+	s.commandPublishMu.Lock()
+	defer s.commandPublishMu.Unlock()
+
+	s.commandMu.Lock()
+	current := s.availableCommandsKnown && update.revision == s.availableCommandsRevision
+	s.commandMu.Unlock()
+	if current {
+		callback(update)
 	}
 }
 

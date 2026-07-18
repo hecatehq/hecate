@@ -763,6 +763,31 @@ func TestACPChatClientCapturesAvailableCommandsWithoutActiveTurn(t *testing.T) {
 	}
 }
 
+func TestACPChatClientPreservesExplicitEmptyAvailableCommandsUpdate(t *testing.T) {
+	var got []agentcontrols.Command
+	client := &acpChatClient{
+		onAvailableCommands: func(commands []agentcontrols.Command) {
+			got = commands
+		},
+	}
+
+	err := client.SessionUpdate(context.Background(), acp.SessionNotification{
+		SessionId: acp.SessionId("native_session"),
+		Update: acp.SessionUpdate{
+			AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
+				SessionUpdate:     "available_commands_update",
+				AvailableCommands: []acp.AvailableCommand{},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SessionUpdate: %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("available commands = %#v, want explicit empty snapshot", got)
+	}
+}
+
 func TestACPChatClientCapturesConfigOptionsWithoutActiveTurn(t *testing.T) {
 	var got []agentcontrols.ConfigOption
 	client := &acpChatClient{
@@ -882,6 +907,250 @@ func TestSessionManagerPrepareWaitsForInitialAvailableCommands(t *testing.T) {
 	}
 	if got := result.AvailableCommands; len(got) != 2 || got[0].Name != "web" || got[1].Name != "plan" {
 		t.Fatalf("available commands = %#v, want web and plan", got)
+	}
+}
+
+func TestSessionManagerPublishesCommandSnapshotRetainedBeforeInstall(t *testing.T) {
+	manager := NewSessionManager()
+	updates := make(chan AvailableCommandsUpdate, 1)
+	manager.SetAvailableCommandsUpdateHook(func(update AvailableCommandsUpdate) {
+		updates <- update
+	})
+	session := testCommandCatalogSession("chat_retained_commands", "claude_code")
+
+	// ACP can notify during session/new, before the manager has a current peer
+	// to associate with the durable chat session. Retain it without publishing.
+	session.setAvailableCommands([]agentcontrols.Command{{Name: "goal"}})
+	assertNoAvailableCommandsUpdate(t, updates)
+
+	manager.mu.Lock()
+	manager.sessions[session.sessionID] = session
+	manager.mu.Unlock()
+	manager.activateSessionAvailableCommands(session)
+
+	update := waitForAvailableCommandsUpdate(t, updates)
+	if update.SessionID != session.sessionID || update.AdapterID != "claude_code" || len(update.Commands) != 1 || update.Commands[0].Name != "goal" {
+		t.Fatalf("retained update = %#v, want published goal catalog", update)
+	}
+}
+
+func TestSessionManagerReplaysCatalogWhenHookIsInstalledLate(t *testing.T) {
+	manager := NewSessionManager()
+	session := testCommandCatalogSession("chat_late_catalog_hook", "claude_code")
+	manager.mu.Lock()
+	manager.sessions[session.sessionID] = session
+	manager.mu.Unlock()
+	manager.activateSessionAvailableCommands(session)
+	session.setAvailableCommands([]agentcontrols.Command{{Name: "goal"}})
+
+	updates := make(chan AvailableCommandsUpdate, 1)
+	manager.SetAvailableCommandsUpdateHook(func(update AvailableCommandsUpdate) {
+		updates <- update
+	})
+	update := waitForAvailableCommandsUpdate(t, updates)
+	if update.SessionID != session.sessionID || len(update.Commands) != 1 || update.Commands[0].Name != "goal" {
+		t.Fatalf("replayed update = %#v, want goal catalog", update)
+	}
+}
+
+func TestSessionManagerDropsStaleRetainedCatalogDuringActivation(t *testing.T) {
+	manager := NewSessionManager()
+	updates := make(chan AvailableCommandsUpdate, 2)
+	manager.SetAvailableCommandsUpdateHook(func(update AvailableCommandsUpdate) {
+		updates <- update
+	})
+	session := testCommandCatalogSession("chat_activation_catalog", "claude_code")
+
+	// The first snapshot arrives during session/new and is retained before the
+	// manager can identify the peer.
+	session.setAvailableCommands([]agentcontrols.Command{{Name: "retained"}})
+
+	// Block activation in SessionManager after it has retained that first
+	// snapshot. A second ACP notification can then update the session before
+	// either callback is allowed to persist.
+	manager.mu.Lock()
+	manager.sessions[session.sessionID] = session
+	activated := make(chan struct{})
+	go func() {
+		manager.activateSessionAvailableCommands(session)
+		close(activated)
+	}()
+	waitForCommandCatalogPublishing(t, session)
+
+	updated := make(chan struct{})
+	go func() {
+		session.setAvailableCommands([]agentcontrols.Command{{Name: "current"}})
+		close(updated)
+	}()
+	waitForCommandCatalog(t, session, "current")
+	manager.mu.Unlock()
+
+	select {
+	case <-activated:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for retained catalog activation")
+	}
+	select {
+	case <-updated:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for current catalog update")
+	}
+
+	update := waitForAvailableCommandsUpdate(t, updates)
+	if len(update.Commands) != 1 || update.Commands[0].Name != "current" {
+		t.Fatalf("published update = %#v, want only current catalog", update)
+	}
+	assertNoAvailableCommandsUpdate(t, updates)
+}
+
+func TestSessionManagerRejectsCommandsFromReplacedOrClosedPeer(t *testing.T) {
+	manager := NewSessionManager()
+	updates := make(chan AvailableCommandsUpdate, 4)
+	manager.SetAvailableCommandsUpdateHook(func(update AvailableCommandsUpdate) {
+		updates <- update
+	})
+	old := testCommandCatalogSession("chat_replaced_commands", "claude_code")
+	current := testCommandCatalogSession("chat_replaced_commands", "claude_code")
+
+	manager.mu.Lock()
+	manager.sessions[old.sessionID] = old
+	manager.mu.Unlock()
+	manager.activateSessionAvailableCommands(old)
+
+	manager.mu.Lock()
+	manager.sessions[old.sessionID] = current
+	manager.mu.Unlock()
+	manager.activateSessionAvailableCommands(current)
+
+	old.setAvailableCommands([]agentcontrols.Command{{Name: "stale"}})
+	assertNoAvailableCommandsUpdate(t, updates)
+
+	current.setAvailableCommands([]agentcontrols.Command{{Name: "goal"}})
+	update := waitForAvailableCommandsUpdate(t, updates)
+	if len(update.Commands) != 1 || update.Commands[0].Name != "goal" {
+		t.Fatalf("current update = %#v, want goal catalog", update)
+	}
+
+	manager.mu.Lock()
+	delete(manager.sessions, current.sessionID)
+	manager.mu.Unlock()
+	current.setAvailableCommands([]agentcontrols.Command{{Name: "after-close"}})
+	assertNoAvailableCommandsUpdate(t, updates)
+}
+
+func TestSessionManagerSerializesCommandPublicationWithReplacement(t *testing.T) {
+	manager := NewSessionManager()
+	publishStarted := make(chan struct{})
+	releasePublish := make(chan struct{})
+	manager.SetAvailableCommandsUpdateHook(func(AvailableCommandsUpdate) {
+		close(publishStarted)
+		<-releasePublish
+	})
+	old := testCommandCatalogSession("chat_serialized_commands", "claude_code")
+	current := testCommandCatalogSession("chat_serialized_commands", "claude_code")
+	manager.mu.Lock()
+	manager.sessions[old.sessionID] = old
+	manager.mu.Unlock()
+	manager.activateSessionAvailableCommands(old)
+
+	published := make(chan struct{})
+	go func() {
+		old.setAvailableCommands([]agentcontrols.Command{{Name: "goal"}})
+		close(published)
+	}()
+	select {
+	case <-publishStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for command publication")
+	}
+
+	replaced := make(chan struct{})
+	go func() {
+		manager.mu.Lock()
+		manager.sessions[old.sessionID] = current
+		manager.mu.Unlock()
+		close(replaced)
+	}()
+	select {
+	case <-replaced:
+		t.Fatal("replacement completed while the old peer publication was active")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(releasePublish)
+	select {
+	case <-published:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for command publication to finish")
+	}
+	select {
+	case <-replaced:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for replacement")
+	}
+}
+
+func testCommandCatalogSession(sessionID, adapterID string) *acpSession {
+	return &acpSession{
+		sessionID:     sessionID,
+		adapter:       Adapter{ID: adapterID},
+		commandUpdate: make(chan struct{}),
+	}
+}
+
+func waitForCommandCatalogPublishing(t testing.TB, session *acpSession) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		session.commandMu.Lock()
+		publishing := session.availableCommandsPublishing
+		session.commandMu.Unlock()
+		if publishing {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for command catalog publication activation")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+func waitForCommandCatalog(t testing.TB, session *acpSession, wantName string) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		commands, known := session.availableCommandsSnapshot()
+		if known && len(commands) == 1 && commands[0].Name == wantName {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for command catalog %q; got %#v (known=%t)", wantName, commands, known)
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+func waitForAvailableCommandsUpdate(t testing.TB, updates <-chan AvailableCommandsUpdate) AvailableCommandsUpdate {
+	t.Helper()
+	select {
+	case update := <-updates:
+		return update
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for available-commands update")
+		return AvailableCommandsUpdate{}
+	}
+}
+
+func assertNoAvailableCommandsUpdate(t testing.TB, updates <-chan AvailableCommandsUpdate) {
+	t.Helper()
+	select {
+	case update := <-updates:
+		t.Fatalf("unexpected available-commands update: %#v", update)
+	case <-time.After(25 * time.Millisecond):
 	}
 }
 

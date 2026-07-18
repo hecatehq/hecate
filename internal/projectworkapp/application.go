@@ -789,9 +789,7 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 		item.NativeSessionID = prepared.NativeSessionID
 		item.AgentInfo = prepared.AgentInfo
 		item.ConfigOptions = prepared.ConfigOptions
-		if prepared.AvailableCommandsKnown {
-			item.AvailableCommands = prepared.AvailableCommands
-		}
+		chat.ApplyAvailableCommandsBootstrap(item, prepared.AvailableCommands, prepared.AvailableCommandsKnown)
 	})
 	if err != nil {
 		app.cleanupExternalSession(session.ID)

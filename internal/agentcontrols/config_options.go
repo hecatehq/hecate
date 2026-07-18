@@ -88,10 +88,12 @@ func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 }
 
 // FromACPCommands converts ACP available commands to Hecate's stable wire
-// shape. Commands with empty names are ignored because the name is the prompt
-// token the operator sends back to the agent, usually as /name.
+// shape. A non-nil but empty input remains an explicit empty output so an ACP
+// replacement snapshot can clear prior command hints. Commands with empty names
+// are ignored because the name is the prompt token the operator sends back to
+// the agent, usually as /name.
 func FromACPCommands(commands []acp.AvailableCommand) []Command {
-	if len(commands) == 0 {
+	if commands == nil {
 		return nil
 	}
 	out := make([]Command, 0, len(commands))
@@ -110,9 +112,6 @@ func FromACPCommands(commands []acp.AvailableCommand) []Command {
 			Description: trimString(command.Description),
 			InputHint:   acpCommandInputHint(command.Input),
 		})
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }

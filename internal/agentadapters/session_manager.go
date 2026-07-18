@@ -81,8 +81,53 @@ func (m *SessionManager) SetAdapterMetrics(metrics *telemetry.AgentAdapterMetric
 
 func (m *SessionManager) SetAvailableCommandsUpdateHook(hook func(AvailableCommandsUpdate)) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.onAvailableCommands = hook
+	sessions := make([]*acpSession, 0, len(m.sessions))
+	if hook != nil && !m.closed {
+		for _, session := range m.sessions {
+			sessions = append(sessions, session)
+		}
+	}
+	m.mu.Unlock()
+
+	// Handler construction normally installs this hook before sessions start,
+	// but the public setter also supports dynamic runner wiring. Replaying the
+	// current snapshots ensures a catalog learned before the hook existed is
+	// not silently lost. activateSessionAvailableCommands rechecks peer
+	// identity before persistence, so sessions replaced after the copy are safe.
+	for _, session := range sessions {
+		m.activateSessionAvailableCommands(session)
+	}
+}
+
+// activateSessionAvailableCommands releases a session's retained ACP command
+// snapshot only after the manager has installed that exact peer. The callback
+// checks identity while holding m.mu, which serializes publication with every
+// detach, replacement, and shutdown path below.
+func (m *SessionManager) activateSessionAvailableCommands(session *acpSession) {
+	if m == nil || session == nil {
+		return
+	}
+	session.activateAvailableCommands(func(update AvailableCommandsUpdate) {
+		m.publishAvailableCommands(session, update)
+	})
+}
+
+func (m *SessionManager) publishAvailableCommands(session *acpSession, update AvailableCommandsUpdate) {
+	if m == nil || session == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || update.SessionID != session.sessionID || m.sessions[update.SessionID] != session {
+		return
+	}
+	if hook := m.onAvailableCommands; hook != nil {
+		// This hook is Hecate's persistence boundary. Keep m.mu through the call
+		// so a previous peer cannot pass the identity check and then write after
+		// a replacement or close removes it from m.sessions.
+		session.publishAvailableCommands(update, hook)
+	}
 }
 
 // SetTerminalSupportEnabled controls whether ACP sessions advertise and honor
@@ -416,11 +461,10 @@ func (m *SessionManager) completeNativeSessionReplacement(adapter Adapter, req R
 	logger := m.logger
 	coordinator := m.coordinator
 	metrics := m.metrics
-	onAvailableCommands := m.onAvailableCommands
 	workspaceCoordinator := m.workspaceCoordinator
 	terminalSupport := m.terminalSupport
 	m.mu.Unlock()
-	fresh, _, _, err := startACPSession(start.ctx, adapter, req.SessionID, req.Workspace, "", req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands, workspaceCoordinator, terminalSupport)
+	fresh, _, _, err := startACPSession(start.ctx, adapter, req.SessionID, req.Workspace, "", req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, workspaceCoordinator, terminalSupport)
 	if err != nil {
 		start.cancel()
 		m.abortNativeSessionReplacement(req.SessionID, start, stale)
@@ -467,6 +511,7 @@ func (m *SessionManager) completeNativeSessionReplacement(adapter Adapter, req R
 	}
 	m.sessions[req.SessionID] = fresh
 	m.mu.Unlock()
+	m.activateSessionAvailableCommands(fresh)
 	closeACPSessionBounded(stale)
 	m.mu.Lock()
 	if m.starts[req.SessionID] == start {
@@ -480,13 +525,18 @@ func (m *SessionManager) completeNativeSessionReplacement(adapter Adapter, req R
 func (m *SessionManager) abortNativeSessionReplacement(sessionID string, start *sessionStart, stale *acpSession) {
 	m.mu.Lock()
 	closed := m.closed
+	restored := false
 	if m.starts[sessionID] == start {
 		delete(m.starts, sessionID)
 		if !closed {
 			m.sessions[sessionID] = stale
+			restored = true
 		}
 	}
 	m.mu.Unlock()
+	if restored {
+		m.activateSessionAvailableCommands(stale)
+	}
 	if closed {
 		closeACPSessionBounded(stale)
 	}
@@ -530,12 +580,11 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		logger := m.logger
 		coordinator := m.coordinator
 		metrics := m.metrics
-		onAvailableCommands := m.onAvailableCommands
 		workspaceCoordinator := m.workspaceCoordinator
 		terminalSupport := m.terminalSupport
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, onAvailableCommands, workspaceCoordinator, terminalSupport)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, req.MCPServers, logger, coordinator, metrics, workspaceCoordinator, terminalSupport)
 		committedReplacement := false
 		if err == nil && recovery != "" {
 			replacement := NativeSessionReplacement{
@@ -602,6 +651,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		m.sessions[req.SessionID] = started
 		delete(m.starts, req.SessionID)
 		m.mu.Unlock()
+		m.activateSessionAvailableCommands(started)
 
 		if previous != nil {
 			closeACPSessionBounded(previous)

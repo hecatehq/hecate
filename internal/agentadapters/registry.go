@@ -293,6 +293,11 @@ type AvailableCommandsUpdate struct {
 	SessionID string
 	AdapterID string
 	Commands  []agentcontrols.Command
+
+	// revision is an internal per-peer ordering fence. ACP command catalogs are
+	// replacement snapshots, so a delayed retained snapshot must never overwrite
+	// a newer notification from the same peer.
+	revision uint64
 }
 
 type SetSessionConfigOptionRequest struct {

@@ -267,11 +267,11 @@ func (h *Handler) handleAgentChatAvailableCommandsUpdate(update agentadapters.Av
 	if update.AdapterID != "" && session.AgentID != update.AdapterID {
 		return
 	}
-	if slices.Equal(session.AvailableCommands, commands) {
+	if session.AvailableCommandsAuthoritative && slices.Equal(session.AvailableCommands, commands) {
 		return
 	}
 	updated, err := h.agentChat.UpdateSession(ctx, sessionID, func(item *chat.Session) {
-		item.AvailableCommands = commands
+		chat.ApplyAvailableCommandsLive(item, commands)
 	})
 	if err != nil {
 		telemetry.Warn(h.logger, ctx, "agent chat available commands update failed", slog.String("session_id", sessionID), slog.Any("error", err))
@@ -1428,9 +1428,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 			if result.ConfigOptions != nil {
 				item.ConfigOptions = result.ConfigOptions
 			}
-			if result.AvailableCommandsKnown {
-				item.AvailableCommands = result.AvailableCommands
-			}
+			chat.ApplyAvailableCommandsBootstrap(item, result.AvailableCommands, result.AvailableCommandsKnown)
 		})
 		if err != nil {
 			if r.Context().Err() == nil {

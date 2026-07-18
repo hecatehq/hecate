@@ -4374,10 +4374,12 @@ adapter and upstream agent. Hecate-owned chats do not accept session-level
 `mcp_servers`; pass them on `POST /hecate/v1/chat/sessions/{id}/messages` so
 the backing task segment records the exact server set for that run.
 If an ACP agent advertises native slash commands with
-`available_commands_update`, Hecate stores the latest command metadata on the
-session as `available_commands`. Clients send those commands back as ordinary
-prompt text, for example `/web agent client protocol`; there is no separate ACP
-execute-command RPC.
+`available_commands_update`, Hecate stores the latest complete provider-owned
+replacement snapshot on the session as `available_commands`. An explicit empty
+snapshot clears previous hints, and a live notification takes precedence over
+an older create, prompt, or configuration result. Clients send those commands
+back as ordinary prompt text, for example `/web agent client protocol`; there
+is no separate ACP execute-command RPC.
 
 ```json
 POST /hecate/v1/chat/sessions
@@ -4542,10 +4544,12 @@ include `model`, `mode`, and `thought_level`, but clients must handle missing
 or custom categories.
 
 External Agent sessions may also include `available_commands`, the latest ACP
-available slash command list advertised by the agent. Each item has `name`,
-optional `description`, and optional `input_hint`. The `name` is agent-owned;
-clients should render it as a slash command hint but submit the chosen command
-as normal prompt text.
+available slash command replacement snapshot advertised by the agent. Each
+item has `name`, optional `description`, and optional `input_hint`. The `name`
+is agent-owned; clients should render it as a slash command hint but submit the
+chosen command as normal prompt text. Clients must not treat the field as a
+Hecate-maintained catalog: provider updates may replace it with aliases,
+workspace-provided commands, or an explicit empty list.
 
 External Agent sessions and assistant messages may include `agent_info`, the
 adapter-reported ACP implementation metadata from `initialize.agentInfo`.

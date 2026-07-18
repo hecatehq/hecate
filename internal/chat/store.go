@@ -37,9 +37,14 @@ type Session struct {
 	Capabilities      types.ModelCapabilities
 	ConfigOptions     []agentcontrols.ConfigOption
 	AvailableCommands []agentcontrols.Command
-	AgentInfo         *agentcontrols.ImplementationInfo
-	MCPServers        []types.MCPServerConfig
-	RTKEnabled        bool
+	// AvailableCommandsAuthoritative records that an ACP peer has published a
+	// live replacement catalog. It is deliberately internal state: API clients
+	// receive the catalog itself, not the ordering fence that protects it from
+	// an older prepare/run/config snapshot.
+	AvailableCommandsAuthoritative bool
+	AgentInfo                      *agentcontrols.ImplementationInfo
+	MCPServers                     []types.MCPServerConfig
+	RTKEnabled                     bool
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
 	// HECATE_CHAT_MAX_TURNS_PER_SESSION ceiling.
@@ -676,6 +681,39 @@ func cloneCommands(commands []agentcontrols.Command) []agentcontrols.Command {
 	out := make([]agentcontrols.Command, len(commands))
 	copy(out, commands)
 	return out
+}
+
+// ApplyAvailableCommandsBootstrap accepts a synchronous session snapshot only
+// until an ACP peer has supplied an authoritative live replacement. This keeps
+// an older prepare/run/config result from erasing a newer notification that
+// arrived concurrently.
+func ApplyAvailableCommandsBootstrap(session *Session, commands []agentcontrols.Command, known bool) {
+	if session == nil || !known || session.AvailableCommandsAuthoritative {
+		return
+	}
+	session.AvailableCommands = cloneCommands(commands)
+}
+
+// ApplyAvailableCommandsLive records the complete command snapshot last
+// advertised by an ACP peer. An explicit empty list is authoritative too: it
+// tells Hecate to clear commands the peer no longer offers.
+func ApplyAvailableCommandsLive(session *Session, commands []agentcontrols.Command) {
+	if session == nil {
+		return
+	}
+	session.AvailableCommands = cloneCommands(commands)
+	session.AvailableCommandsAuthoritative = true
+}
+
+// ResetAvailableCommandsAuthority discards a catalog bound to a prior native
+// session. The next bootstrap snapshot or live peer notification may populate
+// it for the replacement session.
+func ResetAvailableCommandsAuthority(session *Session) {
+	if session == nil {
+		return
+	}
+	session.AvailableCommands = nil
+	session.AvailableCommandsAuthoritative = false
 }
 
 const (
