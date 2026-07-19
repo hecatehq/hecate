@@ -588,11 +588,28 @@ export function TaskDetail({
   const browserEvidenceArtifacts = artifacts.filter((a) => a.kind === "browser_evidence");
   const workflowManifestArtifact = artifacts.find((a) => a.kind === "workflow_manifest") ?? null;
   const workflowReportArtifact = artifacts.find((a) => a.kind === "workflow_report") ?? null;
-  // A selected run is an immutable execution record. Prefer its non-empty
-  // workflow snapshot so later edits to the task do not relabel past work.
-  const effectiveWorkflowMode = run?.workflow_mode || task.workflow_mode;
-  const isQAWorkflow = effectiveWorkflowMode === "qa";
+  // A selected run is an immutable execution record. It owns the workflow
+  // contract whenever either snapshot field is present, including malformed
+  // or future pairs. Only legacy runs with neither field may use the mutable
+  // Task value. Do not present an unrecognised retained contract as QA v0.
+  const runHasWorkflowSnapshot = Boolean(
+    run && (run.workflow_mode !== undefined || run.workflow_version !== undefined),
+  );
+  const effectiveWorkflowMode = runHasWorkflowSnapshot ? run?.workflow_mode : task.workflow_mode;
+  const effectiveWorkflowVersion = runHasWorkflowSnapshot
+    ? run?.workflow_version
+    : task.workflow_version;
+  const isQAV0Workflow = effectiveWorkflowMode === "qa" && effectiveWorkflowVersion === "v0";
   const qaWorkflowReport = parseQAWorkflowReport(workflowReportArtifact?.content_text);
+  // Known QA v0 has a dedicated evidence panel. Retained future or malformed
+  // snapshots must leave their workflow artifacts visible as neutral raw
+  // artifacts rather than applying the v0 posture to data we cannot verify.
+  const visibleArtifacts = artifacts.filter(
+    (artifact) =>
+      isVisibleArtifactBadge(artifact) ||
+      (!isQAV0Workflow &&
+        (artifact.kind === "workflow_manifest" || artifact.kind === "workflow_report")),
+  );
   const previewPatch = artifacts.find((a) => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
   const source = taskSource(task);
@@ -644,7 +661,7 @@ export function TaskDetail({
         }}
       >
         <Badge {...taskBadgeProps(task.status, task.last_error)} />
-        {isQAWorkflow && (
+        {isQAV0Workflow && (
           <span
             className="badge badge-muted"
             title="Hecate report-only QA workflow"
@@ -949,7 +966,7 @@ export function TaskDetail({
                   ...(run.orchestrator === "agent_loop" || task.execution_kind === "agent_loop"
                     ? [["Model calls", String(run.model_call_count)]]
                     : []),
-                  ...(isQAWorkflow
+                  ...(isQAV0Workflow
                     ? [["Workflow", "QA · report only"]]
                     : task.agent_preset_id
                       ? [
@@ -1314,7 +1331,7 @@ export function TaskDetail({
           />
         )}
 
-        {isQAWorkflow && (
+        {isQAV0Workflow && (
           <QAWorkflowReportPanel
             reportArtifact={workflowReportArtifact}
             manifestArtifact={workflowManifestArtifact}
@@ -1460,7 +1477,7 @@ export function TaskDetail({
         {/* Bottom artifacts strip — excludes stdout/stderr (rendered
             in the terminal pane above) and agent_conversation
             (rendered as the chat-bubble timeline). */}
-        {artifacts.filter(isVisibleArtifactBadge).length > 0 && (
+        {visibleArtifacts.length > 0 && (
           <div
             style={{
               padding: "10px 16px",
@@ -1474,7 +1491,7 @@ export function TaskDetail({
             <span className="kicker" style={{ alignSelf: "center", marginRight: 4 }}>
               artifacts
             </span>
-            {artifacts.filter(isVisibleArtifactBadge).map((a) => (
+            {visibleArtifacts.map((a) => (
               <div
                 key={a.id}
                 style={{
