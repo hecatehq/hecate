@@ -12,11 +12,24 @@ export function isTauriRuntime(): boolean {
   );
 }
 
+export type DesktopHost = "linux" | "macos" | "windows";
+
+// Returns the desktop host only inside Tauri. Keeping this capability
+// narrow lets the shared console keep one layout while small shell
+// affordances (titlebar, menu copy, native typography) match the host.
+export function desktopHost(): DesktopHost | null {
+  if (!isTauriRuntime() || typeof navigator === "undefined") return null;
+  if (/mac/i.test(navigator.platform)) return "macos";
+  if (/win/i.test(navigator.platform)) return "windows";
+  if (/linux/i.test(navigator.platform)) return "linux";
+  return null;
+}
+
 // True only when running inside the Tauri runtime AND the host is
-// macOS. Gates the overlay-titlebar layout (28-px strip with
-// traffic-light pad + draggable banner). On Linux/Windows Tauri
-// honors `decorations: true` with a native titlebar above the
+// macOS. Gates the overlay-titlebar layout (a 28-px native drag strip
+// with traffic-light padding). On Linux/Windows
+// Tauri honors `decorations: true` with a native titlebar above the
 // webview, so we don't want a second titlebar-shaped strip below it.
 export function isTauriOnMacOS(): boolean {
-  return isTauriRuntime() && typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+  return desktopHost() === "macos";
 }

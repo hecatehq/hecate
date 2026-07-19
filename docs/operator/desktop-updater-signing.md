@@ -2,10 +2,11 @@
 
 > **Audience: maintainers.** This is the setup + rotation
 > checklist for the Tauri updater keypair that signs auto-update
-> manifests. End users downloading a built `.dmg` / `.deb` /
+> payloads. End users downloading a built `.dmg` / `.deb` /
 > `.AppImage` / `.msi` don't need to read this — the in-app
-> updater verifies signatures transparently when it pulls
-> `latest.json` from `https://hecate.sh/releases/alpha/latest.json`.
+> updater reads `latest.json` from
+> `https://hecate.sh/releases/alpha/latest.json` and verifies the
+> referenced payload's signature before installation.
 
 The Tauri updater plugin verifies that every update payload is
 signed by a private key that matches the public key embedded in
@@ -21,12 +22,12 @@ working pipeline:
    ships unsigned. The committed config already sets this.
 2. **`TAURI_UPDATER_PRIVATE_KEY` + `TAURI_UPDATER_PRIVATE_KEY_PASSWORD`**
    in GitHub Secrets. Without the keypair, the updater stays
-   inert and existing installs never see an update banner.
+   inert and existing installs never see an update indicator.
 
 This doc walks through generating the keypair once, storing the
 secrets, and flipping `active: true`. Subsequent releases then
-auto-emit a signed `latest.json` manifest to both the GitHub Release
-and the website-backed alpha channel.
+auto-emit a `latest.json` manifest containing signed payload references and
+signatures to both the GitHub Release and the website-backed alpha channel.
 
 ## Prerequisites
 
@@ -122,9 +123,10 @@ Edit `tauri/src-tauri/tauri.conf.json`:
 ```
 
 Open a PR with that change. After it merges and the
-next release tag is cut, the release workflow produces a signed
-`latest.json` and existing installs (built with the same pubkey
-in their bundle) detect and apply the update.
+next release tag is cut, the release workflow produces a
+`latest.json` manifest that references signed platform payloads.
+Existing installs built with the same pubkey detect and apply the
+update after verifying the downloaded payload.
 
 ## Securely store the local key
 
@@ -162,6 +164,7 @@ After the next tagged release with both secrets configured and
    {
      "version": "0.1.0-alpha.28",
      "pub_date": "...",
+     "notes": "Release notes from the published GitHub Release...",
      "platforms": {
        "darwin-aarch64": { "signature": "...", "url": "..." },
        "linux-x86_64": { "signature": "...", "url": "..." },
@@ -169,11 +172,15 @@ After the next tagged release with both secrets configured and
      }
    }
    ```
+   `notes` is bounded plain-text release metadata. It is not part of the
+   updater payload signature and must never be treated as a verification
+   signal; the client verifies the downloaded package before installation.
 5. On a Mac with the previous version installed: launch the app,
-   wait a few seconds, and the "Hecate X.Y.Z is available" banner
-   should appear at the top of the workspace. Click **Install and
-   Restart** — the new bundle downloads, replaces the running
-   app, and relaunches. The banner does not reappear post-update.
+   wait a few seconds, and the **Updates** control in the status bar
+   should show the available version. Open it to confirm the version,
+   date, and notes, then click **Install and restart** — the new bundle
+   downloads, replaces the running app, and relaunches. The update indicator
+   does not reappear post-update.
 
 ## Rotating the keypair
 
@@ -242,7 +249,7 @@ within 10 minutes. Walk down:
   reverted. Inspect master's history; the commit should appear in
   the release tag's wake.
 
-**Banner never appears even on a known-old install.** Possible
+**Update control never shows an update on a known-old install.** Possible
 causes, in rough order:
 
 - `active: false` in the bundle's `tauri.conf.json` — needs the
@@ -254,11 +261,12 @@ causes, in rough order:
   from alpha.21–27 fall in this category; reinstall manually from
   the current alpha to get a bundle with the `hecate.sh` updater
   channel baked in.
-- Network / fetch error against `hecate.sh` (the hook silently
-  swallows errors; check the webview console in dev builds).
+- Network / fetch error against `hecate.sh`. Automatic checks log failures
+  without interrupting the operator; an explicit check shows a safe retry
+  message. Inspect the webview console or app log in dev builds.
 
-**Banner reaches `Downloading... 100%` / `Finishing install...` and
-never relaunches.** The updater payload was downloaded, but the app
+**The update details dialog reaches `Downloading... 100%` / `Finishing installation...`
+and never relaunches.** The updater payload was downloaded, but the app
 did not complete the restart handoff. Confirm the UI watchdog in
 `ui/src/lib/desktop-update.ts` is present, the UI calls
 `@tauri-apps/plugin-process` `relaunch()`, `tauri_plugin_process::init()`

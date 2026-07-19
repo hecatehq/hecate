@@ -39,14 +39,24 @@ describe("installTauriDocumentMarkers", () => {
     expect(document.documentElement.dataset.tauriOs).toBeUndefined();
   });
 
-  it("omits the OS marker on Linux / Windows where the native titlebar sits outside the webview", () => {
+  it("surfaces the Linux platform for desktop typography and shell affordances", () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
 
     const cleanup = installTauriDocumentMarkers();
 
     expect(document.documentElement.dataset.tauri).toBe("true");
-    expect(document.documentElement.dataset.tauriOs).toBeUndefined();
+    expect(document.documentElement.dataset.tauriOs).toBe("linux");
+    cleanup();
+  });
+
+  it("surfaces the Windows platform for desktop typography and shell affordances", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Win32" });
+
+    const cleanup = installTauriDocumentMarkers();
+
+    expect(document.documentElement.dataset.tauriOs).toBe("windows");
     cleanup();
   });
 });

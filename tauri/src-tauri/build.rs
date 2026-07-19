@@ -15,6 +15,7 @@ fn main() {
     let attributes =
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
             "set_update_badge",
+            "take_pending_desktop_update_check",
             "cloud_connection_status",
             "cloud_connection_start",
             "cloud_connection_stop",

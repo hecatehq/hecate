@@ -114,12 +114,22 @@ What works:
 - Linux and Windows bundles build green in CI, including Tauri Rust tests and
   sidecar staging. They have not yet been manually launched on real hardware,
   so treat them as experimental and expect bugs until smoke coverage exists.
-- Auto-update is active. Each release emits a signed `latest.json`
-  manifest as a GitHub Release asset and publishes the same manifest
+- The desktop shell uses local platform typography (macOS system font, Segoe
+  UI/Cascadia on Windows, and the installed Linux system font) instead of
+  fetching web fonts at launch. That keeps startup offline-friendly and avoids
+  a third-party font request.
+- Auto-update is active. Each release emits a `latest.json` manifest
+  containing signed payload references and signatures as a GitHub Release
+  asset, then publishes the same manifest
   to `https://hecate.sh/releases/alpha/latest.json`, which alpha.28+
-  desktop bundles read on launch. When a newer version is published,
-  Hecate surfaces "Hecate X.Y.Z is available — Install and Restart"
-  with live download progress. This flow is exercised on macOS; Linux and
+  desktop bundles read on launch. The status bar has a compact **Updates**
+  control; its details dialog shows the installed and available versions,
+  publication date, plain-text release notes, progress, and retry guidance.
+  The native **Check for Updates…** menu action is safe during startup too:
+  Hecate queues it until the console is ready, then opens the same dialog.
+  The downloaded package is verified before installation. Release-note text is
+  advisory metadata rather than signed payload content, so treat it as useful
+  context—not a security assertion. This flow is exercised on macOS; Linux and
   Windows updater behavior still needs real-machine testing. Maintainer-side
   keypair custody and rotation playbook:
   [`desktop-updater-signing.md`](desktop-updater-signing.md).

@@ -30,7 +30,7 @@ import { RuntimeProvider } from "./state/runtime";
 import { SettingsProvider } from "./state/settings";
 import { UsageProvider } from "./state/usage";
 import { usePersistedState } from "../lib/persistedState";
-import { isTauriRuntime } from "../lib/tauri";
+import { desktopHost, isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace";
 
@@ -190,13 +190,12 @@ function readBrowserNavigationURL(): string {
 export function installTauriDocumentMarkers(): () => void {
   if (!isTauriRuntime()) return () => undefined;
   document.documentElement.dataset.tauri = "true";
-  // Surface the platform so App.css can reserve room for the macOS
-  // overlay-titlebar traffic-light cluster (left 76px). On Linux /
-  // Windows the native titlebar lives outside the webview and no
-  // padding is needed.
-  if (/mac/i.test(navigator.platform)) {
-    document.documentElement.dataset.tauriOs = "macos";
-  }
+  // Surface every supported host. App.css needs macOS for the
+  // overlay-titlebar inset today; the other markers keep platform
+  // typography and future shell affordances explicit without making
+  // the console fork into per-OS layouts.
+  const host = desktopHost();
+  if (host) document.documentElement.dataset.tauriOs = host;
   return () => {
     delete document.documentElement.dataset.tauri;
     delete document.documentElement.dataset.tauriOs;

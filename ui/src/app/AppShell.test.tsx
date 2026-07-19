@@ -116,6 +116,10 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
 });
 
+vi.mock("../features/shared/DesktopUpdateControl", () => ({
+  DesktopUpdateCenter: () => <span data-testid="desktop-update-center" />,
+}));
+
 const projectDeleteResult = {
   project_id: "proj_1",
   project_name: "Hecate",
@@ -406,18 +410,9 @@ describe("ConsoleShell loading state", () => {
   });
 });
 
-// The overlay-titlebar strip is the macOS drag handle that wraps the
-// UpdateBanner. Its data-tauri-drag-region="deep" value is
-// load-bearing — bare/`"true"` would only drag on direct clicks on the
-// strip itself, breaking drag once the banner gains children. Tauri's
-// drag.js auto-detects clickable elements (buttons) and skips drag for
-// them, so we can rely on the deep value without `-webkit-app-region:
-// no-drag` opt-outs.
-//
-// Linux/Windows don't get the strip — titleBarStyle: "Overlay" is
-// macOS-only and on other OSes the native chrome already sits above
-// the webview. The banner falls back to its old slot in
-// .hecate-content.
+// The macOS overlay titlebar is intentionally an empty deep drag surface.
+// Hecate puts its one interactive desktop updater control in the status bar
+// on all hosts, so titlebar drag behavior never depends on updater state.
 describe("ConsoleShell titlebar", () => {
   const originalPlatform = navigator.platform;
   afterEach(() => {
@@ -438,6 +433,10 @@ describe("ConsoleShell titlebar", () => {
     const titlebar = container.querySelector(".hecate-titlebar");
     expect(titlebar).not.toBeNull();
     expect(titlebar?.getAttribute("data-tauri-drag-region")).toBe("deep");
+    expect(titlebar?.querySelector("button")).toBeNull();
+    expect(
+      container.querySelector(".hecate-statusbar [data-testid='desktop-update-center']"),
+    ).not.toBeNull();
   });
 
   it("omits the titlebar strip on Tauri Linux/Windows", () => {
@@ -451,6 +450,9 @@ describe("ConsoleShell titlebar", () => {
       }),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
+    expect(
+      container.querySelector(".hecate-statusbar [data-testid='desktop-update-center']"),
+    ).not.toBeNull();
   });
 
   it("omits the titlebar strip outside Tauri", () => {
@@ -463,6 +465,9 @@ describe("ConsoleShell titlebar", () => {
       }),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
+    expect(
+      container.querySelector(".hecate-statusbar [data-testid='desktop-update-center']"),
+    ).not.toBeNull();
   });
 });
 

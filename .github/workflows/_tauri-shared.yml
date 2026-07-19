@@ -334,7 +334,17 @@ jobs:
           # explicit missing-signature check below).
           shopt -s nullglob
           version="${TAG#v}"
-          pub_date=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          # GoReleaser owns the release body, which is the one place
+          # maintainers already curate operator-facing notes. Tauri maps
+          # `notes` to Update.body. The notes are advisory metadata, not
+          # part of the signed payload, so the desktop UI renders them as
+          # bounded plain text. Keep the manifest bounded as well.
+          release_metadata=$(gh api "repos/${REPO}/releases/tags/${TAG}")
+          pub_date=$(jq -r '.published_at // .created_at // empty' <<<"$release_metadata")
+          if [ -z "$pub_date" ]; then
+            pub_date=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          fi
+          release_notes=$(jq -r '(.body // "") | .[0:12000]' <<<"$release_metadata")
 
           darwin_sig=""; darwin_url=""
           linux_sig="";  linux_url=""
@@ -399,20 +409,25 @@ jobs:
           jq -n \
             --arg version "$version" \
             --arg pub_date "$pub_date" \
+            --arg notes "$release_notes" \
             --arg darwin_sig "$darwin_sig" --arg darwin_url "$darwin_url" \
             --arg linux_sig "$linux_sig"   --arg linux_url "$linux_url" \
             --arg windows_sig "$windows_sig" --arg windows_url "$windows_url" \
             '{
               version: $version,
               pub_date: $pub_date,
+              notes: $notes,
               platforms: {
                 "darwin-aarch64": { signature: $darwin_sig, url: $darwin_url },
                 "linux-x86_64":   { signature: $linux_sig,  url: $linux_url },
                 "windows-x86_64": { signature: $windows_sig, url: $windows_url }
               }
             }' > latest.json
-          cat latest.json
+          # Keep advisory release notes out of the Actions log. The manifest is
+          # public, but logging a full body duplicates it into CI retention.
+          jq '{version, pub_date, notes_characters: (.notes | length), platforms: (.platforms | keys)}' latest.json
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tagName }}
           REPO: ${{ github.repository }}
 
