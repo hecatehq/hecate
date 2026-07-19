@@ -354,12 +354,31 @@ describe("ProjectSettingsPanel", () => {
       />,
     );
 
-    expect(screen.getByText("No folders attached.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Create worktree" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Find worktrees" })).toBeDisabled();
+    const rootlessHelp = screen.getByText(
+      "No folders attached. Add a folder before creating or finding worktrees.",
+    );
+    const createWorktreeButton = screen.getByRole("button", { name: "Create worktree" });
+    const findWorktreesButton = screen.getByRole("button", { name: "Find worktrees" });
+    expect(rootlessHelp).toBeTruthy();
+    expect(createWorktreeButton).toBeDisabled();
+    expect(createWorktreeButton).toHaveAttribute("aria-describedby", rootlessHelp.id);
+    expect(createWorktreeButton).toHaveAttribute(
+      "title",
+      "Add a folder before creating a worktree",
+    );
+    expect(findWorktreesButton).toBeDisabled();
+    expect(findWorktreesButton).toHaveAttribute("aria-describedby", rootlessHelp.id);
+    expect(findWorktreesButton).toHaveAttribute("title", "Add a folder before finding worktrees");
 
     await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
     expect(await screen.findAllByText("/workspace/research")).toHaveLength(2);
+    expect(screen.queryByText("No folders attached.", { exact: false })).toBeNull();
+    expect(createWorktreeButton).toBeEnabled();
+    expect(createWorktreeButton).not.toHaveAttribute("aria-describedby");
+    expect(createWorktreeButton).not.toHaveAttribute("title");
+    expect(findWorktreesButton).toBeEnabled();
+    expect(findWorktreesButton).not.toHaveAttribute("aria-describedby");
+    expect(findWorktreesButton).not.toHaveAttribute("title");
     await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(onSave).toHaveBeenCalledWith(

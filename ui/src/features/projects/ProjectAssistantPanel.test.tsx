@@ -271,7 +271,7 @@ describe("ProjectAssistantPanel", () => {
     expect(handlers.onApply).toHaveBeenCalledTimes(1);
   });
 
-  it("summarizes memory suggestions before technical payload details", async () => {
+  it("summarizes memory suggestions before source and field details", async () => {
     const user = userEvent.setup();
     renderAssistantPanel({
       proposal: {
@@ -333,11 +333,13 @@ describe("ProjectAssistantPanel", () => {
       ),
     ).toBeTruthy();
     const technicalDetails = within(suggestion)
-      .getByText("Show payload details", { selector: "summary" })
+      .getByText("Show source and field details", { selector: "summary" })
       .closest("details");
     expect(technicalDetails).not.toHaveAttribute("open");
 
-    await user.click(within(suggestion).getByText("Show payload details", { selector: "summary" }));
+    await user.click(
+      within(suggestion).getByText("Show source and field details", { selector: "summary" }),
+    );
     expect(technicalDetails).toHaveAttribute("open");
     expect(within(suggestion).getByText("suggested_kind")).toBeTruthy();
     expect(within(suggestion).getAllByText("workspace_guidance").length).toBeGreaterThan(0);

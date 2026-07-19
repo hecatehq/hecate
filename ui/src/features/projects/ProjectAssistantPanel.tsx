@@ -825,11 +825,11 @@ function ProjectAssistantMemorySuggestionAction({
       </div>
       <figure style={assistantMemoryBodyStyle}>
         <blockquote style={assistantMemoryQuoteStyle}>
-          {bodyPreview || "No memory text supplied. Review the technical details before applying."}
+          {bodyPreview || "No memory text supplied. Review the source details before applying."}
         </blockquote>
         {body && bodyPreview !== body && (
           <figcaption style={assistantMemoryCaptionStyle}>
-            Preview only. Open technical details for the full proposed text.
+            Preview only. Open source and field details for the full proposed text.
           </figcaption>
         )}
       </figure>
@@ -857,7 +857,7 @@ function ProjectAssistantMemorySuggestionAction({
       </div>
       {(targetEntries.length > 0 || patchEntries.length > 0) && (
         <details style={assistantTechnicalDetailsStyle}>
-          <summary style={assistantTechnicalSummaryStyle}>Show payload details</summary>
+          <summary style={assistantTechnicalSummaryStyle}>Show source and field details</summary>
           <div style={assistantPatchGridStyle}>
             {targetEntries.length > 0 && (
               <ProjectAssistantFieldGroup title="Target" entries={targetEntries} />
