@@ -298,6 +298,34 @@ test("Projects guided start stays on Overview at desktop and narrow widths", asy
   await expect(page.getByRole("button", { name: "Apply setup" })).toBeFocused();
   const proposalDetails = page.locator("details").filter({ hasText: "Review proposed changes" });
   await expect(proposalDetails).not.toHaveAttribute("open", "");
+  await page.getByText("Review proposed changes").click();
+  const memorySuggestion = page.getByRole("article", {
+    name: "Memory suggestion Guidance from AGENTS.md",
+  });
+  await expect(memorySuggestion).toBeVisible();
+  await expect(
+    memorySuggestion.getByText("Discovered project guidance source.").first(),
+  ).toBeVisible();
+  await expect(memorySuggestion.getByText("Workspace guidance").first()).toBeVisible();
+  await expect(memorySuggestion.getByText("Pending promotion")).toBeVisible();
+  await expect(memorySuggestion.getByText("Show payload details")).toBeVisible();
+  const memoryTechnicalDetails = memorySuggestion.locator("details").filter({
+    hasText: "Show payload details",
+  });
+  await expect(memoryTechnicalDetails).not.toHaveAttribute("open", "");
+  await expect(memorySuggestion.locator("dt", { hasText: "suggested_kind" }).first()).toBeHidden();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+  await memorySuggestion.getByText("Show payload details").click();
+  await expect(memoryTechnicalDetails).toHaveAttribute("open", "");
+  await expect(memorySuggestion.locator("dt", { hasText: "suggested_kind" }).first()).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(memorySuggestion).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Dismiss setup" }).click();
   await expect(onboarding.getByRole("button", { name: "Set up project" })).toBeFocused();
   await onboarding.getByRole("button", { name: "Set up project" }).click();
@@ -3737,7 +3765,26 @@ function bootstrapProposal(project?: ProjectRecord) {
       "Create reviewable memory candidates from discovered guidance metadata and suggest project roles from local skill files.",
     requires_confirmation: true,
     actions: [
-      { kind: "create_memory_candidate", target: { project_id: project?.id || "" } },
+      {
+        kind: "create_memory_candidate",
+        target: { project_id: project?.id || "" },
+        patch: {
+          project_id: project?.id || "",
+          title: "Guidance source: AGENTS.md",
+          body: "Discovered project guidance source.\nReview the source file before promoting it.",
+          suggested_kind: "workspace_guidance",
+          suggested_trust_label: "workspace_guidance",
+          suggested_source_kind: "context_source",
+          suggested_source_id: "ctxsrc_agents",
+          source_refs: [
+            {
+              kind: "file",
+              id: "AGENTS.md",
+              title: "AGENTS.md",
+            },
+          ],
+        },
+      },
       {
         kind: "create_role",
         patch: { id: "skill_implementation", name: "Implementation" },

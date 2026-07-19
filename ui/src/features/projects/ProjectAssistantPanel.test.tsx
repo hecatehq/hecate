@@ -271,6 +271,78 @@ describe("ProjectAssistantPanel", () => {
     expect(handlers.onApply).toHaveBeenCalledTimes(1);
   });
 
+  it("summarizes memory suggestions before technical payload details", async () => {
+    const user = userEvent.setup();
+    renderAssistantPanel({
+      proposal: {
+        id: "pa_setup_memory",
+        title: "Set up Hecate guidance",
+        summary: "Record host-specific guidance as reviewable project memory.",
+        requires_confirmation: true,
+        trace_id: "trace_setup_memory",
+        actions: [
+          {
+            kind: "create_memory_candidate",
+            target: { project_id: "proj_1" },
+            patch: {
+              project_id: "proj_1",
+              title: "Guidance source: .github/copilot-instructions.md",
+              body: "Discovered project guidance source.\nReview the source file before promoting it.",
+              suggested_kind: "workspace_guidance",
+              suggested_trust_label: "workspace_guidance",
+              suggested_source_kind: "context_source",
+              suggested_source_id: "ctxsrc_1",
+              source_refs: [
+                {
+                  kind: "file",
+                  id: ".github/copilot-instructions.md",
+                  title: ".github/copilot-instructions.md",
+                },
+              ],
+            },
+            reason: "Record host-specific guidance as reviewable metadata.",
+          },
+        ],
+      },
+      setupFirst: true,
+    });
+
+    const assistant = screen.getByRole("region", { name: "Project Assistant" });
+    await user.click(
+      within(assistant).getByText("Review proposed changes", { selector: "summary" }),
+    );
+
+    const suggestion = within(assistant).getByRole("article", {
+      name: "Memory suggestion Guidance from .github/copilot-instructions.md",
+    });
+    expect(within(suggestion).getByText("Save for review")).toBeTruthy();
+    expect(
+      within(suggestion).getByRole("heading", {
+        name: "Guidance from .github/copilot-instructions.md",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(suggestion).getAllByText(/Review the source file before promoting it\./).length,
+    ).toBeTruthy();
+    expect(within(suggestion).getAllByText(".github/copilot-instructions.md").length).toBe(2);
+    expect(within(suggestion).getAllByText("Workspace guidance").length).toBeGreaterThan(0);
+    expect(within(suggestion).getByText("Pending promotion")).toBeTruthy();
+    expect(
+      within(suggestion).getByText(
+        "Applying saves a pending suggestion only. It does not change durable project memory until you review and promote it.",
+      ),
+    ).toBeTruthy();
+    const technicalDetails = within(suggestion)
+      .getByText("Show payload details", { selector: "summary" })
+      .closest("details");
+    expect(technicalDetails).not.toHaveAttribute("open");
+
+    await user.click(within(suggestion).getByText("Show payload details", { selector: "summary" }));
+    expect(technicalDetails).toHaveAttribute("open");
+    expect(within(suggestion).getByText("suggested_kind")).toBeTruthy();
+    expect(within(suggestion).getAllByText("workspace_guidance").length).toBeGreaterThan(0);
+  });
+
   it("focuses a new work proposal heading before its apply action", () => {
     renderAssistantPanel({
       proposal: {

@@ -3785,7 +3785,7 @@ describe("ProjectsView cockpit", () => {
 
     const assistant = await openProjectAssistant();
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
-    await within(assistant).findByText("Create memory candidate");
+    await within(assistant).findByRole("article", { name: "Memory suggestion Decision" });
     await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
 
     expect(
