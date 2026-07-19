@@ -372,6 +372,42 @@ describe("ProjectScopePanel catalog recovery", () => {
     expect(screen.getByText("Projects could not be loaded.")).toBeTruthy();
   });
 
+  it("opens a newly created Cairnline project without leaving a server error", async () => {
+    const createdProject = {
+      ...project,
+      id: "proj_created",
+      name: "Created project",
+    } satisfies ProjectRecord;
+    vi.mocked(createProject).mockResolvedValue({
+      object: "project",
+      data: createdProject,
+    });
+    vi.mocked(updateProject).mockResolvedValue({
+      object: "project",
+      data: createdProject,
+    });
+    const user = userEvent.setup();
+    renderPanel({ projects: [], loaded: true });
+
+    await user.click(screen.getByRole("button", { name: "Add project" }));
+    await user.type(screen.getByLabelText("Name"), "Created project");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Create project" })).toBeNull(),
+    );
+    expect(updateProject).toHaveBeenCalledWith("proj_created", {
+      last_opened_at: expect.any(String),
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Project Created project" })).toHaveAttribute(
+        "aria-current",
+        "true",
+      ),
+    );
+  });
+
   it("submits create once and keeps its pending result in the dialog", async () => {
     let rejectCreate!: (reason: Error) => void;
     vi.mocked(createProject).mockReturnValue(
