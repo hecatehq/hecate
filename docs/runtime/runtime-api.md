@@ -428,6 +428,9 @@ Task/Run workspace; retry, resume, and model-call retry create a fresh isolated
 workspace rather than reusing a prior source path. For a local Git source,
 Hecate snapshots the directory rather than performing a Git clone checkout, so
 host global Git filters cannot run before QA's bounded dispatcher.
+An execution profile may contribute ordinary Task defaults, but QA overrides an
+implicit profile workspace default to `ephemeral`; only a caller-supplied
+non-ephemeral workspace mode is rejected.
 
 At Run start Hecate creates a static JSON `workflow_manifest` artifact. It
 contains the contract version and allowed/blocked capability lists, but no

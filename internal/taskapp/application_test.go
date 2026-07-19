@@ -297,6 +297,33 @@ func TestTaskApplication_CreateTaskQAWorkflowEnforcesReportOnlyPosture(t *testin
 	}
 }
 
+func TestTaskApplication_CreateTaskQAWorkflowOverridesProfileWorkspaceDefault(t *testing.T) {
+	t.Parallel()
+
+	for _, profile := range []string{"repo_local", "coding_agent"} {
+		profile := profile
+		t.Run(profile, func(t *testing.T) {
+			t.Parallel()
+
+			app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
+			task, err := app.CreateTask(t.Context(), CreateCommand{
+				Prompt:           "Inspect the current implementation for regressions.",
+				WorkflowMode:     "qa",
+				ExecutionProfile: profile,
+			})
+			if err != nil {
+				t.Fatalf("CreateTask(%s): %v", profile, err)
+			}
+			if task.WorkspaceMode != "ephemeral" {
+				t.Fatalf("workspace mode = %q, want QA override to ephemeral", task.WorkspaceMode)
+			}
+			if task.ExecutionKind != "agent_loop" {
+				t.Fatalf("execution kind = %q, want agent_loop", task.ExecutionKind)
+			}
+		})
+	}
+}
+
 func TestTaskApplication_CreateTaskQAWorkflowRejectsRelaxedConfiguration(t *testing.T) {
 	t.Parallel()
 
