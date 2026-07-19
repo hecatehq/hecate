@@ -4109,21 +4109,24 @@ describe("ProjectsView cockpit", () => {
       name: "Memory suggestion Temporary note",
     });
     expect(
-      within(rejectedSuggestion).getAllByText("rejected", { exact: true }).length,
+      within(rejectedSuggestion).getAllByText("Rejected", { exact: true }).length,
     ).toBeGreaterThan(0);
     expect(
       within(rejectedSuggestion).queryByRole("button", {
-        name: "Review memory suggestion Temporary note",
+        name: "Review memory suggestion Temporary note before saving",
       }),
     ).toBeNull();
 
     await user.click(
       screen.getByRole("button", {
-        name: "Review memory suggestion Generated summary",
+        name: "Review memory suggestion Generated summary before saving",
       }),
     );
-    expect(screen.getByRole("button", { name: "Save to project memory" })).toBeTruthy();
-    expect(screen.getByText("Suggested memory")).toBeTruthy();
+    const reviewDialog = screen.getByRole("dialog", { name: "Review memory suggestion" });
+    expect(
+      within(reviewDialog).getByRole("button", { name: "Save to project memory" }),
+    ).toBeTruthy();
+    expect(within(reviewDialog).getByText("Suggested memory")).toBeTruthy();
     expect(screen.getAllByText(/Source refs: task_run Implementation run/).length).toBeGreaterThan(
       0,
     );
@@ -7815,7 +7818,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(health).getByText("Memory candidate pending review")).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: "Review memory suggestion Promoted convention",
+        name: "Review memory suggestion Promoted convention before saving",
       }),
     ).toBeNull();
     expect(

@@ -476,6 +476,9 @@ export function ProjectMemoryModal({
   const valid = form.title.trim().length > 0 && form.body.trim().length > 0;
   const isCandidate = Boolean(candidate);
   const candidateSourceRefs = candidate ? formatCandidateSourceRefs(candidate) : [];
+  const candidateEvidence = candidate
+    ? (candidateSourceRefs[0] ?? formatCandidateSource(candidate))
+    : "";
   return (
     <Modal
       title={
@@ -520,14 +523,17 @@ export function ProjectMemoryModal({
         <fieldset disabled={pending} style={modalFieldsetStyle}>
           {candidate && (
             <div style={candidateReviewCardStyle}>
-              <div style={sectionLabelStyle}>Suggested memory</div>
+              <div style={candidateReviewHeaderStyle}>
+                <div style={sectionLabelStyle}>Suggested memory</div>
+                <span className="badge badge-amber">Needs review</span>
+              </div>
               <div style={candidateReviewSummaryStyle}>
-                Edit anything below before saving. This stays out of durable project memory until
-                you confirm it.
+                Hecate found this in {candidateEvidence}. Save it only if it should become durable
+                project guidance; edit the title or body first if the wording is too broad.
               </div>
               <div style={candidateDecisionGridStyle}>
                 <ProjectMemoryCandidateFact
-                  label="Why suggested"
+                  label="Type"
                   value={
                     candidate.suggested_kind
                       ? humanMemoryLabel(candidate.suggested_kind)
@@ -535,17 +541,18 @@ export function ProjectMemoryModal({
                   }
                 />
                 <ProjectMemoryCandidateFact
-                  label="Evidence"
-                  value={candidateSourceRefs[0] ?? formatCandidateSource(candidate)}
+                  label="Why Hecate suggested it"
+                  value={formatCandidateWhy(candidate, candidateSourceRefs)}
                 />
+                <ProjectMemoryCandidateFact label="Evidence" value={candidateEvidence} />
                 <ProjectMemoryCandidateFact
                   label="Trust"
                   value={humanMemoryLabel(candidate.suggested_trust_label)}
                 />
-                <ProjectMemoryCandidateFact label="Review path" value="Pending promotion" />
+                <ProjectMemoryCandidateFact label="Status" value="Pending promotion" />
               </div>
               <details className="project-work-advanced-fields">
-                <summary>Source details</summary>
+                <summary>Evidence and payload details</summary>
                 <div style={{ ...rowDetailsBodyStyle, paddingTop: 8 }}>
                   <div style={metaLineStyle}>
                     <span>{formatCandidateSource(candidate)}</span>
@@ -802,14 +809,23 @@ function ProjectMemoryCandidateRow({
     ? humanMemoryLabel(candidate.suggested_kind)
     : "Project note";
   const trustLabel = humanMemoryLabel(candidate.suggested_trust_label);
+  const whyLabel = formatCandidateWhy(candidate, sourceRefs);
   return (
     <article aria-label={`Memory suggestion ${candidate.title}`} style={memoryEntryStyle}>
       <div className="project-support-row-header" style={rowHeaderStyle}>
         <div
-          style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flex: "1 1 220px",
+            flexWrap: "wrap",
+            gap: 8,
+            minWidth: 0,
+          }}
         >
+          <span className="badge badge-muted">Suggested memory</span>
           <span className={pending ? "badge badge-amber" : "badge badge-muted"}>
-            {pending ? "Needs review" : candidate.status}
+            {pending ? "Needs review" : humanMemoryLabel(candidate.status)}
           </span>
           <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{candidate.title}</div>
         </div>
@@ -818,12 +834,12 @@ function ProjectMemoryCandidateRow({
             <button
               className="btn btn-primary btn-sm"
               type="button"
-              aria-label={`Review memory suggestion ${candidate.title}`}
+              aria-label={`Review memory suggestion ${candidate.title} before saving`}
               disabled={pendingReject}
               onClick={onPromote}
             >
               <Icon d={Icons.check} size={12} />
-              Review and edit
+              Review to save
             </button>
             <button
               className="btn btn-ghost btn-sm"
@@ -844,16 +860,17 @@ function ProjectMemoryCandidateRow({
         style={candidateDecisionGridStyle}
         aria-label={`Memory suggestion summary ${candidate.title}`}
       >
-        <ProjectMemoryCandidateFact label="Why suggested" value={kindLabel} />
+        <ProjectMemoryCandidateFact label="Type" value={kindLabel} />
+        <ProjectMemoryCandidateFact label="Why Hecate suggested it" value={whyLabel} />
         <ProjectMemoryCandidateFact label="Evidence" value={evidenceLabel} />
         <ProjectMemoryCandidateFact label="Trust" value={trustLabel} />
         <ProjectMemoryCandidateFact
-          label="Review path"
-          value={pending ? "Save, edit first, or dismiss" : candidate.status}
+          label="Status"
+          value={pending ? "Pending promotion" : humanMemoryLabel(candidate.status)}
         />
       </div>
       <details className="project-support-details" style={rowDetailsStyle}>
-        <summary>Source details</summary>
+        <summary>Evidence and payload details</summary>
         <div style={rowDetailsBodyStyle}>
           <div style={metaLineStyle}>
             <span>{candidate.suggested_trust_label}</span>
@@ -932,6 +949,16 @@ function formatCandidateSourceRefs(candidate: ProjectMemoryCandidateRecord): str
     .filter(Boolean);
 }
 
+function formatCandidateWhy(
+  candidate: ProjectMemoryCandidateRecord,
+  sourceRefs: string[] = formatCandidateSourceRefs(candidate),
+): string {
+  if (sourceRefs.length > 0) return `Found in ${sourceRefs[0]}`;
+  const source = formatCandidateSource(candidate);
+  if (source && source !== "generated") return `Found in ${source}`;
+  return "Suggested by Project Assistant";
+}
+
 function humanMemoryLabel(value?: string): string {
   if (!value) return "not set";
   return value
@@ -979,6 +1006,14 @@ const candidateReviewCardStyle: CSSProperties = {
   gap: 8,
   minWidth: 0,
   padding: "9px 10px",
+};
+
+const candidateReviewHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between",
+  minWidth: 0,
 };
 
 const candidateReviewSummaryStyle: CSSProperties = {
