@@ -406,10 +406,12 @@ committed ceiling.
 ### Report-only QA workflow
 
 `workflow_mode="qa"` is a native Hecate Task contract, not an External Agent
-or ACP capability and not a generic workflow scheduler. It permits only the
-structured read-only inspection tools `read_file`, `grep`, `glob`,
-`artifact_read`, `list_dir`, `git_status`, and `git_diff`. It blocks shell and
-terminal commands, workspace/Git writes, patch or proposal creation, external
+or ACP capability and not a generic workflow scheduler. It permits file and
+artifact inspection through `read_file`, `grep`, `glob`, `artifact_read`, and
+`list_dir`. The `git_status` and `git_diff` tool names return an explicit
+unavailable result in QA v0 without invoking Git because the source snapshot
+excludes Git metadata. QA blocks shell and terminal commands, workspace/Git
+writes, patch or proposal creation, external
 MCP tools, native HTTP requests, web search, and browser inspection. A tool call returned by a model that
 is outside that set is denied before approval or dispatch.
 
@@ -426,14 +428,17 @@ inherited workspace system-prompt policy, fail closed before workspace
 provisioning or executor selection. QA Runs use the generated Hecate-managed
 Task/Run workspace; retry, resume, and model-call retry create a fresh isolated
 workspace rather than reusing a prior source path. For a local Git source,
-Hecate snapshots the directory rather than performing a Git clone checkout, so
-host global Git filters cannot run before QA's bounded dispatcher.
+Hecate snapshots the directory rather than performing a Git clone checkout and
+excludes every `.git` entry, so host global Git filters cannot run and linked
+worktree metadata cannot expose later source index/object changes. QA v0
+therefore has no Git evidence: `git_status` and `git_diff` explain that
+limitation without invoking Git.
 An execution profile may contribute ordinary Task defaults, but QA overrides an
 implicit profile workspace default to `ephemeral`; only a caller-supplied
 non-ephemeral workspace mode is rejected.
 
 At Run start Hecate creates a static JSON `workflow_manifest` artifact. It
-contains the contract version and allowed/blocked capability lists, but no
+contains the contract version and allowed/unavailable/blocked capability lists, but no
 prompt, workspace path, credentials, or model output. When an agent produces a
 final response, Hecate creates a JSON `workflow_report` artifact with a stable
 envelope like:
@@ -452,6 +457,7 @@ envelope like:
     "workspace_posture": "read_only",
     "native_network_posture": "blocked",
     "mcp_posture": "blocked",
+    "git_evidence_posture": "unavailable_in_v0",
     "browser_evidence_posture": "unavailable_in_v0"
   }
 }
@@ -591,11 +597,11 @@ Approval resolution is owned by the task runtime so approval, run, task, step, a
 | Value            | Effect                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `shell_exec`     | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls.                                                                                                                                                                                                                                                                                                                                                   |
-| `git_exec`       | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` / `git_status` / `git_diff` tool calls.                                                                                                                                                                                                                                                                                                                           |
+| `git_exec`       | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` / `git_status` / `git_diff` tool calls, except QA v0 Git evidence: it returns an unavailable result without invoking Git or asking for approval.                                                                                                                                                                                                                       |
 | `file_write`     | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` / `apply_patch` tool calls.                                                                                                                                                                                                                                                                                                                      |
 | `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` / configured `web_search` tool calls. A tools-disabled Agent Preset snapshot creates no approval in either path; any unexpected mid-loop call is hard-denied instead.                                                                                                                                                                         |
 | `read_file`      | Gate `agent_loop` `read_file` / `grep` / `glob` / `artifact_read` tool calls. Useful when operators want visibility into every file, search, or persisted artifact the agent reads, not just what it writes.                                                                                                                                                                                                                         |
-| `all_tools`      | Gate every otherwise-permitted agent tool call (`shell_exec`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`) and every applicable pre-execution gate. Tools-disabled Agent Preset snapshots remain non-approvable hard denials and skip the redundant network pre-execution gate. |
+| `all_tools`      | Gate every otherwise-permitted agent tool call (`shell_exec`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`) and every applicable pre-execution gate. QA v0 Git evidence remains unavailable without an approval. Tools-disabled Agent Preset snapshots remain non-approvable hard denials and skip the redundant network pre-execution gate. |
 
 `browser_inspect` is not an approval-policy value. Every otherwise-permitted
 browser-evidence call is approval-gated independently, including when this

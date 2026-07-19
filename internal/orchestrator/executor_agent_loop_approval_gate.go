@@ -35,7 +35,7 @@ func newAgentLoopApprovalGate(gatedTools []string) agentLoopApprovalGate {
 }
 
 func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
-	gatedNames := g.gatedToolsInModelCall(calls, spec.Task)
+	gatedNames := g.gatedToolsInModelCall(calls, spec)
 	if len(gatedNames) == 0 {
 		return agentLoopApprovalPause{}, false
 	}
@@ -49,11 +49,11 @@ func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex
 	}, true
 }
 
-func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, task types.Task) []string {
+func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, spec ExecutionSpec) []string {
 	seen := make(map[string]struct{}, len(calls))
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {
-		if !g.isGated(c, task) {
+		if !g.isGated(c, spec) {
 			continue
 		}
 		if _, dup := seen[c.Function.Name]; dup {
@@ -65,12 +65,14 @@ func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, tas
 	return out
 }
 
-func (g agentLoopApprovalGate) isGated(call types.ToolCall, task types.Task) bool {
+func (g agentLoopApprovalGate) isGated(call types.ToolCall, spec ExecutionSpec) bool {
+	task := spec.Task
 	toolName := call.Function.Name
+	workflowMode := taskworkflow.ModeForExecution(task, spec.Run)
 	// Hard policy refusals run before approval semantics. Asking an operator
 	// to approve a call that the dispatcher must still refuse is misleading,
 	// and would turn a fail-closed decision into an unnecessary pause.
-	if taskworkflow.BlocksTool(task.WorkflowMode, toolName) || agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
+	if taskworkflow.BlocksTool(workflowMode, toolName) || taskworkflow.IsUnavailableEvidenceTool(workflowMode, toolName) || agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
 		return false
 	}
 	if toolName == AgentToolBrowserInspect {

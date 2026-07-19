@@ -111,8 +111,10 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   agent returns a final response. The report's narrative is agent-reported; it
   is not proof that tests or browser checks ran. QA excludes repository
   `CLAUDE.md` / `AGENTS.md` from system prompt composition, uses a safe local
-  directory copy rather than Git checkout for local Git sources, and skips
-  automatic Git-summary capture. A separate constrained test runner would need
+  directory copy rather than Git checkout for local Git sources, excludes every
+  `.git` entry from its evidence snapshot, and skips automatic Git-summary
+  capture. `git_status` / `git_diff` report Git evidence unavailable in QA v0
+  rather than invoking Git. A separate constrained test runner would need
   its own explicit permission model.
 - QA v0 blocks browser inspection. The public QA Task surface does not yet
   select a browser-evidence assignment posture, so QA does not claim a

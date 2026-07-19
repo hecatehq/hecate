@@ -90,6 +90,67 @@ func TestAgentLoopQAWorkflowUsesInspectionCatalogAndProducesStructuredReport(t *
 	}
 }
 
+func TestAgentLoopQAWorkflowGitToolsExplainUnavailableEvidence(t *testing.T) {
+	t.Parallel()
+
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", agentLoopToolCall("qa-status", "git_status", `{}`), agentLoopToolCall("qa-diff", "git_diff", `{"staged":true}`))),
+		makeChatResp(makeAssistantMsg("Git metadata was unavailable, so I inspected only copied files.")),
+	}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, []string{"git_status", "git_diff"}, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkflowMode = types.WorkflowModeQA
+	spec.Task.WorkflowVersion = taskworkflow.QAVersion
+	spec.Run.WorkflowMode = types.WorkflowModeQA
+	spec.Run.WorkflowVersion = taskworkflow.QAVersion
+
+	result, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.Status != "completed" || len(result.PendingApprovals) != 0 {
+		t.Fatalf("result = %+v, want completed QA report without Git approval", result)
+	}
+	for _, name := range []string{"git_status", "git_diff"} {
+		var description string
+		for _, tool := range llm.lastReqs[0].Tools {
+			if tool.Function.Name == name {
+				description = tool.Function.Description
+				break
+			}
+		}
+		if description == "" {
+			t.Errorf("QA tool catalog omits %q; it should explain the Git-evidence limitation", name)
+		}
+		if !strings.Contains(description, "Unavailable in Hecate's report-only QA v0 workflow") {
+			t.Errorf("QA %s description = %q, want unavailable-evidence guidance", name, description)
+		}
+		var unavailable *types.TaskStep
+		for i := range result.Steps {
+			step := &result.Steps[i]
+			if step.ToolName == name {
+				unavailable = step
+				break
+			}
+		}
+		if unavailable == nil || unavailable.Result != "denied" || unavailable.ErrorKind != "workflow_evidence_unavailable" || unavailable.OutputSummary["policy"] != "workflow_git_metadata" {
+			t.Fatalf("%s QA tool step = %+v, want explicit unavailable evidence record", name, unavailable)
+		}
+	}
+	if len(llm.lastReqs) < 2 {
+		t.Fatalf("LLM requests = %d, want QA follow-up with unavailable Git results", len(llm.lastReqs))
+	}
+	toolErrors := 0
+	for _, message := range llm.lastReqs[1].Messages {
+		if message.Role == "tool" && message.ToolError && strings.Contains(message.Content, taskworkflow.QAGitEvidenceUnavailableReason) {
+			toolErrors++
+		}
+	}
+	if toolErrors != 2 {
+		t.Errorf("QA unavailable Git results with ToolError=true = %d, want 2; messages=%+v", toolErrors, llm.lastReqs[1].Messages)
+	}
+}
+
 func TestAgentLoopQAWorkflowNeverStartsConfiguredMCPHost(t *testing.T) {
 	t.Parallel()
 	loop := NewAgentLoopExecutor(&scriptedLLM{}, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})

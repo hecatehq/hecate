@@ -82,8 +82,11 @@ boundary by treating ordinary read-only mode as equivalent: QA also blocks
 patch/proposal creation, shell/terminal execution, HTTP/search, and browser
 automation. Its workspace `CLAUDE.md` / `AGENTS.md` compatibility prompt layer
 is excluded, and a local Git source is copied rather than checked out with
-`git clone`, so repository guidance and host global Git filters cannot become
-agent instruction or pre-dispatch execution. It writes a path/prompt-free
+`git clone` while every `.git` entry is excluded, so repository guidance, host
+global Git filters, and linked-worktree metadata cannot become agent
+instruction, pre-dispatch execution, or later source-state disclosure. QA v0
+reports `git_status` / `git_diff` as unavailable without invoking Git; inspect
+copied files instead. It writes a path/prompt-free
 `workflow_manifest` at Run start and a `workflow_report` only after an agent
 final response exists. The report must keep `agent_reported` prose distinct
 from `hecate_observed` posture/evidence; never describe agent text as proof

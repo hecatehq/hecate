@@ -43,9 +43,17 @@ func TestQAWorkflowArtifactsDescribeBoundedReportOnlyContract(t *testing.T) {
 	if _, ok := manifestPayload["success_artifact_kinds"]; !ok {
 		t.Fatalf("manifest payload = %#v, want success-only report artifact declaration", manifestPayload)
 	}
+	allowed, ok := manifestPayload["allowed_evidence_tools"].([]any)
+	if !ok || !containsString(allowed, "read_file") || containsString(allowed, "git_status") {
+		t.Fatalf("manifest payload = %#v, want file evidence tools without Git inspection", manifestPayload)
+	}
+	unavailable, ok := manifestPayload["unavailable_evidence_tools"].([]any)
+	if !ok || !containsString(unavailable, "git_status") || !containsString(unavailable, "git_diff") {
+		t.Fatalf("manifest payload = %#v, want explicit unavailable Git evidence tools", manifestPayload)
+	}
 	blocked, ok := manifestPayload["blocked_capabilities"].([]any)
-	if !ok || !containsString(blocked, "browser inspection and automation") {
-		t.Fatalf("manifest payload = %#v, want browser inspection blocked in QA v0", manifestPayload)
+	if !ok || !containsString(blocked, "browser inspection and automation") || !containsString(blocked, "Git repository metadata and structured Git inspection") {
+		t.Fatalf("manifest payload = %#v, want browser and Git inspection blocked in QA v0", manifestPayload)
 	}
 
 	report, err := ReportArtifact(task, run, "step-final", createdAt, "## Findings\nNo changes made.")
@@ -67,6 +75,7 @@ func TestQAWorkflowArtifactsDescribeBoundedReportOnlyContract(t *testing.T) {
 		} `json:"agent_reported"`
 		HecateObserved struct {
 			NativeNetworkPosture   string `json:"native_network_posture"`
+			GitEvidencePosture     string `json:"git_evidence_posture"`
 			BrowserEvidencePosture string `json:"browser_evidence_posture"`
 		} `json:"hecate_observed"`
 	}
@@ -76,8 +85,8 @@ func TestQAWorkflowArtifactsDescribeBoundedReportOnlyContract(t *testing.T) {
 	if reportPayload.SchemaVersion != qaReportSchemaVersion || reportPayload.Workflow.Mode != "qa" || !reportPayload.Workflow.ReportOnly || reportPayload.AgentReported.Outcome != "reported" || reportPayload.AgentReported.Summary != "## Findings\nNo changes made." {
 		t.Fatalf("report payload = %+v, want versioned agent-reported QA output", reportPayload)
 	}
-	if reportPayload.HecateObserved.NativeNetworkPosture != "blocked" || reportPayload.HecateObserved.BrowserEvidencePosture != "unavailable_in_v0" {
-		t.Fatalf("observed posture = %+v, want native-network blocked and browser evidence unavailable", reportPayload.HecateObserved)
+	if reportPayload.HecateObserved.NativeNetworkPosture != "blocked" || reportPayload.HecateObserved.GitEvidencePosture != "unavailable_in_v0" || reportPayload.HecateObserved.BrowserEvidencePosture != "unavailable_in_v0" {
+		t.Fatalf("observed posture = %+v, want native-network blocked and Git/browser evidence unavailable", reportPayload.HecateObserved)
 	}
 }
 
@@ -250,5 +259,13 @@ func TestQAToolPolicyFailsClosedOutsideStructuredInspection(t *testing.T) {
 	}
 	if !BlocksTool("future_mode", "read_file") {
 		t.Fatal("BlocksTool(future_mode, read_file) = false, want unknown persisted mode fail-closed")
+	}
+	for _, name := range []string{"git_status", "git_diff"} {
+		if !IsUnavailableEvidenceTool(types.WorkflowModeQA, name) {
+			t.Errorf("IsUnavailableEvidenceTool(qa, %q) = false, want QA metadata limitation", name)
+		}
+	}
+	if IsUnavailableEvidenceTool("", "git_status") {
+		t.Fatal("IsUnavailableEvidenceTool(normal, git_status) = true, want normal structured Git inspection")
 	}
 }

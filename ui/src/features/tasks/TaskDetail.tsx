@@ -117,6 +117,12 @@ function QAWorkflowReportPanel({
       report?.nativeNetworkPosture === "blocked" ? "Blocked" : "Blocked by QA contract",
     ],
     ["External MCP", report?.mcpPosture === "blocked" ? "Blocked" : "Blocked by QA contract"],
+    [
+      "Git evidence",
+      report?.gitEvidencePosture === "unavailable_in_v0"
+        ? "Unavailable in QA v0"
+        : "Unavailable by QA contract",
+    ],
     ["Browser evidence", "Unavailable in QA v0"],
   ];
   return (

@@ -877,6 +877,7 @@ describe("parseQAWorkflowReport", () => {
       workspace_posture: "read_only",
       native_network_posture: "blocked",
       mcp_posture: "blocked",
+      git_evidence_posture: "unavailable_in_v0",
       browser_evidence_posture: "unavailable_in_v0",
     },
   };
@@ -886,15 +887,24 @@ describe("parseQAWorkflowReport", () => {
       workspacePosture: "read_only",
       nativeNetworkPosture: "blocked",
       mcpPosture: "blocked",
+      gitEvidencePosture: "unavailable_in_v0",
     });
   });
 
-  it("rejects mismatched native-network or browser-evidence posture", () => {
+  it("rejects mismatched native-network, Git, or browser-evidence posture", () => {
     expect(
       parseQAWorkflowReport(
         JSON.stringify({
           ...validReport,
           hecate_observed: { ...validReport.hecate_observed, native_network_posture: "enabled" },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseQAWorkflowReport(
+        JSON.stringify({
+          ...validReport,
+          hecate_observed: { ...validReport.hecate_observed, git_evidence_posture: "available" },
         }),
       ),
     ).toBeNull();

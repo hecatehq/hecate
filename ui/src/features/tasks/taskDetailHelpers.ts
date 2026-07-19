@@ -479,6 +479,7 @@ export type QAWorkflowReport = {
   workspacePosture: "read_only";
   nativeNetworkPosture: "blocked";
   mcpPosture: "blocked";
+  gitEvidencePosture: "unavailable_in_v0";
 };
 
 // parseQAWorkflowReport accepts only the stable report envelope emitted by
@@ -515,6 +516,7 @@ export function parseQAWorkflowReport(content: string | undefined): QAWorkflowRe
     observed.workspace_posture !== "read_only" ||
     observed.native_network_posture !== "blocked" ||
     observed.mcp_posture !== "blocked" ||
+    observed.git_evidence_posture !== "unavailable_in_v0" ||
     observed.browser_evidence_posture !== "unavailable_in_v0"
   )
     return null;
@@ -525,6 +527,7 @@ export function parseQAWorkflowReport(content: string | undefined): QAWorkflowRe
     workspacePosture: "read_only",
     nativeNetworkPosture: "blocked",
     mcpPosture: "blocked",
+    gitEvidencePosture: "unavailable_in_v0",
   };
 }
 
