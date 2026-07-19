@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -136,6 +137,27 @@ func TestAgentLoopApprovalGate_HardNativePolicyBlocksDoNotPauseForApproval(t *te
 		agentLoopToolCall("call-mcp", "mcp__github__create_issue", `{}`),
 	}); ok {
 		t.Fatal("Evaluate() ok = true, want hard policy blocks dispatched as denied without approval pause")
+	}
+}
+
+func TestAgentLoopApprovalGate_QAUnavailableGitEvidenceDoesNotPauseForGitPolicies(t *testing.T) {
+	t.Parallel()
+	spec := newAgentLoopSpec(t)
+	// A retained Run snapshot is authoritative after the mutable Task has been
+	// edited. Approval admission must use that same snapshot as dispatch.
+	spec.Run.WorkflowMode = types.WorkflowModeQA
+	spec.Run.WorkflowVersion = taskworkflow.QAVersion
+
+	for _, policy := range []string{"git_exec", "all_tools"} {
+		t.Run(policy, func(t *testing.T) {
+			gate := newAgentLoopApprovalGate(agentLoopGatedTools(map[string]struct{}{policy: {}}))
+			if _, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+				agentLoopToolCall("call-status", "git_status", `{}`),
+				agentLoopToolCall("call-diff", "git_diff", `{}`),
+			}); ok {
+				t.Fatalf("%s policy paused QA unavailable Git evidence, want deterministic diagnostic without approval", policy)
+			}
+		})
 	}
 }
 

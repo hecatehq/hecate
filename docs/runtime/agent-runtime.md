@@ -172,14 +172,18 @@ isolated workspace rather than inheriting a prior path. The workspace
 `CLAUDE.md` / `AGENTS.md` compatibility layer is explicitly excluded, so
 repository guidance remains inspectable evidence rather than system-priority
 instruction. For a local Git source, QA provisions that isolated workspace by
-safe directory copy instead of `git clone` checkout, preserving `.git` for
-bounded reads while preventing host global Git filters from running before the
-dispatcher.
+safe directory copy instead of `git clone` checkout and excludes every `.git`
+entry, including linked-worktree metadata. That prevents host global Git
+filters from running before the dispatcher and later source index or object
+changes from becoming QA evidence.
 
 Those stored fields are not the only boundary. The QA tool catalog and the
-dispatcher both fail closed. Only structured inspection can run:
-`read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `git_status`, and
-`git_diff`. It blocks shell and terminal commands, all workspace/Git writes,
+dispatcher both fail closed. File and artifact inspection can run:
+`read_file`, `grep`, `glob`, `artifact_read`, and `list_dir`. The `git_status`
+and `git_diff` tool names return a clear unavailable result in QA v0 without
+invoking Git, so the agent can record that limitation rather than observe a
+live source repository. QA blocks shell and terminal commands, all
+workspace/Git writes,
 `file_edit` / `apply_patch` proposals, `draft_project_proposal`, external MCP
 tools, `http_request`, `web_search`, and `browser_inspect`. A model that nevertheless returns one
 of those calls receives a policy-denied tool result; Hecate does not create an
@@ -198,12 +202,13 @@ When—and only when—the agent produces a final response, Hecate writes a
 `workflow_report` JSON artifact. Its `agent_reported.summary_markdown` is the
 agent's narrative; it is not proof a test or browser check ran. Its
 `hecate_observed` object separately records the enforced read-only/native
-HTTP-and-search/MCP posture, the QA-v0-unavailable browser-evidence posture,
-and the manifest ID.
+HTTP-and-search/MCP posture, the QA-v0-unavailable browser- and Git-evidence
+postures, and the manifest ID.
 QA v0 has no shell test runner, arbitrary test-command input, browser
 automation, automatic memory candidate, patch-application path, or automatic
-post-run Git-summary capture. Its Git evidence can only come from the bounded
-`git_status` and `git_diff` dispatcher paths above. These limits describe
+post-run Git-summary capture. It also has no Git evidence in v0: its Git tool
+names report that the metadata-free snapshot cannot support inspection. These
+limits describe
 agent-exposed runtime capabilities; Hecate still performs the ordinary local
 filesystem work needed to create its managed workspace.
 
@@ -233,8 +238,8 @@ proposal-only tool.
 | `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
 | `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                                                                                                                                                                                                 |
 | `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                                        |
-| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed                                                                                                                                                                                                          |
-| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed                                                                                                                                                                           |
+| `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                                                                                          |
+| `git_diff`               | Return a bounded workspace or staged diff                             | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with external diff/text conversion, optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                                                                   |
 | `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                                                                                                                                                                                                    |
 | `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                                                                                                                                                                                               |
 | `browser_inspect`        | Load one approved static page and return bounded, text-only evidence  | Available only to native project-assignment tasks whose Agent Preset snapshot explicitly enables browser evidence with exact origins, and only when a local executable is configured. Every call requires an `agent_loop_tool_call` approval even if global tool approvals are disabled. Page scripts are disabled. It is not controlled by `sandbox_network`, and is omitted from Hecate Chat, External Agent, legacy, and manual tasks. |
@@ -526,10 +531,11 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 
 - `shell_exec` → pauses on `shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, and `terminal_kill` tool calls
 - `git_exec` → pauses on `git_exec`, `git_status`, and `git_diff` tool calls
+  outside QA v0; QA v0 reports Git evidence unavailable without an approval
 - `file_write` → pauses on `file_write`, `file_edit`, and `apply_patch` tool calls
 - `read_file` → pauses on `read_file`, `grep`, `glob`, and `artifact_read` tool calls
 - `network_egress` → pauses on `http_request` and configured `web_search` tool calls
-- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`)
+- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`); QA v0 Git evidence remains unavailable without an approval
 
 `browser_inspect` is intentionally not in that policy mapping: every otherwise
 permitted browser-inspection call pauses for `agent_loop_tool_call` approval,
@@ -604,7 +610,7 @@ Env vars that affect agent_loop runs:
 | `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS`    | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`                                                                                             |
 | `HECATE_TASK_SHELL_ALLOWED_HOSTS`        | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                                                                                                                      |
 
-For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. Browser evidence is different: `browser_inspect` always requires its own explicit approval and cannot be enabled by changing this list. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
+For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`; QA v0 is an exception because it reports the metadata-free Git limitation without invoking Git or asking for approval. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. Browser evidence is different: `browser_inspect` always requires its own explicit approval and cannot be enabled by changing this list. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
 Hecate Chat can opt a session into RTK command-output compaction from
 the chat settings panel. The setting is off by default. Hecate only

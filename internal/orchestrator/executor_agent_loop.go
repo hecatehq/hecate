@@ -243,7 +243,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		return nil, err
 	}
 	conversation := newAgentLoopConversation(spec)
-	tools := agentToolDefinitionsForTask(spec.Task, agentToolDefinitionOptions{
+	tools := agentToolDefinitionsForExecution(spec.Task, spec.Run, agentToolDefinitionOptions{
 		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
 		IncludeWebSearch:             e.toolDispatcher != nil && e.toolDispatcher.webSearch != nil,
 		IncludeBrowserInspection:     e.toolDispatcher != nil && e.toolDispatcher.browserInspector != nil,
@@ -887,14 +887,27 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 }
 
 func agentToolDefinitionsForTask(task types.Task, opts agentToolDefinitionOptions) []types.Tool {
+	return agentToolDefinitionsForWorkflow(task, task.WorkflowMode, opts)
+}
+
+// agentToolDefinitionsForExecution uses the immutable run contract so a later
+// Task edit cannot advertise capabilities broader than a retained run allows.
+func agentToolDefinitionsForExecution(task types.Task, run types.TaskRun, opts agentToolDefinitionOptions) []types.Tool {
+	return agentToolDefinitionsForWorkflow(task, taskworkflow.ModeForExecution(task, run), opts)
+}
+
+func agentToolDefinitionsForWorkflow(task types.Task, workflowMode types.WorkflowMode, opts agentToolDefinitionOptions) []types.Tool {
 	if agentPresetDisablesTools(task) {
 		return nil
 	}
 	tools := agentToolDefinitionsWithOptions(opts)
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {
-		if taskworkflow.BlocksTool(task.WorkflowMode, tool.Function.Name) || agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentPresetBlocksBrowser(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
+		if taskworkflow.BlocksTool(workflowMode, tool.Function.Name) || agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentPresetBlocksBrowser(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
 			continue
+		}
+		if taskworkflow.IsUnavailableEvidenceTool(workflowMode, tool.Function.Name) {
+			tool.Function.Description = "Unavailable in Hecate's report-only QA v0 workflow. " + taskworkflow.QAGitEvidenceUnavailableReason
 		}
 		filtered = append(filtered, tool)
 	}
@@ -1756,6 +1769,9 @@ func listDirTool(spec ExecutionSpec, args listDirArgs, stepIndex int, startedAt 
 }
 
 func gitStatusTool(ctx context.Context, spec ExecutionSpec, _ gitStatusArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	if taskworkflow.IsQAExecution(spec.Task, spec.Run) {
+		return unavailableQAGitEvidenceTool(spec, stepIndex, startedAt, toolName)
+	}
 	root, errMsg := workspaceRoot(spec)
 	if errMsg != "" {
 		return "git_status: " + errMsg, nil, nil, nil
@@ -1900,6 +1916,9 @@ func displayGitStatusPath(path string) string {
 }
 
 func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	if taskworkflow.IsQAExecution(spec.Task, spec.Run) {
+		return unavailableQAGitEvidenceTool(spec, stepIndex, startedAt, toolName)
+	}
 	root, errMsg := workspaceRoot(spec)
 	if errMsg != "" {
 		return "git_diff: " + errMsg, nil, nil, nil
@@ -1941,6 +1960,33 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 		"truncated": truncated,
 	})
 	return b.String(), &step, nil, nil
+}
+
+func unavailableQAGitEvidenceTool(spec ExecutionSpec, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	reason := taskworkflow.QAGitEvidenceUnavailableReason
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"available": false,
+		"reason":    reason,
+	})
+	step.Title = toolName + " (unavailable)"
+	step.Phase = "policy"
+	step.Result = telemetry.ResultDenied
+	step.ErrorKind = "workflow_evidence_unavailable"
+	step.OutputSummary = map[string]any{
+		"available": false,
+		"policy":    "workflow_git_metadata",
+		"reason":    reason,
+	}
+	if spec.EmitRunEvent != nil {
+		spec.EmitRunEvent(runtimeevents.EventPolicyToolBlocked.String(), map[string]any{
+			"tool_name": toolName,
+			"kind":      "builtin",
+			"result":    telemetry.MCPCallResultBlocked,
+			"policy":    "workflow_git_metadata",
+			"reason":    reason,
+		})
+	}
+	return fmt.Sprintf("%s: unavailable: %s", toolName, reason), &step, nil, nil
 }
 
 func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...string) (string, bool, string, error) {

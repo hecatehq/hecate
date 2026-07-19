@@ -59,7 +59,7 @@ The implemented QA v0 flow is:
 flowchart LR
     A["Native agent_loop Task<br/>workflow_mode=qa"] --> B["Task + Run snapshot<br/>qa · v0"]
     B --> C["workflow_manifest<br/>Hecate contract"]
-    B --> D["Structured read-only inspection"]
+    B --> D["File/artifact inspection<br/>Git evidence unavailable"]
     D --> F["Agent final response"]
     C --> G["workflow_report<br/>agent-reported + Hecate-observed"]
     F --> G
@@ -190,22 +190,23 @@ The implemented QA v0 contract has a much narrower posture:
 - Hecate forces an ephemeral workspace, `sandbox_read_only=true`, and
   `sandbox_network=false` before persistence. It excludes workspace
   `CLAUDE.md` / `AGENTS.md` from system-prompt composition, and snapshots a
-  local Git source by safe directory copy instead of a clone checkout. Runtime
-  tool dispatch applies a second, mode-specific deny boundary rather than
-  trusting those fields alone.
-- The model sees only structured inspection tools: `read_file`, `grep`,
-  `glob`, `artifact_read`, `list_dir`, `git_status`, and `git_diff`.
+  local Git source by safe directory copy instead of a clone checkout and
+  excludes every `.git` entry. Runtime tool dispatch applies a second,
+  mode-specific deny boundary rather than trusting those fields alone.
+- The model sees file and artifact inspection tools: `read_file`, `grep`,
+  `glob`, `artifact_read`, and `list_dir`. `git_status` and `git_diff` report
+  the metadata-free snapshot as unavailable without invoking Git.
 - QA blocks workspace writes, patch/proposal artifacts, shell and terminal
   commands, external MCP tools, native HTTP requests, web search, and browser
   inspection. It does not run test commands or add a `test_command` input.
-  It also skips automatic post-run Git summary capture; Git evidence exists
-  only when a bounded structured inspection tool returns it.
+  It also skips automatic post-run Git summary capture and has no Git evidence
+  in v0; source Git metadata is not copied into the QA workspace.
 - It emits `workflow_manifest` at run start. If the agent produces a final
   response, Hecate wraps that response in `workflow_report`; no report is
   invented for an unavailable model or a run that ends without a final answer.
   The report's `agent_reported` prose is not proof that a test or browser check
   ran. Its `hecate_observed` object records the enforced posture and declares
-  browser evidence unavailable in v0. The manifest calls
+  browser and Git evidence unavailable in v0. The manifest calls
   `workflow_report` a success artifact, because an unavailable model or an
   early terminal failure intentionally remains manifest-only evidence.
 
@@ -370,8 +371,8 @@ The available experiment is a report-only `qa` Task:
   by the Task, and ordinary provider/model selection
 - context: normal task context and workspace guidance; no new workflow context
   store or Project/Cairnline record
-- structured evidence: bounded file/search/artifact/directory and passive Git
-  inspection; no shell test runner
+- structured evidence: bounded file/search/artifact/directory inspection; Git
+  evidence is unavailable in QA v0; no shell test runner
 - browser evidence: unavailable in QA v0; no browser automation or general
   URL checker
 - output: a static `workflow_manifest` plus a `workflow_report` only after an

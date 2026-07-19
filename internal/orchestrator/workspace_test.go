@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -317,6 +318,9 @@ func TestWorkspaceManager_QAGitSourceSkipsCloneFilterExecution(t *testing.T) {
 	if plan.source.kind != "directory" {
 		t.Fatalf("QA provision source kind = %q, want safe directory copy", plan.source.kind)
 	}
+	if !plan.source.excludeGitMetadata {
+		t.Fatal("QA provision plan did not exclude Git metadata")
+	}
 	qaWorkspace, err := qaManager.provisionPlanned(t.Context(), plan)
 	if err != nil {
 		t.Fatalf("provisionPlanned(QA): %v", err)
@@ -324,8 +328,8 @@ func TestWorkspaceManager_QAGitSourceSkipsCloneFilterExecution(t *testing.T) {
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("global Git smudge helper ran during QA provisioning; stat error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(qaWorkspace, ".git")); err != nil {
-		t.Fatalf("QA directory snapshot did not preserve Git metadata: %v", err)
+	if _, err := os.Lstat(filepath.Join(qaWorkspace, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("QA directory snapshot retained Git metadata: %v", err)
 	}
 
 	normalTask := types.Task{ID: "task-normal-clone", WorkingDirectory: source, WorkspaceMode: "ephemeral"}
@@ -335,6 +339,107 @@ func TestWorkspaceManager_QAGitSourceSkipsCloneFilterExecution(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("normal Git clone did not exercise configured smudge helper: %v", err)
+	}
+}
+
+func TestWorkspaceManager_QALinkedWorktreeSnapshotExcludesGitMetadata(t *testing.T) {
+	repository := t.TempDir()
+	runGit(t, repository, "init")
+	runGit(t, repository, "config", "user.email", "test@example.com")
+	runGit(t, repository, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("initial evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repository, "add", "tracked.txt")
+	runGit(t, repository, "commit", "-m", "initial")
+
+	linkedWorktree := filepath.Join(t.TempDir(), "linked-worktree")
+	runGit(t, repository, "worktree", "add", "-b", "qa-snapshot", linkedWorktree)
+	linkedGitInfo, err := os.Lstat(filepath.Join(linkedWorktree, ".git"))
+	if err != nil || !linkedGitInfo.Mode().IsRegular() {
+		t.Fatalf("linked worktree .git = %v, err=%v, want regular metadata link", linkedGitInfo, err)
+	}
+	if err := os.MkdirAll(filepath.Join(linkedWorktree, "nested-repository", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(linkedWorktree, "nested-repository", ".git", "index"), []byte("nested metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	qaTask := types.Task{
+		ID:                          "task-qa-linked-worktree",
+		WorkingDirectory:            linkedWorktree,
+		WorkspaceMode:               "ephemeral",
+		WorkflowMode:                types.WorkflowModeQA,
+		WorkflowVersion:             taskworkflow.QAVersion,
+		SandboxReadOnly:             true,
+		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
+	}
+	qaRun := types.TaskRun{
+		ID:              "run-qa-linked-worktree",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: taskworkflow.QAVersion,
+	}
+	manager := NewWorkspaceManager(t.TempDir())
+	plan, err := manager.planProvision(qaTask, qaRun)
+	if err != nil {
+		t.Fatalf("planProvision(QA linked worktree): %v", err)
+	}
+	if plan.source.kind != "directory" || !plan.source.excludeGitMetadata {
+		t.Fatalf("QA linked-worktree source plan = %+v, want safe directory copy without Git metadata", plan.source)
+	}
+	qaWorkspace, err := manager.provisionPlanned(t.Context(), plan)
+	if err != nil {
+		t.Fatalf("provisionPlanned(QA linked worktree): %v", err)
+	}
+	if body, err := os.ReadFile(filepath.Join(qaWorkspace, "tracked.txt")); err != nil || string(body) != "initial evidence\n" {
+		t.Fatalf("copied QA evidence = %q, err=%v", body, err)
+	}
+	assertNoGitMetadata(t, qaWorkspace)
+
+	// Mutate the original linked worktree's index only after Hecate has
+	// published the QA snapshot. The agent must never observe this later staged
+	// source content through the structured Git tool names.
+	if err := os.WriteFile(filepath.Join(linkedWorktree, "staged-after-copy.txt"), []byte("source-only secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, linkedWorktree, "add", "staged-after-copy.txt")
+
+	spec := newAgentLoopSpec(t)
+	spec.Task = qaTask
+	spec.Task.WorkingDirectory = qaWorkspace
+	spec.Run = qaRun
+	spec.Run.WorkspacePath = qaWorkspace
+	for _, call := range []struct {
+		name string
+		run  func() (string, *types.TaskStep, []types.TaskArtifact, error)
+	}{
+		{
+			name: "status",
+			run: func() (string, *types.TaskStep, []types.TaskArtifact, error) {
+				return gitStatusTool(t.Context(), spec, gitStatusArgs{}, 0, time.Now().UTC(), "git_status")
+			},
+		},
+		{
+			name: "diff",
+			run: func() (string, *types.TaskStep, []types.TaskArtifact, error) {
+				return gitDiffTool(t.Context(), spec, gitDiffArgs{Staged: true}, 1, time.Now().UTC(), "git_diff")
+			},
+		},
+	} {
+		output, step, _, err := call.run()
+		if err != nil {
+			t.Fatalf("%s QA Git tool: %v", call.name, err)
+		}
+		if !strings.Contains(output, taskworkflow.QAGitEvidenceUnavailableReason) {
+			t.Fatalf("%s QA Git output = %q, want explicit unavailable result", call.name, output)
+		}
+		if strings.Contains(output, "staged-after-copy.txt") || strings.Contains(output, "source-only secret") {
+			t.Fatalf("%s QA Git output exposed post-copy source index content: %q", call.name, output)
+		}
+		if step == nil || step.Result != "denied" || step.ErrorKind != "workflow_evidence_unavailable" {
+			t.Fatalf("%s QA Git step = %+v, want unavailable evidence record", call.name, step)
+		}
 	}
 }
 
@@ -690,5 +795,21 @@ func assertNoProvisionStages(t *testing.T, taskPath string) {
 		if strings.HasPrefix(entry.Name(), ".hecate-provision-") {
 			t.Fatalf("incomplete provisioning stage leaked at %q", filepath.Join(taskPath, entry.Name()))
 		}
+	}
+}
+
+func assertNoGitMetadata(t *testing.T, root string) {
+	t.Helper()
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if strings.EqualFold(info.Name(), ".git") {
+			return fmt.Errorf("retained Git metadata at %q", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

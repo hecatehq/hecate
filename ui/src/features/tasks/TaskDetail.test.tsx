@@ -2015,6 +2015,7 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
           workspace_posture: "read_only",
           native_network_posture: "blocked",
           mcp_posture: "blocked",
+          git_evidence_posture: "unavailable_in_v0",
           browser_evidence_posture: "unavailable_in_v0",
         },
       }),
@@ -2041,7 +2042,8 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     expect(screen.getByText("Read-only")).toBeTruthy();
     expect(screen.getAllByText("Blocked").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Native HTTP/search")).toBeTruthy();
-    expect(screen.getByText("Unavailable in QA v0")).toBeTruthy();
+    expect(screen.getByText("Git evidence")).toBeTruthy();
+    expect(screen.getAllByText("Unavailable in QA v0")).toHaveLength(2);
     expect(screen.queryByText("qa-report.json")).toBeNull();
   });
 

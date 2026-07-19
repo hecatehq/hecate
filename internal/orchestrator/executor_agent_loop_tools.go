@@ -48,8 +48,22 @@ func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
 
 func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost, terminals *agentLoopTerminals) (agentLoopToolDispatchResult, error) {
 	startedAt := time.Now().UTC()
-	if taskworkflow.BlocksTool(taskworkflow.ModeForExecution(spec.Task, spec.Run), call.Function.Name) {
+	workflowMode := taskworkflow.ModeForExecution(spec.Task, spec.Run)
+	if taskworkflow.BlocksTool(workflowMode, call.Function.Name) {
 		return blockedQAWorkflowToolCall(spec, call, stepIndex, startedAt), nil
+	}
+	// Keep QA's historical Git tool names dispatchable solely to explain the
+	// metadata-free snapshot contract. This is intentionally before argument
+	// decoding and every configurable policy so malformed calls and broad
+	// approval rules cannot hide the deterministic evidence limitation.
+	if taskworkflow.IsUnavailableEvidenceTool(workflowMode, call.Function.Name) {
+		text, step, artifacts, err := unavailableQAGitEvidenceTool(spec, stepIndex, startedAt, call.Function.Name)
+		return agentLoopToolDispatchResult{
+			Text:      text,
+			Step:      step,
+			Artifacts: artifacts,
+			ToolError: true,
+		}, err
 	}
 	if agentPresetDisablesTools(spec.Task) {
 		blocked := blockedAgentPresetToolCall(spec, call, stepIndex, startedAt)

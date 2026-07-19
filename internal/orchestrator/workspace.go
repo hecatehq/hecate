@@ -95,13 +95,19 @@ func (m *WorkspaceManager) planProvision(task types.Task, run types.TaskRun) (wo
 		return workspaceProvisionPlan{}, fmt.Errorf("workspace manager is not configured")
 	}
 	source := workspaceSource(task)
+	if taskworkflow.IsQAExecution(task, run) {
+		// QA snapshots source files as inert evidence. Git worktree metadata can
+		// point outside the copied tree (linked worktrees use a .git file) and
+		// would expose later source index/object changes to the QA run. Exclude
+		// every .git entry while copying, including nested repository metadata.
+		source.excludeGitMetadata = true
+	}
 	if taskworkflow.IsQAExecution(task, run) && source.kind == "git" {
 		// QA v0 treats repository files as evidence, not executable setup.
 		// A local `git clone` still performs a checkout and can consult a
 		// trusted-host global filter command, so snapshot the already-local
-		// source through the safe directory copier instead. This preserves the
-		// .git metadata required by QA's hardened structured Git reads without
-		// launching a Git checkout before the agent dispatcher starts.
+		// source through the safe directory copier without launching Git before
+		// the agent dispatcher starts.
 		source.kind = "directory"
 	}
 	// A new task segment may intentionally reuse a workspace that Hecate
@@ -312,8 +318,9 @@ func (m *WorkspaceManager) plannedWorkspacePath(taskID, runID string) (root, wor
 }
 
 type workspaceSourceSpec struct {
-	path string
-	kind string
+	path               string
+	kind               string
+	excludeGitMetadata bool
 }
 
 func workspaceSource(task types.Task) workspaceSourceSpec {
@@ -335,7 +342,7 @@ func provisionWorkspaceSource(ctx context.Context, destination *os.Root, source 
 	case "git":
 		return provisionGitWorkspace(ctx, source.path, destination)
 	case "directory":
-		return provisionDirectoryWorkspace(ctx, source.path, destination)
+		return provisionDirectoryWorkspace(ctx, source.path, destination, source.excludeGitMetadata)
 	default:
 		return nil, contextError(ctx)
 	}
@@ -374,13 +381,15 @@ func provisionGitWorkspace(ctx context.Context, sourcePath string, destination *
 	return copyRootDirectory(ctx, cloneRoot, destination)
 }
 
-func provisionDirectoryWorkspace(ctx context.Context, sourcePath string, destination *os.Root) ([]stagedDirectoryMode, error) {
+func provisionDirectoryWorkspace(ctx context.Context, sourcePath string, destination *os.Root, excludeGitMetadata bool) ([]stagedDirectoryMode, error) {
 	sourceRoot, _, err := openStableExistingRoot(sourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("open workspace copy source: %w", err)
 	}
 	defer sourceRoot.Close()
-	return copyRootDirectory(ctx, sourceRoot, destination)
+	return copyRootDirectoryWithOptions(ctx, sourceRoot, destination, copyRootDirectoryOptions{
+		excludeGitMetadata: excludeGitMetadata,
+	})
 }
 
 func isGitRepository(path string) bool {
@@ -638,11 +647,19 @@ type stagedDirectoryMode struct {
 	mode fs.FileMode
 }
 
-func copyRootDirectory(ctx context.Context, source, destination *os.Root) ([]stagedDirectoryMode, error) {
-	return copyRootDirectoryAt(ctx, source, destination, "")
+type copyRootDirectoryOptions struct {
+	excludeGitMetadata bool
 }
 
-func copyRootDirectoryAt(ctx context.Context, source, destination *os.Root, relativePath string) ([]stagedDirectoryMode, error) {
+func copyRootDirectory(ctx context.Context, source, destination *os.Root) ([]stagedDirectoryMode, error) {
+	return copyRootDirectoryWithOptions(ctx, source, destination, copyRootDirectoryOptions{})
+}
+
+func copyRootDirectoryWithOptions(ctx context.Context, source, destination *os.Root, options copyRootDirectoryOptions) ([]stagedDirectoryMode, error) {
+	return copyRootDirectoryAt(ctx, source, destination, "", options)
+}
+
+func copyRootDirectoryAt(ctx context.Context, source, destination *os.Root, relativePath string, options copyRootDirectoryOptions) ([]stagedDirectoryMode, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
@@ -661,6 +678,9 @@ func copyRootDirectoryAt(ctx context.Context, source, destination *os.Root, rela
 			return nil, err
 		}
 		name := entry.Name()
+		if options.excludeGitMetadata && strings.EqualFold(name, ".git") {
+			continue
+		}
 		info, err := source.Lstat(name)
 		if err != nil {
 			return nil, err
@@ -680,7 +700,7 @@ func copyRootDirectoryAt(ctx context.Context, source, destination *os.Root, rela
 			if relativePath != "" {
 				childPath = filepath.Join(relativePath, name)
 			}
-			childModes, copyErr := copyRootDirectoryAt(ctx, sourceChild, destinationChild, childPath)
+			childModes, copyErr := copyRootDirectoryAt(ctx, sourceChild, destinationChild, childPath, options)
 			closeErr := errors.Join(sourceChild.Close(), destinationChild.Close())
 			if err := errors.Join(copyErr, closeErr); err != nil {
 				return nil, err
