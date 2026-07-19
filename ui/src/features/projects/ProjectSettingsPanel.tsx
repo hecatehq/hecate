@@ -152,6 +152,8 @@ export function ProjectSettingsPanel({
   const workspace =
     selectedFormRoot?.path || projectDefaultWorkspaceFromRoots(form.roots, form.defaultRootID);
   const rootCount = form.roots.length;
+  const isRootless = rootCount === 0;
+  const rootlessWorktreeHelpID = "project-settings-rootless-worktree-help";
 
   return (
     <div
@@ -354,22 +356,35 @@ export function ProjectSettingsPanel({
                   <button
                     className="btn btn-ghost btn-sm"
                     type="button"
-                    disabled={rootCount === 0}
+                    aria-describedby={isRootless ? rootlessWorktreeHelpID : undefined}
+                    disabled={isRootless}
                     onClick={onOpenCreateWorktree}
+                    title={isRootless ? "Add a folder before creating a worktree" : undefined}
                   >
                     Create worktree
                   </button>
                   <button
                     className="btn btn-ghost btn-sm"
                     type="button"
-                    disabled={rootsPending || rootCount === 0}
+                    aria-describedby={isRootless ? rootlessWorktreeHelpID : undefined}
+                    disabled={rootsPending || isRootless}
                     onClick={() => void onDiscoverRoots()}
+                    title={
+                      isRootless
+                        ? "Add a folder before finding worktrees"
+                        : rootsPending
+                          ? "Wait for worktree discovery to finish"
+                          : undefined
+                    }
                   >
                     {rootsPending ? "Finding…" : "Find worktrees"}
                   </button>
-                  <span style={subtleTextStyle}>
-                    {rootCount === 0
-                      ? "No folders attached."
+                  <span
+                    id={isRootless ? rootlessWorktreeHelpID : undefined}
+                    style={subtleTextStyle}
+                  >
+                    {isRootless
+                      ? "No folders attached. Add a folder before creating or finding worktrees."
                       : `${rootCount} folder${rootCount === 1 ? "" : "s"}`}
                   </span>
                 </div>

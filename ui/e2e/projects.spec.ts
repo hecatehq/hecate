@@ -334,16 +334,16 @@ test("Projects guided start stays on Overview at desktop and narrow widths", asy
   ).toBeVisible();
   await expect(memorySuggestion.getByText("Workspace guidance").first()).toBeVisible();
   await expect(memorySuggestion.getByText("Pending promotion")).toBeVisible();
-  await expect(memorySuggestion.getByText("Show payload details")).toBeVisible();
+  await expect(memorySuggestion.getByText("Show source and field details")).toBeVisible();
   const memoryTechnicalDetails = memorySuggestion.locator("details").filter({
-    hasText: "Show payload details",
+    hasText: "Show source and field details",
   });
   await expect(memoryTechnicalDetails).not.toHaveAttribute("open", "");
   await expect(memorySuggestion.locator("dt", { hasText: "suggested_kind" }).first()).toBeHidden();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
   ).toBe(true);
-  await memorySuggestion.getByText("Show payload details").click();
+  await memorySuggestion.getByText("Show source and field details").click();
   await expect(memoryTechnicalDetails).toHaveAttribute("open", "");
   await expect(memorySuggestion.locator("dt", { hasText: "suggested_kind" }).first()).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
