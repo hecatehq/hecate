@@ -68,7 +68,7 @@ export function DictationReadinessSection({
           >
             Speech-to-text route readiness
           </h2>
-          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
             Turns a short microphone recording into editable text before it reaches the chat target.
             It works with Hecate Chat, Claude Code, Codex, and other External Agents; their sign-ins
             do not provide speech-to-text. This checks routing only; recording still needs
@@ -116,7 +116,7 @@ export function DictationReadinessSection({
             <div
               data-testid="connections-dictation-unavailable"
               role="status"
-              style={{ ...statusStyle, color: "var(--amber)", marginBottom: 10 }}
+              style={{ ...statusStyle, color: "var(--amber-lo)", marginBottom: 10 }}
             >
               <span>
                 {options.length === 0
@@ -137,7 +137,7 @@ export function DictationReadinessSection({
           )}
 
           {options.length === 0 ? (
-            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
               {localProviderSetupAvailable ? (
                 <>
                   Add OpenAI, Groq, or LocalAI in Connections. Hecate uses their explicitly verified
@@ -167,7 +167,7 @@ export function DictationReadinessSection({
             </ul>
           )}
 
-          <div style={{ marginTop: 10, fontSize: 10, color: "var(--t3)", lineHeight: 1.45 }}>
+          <div style={{ marginTop: 10, fontSize: 10, color: "var(--t2)", lineHeight: 1.45 }}>
             Hecate forwards audio only to the selected speech-to-text provider and does not retain
             it. The transcript stays editable and is never sent automatically.
           </div>
@@ -194,12 +194,12 @@ function DictationReadinessBadge({
           : "setup needed";
   const color =
     phase === "loading"
-      ? "var(--t3)"
+      ? "var(--t2)"
       : phase === "failed"
         ? "var(--red)"
         : ready
           ? "var(--green)"
-          : "var(--amber)";
+          : "var(--amber-lo)";
   return (
     <span
       aria-label={`Speech-to-text route ${label}`}
@@ -237,7 +237,7 @@ function DictationRouteRow({ option }: { option: DictationProviderOption }) {
       <span style={{ color: "var(--t1)", fontSize: 11, fontWeight: 600 }}>{option.provider}</span>
       <span
         style={{
-          color: "var(--t3)",
+          color: "var(--t2)",
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           minWidth: 0,
@@ -247,7 +247,7 @@ function DictationRouteRow({ option }: { option: DictationProviderOption }) {
       </span>
       <span
         style={{
-          color: option.available ? "var(--green)" : "var(--amber)",
+          color: option.available ? "var(--green)" : "var(--amber-lo)",
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           marginLeft: "auto",
@@ -267,7 +267,7 @@ const statusStyle = {
   background: "var(--bg2)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-sm)",
-  color: "var(--t3)",
+  color: "var(--t2)",
   display: "flex",
   fontSize: 11,
   gap: 8,
