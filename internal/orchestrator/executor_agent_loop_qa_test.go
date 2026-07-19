@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/codeintel"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -43,7 +44,7 @@ func TestAgentLoopQAWorkflowUsesInspectionCatalogAndProducesStructuredReport(t *
 	if result.Status != "completed" || len(result.PendingApprovals) != 0 {
 		t.Fatalf("result = %+v, want completed without approval", result)
 	}
-	for _, blocked := range []string{"shell_exec", "git_exec", "file_write", "file_edit", "apply_patch", AgentToolHTTPRequest, AgentToolWebSearch, AgentToolDraftProjectProposal} {
+	for _, blocked := range []string{"shell_exec", "git_exec", "file_write", "file_edit", "apply_patch", AgentToolCodeIntelligence, AgentToolHTTPRequest, AgentToolWebSearch, AgentToolDraftProjectProposal} {
 		if hasToolDefinition(llm.lastReqs[0].Tools, blocked) {
 			t.Errorf("QA tool catalog contains %q", blocked)
 		}
@@ -88,6 +89,66 @@ func TestAgentLoopQAWorkflowUsesInspectionCatalogAndProducesStructuredReport(t *
 	}
 	if payload.Workflow.Mode != "qa" || !payload.Workflow.ReportOnly || payload.AgentReported.Outcome != "reported" || !strings.Contains(payload.AgentReported.Summary, "No workspace changes") {
 		t.Fatalf("QA report payload = %+v, want report-only agent result", payload)
+	}
+}
+
+func TestAgentLoopQAWorkflowRunSnapshotRejectsCodeIntelligenceBeforeApprovalOrDispatch(t *testing.T) {
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", agentLoopToolCall("codeintel-qa", AgentToolCodeIntelligence, `{"operation":"capabilities"}`))),
+		makeChatResp(makeAssistantMsg("Code intelligence was unavailable, so I used only the supplied evidence.")),
+	}}
+	fake := &fakeCodeIntelligenceService{result: codeintel.Result{Text: "must not run"}}
+	loop := NewAgentLoopExecutor(
+		llm,
+		&stubExecutor{},
+		&stubExecutor{},
+		&stubExecutor{},
+		4,
+		[]string{AgentToolCodeIntelligence},
+		HTTPRequestPolicy{},
+		WithCodeIntelligenceService(fake),
+	)
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = t.TempDir()
+	// Exercise the immutable execution snapshot rather than the mutable Task.
+	spec.Run.WorkflowMode = types.WorkflowModeQA
+	spec.Run.WorkflowVersion = taskworkflow.QAVersion
+
+	result, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.Status != "completed" || len(result.PendingApprovals) != 0 {
+		t.Fatalf("result = %+v, want completed QA report without approval", result)
+	}
+	if len(llm.lastReqs) == 0 || hasToolDefinition(llm.lastReqs[0].Tools, AgentToolCodeIntelligence) {
+		t.Fatalf("QA catalog exposed %s: %+v", AgentToolCodeIntelligence, llm.lastReqs)
+	}
+	if fake.request.Operation != "" {
+		t.Fatalf("code-intelligence provider ran for QA with request %+v", fake.request)
+	}
+	var blocked *types.TaskStep
+	for index := range result.Steps {
+		if result.Steps[index].ToolName == AgentToolCodeIntelligence {
+			blocked = &result.Steps[index]
+			break
+		}
+	}
+	if blocked == nil || blocked.Phase != "policy" || blocked.Result != "denied" || blocked.OutputSummary["policy"] != "workflow_report_only" {
+		t.Fatalf("QA code-intelligence step = %+v, want report-only policy denial", blocked)
+	}
+	if len(llm.lastReqs) < 2 {
+		t.Fatalf("LLM requests = %d, want denied tool result followed by final report", len(llm.lastReqs))
+	}
+	deniedToolResult := false
+	for _, message := range llm.lastReqs[1].Messages {
+		if message.Role == "tool" && message.ToolError && strings.Contains(message.Content, "report-only QA workflow") {
+			deniedToolResult = true
+			break
+		}
+	}
+	if !deniedToolResult {
+		t.Fatalf("follow-up messages = %+v, want code-intelligence policy-denied tool result", llm.lastReqs[1].Messages)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/browserrunner"
+	"github.com/hecatehq/hecate/internal/codeintel"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskworkflow"
@@ -20,6 +21,7 @@ type agentLoopToolDispatcher struct {
 	shell                     Executor
 	file                      Executor
 	git                       Executor
+	codeIntelligence          codeintel.Querier
 	httpPolicy                HTTPRequestPolicy
 	httpClient                *http.Client
 	webSearch                 websearch.Client
@@ -104,6 +106,17 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 			"agent_preset_browser",
 			"browser evidence is disabled by the resolved agent preset",
 			"choose a non-browser path or ask the operator to use a browser-enabled preset with the required origin",
+		), nil
+	}
+	if blocked, reason := agentSandboxBlocksCodeIntelligence(spec.Task, call); blocked {
+		return blockedNativeToolCall(
+			spec,
+			call,
+			stepIndex,
+			startedAt,
+			"sandbox_code_intelligence",
+			reason,
+			"use grep or structural_search, or run semantic intelligence with a compatible OS sandbox/network-enabled preset",
 		), nil
 	}
 	if agentReadOnlyBlocksTool(spec.Task, call.Function.Name) {
@@ -229,14 +242,21 @@ func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSp
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for grep: %v", err)}, nil
 		}
-		return dispatchResult(grepTool(spec, args, stepIndex, startedAt, call.Function.Name))
+		return dispatchResult(grepTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "glob":
 		var args globArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for glob: %v", err)}, nil
 		}
-		return dispatchResult(globTool(spec, args, stepIndex, startedAt, call.Function.Name))
+		return dispatchResult(globTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name))
+
+	case AgentToolCodeIntelligence:
+		var args codeIntelligenceArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for %s: %v", AgentToolCodeIntelligence, err)}, nil
+		}
+		return dispatchResult(d.codeIntelligenceTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "artifact_read":
 		var args artifactReadArgs

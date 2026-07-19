@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -25,6 +26,9 @@ func TestAgentLoopConversation_FreshRunBuildsPreludeAndStableArtifactID(t *testi
 	}
 	if messages[0].Role != "system" || !strings.Contains(messages[0].Content, "/workspace/run") {
 		t.Fatalf("environment system message = %+v, want workspace grounding", messages[0])
+	}
+	if !strings.Contains(messages[0].Content, "`code_intelligence`") || !strings.Contains(messages[0].Content, "fall back to `grep`") {
+		t.Fatalf("environment system message = %q, want code-intelligence guidance", messages[0].Content)
 	}
 	if messages[1].Role != "system" || messages[1].Content != "Use concise answers." {
 		t.Fatalf("operator system message = %+v", messages[1])
@@ -49,6 +53,32 @@ func TestAgentLoopConversation_ToolsDisabledPreludeDoesNotEncourageToolCalls(t *
 	for _, unexpected := range []string{"/workspace/run", "when calling tools", "`shell_exec`", "`read_file`"} {
 		if strings.Contains(messages[0].Content, unexpected) {
 			t.Fatalf("environment system message = %q, must not encourage %q", messages[0].Content, unexpected)
+		}
+	}
+}
+
+func TestAgentLoopConversation_QARunSnapshotPreludeOnlyNamesAllowedInspection(t *testing.T) {
+	t.Parallel()
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = "/workspace/run"
+	// The retained Run is authoritative even if the mutable Task no longer
+	// carries the workflow fields.
+	spec.Run.WorkflowMode = types.WorkflowModeQA
+	spec.Run.WorkflowVersion = taskworkflow.QAVersion
+
+	conversation := newAgentLoopConversation(spec)
+	messages := conversation.Messages()
+	if len(messages) == 0 || !strings.Contains(messages[0].Content, "report-only inspection tools") {
+		t.Fatalf("environment system message = %+v, want QA inspection guidance", messages)
+	}
+	for _, allowed := range []string{"`read_file`", "`list_dir`", "`grep`", "`glob`", "`artifact_read`"} {
+		if !strings.Contains(messages[0].Content, allowed) {
+			t.Errorf("QA environment system message = %q, want allowed tool %s", messages[0].Content, allowed)
+		}
+	}
+	for _, unavailable := range []string{"`code_intelligence`", "structural patterns", "`shell_exec`", "`git_exec`"} {
+		if strings.Contains(messages[0].Content, unavailable) {
+			t.Errorf("QA environment system message = %q, must not encourage %s", messages[0].Content, unavailable)
 		}
 	}
 }

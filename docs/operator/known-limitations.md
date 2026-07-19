@@ -106,7 +106,8 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   test runner or general workflow engine. It is available only to native
   `agent_loop` Tasks and forces an ephemeral read-only/native-network-tool-disabled posture. It
   rejects MCP servers and blocks shell/terminal commands, writes, patch or
-  proposal creation, native HTTP/search, and browser automation. Hecate writes a
+  proposal creation, semantic and structural code intelligence, native
+  HTTP/search, and browser automation. Hecate writes a
   `workflow_manifest` at Run start and a `workflow_report` only after the
   agent returns a final response. The report's narrative is agent-reported; it
   is not proof that tests or browser checks ran. QA excludes repository

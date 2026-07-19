@@ -4008,7 +4008,7 @@ func TestAgentLoop_ReadOnlyToolDefinitionsKeepStructuredInspectionAndProposalToo
 			t.Errorf("read-only tool catalog contains %q", blocked)
 		}
 	}
-	for _, allowed := range []string{"read_file", "grep", "glob", "list_dir", "git_status", "git_diff", "file_edit", "apply_patch"} {
+	for _, allowed := range []string{"read_file", "grep", "glob", AgentToolCodeIntelligence, "list_dir", "git_status", "git_diff", "file_edit", "apply_patch"} {
 		if !hasToolDefinition(tools, allowed) {
 			t.Errorf("read-only tool catalog omits structured tool %q", allowed)
 		}

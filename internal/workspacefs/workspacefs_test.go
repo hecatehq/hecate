@@ -1,6 +1,9 @@
 package workspacefs
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -291,6 +294,121 @@ func TestWalkDirVisitsWorkspaceRelativePaths(t *testing.T) {
 	}
 	if want := []string{"a/b/file.txt"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("walked files = %#v, want %#v", got, want)
+	}
+}
+
+func TestWalkDirContextRejectsPreCancelledContextWithoutVisiting(t *testing.T) {
+	fsys, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	visits := 0
+	err = fsys.WalkDirContext(ctx, ".", func(string, string, DirEntry) error {
+		visits++
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WalkDirContext() error = %v, want context.Canceled", err)
+	}
+	if visits != 0 {
+		t.Fatalf("visits = %d, want 0", visits)
+	}
+}
+
+func TestWalkDirContextCancellationInsideVisitorStopsTraversal(t *testing.T) {
+	root := t.TempDir()
+	for index := 0; index < walkDirBatchSize*2; index++ {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("%04d.txt", index)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	visits := 0
+	err = fsys.WalkDirContext(ctx, ".", func(_ string, rel string, _ DirEntry) error {
+		visits++
+		if rel != "." {
+			cancel()
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WalkDirContext() error = %v, want context.Canceled", err)
+	}
+	if visits != 2 {
+		t.Fatalf("visits = %d, want root plus first file", visits)
+	}
+}
+
+func TestWalkDirContextCancellationInsideRootFileVisitorStopsTraversal(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	visits := 0
+	err = fsys.WalkDirContext(ctx, "one.txt", func(_ string, _ string, _ DirEntry) error {
+		visits++
+		cancel()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WalkDirContext() error = %v, want context.Canceled", err)
+	}
+	if visits != 1 {
+		t.Fatalf("visits = %d, want 1", visits)
+	}
+}
+
+func TestWalkDirContextCancellationInsideSkippedRootDirectoryStopsTraversal(t *testing.T) {
+	fsys, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	err = fsys.WalkDirContext(ctx, ".", func(_ string, _ string, entry DirEntry) error {
+		cancel()
+		if !entry.IsDir {
+			t.Fatal("root entry must be a directory")
+		}
+		return filepath.SkipDir
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WalkDirContext() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestWalkDirContextPreservesSkipAll(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	visits := 0
+	err = fsys.WalkDirContext(context.Background(), ".", func(_ string, rel string, _ DirEntry) error {
+		visits++
+		if rel != "." {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != filepath.SkipAll {
+		t.Fatalf("WalkDirContext() error = %v, want filepath.SkipAll", err)
+	}
+	if visits != 2 {
+		t.Fatalf("visits = %d, want root plus first file", visits)
 	}
 }
 

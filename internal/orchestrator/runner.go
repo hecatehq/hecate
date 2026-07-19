@@ -418,7 +418,7 @@ func (r *Runner) hasPolicy(name string) bool {
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request", AgentToolWebSearch, AgentToolDraftProjectProposal}
+		out := []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", AgentToolCodeIntelligence, "http_request", AgentToolWebSearch, AgentToolDraftProjectProposal}
 		return append(out, agentLoopTerminalToolNames()...)
 	}
 	out := make([]string, 0, len(policies))
@@ -432,7 +432,7 @@ func agentLoopGatedTools(policies map[string]struct{}) []string {
 		case "file_write":
 			out = append(out, "file_write", "file_edit", "apply_patch")
 		case "read_file":
-			out = append(out, "read_file", "grep", "glob", "artifact_read")
+			out = append(out, "read_file", "grep", "glob", "artifact_read", AgentToolCodeIntelligence)
 		case "network_egress":
 			// `network_egress` is the historical name for the
 			// outbound-network policy applied to shell tasks. We

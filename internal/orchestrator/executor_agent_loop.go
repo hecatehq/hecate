@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -20,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/browserrunner"
+	"github.com/hecatehq/hecate/internal/codeintel"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskworkflow"
@@ -138,11 +141,12 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 		maxModelCalls: maxModelCalls,
 		approvalGate:  newAgentLoopApprovalGate(gatedTools),
 		toolDispatcher: &agentLoopToolDispatcher{
-			shell:      shell,
-			file:       file,
-			git:        git,
-			httpPolicy: httpPolicy,
-			httpClient: httpClient,
+			shell:            shell,
+			file:             file,
+			git:              git,
+			codeIntelligence: codeintel.NewService(),
+			httpPolicy:       httpPolicy,
+			httpClient:       httpClient,
 		},
 	}
 	for _, opt := range opts {
@@ -154,6 +158,18 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 }
 
 type AgentLoopExecutorOption func(*AgentLoopExecutor)
+
+// WithCodeIntelligenceService replaces the local, allowlisted semantic and
+// structural code-intelligence service. Passing nil disables dispatch while
+// retaining a clear tool error for stale or resumed model calls.
+func WithCodeIntelligenceService(service codeintel.Querier) AgentLoopExecutorOption {
+	return func(e *AgentLoopExecutor) {
+		if e == nil || e.toolDispatcher == nil {
+			return
+		}
+		e.toolDispatcher.codeIntelligence = service
+	}
+}
 
 func WithWebSearchClient(client websearch.Client) AgentLoopExecutorOption {
 	return func(e *AgentLoopExecutor) {
@@ -716,9 +732,9 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 				Parameters: json.RawMessage(`{
 					"type": "object",
 					"properties": {
-						"pattern": {"type": "string", "description": "Go regular expression to search for."},
+						"pattern": {"type": "string", "maxLength": 4096, "description": "Go regular expression to search for, capped at 4096 UTF-8 bytes."},
 						"path": {"type": "string", "default": ".", "description": "Relative file or directory path to search under."},
-						"include": {"type": "string", "description": "Optional glob filter such as '*.go' or 'internal/**/*.go'."},
+						"include": {"type": "string", "maxLength": 4096, "description": "Optional glob filter such as '*.go' or 'internal/**/*.go'; a whole ** segment matches zero or more directories. Capped at 4096 UTF-8 bytes."},
 						"case_sensitive": {"type": "boolean", "default": true},
 						"max_matches": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
 					},
@@ -734,7 +750,7 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 				Parameters: json.RawMessage(`{
 					"type": "object",
 					"properties": {
-						"pattern": {"type": "string", "description": "Glob pattern matched against workspace-relative paths, e.g. '**/*.go' or 'docs/*.md'."},
+						"pattern": {"type": "string", "maxLength": 4096, "description": "Glob pattern matched against workspace-relative paths, e.g. '**/*.go' or 'docs/*.md'; a whole ** segment matches zero or more directories. Capped at 4096 UTF-8 bytes."},
 						"path": {"type": "string", "default": ".", "description": "Relative directory to search under."},
 						"max_matches": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}
 					},
@@ -828,6 +844,7 @@ func agentToolDefinitionsWithOptions(opts agentToolDefinitionOptions) []types.To
 				}`),
 			},
 		},
+		codeIntelligenceToolDefinition(),
 	}
 	if opts.IncludeWebSearch {
 		tools = append(tools, types.Tool{
@@ -927,14 +944,15 @@ type shellExecArgs struct {
 }
 
 const (
-	AgentToolHTTPRequest    = "http_request"
-	AgentToolWebSearch      = "web_search"
-	AgentToolBrowserInspect = "browser_inspect"
-	AgentToolTerminalOpen   = "terminal_open"
-	AgentToolTerminalWrite  = "terminal_write"
-	AgentToolTerminalRead   = "terminal_read"
-	AgentToolTerminalWait   = "terminal_wait"
-	AgentToolTerminalKill   = "terminal_kill"
+	AgentToolHTTPRequest      = "http_request"
+	AgentToolWebSearch        = "web_search"
+	AgentToolBrowserInspect   = "browser_inspect"
+	AgentToolTerminalOpen     = "terminal_open"
+	AgentToolTerminalWrite    = "terminal_write"
+	AgentToolTerminalRead     = "terminal_read"
+	AgentToolTerminalWait     = "terminal_wait"
+	AgentToolTerminalKill     = "terminal_kill"
+	AgentToolCodeIntelligence = "code_intelligence"
 )
 
 func agentToolRequiresNetwork(name string) bool {
@@ -1271,19 +1289,25 @@ func summarizeSubResult(r *ExecutionResult) string {
 // because we're bypassing the sandbox.
 
 const (
-	readFileDefaultMaxBytes = 64 * 1024
-	readFileHardCapBytes    = 1024 * 1024
-	grepDefaultMaxMatches   = 100
-	grepHardCapMatches      = 500
-	grepFileHardCapBytes    = 1024 * 1024
-	globDefaultMaxMatches   = 200
-	globHardCapMatches      = 1000
-	artifactDefaultMaxBytes = 64 * 1024
-	artifactHardCapBytes    = 1024 * 1024
-	gitDiffDefaultMaxBytes  = 64 * 1024
-	gitDiffHardCapBytes     = 1024 * 1024
-	fileEditHardCapBytes    = 2 * 1024 * 1024
-	listDirEntryCap         = 500
+	readFileDefaultMaxBytes  = 64 * 1024
+	readFileHardCapBytes     = 1024 * 1024
+	grepDefaultMaxMatches    = 100
+	grepHardCapMatches       = 500
+	grepFileHardCapBytes     = 1024 * 1024
+	grepScanHardCapBytes     = 64 * 1024 * 1024
+	grepLineHardCapBytes     = 4 * 1024
+	globDefaultMaxMatches    = 200
+	globHardCapMatches       = 1000
+	searchPatternHardCap     = 4 * 1024
+	searchEntryHardCap       = 100_000
+	searchPatternWorkHardCap = 64 * 1024 * 1024
+	searchOutputHardCap      = 64 * 1024
+	artifactDefaultMaxBytes  = 64 * 1024
+	artifactHardCapBytes     = 1024 * 1024
+	gitDiffDefaultMaxBytes   = 64 * 1024
+	gitDiffHardCapBytes      = 1024 * 1024
+	fileEditHardCapBytes     = 2 * 1024 * 1024
+	listDirEntryCap          = 500
 )
 
 func workspaceFileSystem(spec ExecutionSpec) (*workspacefs.FS, string) {
@@ -1524,15 +1548,19 @@ func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedA
 		maxBytes = readFileHardCapBytes
 	}
 
-	info, _, err := fsys.Stat(rel)
+	file, info, _, err := fsys.OpenReadNonBlocking(rel)
 	if err != nil {
 		return fmt.Sprintf("read_file: %v", err), nil, nil, nil
 	}
+	defer file.Close()
 	if info.IsDir() {
 		return fmt.Sprintf("read_file: %q is a directory; use list_dir instead", args.Path), nil, nil, nil
 	}
+	if !info.Mode().IsRegular() {
+		return fmt.Sprintf("read_file: %q is not a regular file; skipped content", args.Path), nil, nil, nil
+	}
 
-	displayContent, lineRange, n, truncated, errMsg := readWorkspaceFileContent(fsys, rel, args.Path, info.Size(), maxBytes, args.StartLine, args.EndLine)
+	displayContent, lineRange, n, truncated, errMsg := readWorkspaceFileContent(file, info, args.Path, maxBytes, args.StartLine, args.EndLine)
 	if errMsg != "" {
 		return "read_file: " + errMsg, nil, nil, nil
 	}
@@ -1554,9 +1582,27 @@ func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedA
 	return b.String(), &step, nil, nil
 }
 
-func grepTool(spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+func grepTool(ctx context.Context, spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	return grepToolWithPatternWorkLimit(ctx, spec, args, stepIndex, startedAt, toolName, searchPatternWorkHardCap)
+}
+
+func grepToolWithPatternWorkLimit(ctx context.Context, spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.Time, toolName string, patternWorkLimit int64) (string, *types.TaskStep, []types.TaskArtifact, error) {
 	if strings.TrimSpace(args.Pattern) == "" {
 		return "grep: pattern is required", nil, nil, nil
+	}
+	if errMsg := validateSearchPattern("pattern", args.Pattern); errMsg != "" {
+		return "grep: " + errMsg, nil, nil, nil
+	}
+	var includeMatcher *compiledGlobPattern
+	if args.Include != "" {
+		if errMsg := validateSearchPattern("include", args.Include); errMsg != "" {
+			return "grep: " + errMsg, nil, nil, nil
+		}
+		compiled, err := compileGlobPattern(args.Include)
+		if err != nil {
+			return "grep: invalid include glob", nil, nil, nil
+		}
+		includeMatcher = &compiled
 	}
 	pattern := args.Pattern
 	caseSensitive := true
@@ -1568,7 +1614,7 @@ func grepTool(spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.T
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return fmt.Sprintf("grep: invalid regex: %v", err), nil, nil, nil
+		return boundedSearchOutput(fmt.Sprintf("grep: invalid regex: %v", err)), nil, nil, nil
 	}
 	maxMatches := args.MaxMatches
 	if maxMatches <= 0 {
@@ -1579,12 +1625,26 @@ func grepTool(spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.T
 	}
 	fsys, rootRel, _, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
-		return "grep: " + errMsg, nil, nil, nil
+		return boundedSearchOutput("grep: " + errMsg), nil, nil, nil
 	}
 
 	var matches []grepMatch
-	err = fsys.WalkDir(rootRel, func(_ string, rel string, entry workspacefs.DirEntry) error {
+	var scannedBytes int64
+	var scannedEntries int
+	patternWork := newGlobMatchWorkBudget(patternWorkLimit)
+	skipCounts := make(map[string]int)
+	limitReason := ""
+	err = fsys.WalkDirContext(ctx, rootRel, func(_ string, rel string, entry workspacefs.DirEntry) error {
+		if err := ctx.Err(); err != nil {
+			limitReason = "cancelled"
+			return filepath.SkipAll
+		}
+		if !consumeSearchEntry(&scannedEntries, searchEntryHardCap) {
+			limitReason = "entry_limit"
+			return filepath.SkipAll
+		}
 		if len(matches) >= maxMatches {
+			limitReason = "match_limit"
 			return filepath.SkipAll
 		}
 		if shouldSkipSearchDir(entry) {
@@ -1594,42 +1654,113 @@ func grepTool(spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.T
 			return nil
 		}
 		displayRel := filepath.ToSlash(rel)
-		if args.Include != "" && !globPatternMatches(args.Include, displayRel) && !globPatternMatches(args.Include, filepath.Base(displayRel)) {
+		if includeMatcher != nil {
+			matched, exhausted := includeMatcher.Matches(displayRel, patternWork)
+			if exhausted {
+				limitReason = "pattern_work_limit"
+				return filepath.SkipAll
+			}
+			if !matched {
+				matched, exhausted = includeMatcher.Matches(pathpkg.Base(displayRel), patternWork)
+				if exhausted {
+					limitReason = "pattern_work_limit"
+					return filepath.SkipAll
+				}
+			}
+			if !matched {
+				return nil
+			}
+		}
+		remainingScanBytes := int64(grepScanHardCapBytes) - scannedBytes
+		if remainingScanBytes <= 0 {
+			limitReason = "byte_limit"
+			return filepath.SkipAll
+		}
+		fileResult := grepFile(fsys, rel, displayRel, re, maxMatches-len(matches), remainingScanBytes)
+		scannedBytes += fileResult.bytesRead
+		if fileResult.skipReason != "" {
+			skipCounts[fileResult.skipReason]++
+		}
+		if fileResult.err != nil {
+			if fileResult.byteLimit {
+				limitReason = "byte_limit"
+				return filepath.SkipAll
+			}
 			return nil
 		}
-		fileMatches, err := grepFile(fsys, rel, displayRel, re, maxMatches-len(matches))
-		if err != nil {
-			return nil
+		matches = append(matches, fileResult.matches...)
+		if fileResult.matchLimit {
+			limitReason = "match_limit"
+			return filepath.SkipAll
 		}
-		matches = append(matches, fileMatches...)
+		if fileResult.byteLimit {
+			limitReason = "byte_limit"
+			return filepath.SkipAll
+		}
 		return nil
 	})
 	if err != nil && err != filepath.SkipAll {
-		return fmt.Sprintf("grep: %v", err), nil, nil, nil
+		return boundedSearchOutput(fmt.Sprintf("grep: %v", err)), nil, nil, nil
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "pattern=%q matches=%d", args.Pattern, len(matches))
-	if len(matches) >= maxMatches {
-		fmt.Fprintf(&b, " truncated=true")
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return boundedSearchOutput(fmt.Sprintf("grep: %v", ctxErr)), nil, nil, nil
 	}
-	b.WriteByte('\n')
-	for _, m := range matches {
-		fmt.Fprintf(&b, "%s:%d:%s\n", m.Path, m.Line, m.Text)
+	lines := make([]string, 0, len(matches))
+	for _, match := range matches {
+		lines = append(lines, fmt.Sprintf("%s:%d:%s\n", match.Path, match.Line, match.Text))
 	}
-	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
-		"pattern":        args.Pattern,
-		"path":           firstNonEmpty(args.Path, "."),
-		"include":        args.Include,
-		"case_sensitive": caseSensitive,
-		"matches":        len(matches),
-		"max_matches":    maxMatches,
+	skippedFiles := grepSkippedFileCount(skipCounts)
+	skipSummary := formatGrepSkipCounts(skipCounts)
+	text, renderedMatches, outputTruncated := formatBoundedSearchResponse(lines, limitReason, func(rendered int, scanLimit string, outputTruncated bool) string {
+		var header strings.Builder
+		fmt.Fprintf(&header, "pattern=%q matches=%d rendered_matches=%d scanned_entries=%d scanned_bytes=%d pattern_work=%d", args.Pattern, len(matches), rendered, scannedEntries, scannedBytes, patternWork.Used())
+		if scanLimit != "" || outputTruncated {
+			header.WriteString(" truncated=true")
+		}
+		if scanLimit != "" {
+			fmt.Fprintf(&header, " scan_limit=%s", scanLimit)
+		}
+		fmt.Fprintf(&header, " output_truncated=%t", outputTruncated)
+		if skippedFiles > 0 {
+			fmt.Fprintf(&header, " incomplete=true skipped_files=%d skip_reasons=%s", skippedFiles, skipSummary)
+		}
+		return header.String()
 	})
-	return b.String(), &step, nil, nil
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"pattern":          args.Pattern,
+		"path":             boundedSearchMetadata(firstNonEmpty(args.Path, ".")),
+		"include":          args.Include,
+		"case_sensitive":   caseSensitive,
+		"matches":          len(matches),
+		"rendered_matches": renderedMatches,
+		"max_matches":      maxMatches,
+		"scanned_entries":  scannedEntries,
+		"scanned_bytes":    scannedBytes,
+		"pattern_work":     patternWork.Used(),
+		"scan_limit":       limitReason,
+		"output_truncated": outputTruncated,
+		"truncated":        limitReason != "" || outputTruncated,
+		"incomplete":       skippedFiles > 0,
+		"skipped_files":    skippedFiles,
+		"skip_reasons":     skipCounts,
+	})
+	return text, &step, nil, nil
 }
 
-func globTool(spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+func globTool(ctx context.Context, spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	return globToolWithPatternWorkLimit(ctx, spec, args, stepIndex, startedAt, toolName, searchPatternWorkHardCap)
+}
+
+func globToolWithPatternWorkLimit(ctx context.Context, spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.Time, toolName string, patternWorkLimit int64) (string, *types.TaskStep, []types.TaskArtifact, error) {
 	if strings.TrimSpace(args.Pattern) == "" {
 		return "glob: pattern is required", nil, nil, nil
+	}
+	if errMsg := validateSearchPattern("pattern", args.Pattern); errMsg != "" {
+		return "glob: " + errMsg, nil, nil, nil
+	}
+	matcher, err := compileGlobPattern(args.Pattern)
+	if err != nil {
+		return "glob: invalid pattern", nil, nil, nil
 	}
 	maxMatches := args.MaxMatches
 	if maxMatches <= 0 {
@@ -1640,10 +1771,21 @@ func globTool(spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.T
 	}
 	fsys, rootRel, _, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
-		return "glob: " + errMsg, nil, nil, nil
+		return boundedSearchOutput("glob: " + errMsg), nil, nil, nil
 	}
 	var matches []string
-	err := fsys.WalkDir(rootRel, func(_ string, rel string, entry workspacefs.DirEntry) error {
+	scannedEntries := 0
+	patternWork := newGlobMatchWorkBudget(patternWorkLimit)
+	limitReason := ""
+	err = fsys.WalkDirContext(ctx, rootRel, func(_ string, rel string, entry workspacefs.DirEntry) error {
+		if err := ctx.Err(); err != nil {
+			limitReason = "cancelled"
+			return filepath.SkipAll
+		}
+		if !consumeSearchEntry(&scannedEntries, searchEntryHardCap) {
+			limitReason = "entry_limit"
+			return filepath.SkipAll
+		}
 		if shouldSkipSearchDir(entry) {
 			return filepath.SkipDir
 		}
@@ -1651,39 +1793,67 @@ func globTool(spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.T
 		if displayRel == "." {
 			return nil
 		}
-		if globPatternMatches(args.Pattern, displayRel) || globPatternMatches(args.Pattern, filepath.Base(displayRel)) {
+		matched, exhausted := matcher.Matches(displayRel, patternWork)
+		if exhausted {
+			limitReason = "pattern_work_limit"
+			return filepath.SkipAll
+		}
+		if !matched {
+			matched, exhausted = matcher.Matches(pathpkg.Base(displayRel), patternWork)
+			if exhausted {
+				limitReason = "pattern_work_limit"
+				return filepath.SkipAll
+			}
+		}
+		if matched {
 			suffix := ""
 			if entry.IsDir {
 				suffix = "/"
 			}
 			matches = append(matches, displayRel+suffix)
 			if len(matches) >= maxMatches {
+				limitReason = "match_limit"
 				return filepath.SkipAll
 			}
 		}
 		return nil
 	})
 	if err != nil && err != filepath.SkipAll {
-		return fmt.Sprintf("glob: %v", err), nil, nil, nil
+		return boundedSearchOutput(fmt.Sprintf("glob: %v", err)), nil, nil, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return boundedSearchOutput(fmt.Sprintf("glob: %v", ctxErr)), nil, nil, nil
 	}
 	sort.Strings(matches)
-	var b strings.Builder
-	fmt.Fprintf(&b, "pattern=%q matches=%d", args.Pattern, len(matches))
-	if len(matches) >= maxMatches {
-		fmt.Fprintf(&b, " truncated=true")
-	}
-	b.WriteByte('\n')
+	lines := make([]string, 0, len(matches))
 	for _, match := range matches {
-		b.WriteString(match)
-		b.WriteByte('\n')
+		lines = append(lines, match+"\n")
 	}
-	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
-		"pattern":     args.Pattern,
-		"path":        firstNonEmpty(args.Path, "."),
-		"matches":     len(matches),
-		"max_matches": maxMatches,
+	text, renderedMatches, outputTruncated := formatBoundedSearchResponse(lines, limitReason, func(rendered int, scanLimit string, outputTruncated bool) string {
+		var header strings.Builder
+		fmt.Fprintf(&header, "pattern=%q matches=%d rendered_matches=%d scanned_entries=%d pattern_work=%d", args.Pattern, len(matches), rendered, scannedEntries, patternWork.Used())
+		if scanLimit != "" || outputTruncated {
+			header.WriteString(" truncated=true")
+		}
+		if scanLimit != "" {
+			fmt.Fprintf(&header, " scan_limit=%s", scanLimit)
+		}
+		fmt.Fprintf(&header, " output_truncated=%t", outputTruncated)
+		return header.String()
 	})
-	return b.String(), &step, nil, nil
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"pattern":          args.Pattern,
+		"path":             boundedSearchMetadata(firstNonEmpty(args.Path, ".")),
+		"matches":          len(matches),
+		"rendered_matches": renderedMatches,
+		"max_matches":      maxMatches,
+		"scanned_entries":  scannedEntries,
+		"pattern_work":     patternWork.Used(),
+		"scan_limit":       limitReason,
+		"output_truncated": outputTruncated,
+		"truncated":        limitReason != "" || outputTruncated,
+	})
+	return text, &step, nil, nil
 }
 
 func artifactReadTool(spec ExecutionSpec, args artifactReadArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
@@ -2087,15 +2257,13 @@ func combineGitReadOutput(stdout, stderr string) string {
 	return stdout + "\n" + stderr
 }
 
-func readWorkspaceFileContent(fsys *workspacefs.FS, rel, displayPath string, fileSize int64, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
-	f, _, err := fsys.Open(rel)
-	if err != nil {
-		return "", "", 0, false, err.Error()
-	}
-	defer f.Close()
-
+func readWorkspaceFileContent(f *os.File, initialInfo os.FileInfo, displayPath string, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
+	fileSize := initialInfo.Size()
 	probe := make([]byte, 512)
-	probeN, _ := f.Read(probe)
+	probeN, probeErr := f.Read(probe)
+	if probeErr != nil && probeErr != io.EOF {
+		return "", "", 0, false, probeErr.Error()
+	}
 	for _, b := range probe[:probeN] {
 		if b == 0 {
 			return "", "", 0, false, fmt.Sprintf("%q is a binary file (%d bytes); skipped content. Use file_write to overwrite or shell_exec for inspection.", displayPath, fileSize)
@@ -2107,14 +2275,35 @@ func readWorkspaceFileContent(fsys *workspacefs.FS, rel, displayPath string, fil
 
 	if startLine > 0 || endLine > 0 {
 		content, lineRange, truncated, errMsg := readWorkspaceFileLineRange(f, maxBytes, startLine, endLine)
+		if errMsg == "" {
+			errMsg = verifyReadFileSnapshot(f, initialInfo)
+		}
 		return content, lineRange, len(content), truncated, errMsg
 	}
 
-	buf := make([]byte, maxBytes)
-	n, _ := f.Read(buf)
-	content := string(buf[:n])
-	truncated := fileSize > int64(n)
-	return content, "", n, truncated, ""
+	raw, err := io.ReadAll(io.LimitReader(f, int64(maxBytes)+1))
+	if err != nil {
+		return "", "", 0, false, err.Error()
+	}
+	if errMsg := verifyReadFileSnapshot(f, initialInfo); errMsg != "" {
+		return "", "", 0, false, errMsg
+	}
+	truncated := len(raw) > maxBytes
+	if truncated {
+		raw = raw[:maxBytes]
+	}
+	return string(raw), "", len(raw), truncated, ""
+}
+
+func verifyReadFileSnapshot(f *os.File, initialInfo os.FileInfo) string {
+	currentInfo, err := f.Stat()
+	if err != nil {
+		return err.Error()
+	}
+	if !currentInfo.Mode().IsRegular() || initialInfo.Mode() != currentInfo.Mode() || initialInfo.Size() != currentInfo.Size() || !initialInfo.ModTime().Equal(currentInfo.ModTime()) {
+		return "file changed while it was being read; retry"
+	}
+	return ""
 }
 
 func readWorkspaceFileLineRange(f *os.File, maxBytes, startLine, endLine int) (string, string, bool, string) {
@@ -2297,14 +2486,76 @@ func shouldSkipSearchDir(entry workspacefs.DirEntry) bool {
 	}
 }
 
-func grepFile(fsys *workspacefs.FS, rel, displayRel string, re *regexp.Regexp, remaining int) ([]grepMatch, error) {
-	info, _, err := fsys.Stat(rel)
-	if err != nil || info.IsDir() || info.Size() > grepFileHardCapBytes {
-		return nil, err
+const (
+	grepSkipNonRegular  = "non_regular"
+	grepSkipLargeFile   = "large_file"
+	grepSkipBinary      = "binary"
+	grepSkipInvalidUTF8 = "invalid_utf8"
+	grepSkipChanged     = "changed"
+	grepSkipOpenError   = "open_error"
+	grepSkipReadError   = "read_error"
+)
+
+var grepSkipReasonOrder = []string{
+	grepSkipNonRegular,
+	grepSkipLargeFile,
+	grepSkipBinary,
+	grepSkipInvalidUTF8,
+	grepSkipChanged,
+	grepSkipOpenError,
+	grepSkipReadError,
+}
+
+type grepFileResult struct {
+	matches    []grepMatch
+	bytesRead  int64
+	matchLimit bool
+	byteLimit  bool
+	skipReason string
+	err        error
+}
+
+func grepFile(fsys *workspacefs.FS, rel, displayRel string, re *regexp.Regexp, remaining int, byteBudget int64) grepFileResult {
+	if byteBudget <= 0 {
+		return grepFileResult{byteLimit: true}
 	}
-	raw, _, err := fsys.ReadFile(rel)
+	file, info, _, err := fsys.OpenReadNonBlocking(rel)
 	if err != nil {
-		return nil, err
+		return grepFileResult{skipReason: grepSkipOpenError, err: err}
+	}
+	defer file.Close()
+	if !info.Mode().IsRegular() {
+		return grepFileResult{skipReason: grepSkipNonRegular}
+	}
+	if info.Size() > grepFileHardCapBytes {
+		return grepFileResult{skipReason: grepSkipLargeFile}
+	}
+	// The extra byte distinguishes an exact-cap file from a file that grew
+	// while it was being read. It remains inside the aggregate byte budget.
+	readLimit := int64(grepFileHardCapBytes + 1)
+	if byteBudget < readLimit {
+		readLimit = byteBudget
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(file, readLimit))
+	bytesRead := int64(len(raw))
+	currentInfo, err := file.Stat()
+	if err != nil {
+		return grepFileResult{bytesRead: bytesRead, skipReason: grepSkipReadError, err: err}
+	}
+	// Reaching the aggregate budget is only truncation when the opened file
+	// has unread data. Exact budget consumption at EOF is a complete read.
+	byteTruncated := bytesRead == byteBudget && currentInfo.Size() > bytesRead
+	if readErr != nil {
+		return grepFileResult{bytesRead: bytesRead, byteLimit: byteTruncated, skipReason: grepSkipReadError, err: readErr}
+	}
+	if !currentInfo.Mode().IsRegular() {
+		return grepFileResult{bytesRead: bytesRead, byteLimit: byteTruncated, skipReason: grepSkipChanged}
+	}
+	if len(raw) > grepFileHardCapBytes || currentInfo.Size() > grepFileHardCapBytes {
+		return grepFileResult{bytesRead: bytesRead, byteLimit: byteTruncated, skipReason: grepSkipChanged}
+	}
+	if grepFileSnapshotChanged(info, currentInfo, bytesRead, byteTruncated) {
+		return grepFileResult{bytesRead: bytesRead, byteLimit: byteTruncated, skipReason: grepSkipChanged}
 	}
 	probe := raw
 	if len(probe) > 512 {
@@ -2312,41 +2563,315 @@ func grepFile(fsys *workspacefs.FS, rel, displayRel string, re *regexp.Regexp, r
 	}
 	for _, b := range probe {
 		if b == 0 {
-			return nil, nil
+			return grepFileResult{bytesRead: bytesRead, byteLimit: byteTruncated, skipReason: grepSkipBinary}
 		}
 	}
-	lines := strings.Split(string(raw), "\n")
+	searchableRaw := raw
+	if byteTruncated {
+		// Never interpret an artificial aggregate-budget boundary as the end of
+		// a source line. Complete earlier lines remain useful, but the partial
+		// trailing line could otherwise create false anchored-regex matches.
+		lastNewline := bytes.LastIndexByte(searchableRaw, '\n')
+		if lastNewline < 0 {
+			return grepFileResult{bytesRead: bytesRead, byteLimit: true}
+		}
+		searchableRaw = searchableRaw[:lastNewline]
+	}
+	if !utf8.Valid(searchableRaw) {
+		return grepFileResult{bytesRead: bytesRead, byteLimit: byteTruncated, skipReason: grepSkipInvalidUTF8}
+	}
+	lines := strings.Split(string(searchableRaw), "\n")
 	matches := make([]grepMatch, 0)
 	for i, line := range lines {
 		if re.MatchString(line) {
-			matches = append(matches, grepMatch{Path: displayRel, Line: i + 1, Text: line})
 			if len(matches) >= remaining {
-				break
+				return grepFileResult{matches: matches, bytesRead: bytesRead, matchLimit: true, byteLimit: byteTruncated}
 			}
+			matches = append(matches, grepMatch{Path: displayRel, Line: i + 1, Text: truncateUTF8(line, grepLineHardCapBytes)})
 		}
 	}
-	return matches, nil
+	return grepFileResult{matches: matches, bytesRead: bytesRead, byteLimit: byteTruncated}
 }
 
-func globPatternMatches(pattern, rel string) bool {
-	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
-	rel = filepath.ToSlash(rel)
-	if ok, _ := filepath.Match(pattern, rel); ok {
+func grepFileSnapshotChanged(initial, current os.FileInfo, bytesRead int64, byteLimited bool) bool {
+	if initial.Size() != current.Size() || !initial.ModTime().Equal(current.ModTime()) {
 		return true
 	}
-	re, err := regexp.Compile("^" + regexp.QuoteMeta(pattern) + "$")
-	if err != nil {
+	return !byteLimited && bytesRead != current.Size()
+}
+
+func grepSkippedFileCount(counts map[string]int) int {
+	total := 0
+	for _, reason := range grepSkipReasonOrder {
+		total += counts[reason]
+	}
+	return total
+}
+
+func formatGrepSkipCounts(counts map[string]int) string {
+	parts := make([]string, 0, len(grepSkipReasonOrder))
+	for _, reason := range grepSkipReasonOrder {
+		if count := counts[reason]; count > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", reason, count))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func truncateUTF8(value string, maxBytes int) string {
+	value = strings.ToValidUTF8(value, "�")
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	const suffix = "…"
+	if maxBytes <= len(suffix) {
+		if maxBytes == len(suffix) {
+			return suffix
+		}
+		return ""
+	}
+	end := maxBytes - len(suffix)
+	for end > 0 && !utf8.ValidString(value[:end]) {
+		end--
+	}
+	return value[:end] + suffix
+}
+
+type compiledGlobPattern struct {
+	segments   []string
+	statesA    []int
+	statesB    []int
+	marksA     []uint64
+	marksB     []uint64
+	generation uint64
+}
+
+type globMatchWorkBudget struct {
+	remaining int64
+	used      int64
+}
+
+func newGlobMatchWorkBudget(limit int64) *globMatchWorkBudget {
+	if limit < 0 {
+		limit = 0
+	}
+	return &globMatchWorkBudget{remaining: limit}
+}
+
+func (budget *globMatchWorkBudget) Consume(units int64) bool {
+	if budget == nil {
+		return true
+	}
+	if units <= 0 {
+		units = 1
+	}
+	if units > budget.remaining {
+		budget.used += budget.remaining
+		budget.remaining = 0
 		return false
 	}
-	expr := re.String()
-	expr = strings.ReplaceAll(expr, `\*\*`, `.*`)
-	expr = strings.ReplaceAll(expr, `\*`, `[^/]*`)
-	expr = strings.ReplaceAll(expr, `\?`, `[^/]`)
-	re, err = regexp.Compile(expr)
-	if err != nil {
+	budget.remaining -= units
+	budget.used += units
+	return true
+}
+
+func (budget *globMatchWorkBudget) Used() int64 {
+	if budget == nil {
+		return 0
+	}
+	return budget.used
+}
+
+func compileGlobPattern(pattern string) (compiledGlobPattern, error) {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	if _, err := pathpkg.Match(pattern, ""); err != nil {
+		return compiledGlobPattern{}, err
+	}
+	segments := strings.Split(pattern, "/")
+	compact := segments[:0]
+	for _, segment := range segments {
+		if segment == "**" {
+			if len(compact) > 0 && compact[len(compact)-1] == "**" {
+				continue
+			}
+		}
+		compact = append(compact, segment)
+	}
+	stateCapacity := len(compact) + 1
+	return compiledGlobPattern{
+		segments: compact,
+		statesA:  make([]int, 0, stateCapacity),
+		statesB:  make([]int, 0, stateCapacity),
+		marksA:   make([]uint64, stateCapacity),
+		marksB:   make([]uint64, stateCapacity),
+	}, nil
+}
+
+// Matches evaluates one workspace-relative path with reusable O(pattern)
+// scratch. The aggregate budget belongs to the enclosing grep/glob call, so
+// both the full-path and basename fallbacks draw from the same finite pool.
+func (matcher *compiledGlobPattern) Matches(rel string, budget *globMatchWorkBudget) (bool, bool) {
+	if matcher == nil {
+		return false, false
+	}
+	rel = filepath.ToSlash(rel)
+	pathSegments := strings.Split(rel, "/")
+
+	currentStates := matcher.statesA[:0]
+	nextStates := matcher.statesB[:0]
+	currentMarks := matcher.marksA
+	nextMarks := matcher.marksB
+	currentGeneration := matcher.nextGeneration()
+	var exhausted bool
+	currentStates, exhausted = matcher.addGlobState(currentStates, currentMarks, currentGeneration, 0, budget)
+	if exhausted {
+		return false, true
+	}
+
+	for _, pathSegment := range pathSegments {
+		nextStates = nextStates[:0]
+		nextGeneration := matcher.nextGeneration()
+		for _, patternIndex := range currentStates {
+			if patternIndex == len(matcher.segments) {
+				continue
+			}
+			patternSegment := matcher.segments[patternIndex]
+			if patternSegment == "**" {
+				if !budget.Consume(1) {
+					return false, true
+				}
+				nextStates, exhausted = matcher.addGlobState(nextStates, nextMarks, nextGeneration, patternIndex, budget)
+				if exhausted {
+					return false, true
+				}
+				continue
+			}
+			if !budget.Consume(globSegmentMatchWork(patternSegment, pathSegment)) {
+				return false, true
+			}
+			segmentMatched, _ := pathpkg.Match(patternSegment, pathSegment)
+			if !segmentMatched {
+				continue
+			}
+			nextStates, exhausted = matcher.addGlobState(nextStates, nextMarks, nextGeneration, patternIndex+1, budget)
+			if exhausted {
+				return false, true
+			}
+		}
+		currentStates, nextStates = nextStates, currentStates
+		currentMarks, nextMarks = nextMarks, currentMarks
+		currentGeneration = nextGeneration
+		if len(currentStates) == 0 {
+			return false, false
+		}
+	}
+	return currentMarks[len(matcher.segments)] == currentGeneration, false
+}
+
+func (matcher *compiledGlobPattern) nextGeneration() uint64 {
+	matcher.generation++
+	if matcher.generation == 0 {
+		clear(matcher.marksA)
+		clear(matcher.marksB)
+		matcher.generation = 1
+	}
+	return matcher.generation
+}
+
+func (matcher *compiledGlobPattern) addGlobState(states []int, marks []uint64, generation uint64, patternIndex int, budget *globMatchWorkBudget) ([]int, bool) {
+	for patternIndex <= len(matcher.segments) {
+		if marks[patternIndex] != generation {
+			if !budget.Consume(1) {
+				return states, true
+			}
+			marks[patternIndex] = generation
+			states = append(states, patternIndex)
+		}
+		if patternIndex == len(matcher.segments) || matcher.segments[patternIndex] != "**" {
+			return states, false
+		}
+		patternIndex++
+	}
+	return states, false
+}
+
+func globSegmentMatchWork(patternSegment, pathSegment string) int64 {
+	patternBytes := len(patternSegment)
+	if patternBytes == 0 {
+		patternBytes = 1
+	}
+	pathBytes := len(pathSegment)
+	if pathBytes == 0 {
+		pathBytes = 1
+	}
+	return int64(patternBytes) * int64(pathBytes)
+}
+
+func consumeSearchEntry(scanned *int, limit int) bool {
+	if scanned == nil || limit <= 0 || *scanned >= limit {
 		return false
 	}
-	return re.MatchString(rel)
+	(*scanned)++
+	return true
+}
+
+func validateSearchPattern(field, value string) string {
+	if !utf8.ValidString(value) {
+		return field + " must be valid UTF-8"
+	}
+	if len(value) > searchPatternHardCap {
+		return fmt.Sprintf("%s exceeds the %d-byte limit", field, searchPatternHardCap)
+	}
+	return ""
+}
+
+func boundedSearchMetadata(value string) string {
+	return truncateUTF8(value, searchPatternHardCap)
+}
+
+func boundedSearchOutput(value string) string {
+	value = strings.ToValidUTF8(value, "�")
+	if len(value) <= searchOutputHardCap {
+		return value
+	}
+	const suffix = "\n…(truncated)"
+	return truncateUTF8(value, searchOutputHardCap-len(suffix)) + suffix
+}
+
+func formatBoundedSearchResponse(lines []string, scanLimit string, header func(rendered int, scanLimit string, outputTruncated bool) string) (string, int, bool) {
+	renderedLines := make([]string, 0, len(lines))
+	bodyBytes := 0
+	for _, line := range lines {
+		line = strings.ToValidUTF8(line, "�")
+		candidateHeader := header(len(renderedLines)+1, scanLimit, false)
+		if len(candidateHeader)+1+bodyBytes+len(line) > searchOutputHardCap {
+			break
+		}
+		renderedLines = append(renderedLines, line)
+		bodyBytes += len(line)
+	}
+
+	outputTruncated := len(renderedLines) < len(lines)
+	for {
+		finalHeader := strings.ToValidUTF8(header(len(renderedLines), scanLimit, outputTruncated), "�")
+		if len(finalHeader)+1+bodyBytes <= searchOutputHardCap {
+			var result strings.Builder
+			result.Grow(len(finalHeader) + 1 + bodyBytes)
+			result.WriteString(finalHeader)
+			result.WriteByte('\n')
+			for _, line := range renderedLines {
+				result.WriteString(line)
+			}
+			return boundedSearchOutput(result.String()), len(renderedLines), outputTruncated
+		}
+		if len(renderedLines) == 0 {
+			return boundedSearchOutput(finalHeader), 0, true
+		}
+		last := len(renderedLines) - 1
+		bodyBytes -= len(renderedLines[last])
+		renderedLines = renderedLines[:last]
+		outputTruncated = true
+	}
 }
 
 func parseStructuredPatch(patchText string) ([]patchOperation, string) {

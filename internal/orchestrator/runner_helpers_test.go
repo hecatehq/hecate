@@ -276,7 +276,7 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "all_tools short-circuits to full set",
 			policies: []string{"all_tools"},
-			want:     []string{"apply_patch", "artifact_read", "draft_project_proposal", "file_edit", "file_write", "git_diff", "git_exec", "git_status", "glob", "grep", "http_request", "list_dir", "read_file", "shell_exec", "terminal_kill", "terminal_open", "terminal_read", "terminal_wait", "terminal_write", AgentToolWebSearch},
+			want:     []string{"apply_patch", "artifact_read", AgentToolCodeIntelligence, "draft_project_proposal", "file_edit", "file_write", "git_diff", "git_exec", "git_status", "glob", "grep", "http_request", "list_dir", "read_file", "shell_exec", "terminal_kill", "terminal_open", "terminal_read", "terminal_wait", "terminal_write", AgentToolWebSearch},
 		},
 		{
 			name:     "file_write gates write and exact edit tools",
@@ -286,7 +286,7 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "read_file gates read and search tools",
 			policies: []string{"read_file"},
-			want:     []string{"artifact_read", "glob", "grep", "read_file"},
+			want:     []string{"artifact_read", AgentToolCodeIntelligence, "glob", "grep", "read_file"},
 		},
 		{
 			name:     "network_egress maps to HTTP and web search",

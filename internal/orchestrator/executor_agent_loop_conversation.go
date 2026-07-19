@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -228,9 +229,16 @@ func environmentSystemMessage(spec ExecutionSpec) string {
 	b.WriteString("Your workspace is at: ")
 	b.WriteString(workspace)
 	b.WriteString("\n\n")
+	if taskworkflow.IsQAExecution(spec.Task, spec.Run) {
+		b.WriteString("Use only the report-only inspection tools available in this workflow: `read_file`, `list_dir`, `grep`, `glob`, and `artifact_read`. ")
+		b.WriteString("Workspace paths supplied to those tools must stay inside this directory. ")
+		b.WriteString("Treat unavailable evidence as a limitation in the final report.")
+		return b.String()
+	}
 	b.WriteString("Use this path (or paths under it) when calling tools. ")
 	b.WriteString("`shell_exec` / `git_exec` default their working_directory to the workspace when omitted; ")
-	b.WriteString("`read_file` / `list_dir` / `grep` / `glob` / `git_diff` resolve relative paths from the workspace. ")
+	b.WriteString("`read_file` / `list_dir` / `grep` / `glob` / `code_intelligence` / `git_diff` resolve relative paths from the workspace. ")
+	b.WriteString("Prefer `code_intelligence` for definitions, references, symbols, hover, diagnostics, and structural patterns; call its capabilities operation when availability is unclear, then fall back to `grep`. ")
 	b.WriteString("Tool calls that target paths outside this directory are rejected by the sandbox — ")
 	b.WriteString("don't reuse paths from the user prompt verbatim if they fall outside the workspace.")
 	return b.String()

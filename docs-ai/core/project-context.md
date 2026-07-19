@@ -79,8 +79,9 @@ External Agent/ACP command. QA creation forces an ephemeral read-only,
 native-network-tool-disabled workspace and rejects MCP servers; the agent-loop catalog and
 dispatcher independently permit only structured inspection. Do not weaken that
 boundary by treating ordinary read-only mode as equivalent: QA also blocks
-patch/proposal creation, shell/terminal execution, HTTP/search, and browser
-automation. Its workspace `CLAUDE.md` / `AGENTS.md` compatibility prompt layer
+patch/proposal creation, shell/terminal execution, semantic and structural code
+intelligence, HTTP/search, and browser automation. Its workspace `CLAUDE.md` /
+`AGENTS.md` compatibility prompt layer
 is excluded, and a local Git source is copied rather than checked out with
 `git clone` while every `.git` entry is excluded, so repository guidance, host
 global Git filters, and linked-worktree metadata cannot become agent
@@ -206,6 +207,9 @@ internal/taskworkflow/     small built-in Task workflow contracts; no scheduler,
                              Project coordination, or durable workflow store
 internal/browserrunner/    narrow local Chromium inspection seam for native,
                              approval-gated, script-disabled text evidence
+internal/codeintel/        native read-only code intelligence: fixed allowlisted
+                             LSP/ast-grep processes, bounded protocol/results,
+                             workspace-confined normalization and cleanup
 internal/workspacefs/      shared workspace path resolver for file/search/write
                              operations owned by Hecate
 internal/processrunner/    bounded local subprocess seam: cwd, env, timeout,
@@ -289,7 +293,7 @@ Postgres remains observable as `hecate.queue.backend=postgres`.
 
 These earn extra scrutiny; changes here are not drive-by territory.
 
-- **Workspace and subprocess boundary** (`internal/workspacefs/`, `internal/processrunner/`, `internal/gitrunner/`, `internal/sandbox/`) — Hecate-mediated file/search/write operations resolve paths through WorkspaceFS. Shell commands go through the sandbox executor and ProcessRunner; Hecate-owned Git helpers use GitRunner where they do not need the broad `git_exec` shell-shaped interface. The sandbox layer still applies policy validation, env sanitisation, output caps, wall-clock timeout, and optional `bwrap` / `sandbox-exec` OS isolation (auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are _not_ applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New workspace tool kinds use WorkspaceFS / ProcessRunner / GitRunner as appropriate rather than raw filesystem, process, or git calls. See `docs/runtime/sandbox.md` for the layer model and `docs/runtime/agent-runtime.md` for the network-egress policy that sits on top.
+- **Workspace and subprocess boundary** (`internal/workspacefs/`, `internal/processrunner/`, `internal/gitrunner/`, `internal/codeintel/`, `internal/sandbox/`) — Hecate-mediated file/search/write operations resolve paths through WorkspaceFS. Shell commands go through the sandbox executor and ProcessRunner; Hecate-owned Git helpers use GitRunner where they do not need the broad `git_exec` shell-shaped interface. Native semantic/structural inspection belongs in CodeIntel, which alone owns fixed-argv LSP/ast-grep provider trust, protocol bounds, and process-tree cleanup. The sandbox layer still applies policy validation, env sanitisation, output caps, wall-clock timeout, and optional `bwrap` / `sandbox-exec` OS isolation (auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are _not_ applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New workspace tool kinds use WorkspaceFS / ProcessRunner / GitRunner / CodeIntel as appropriate rather than raw filesystem, process, or git calls. See `docs/runtime/sandbox.md` for the layer model and `docs/runtime/agent-runtime.md` for the network-egress policy that sits on top.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) —
   pre-execution and mid-loop approvals halt the run. New gates use the same
   `TaskApproval` shape. Resolving a pending approval is one cross-backend

@@ -52,8 +52,8 @@ func TestQAWorkflowArtifactsDescribeBoundedReportOnlyContract(t *testing.T) {
 		t.Fatalf("manifest payload = %#v, want explicit unavailable Git evidence tools", manifestPayload)
 	}
 	blocked, ok := manifestPayload["blocked_capabilities"].([]any)
-	if !ok || !containsString(blocked, "browser inspection and automation") || !containsString(blocked, "Git repository metadata and structured Git inspection") {
-		t.Fatalf("manifest payload = %#v, want browser and Git inspection blocked in QA v0", manifestPayload)
+	if !ok || !containsString(blocked, "browser inspection and automation") || !containsString(blocked, "Git repository metadata and structured Git inspection") || !containsString(blocked, "semantic and structural code intelligence") {
+		t.Fatalf("manifest payload = %#v, want browser, Git, and code-intelligence inspection blocked in QA v0", manifestPayload)
 	}
 
 	report, err := ReportArtifact(task, run, "step-final", createdAt, "## Findings\nNo changes made.")
@@ -249,7 +249,7 @@ func TestQAToolPolicyFailsClosedOutsideStructuredInspection(t *testing.T) {
 			t.Errorf("BlocksTool(qa, %q) = true, want allowed evidence tool", name)
 		}
 	}
-	for _, name := range []string{"shell_exec", "git_exec", "file_write", "file_edit", "apply_patch", "http_request", "web_search", "browser_inspect", "mcp__docs__lookup", "draft_project_proposal"} {
+	for _, name := range []string{"shell_exec", "git_exec", "file_write", "file_edit", "apply_patch", "code_intelligence", "http_request", "web_search", "browser_inspect", "mcp__docs__lookup", "draft_project_proposal"} {
 		if !BlocksTool(types.WorkflowModeQA, name) {
 			t.Errorf("BlocksTool(qa, %q) = false, want blocked", name)
 		}

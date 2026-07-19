@@ -72,7 +72,8 @@ func (g agentLoopApprovalGate) isGated(call types.ToolCall, spec ExecutionSpec) 
 	// Hard policy refusals run before approval semantics. Asking an operator
 	// to approve a call that the dispatcher must still refuse is misleading,
 	// and would turn a fail-closed decision into an unnecessary pause.
-	if taskworkflow.BlocksTool(workflowMode, toolName) || taskworkflow.IsUnavailableEvidenceTool(workflowMode, toolName) || agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
+	blockedCodeIntelligence, _ := agentSandboxBlocksCodeIntelligence(task, call)
+	if taskworkflow.BlocksTool(workflowMode, toolName) || taskworkflow.IsUnavailableEvidenceTool(workflowMode, toolName) || agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || blockedCodeIntelligence || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
 		return false
 	}
 	if toolName == AgentToolBrowserInspect {
