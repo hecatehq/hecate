@@ -768,20 +768,26 @@ function ProjectAssistantActionRow({
 
   const targetEntries = Object.entries(action.target ?? {});
   const patchEntries = Object.entries(action.patch ?? {});
+  const hasFieldDetails = targetEntries.length > 0 || patchEntries.length > 0;
   return (
     <div style={assistantActionStyle}>
       <div style={assistantActionHeaderStyle}>
         <span className="badge badge-muted">{projectAssistantActionLabel(action.kind)}</span>
         {action.reason && <span style={subtleTextStyle}>{action.reason}</span>}
       </div>
-      <div style={assistantPatchGridStyle}>
-        {targetEntries.length > 0 && (
-          <ProjectAssistantFieldGroup title="Target" entries={targetEntries} />
-        )}
-        {patchEntries.length > 0 && (
-          <ProjectAssistantFieldGroup title="Patch" entries={patchEntries} />
-        )}
-      </div>
+      {hasFieldDetails && (
+        <details style={assistantTechnicalDetailsStyle}>
+          <summary style={assistantTechnicalSummaryStyle}>Show changed fields</summary>
+          <div style={assistantPatchGridStyle}>
+            {targetEntries.length > 0 && (
+              <ProjectAssistantFieldGroup title="Target" entries={targetEntries} />
+            )}
+            {patchEntries.length > 0 && (
+              <ProjectAssistantFieldGroup title="Patch" entries={patchEntries} />
+            )}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
