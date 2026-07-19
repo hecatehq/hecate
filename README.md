@@ -206,7 +206,7 @@ Choose the path that matches how you want to run Hecate.
 | [Desktop app](#desktop-app)          | Personal Hecate on your laptop. No Docker required. macOS is the most-tested path; Linux/Windows bundles are experimental. |
 | [Docker](#docker)                    | Local container, scripted local deploys, and Linux/Windows alpha use today.                                                |
 | [From source](#from-source)          | Contributors and local development.                                                                                        |
-| [Hecate Cloud](https://hecatehq.com) | Optional hosted deployment and browser access when you do not want to keep a local machine online.                         |
+| [Hecate Cloud](https://hecatehq.com) | Hosted Hecate plus authenticated browser access to a running Hecate desktop app.                                           |
 
 ### Desktop app
 
@@ -230,6 +230,11 @@ automatically. State lives in the platform data dir:
 - macOS: `~/Library/Application Support/sh.hecate.app/`
 - Windows: `%APPDATA%\sh.hecate.app\`
 - Linux: `~/.local/share/sh.hecate.app/`
+
+To reach this Hecate from a phone or another browser, open **Settings -> Remote
+access** in the desktop app and sign in to Hecate Cloud. The app handles browser
+approval and the outbound connection directly; installing the `hec` CLI is not
+required.
 
 macOS release bundles are signed and notarized. Linux and Windows bundles are
 published by CI but have not yet had the same manual launch coverage. The

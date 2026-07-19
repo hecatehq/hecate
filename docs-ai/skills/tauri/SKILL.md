@@ -41,7 +41,7 @@ tauri/
     fonts/                  vendored splash fonts + OFL notices; no runtime
                             network fetch during startup
   src-tauri/
-    Cargo.toml              Rust crate: tauri 2, tauri-plugin-shell,
+    Cargo.toml              Rust crate: tauri 2, tauri-plugin-opener,
                             tauri-plugin-updater, tauri-plugin-window-state,
                             reqwest (rustls-tls), tokio
     Cargo.lock              committed (app, not a library)
@@ -61,8 +61,8 @@ tauri/
       lib.rs                Tauri builder, setup hook, GatewayChild managed state,
                             RunEvent::Exit → kill
       sidecar.rs            resolve_binary(), resolve_data_dir(), spawn_and_wait()
-      cloud_connection.rs   desktop-only Hecate Cloud connector supervisor;
-                            starts/stops the external `hec connect` CLI
+      cloud_connection.rs   desktop-only Hecate Cloud account, credential,
+                            host registration, and outbound relay supervisor
 ```
 
 ## Just recipes
@@ -146,20 +146,30 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   - `QUIT_IN_PROGRESS` atomic latch keeps `app.exit(0)`'s re-entrant `ExitRequested` from re-prompting.
 - `RunEvent::Exit` is the final cleanup: `child.try_wait()` for up to 2 s (graceful path leaves nothing to wait on) and then `child.kill()` as a fallback if the gateway never exited (drain timed out, /system/shutdown unreachable, etc.). Also removes `hecate.runtime.json` from the data dir.
 - If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.
-- Desktop remote access is a supervised `hec connect` subprocess, not a second
-  Cloud implementation in the open-source app. The Tauri command passes the
-  actual dynamic sidecar URL via `--local-url`; `hec` owns browser login,
-  desktop host registration, token storage, and Cloud protocol details. After a
-  successful manual connect, Tauri persists only an on/off preference at
-  `<app_data_dir>/cloud-connection.json` and auto-starts `hec connect` after the
-  next sidecar `/healthz` success. Disconnecting clears that preference. Do not
-  store Cloud session tokens, host tokens, approval URLs, or browser-login state
-  in the native app.
+- Desktop remote access is native Rust plumbing in `cloud_connection.rs`; it
+  must not depend on an installed `hec` binary. The app generates an app-session
+  token, opens Hecate Cloud approval in the system browser, registers this
+  computer, and keeps the outbound host WebSocket alive while the app runs.
+  `hec connect` remains the headless/manual fallback and shares the same Cloud
+  host-relay protocol.
+- Cloud session and host tokens live only in the OS credential store via
+  `keyring`. `<app_data_dir>/cloud-connection.json` contains reconnect posture,
+  account display email, org id, and host id, but never tokens, secrets, or the
+  approval URL. The approval token stays in Rust and the system-browser URL
+  fragment; never return it through Tauri IPC to the webview.
+- Turning Remote access off cancels the relay and disables reconnect without
+  signing the account out. Signing out revokes the registered host and app
+  session where possible, removes both keychain entries, and clears local Cloud
+  preferences. App exit only closes the relay; it preserves the enabled bit so
+  the next launch reconnects after the sidecar is healthy.
 
 ## Tauri-specific rules
 
 - **Never call `WebviewWindowBuilder::new(app, "main", …)` in setup.** The window is already created by `tauri.conf.json`; calling the builder again panics with "a webview with label `main` already exists". Use `app.get_webview_window("main")` instead.
-- **`tauri.conf.json` `plugins.shell` does not accept a `sidecar` field.** In Tauri 2.x the shell plugin config only accepts `open`. Sidecar permissions are set in `capabilities/default.json`.
+- **Use `tauri-plugin-opener` for system-browser URLs.** Do not add the general
+  shell plugin just to open a login URL. The bundled Hecate runtime is declared
+  through `externalBin`; it is launched by the Rust sidecar supervisor, not a
+  `plugins.shell.sidecar` configuration field.
 - **Use `std::process::Command`, not `tokio::process::Command`.** The `Child::kill()` and `Child::try_wait()` calls in `RunEvent::Exit` must be synchronous — the exit handler is not running in an async runtime. tokio's `Child` API is async and would need to be awaited, which isn't possible there.
 - **`externalBin` uses the target triple suffix.** The binary must be named `hecate-{triple}` in `tauri/src-tauri/binaries/`. `just tauri-sidecar` does this automatically. The release-mode path resolver tries `hecate-{TARGET}` (compile-time constant) then plain `hecate`.
 - **The gateway data directory must be writable.** A bundled `.app` on macOS is read-only. Always pass `HECATE_DATA_DIR` pointing to the Tauri-resolved app data directory — never let the gateway default to `.data/` next to its binary.

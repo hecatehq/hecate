@@ -86,15 +86,16 @@ What works:
   desktop app it launches common local editors, Terminal/iTerm2, or
   Finder/folder via Tauri commands; in the browser UI the local gateway handles
   the same action for loopback clients.
-- Settings shows a desktop-only **Remote access** section. It detects the
-  `hec` CLI and starts `hec connect --local-url <native-sidecar-url>` so the
-  local app can be reached through Hecate Cloud from another signed-in device.
-  Login, registration, and approval stay owned by `hec` / Hecate Cloud; the
-  desktop app only starts, stops, and reports the connector process. A
-  successful connection records a local on/off preference in
-  `<data_dir>/cloud-connection.json`; the app uses that bit to reconnect after
-  the sidecar gateway is healthy on the next launch. Disconnecting turns that
-  preference off. The file contains no Cloud token or login state.
+- Settings has a desktop-only **Remote access** section. Sign in opens Hecate
+  Cloud in the system browser for explicit approval, then the app registers the
+  computer and maintains its outbound connection itself. No separate CLI is
+  required. Leave the app running, then open the computer from Hecate Cloud on
+  a phone or another browser. Turning Remote access off preserves the signed-in
+  account; signing out revokes the app session and computer registration.
+- Cloud session and computer credentials are stored in the operating system's
+  credential store. `<data_dir>/cloud-connection.json` contains only reconnect
+  posture and non-secret account/host identifiers. When Remote access remains
+  on, the app reconnects after its local runtime is healthy on the next launch.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.
@@ -142,11 +143,11 @@ What doesn't yet:
 - No Homebrew formula or cask yet. A formula would help CLI installation, and
   a cask would help app distribution. macOS now signs+notarizes via
   `APPLE_*` repo secrets; a cask would still be additional polish.
-- Remote access requires the separate `hec` CLI and an active Hecate Cloud
-  account. The desktop app does not bundle Cloud credentials, register hosts by
-  itself, or keep a background relay alive after the app exits. If remote
-  access is on, reopening the app restarts `hec connect`; browser login or
-  approval may still be required by `hec` when the Cloud session has expired.
+- Remote access requires a Hecate Cloud account and the desktop app must remain
+  open. There is no tray/background service yet; closing Hecate closes the
+  outbound connection. Reopening it reconnects automatically while the saved
+  app session remains valid, otherwise Settings asks for browser approval
+  again.
 - No tray and no deep links.
 - Linux and Windows: build-only and currently untested by maintainers. Need an
   actual launch on each platform before claiming they work.

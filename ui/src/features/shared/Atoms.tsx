@@ -72,13 +72,17 @@ export function Toggle({
   onChange,
   label,
   ariaLabel,
+  disabled = false,
 }: {
   on: boolean;
   onChange: (v: boolean) => void;
   label?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
-  const toggle = () => onChange(!on);
+  const toggle = () => {
+    if (!disabled) onChange(!on);
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
@@ -86,12 +90,17 @@ export function Toggle({
     toggle();
   };
   return (
-    <label className="toggle-wrap" onClick={toggle}>
+    <label
+      className="toggle-wrap"
+      onClick={toggle}
+      style={disabled ? { cursor: "not-allowed", opacity: 0.55 } : undefined}
+    >
       <span
         role="switch"
         aria-checked={on}
+        aria-disabled={disabled}
         aria-label={ariaLabel ?? label}
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         onKeyDown={onKeyDown}
         className={`toggle ${on ? "on" : ""}`}
       />

@@ -6,6 +6,7 @@ import { useSettings } from "../../app/state/settings";
 import {
   canUseDesktopCloudConnection,
   getDesktopCloudConnectionStatus,
+  signOutDesktopCloudConnection,
   startDesktopCloudConnection,
   stopDesktopCloudConnection,
   type DesktopCloudConnectionStatus,
@@ -13,7 +14,7 @@ import {
 import { ApiError, getPlugins } from "../../lib/api";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { PluginRecord } from "../../types/plugin";
-import { Badge, Icon, Icons, InlineError } from "../shared/ui";
+import { Badge, Icon, Icons, InlineError, Toggle } from "../shared/ui";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
 
 export function SettingsView() {
@@ -96,31 +97,43 @@ export function SettingsView() {
   );
 }
 
-const HCLOUD_CONSOLE_URL = "https://console.hecatehq.com/console";
-
 function DesktopCloudConnectionSettings() {
   const [status, setStatus] = useState<DesktopCloudConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<"connect" | "disconnect" | "refresh" | null>(null);
+  const [busy, setBusy] = useState<"connect" | "disconnect" | "signout" | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void refreshStatus("initial");
+    let cancelled = false;
+    void getDesktopCloudConnectionStatus()
+      .then((nextStatus) => {
+        if (!cancelled) setStatus(nextStatus);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to read remote access status.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function refreshStatus(reason: "initial" | "manual" = "manual") {
-    if (reason === "initial") setLoading(true);
-    else setBusy("refresh");
-    setError("");
-    try {
-      setStatus(await getDesktopCloudConnectionStatus());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to read Hecate Cloud status.");
-    } finally {
-      setLoading(false);
-      setBusy(null);
-    }
-  }
+  useEffect(() => {
+    if (!status || !["authorizing", "connecting", "reconnecting"].includes(status.phase)) return;
+    const interval = window.setInterval(() => {
+      void getDesktopCloudConnectionStatus()
+        .then((nextStatus) => {
+          setStatus(nextStatus);
+          setError("");
+        })
+        .catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [status?.phase]);
 
   async function connect() {
     setBusy("connect");
@@ -128,7 +141,7 @@ function DesktopCloudConnectionSettings() {
     try {
       setStatus(await startDesktopCloudConnection());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to connect to Hecate Cloud.");
+      setError(err instanceof Error ? err.message : "Remote access could not be enabled.");
     } finally {
       setBusy(null);
     }
@@ -140,225 +153,162 @@ function DesktopCloudConnectionSettings() {
     try {
       setStatus(await stopDesktopCloudConnection());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to disconnect from Hecate Cloud.");
+      setError(err instanceof Error ? err.message : "Remote access could not be disabled.");
     } finally {
       setBusy(null);
     }
   }
 
-  const title = loading
-    ? "Checking"
-    : status?.running
-      ? "Connected"
-      : status?.available && status.gateway_ready
-        ? status.auto_start_enabled
-          ? "Reconnect needed"
-          : "Ready"
-        : status?.available
-          ? "Starting"
-          : "CLI required";
-  const badgeStatus = status?.running
-    ? "healthy"
-    : status?.auto_start_enabled && status.available && status.gateway_ready
-      ? "warn"
-      : status?.available && status.gateway_ready
-        ? "disabled"
-        : "degraded";
-  const description =
-    status?.message ??
-    "Connect this desktop Hecate to Hecate Cloud so you can control it from another device.";
-  const canConnect = Boolean(status?.available && status.gateway_ready && !status.running);
-  const canDisconnect = Boolean(status?.running);
-  const actionDisabled = loading || busy !== null;
-  const accessMode = status?.running
-    ? "Remote access is on and will reconnect when this app opens."
-    : status?.auto_start_enabled
-      ? "Remote access is on, but the connector is not running."
-      : "Remote access is off until you connect.";
+  async function signOut() {
+    setBusy("signout");
+    setError("");
+    try {
+      setStatus(await signOutDesktopCloudConnection());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sign out of Hecate Cloud.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const signedIn = Boolean(status?.signed_in);
+  const authorizing = Boolean(status?.authorizing);
+  const accessOn = Boolean(status?.auto_start_enabled);
+  const actionDisabled = loading || busy !== null || !status?.available;
+  const connectionLabel = status?.running
+    ? "Connected"
+    : status?.phase === "connecting"
+      ? "Connecting"
+      : status?.phase === "reconnecting"
+        ? "Reconnecting"
+        : "Off";
 
   return (
     <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-connection">
       <SectionHeader
         title="Remote access"
-        description="Connect this desktop app to Hecate Cloud for phone and browser access."
-        meta={status?.running ? "connected" : "desktop app"}
-        actions={
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={actionDisabled}
-            onClick={() => void refreshStatus("manual")}
-          >
-            <Icon d={Icons.refresh} size={13} /> {busy === "refresh" ? "Checking…" : "Refresh"}
-          </button>
-        }
+        description="Use this Hecate from your phone or another browser."
+        meta={status?.running ? "connected" : undefined}
       />
-      <div className="card" style={{ padding: "15px 16px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 18,
-            justifyContent: "space-between",
-          }}
-        >
-          <div style={{ display: "flex", gap: 11, minWidth: 0 }}>
-            <span
-              aria-hidden="true"
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: status?.running
-                  ? "var(--teal)"
-                  : status?.available
-                    ? "var(--yellow)"
-                    : "var(--border-strong)",
-                boxShadow: status?.running ? "0 0 0 3px var(--teal-bg)" : undefined,
-                flexShrink: 0,
-                marginTop: 5,
-              }}
-            />
+      <div className="card" style={{ overflow: "hidden" }}>
+        {loading ? (
+          <div style={{ padding: "18px 20px", color: "var(--t2)", fontSize: 12 }}>
+            Checking remote access…
+          </div>
+        ) : !signedIn ? (
+          <div
+            style={{
+              padding: "18px 20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 20,
+              flexWrap: "wrap",
+            }}
+          >
             <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 8,
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 650, color: "var(--t0)" }}>{title}</div>
-                {!loading && (
-                  <Badge
-                    status={badgeStatus}
-                    label={status?.running ? "on" : status?.auto_start_enabled ? "check" : "off"}
-                  />
-                )}
+              <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>
+                {authorizing ? "Finish signing in" : "Hecate Cloud"}
               </div>
-              <div style={{ marginTop: 4, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
-                {loading ? "Checking Hecate Cloud connection…" : description}
+              <div style={{ marginTop: 4, color: "var(--t2)", fontSize: 12, lineHeight: 1.5 }}>
+                {authorizing
+                  ? "Approve this computer in the browser window that opened."
+                  : "Sign in once to make this computer available on your other devices."}
               </div>
-              {!loading && (
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {authorizing && (
+                <button className="btn btn-ghost" disabled={actionDisabled} onClick={disconnect}>
+                  Cancel
+                </button>
+              )}
+              <button className="btn btn-primary" disabled={actionDisabled} onClick={connect}>
+                {busy === "connect"
+                  ? "Opening…"
+                  : authorizing
+                    ? "Open sign-in again"
+                    : "Sign in to Hecate Cloud"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                padding: "15px 20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>
+                  {status?.account_email ?? "Hecate Cloud"}
+                </div>
+                <div style={{ marginTop: 2, color: "var(--t3)", fontSize: 11 }}>Signed in</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" disabled={actionDisabled} onClick={signOut}>
+                {busy === "signout" ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+            <div
+              style={{
+                padding: "17px 20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 20,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
                 <div
                   style={{
                     display: "flex",
+                    alignItems: "center",
                     gap: 8,
-                    flexWrap: "wrap",
-                    marginTop: 10,
-                  }}
-                  aria-label="Remote access readiness"
-                >
-                  <RemoteAccessReadinessChip
-                    label="hec CLI"
-                    state={status?.available ? "ready" : "missing"}
-                  />
-                  <RemoteAccessReadinessChip
-                    label="Local runtime"
-                    state={status?.gateway_ready ? "ready" : "starting"}
-                  />
-                  <RemoteAccessReadinessChip
-                    label="Remote access"
-                    state={status?.running ? "connected" : "off"}
-                  />
-                </div>
-              )}
-              {status?.last_exit_status && (
-                <div
-                  style={{
-                    marginTop: 9,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "var(--t3)",
+                    color: "var(--t0)",
+                    fontSize: 13,
+                    fontWeight: 650,
                   }}
                 >
-                  {status.last_exit_status}
+                  Remote access
+                  <span
+                    style={{
+                      color: status?.running ? "var(--teal)" : "var(--t3)",
+                      fontSize: 11,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {connectionLabel}
+                  </span>
                 </div>
-              )}
-              {status?.hec_path && (
-                <div
-                  style={{
-                    marginTop: 9,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "var(--t3)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={status.hec_path}
-                >
-                  {status.hec_path}
+                <div style={{ marginTop: 4, color: "var(--t2)", fontSize: 12, lineHeight: 1.5 }}>
+                  Keep this app open to use this Hecate from your other devices.
                 </div>
-              )}
-              {!loading && (
-                <div style={{ marginTop: 9, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-                  {accessMode}
-                </div>
-              )}
+                {status?.phase !== "disconnected" && !status?.running && (
+                  <div style={{ marginTop: 5, color: "var(--t3)", fontSize: 11 }}>
+                    {status?.message}
+                  </div>
+                )}
+              </div>
+              <Toggle
+                ariaLabel="Remote access"
+                disabled={actionDisabled}
+                on={accessOn}
+                onChange={(enabled) => void (enabled ? connect() : disconnect())}
+              />
             </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {canDisconnect ? (
-              <button className="btn btn-ghost" disabled={actionDisabled} onClick={disconnect}>
-                {busy === "disconnect" ? "Disconnecting…" : "Disconnect"}
-              </button>
-            ) : (
-              <button
-                className="btn btn-primary"
-                disabled={!canConnect || actionDisabled}
-                onClick={connect}
-              >
-                {busy === "connect" ? "Connecting…" : "Connect to Hecate Cloud"}
-              </button>
-            )}
-            <a className="btn btn-ghost" href={HCLOUD_CONSOLE_URL} rel="noreferrer" target="_blank">
-              Open Cloud
-            </a>
-          </div>
-        </div>
-        {!status?.available && !loading && (
-          <div style={{ marginTop: 12, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-            Install <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>hec</span>{" "}
-            from Hecate Cloud, then refresh this panel.
-          </div>
+          </>
         )}
-        {error && (
-          <div style={{ marginTop: 10 }}>
-            <InlineError message={error} />
+        {(error || status?.last_error) && (
+          <div style={{ padding: "0 20px 16px" }}>
+            <InlineError message={error || status?.last_error || "Remote access failed."} />
           </div>
         )}
       </div>
     </section>
-  );
-}
-
-function RemoteAccessReadinessChip({
-  label,
-  state,
-}: {
-  label: string;
-  state: "ready" | "missing" | "starting" | "connected" | "off";
-}) {
-  const status = state === "ready" || state === "connected" ? "healthy" : "disabled";
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 24,
-        border: "1px solid var(--border)",
-        borderRadius: 999,
-        padding: "3px 8px",
-        background: "var(--bg2)",
-        color: "var(--t2)",
-        fontSize: 11,
-        fontWeight: 600,
-      }}
-    >
-      <span style={{ color: "var(--t1)" }}>{label}</span>
-      <Badge status={status} label={state} />
-    </span>
   );
 }
 

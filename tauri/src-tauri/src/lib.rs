@@ -26,6 +26,7 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+use tauri_plugin_opener::OpenerExt;
 
 /// File name (without extension) used by tauri-plugin-log under the
 /// platform log directory. The resolved path is
@@ -102,10 +103,17 @@ fn cloud_connection_status(
 
 #[tauri::command]
 fn cloud_connection_start(
+    app: AppHandle,
     gateway_base_url: tauri::State<'_, GatewayBaseURL>,
     cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
 ) -> Result<CloudConnectionStatus, String> {
-    cloud_connection.start(gateway_base_url.snapshot())
+    let status = cloud_connection.start(gateway_base_url.snapshot())?;
+    if let Some(login_url) = cloud_connection.pending_login_url() {
+        app.opener()
+            .open_url(login_url, None::<&str>)
+            .map_err(|err| format!("Could not open Hecate Cloud sign-in: {err}"))?;
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -114,6 +122,15 @@ fn cloud_connection_stop(
     cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
 ) -> CloudConnectionStatus {
     cloud_connection.stop(gateway_base_url.snapshot())
+}
+
+#[tauri::command]
+async fn cloud_connection_sign_out(
+    gateway_base_url: tauri::State<'_, GatewayBaseURL>,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+) -> Result<CloudConnectionStatus, String> {
+    let supervisor = (*cloud_connection).clone();
+    Ok(supervisor.sign_out(gateway_base_url.snapshot()).await)
 }
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
@@ -779,7 +796,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -789,7 +806,8 @@ pub fn run() {
             open_workspace_target,
             cloud_connection_status,
             cloud_connection_start,
-            cloud_connection_stop
+            cloud_connection_stop,
+            cloud_connection_sign_out
         ])
         .on_menu_event(|app, event| match event.id().as_ref() {
             "check-for-updates" => {

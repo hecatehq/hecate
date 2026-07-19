@@ -12,6 +12,7 @@
     "allow-cloud-connection-start",
     "allow-cloud-connection-status",
     "allow-cloud-connection-stop",
+    "allow-cloud-connection-sign-out",
     "allow-open-workspace-target",
     "allow-set-update-badge",
     "allow-take-pending-desktop-update-check",
