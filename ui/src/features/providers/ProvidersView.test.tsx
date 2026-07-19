@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersView } from "./ProvidersView";
 import { AddProviderModal } from "./AddProviderModal";
-import { discoverLocalProviders } from "../../lib/api";
+import { discoverLocalProviders, getDictationOptions } from "../../lib/api";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
@@ -21,6 +21,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
+    getDictationOptions: vi.fn(async () => ({ object: "dictation_options", data: [] })),
     discoverLocalProviders: vi.fn(async () => ({
       object: "local_provider_discovery",
       data: [
@@ -130,6 +131,8 @@ const originalRequestAnimationFrame = window.requestAnimationFrame;
 
 afterEach(() => {
   window.requestAnimationFrame = originalRequestAnimationFrame;
+  vi.mocked(getDictationOptions).mockReset();
+  vi.mocked(getDictationOptions).mockResolvedValue({ object: "dictation_options", data: [] });
 });
 
 function emptySettingsConfig() {

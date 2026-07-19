@@ -41,11 +41,13 @@ import type {
   ProviderRecord,
 } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
+import { DictationReadinessSection } from "./DictationReadinessSection";
 
 type Props = {
   onNavigate?: (
     workspace: "connections" | "tasks" | "overview" | "settings" | "chats" | "usage",
   ) => void;
+  onAddProvider?: () => void;
 };
 
 function SectionHeader({
@@ -111,6 +113,7 @@ function SectionHeader({
 // CLI auth after installing or signing in to an external agent.
 export function ConnectionsPanel({
   onNavigate,
+  onAddProvider,
   showProviderSummary = true,
 }: Props & { showProviderSummary?: boolean }) {
   const settings = useSettings();
@@ -144,8 +147,12 @@ export function ConnectionsPanel({
   const liveAnthropicProvider = findAnthropicProvider(settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] =
     useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
-  const adapterFocusTargets = useMemo(
-    () => new Set(agentAdapters.map((adapter) => externalAgentSetupFocusTarget(adapter.id))),
+  const connectionsFocusTargets = useMemo(
+    () =>
+      new Set([
+        "connections-dictation",
+        ...agentAdapters.map((adapter) => externalAgentSetupFocusTarget(adapter.id)),
+      ]),
     [agentAdapters],
   );
   const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
@@ -190,8 +197,8 @@ export function ConnectionsPanel({
     remoteRuntime,
   ]);
 
-  // One-shot scroll + highlight when the operator arrived here via
-  // an External Agent setup button on a failed agent turn.
+  // One-shot scroll, focus, and highlight when the operator arrived here via
+  // a setup action on a failed agent turn or unavailable dictation control.
   // Chat sets `hecate.connectionsFocus` in sessionStorage before
   // navigating; we read-and-clear it so subsequent visits don't
   // re-trigger the scroll.
@@ -207,7 +214,7 @@ export function ConnectionsPanel({
     try {
       for (const key of ["hecate.connectionsFocus", "hecate.settingsFocus"]) {
         const raw = sessionStorage.getItem(key);
-        if (raw && adapterFocusTargets.has(raw)) {
+        if (raw && connectionsFocusTargets.has(raw)) {
           focusTarget = raw;
           break;
         }
@@ -217,9 +224,9 @@ export function ConnectionsPanel({
     }
     if (!focusTarget) return;
     const target = focusTarget; // narrow for the inner closure
-    // Defer one frame so the card has rendered before we measure
-    // it. Track both timers so an unmount mid-flash doesn't leak
-    // or run the class-removal against a detached node.
+    // Defer one frame so the card has rendered before we measure and focus
+    // it. Track both timers so an unmount mid-flash doesn't leak or run the
+    // class-removal against a detached node.
     let removeHandle: number | null = null;
     const startHandle = window.setTimeout(() => {
       const card = document.querySelector(`[data-testid="${target}"]`);
@@ -230,7 +237,19 @@ export function ConnectionsPanel({
       } catch {
         // sessionStorage unavailable — focus still works without clearing.
       }
-      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      const reduceMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      card.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+      if (card instanceof HTMLElement) {
+        // The dictation card declares tabIndex={-1}; adding the same
+        // programmatic focus affordance here keeps existing External Agent
+        // setup targets accessible too.
+        card.tabIndex = -1;
+        card.classList.add("cross-surface-focus-target");
+        card.focus({ preventScroll: true });
+      }
+      if (reduceMotion) return;
       // Brief highlight so the operator's eye lands on it. Class is
       // toggled rather than inlined so the styling lives in CSS.
       card.classList.add("settings-focus-flash");
@@ -242,7 +261,7 @@ export function ConnectionsPanel({
       window.clearTimeout(startHandle);
       if (removeHandle !== null) window.clearTimeout(removeHandle);
     };
-  }, [adapterFocusTargets]);
+  }, [connectionsFocusTargets]);
 
   // Adapter status uses the runtime slice for copyCommand because
   // clipboard writes are side-effects, not session mutations.
@@ -302,6 +321,12 @@ export function ConnectionsPanel({
           onClear={() => providerActions.setProviderAPIKey(rememberedAnthropicProvider.id, "")}
         />
       )}
+
+      <DictationReadinessSection
+        providerConfigSnapshot={settingsConfig}
+        localProviderSetupAvailable={!remoteRuntime}
+        onAddProvider={onAddProvider}
+      />
 
       <AdapterStatusSection
         agentAdapters={agentAdapters}

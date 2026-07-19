@@ -598,7 +598,10 @@ export function ProvidersView() {
         )}
 
         <div style={{ marginTop: configuredProviders.length === 0 ? 16 : 8 }}>
-          <ConnectionsPanel showProviderSummary={false} />
+          <ConnectionsPanel
+            showProviderSummary={false}
+            onAddProvider={() => setAddProviderOpen(true)}
+          />
         </div>
       </div>
 

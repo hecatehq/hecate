@@ -13,6 +13,7 @@ import {
 import {
   discoverLocalProviders,
   draftChatProjectAssistant,
+  getDictationOptions,
   getTaskRunArtifact,
 } from "../../lib/api";
 import { readProjectAssistantChatHandoff } from "../../lib/project-assistant-chat-handoff";
@@ -49,6 +50,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
         ],
         requires_confirmation: true,
       },
+    })),
+    getDictationOptions: vi.fn(async () => ({
+      object: "dictation_options",
+      data: [],
     })),
     getTaskRunArtifact: vi.fn(async () => ({
       object: "task_artifact",
@@ -90,6 +95,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
 afterEach(() => {
   localStorage.removeItem("hecate.chat.rightPanelWidth");
   sessionStorage.removeItem("hecate.projectAssistant.chatDraft");
+  sessionStorage.removeItem("hecate.connectionsFocus");
   if (originalNavigatorClipboardDescriptor) {
     Object.defineProperty(navigator, "clipboard", originalNavigatorClipboardDescriptor);
   } else {
@@ -116,6 +122,11 @@ afterEach(() => {
       ],
       requires_confirmation: true,
     },
+  });
+  vi.mocked(getDictationOptions).mockReset();
+  vi.mocked(getDictationOptions).mockResolvedValue({
+    object: "dictation_options",
+    data: [],
   });
   vi.mocked(getTaskRunArtifact).mockReset();
   vi.mocked(getTaskRunArtifact).mockResolvedValue({
@@ -1592,6 +1603,66 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Remove report.pdf" })).toBeVisible();
     expect(await screen.findByText("report.pdf added. 1 file ready to attach.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+  });
+
+  it("takes external-agent dictation setup directly to transcription readiness", async () => {
+    vi.mocked(getDictationOptions).mockResolvedValue({ object: "dictation_options", data: [] });
+    const mediaDevicesDescriptor = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+    const mediaRecorderDescriptor = Object.getOwnPropertyDescriptor(window, "MediaRecorder");
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() },
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: class {},
+    });
+    const onNavigate = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp-adapter",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      activeChatSession: {
+        id: "chat_1",
+        title: "External dictation",
+        agent_id: "codex",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        messages: [],
+      },
+    });
+    try {
+      render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Set up dictation provider" }));
+
+      expect(onNavigate).toHaveBeenCalledWith("connections");
+      expect(sessionStorage.getItem("hecate.connectionsFocus")).toBe("connections-dictation");
+    } finally {
+      if (mediaDevicesDescriptor) {
+        Object.defineProperty(navigator, "mediaDevices", mediaDevicesDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "mediaDevices");
+      }
+      if (mediaRecorderDescriptor) {
+        Object.defineProperty(window, "MediaRecorder", mediaRecorderDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "MediaRecorder");
+      }
+    }
   });
 
   it("keeps model composer editable but blocks send when no provider is configured", () => {
