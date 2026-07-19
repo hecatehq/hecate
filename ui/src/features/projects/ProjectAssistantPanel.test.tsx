@@ -249,7 +249,12 @@ describe("ProjectAssistantPanel", () => {
         summary: "Add a role and preserve guidance as a memory suggestion.",
         requires_confirmation: true,
         trace_id: "trace_setup",
-        actions: [{ kind: "create_role", patch: { name: "Editor" } }],
+        actions: [
+          {
+            kind: "create_role",
+            patch: { id: "role_editor", project_id: "proj_1", name: "Editor" },
+          },
+        ],
       },
       setupFirst: true,
     });
@@ -270,7 +275,7 @@ describe("ProjectAssistantPanel", () => {
       .getByText("Show changed fields", { selector: "summary" })
       .closest("details");
     expect(changedFields).not.toHaveAttribute("open");
-    expect(within(assistant).getByText("Name: Editor")).toBeVisible();
+    expect(within(assistant).getByText("Name: Editor · 2 more")).toBeVisible();
     expect(within(assistant).getByText("name")).not.toBeVisible();
     await user.click(within(assistant).getByText("Show changed fields", { selector: "summary" }));
     expect(changedFields).toHaveAttribute("open");
