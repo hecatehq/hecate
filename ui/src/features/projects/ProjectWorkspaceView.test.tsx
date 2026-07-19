@@ -465,12 +465,14 @@ describe("ProjectWorkspaceView", () => {
     const onboarding = screen.getByRole("region", {
       name: "Project onboarding",
     });
+    expect(onboarding).toHaveClass("project-workspace-onboarding");
+    expect(onboarding.querySelector(".project-workspace-onboarding-copy")).toBeTruthy();
     expect(within(onboarding).getByRole("button", { name: "Set up project" })).toHaveClass(
       "btn-primary",
     );
-    expect(
-      within(onboarding).getByText("Setup details").closest("summary")?.closest("details"),
-    ).not.toHaveAttribute("open");
+    const setupDetails = within(onboarding).getByText("Setup details").closest("details");
+    expect(setupDetails).toHaveClass("project-workspace-onboarding-details");
+    expect(setupDetails).not.toHaveAttribute("open");
     await userEvent.click(within(onboarding).getByRole("button", { name: "Set up project" }));
 
     await userEvent.click(within(onboarding).getByText("Setup details"));

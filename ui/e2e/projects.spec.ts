@@ -2393,12 +2393,31 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
   await page.getByLabel("Purpose").fill("Coordinate research notes and reusable guidance.");
   await page.getByRole("button", { name: "Create project" }).click();
 
-  await page.setViewportSize({ width: 390, height: 844 });
   const onboarding = page.getByRole("region", { name: "Project onboarding" });
   await onboarding.getByText("Setup details").click();
   const onboardingSettings = onboarding.getByRole("button", { name: "Project settings" });
   await onboardingSettings.click();
   let settings = page.getByRole("complementary", { name: "Project settings panel" });
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole("heading", { level: 1, name: "Project settings" })).toBeFocused();
+  expect(
+    await onboarding.evaluate((element) => {
+      const columns = getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean);
+      return columns.length;
+    }),
+  ).toBe(1);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
+  await settings.getByRole("button", { name: "Back to project" }).click();
+  await expect(settings).toBeHidden();
+  await expect(onboardingSettings).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await onboardingSettings.click();
+  settings = page.getByRole("complementary", { name: "Project settings panel" });
   await expect(settings).toBeVisible();
   await expect(settings.getByRole("heading", { level: 1, name: "Project settings" })).toBeFocused();
   await expect(settings.getByRole("button", { name: "Back to project" })).toBeVisible();
