@@ -359,6 +359,20 @@ textarea {
   }
 }
 
+.projects-cockpit-main-body--settings .project-workspace-onboarding {
+  grid-template-columns: minmax(0, 1fr) !important;
+  min-height: auto !important;
+}
+
+.projects-cockpit-main-body--settings .project-workspace-onboarding-copy {
+  align-content: start !important;
+  min-height: 0 !important;
+}
+
+.projects-cockpit-main-body--settings .project-workspace-onboarding-details {
+  align-self: start !important;
+}
+
 @media (max-width: 720px) {
   .chat-view {
     --chat-sidebar-border-bottom: 1px solid var(--border);

@@ -1110,9 +1110,10 @@ function ProjectOnboardingPanel({
     <section
       aria-busy={bootstrapPending}
       aria-label="Project onboarding"
+      className="project-workspace-onboarding"
       style={projectOnboardingStyle}
     >
-      <div style={projectOnboardingCopyStyle}>
+      <div className="project-workspace-onboarding-copy" style={projectOnboardingCopyStyle}>
         <div>
           <div style={sectionLabelStyle}>Guided start</div>
           <h1 style={{ ...projectOnboardingTitleStyle, margin: "8px 0 0" }}>
@@ -1177,7 +1178,10 @@ function ProjectOnboardingPanel({
           )}
         </div>
       )}
-      <details style={projectOnboardingDetailsStyle}>
+      <details
+        className="project-workspace-onboarding-details"
+        style={projectOnboardingDetailsStyle}
+      >
         <summary style={projectOnboardingSummaryStyle}>
           <span>Setup details</span>
           <span className="badge badge-muted">
