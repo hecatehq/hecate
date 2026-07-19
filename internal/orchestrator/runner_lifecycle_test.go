@@ -194,6 +194,50 @@ func TestRecordOrchestratorRunStartedIncludesWorkflowMode(t *testing.T) {
 	t.Fatal("missing orchestrator run-started event")
 }
 
+func TestRecordOrchestratorRunFailedIncludesOnlyCanonicalWorkflowMode(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		mode types.WorkflowMode
+		want string
+	}{
+		{name: "qa", mode: types.WorkflowModeQA, want: "qa"},
+		{name: "unknown", mode: types.WorkflowMode("future-contract"), want: ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			trace := profiler.NewTrace("request-failed-workflow-"+tc.name, nil)
+			defer trace.Finalize()
+			recordOrchestratorRunFailed(trace, "task-failed-workflow", types.TaskRun{
+				ID:           "run-failed-workflow",
+				WorkflowMode: tc.mode,
+			}, "executor_failed", context.Canceled)
+
+			for _, event := range trace.Events() {
+				if event.Name != telemetry.EventOrchestratorRunFailed {
+					continue
+				}
+				got, found := event.Attributes[telemetry.AttrHecateWorkflowMode]
+				if tc.want == "" {
+					if found {
+						t.Fatalf("unexpected workflow trace attribute = %#v", got)
+					}
+					return
+				}
+				if !found || got != tc.want {
+					t.Fatalf("workflow trace attribute = %#v, found=%t, want %q", got, found, tc.want)
+				}
+				return
+			}
+			t.Fatal("missing orchestrator run-failed event")
+		})
+	}
+}
+
 // TestStartReconcileLoop_SkipsFreshRunningRun verifies that the loop does NOT
 // re-enqueue a run that only recently entered "running" state — i.e. an
 // active worker is still within its lease window.
