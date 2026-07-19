@@ -341,7 +341,11 @@ That opt-in smoke runs Hecate's built-in adapter, probe, session preparation,
 and prompt path against the installed `codex` and `claude` CLIs. It sends a
 minimal text turn followed by a privately staged text-file turn on the same
 native session. It uses local vendor authentication, may consume provider
-quota, and is intentionally outside the normal unit-test ladder. Hermetic
+quota, and is intentionally outside the normal unit-test ladder. For Claude
+Code, it also waits for the provider-owned available-command replacement
+snapshot. Discovery is best-effort and an explicit empty catalog is valid; it
+uses Claude Code's safe bare/minimal startup boundary, not an unrestricted
+workspace/plugin inventory. Hermetic
 integration coverage uses strict fake vendor CLIs and includes private
 image/file links and environment isolation.
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,10 +17,28 @@ import (
 const fakeEmbeddedProviderConfigSuffix = ".hecate-provider.json"
 
 type fakeEmbeddedProviderConfig struct {
-	Command       string            `json:"command"`
-	Capture       string            `json:"capture"`
-	Output        string            `json:"output"`
-	ExpectedFiles map[string]string `json:"expectedFiles"`
+	Command           string                          `json:"command"`
+	Capture           string                          `json:"capture"`
+	Output            string                          `json:"output"`
+	ExpectedFiles     map[string]string               `json:"expectedFiles"`
+	DiscoveryCatalogs [][]fakeEmbeddedProviderCommand `json:"discoveryCatalogs,omitempty"`
+	DiscoveryCapture  string                          `json:"discoveryCapture,omitempty"`
+	DiscoveryState    string                          `json:"discoveryState,omitempty"`
+}
+
+type fakeEmbeddedProviderCommand struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	ArgumentHint string   `json:"argumentHint,omitempty"`
+	Aliases      []string `json:"aliases,omitempty"`
+}
+
+type fakeEmbeddedProviderDiscoveryCapture struct {
+	Args         []string `json:"args"`
+	Type         string   `json:"type"`
+	RequestID    string   `json:"requestID"`
+	Subtype      string   `json:"subtype"`
+	SystemPrompt []string `json:"systemPrompt"`
 }
 
 func TestMain(m *testing.M) {
@@ -80,6 +99,13 @@ func TestEmbeddedAdaptersRunProviderCLIsWithPrivateFileLinks(t *testing.T) {
 			}
 			if prepared.NativeSessionID == "" || manager.sessions[sessionID].peer.Kind() != acpPeerKindEmbedded {
 				t.Fatalf("PrepareSession(%s) = %#v, want embedded native session", tt.adapterID, prepared)
+			}
+			if tt.adapterID == "codex" {
+				if commands := prepared.AvailableCommands; !prepared.AvailableCommandsKnown || len(commands) != 2 ||
+					commands[0].Name != "review" || commands[0].InputHint != "optional review instructions" ||
+					commands[1].Name != "init" || commands[1].InputHint != "optional instruction focus" {
+					t.Fatalf("PrepareSession(codex) command catalog = %#v (known=%t), want review/init hints", commands, prepared.AvailableCommandsKnown)
+				}
 			}
 
 			result, err := manager.Run(context.Background(), RunRequest{
@@ -178,7 +204,138 @@ func TestEmbeddedAdaptersRunProviderCLIsWithPrivateFileLinks(t *testing.T) {
 	}
 }
 
+func TestEmbeddedClaudeCommandDiscoveryPublishesProviderReplacementSnapshots(t *testing.T) {
+	t.Setenv(adapterTestProcessOverridesEnv, "")
+	t.Setenv("HECATE_EMBEDDED_TEST_SECRET", "must-not-leak")
+	discoveryCapture := filepath.Join(t.TempDir(), "discovery.json")
+	discoveryState := filepath.Join(t.TempDir(), "discovery-state")
+	executable := installFakeEmbeddedProviderCLIWithConfig(t, fakeEmbeddedProviderConfig{
+		Command: "claude",
+		DiscoveryCatalogs: [][]fakeEmbeddedProviderCommand{
+			{
+				{Name: "goal", Description: "Set a durable goal.", ArgumentHint: "outcome"},
+				{Name: "loop", Description: "Run a loop until complete.", ArgumentHint: "[interval]", Aliases: []string{"proactive"}},
+			},
+			{{Name: "review", Description: "Review the current work."}},
+		},
+		DiscoveryCapture: discoveryCapture,
+		DiscoveryState:   discoveryState,
+	})
+
+	probe := Probe(context.Background(), "claude_code")
+	if probe.Status != ProbeStatusReady || probe.Path != executable {
+		t.Fatalf("Probe(claude_code) = %#v, want ready embedded runtime at %q", probe, executable)
+	}
+
+	manager := NewSessionManager()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := manager.Shutdown(ctx); err != nil {
+			t.Errorf("Shutdown(claude_code): %v", err)
+		}
+	})
+
+	const sessionID = "chat_embedded_claude_command_discovery"
+	updates := make(chan AvailableCommandsUpdate, 4)
+	manager.SetAvailableCommandsUpdateHook(func(update AvailableCommandsUpdate) {
+		if update.AdapterID != "claude_code" || update.SessionID != sessionID {
+			return
+		}
+		select {
+		case updates <- update:
+		default:
+		}
+	})
+
+	prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: sessionID,
+		AdapterID: "claude_code",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession(claude_code): %v", err)
+	}
+	if prepared.NativeSessionID == "" || manager.sessions[sessionID].peer.Kind() != acpPeerKindEmbedded {
+		t.Fatalf("PrepareSession(claude_code) = %#v, want embedded native session", prepared)
+	}
+	first := waitForEmbeddedProviderCommandCatalog(t, updates)
+	if got := first.Commands; len(got) != 3 ||
+		got[0].Name != "goal" || got[0].Description != "Set a durable goal." || got[0].InputHint != "outcome" ||
+		got[1].Name != "loop" || got[1].Description != "Run a loop until complete." || got[1].InputHint != "[interval]" ||
+		got[2].Name != "proactive" || got[2].Description != "Alias for /loop: Run a loop until complete." || got[2].InputHint != "[interval]" {
+		t.Fatalf("first provider command catalog = %#v, want canonical commands and provider alias", got)
+	}
+
+	if _, err := manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+		SessionID: sessionID,
+		ConfigID:  "effort",
+		Value:     "high",
+	}); err != nil {
+		t.Fatalf("SetSessionConfigOption(effort): %v", err)
+	}
+	second := waitForEmbeddedProviderCommandCatalog(t, updates)
+	if got := second.Commands; len(got) != 1 || got[0].Name != "review" || got[0].Description != "Review the current work." {
+		t.Fatalf("replacement provider command catalog = %#v, want only review", got)
+	}
+	commands, known := manager.sessions[sessionID].availableCommandsSnapshot()
+	if !known || len(commands) != 1 || commands[0].Name != "review" {
+		t.Fatalf("stored provider command catalog = %#v (known=%t), want replacement review catalog", commands, known)
+	}
+
+	for index := range 2 {
+		capturePath := fakeEmbeddedProviderDiscoveryCapturePath(discoveryCapture, index)
+		raw, err := os.ReadFile(capturePath)
+		if err != nil {
+			t.Fatalf("read discovery capture %d: %v", index, err)
+		}
+		var capture fakeEmbeddedProviderDiscoveryCapture
+		if err := json.Unmarshal(raw, &capture); err != nil {
+			t.Fatalf("decode discovery capture %d: %v", index, err)
+		}
+		if !sameFakeEmbeddedProviderStrings(capture.Args, fakeClaudeCommandDiscoveryArgs) ||
+			capture.Type != "control_request" ||
+			capture.RequestID != "hecate-command-discovery" ||
+			capture.Subtype != "initialize" ||
+			!sameFakeEmbeddedProviderStrings(capture.SystemPrompt, []string{""}) {
+			t.Fatalf("discovery capture %d = %#v, want bounded bare control request", index, capture)
+		}
+	}
+	if raw, err := os.ReadFile(discoveryState); err != nil {
+		t.Fatalf("read discovery state: %v", err)
+	} else if strings.TrimSpace(string(raw)) != "2" {
+		t.Fatalf("provider discovery launches = %q, want two replacement snapshots", raw)
+	}
+}
+
+func waitForEmbeddedProviderCommandCatalog(t testing.TB, updates <-chan AvailableCommandsUpdate) AvailableCommandsUpdate {
+	t.Helper()
+	select {
+	case update := <-updates:
+		if update.Commands == nil {
+			t.Fatal("provider command catalog omitted its explicit replacement snapshot")
+		}
+		return update
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for provider command catalog")
+		return AvailableCommandsUpdate{}
+	}
+}
+
 func installFakeEmbeddedProviderCLI(t *testing.T, command, capture, output string) string {
+	t.Helper()
+	return installFakeEmbeddedProviderCLIWithConfig(t, fakeEmbeddedProviderConfig{
+		Command: command,
+		Capture: capture,
+		Output:  output,
+		ExpectedFiles: map[string]string{
+			"screen.png": "private-image-bytes",
+			"notes.txt":  "private notes",
+		},
+	})
+}
+
+func installFakeEmbeddedProviderCLIWithConfig(t *testing.T, config fakeEmbeddedProviderConfig) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.Mkdir(bin, 0o755); err != nil {
@@ -188,17 +345,8 @@ func installFakeEmbeddedProviderCLI(t *testing.T, command, capture, output strin
 	if runtime.GOOS == "windows" {
 		suffix = ".exe"
 	}
-	executable := filepath.Join(bin, command+suffix)
+	executable := filepath.Join(bin, config.Command+suffix)
 	copyExecutable(t, executable)
-	config := fakeEmbeddedProviderConfig{
-		Command: command,
-		Capture: capture,
-		Output:  output,
-		ExpectedFiles: map[string]string{
-			"screen.png": "private-image-bytes",
-			"notes.txt":  "private notes",
-		},
-	}
 	rawConfig, err := json.Marshal(config)
 	if err != nil {
 		t.Fatalf("marshal provider config: %v", err)
@@ -258,6 +406,9 @@ func runFakeEmbeddedProviderCLI(configPath string, args []string) int {
 	case "login", "logout", "/login", "auth logout":
 		return 0
 	}
+	if config.Command == "claude" && containsFakeEmbeddedProviderString(args, "--bare") {
+		return runFakeClaudeCommandDiscovery(config, args)
+	}
 	prompt := ""
 	if len(args) > 0 {
 		prompt = args[len(args)-1]
@@ -306,6 +457,144 @@ func runFakeEmbeddedProviderCLI(configPath string, args []string) int {
 		"usage": map[string]any{"input_tokens": 2, "output_tokens": 3, "context_window": 128},
 	})
 	return 0
+}
+
+var fakeClaudeCommandDiscoveryArgs = []string{
+	"--print",
+	"--bare",
+	"--input-format", "stream-json",
+	"--output-format", "stream-json",
+	"--verbose",
+	"--no-session-persistence",
+	"--permission-mode", "dontAsk",
+	"--strict-mcp-config",
+}
+
+func runFakeClaudeCommandDiscovery(config fakeEmbeddedProviderConfig, args []string) int {
+	if !sameFakeEmbeddedProviderStrings(args, fakeClaudeCommandDiscoveryArgs) {
+		return 93
+	}
+	requestBytes, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return 93
+	}
+	var rawRequest map[string]json.RawMessage
+	if err := json.Unmarshal(requestBytes, &rawRequest); err != nil ||
+		!hasExactFakeEmbeddedProviderJSONFields(rawRequest, "type", "request_id", "request") {
+		return 93
+	}
+	var rawRequestBody map[string]json.RawMessage
+	if err := json.Unmarshal(rawRequest["request"], &rawRequestBody); err != nil ||
+		!hasExactFakeEmbeddedProviderJSONFields(rawRequestBody, "subtype", "systemPrompt") {
+		return 93
+	}
+	var request struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		Request   struct {
+			Subtype      string   `json:"subtype"`
+			SystemPrompt []string `json:"systemPrompt"`
+		} `json:"request"`
+	}
+	if err := json.Unmarshal(requestBytes, &request); err != nil ||
+		request.Type != "control_request" ||
+		request.RequestID != "hecate-command-discovery" ||
+		request.Request.Subtype != "initialize" ||
+		!sameFakeEmbeddedProviderStrings(request.Request.SystemPrompt, []string{""}) {
+		return 93
+	}
+	index, ok := nextFakeClaudeCommandDiscoveryIndex(config.DiscoveryState)
+	if !ok {
+		return 93
+	}
+	if config.DiscoveryCapture != "" {
+		capture := fakeEmbeddedProviderDiscoveryCapture{
+			Args:         append([]string(nil), args...),
+			Type:         request.Type,
+			RequestID:    request.RequestID,
+			Subtype:      request.Request.Subtype,
+			SystemPrompt: append([]string(nil), request.Request.SystemPrompt...),
+		}
+		raw, err := json.Marshal(capture)
+		if err != nil || os.WriteFile(fakeEmbeddedProviderDiscoveryCapturePath(config.DiscoveryCapture, index), raw, 0o600) != nil {
+			return 93
+		}
+	}
+	catalogs := config.DiscoveryCatalogs
+	if len(catalogs) == 0 {
+		catalogs = [][]fakeEmbeddedProviderCommand{{}}
+	}
+	if index >= len(catalogs) {
+		return 93
+	}
+	writeFakeProviderJSON(map[string]any{
+		"type": "control_response",
+		"response": map[string]any{
+			"request_id": "hecate-command-discovery",
+			"subtype":    "success",
+			"response": map[string]any{
+				"commands": catalogs[index],
+			},
+		},
+	})
+	return 0
+}
+
+func hasExactFakeEmbeddedProviderJSONFields(fields map[string]json.RawMessage, want ...string) bool {
+	if len(fields) != len(want) {
+		return false
+	}
+	for _, field := range want {
+		if _, ok := fields[field]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func fakeEmbeddedProviderDiscoveryCapturePath(base string, index int) string {
+	return base + "." + strconv.Itoa(index)
+}
+
+func nextFakeClaudeCommandDiscoveryIndex(statePath string) (int, bool) {
+	if statePath == "" {
+		return 0, true
+	}
+	index := 0
+	if raw, err := os.ReadFile(statePath); err == nil {
+		parsed, parseErr := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if parseErr != nil || parsed < 0 {
+			return 0, false
+		}
+		index = parsed
+	} else if !os.IsNotExist(err) {
+		return 0, false
+	}
+	if err := os.WriteFile(statePath, []byte(strconv.Itoa(index+1)), 0o600); err != nil {
+		return 0, false
+	}
+	return index, true
+}
+
+func containsFakeEmbeddedProviderString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func sameFakeEmbeddedProviderStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func writeFakeProviderJSON(value any) {

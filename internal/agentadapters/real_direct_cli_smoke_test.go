@@ -57,6 +57,7 @@ func TestRealACPCLIsSmoke(t *testing.T) {
 				t.Fatalf("Probe(%s) = status %q at stage %q", adapterID, probe.Status, probe.Stage)
 			}
 
+			sessionID := "real_cli_" + adapterID
 			workspace := t.TempDir()
 			manager := NewSessionManager()
 			t.Cleanup(func() {
@@ -66,8 +67,21 @@ func TestRealACPCLIsSmoke(t *testing.T) {
 					t.Errorf("Shutdown(%s) failed", adapterID)
 				}
 			})
+			var commandCatalogs <-chan AvailableCommandsUpdate
+			if adapterID == "claude_code" {
+				updates := make(chan AvailableCommandsUpdate, 1)
+				manager.SetAvailableCommandsUpdateHook(func(update AvailableCommandsUpdate) {
+					if update.AdapterID != adapterID || update.SessionID != sessionID {
+						return
+					}
+					select {
+					case updates <- update:
+					default:
+					}
+				})
+				commandCatalogs = updates
+			}
 
-			sessionID := "real_cli_" + adapterID
 			prepareCtx, cancelPrepare := context.WithTimeout(t.Context(), 60*time.Second)
 			prepared, err := manager.PrepareSession(prepareCtx, PrepareSessionRequest{
 				SessionID: sessionID,
@@ -80,6 +94,9 @@ func TestRealACPCLIsSmoke(t *testing.T) {
 			}
 			if prepared.DriverKind != DriverKindACP || prepared.NativeSessionID == "" || !prepared.SessionStarted {
 				t.Fatalf("PrepareSession(%s) did not return a new ACP session", adapterID)
+			}
+			if commandCatalogs != nil {
+				waitForRealClaudeCommandCatalog(t, commandCatalogs)
 			}
 
 			runCtx, cancelRun := context.WithTimeout(t.Context(), 4*time.Minute)
@@ -128,5 +145,19 @@ func TestRealACPCLIsSmoke(t *testing.T) {
 				t.Fatalf("Run(%s) with file returned %q, want %q", adapterID, strings.TrimSpace(fileResult.Output), testCase.fileToken)
 			}
 		})
+	}
+}
+
+func waitForRealClaudeCommandCatalog(t testing.TB, updates <-chan AvailableCommandsUpdate) {
+	t.Helper()
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	select {
+	case update := <-updates:
+		if update.Commands == nil {
+			t.Fatal("Claude Code command catalog omitted its explicit replacement snapshot")
+		}
+	case <-timer.C:
+		t.Fatal("timed out waiting for Claude Code command catalog")
 	}
 }
