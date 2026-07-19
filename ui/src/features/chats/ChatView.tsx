@@ -1081,7 +1081,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <div
+      className="chat-view"
+      style={{
+        display: "flex",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
       {sidebarOpen && (
         <ChatSidebar
           isAgentChat={isAgentChat}
@@ -1154,7 +1161,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           />
         )}
 
-        <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
+        <div
+          className="chat-main-body"
+          style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}
+        >
           <div
             style={{
               flex: 1,

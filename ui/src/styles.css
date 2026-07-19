@@ -339,6 +339,20 @@ textarea {
   color: var(--t0);
 }
 
+.chat-view {
+  flex-direction: row;
+}
+
+.retention-controls {
+  align-items: center;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.retention-summary {
+  margin-left: auto;
+}
+
 @media (max-width: 1180px) {
   .project-work-coordination-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -346,6 +360,37 @@ textarea {
 }
 
 @media (max-width: 720px) {
+  .chat-view {
+    --chat-sidebar-border-bottom: 1px solid var(--border);
+    --chat-sidebar-border-right: 0;
+    --chat-sidebar-max-height: 260px;
+    --chat-sidebar-width: 100%;
+    flex-direction: column;
+  }
+
+  .chat-main-body {
+    min-height: 0;
+  }
+
+  .chat-right-panel-resize-handle {
+    display: none;
+  }
+
+  .retention-controls {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .retention-summary {
+    margin-left: 0;
+  }
+
+  .retention-cleanup-button {
+    justify-content: center;
+    width: 100%;
+  }
+
   .projects-cockpit-shell {
     flex-direction: column;
   }
