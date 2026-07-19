@@ -199,6 +199,119 @@ html[data-tauri-os="macos"] .hecate-shell {
   white-space: nowrap;
 }
 
+@media (max-width: 640px) {
+  .hecate-shell {
+    height: 100dvh;
+  }
+
+  html[data-tauri-os="macos"] .hecate-shell {
+    padding-top: 0;
+  }
+
+  .hecate-titlebar {
+    display: none;
+  }
+
+  .hecate-workarea {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .hecate-content {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .console-content {
+    padding: 12px;
+  }
+
+  .console-content--bare {
+    padding: 0;
+  }
+
+  .hecate-activitybar {
+    grid-column: 1;
+    grid-row: 2;
+    align-items: center;
+    background: color-mix(in oklch, var(--bg1) 94%, transparent);
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    flex-direction: row;
+    gap: 4px;
+    justify-content: space-around;
+    min-height: calc(52px + env(safe-area-inset-bottom, 0px));
+    overflow-x: auto;
+    padding: 4px max(8px, env(safe-area-inset-left, 0px)) max(4px, env(safe-area-inset-bottom, 0px))
+      max(8px, env(safe-area-inset-right, 0px));
+    scrollbar-width: none;
+  }
+
+  .hecate-activitybar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hecate-activitybar > span {
+    display: none !important;
+  }
+
+  .hecate-activitybtn {
+    border-radius: 8px;
+    flex: 0 0 44px;
+    height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
+  }
+
+  .hecate-statusbar {
+    order: -1;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border);
+    color: var(--t2);
+    gap: 8px;
+    min-height: calc(28px + env(safe-area-inset-top, 0px));
+    overflow-x: auto;
+    padding: env(safe-area-inset-top, 0px) max(10px, env(safe-area-inset-right, 0px)) 0
+      max(10px, env(safe-area-inset-left, 0px));
+    scrollbar-width: none;
+  }
+
+  .hecate-statusbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hecate-statusbar__brand {
+    color: var(--teal);
+  }
+
+  .hecate-statusbar__sep,
+  .hecate-statusbar__providers,
+  .hecate-statusbar__models {
+    display: none;
+  }
+
+  .hecate-statusbar__runtime,
+  .hecate-statusbar__session {
+    flex: 0 0 auto;
+  }
+
+  .hecate-statusbar__path {
+    flex: 1 1 auto;
+    max-width: 42vw;
+  }
+}
+
+@media (max-width: 430px) {
+  .hecate-statusbar__branch,
+  .hecate-statusbar__usage {
+    display: none;
+  }
+
+  .hecate-statusbar__path {
+    max-width: 36vw;
+  }
+}
+
 /* Persistent error banner (fatal/connection errors only) */
 .page-banner {
   display: flex;
