@@ -113,12 +113,16 @@ function TaskStartState({
 
 export function TasksView({
   focusRequest,
+  focusIntent,
+  onFocusRequestHandled,
   onOpenChat,
   onOpenTrace,
   onSelectionChange,
 }: {
   focusRequest?: TaskFocusRequest | null;
-  onOpenChat?: (sessionID: string, taskID?: string, runID?: string) => void;
+  focusIntent?: TaskFocusRequest | null;
+  onFocusRequestHandled?: (nonce: number) => void;
+  onOpenChat?: (sessionID: string, messageID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onSelectionChange?: (
     taskID: string | null,
@@ -783,6 +787,12 @@ export function TasksView({
       {selectedTask ? (
         <TaskDetail
           task={selectedTask}
+          focusRequestNonce={
+            focusIntent?.taskID === selectedTaskID &&
+            (!focusIntent.runID || focusIntent.runID === selectedRunID)
+              ? focusIntent.nonce
+              : undefined
+          }
           run={selectedRun}
           runs={runs}
           selectedRunID={selectedRunID}
@@ -797,6 +807,7 @@ export function TasksView({
           notice={notice}
           onSelectRun={(id) => void handleSelectRun(id)}
           onOpenChat={onOpenChat}
+          onFocusRequestHandled={onFocusRequestHandled}
           onResolveApproval={(approval, decision) => void handleResolveApproval(approval, decision)}
           onCancelRun={() => void handleCancelRun()}
           onRetryRun={() => void handleRetryRun()}

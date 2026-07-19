@@ -60,6 +60,7 @@ func IsValidationError(err error) bool {
 
 type Runner interface {
 	StartTask(context.Context, types.Task, func(string) string) (*orchestrator.StartTaskResult, error)
+	RetryTask(context.Context, types.Task, types.TaskRun, func(string) string) (*orchestrator.StartTaskResult, error)
 	ResumeTaskWithBudget(context.Context, types.Task, types.TaskRun, string, int64, func(string) string) (*orchestrator.StartTaskResult, error)
 	ContinueAgentTask(context.Context, types.Task, types.TaskRun, string, func(string) string) (*orchestrator.StartTaskResult, error)
 	RetryTaskFromModelCall(context.Context, types.Task, types.TaskRun, int, string, func(string) string) (*orchestrator.StartTaskResult, error)
@@ -499,7 +500,7 @@ func (app *Application) RetryTaskRun(ctx context.Context, task types.Task, run t
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
-	result, err := app.runner.StartTask(ctx, task, app.idgen)
+	result, err := app.runner.RetryTask(ctx, task, run, app.idgen)
 	return result, mapOtherActiveRunError(err)
 }
 

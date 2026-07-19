@@ -5,6 +5,7 @@ import type {
   TaskArtifactRecord,
   TaskRecord,
   TaskRunEventRecord,
+  TaskRunRecord,
 } from "../../types/task";
 
 import {
@@ -34,6 +35,7 @@ import {
   taskActivityToTranscriptActivity,
   taskBadgeProps,
   taskBadgeStatus,
+  taskChatSourceRef,
   taskRunOutcome,
 } from "./taskDetailHelpers";
 
@@ -77,6 +79,17 @@ function runEvent(overrides: Partial<TaskRunEventRecord> = {}): TaskRunEventReco
     occurred_at: "2026-05-28T00:00:00Z",
     type: "run.started",
     data: {},
+    ...overrides,
+  };
+}
+
+function run(overrides: Partial<TaskRunRecord> = {}): TaskRunRecord {
+  return {
+    id: "r_1",
+    task_id: "t_1",
+    number: 1,
+    status: "completed",
+    model_call_count: 1,
     ...overrides,
   };
 }
@@ -146,6 +159,44 @@ describe("taskBadgeProps", () => {
       label: "rejected",
     });
     expect(taskBadgeProps("cancelled", "operator cancelled")).toEqual({ status: "cancelled" });
+  });
+});
+
+describe("taskChatSourceRef", () => {
+  it("uses the selected Run's canonical Chat Turn source", () => {
+    expect(
+      taskChatSourceRef(
+        task({ origin_kind: "chat", origin_id: "chat_1" }),
+        run({
+          source_ref: {
+            kind: "chat_turn",
+            chat_session_id: "chat_1",
+            turn_id: "turn_1",
+            message_id: "message_1",
+          },
+        }),
+      ),
+    ).toEqual({ chatSessionID: "chat_1", turnID: "turn_1", messageID: "message_1" });
+  });
+
+  it("does not infer an exact Turn from mismatched Run provenance", () => {
+    expect(
+      taskChatSourceRef(
+        task({ origin_kind: "chat", origin_id: "chat_1" }),
+        run({
+          source_ref: {
+            kind: "chat_turn",
+            chat_session_id: "chat_other",
+            turn_id: "turn_other",
+            message_id: "message_other",
+          },
+        }),
+      ),
+    ).toEqual({ chatSessionID: "chat_1", turnID: "", messageID: "" });
+  });
+
+  it("omits source navigation for standalone Tasks", () => {
+    expect(taskChatSourceRef(task(), run())).toBeNull();
   });
 });
 

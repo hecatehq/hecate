@@ -2,12 +2,87 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+func TestTaskRunStreamProjector_LiveStateProjectsCanonicalChatSourceRef(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:         "task-chat-source-live",
+		Title:      "chat source live",
+		Prompt:     "project source",
+		OriginKind: "chat",
+		OriginID:   "chat_live",
+		Status:     "running",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	run := types.TaskRun{
+		ID:        "run-chat-source-live",
+		TaskID:    task.ID,
+		Number:    1,
+		Status:    "running",
+		StartedAt: now,
+		ContextPacket: json.RawMessage(`{
+			"id":"ctx_live",
+			"version":"chat.context.v1",
+			"refs":{"session_id":"chat_live","turn_id":"turn_live","message_id":"message_live","task_id":"task-chat-source-live","run_id":"run-chat-source-live"}
+		}`),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	state, err := newTaskRunStreamProjector(store).projectEvent(ctx, task.ID, run.ID, types.TaskRunEvent{
+		Sequence:  3,
+		EventType: "run.updated",
+	})
+	if err != nil {
+		t.Fatalf("projectEvent() error = %v", err)
+	}
+	assertTaskRunSourceRef(t, state.Run.SourceRef, "chat_live", "turn_live", "message_live")
+}
+
+func TestTaskRunStreamProjector_RawRunnerEventProjectsCanonicalChatSourceRef(t *testing.T) {
+	t.Parallel()
+
+	run := types.TaskRun{
+		ID:     "run-chat-source-replay",
+		TaskID: "task-chat-source-replay",
+		Status: "completed",
+		ContextPacket: json.RawMessage(`{
+			"id":"ctx_replay",
+			"version":"chat.context.v1",
+			"refs":{"session_id":"chat_replay","turn_id":"turn_replay","message_id":"message_replay","task_id":"task-chat-source-replay","run_id":"run-chat-source-replay"}
+		}`),
+	}
+	state, err := newTaskRunStreamProjector(nil).projectEvent(
+		context.Background(),
+		run.TaskID,
+		run.ID,
+		types.TaskRunEvent{
+			Sequence:  4,
+			EventType: "run.finished",
+			Data:      map[string]any{"run": run},
+		},
+	)
+	if err != nil {
+		t.Fatalf("projectEvent() error = %v", err)
+	}
+	assertTaskRunSourceRef(t, state.Run.SourceRef, "chat_replay", "turn_replay", "message_replay")
+}
 
 func TestTaskRunStreamProjector_ModelCallCompletedMergesOverlayWithLiveState(t *testing.T) {
 	t.Parallel()
@@ -148,6 +223,11 @@ func TestTaskRunStreamProjector_SnapshotEventDataUsesCurrentStreamShape(t *testi
 			ID:     "run-shape",
 			TaskID: "task-shape",
 			Status: "running",
+			ContextPacket: json.RawMessage(`{
+				"id":"ctx_shape",
+				"version":"chat.context.v1",
+				"refs":{"session_id":"chat_shape","turn_id":"turn_shape","message_id":"message_shape","task_id":"task-shape","run_id":"run-shape"}
+			}`),
 		}),
 		Approvals: []TaskApprovalItem{{
 			ID:     "approval-shape",
@@ -166,6 +246,27 @@ func TestTaskRunStreamProjector_SnapshotEventDataUsesCurrentStreamShape(t *testi
 	}
 	if len(approvals) != 1 {
 		t.Fatalf("snapshot approvals = %d, want 1", len(approvals))
+	}
+	run, ok := snapshot["run"].(map[string]any)
+	if !ok {
+		t.Fatalf("snapshot run = %#v, want JSON object", snapshot["run"])
+	}
+	sourceRef, ok := run["source_ref"].(map[string]any)
+	if !ok {
+		t.Fatalf("snapshot run source_ref = %#v, want JSON object", run["source_ref"])
+	}
+	if sourceRef["kind"] != "chat_turn" || sourceRef["chat_session_id"] != "chat_shape" || sourceRef["turn_id"] != "turn_shape" || sourceRef["message_id"] != "message_shape" {
+		t.Fatalf("snapshot source_ref = %#v, want exact wire keys and values", sourceRef)
+	}
+}
+
+func assertTaskRunSourceRef(t *testing.T, ref *TaskRunSourceRefItem, sessionID, turnID, messageID string) {
+	t.Helper()
+	if ref == nil {
+		t.Fatal("SourceRef = nil, want canonical Chat source")
+	}
+	if ref.Kind != "chat_turn" || ref.ChatSessionID != sessionID || ref.TurnID != turnID || ref.MessageID != messageID {
+		t.Fatalf("SourceRef = %+v, want chat_turn/%s/%s/%s", ref, sessionID, turnID, messageID)
 	}
 }
 

@@ -4359,6 +4359,7 @@ describe("useRuntimeConsole", () => {
         },
       });
       let resolveSlowSelection: ((response: Response) => void) | undefined;
+      let resolveLatestSelection: ((response: Response) => void) | undefined;
       fetchMock.mockImplementation(
         withSessions(
           [
@@ -4371,7 +4372,9 @@ describe("useRuntimeConsole", () => {
                 resolveSlowSelection = resolve;
               }),
             "/hecate/v1/chat/sessions/chat_latest": () =>
-              jsonResponse(selectedSession("chat_latest")),
+              new Promise<Response>((resolve) => {
+                resolveLatestSelection = resolve;
+              }),
           },
         ),
       );
@@ -4379,19 +4382,35 @@ describe("useRuntimeConsole", () => {
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
+      const slowController = new AbortController();
       let slowSelection!: Promise<boolean>;
       act(() => {
         slowSelection = result.current.actions.selectChatSession("chat_slow", {
           draft: "Assignment draft",
+          signal: slowController.signal,
         });
       });
       await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("chat_slow"));
 
-      await act(async () => {
-        await result.current.actions.selectChatSession("chat_latest", {
+      let latestSelection!: Promise<boolean>;
+      act(() => {
+        latestSelection = result.current.actions.selectChatSession("chat_latest", {
           draft: "Latest chat draft",
         });
       });
+      await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("chat_latest"));
+      expect(result.current.state.activeChatSession).toBeNull();
+
+      act(() => slowController.abort());
+      expect(result.current.state.activeChatSessionID).toBe("chat_latest");
+      expect(result.current.state.message).toBe("Latest chat draft");
+
+      let latestSelected = false;
+      await act(async () => {
+        resolveLatestSelection?.(jsonResponse(selectedSession("chat_latest")));
+        latestSelected = await latestSelection;
+      });
+      expect(latestSelected).toBe(true);
       expect(result.current.state.activeChatSessionID).toBe("chat_latest");
       expect(result.current.state.activeChatSession?.id).toBe("chat_latest");
       expect(result.current.state.message).toBe("Latest chat draft");
@@ -4406,6 +4425,93 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.activeChatSession?.id).toBe("chat_latest");
       expect(result.current.state.message).toBe("Latest chat draft");
     });
+
+    it.each(["success", "failure"] as const)(
+      "restores the source selection immediately when an aborted Chat load later settles with %s",
+      async (settlement) => {
+        const selectedSession = (id: string) => ({
+          object: "chat_session",
+          data: {
+            id,
+            title: id,
+            agent_id: "hecate",
+            status: "completed",
+            messages: [],
+            provider: "openai",
+            model: "gpt-4o-mini",
+            workspace: `/workspace/${id}`,
+            workspace_branch: `branch-${id}`,
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        });
+        let resolveTarget: ((response: Response) => void) | undefined;
+        let rejectTarget: ((reason: Error) => void) | undefined;
+        fetchMock.mockImplementation(
+          withSessions(
+            [
+              { id: "chat_source", title: "Source chat" },
+              { id: "chat_target", title: "Target chat" },
+            ],
+            {
+              "/hecate/v1/chat/sessions/chat_source": () =>
+                jsonResponse(selectedSession("chat_source")),
+              "/hecate/v1/chat/sessions/chat_target": () =>
+                new Promise<Response>((resolve, reject) => {
+                  resolveTarget = resolve;
+                  rejectTarget = reject;
+                }),
+            },
+          ),
+        );
+
+        const { result } = renderRuntimeConsoleHook();
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.actions.selectChatSession("chat_source", {
+            draft: "Source draft",
+          });
+        });
+        act(() => result.current.actions.setMessage("Edited source draft"));
+
+        const controller = new AbortController();
+        let targetSelection!: Promise<boolean>;
+        act(() => {
+          targetSelection = result.current.actions.selectChatSession("chat_target", {
+            draft: "Target draft",
+            signal: controller.signal,
+          });
+        });
+        await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("chat_target"));
+
+        act(() => controller.abort());
+
+        await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("chat_source"));
+        expect(result.current.state.activeChatSession?.id).toBe("chat_source");
+        expect(result.current.state.agentWorkspace).toBe("/workspace/chat_source");
+        expect(result.current.state.agentWorkspaceBranch).toBe("branch-chat_source");
+        expect(result.current.state.message).toBe("Edited source draft");
+        expect(result.current.state.chatError).toBe("");
+        expect(result.current.state.notice).toBeNull();
+
+        let selected = true;
+        await act(async () => {
+          if (settlement === "success") {
+            resolveTarget?.(jsonResponse(selectedSession("chat_target")));
+          } else {
+            rejectTarget?.(new Error("late target failure"));
+          }
+          selected = await targetSelection;
+        });
+
+        expect(selected).toBe(false);
+        expect(result.current.state.activeChatSessionID).toBe("chat_source");
+        expect(result.current.state.activeChatSession?.id).toBe("chat_source");
+        expect(result.current.state.message).toBe("Edited source draft");
+        expect(result.current.state.chatError).toBe("");
+        expect(result.current.state.notice).toBeNull();
+      },
+    );
 
     it("keeps a late dashboard snapshot from replacing a newer linked-chat selection", async () => {
       window.localStorage.setItem("hecate.chatSessionID", "chat_previous");

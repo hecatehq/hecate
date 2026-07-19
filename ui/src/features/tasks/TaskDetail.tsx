@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { chatNavigationURL, isPlainNavigationClick } from "../../app/navigation";
 import type { ContextPacketRecord } from "../../types/context";
 import type {
   TaskActivityRecord,
@@ -49,6 +50,7 @@ import {
   taskActivityArtifactSize,
   taskActivityToTranscriptActivity,
   taskBadgeProps,
+  taskChatSourceRef,
   taskRunOutcome,
   taskSource,
 } from "./taskDetailHelpers";
@@ -355,6 +357,7 @@ function TaskApprovalCallout({
 
 type Props = {
   task: TaskRecord;
+  focusRequestNonce?: number;
   run: TaskRunRecord | null;
   runs: TaskRunRecord[];
   selectedRunID: string;
@@ -386,7 +389,8 @@ type Props = {
   // reason is the operator's annotation for why they're branching —
   // stored in run events and shown in the timeline.
   onRetryFromModelCall: (modelCall: number, reason: string) => void;
-  onOpenChat?: (sessionID: string, taskID?: string, runID?: string) => void;
+  onOpenChat?: (sessionID: string, messageID?: string) => void;
+  onFocusRequestHandled?: (nonce: number) => void;
   // onResumeRaisingCeiling raises the task's per-task cost ceiling
   // and resumes the run in one server-side transaction. Surfaced
   // only when the run failed with otel_status_message =
@@ -406,6 +410,7 @@ type Props = {
 
 export function TaskDetail({
   task,
+  focusRequestNonce,
   run,
   runs,
   selectedRunID,
@@ -426,6 +431,7 @@ export function TaskDetail({
   onRefresh,
   onRetryFromModelCall,
   onOpenChat,
+  onFocusRequestHandled,
   onResumeRaisingCeiling,
   onApplyPatch,
   onRevertPatch,
@@ -433,6 +439,7 @@ export function TaskDetail({
   onOpenTrace,
 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const [runPickerOpen, setRunPickerOpen] = useState(false);
   const [expandedStepID, setExpandedStepID] = useState<string>("");
   const [previewPatchID, setPreviewPatchID] = useState<string>("");
@@ -443,6 +450,7 @@ export function TaskDetail({
   const previewPatch = artifacts.find((a) => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
   const source = taskSource(task);
+  const sourceChat = taskChatSourceRef(task, run);
   const requestedAutoProvider = run?.provider?.toLowerCase() === "auto";
   const resolvedProviderID = run?.provider && !requestedAutoProvider ? run.provider : "";
   const routeProviderLabel = resolvedProviderID
@@ -467,6 +475,12 @@ export function TaskDetail({
     setExpandedStepID("");
   }, [selectedRunID]);
 
+  useEffect(() => {
+    if (!focusRequestNonce || focusRequestNonce < 1 || !titleRef.current) return;
+    titleRef.current.focus({ preventScroll: true });
+    onFocusRequestHandled?.(focusRequestNonce);
+  }, [focusRequestNonce, onFocusRequestHandled]);
+
   return (
     <div
       style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}
@@ -484,8 +498,12 @@ export function TaskDetail({
         }}
       >
         <Badge {...taskBadgeProps(task.status, task.last_error)} />
-        <span
+        <h1
+          ref={titleRef}
+          className="cross-surface-focus-target"
+          tabIndex={-1}
           style={{
+            margin: 0,
             fontWeight: 500,
             fontSize: 13,
             color: "var(--t0)",
@@ -496,17 +514,32 @@ export function TaskDetail({
           }}
         >
           {task.title || task.prompt || "Untitled"}
-        </span>
-        {source.kind === "chat" && task.origin_id && onOpenChat ? (
-          <button
+        </h1>
+        {sourceChat ? (
+          <a
             className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onOpenChat?.(task.origin_id!, task.id, run?.id)}
-            title={`Open source chat ${task.origin_id}`}
-            style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}
+            href={chatNavigationURL(window.location, {
+              chatID: sourceChat.chatSessionID,
+              messageID: sourceChat.messageID,
+            })}
+            onClick={
+              onOpenChat
+                ? (event) => {
+                    if (!isPlainNavigationClick(event)) return;
+                    event.preventDefault();
+                    onOpenChat(sourceChat.chatSessionID, sourceChat.messageID || undefined);
+                  }
+                : undefined
+            }
+            title={
+              sourceChat.turnID
+                ? `Open source Chat Turn ${sourceChat.turnID}`
+                : `Open source chat ${sourceChat.chatSessionID}`
+            }
+            style={{ fontFamily: "var(--font-mono)", fontSize: 10, textDecoration: "none" }}
           >
-            Open source chat
-          </button>
+            {sourceChat.messageID ? "Open source Chat Turn" : "Open source Chat"}
+          </a>
         ) : (
           <span
             className="badge badge-muted"

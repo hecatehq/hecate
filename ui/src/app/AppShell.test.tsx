@@ -11,7 +11,6 @@ import {
 } from "../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../test/runtime-console-render";
 import {
-  getChatSession,
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
@@ -31,17 +30,19 @@ import type {
   ProjectWorkItemRecord,
 } from "../types/project";
 
-const tasksViewProbe = vi.hoisted(() => ({ render: vi.fn() }));
+const tasksViewProbe = vi.hoisted(() => ({ render: vi.fn(), focusIntent: vi.fn() }));
 
 vi.mock("../features/tasks/TasksView", () => {
   return {
     TasksView: (props: {
       focusRequest?: { taskID: string; runID?: string; nonce: number } | null;
-      onOpenChat?: (sessionID: string, taskID?: string, runID?: string) => void;
+      focusIntent?: { taskID: string; runID?: string; nonce: number } | null;
+      onOpenChat?: (sessionID: string, messageID?: string) => void;
     }) => {
       tasksViewProbe.render(props.focusRequest);
+      tasksViewProbe.focusIntent(props.focusIntent);
       return (
-        <button type="button" onClick={() => props.onOpenChat?.("chat_task", "task_1", "run_1")}>
+        <button type="button" onClick={() => props.onOpenChat?.("chat_task", "message_task")}>
           Open linked Task chat
         </button>
       );
@@ -62,17 +63,6 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
   return {
     ...actual,
-    getChatSession: vi.fn(async () => ({
-      object: "chat_session",
-      data: {
-        id: "chat_task",
-        agent_id: "hecate",
-        title: "Task chat",
-        status: "completed",
-        workspace: "",
-        messages: [],
-      },
-    })),
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
@@ -276,18 +266,7 @@ function resetProjectWorkMocks() {
     updated_at: "",
   };
   tasksViewProbe.render.mockClear();
-  vi.mocked(getChatSession).mockReset();
-  vi.mocked(getChatSession).mockResolvedValue({
-    object: "chat_session",
-    data: {
-      id: "chat_task",
-      agent_id: "hecate",
-      title: "Task chat",
-      status: "completed",
-      workspace: "",
-      messages: [],
-    },
-  });
+  tasksViewProbe.focusIntent.mockClear();
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
     data: emptyActivityData(),
@@ -373,10 +352,20 @@ describe("getAvailableWorkspaces", () => {
     expect(settings?.label).toBe("Settings");
   });
 
-  it("treats a present bare Tasks route as authoritative over imperative focus", () => {
+  it("keeps routed Task loading stable and separate from explicit focus intent", () => {
     const imperativeFocus = { taskID: "task_1", runID: "run_1", nonce: 1 };
 
     expect(resolveTaskFocusRequest(undefined, imperativeFocus)).toBe(imperativeFocus);
+    expect(resolveTaskFocusRequest({ taskID: "task_1", runID: "run_1" }, imperativeFocus)).toEqual({
+      taskID: "task_1",
+      runID: "run_1",
+      nonce: 0,
+    });
+    expect(resolveTaskFocusRequest({ taskID: "task_2", runID: "run_2" }, imperativeFocus)).toEqual({
+      taskID: "task_2",
+      runID: "run_2",
+      nonce: 0,
+    });
     expect(resolveTaskFocusRequest({ taskID: null, runID: null }, imperativeFocus)).toBeNull();
   });
 });
@@ -556,20 +545,89 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open Run 1" }, { timeout: 30_000 }));
+    const runLink = await screen.findByRole("link", { name: "Open Run 1" }, { timeout: 30_000 });
+    expect(runLink).toHaveAttribute("href", "/tasks?task=task_1&run=run_1");
+    fireEvent.click(runLink);
 
     expect(onTaskNavigate).toHaveBeenCalledWith({ taskID: "task_1", runID: "run_1" });
     expect(onSelectWorkspace).not.toHaveBeenCalledWith("tasks");
   }, 35_000);
 
-  it("loads a Chat addressed by the URL", async () => {
-    const selectChatSession = vi.fn(async () => true);
+  it("discards an unacknowledged Task focus intent after the operator leaves", async () => {
+    const onTaskNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "agent",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
+        agent_id: "hecate",
+        execution_mode: "hecate_task",
+        title: "Repo work",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        status: "completed",
+        messages: [
+          {
+            id: "message_1",
+            role: "assistant",
+            content: "Done.",
+            turn_kind: "hecate_task",
+            execution_mode: "hecate_task",
+            task_id: "task_1",
+            run_id: "run_1",
+            status: "completed",
+          },
+        ],
+      } as any,
+    });
+    const actions = createRuntimeConsoleActions();
+    const view = render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          onSelectWorkspace={() => {}}
+          onTaskNavigate={onTaskNavigate}
+        />,
+        { state, actions },
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "Open Run 1" }, { timeout: 30_000 }));
+    expect(onTaskNavigate).toHaveBeenCalledWith({ taskID: "task_1", runID: "run_1" });
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="connections" onSelectWorkspace={() => {}} />,
+        { state, actions },
+      ),
+    );
+    await act(async () => Promise.resolve());
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="tasks"
+          onSelectWorkspace={() => {}}
+          taskNavigation={{ taskID: "task_1", runID: "run_1" }}
+        />,
+        { state, actions },
+      ),
+    );
+    await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 });
+
+    expect(tasksViewProbe.focusIntent).toHaveBeenLastCalledWith(null);
+  }, 35_000);
+
+  it("loads a Chat addressed by the URL and aborts route ownership on cleanup", async () => {
+    const selectChatSession = vi.fn(
+      async (_sessionID: string, _options?: { signal?: AbortSignal }) => true,
+    );
     const state = createRuntimeConsoleFixture({
       activeChatSessionID: "",
       activeChatSession: null,
     });
 
-    render(
+    const view = render(
       withRuntimeConsole(
         <ConsoleShell
           activeWorkspace="chats"
@@ -580,7 +638,22 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
-    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_routed"));
+    await waitFor(() =>
+      expect(selectChatSession).toHaveBeenCalledWith(
+        "chat_routed",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    const signal = selectChatSession.mock.calls[0]?.[1]?.signal;
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="connections" onSelectWorkspace={() => {}} />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    expect(signal?.aborted).toBe(true);
   });
 
   it("does not reapply the old Chat URL while a sidebar selection is completing", async () => {
@@ -656,7 +729,12 @@ describe("ConsoleShell navigation", () => {
       ),
     );
 
-    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_routed"));
+    await waitFor(() =>
+      expect(selectChatSession).toHaveBeenCalledWith(
+        "chat_routed",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
     fireEvent.click(await screen.findByText("Chat B", undefined, { timeout: 30_000 }));
     await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_b"));
     await act(async () => resolveRoutedSelection?.(false));
@@ -670,19 +748,9 @@ describe("ConsoleShell navigation", () => {
     );
   }, 35_000);
 
-  it("drops an in-flight Task-to-Chat lookup after newer workspace navigation", async () => {
-    let resolveChatLookup:
-      | ((value: Awaited<ReturnType<typeof getChatSession>>) => void)
-      | undefined;
-    vi.mocked(getChatSession).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveChatLookup = resolve;
-        }),
-    );
+  it("navigates from a Task Run to its canonical source Chat message", async () => {
     const selectChatSession = vi.fn(async () => true);
     const onChatNavigate = vi.fn();
-    const onSelectWorkspace = vi.fn();
     const state = createRuntimeConsoleFixture();
 
     render(
@@ -690,7 +758,7 @@ describe("ConsoleShell navigation", () => {
         <ConsoleShell
           activeWorkspace="tasks"
           onChatNavigate={onChatNavigate}
-          onSelectWorkspace={onSelectWorkspace}
+          onSelectWorkspace={() => {}}
           taskNavigation={{ taskID: "task_1", runID: "run_1" }}
         />,
         { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
@@ -700,41 +768,99 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 }),
     );
-    await waitFor(() => expect(getChatSession).toHaveBeenCalledWith("chat_task"));
-    fireEvent.click(screen.getByRole("link", { name: "Connections" }));
-    expect(onSelectWorkspace).toHaveBeenCalledWith("connections");
-    await act(async () =>
-      resolveChatLookup?.({
-        object: "chat_session",
-        data: {
-          id: "chat_task",
-          agent_id: "hecate",
-          title: "Task chat",
-          status: "completed",
-          workspace: "",
-          messages: [],
-        },
-      }),
-    );
 
-    await waitFor(() => expect(selectChatSession).not.toHaveBeenCalled());
-    expect(onChatNavigate).not.toHaveBeenCalled();
+    expect(onChatNavigate).toHaveBeenCalledWith({
+      chatID: "chat_task",
+      messageID: "message_task",
+    });
+    expect(selectChatSession).not.toHaveBeenCalled();
   });
 
-  it("drops an in-flight Task-to-Chat lookup after parent-driven route navigation", async () => {
-    let resolveChatLookup:
-      | ((value: Awaited<ReturnType<typeof getChatSession>>) => void)
-      | undefined;
-    vi.mocked(getChatSession).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveChatLookup = resolve;
-        }),
+  it("discards an unacknowledged Chat focus intent after the operator leaves", async () => {
+    const onChatNavigate = vi.fn();
+    const actions = createRuntimeConsoleActions();
+    const taskState = createRuntimeConsoleFixture();
+    const view = render(
+      <>
+        <button type="button">Persistent focus sentinel</button>
+        {withRuntimeConsole(
+          <ConsoleShell
+            activeWorkspace="tasks"
+            onChatNavigate={onChatNavigate}
+            onSelectWorkspace={() => {}}
+            taskNavigation={{ taskID: "task_1", runID: "run_1" }}
+          />,
+          { state: taskState, actions },
+        )}
+      </>,
     );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 }),
+    );
+    expect(onChatNavigate).toHaveBeenCalledWith({
+      chatID: "chat_task",
+      messageID: "message_task",
+    });
+
+    view.rerender(
+      <>
+        <button type="button">Persistent focus sentinel</button>
+        {withRuntimeConsole(
+          <ConsoleShell activeWorkspace="connections" onSelectWorkspace={() => {}} />,
+          { state: taskState, actions },
+        )}
+      </>,
+    );
+    const sentinel = screen.getByRole("button", { name: "Persistent focus sentinel" });
+    sentinel.focus();
+    await act(async () => Promise.resolve());
+
+    const chatState = createRuntimeConsoleFixture({
+      chatTarget: "agent",
+      activeChatSessionID: "chat_task",
+      activeChatSession: {
+        id: "chat_task",
+        agent_id: "hecate",
+        title: "Source chat",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        status: "completed",
+        messages: [
+          {
+            id: "message_task",
+            role: "assistant",
+            content: "Source answer",
+            created_at: "2026-07-19T10:00:00Z",
+          },
+        ],
+      } as any,
+    });
+    view.rerender(
+      <>
+        <button type="button">Persistent focus sentinel</button>
+        {withRuntimeConsole(
+          <ConsoleShell
+            activeWorkspace="chats"
+            chatNavigation={{ chatID: "chat_task", messageID: "message_task" }}
+            onChatNavigate={onChatNavigate}
+            onSelectWorkspace={() => {}}
+          />,
+          { state: chatState, actions },
+        )}
+      </>,
+    );
+
+    await screen.findByText("Source answer", undefined, { timeout: 30_000 });
+    expect(document.activeElement).toBe(sentinel);
+  }, 35_000);
+
+  it("lets the committed Chat route own Task-to-Chat selection", async () => {
     const selectChatSession = vi.fn(async () => true);
     const onChatNavigate = vi.fn();
     const state = createRuntimeConsoleFixture();
     const actions = { ...createRuntimeConsoleActions(), selectChatSession };
+
     const view = render(
       withRuntimeConsole(
         <ConsoleShell
@@ -750,40 +876,25 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 }),
     );
-    await waitFor(() => expect(getChatSession).toHaveBeenCalledWith("chat_task"));
+    expect(selectChatSession).not.toHaveBeenCalled();
 
     view.rerender(
       withRuntimeConsole(
         <ConsoleShell
-          activeWorkspace="tasks"
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_task", messageID: "message_task" }}
           onChatNavigate={onChatNavigate}
           onSelectWorkspace={() => {}}
-          taskNavigation={{ taskID: "task_2", runID: "run_2" }}
         />,
         { state, actions },
       ),
     );
     await waitFor(() =>
-      expect(tasksViewProbe.render).toHaveBeenLastCalledWith(
-        expect.objectContaining({ taskID: "task_2", runID: "run_2" }),
+      expect(selectChatSession).toHaveBeenCalledWith(
+        "chat_task",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
-    await act(async () =>
-      resolveChatLookup?.({
-        object: "chat_session",
-        data: {
-          id: "chat_task",
-          agent_id: "hecate",
-          title: "Task chat",
-          status: "completed",
-          workspace: "",
-          messages: [],
-        },
-      }),
-    );
-
-    await waitFor(() => expect(selectChatSession).not.toHaveBeenCalled());
-    expect(onChatNavigate).not.toHaveBeenCalled();
   });
 
   it("keeps routed Task focus stable when its navigation object is recreated", async () => {

@@ -1640,9 +1640,7 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
     });
 });
 
-test("Hecate Agent local-provider onboarding renders the real final answer after completion", async ({
-  page,
-}) => {
+test("Hecate Chat preserves exact Task Run and source Turn navigation", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -1738,15 +1736,20 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
       messages: [
         {
           id: "msg-user-e2e",
+          turn_id: "turn-hecate-e2e",
+          turn_kind: "hecate_task",
           execution_mode: "hecate_task",
           segment_id: "task:task-hecate-e2e",
           task_id: "task-hecate-e2e",
+          run_id: "run-hecate-e2e",
           role: "user",
           content: "show diff",
           created_at: "2026-05-06T10:00:00Z",
         },
         {
           id: "msg-assistant-e2e",
+          turn_id: "turn-hecate-e2e",
+          turn_kind: "hecate_task",
           execution_mode: "hecate_task",
           segment_id: "task:task-hecate-e2e",
           task_id: "task-hecate-e2e",
@@ -1785,6 +1788,110 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
     });
   });
 
+  const task = {
+    id: "task-hecate-e2e",
+    title: "show diff",
+    prompt: "show diff",
+    execution_kind: "agent_loop",
+    execution_profile: "chat_agent",
+    origin_kind: "chat",
+    origin_id: "chat-hecate-e2e",
+    status: "completed",
+    latest_run_id: "run-hecate-e2e",
+    latest_run_step_count: 0,
+    latest_run_artifact_count: 0,
+  };
+  const run = {
+    id: "run-hecate-e2e",
+    task_id: "task-hecate-e2e",
+    number: 1,
+    status: "completed",
+    model_call_count: 1,
+    model: "qwen2.5",
+    provider: "lmstudio",
+    source_ref: {
+      kind: "chat_turn",
+      chat_session_id: "chat-hecate-e2e",
+      turn_id: "turn-hecate-e2e",
+      message_id: "msg-assistant-e2e",
+    },
+  };
+  await page.route(/\/hecate\/v1\/tasks(?:\/.*)?(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const suffix = url.pathname.replace("/hecate/v1/tasks", "").replace(/^\/+/, "");
+    const parts = suffix ? suffix.split("/").map((part) => decodeURIComponent(part)) : [];
+    if (request.method() !== "GET") {
+      await route.fulfill({ status: 405, body: "" });
+      return;
+    }
+    if (parts.length === 0) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "tasks", data: [task] }),
+      });
+      return;
+    }
+    if (parts.length === 1 && parts[0] === task.id) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "task", data: task }),
+      });
+      return;
+    }
+    if (parts[0] !== task.id) {
+      await route.fulfill({ status: 404, body: "" });
+      return;
+    }
+    if (parts.length === 2 && parts[1] === "runs") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "task_runs", data: [run] }),
+      });
+      return;
+    }
+    if (parts.length === 2 && parts[1] === "approvals") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "task_approvals", data: [] }),
+      });
+      return;
+    }
+    if (parts[1] === "runs" && parts[2] === run.id && parts[3] === "stream") {
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+      return;
+    }
+    if (parts[1] === "runs" && parts[2] === run.id && parts[3] === "steps") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "task_steps", data: [] }),
+      });
+      return;
+    }
+    if (parts[1] === "runs" && parts[2] === run.id && parts[3] === "artifacts") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "task_artifacts", data: [] }),
+      });
+      return;
+    }
+    if (parts[1] === "runs" && parts[2] === run.id && parts[3] === "events") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "task_run_events", data: [], next_after_sequence: 0 }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, body: "" });
+  });
+
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
@@ -1810,6 +1917,26 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
       workspace: "/tmp/hecate-e2e-workspace",
     });
   await expect(page.locator("body")).toContainText("qwen2.5");
+
+  const runLink = page.getByRole("link", { name: /Open Run run-hecate/i });
+  await expect(runLink).toHaveAttribute("href", "/tasks?task=task-hecate-e2e&run=run-hecate-e2e");
+  await runLink.click();
+  await expect(page).toHaveURL(/\/tasks\?task=task-hecate-e2e&run=run-hecate-e2e$/);
+  const taskHeading = page.getByRole("heading", { name: "show diff" });
+  await expect(taskHeading).toBeFocused();
+
+  const sourceLink = page.getByRole("link", { name: "Open source Chat Turn" });
+  await expect(sourceLink).toHaveAttribute(
+    "href",
+    "/chats?chat=chat-hecate-e2e&message=msg-assistant-e2e",
+  );
+  await sourceLink.click();
+  await expect(page).toHaveURL(/\/chats\?chat=chat-hecate-e2e&message=msg-assistant-e2e$/);
+  await expect(page.getByText("Command output:")).toBeVisible();
+  await expect(page.locator("#msg-assistant-e2e")).toBeFocused();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/tasks\?task=task-hecate-e2e&run=run-hecate-e2e$/);
 });
 
 test("Hecate Chat can move tools on, tools off, then tools on again in one transcript", async ({

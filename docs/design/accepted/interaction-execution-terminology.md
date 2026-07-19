@@ -65,7 +65,10 @@ not use `run_id`.
 
 When both objects exist, navigation preserves their exact identity: Chat links
 target a Chat and, when known, a Message; Task links target a Task and, when
-known, a Run.
+known, a Run. A Run with a persisted Chat source exposes that canonical
+Chat/Turn/Message identity as `source_ref`; clients do not reconstruct it by
+matching transcript `task_id` / `run_id` fields. Retry and resume Runs retain
+the source reference without creating a new Chat Turn.
 
 ## Naming Rules
 

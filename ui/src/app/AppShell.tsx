@@ -21,7 +21,6 @@ import {
 } from "./navigation";
 import type { ChatUsageRecord } from "../types/chat";
 import { DesktopUpdateCenter } from "../features/shared/DesktopUpdateControl";
-import { getChatSession } from "../lib/api";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
 import type { ProviderFilter } from "../types/provider";
@@ -80,6 +79,7 @@ type WorkspaceDefinition = {
 };
 
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
+type ChatFocusRequest = { chatID: string; messageID: string; nonce: number };
 type TraceFocusRequest = { requestID: string; nonce: number };
 type ProjectChatRequest = {
   projectID: string;
@@ -361,9 +361,11 @@ function AuthenticatedShell({
   const runtimeVersion = runtimeVersionLabel(runtime.state.health?.version);
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
+  const [chatFocusRequest, setChatFocusRequest] = useState<ChatFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
   const routedChatSelectionRef = useRef<string | null>(null);
   const taskChatNavigationGenerationRef = useRef(0);
+  const taskChatSelectionAbortRef = useRef<AbortController | null>(null);
   const routedNavigationIdentityRef = useRef({
     workspace: activeWorkspace,
     chatNavigationPresent: chatNavigation !== undefined,
@@ -388,6 +390,8 @@ function AuthenticatedShell({
 
   const invalidateTaskChatNavigation = useCallback(() => {
     taskChatNavigationGenerationRef.current += 1;
+    taskChatSelectionAbortRef.current?.abort();
+    taskChatSelectionAbortRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -425,6 +429,46 @@ function AuthenticatedShell({
     taskNavigation !== undefined,
   ]);
 
+  useEffect(() => {
+    setChatFocusRequest((current) => {
+      if (!current) return current;
+      if (activeWorkspace !== "chats") return null;
+      if (
+        chatNavigation !== undefined &&
+        (chatNavigation?.chatID !== current.chatID ||
+          (chatNavigation?.messageID ?? "") !== current.messageID)
+      ) {
+        return null;
+      }
+      return current;
+    });
+  }, [
+    activeWorkspace,
+    chatNavigation?.chatID,
+    chatNavigation?.messageID,
+    chatNavigation !== undefined,
+  ]);
+
+  useEffect(() => {
+    setTaskFocusRequest((current) => {
+      if (!current) return current;
+      if (activeWorkspace !== "tasks") return null;
+      if (
+        taskNavigation !== undefined &&
+        (taskNavigation?.taskID !== current.taskID ||
+          (current.runID && taskNavigation?.runID !== current.runID))
+      ) {
+        return null;
+      }
+      return current;
+    });
+  }, [
+    activeWorkspace,
+    taskNavigation?.runID,
+    taskNavigation?.taskID,
+    taskNavigation !== undefined,
+  ]);
+
   const handleWorkspaceSelection = useCallback(
     (workspace: WorkspaceID) => {
       routedChatSelectionRef.current = null;
@@ -443,7 +487,8 @@ function AuthenticatedShell({
     if (routedChatSelectionRef.current === chatID) return;
     routedChatSelectionRef.current = chatID;
     let cancelled = false;
-    void selectChatSessionRef.current(chatID).then((selected) => {
+    const controller = new AbortController();
+    void selectChatSessionRef.current(chatID, { signal: controller.signal }).then((selected) => {
       const ownsRoutedSelection = routedChatSelectionRef.current === chatID;
       if (ownsRoutedSelection) routedChatSelectionRef.current = null;
       if (cancelled || selected || !ownsRoutedSelection) return;
@@ -454,6 +499,7 @@ function AuthenticatedShell({
     });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [activeWorkspace, chatNavigation?.chatID, onChatNavigate]);
 
@@ -550,33 +596,31 @@ function AuthenticatedShell({
     onSelectWorkspace("chats");
   }
 
-  async function openChatFromTask(sessionID: string, taskID?: string, runID?: string) {
+  async function openChatFromTask(sessionID: string, messageID?: string) {
     const navigationGeneration = ++taskChatNavigationGenerationRef.current;
+    setChatFocusRequest({ chatID: sessionID, messageID: messageID ?? "", nonce: Date.now() });
     chatActions.setChatTarget("agent");
-    let messageID: string | null = null;
-    if (taskID || runID) {
-      try {
-        const snapshot = await getChatSession(sessionID);
-        const messages = snapshot.data.messages ?? [];
-        const matchesExecution = (message: (typeof messages)[number]) =>
-          (!taskID || message.task_id === taskID) && (!runID || message.run_id === runID);
-        messageID =
-          messages.find((message) => message.role === "user" && matchesExecution(message))?.id ??
-          messages.find(matchesExecution)?.id ??
-          null;
-      } catch {
-        // Session selection owns the visible error and stale-target behavior.
-      }
-    }
-    if (taskChatNavigationGenerationRef.current !== navigationGeneration) return;
-    const selected = await chatActions.selectChatSession(sessionID);
-    if (!selected || taskChatNavigationGenerationRef.current !== navigationGeneration) return;
     if (onChatNavigate) {
-      onChatNavigate({ chatID: sessionID, messageID });
-    } else {
-      onSelectWorkspace("chats");
+      onChatNavigate({ chatID: sessionID, messageID: messageID || null });
+      return;
     }
+    const controller = new AbortController();
+    taskChatSelectionAbortRef.current = controller;
+    const selected = await chatActions.selectChatSession(sessionID, { signal: controller.signal });
+    if (taskChatSelectionAbortRef.current === controller) {
+      taskChatSelectionAbortRef.current = null;
+    }
+    if (!selected || taskChatNavigationGenerationRef.current !== navigationGeneration) return;
+    onSelectWorkspace("chats");
   }
+
+  const handleChatFocusRequestHandled = useCallback((nonce: number) => {
+    setChatFocusRequest((current) => (current?.nonce === nonce ? null : current));
+  }, []);
+
+  const handleTaskFocusRequestHandled = useCallback((nonce: number) => {
+    setTaskFocusRequest((current) => (current?.nonce === nonce ? null : current));
+  }, []);
 
   function openTraceFromChat(requestID: string) {
     invalidateTaskChatNavigation();
@@ -686,7 +730,9 @@ function AuthenticatedShell({
               {activeWorkspace === "chats" && (
                 <ChatView
                   focusMessageID={chatNavigation?.messageID}
+                  focusRequest={chatFocusRequest}
                   onNavigate={handleWorkspaceSelection}
+                  onFocusRequestHandled={handleChatFocusRequestHandled}
                   onMessageFocusUnavailable={handleMissingChatMessage}
                   onOpenTask={openTaskFromChat}
                   onOpenTrace={openTraceFromChat}
@@ -697,6 +743,8 @@ function AuthenticatedShell({
               {activeWorkspace === "tasks" && (
                 <TasksView
                   focusRequest={routedTaskFocusRequest}
+                  focusIntent={taskFocusRequest}
+                  onFocusRequestHandled={handleTaskFocusRequestHandled}
                   onOpenChat={openChatFromTask}
                   onOpenTrace={openTraceFromChat}
                   onSelectionChange={handleTaskSelection}

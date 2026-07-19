@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -203,11 +203,85 @@ describe("TaskDetail run picker", () => {
     const onOpenChat = vi.fn();
     const { render, user } = setup({
       task: makeTask({ origin_kind: "chat", origin_id: "chat_123" }),
+      run: makeRun({
+        source_ref: {
+          kind: "chat_turn",
+          chat_session_id: "chat_123",
+          turn_id: "turn_123",
+          message_id: "message_123",
+        },
+      }),
       onOpenChat,
     });
     render();
-    await user.click(screen.getByRole("button", { name: "Open source chat" }));
-    expect(onOpenChat).toHaveBeenCalledWith("chat_123", "task-1", "run-1");
+    const link = screen.getByRole("link", { name: "Open source Chat Turn" });
+    expect(link).toHaveAttribute("href", "/chats?chat=chat_123&message=message_123");
+    expect(link).toHaveAttribute("title", "Open source Chat Turn turn_123");
+    await user.click(link);
+    expect(onOpenChat).toHaveBeenCalledWith("chat_123", "message_123");
+  });
+
+  it("keeps modified source-chat clicks as native navigation", () => {
+    const onOpenChat = vi.fn();
+    const { render } = setup({
+      task: makeTask({ origin_kind: "chat", origin_id: "chat_123" }),
+      onOpenChat,
+    });
+    render();
+    const link = screen.getByRole("link", { name: "Open source Chat" });
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(link, { ctrlKey: true });
+    expect(onOpenChat).not.toHaveBeenCalled();
+  });
+
+  it("keeps the exact source anchor native without an SPA callback", () => {
+    const { render } = setup({
+      task: makeTask({ origin_kind: "chat", origin_id: "chat_123" }),
+      run: makeRun({
+        source_ref: {
+          kind: "chat_turn",
+          chat_session_id: "chat_123",
+          turn_id: "turn_123",
+          message_id: "message_123",
+        },
+      }),
+    });
+    render();
+    const link = screen.getByRole("link", { name: "Open source Chat Turn" });
+    let defaultPrevented = true;
+    document.addEventListener(
+      "click",
+      (event) => {
+        defaultPrevented = event.defaultPrevented;
+        event.preventDefault();
+      },
+      { once: true },
+    );
+
+    fireEvent.click(link);
+
+    expect(defaultPrevented).toBe(false);
+    expect(link).toHaveAttribute("href", "/chats?chat=chat_123&message=message_123");
+  });
+
+  it("focuses the task heading for an explicit cross-surface request", async () => {
+    const onFocusRequestHandled = vi.fn();
+    const { render } = setup({ focusRequestNonce: 42, onFocusRequestHandled });
+    render();
+
+    const heading = screen.getByRole("heading", { name: "List the working directory" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(onFocusRequestHandled).toHaveBeenCalledWith(42);
+  });
+
+  it("does not focus or acknowledge passive routed Task addressing", () => {
+    const onFocusRequestHandled = vi.fn();
+    const { render } = setup({ focusRequestNonce: 0, onFocusRequestHandled });
+    render();
+
+    const heading = screen.getByRole("heading", { name: "List the working directory" });
+    expect(document.activeElement).not.toBe(heading);
+    expect(onFocusRequestHandled).not.toHaveBeenCalled();
   });
 
   it("shows standalone source metadata", () => {
@@ -222,7 +296,7 @@ describe("TaskDetail run picker", () => {
     });
     render();
     expect(screen.getByText("Project assignment")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open source chat" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open source chat" })).toBeNull();
   });
 
   it("hides the picker when there are zero runs", () => {

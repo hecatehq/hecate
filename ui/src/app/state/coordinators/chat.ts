@@ -482,6 +482,7 @@ export type CreateChatSessionOptions = {
 
 export type SelectChatSessionOptions = {
   draft?: string;
+  signal?: AbortSignal;
 };
 
 type ChatActionsReturn = {
@@ -3288,6 +3289,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     id: string,
     options: SelectChatSessionOptions = {},
   ): Promise<boolean> {
+    if (options.signal?.aborted) return false;
     if (blockWhileChatOwnershipMutationRuns("switching chats")) return false;
     if (blockWhileChatCancellationOwnsSession(id, "opening this chat")) return false;
     const attachmentTurnSessionID = chatAttachmentTurnSessionID();
@@ -3345,8 +3347,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
     setMessage(targetDraft);
     const selectionTransferSnapshot = getMessageSnapshot();
-    const restoreAttachmentOwner = () => {
-      if (!isCurrentActiveChatTransition(selectionGeneration)) return;
+    const restoreSourceSelection = () => {
+      if (!isCurrentActiveChatTransition(selectionGeneration)) return false;
       const liveComposerSnapshot = getMessageSnapshot();
       const restoredComposer =
         liveComposerSnapshot.revision === selectionTransferSnapshot.revision &&
@@ -3359,9 +3361,16 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setAgentWorkspaceBranch(sourceWorkspaceBranch);
       setMessage(restoredComposer);
       rememberChatComposerDraft(sourceSessionID, restoredComposer);
+      return true;
     };
+    let selectionSettled = false;
+    const abortSelection = () => {
+      if (selectionSettled) return;
+      if (restoreSourceSelection()) claimChatSessionIntent();
+    };
+    options.signal?.addEventListener("abort", abortSelection, { once: true });
     try {
-      const payload = await getChatSession(id);
+      const payload = await getChatSession(id, options.signal);
       const latest = await latestSessionAfterCancellation(
         id,
         cancellationEpoch,
@@ -3376,7 +3385,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         hasChatAttachmentTurn() &&
         (!liveAttachmentTurnSessionID || id !== liveAttachmentTurnSessionID)
       ) {
-        restoreAttachmentOwner();
+        restoreSourceSelection();
         params.setNoticeMessage(
           "error",
           "Wait for the attachment response before switching chats.",
@@ -3384,7 +3393,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         return false;
       }
       if (id !== sourceSessionID && hasPendingChatAttachments()) {
-        restoreAttachmentOwner();
+        restoreSourceSelection();
         params.setNoticeMessage("error", "Remove attached files before switching chats.");
         return false;
       }
@@ -3402,10 +3411,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       completeActiveChatTransition(selectionGeneration);
       return true;
     } catch (error) {
+      if (options.signal?.aborted) return false;
       if (!isCurrentActiveChatTransition(selectionGeneration)) return false;
       if (isChatSessionDeleted(id)) return false;
       if (hasPendingChatAttachments() || hasChatAttachmentTurn()) {
-        restoreAttachmentOwner();
+        restoreSourceSelection();
         setChatErrorState(error, "failed to load agent chat");
         return false;
       }
@@ -3420,6 +3430,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       completeActiveChatTransition(selectionGeneration);
       return false;
     } finally {
+      selectionSettled = true;
+      options.signal?.removeEventListener("abort", abortSelection);
       completeActiveChatTransition(selectionGeneration);
     }
   }

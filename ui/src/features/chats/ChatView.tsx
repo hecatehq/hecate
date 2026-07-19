@@ -82,10 +82,12 @@ import {
 
 type Props = {
   focusMessageID?: string | null;
+  focusRequest?: { chatID: string; messageID: string; nonce: number } | null;
   onNavigate?: (workspace: "connections" | "tasks" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onMessageFocusUnavailable?: (sessionID: string, messageID: string) => void;
+  onFocusRequestHandled?: (nonce: number) => void;
   onSelectChat?: (sessionID: string, mode?: "push" | "replace") => void;
   onSelectChatIntent?: (sessionID: string) => void;
 };
@@ -129,10 +131,12 @@ function chatAttachmentsDisabledReason({
 
 export function ChatView({
   focusMessageID,
+  focusRequest,
   onNavigate,
   onOpenTask,
   onOpenTrace,
   onMessageFocusUnavailable,
+  onFocusRequestHandled,
   onSelectChat,
   onSelectChatIntent,
 }: Props) {
@@ -1323,10 +1327,12 @@ export function ChatView({
                 isHecateAgentChat={isHecateAgentChat}
                 activeSessionID={activeSessionID}
                 focusMessageID={focusMessageID}
+                focusRequest={focusRequest}
                 transcriptItems={transcriptItems}
                 visibleMessageCount={visibleMessages.length}
                 streaming={streaming}
                 onNavigate={onNavigate}
+                onFocusRequestHandled={onFocusRequestHandled}
                 onOpenTask={onOpenTask}
                 onOpenTrace={onOpenTrace}
                 onOpenWorkspaceChanges={() => {

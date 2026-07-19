@@ -449,7 +449,7 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 		InputProviderDispatchRecorded: true,
 		ContextPacket: json.RawMessage(`{
 			"id":"ctx_old",
-			"refs":{"session_id":"chat_1","run_id":"run-resume-source"},
+			"refs":{"session_id":"chat_1","turn_id":"turn_1","message_id":"message_1","task_id":"task-resume-context","run_id":"run-resume-source"},
 			"items":[{"kind":"transcript","trust_level":"runtime_state","origin":"chat.transcript","title":"Chat transcript","included":true}]
 		}`),
 	}
@@ -469,11 +469,125 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
 	}
 	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
+	assertRunContextSourceRefs(t, stored.ContextPacket, "chat_1", "turn_1", "message_1")
 	if stored.InputRef != run.InputRef {
 		t.Fatalf("InputRef = %q, want inherited %q", stored.InputRef, run.InputRef)
 	}
 	if stored.Provider != run.Provider || stored.ProviderKind != run.ProviderKind || stored.Model != run.Model || stored.InputProviderInstance != inputProviderInstance || !stored.InputProviderDispatchRecorded {
 		t.Fatalf("inherited input route = provider %q kind %q model %q instance %+v dispatched=%t, want %q/%q/%q/%+v/true", stored.Provider, stored.ProviderKind, stored.Model, stored.InputProviderInstance, stored.InputProviderDispatchRecorded, run.Provider, run.ProviderKind, run.Model, inputProviderInstance)
+	}
+}
+
+func TestRetryTaskCarriesForwardOnlySourceContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+
+	now := time.Now().UTC()
+	inputProviderInstance := types.ProviderInstanceIdentity{ID: "runtime-retry-source-input", Kind: types.ProviderInstanceIdentityRuntime}
+	task := types.Task{
+		ID:                "task-retry-source-context",
+		Title:             "retry source context",
+		Prompt:            "retry me from scratch",
+		ExecutionKind:     "agent_loop",
+		RequestedProvider: "fresh-provider",
+		RequestedModel:    "fresh-model",
+		WorkingDirectory:  t.TempDir(),
+		Status:            "failed",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	run := types.TaskRun{
+		ID:                             "run-retry-source-context",
+		TaskID:                         task.ID,
+		Number:                         1,
+		Status:                         "failed",
+		StartedAt:                      now,
+		FinishedAt:                     now,
+		InputRef:                       "msg_prior_input",
+		Provider:                       "prior-provider",
+		ProviderKind:                   "cloud",
+		Model:                          "prior-model",
+		InputProviderInstance:          inputProviderInstance,
+		InputProviderDispatchRecorded:  true,
+		InputProviderDisclosedInstance: inputProviderInstance,
+		PriorCostMicrosUSD:             150,
+		TotalCostMicrosUSD:             25,
+		ContextPacket: json.RawMessage(`{
+			"id":"ctx_old_retry",
+			"workspace":"/prior/workspace",
+			"refs":{
+				"session_id":"chat_retry",
+				"turn_id":"turn_retry",
+				"message_id":"msg_retry",
+				"task_id":"task-retry-source-context",
+				"run_id":"run-retry-source-context"
+			},
+			"items":[{"kind":"transcript","trust_level":"runtime_state","origin":"chat.transcript","title":"Chat transcript","included":true}]
+		}`),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	result, err := runner.RetryTask(ctx, task, run, defaultResourceID)
+	if err != nil {
+		t.Fatalf("RetryTask: %v", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, result.Run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
+	}
+	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
+
+	var packet struct {
+		Workspace string `json:"workspace"`
+		Refs      struct {
+			SessionID string `json:"session_id"`
+			TurnID    string `json:"turn_id"`
+			MessageID string `json:"message_id"`
+		} `json:"refs"`
+	}
+	if err := json.Unmarshal(stored.ContextPacket, &packet); err != nil {
+		t.Fatalf("Unmarshal ContextPacket: %v", err)
+	}
+	if packet.Refs.SessionID != "chat_retry" || packet.Refs.TurnID != "turn_retry" || packet.Refs.MessageID != "msg_retry" {
+		t.Fatalf("source refs = %+v, want chat_retry/turn_retry/msg_retry", packet.Refs)
+	}
+	if packet.Workspace != stored.WorkspacePath || packet.Workspace == "/prior/workspace" {
+		t.Fatalf("context workspace = %q, want new Run workspace %q", packet.Workspace, stored.WorkspacePath)
+	}
+	if stored.InputRef != run.InputRef {
+		t.Fatalf("InputRef = %q, want inherited same-input ref %q", stored.InputRef, run.InputRef)
+	}
+	if stored.Provider != run.Provider || stored.ProviderKind != run.ProviderKind || stored.Model != run.Model || stored.InputProviderInstance != inputProviderInstance || !stored.InputProviderDispatchRecorded {
+		t.Fatalf("same-input route = provider %q kind %q model %q admitted %+v dispatched=%t, want %q/%q/%q/%+v/true", stored.Provider, stored.ProviderKind, stored.Model, stored.InputProviderInstance, stored.InputProviderDispatchRecorded, run.Provider, run.ProviderKind, run.Model, inputProviderInstance)
+	}
+	if stored.InputProviderDisclosedInstance.Valid() {
+		t.Fatalf("new retry disclosed instance = %+v, want empty until this Run reaches provider I/O", stored.InputProviderDisclosedInstance)
+	}
+	if stored.PriorCostMicrosUSD != 0 {
+		t.Fatalf("PriorCostMicrosUSD = %d, want fresh cost chain", stored.PriorCostMicrosUSD)
+	}
+
+	events, err := store.ListRunEvents(ctx, task.ID, stored.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	for _, event := range events {
+		if event.EventType == "run.resumed_from_event" {
+			t.Fatalf("fresh retry emitted %q", event.EventType)
+		}
 	}
 }
 
@@ -682,5 +796,22 @@ func assertCopiedRunContextPacket(t *testing.T, raw json.RawMessage, taskID, run
 	}
 	if got, _ := refs["run_id"].(string); got != runID {
 		t.Fatalf("refs.run_id = %q, want %q", got, runID)
+	}
+}
+
+func assertRunContextSourceRefs(t *testing.T, raw json.RawMessage, sessionID, turnID, messageID string) {
+	t.Helper()
+	var packet struct {
+		Refs struct {
+			SessionID string `json:"session_id"`
+			TurnID    string `json:"turn_id"`
+			MessageID string `json:"message_id"`
+		} `json:"refs"`
+	}
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatalf("Unmarshal ContextPacket source refs: %v", err)
+	}
+	if packet.Refs.SessionID != sessionID || packet.Refs.TurnID != turnID || packet.Refs.MessageID != messageID {
+		t.Fatalf("source refs = %+v, want %s/%s/%s", packet.Refs, sessionID, turnID, messageID)
 	}
 }

@@ -4,6 +4,7 @@ import type {
   TaskArtifactRecord,
   TaskRecord,
   TaskRunEventRecord,
+  TaskRunRecord,
 } from "../../types/task";
 
 export const STEP_STATUS_COLOR: Record<string, string> = {
@@ -102,6 +103,35 @@ export function taskSource(task: TaskRecord): TaskSource {
     label: "Standalone",
     title: "Created directly in Tasks",
   };
+}
+
+export type TaskChatSourceRef = {
+  chatSessionID: string;
+  turnID: string;
+  messageID: string;
+};
+
+export function taskChatSourceRef(
+  task: TaskRecord,
+  run: TaskRunRecord | null,
+): TaskChatSourceRef | null {
+  const chatSessionID = (task.origin_id ?? "").trim();
+  if ((task.origin_kind ?? "").trim() !== "chat" || !chatSessionID) return null;
+
+  const sourceRef = run?.source_ref;
+  if (
+    !run ||
+    run.task_id !== task.id ||
+    sourceRef?.kind !== "chat_turn" ||
+    sourceRef.chat_session_id.trim() !== chatSessionID
+  ) {
+    return { chatSessionID, turnID: "", messageID: "" };
+  }
+
+  const turnID = sourceRef.turn_id.trim();
+  const messageID = sourceRef.message_id.trim();
+  if (!turnID || !messageID) return { chatSessionID, turnID: "", messageID: "" };
+  return { chatSessionID, turnID, messageID };
 }
 
 export type TaskRunOutcome = {

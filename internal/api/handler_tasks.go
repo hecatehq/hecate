@@ -774,6 +774,14 @@ func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 		item.ProjectID = firstNonEmptyString(item.ProjectID, refs.ProjectID)
 		item.WorkItemID = firstNonEmptyString(item.WorkItemID, refs.WorkItemID)
 		item.AssignmentID = firstNonEmptyString(item.AssignmentID, refs.AssignmentID)
+		if refs.TaskID == run.TaskID && refs.RunID == run.ID && refs.SessionID != "" && refs.TurnID != "" && refs.MessageID != "" {
+			item.SourceRef = &TaskRunSourceRefItem{
+				Kind:          "chat_turn",
+				ChatSessionID: refs.SessionID,
+				TurnID:        refs.TurnID,
+				MessageID:     refs.MessageID,
+			}
+		}
 	}
 	if !run.StartedAt.IsZero() {
 		item.StartedAt = run.StartedAt.UTC().Format(time.RFC3339Nano)
