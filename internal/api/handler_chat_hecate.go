@@ -500,10 +500,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Timing:     agentChatRunTimingMetrics(timing),
 	})
 	if status == "cancelled" {
-		reason := h.agentChatLive.cancelReasonFor(session.ID)
-		if reason == "" {
-			reason = "request_cancelled"
-		}
+		reason := hecateAgentChatCancellationReason(finalRun, h.agentChatLive.cancelReasonFor(session.ID))
 		h.agentChatMetrics.RecordChatCancelled(traceCtx, telemetry.AgentChatCancelledRecord{
 			AdapterID: "hecate",
 			Reason:    reason,
@@ -558,6 +555,19 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		Data:           renderChatSession(updated, h.agentChatSnapshotConfig()),
 		MessageRequest: requestGuard.responseMetadata(false, ""),
 	})
+}
+
+// hecateAgentChatCancellationReason prefers the runner's durable operator
+// outcome because CancelRun persists it before it can wake the detached chat
+// watcher. The live reason remains the authority for non-task chat cancels.
+func hecateAgentChatCancellationReason(run types.TaskRun, liveReason string) string {
+	if run.LastError == "run cancelled: operator" {
+		return "operator"
+	}
+	if liveReason != "" {
+		return liveReason
+	}
+	return "request_cancelled"
 }
 
 func (h *Handler) linkHecateTaskRun(

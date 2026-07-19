@@ -40,6 +40,7 @@ import (
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/retention"
 	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -7626,11 +7627,19 @@ func newTestHTTPHandlerWithSettings(logger *slog.Logger, items []providers.Provi
 }
 
 func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
+	return newTestAPIHandlerWithSettingsAndTaskStore(logger, items, cfg, cpStore, nil)
+}
+
+func newTestAPIHandlerWithSettingsAndTaskStore(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store, taskStore taskstate.Store) *Handler {
 	registry := providers.NewRegistry(items...)
-	return newTestAPIHandlerWithRegistry(logger, registry, items, cfg, cpStore)
+	return newTestAPIHandlerWithRegistryAndTaskStore(logger, registry, items, cfg, cpStore, taskStore)
 }
 
 func newTestAPIHandlerWithRegistry(logger *slog.Logger, registry providers.Registry, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
+	return newTestAPIHandlerWithRegistryAndTaskStore(logger, registry, items, cfg, cpStore, nil)
+}
+
+func newTestAPIHandlerWithRegistryAndTaskStore(logger *slog.Logger, registry providers.Registry, items []providers.Provider, cfg config.Config, cpStore controlplane.Store, taskStore taskstate.Store) *Handler {
 	providerHistoryStore := providers.NewMemoryHealthHistoryStore()
 	healthTracker := providers.NewMemoryHealthTrackerWithHistory(
 		cfg.Provider.HealthThreshold,
@@ -7687,7 +7696,7 @@ func newTestAPIHandlerWithRegistry(logger *slog.Logger, registry providers.Regis
 	})
 
 	cfg.Governor = governorCfg
-	handler := NewHandler(cfg, logger, service, cpStore, nil, nil)
+	handler := NewHandler(cfg, logger, service, cpStore, taskStore, nil)
 	return handler
 }
 
