@@ -150,12 +150,7 @@ future work.
 Claude Code adapter `v0.1.0-alpha.11` adds command-backed stdio/HTTP MCP server
 config propagation into Claude `--mcp-config`, and `v0.1.0-alpha.12` adds
 Claude-native `--session-id` reload after adapter restarts. Early alpha releases
-also supplied a small adapter-maintained set of prompt suggestions. Claude Code
-adapter `v0.3.0` replaces that fixed list with a live Claude CLI command
-catalog: the adapter discovers a provider-owned bare/minimal inventory and
-publishes it as an ACP replacement snapshot. Hecate therefore does not promise
-that a particular slash command, alias, workspace skill, or plugin command is
-available; it renders only what the installed provider actually advertises.
+also supplied a small adapter-maintained set of prompt suggestions.
 Claude Code adapter `v0.1.0-alpha.15` exposes Claude Code's
 `bypassPermissions` permission mode as an ACP session config option for
 operators who intentionally want the full-access Claude Code boundary.
@@ -214,9 +209,15 @@ Claude Code adapter `v0.1.0-alpha.33` expands the opt-in real CLI smoke suite
 to verify a local stdio MCP echo tool call, delimits Claude's variadic
 `--mcp-config` option before prompt text, and preserves provider tool metadata
 on matching result updates.
-Claude Code adapter `v0.1.0` is the stable supported floor for Hecate's bundled
-Claude Code adapter path. It keeps the alpha.33 behavior, pins the shared ACP
-adapter kit to its first stable release, and documents draft ACP RFD work as
+Claude Code adapter `v0.1.0` remains the minimum stable compatibility baseline
+for Hecate's bundled Claude Code adapter path. Hecate embeds Claude Code adapter
+`v0.3.1`, which replaces the early fixed suggestion list with a live Claude CLI
+command catalog: the adapter discovers a provider-owned bare/minimal inventory
+and publishes it as an ACP replacement snapshot. Hecate therefore does not
+promise that a particular slash command, alias, workspace skill, or plugin
+command is available; it renders only what the installed provider actually
+advertises. The `v0.1.0` release keeps the alpha.33 behavior, pins the shared
+ACP adapter kit to its first stable release, and documents draft ACP RFD work as
 non-blocking future work.
 
 ## Supported External Agents
@@ -510,7 +511,11 @@ For the built-in adapters, operators can run `just test-acp-real-embedded` (or
 pass one adapter id as its argument). The opt-in smoke uses the installed,
 authenticated vendor CLI, verifies a minimal text turn, then verifies that the
 same prepared native session can read a privately staged text-file input. It may
-consume provider quota.
+consume provider quota. For Claude Code, it also verifies that Hecate receives
+the provider-owned command-catalog replacement snapshot. Discovery is
+best-effort and an explicit empty catalog is valid; automatic discovery uses
+Claude Code's safe bare/minimal startup boundary, not an unrestricted
+workspace/plugin inventory.
 
 For the direct ACP implementations bundled with Cursor and Grok, operators can
 run `just test-acp-real-direct` (or pass one adapter id as its argument). The
