@@ -98,7 +98,30 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   await expect(page.getByRole("region", { name: "Project Assistant" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Set up project" })).toHaveCount(0);
   await page.getByRole("tab", { name: /Memory/ }).click();
-  await expect(page.getByText("Guidance source: AGENTS.md")).toBeVisible();
+  const setupMemorySuggestion = page.getByRole("article", {
+    name: "Memory suggestion Guidance source: AGENTS.md",
+  });
+  await expect(setupMemorySuggestion).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Needs review")).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Why suggested")).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Evidence")).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Review and edit")).toBeVisible();
+  await setupMemorySuggestion
+    .getByRole("button", { name: "Review memory suggestion Guidance source: AGENTS.md" })
+    .click();
+  const memoryReviewDialog = page.getByRole("dialog", { name: "Review memory suggestion" });
+  await expect(memoryReviewDialog).toBeVisible();
+  await expect(memoryReviewDialog.getByText("Suggested memory")).toBeVisible();
+  await expect(memoryReviewDialog.getByText("Pending promotion")).toBeVisible();
+  await expect(
+    memoryReviewDialog.getByRole("button", { name: "Save to project memory" }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await memoryReviewDialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await memoryReviewDialog.getByRole("button", { name: "Close" }).click();
   await page
     .getByRole("button", { name: "Dismiss memory suggestion Guidance source: AGENTS.md" })
     .click();

@@ -126,7 +126,7 @@ export function ProjectMemoryPanel({
             }
           >
             <Icon d={firstPendingCandidate ? Icons.check : Icons.plus} size={12} />
-            {firstPendingCandidate ? "Review suggestion" : "Add memory"}
+            {firstPendingCandidate ? "Review first suggestion" : "Add memory"}
           </button>
         </div>
       </header>
@@ -501,7 +501,7 @@ export function ProjectMemoryModal({
           {pending
             ? "Saving…"
             : isCandidate
-              ? "Save to memory"
+              ? "Save to project memory"
               : entry
                 ? "Save memory"
                 : "Create memory"}
@@ -519,27 +519,46 @@ export function ProjectMemoryModal({
         {error && <InlineError message={error} />}
         <fieldset disabled={pending} style={modalFieldsetStyle}>
           {candidate && (
-            <div
-              style={{
-                background: "var(--bg2)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                display: "grid",
-                gap: 6,
-                padding: "9px 10px",
-              }}
-            >
-              <div style={sectionLabelStyle}>Suggestion source</div>
-              <div style={metaLineStyle}>
-                <span>{formatCandidateSource(candidate)}</span>
-                <span>{candidate.suggested_trust_label}</span>
-                <span>{candidate.status}</span>
+            <div style={candidateReviewCardStyle}>
+              <div style={sectionLabelStyle}>Suggested memory</div>
+              <div style={candidateReviewSummaryStyle}>
+                Edit anything below before saving. This stays out of durable project memory until
+                you confirm it.
               </div>
-              {candidateSourceRefs.length > 0 && (
-                <div style={{ ...subtleTextStyle }}>
-                  Source refs: {candidateSourceRefs.join(" · ")}
+              <div style={candidateDecisionGridStyle}>
+                <ProjectMemoryCandidateFact
+                  label="Why suggested"
+                  value={
+                    candidate.suggested_kind
+                      ? humanMemoryLabel(candidate.suggested_kind)
+                      : "Project note"
+                  }
+                />
+                <ProjectMemoryCandidateFact
+                  label="Evidence"
+                  value={candidateSourceRefs[0] ?? formatCandidateSource(candidate)}
+                />
+                <ProjectMemoryCandidateFact
+                  label="Trust"
+                  value={humanMemoryLabel(candidate.suggested_trust_label)}
+                />
+                <ProjectMemoryCandidateFact label="Review path" value="Pending promotion" />
+              </div>
+              <details className="project-work-advanced-fields">
+                <summary>Source details</summary>
+                <div style={{ ...rowDetailsBodyStyle, paddingTop: 8 }}>
+                  <div style={metaLineStyle}>
+                    <span>{formatCandidateSource(candidate)}</span>
+                    <span>{candidate.suggested_trust_label}</span>
+                    <span>{candidate.status}</span>
+                  </div>
+                  {candidateSourceRefs.length > 0 && (
+                    <div style={{ ...subtleTextStyle, overflowWrap: "anywhere" }}>
+                      Source refs: {candidateSourceRefs.join(" · ")}
+                    </div>
+                  )}
                 </div>
-              )}
+              </details>
             </div>
           )}
           <label style={fieldStyle}>
@@ -778,6 +797,11 @@ function ProjectMemoryCandidateRow({
   const source = formatCandidateSource(candidate);
   const sourceRefs = formatCandidateSourceRefs(candidate);
   const pending = candidate.status === "pending";
+  const evidenceLabel = sourceRefs[0] ?? source;
+  const kindLabel = candidate.suggested_kind
+    ? humanMemoryLabel(candidate.suggested_kind)
+    : "Project note";
+  const trustLabel = humanMemoryLabel(candidate.suggested_trust_label);
   return (
     <article aria-label={`Memory suggestion ${candidate.title}`} style={memoryEntryStyle}>
       <div className="project-support-row-header" style={rowHeaderStyle}>
@@ -785,21 +809,21 @@ function ProjectMemoryCandidateRow({
           style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}
         >
           <span className={pending ? "badge badge-amber" : "badge badge-muted"}>
-            {candidate.status}
+            {pending ? "Needs review" : candidate.status}
           </span>
           <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{candidate.title}</div>
         </div>
         {pending && (
           <div style={rowActionStyle}>
             <button
-              className="btn btn-ghost btn-sm"
+              className="btn btn-primary btn-sm"
               type="button"
               aria-label={`Review memory suggestion ${candidate.title}`}
               disabled={pendingReject}
               onClick={onPromote}
             >
               <Icon d={Icons.check} size={12} />
-              Review
+              Review and edit
             </button>
             <button
               className="btn btn-ghost btn-sm"
@@ -816,8 +840,20 @@ function ProjectMemoryCandidateRow({
         )}
       </div>
       <div style={memoryBodyStyle}>{candidate.body}</div>
+      <div
+        style={candidateDecisionGridStyle}
+        aria-label={`Memory suggestion summary ${candidate.title}`}
+      >
+        <ProjectMemoryCandidateFact label="Why suggested" value={kindLabel} />
+        <ProjectMemoryCandidateFact label="Evidence" value={evidenceLabel} />
+        <ProjectMemoryCandidateFact label="Trust" value={trustLabel} />
+        <ProjectMemoryCandidateFact
+          label="Review path"
+          value={pending ? "Save, edit first, or dismiss" : candidate.status}
+        />
+      </div>
       <details className="project-support-details" style={rowDetailsStyle}>
-        <summary>Suggestion source</summary>
+        <summary>Source details</summary>
         <div style={rowDetailsBodyStyle}>
           <div style={metaLineStyle}>
             <span>{candidate.suggested_trust_label}</span>
@@ -826,11 +862,22 @@ function ProjectMemoryCandidateRow({
             <CopyableID text={candidate.id} compact />
           </div>
           {sourceRefs.length > 0 && (
-            <div style={subtleTextStyle}>Source refs: {sourceRefs.join(" · ")}</div>
+            <div style={{ ...subtleTextStyle, overflowWrap: "anywhere" }}>
+              Source refs: {sourceRefs.join(" · ")}
+            </div>
           )}
         </div>
       </details>
     </article>
+  );
+}
+
+function ProjectMemoryCandidateFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={candidateFactStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <span style={candidateFactValueStyle}>{value || "not set"}</span>
+    </div>
   );
 }
 
@@ -885,6 +932,15 @@ function formatCandidateSourceRefs(candidate: ProjectMemoryCandidateRecord): str
     .filter(Boolean);
 }
 
+function humanMemoryLabel(value?: string): string {
+  if (!value) return "not set";
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
 const sectionLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 10,
@@ -913,6 +969,47 @@ const metaLineStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 11,
   marginTop: 6,
+};
+
+const candidateReviewCardStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 8,
+  minWidth: 0,
+  padding: "9px 10px",
+};
+
+const candidateReviewSummaryStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 12,
+  lineHeight: 1.45,
+};
+
+const candidateDecisionGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 140px), 1fr))",
+  marginTop: 8,
+  minWidth: 0,
+};
+
+const candidateFactStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 3,
+  minWidth: 0,
+  padding: "7px 8px",
+};
+
+const candidateFactValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  minWidth: 0,
+  overflowWrap: "anywhere",
 };
 
 const fieldStyle: CSSProperties = {
