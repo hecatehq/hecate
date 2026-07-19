@@ -2050,7 +2050,7 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
   it("shows a missing QA report as unavailable rather than implying a result", () => {
     const { render } = setup({
       task: makeTask({ execution_kind: "agent_loop", workflow_mode: "qa" }),
-      run: makeRun({ workflow_mode: "qa" }),
+      run: makeRun({ workflow_mode: "qa", workflow_version: "v0" }),
       artifacts: [],
     });
     render();
@@ -2064,7 +2064,7 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     const raw = '{"agent_reported":"<img src=x onerror=alert(1)>"}';
     const { render } = setup({
       task: makeTask({ execution_kind: "agent_loop", workflow_mode: "qa" }),
-      run: makeRun({ workflow_mode: "qa" }),
+      run: makeRun({ workflow_mode: "qa", workflow_version: "v0" }),
       artifacts: [
         {
           id: "workflow-report-run-1",
@@ -2107,5 +2107,45 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
 
     expect(screen.getAllByText("QA · report only").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("region", { name: "QA report" })).toBeTruthy();
+  });
+
+  it.each([
+    ["future QA version", { workflow_mode: "qa", workflow_version: "v1" }],
+    ["mode-only QA snapshot", { workflow_mode: "qa" }],
+    ["version-only snapshot", { workflow_version: "v0" }],
+  ] as const)("keeps workflow artifacts raw for a retained %s", (_name, runSnapshot) => {
+    const manifest: TaskArtifactRecord = {
+      id: "workflow-manifest-run-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "workflow_manifest",
+      name: "qa-workflow-manifest.json",
+      status: "ready",
+      content_text: '{"workflow_version":"v0"}',
+    };
+    const report: TaskArtifactRecord = {
+      id: "workflow-report-run-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "workflow_report",
+      name: "qa-report.json",
+      status: "ready",
+      content_text: '{"workflow":{"mode":"qa","version":"v0"}}',
+    };
+    const { render } = setup({
+      task: makeTask({
+        execution_kind: "agent_loop",
+        workflow_mode: "qa",
+        workflow_version: "v0",
+      }),
+      run: makeRun(runSnapshot),
+      artifacts: [manifest, report],
+    });
+    render();
+
+    expect(screen.queryByText("QA · report only")).toBeNull();
+    expect(screen.queryByRole("region", { name: "QA report" })).toBeNull();
+    expect(screen.getByText("qa-workflow-manifest.json")).toBeTruthy();
+    expect(screen.getByText("qa-report.json")).toBeTruthy();
   });
 });

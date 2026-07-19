@@ -303,6 +303,9 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			if artifactErr != nil {
 				return nil, artifactErr
 			}
+			if preserveErr := preserveExistingTerminalArtifactCreatedAt(spec, &finalArtifact); preserveErr != nil {
+				return nil, preserveErr
+			}
 			if addErr := runState.AddArtifact(spec, finalArtifact); addErr != nil {
 				return nil, addErr
 			}
@@ -1165,7 +1168,13 @@ func initialWorkflowArtifacts(spec ExecutionSpec) ([]types.TaskArtifact, error) 
 	if !taskworkflow.IsQAExecution(spec.Task, spec.Run) {
 		return nil, nil
 	}
-	createdAt := spec.StartedAt
+	// A Run can be resumed after an approval pause or worker recovery. Its
+	// manifest documents the durable run contract, so retain the Run start
+	// rather than replacing it with each executor attempt's start time.
+	createdAt := spec.Run.StartedAt
+	if createdAt.IsZero() {
+		createdAt = spec.StartedAt
+	}
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
@@ -1174,6 +1183,25 @@ func initialWorkflowArtifacts(spec ExecutionSpec) ([]types.TaskArtifact, error) 
 		return nil, err
 	}
 	return []types.TaskArtifact{manifest}, nil
+}
+
+// preserveExistingTerminalArtifactCreatedAt keeps the evidence timestamp
+// stable when recovery replays a terminal assistant response that was already
+// durably written before the Run transition completed. Its identity is scoped
+// to the Run, so an existing artifact is the same report/summary rather than
+// another attempt's output.
+func preserveExistingTerminalArtifactCreatedAt(spec ExecutionSpec, artifact *types.TaskArtifact) error {
+	if artifact == nil || spec.GetArtifact == nil {
+		return nil
+	}
+	existing, found, err := spec.GetArtifact(spec.Task.ID, artifact.ID)
+	if err != nil {
+		return fmt.Errorf("get existing terminal artifact %q: %w", artifact.ID, err)
+	}
+	if found && !existing.CreatedAt.IsZero() {
+		artifact.CreatedAt = existing.CreatedAt
+	}
+	return nil
 }
 
 func buildTerminalArtifact(spec ExecutionSpec, stepID string, startedAt time.Time, content string) (types.TaskArtifact, error) {

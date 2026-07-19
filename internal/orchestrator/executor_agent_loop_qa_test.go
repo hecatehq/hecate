@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -231,6 +232,121 @@ func TestAgentLoopQAWorkflowWithoutLLMRecordsManifestButDoesNotInventReport(t *t
 	}
 	if result.Status != "failed" || findArtifactByKind(result.Artifacts, "workflow_manifest") == nil || findArtifactByKind(result.Artifacts, "workflow_report") != nil {
 		t.Fatalf("result = %+v, want failed manifest-only QA execution", result)
+	}
+}
+
+func TestAgentLoopQAWorkflowManifestStaysStableAcrossSameRunResume(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	runStartedAt := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkflowMode = types.WorkflowModeQA
+	spec.Task.WorkflowVersion = taskworkflow.QAVersion
+	spec.Run.WorkflowMode = types.WorkflowModeQA
+	spec.Run.WorkflowVersion = taskworkflow.QAVersion
+	spec.Run.StartedAt = runStartedAt
+	spec.StartedAt = runStartedAt.Add(10 * time.Second)
+	spec.UpsertArtifact = func(artifact types.TaskArtifact) error {
+		_, err := store.CreateArtifact(ctx, artifact)
+		return err
+	}
+	loop := NewAgentLoopExecutor(nil, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+
+	first, err := loop.Execute(ctx, spec)
+	if err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	firstManifest := findArtifactByKind(first.Artifacts, "workflow_manifest")
+	if firstManifest == nil {
+		t.Fatalf("first artifacts = %+v, want workflow manifest", first.Artifacts)
+	}
+
+	// Re-running the durable run models recovery after an approval pause. The
+	// executor-attempt timestamp changes, while the recorded run start does not.
+	spec.StartedAt = runStartedAt.Add(5 * time.Minute)
+	spec.ResumeCheckpoint = &ResumeCheckpoint{SameRun: true}
+	resumed, err := loop.Execute(ctx, spec)
+	if err != nil {
+		t.Fatalf("resumed Execute: %v", err)
+	}
+	resumedManifest := findArtifactByKind(resumed.Artifacts, "workflow_manifest")
+	if resumedManifest == nil {
+		t.Fatalf("resumed artifacts = %+v, want workflow manifest", resumed.Artifacts)
+	}
+	stored, found, err := store.GetArtifact(ctx, spec.Task.ID, firstManifest.ID)
+	if err != nil || !found {
+		t.Fatalf("GetArtifact(%q): found=%t err=%v", firstManifest.ID, found, err)
+	}
+	if !firstManifest.CreatedAt.Equal(runStartedAt) || !resumedManifest.CreatedAt.Equal(runStartedAt) || !stored.CreatedAt.Equal(runStartedAt) {
+		t.Fatalf("manifest timestamps = first %s resumed %s stored %s, want durable run start %s", firstManifest.CreatedAt, resumedManifest.CreatedAt, stored.CreatedAt, runStartedAt)
+	}
+	if resumedManifest.ContentText != firstManifest.ContentText || stored.ContentText != firstManifest.ContentText {
+		t.Fatalf("manifest content changed across same-run resume: first=%q resumed=%q stored=%q", firstManifest.ContentText, resumedManifest.ContentText, stored.ContentText)
+	}
+}
+
+func TestAgentLoopQAWorkflowRecoveryPreservesExistingReportTimestamp(t *testing.T) {
+	t.Parallel()
+
+	llm := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("Saved QA finding.")),
+	}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 4, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkflowMode = types.WorkflowModeQA
+	spec.Task.WorkflowVersion = taskworkflow.QAVersion
+	spec.Run.WorkflowMode = types.WorkflowModeQA
+	spec.Run.WorkflowVersion = taskworkflow.QAVersion
+	artifacts := make(map[string]types.TaskArtifact)
+	spec.UpsertArtifact = func(artifact types.TaskArtifact) error {
+		artifacts[artifact.ID] = artifact
+		return nil
+	}
+	spec.GetArtifact = func(_ string, artifactID string) (types.TaskArtifact, bool, error) {
+		artifact, found := artifacts[artifactID]
+		return artifact, found, nil
+	}
+
+	first, err := loop.Execute(t.Context(), spec)
+	if err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	firstReport := findArtifactByKind(first.Artifacts, "workflow_report")
+	conversation := findArtifactByKind(first.Artifacts, "agent_conversation")
+	if firstReport == nil || conversation == nil {
+		t.Fatalf("first artifacts = %+v, want workflow report and conversation", first.Artifacts)
+	}
+
+	// Simulate a crash after the report upsert but before the terminal run
+	// transition. Recovery should finish from the saved assistant response
+	// without treating the already-recorded report as newly created evidence.
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:           spec.Run.ID,
+		SameRun:               true,
+		LastCompletedStepID:   first.Steps[0].ID,
+		LastStepIndex:         first.Steps[0].Index,
+		ThisRunModelCallCount: 1,
+		AgentConversation:     []byte(conversation.ContentText),
+	}
+	recovered, err := loop.Execute(t.Context(), spec)
+	if err != nil {
+		t.Fatalf("recovery Execute: %v", err)
+	}
+	recoveredReport := findArtifactByKind(recovered.Artifacts, "workflow_report")
+	if recoveredReport == nil {
+		t.Fatalf("recovery artifacts = %+v, want workflow report", recovered.Artifacts)
+	}
+	stored := artifacts[firstReport.ID]
+	if !recoveredReport.CreatedAt.Equal(firstReport.CreatedAt) || !stored.CreatedAt.Equal(firstReport.CreatedAt) {
+		t.Fatalf("report timestamps = first %s recovered %s stored %s, want preserved report time", firstReport.CreatedAt, recoveredReport.CreatedAt, stored.CreatedAt)
+	}
+	if recoveredReport.ContentText != firstReport.ContentText || stored.ContentText != firstReport.ContentText {
+		t.Fatalf("report content changed during same-run recovery: first=%q recovered=%q stored=%q", firstReport.ContentText, recoveredReport.ContentText, stored.ContentText)
+	}
+	if got := llm.calls.Load(); got != 1 {
+		t.Fatalf("provider calls = %d, want only the pre-crash call", got)
 	}
 }
 
