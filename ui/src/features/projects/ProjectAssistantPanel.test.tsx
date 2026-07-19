@@ -266,7 +266,14 @@ describe("ProjectAssistantPanel", () => {
       within(assistant).getByText("Review proposed changes", { selector: "summary" }),
     );
     expect(within(assistant).getByText("trace_setup")).toBeTruthy();
-    expect(within(assistant).getByText("Editor")).toBeTruthy();
+    const changedFields = within(assistant)
+      .getByText("Show changed fields", { selector: "summary" })
+      .closest("details");
+    expect(changedFields).not.toHaveAttribute("open");
+    expect(within(assistant).getByText("Editor")).not.toBeVisible();
+    await user.click(within(assistant).getByText("Show changed fields", { selector: "summary" }));
+    expect(changedFields).toHaveAttribute("open");
+    expect(within(assistant).getByText("Editor")).toBeVisible();
     await user.click(within(assistant).getByRole("button", { name: "Apply setup" }));
     expect(handlers.onApply).toHaveBeenCalledTimes(1);
   });
