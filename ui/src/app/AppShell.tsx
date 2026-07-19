@@ -535,13 +535,15 @@ function AuthenticatedShell({
         <span className="hecate-statusbar__brand">hecate</span>
         {runtimeVersion && (
           <>
-            <span className="hecate-statusbar__sep">|</span>
-            <span style={{ fontFamily: "var(--font-mono)" }}>{runtimeVersion}</span>
+            <span className="hecate-statusbar__sep hecate-statusbar__sep--runtime">|</span>
+            <span className="hecate-statusbar__runtime" style={{ fontFamily: "var(--font-mono)" }}>
+              {runtimeVersion}
+            </span>
           </>
         )}
-        <span className="hecate-statusbar__sep">|</span>
-        <span>{session.label}</span>
-        <span className="hecate-statusbar__sep">|</span>
+        <span className="hecate-statusbar__sep hecate-statusbar__sep--session">|</span>
+        <span className="hecate-statusbar__session">{session.label}</span>
+        <span className="hecate-statusbar__sep hecate-statusbar__sep--providers">|</span>
         {/* "configured" = providers in the CP store (operator-added).
             "models" is intersected with the configured set so the count
             reflects models the operator can actually route to from the
@@ -560,30 +562,38 @@ function AuthenticatedShell({
             : providersAndModels.state.models.length;
           return (
             <>
-              <span>{configuredCount} configured</span>
-              <span className="hecate-statusbar__sep">|</span>
-              <span>{modelCount} models</span>
+              <span className="hecate-statusbar__providers">{configuredCount} configured</span>
+              <span className="hecate-statusbar__sep hecate-statusbar__sep--models">|</span>
+              <span className="hecate-statusbar__models">{modelCount} models</span>
             </>
           );
         })()}
         {activeWorkspace === "chats" && agentWorkspace && (
           <>
-            <span className="hecate-statusbar__sep">|</span>
+            <span className="hecate-statusbar__sep hecate-statusbar__sep--workspace">|</span>
             <span className="hecate-statusbar__path" title={agentWorkspace}>
               {agentWorkspace}
             </span>
             {agentWorkspaceBranch && (
               <>
-                <span className="hecate-statusbar__sep">|</span>
-                <span title={`git branch: ${agentWorkspaceBranch}`}>
+                <span className="hecate-statusbar__sep hecate-statusbar__sep--branch">|</span>
+                <span
+                  className="hecate-statusbar__branch"
+                  title={`git branch: ${agentWorkspaceBranch}`}
+                >
                   git:{agentWorkspaceBranch}
                 </span>
               </>
             )}
             {agentUsageLabel && (
               <>
-                <span className="hecate-statusbar__sep">|</span>
-                <span title={formatAgentUsageTitle(agentUsage!)}>{agentUsageLabel}</span>
+                <span className="hecate-statusbar__sep hecate-statusbar__sep--usage">|</span>
+                <span
+                  className="hecate-statusbar__usage"
+                  title={formatAgentUsageTitle(agentUsage!)}
+                >
+                  {agentUsageLabel}
+                </span>
               </>
             )}
           </>

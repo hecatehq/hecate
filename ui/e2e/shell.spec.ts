@@ -28,6 +28,30 @@ test("status bar shows configured provider count and model count", async ({ page
   await expect(bar).toContainText("models");
 });
 
+test("adapts shell chrome for a phone viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  const statusbar = page.locator(".hecate-statusbar");
+  const content = page.locator(".hecate-content");
+  const nav = page.locator(".hecate-activitybar");
+
+  await expect(nav).toHaveCSS("flex-direction", "row");
+  await expect(statusbar.locator(".hecate-statusbar__brand")).toBeVisible();
+  await expect(statusbar.locator(".hecate-statusbar__providers")).toBeHidden();
+  await expect(statusbar.locator(".hecate-statusbar__models")).toBeHidden();
+
+  const statusBox = await statusbar.boundingBox();
+  const contentBox = await content.boundingBox();
+  const navBox = await nav.boundingBox();
+  expect(statusBox).not.toBeNull();
+  expect(contentBox).not.toBeNull();
+  expect(navBox).not.toBeNull();
+  expect(statusBox!.y).toBeLessThan(contentBox!.y);
+  expect(navBox!.y).toBeGreaterThan(contentBox!.y);
+});
+
 test("clicking a nav button switches the active workspace", async ({ page }) => {
   await page.locator(".hecate-activitybar [aria-label^='Observability']").click();
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute(
