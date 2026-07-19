@@ -110,6 +110,14 @@ export type TaskRunRecord = {
   root_span_id?: string;
   otel_status_code?: string;
   otel_status_message?: string;
+  source_ref?: TaskRunSourceRefRecord;
+};
+
+export type TaskRunSourceRefRecord = {
+  kind: "chat_turn";
+  chat_session_id: string;
+  turn_id: string;
+  message_id: string;
 };
 
 export type TaskRunsResponse = {

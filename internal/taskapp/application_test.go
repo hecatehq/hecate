@@ -15,6 +15,9 @@ import (
 type recordingTaskApplicationRunner struct {
 	startCalls int
 	startTask  types.Task
+	retryCalls int
+	retryTask  types.Task
+	retryRun   types.TaskRun
 
 	resumeCalls  int
 	resumeTask   types.Task
@@ -43,6 +46,14 @@ func (r *recordingTaskApplicationRunner) StartTask(_ context.Context, task types
 	r.startTask = task
 	run := types.TaskRun{ID: "run_started", TaskID: task.ID, Status: "queued"}
 	return &orchestrator.StartTaskResult{Task: task, Run: run}, nil
+}
+
+func (r *recordingTaskApplicationRunner) RetryTask(_ context.Context, task types.Task, run types.TaskRun, _ func(string) string) (*orchestrator.StartTaskResult, error) {
+	r.retryCalls++
+	r.retryTask = task
+	r.retryRun = run
+	retried := types.TaskRun{ID: "run_retried", TaskID: task.ID, Status: "queued"}
+	return &orchestrator.StartTaskResult{Task: task, Run: retried}, nil
 }
 
 func (r *recordingTaskApplicationRunner) ResumeTaskWithBudget(_ context.Context, task types.Task, run types.TaskRun, reason string, budgetMicrosUSD int64, _ func(string) string) (*orchestrator.StartTaskResult, error) {
@@ -96,7 +107,7 @@ func (r *recordingTaskApplicationRunner) ResolveTaskApproval(_ context.Context, 
 }
 
 func (r *recordingTaskApplicationRunner) totalCalls() int {
-	return r.startCalls + r.resumeCalls + r.continueCalls + r.retryFromModelCallCalls + r.cancelCalls + r.resolveCalls
+	return r.startCalls + r.retryCalls + r.resumeCalls + r.continueCalls + r.retryFromModelCallCalls + r.cancelCalls + r.resolveCalls
 }
 
 func newTestTaskApplication(store taskstate.Store, runner Runner) *Application {
@@ -343,6 +354,42 @@ func TestTaskApplication_StartTaskRejectsActiveRunBeforeRunner(t *testing.T) {
 	}
 	if runner.startCalls != 0 {
 		t.Fatalf("runner start calls = %d, want 0", runner.startCalls)
+	}
+}
+
+func TestTaskApplication_RetryDispatchesSourceRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingTaskApplicationRunner{}
+	app := newTestTaskApplication(store, runner)
+	task := createTaskForAppTest(t, ctx, store, types.Task{
+		ID:          "task_retry",
+		Status:      "failed",
+		LatestRunID: "run_failed",
+	})
+	run := createRunForAppTest(t, ctx, store, types.TaskRun{
+		ID:     task.LatestRunID,
+		TaskID: task.ID,
+		Status: "failed",
+	})
+
+	result, err := app.RetryTaskRun(ctx, task, run)
+	if err != nil {
+		t.Fatalf("RetryTaskRun() error = %v", err)
+	}
+	if runner.retryCalls != 1 {
+		t.Fatalf("retry calls = %d, want 1", runner.retryCalls)
+	}
+	if runner.retryTask.ID != task.ID || runner.retryRun.ID != run.ID {
+		t.Fatalf("retry source = task %q run %q, want task %q run %q", runner.retryTask.ID, runner.retryRun.ID, task.ID, run.ID)
+	}
+	if runner.startCalls != 0 {
+		t.Fatalf("fresh start calls = %d, want 0", runner.startCalls)
+	}
+	if result.Run.ID != "run_retried" {
+		t.Fatalf("result run ID = %q, want run_retried", result.Run.ID)
 	}
 }
 

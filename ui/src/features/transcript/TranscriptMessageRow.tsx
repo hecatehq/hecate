@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 
 import type {
   ChatActivityRecord,
@@ -70,7 +77,12 @@ export function TranscriptMessageRow({
   badge?: string;
   runtimeMeta?: string;
   runtimeMetaTitle?: string;
-  taskLink?: { label: string; title?: string; onClick: () => void };
+  taskLink?: {
+    label: string;
+    title?: string;
+    href: string;
+    onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+  };
   traceLink?: { label: string; title?: string; onClick: () => void };
   changedFilesLink?: { label: string; title?: string; onClick?: () => void };
   activities?: ChatActivityRecord[];
@@ -159,8 +171,10 @@ export function TranscriptMessageRow({
   return (
     <div
       id={id}
+      className="cross-surface-focus-target"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      tabIndex={-1}
       style={{ padding: "4px 16px 12px", maxWidth: 820, margin: "0 auto", width: "100%" }}
     >
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -203,9 +217,10 @@ export function TranscriptMessageRow({
               </span>
             )}
             {isAssistant && taskLink && (
-              <HeaderMetaButton
+              <HeaderMetaLink
                 label={taskLink.label}
                 title={taskLink.title}
+                href={taskLink.href}
                 onClick={taskLink.onClick}
               />
             )}
@@ -429,7 +444,12 @@ function ProjectAssistantProposalActivity({
 function renderAgentActivityAdvanced(
   activity: ChatActivityRecord,
   options: {
-    taskLink?: { label: string; title?: string; onClick: () => void };
+    taskLink?: {
+      label: string;
+      title?: string;
+      href: string;
+      onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+    };
     diffStat?: string;
     diff?: string;
   },
@@ -476,15 +496,15 @@ function renderAgentActivityAdvanced(
         This tool failed. Open the backing task for the full run output and approval history.
       </div>
       <div>
-        <button
-          type="button"
+        <a
           className="btn btn-ghost btn-sm"
+          href={options.taskLink.href}
           onClick={options.taskLink.onClick}
           title={`Open ${options.taskLink.label} output`}
-          style={{ fontSize: 10, padding: "2px 7px" }}
+          style={{ fontSize: 10, padding: "2px 7px", textDecoration: "none" }}
         >
           Open task output
-        </button>
+        </a>
       </div>
     </div>
   );
@@ -1109,6 +1129,39 @@ function HeaderMetaButton({
     >
       {label}
     </button>
+  );
+}
+
+function HeaderMetaLink({
+  label,
+  title,
+  href,
+  onClick,
+}: {
+  label: string;
+  title?: string;
+  href: string;
+  onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+}) {
+  return (
+    <a
+      className="btn btn-ghost btn-sm"
+      href={href}
+      onClick={onClick}
+      title={title}
+      aria-label={`Open ${label}`}
+      style={{
+        borderColor: "var(--border)",
+        color: "var(--t2)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        gap: 4,
+        padding: "1px 6px",
+        textDecoration: "none",
+      }}
+    >
+      {label}
+    </a>
   );
 }
 

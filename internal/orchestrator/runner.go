@@ -211,7 +211,11 @@ type StartTaskResult struct {
 }
 
 type startTaskOptions struct {
-	ResumeFromRun  *types.TaskRun
+	ResumeFromRun *types.TaskRun
+	// RetryFromRun carries same-input state into a fresh Run. Unlike
+	// ResumeFromRun, it does not inherit workspace, cost, or conversation
+	// checkpoints and emits no resume event.
+	RetryFromRun   *types.TaskRun
 	ResumeReason   string
 	AppendPrompt   string
 	RunInitializer func(*types.TaskRun)
@@ -515,6 +519,16 @@ func (r *Runner) StartTask(ctx context.Context, task types.Task, idgen func(pref
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{})
 }
 
+// RetryTask creates a fresh Run while retaining canonical source provenance
+// from the selected Run's context packet. It intentionally does not resume
+// execution state or emit run.resumed_from_event.
+func (r *Runner) RetryTask(ctx context.Context, task types.Task, run types.TaskRun, idgen func(prefix string) string) (*StartTaskResult, error) {
+	if !types.IsTerminalTaskRunStatus(run.Status) {
+		return nil, fmt.Errorf("task run %q is not retryable", run.ID)
+	}
+	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{RetryFromRun: &run})
+}
+
 func (r *Runner) SetOriginRunGate(gate *taskruncoord.Gate) {
 	if r == nil {
 		return
@@ -794,21 +808,26 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			run.WorkspacePath = prior.WorkspacePath
 			run.WorkspaceID = firstNonEmpty(prior.WorkspaceID, run.WorkspaceID)
 		}
-		if task.ExecutionKind == "agent_loop" && strings.TrimSpace(options.AppendPrompt) == "" {
-			run.InputRef = strings.TrimSpace(prior.InputRef)
-			if run.InputRef != "" && prior.InputProviderInstance.Valid() {
-				run.InputProviderInstance = prior.InputProviderInstance
-				run.InputProviderDispatchRecorded = prior.InputProviderDispatchRecorded
-				run.Provider = strings.TrimSpace(prior.Provider)
-				run.ProviderKind = strings.TrimSpace(prior.ProviderKind)
-				run.Model = firstNonEmpty(strings.TrimSpace(prior.Model), run.Model)
-			}
-		}
 		// Inherit cumulative cost from the source run so the per-task
 		// cost ceiling holds across the entire resume chain. Source's
 		// PriorCost (chain so far excluding source) + Total (source's
 		// own spend) gives the new run its accurate prior accumulator.
 		run.PriorCostMicrosUSD = prior.PriorCostMicrosUSD + prior.TotalCostMicrosUSD
+	}
+	sameInputSource := options.RetryFromRun
+	if sameInputSource == nil {
+		sameInputSource = options.ResumeFromRun
+	}
+	if sameInputSource != nil && task.ExecutionKind == "agent_loop" && strings.TrimSpace(options.AppendPrompt) == "" {
+		prior := *sameInputSource
+		run.InputRef = strings.TrimSpace(prior.InputRef)
+		if run.InputRef != "" && prior.InputProviderInstance.Valid() {
+			run.InputProviderInstance = prior.InputProviderInstance
+			run.InputProviderDispatchRecorded = prior.InputProviderDispatchRecorded
+			run.Provider = strings.TrimSpace(prior.Provider)
+			run.ProviderKind = strings.TrimSpace(prior.ProviderKind)
+			run.Model = firstNonEmpty(strings.TrimSpace(prior.Model), run.Model)
+		}
 	}
 	var provisionPlan workspaceProvisionPlan
 	if strings.TrimSpace(run.WorkspacePath) == "" {
@@ -841,8 +860,12 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			return nil, err
 		}
 	}
-	if options.ResumeFromRun != nil && len(run.ContextPacket) == 0 && len(options.ResumeFromRun.ContextPacket) > 0 {
-		run.ContextPacket = cloneRunContextPacketForNewRun(options.ResumeFromRun.ContextPacket, task.ID, run.ID, idgen)
+	contextSource := options.RetryFromRun
+	if contextSource == nil {
+		contextSource = options.ResumeFromRun
+	}
+	if contextSource != nil && len(run.ContextPacket) == 0 && len(contextSource.ContextPacket) > 0 {
+		run.ContextPacket = cloneRunContextPacketForNewRun(contextSource.ContextPacket, task.ID, run.ID, run.WorkspacePath, idgen)
 	}
 	if options.RunInitializer != nil {
 		options.RunInitializer(&run)
@@ -916,7 +939,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	}, nil
 }
 
-func cloneRunContextPacketForNewRun(raw json.RawMessage, taskID, runID string, idgen func(string) string) json.RawMessage {
+func cloneRunContextPacketForNewRun(raw json.RawMessage, taskID, runID, workspacePath string, idgen func(string) string) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -937,6 +960,11 @@ func cloneRunContextPacketForNewRun(raw json.RawMessage, taskID, runID string, i
 	refs["task_id"] = taskID
 	refs["run_id"] = runID
 	packet["refs"] = refs
+	if workspacePath = strings.TrimSpace(workspacePath); workspacePath != "" {
+		packet["workspace"] = workspacePath
+	} else {
+		delete(packet, "workspace")
+	}
 	updated, err := json.Marshal(packet)
 	if err != nil {
 		return append(json.RawMessage(nil), raw...)

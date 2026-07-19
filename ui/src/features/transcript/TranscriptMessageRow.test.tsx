@@ -389,7 +389,7 @@ describe("TranscriptMessageRow", () => {
         onCopy={onCopy}
         runtimeMeta="Run run_123 · 2.0s"
         runtimeMetaTitle="Run run_123 · Native session native_123"
-        taskLink={{ label: "Task task_123", onClick: vi.fn() }}
+        taskLink={{ label: "Task task_123", href: "/tasks?task=task_123", onClick: vi.fn() }}
         traceLink={{ label: "Trace req_1234", title: "request req_1234", onClick: vi.fn() }}
         turnPrompt="What changed?"
       />,
@@ -419,12 +419,19 @@ describe("TranscriptMessageRow", () => {
         {...baseProps}
         runtimeMeta="Run run_123 · 2.0s"
         runtimeMetaTitle="Run run_123 · Native session native_123"
-        taskLink={{ label: "Task task_123", onClick: onOpenTask }}
+        taskLink={{
+          label: "Task task_123",
+          href: "/tasks?task=task_123",
+          onClick: onOpenTask,
+        }}
         traceLink={{ label: "Trace req_1234", onClick: onOpenTrace }}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Open Task task_123" }));
+    const taskLink = screen.getByRole("link", { name: "Open Task task_123" });
+    expect(taskLink).toHaveAttribute("href", "/tasks?task=task_123");
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    await user.click(taskLink);
     await user.click(screen.getByRole("button", { name: "Open Trace req_1234" }));
 
     expect(onOpenTask).toHaveBeenCalledTimes(1);
@@ -701,11 +708,16 @@ describe("TranscriptMessageRow", () => {
       <TranscriptMessageRow
         {...baseProps}
         activities={activities}
-        taskLink={{ label: "Task task_123", onClick: onOpenTask }}
+        taskLink={{
+          label: "Task task_123",
+          href: "/tasks?task=task_123",
+          onClick: onOpenTask,
+        }}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Open Task task_123" }));
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    await user.click(screen.getByRole("link", { name: "Open Task task_123" }));
     expect(onOpenTask).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByText(/1 failed tool/));
@@ -753,7 +765,7 @@ describe("TranscriptMessageRow", () => {
       <TranscriptMessageRow
         {...baseProps}
         activities={activities}
-        taskLink={{ label: "Task task_123", onClick: vi.fn() }}
+        taskLink={{ label: "Task task_123", href: "/tasks?task=task_123", onClick: vi.fn() }}
       />,
     );
 

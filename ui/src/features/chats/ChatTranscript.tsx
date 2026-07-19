@@ -1,5 +1,7 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { isPlainNavigationClick, taskNavigationURL } from "../../app/navigation";
+
 import { useChat } from "../../app/state/chat";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useChatTarget } from "../../app/state/derived";
@@ -71,6 +73,7 @@ type Props = {
   isHecateAgentChat: boolean;
   activeSessionID: string;
   focusMessageID?: string | null;
+  focusRequest?: { chatID: string; messageID: string; nonce: number } | null;
 
   // Transcript content.
   transcriptItems: TranscriptItem[];
@@ -82,11 +85,12 @@ type Props = {
   // messages list when there's nothing to show yet.
   emptyState: ReactNode;
 
-  // Cross-region navigation. onOpenTask / onOpenTrace fall back to
-  // onNavigate when the parent doesn't wire them.
+  // Cross-region navigation. Exact Task links remain native anchors when
+  // onOpenTask is absent; trace navigation retains its workspace fallback.
   onNavigate?: (workspace: "connections" | "tasks" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
+  onFocusRequestHandled?: (nonce: number) => void;
   onOpenWorkspaceChanges?: () => void;
   canOpenProject: () => boolean;
   onOpenProject: (projectID: string) => boolean;
@@ -154,6 +158,7 @@ export function ChatTranscript({
   isHecateAgentChat,
   activeSessionID,
   focusMessageID,
+  focusRequest,
   transcriptItems,
   visibleMessageCount,
   streaming,
@@ -161,6 +166,7 @@ export function ChatTranscript({
   onNavigate,
   onOpenTask,
   onOpenTrace,
+  onFocusRequestHandled,
   onOpenWorkspaceChanges,
   canOpenProject,
   onOpenProject,
@@ -183,6 +189,7 @@ export function ChatTranscript({
   const [atBottom, setAtBottom] = useState(true);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const copiedMsgTimerRef = useRef<number | null>(null);
+  const handledFocusRequestNonceRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -218,6 +225,24 @@ export function ChatTranscript({
     target.scrollIntoView({ behavior: "instant", block: "center" });
   }, [activeSessionID, focusMessageID, visibleMessageCount]);
 
+  useEffect(() => {
+    if (
+      !focusRequest ||
+      focusRequest.nonce < 1 ||
+      focusRequest.chatID !== activeSessionID ||
+      handledFocusRequestNonceRef.current === focusRequest.nonce
+    ) {
+      return;
+    }
+    const target = focusRequest.messageID
+      ? document.getElementById(focusRequest.messageID)
+      : scrollRef.current;
+    if (!target || (focusRequest.messageID && !scrollRef.current?.contains(target))) return;
+    target.focus({ preventScroll: true });
+    handledFocusRequestNonceRef.current = focusRequest.nonce;
+    onFocusRequestHandled?.(focusRequest.nonce);
+  }, [activeSessionID, focusRequest, onFocusRequestHandled, visibleMessageCount]);
+
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
@@ -246,13 +271,12 @@ export function ChatTranscript({
   }
 
   // Stable handler identities so the memoized rows below can bail out of
-  // re-rendering. onOpenTask/onOpenTrace fold in the onNavigate fallback so
-  // the row never needs onNavigate directly.
+  // re-rendering. Task links only intercept when exact SPA navigation is
+  // available; otherwise their exact href remains native.
   const handleCopy = useStableCallback(copyMsg);
-  const handleOpenTask = useStableCallback((taskID: string, runID?: string) => {
-    if (onOpenTask) onOpenTask(taskID, runID);
-    else onNavigate?.("tasks");
-  });
+  const handleOpenTask = useStableCallback((taskID: string, runID?: string) =>
+    onOpenTask?.(taskID, runID),
+  );
   const handleOpenTrace = useStableCallback((requestID: string) => {
     if (onOpenTrace) onOpenTrace(requestID);
     else onNavigate?.("overview");
@@ -323,7 +347,10 @@ export function ChatTranscript({
     <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
       <div
         ref={scrollRef}
+        aria-label="Chat transcript"
+        className="cross-surface-focus-target"
         onScroll={handleScroll}
+        tabIndex={-1}
         style={{ height: "100%", overflowY: "auto", padding: "16px 0" }}
       >
         {(() => {
@@ -348,7 +375,7 @@ export function ChatTranscript({
                 copiedDebug={copiedMsgId === `${m.id}:debug`}
                 turnPrompt={turnPrompt}
                 onCopy={handleCopy}
-                onOpenTask={handleOpenTask}
+                onOpenTask={onOpenTask ? handleOpenTask : undefined}
                 onOpenTrace={handleOpenTrace}
                 onOpenProjectProposal={handleOpenProjectProposal}
                 onOpenWorkspaceChanges={workspaceChangesHandler}
@@ -475,7 +502,7 @@ type ChatTranscriptRowProps = {
   copiedDebug: boolean;
   turnPrompt?: string;
   onCopy: (id: string, text: string) => void;
-  onOpenTask: (taskID: string, runID?: string) => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace: (requestID: string) => void;
   onOpenProjectProposal: (message: VisibleChatMessage, activity: ChatActivityRecord) => void;
   onOpenWorkspaceChanges?: () => void;
@@ -552,7 +579,14 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
           ? {
               label: formatTaskLinkLabel(taskID, taskRunID),
               title: formatTaskLinkTitle(taskID, taskRunID),
-              onClick: () => onOpenTask(taskID, taskRunID),
+              href: taskNavigationURL(window.location, { taskID, runID: taskRunID }),
+              onClick: onOpenTask
+                ? (event) => {
+                    if (!isPlainNavigationClick(event)) return;
+                    event.preventDefault();
+                    onOpenTask(taskID, taskRunID);
+                  }
+                : undefined,
             }
           : undefined
       }

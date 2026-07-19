@@ -1053,8 +1053,13 @@ export async function createChatSession(
   });
 }
 
-export async function getChatSession(id: string): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`);
+export async function getChatSession(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, {
+    signal,
+  });
 }
 
 export async function updateChatSession(id: string, title: string): Promise<ChatSessionResponse> {

@@ -141,6 +141,71 @@ func TestRenderTaskRunUsesContextPacketProjectLinkageFallback(t *testing.T) {
 	}
 }
 
+func TestRenderTaskRun_ExposesCanonicalChatTurnSource(t *testing.T) {
+	t.Parallel()
+
+	packet, err := json.Marshal(chat.ContextPacket{
+		Version: "chat.context.v1",
+		Refs: &chat.ContextRefs{
+			SessionID: "chat_1",
+			TurnID:    "turn_1",
+			MessageID: "message_1",
+			TaskID:    "task_1",
+			RunID:     "run_2",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal context packet: %v", err)
+	}
+
+	item := renderTaskRun(types.TaskRun{
+		ID:            "run_2",
+		TaskID:        "task_1",
+		Status:        "completed",
+		ContextPacket: packet,
+	})
+	if item.SourceRef == nil {
+		t.Fatal("source_ref = nil, want canonical chat turn source")
+	}
+	if got := *item.SourceRef; got.Kind != "chat_turn" || got.ChatSessionID != "chat_1" || got.TurnID != "turn_1" || got.MessageID != "message_1" {
+		t.Fatalf("source_ref = %+v, want exact chat/turn/message", got)
+	}
+}
+
+func TestRenderTaskRun_OmitsMismatchedChatTurnSource(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		refs chat.ContextRefs
+	}{
+		{
+			name: "different task",
+			refs: chat.ContextRefs{SessionID: "chat_1", TurnID: "turn_1", MessageID: "message_1", TaskID: "task_other", RunID: "run_1"},
+		},
+		{
+			name: "different run",
+			refs: chat.ContextRefs{SessionID: "chat_1", TurnID: "turn_1", MessageID: "message_1", TaskID: "task_1", RunID: "run_other"},
+		},
+		{
+			name: "incomplete chat identity",
+			refs: chat.ContextRefs{SessionID: "chat_1", TurnID: "turn_1", TaskID: "task_1", RunID: "run_1"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			packet, err := json.Marshal(chat.ContextPacket{Version: "chat.context.v1", Refs: &tc.refs})
+			if err != nil {
+				t.Fatalf("marshal context packet: %v", err)
+			}
+			item := renderTaskRun(types.TaskRun{ID: "run_1", TaskID: "task_1", ContextPacket: packet})
+			if item.SourceRef != nil {
+				t.Fatalf("source_ref = %+v, want omitted", item.SourceRef)
+			}
+		})
+	}
+}
+
 func TestRenderTaskItem_ExposesAgentPresetRuntimePolicySnapshot(t *testing.T) {
 	t.Parallel()
 	toolsEnabled := false

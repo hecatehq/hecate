@@ -376,6 +376,12 @@ committed ceiling.
 - `prior_cost_micros_usd` — cumulative spend of every prior run in this run's resume chain. Cumulative-across-task = `prior + total`.
 - `model_call_count` — completed provider model calls accounted to this Run. It is always present, including explicit `0`, and is distinct from `step_count` because Steps also include tools and control activity.
 - `model` / `provider` / `provider_kind` — what was actually used (after routing). May differ from the task's `requested_*` when the operator picked auto. Agent-loop runs preserve these fields for both streaming and non-streaming model calls.
+- `source_ref` — present when the Run carries a canonical source Chat Turn in
+  its persisted context packet. `kind="chat_turn"` includes the exact
+  `chat_session_id`, `turn_id`, and `message_id`. Retry and resume Runs retain
+  that source while receiving their own new `run_id`, so clients can return to
+  the originating Chat Turn without inferring provenance from transcript
+  fields.
 
 ## Lifecycle endpoints
 

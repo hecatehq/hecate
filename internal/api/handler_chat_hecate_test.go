@@ -173,6 +173,9 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if firstRun.ID == "" {
 		t.Fatalf("first run %q not found in runs: %+v", first.Data.LatestRunID, runs.Data)
 	}
+	if firstRun.SourceRef == nil || firstRun.SourceRef.Kind != "chat_turn" || firstRun.SourceRef.ChatSessionID != session.Data.ID || firstRun.SourceRef.TurnID != assistant.TurnID || firstRun.SourceRef.MessageID != assistant.ID {
+		t.Fatalf("first run source_ref = %+v, want chat %q turn %q message %q", firstRun.SourceRef, session.Data.ID, assistant.TurnID, assistant.ID)
+	}
 	if assistant.RequestID != firstRun.RequestID || assistant.TraceID != firstRun.TraceID || assistant.SpanID != firstRun.RootSpanID {
 		t.Fatalf("assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
 			assistant.RequestID, assistant.TraceID, assistant.SpanID, firstRun.RequestID, firstRun.TraceID, firstRun.RootSpanID)
@@ -180,6 +183,9 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	secondRun := findTaskRunItem(runs.Data, second.Data.LatestRunID)
 	if secondRun.ID == "" {
 		t.Fatalf("second run %q not found in runs: %+v", second.Data.LatestRunID, runs.Data)
+	}
+	if secondRun.SourceRef == nil || secondRun.SourceRef.Kind != "chat_turn" || secondRun.SourceRef.ChatSessionID != session.Data.ID || secondRun.SourceRef.TurnID != secondAssistant.TurnID || secondRun.SourceRef.MessageID != secondAssistant.ID {
+		t.Fatalf("second run source_ref = %+v, want chat %q turn %q message %q", secondRun.SourceRef, session.Data.ID, secondAssistant.TurnID, secondAssistant.ID)
 	}
 	if secondAssistant.RequestID != secondRun.RequestID || secondAssistant.TraceID != secondRun.TraceID || secondAssistant.SpanID != secondRun.RootSpanID {
 		t.Fatalf("second assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",

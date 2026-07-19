@@ -3352,7 +3352,7 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
     const user = userEvent.setup();
-    const executionLink = screen.getByRole("button", { name: /Open Run hecate_abcde/i });
+    const executionLink = screen.getByRole("link", { name: /Open Run hecate_abcde/i });
     expect(screen.queryByText("Turn task_1")).toBeNull();
     expect(screen.queryByTitle("Turn ID turn_task_1")).toBeNull();
     expect(executionLink).toHaveAttribute(
@@ -3362,6 +3362,84 @@ describe("ChatView input", () => {
 
     await user.click(executionLink);
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
+  });
+
+  it("keeps exact Task navigation native and focuses an explicitly requested Chat message", async () => {
+    const onFocusRequestHandled = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
+        execution_mode: "hecate_task",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          {
+            id: "m1",
+            turn_id: "turn_task_1",
+            turn_kind: "hecate_task",
+            execution_mode: "hecate_task",
+            segment_id: "task:task_hecate_123456",
+            task_id: "task_hecate_123456",
+            run_id: "run_hecate_abcdef",
+            role: "user",
+            content: "inspect this repo",
+            created_at: "2026-05-03T10:00:00Z",
+          },
+          {
+            id: "m2",
+            turn_id: "turn_task_1",
+            turn_kind: "hecate_task",
+            execution_mode: "hecate_task",
+            segment_id: "task:task_hecate_123456",
+            task_id: "task_hecate_123456",
+            run_id: "run_hecate_abcdef",
+            role: "assistant",
+            content: "Done.",
+            status: "completed",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    });
+    render(
+      withRuntimeConsole(
+        <ChatView
+          focusRequest={{ chatID: "chat_1", messageID: "m2", nonce: 7 }}
+          onFocusRequestHandled={onFocusRequestHandled}
+        />,
+        { state, actions },
+      ),
+    );
+
+    const message = document.getElementById("m2");
+    await waitFor(() => expect(document.activeElement).toBe(message));
+    expect(onFocusRequestHandled).toHaveBeenCalledWith(7);
+
+    const taskLink = screen.getByRole("link", { name: /Open Run hecate_abcde/i });
+    let defaultPrevented = true;
+    document.addEventListener(
+      "click",
+      (event) => {
+        defaultPrevented = event.defaultPrevented;
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    fireEvent.click(taskLink);
+
+    expect(defaultPrevented).toBe(false);
+    expect(taskLink).toHaveAttribute(
+      "href",
+      "/tasks?task=task_hecate_123456&run=run_hecate_abcdef",
+    );
   });
 
   it("does not borrow the session task link for direct model messages", () => {
@@ -3541,8 +3619,8 @@ describe("ChatView input", () => {
     expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
     expect(screen.getByText(/Task first · completed/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open Run second/i })).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Open Run first/i })).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: /Open Run second/i })).toBeNull();
+    expect(screen.getAllByRole("link", { name: /Open Run first/i })).toHaveLength(1);
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder").children[1]).toHaveStyle({
       background: "var(--bg2)",
@@ -8485,6 +8563,55 @@ describe("ChatView session focus", () => {
     await waitFor(() =>
       expect(onMessageFocusUnavailable).toHaveBeenCalledWith("s1", "message-missing"),
     );
+  });
+
+  it("focuses the transcript once for an explicit Chat request without a message", async () => {
+    const onFocusRequestHandled = vi.fn();
+    const focusRequest = { chatID: "s1", messageID: "", nonce: 12 };
+    const { state, actions } = setup({
+      activeChatSessionID: "s1",
+      activeChatSession: linkedHecateChatFixture(),
+    });
+    const view = render(
+      withRuntimeConsole(
+        <ChatView focusRequest={focusRequest} onFocusRequestHandled={onFocusRequestHandled} />,
+        { state, actions },
+      ),
+    );
+
+    const transcript = screen.getByLabelText("Chat transcript");
+    await waitFor(() => expect(document.activeElement).toBe(transcript));
+    expect(onFocusRequestHandled).toHaveBeenCalledTimes(1);
+    expect(onFocusRequestHandled).toHaveBeenCalledWith(12);
+
+    view.rerender(
+      withRuntimeConsole(
+        <ChatView
+          focusRequest={{ ...focusRequest }}
+          onFocusRequestHandled={onFocusRequestHandled}
+        />,
+        { state, actions },
+      ),
+    );
+    expect(onFocusRequestHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("scrolls passive message addressing without moving focus", () => {
+    const { state, actions } = setup({
+      activeChatSessionID: "s1",
+      activeChatSession: linkedHecateChatFixture([
+        { id: "message-present", role: "user", content: "Hello" },
+      ]),
+    });
+    const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const searchInput = screen.getByRole("textbox", { name: "Search chats" });
+    searchInput.focus();
+
+    view.rerender(
+      withRuntimeConsole(<ChatView focusMessageID="message-present" />, { state, actions }),
+    );
+
+    expect(document.activeElement).toBe(searchInput);
   });
 
   it("focuses the message textarea when a sidebar chat row is clicked", async () => {

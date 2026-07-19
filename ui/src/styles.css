@@ -694,6 +694,12 @@ textarea {
   outline-offset: 2px;
 }
 
+.cross-surface-focus-target:focus {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
 /* ─── Btn ─── */
 .btn {
   display: inline-flex;

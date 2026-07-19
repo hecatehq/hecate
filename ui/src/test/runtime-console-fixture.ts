@@ -284,7 +284,10 @@ export type RuntimeConsoleFixtureActions = {
   submitToolResults: () => Promise<void>;
   runRetention: () => Promise<void>;
   restoreSavedComposerDraft: (sessionID: string) => boolean;
-  selectChatSession: (id: string, options?: { draft?: string }) => Promise<boolean>;
+  selectChatSession: (
+    id: string,
+    options?: { draft?: string; signal?: AbortSignal },
+  ) => Promise<boolean>;
   startNewChat: () => void;
   upsertPolicyRule: (payload: unknown) => Promise<void>;
   updateToolResult: (index: number, result: string) => void;
