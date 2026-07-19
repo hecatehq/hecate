@@ -190,6 +190,9 @@ func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
 		if writeTaskAppError(w, err) {
 			return
 		}
+		if writeTaskWorkflowPolicyError(w, err) {
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -218,6 +221,9 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 		if writeTaskAppError(w, err) {
 			return
 		}
+		if writeTaskWorkflowPolicyError(w, err) {
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -241,6 +247,9 @@ func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) 
 	result, err := h.taskApplication().ContinueTaskRun(ctx, task, run, req.Prompt)
 	if err != nil {
 		if writeTaskAppError(w, err) {
+			return
+		}
+		if writeTaskWorkflowPolicyError(w, err) {
 			return
 		}
 		msg := err.Error()
@@ -288,6 +297,9 @@ func (h *Handler) HandleRetryTaskRunFromModelCall(w http.ResponseWriter, r *http
 	})
 	if err != nil {
 		if writeTaskAppError(w, err) {
+			return
+		}
+		if writeTaskWorkflowPolicyError(w, err) {
 			return
 		}
 		// Validation failures (missing conversation, model call out of

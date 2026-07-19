@@ -24,11 +24,14 @@ import (
 func TestTaskJSONRoundTrip_MCPServers(t *testing.T) {
 	t.Parallel()
 	original := Task{
-		ID:            "task-mcp-roundtrip",
-		Title:         "MCP round-trip",
-		Prompt:        "exercise every MCP server field",
-		Status:        "queued",
-		ExecutionKind: "agent_loop",
+		ID:                          "task-mcp-roundtrip",
+		Title:                       "MCP round-trip",
+		Prompt:                      "exercise every MCP server field",
+		Status:                      "queued",
+		ExecutionKind:               "agent_loop",
+		WorkflowMode:                WorkflowModeQA,
+		WorkflowVersion:             "v0",
+		WorkspaceSystemPromptPolicy: WorkspaceSystemPromptExclude,
 		MCPServers: []MCPServerConfig{
 			// Stdio entry — the canonical filesystem-server shape,
 			// with env values in all three storage forms.
@@ -84,6 +87,32 @@ func TestTaskJSONRoundTrip_MCPServers(t *testing.T) {
 	// (e.g. someone renames Tenant) shouldn't slip past either.
 	if !reflect.DeepEqual(original, got) {
 		t.Fatalf("Task round-trip mismatch:\n  want: %+v\n   got: %+v", original, got)
+	}
+}
+
+func TestTaskRunJSONRoundTrip_WorkflowSnapshot(t *testing.T) {
+	t.Parallel()
+	original := TaskRun{
+		ID:              "run-qa-roundtrip",
+		TaskID:          "task-qa-roundtrip",
+		Status:          "queued",
+		WorkflowMode:    WorkflowModeQA,
+		WorkflowVersion: "v0",
+		// TaskRun.ContextPacket intentionally marshals as JSON null when it is
+		// absent, so keep the expected raw representation explicit for a full
+		// structure round-trip comparison.
+		ContextPacket: json.RawMessage("null"),
+	}
+	raw, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got TaskRun
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(original, got) {
+		t.Fatalf("TaskRun round-trip mismatch:\n  want: %+v\n   got: %+v", original, got)
 	}
 }
 

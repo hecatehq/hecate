@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -17,6 +18,15 @@ type claimedRunFailingExecutor struct {
 
 func (e claimedRunFailingExecutor) Execute(context.Context, ExecutionSpec) (*ExecutionResult, error) {
 	return nil, e.err
+}
+
+type claimedRunCountingExecutor struct {
+	calls int
+}
+
+func (e *claimedRunCountingExecutor) Execute(context.Context, ExecutionSpec) (*ExecutionResult, error) {
+	e.calls++
+	return &ExecutionResult{Status: "completed"}, nil
 }
 
 type claimedRunCancelExecutor struct {
@@ -122,6 +132,64 @@ func TestClaimedRunExecution_FinalizesExecutorErrorAsFailed(t *testing.T) {
 		t.Fatalf("ListRunEvents() error = %v", err)
 	}
 	assertRunEventSubsequence(t, events, []string{"run.started", "run.failed"})
+}
+
+func TestClaimedRunExecutionFailsClosedForInvalidPersistedQAWorkflow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	queue := &recordingQueue{}
+	runner := newClaimedRunProcessorTestRunner(store, queue)
+	executor := &claimedRunCountingExecutor{}
+	runner.shell = executor
+	now := time.Now().UTC().Add(-time.Second)
+	task := types.Task{
+		ID:                          "task-claimed-invalid-qa",
+		Title:                       "Invalid persisted QA",
+		Prompt:                      "inspect",
+		Status:                      "queued",
+		ExecutionKind:               "shell",
+		WorkflowMode:                types.WorkflowModeQA,
+		WorkflowVersion:             taskworkflow.QAVersion,
+		WorkspaceMode:               "ephemeral",
+		SandboxReadOnly:             true,
+		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
+	}
+	run := types.TaskRun{
+		ID:              "run-claimed-invalid-qa",
+		TaskID:          task.ID,
+		Number:          1,
+		Status:          "queued",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: taskworkflow.QAVersion,
+		StartedAt:       now,
+		RequestID:       "request-claimed-invalid-qa",
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	runner.queueCoordinator.processQueuedRun(QueueClaim{
+		ClaimID: "claim-invalid-qa", Job: QueueJob{TaskID: task.ID, RunID: run.ID},
+	})
+
+	assertClaimedRunAcked(t, queue, "claim-invalid-qa")
+	if executor.calls != 0 {
+		t.Fatalf("shell executor calls = %d, want 0", executor.calls)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun found=%t err=%v", found, err)
+	}
+	if stored.Status != "failed" || !strings.Contains(stored.LastError, taskworkflow.ErrQARequiresAgentLoop.Error()) {
+		t.Fatalf("stored run = %+v, want failed workflow-policy rejection", stored)
+	}
 }
 
 func TestClaimedRunExecution_FinalizesCancelledJobAsCancelled(t *testing.T) {

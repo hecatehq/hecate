@@ -18,6 +18,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -70,12 +71,24 @@ func (h *Handler) writeCreateTaskError(w http.ResponseWriter, r *http.Request, e
 	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 }
 
+// writeTaskWorkflowPolicyError keeps malformed persisted workflow contracts
+// operator-actionable at every run-creation endpoint. The runner rejects them
+// before execution; handlers must not reframe that safe rejection as a 500.
+func writeTaskWorkflowPolicyError(w http.ResponseWriter, err error) bool {
+	if !taskworkflow.IsExecutionPolicyError(err) {
+		return false
+	}
+	WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, err.Error())
+	return true
+}
+
 func taskCreateCommandFromRequest(req CreateTaskRequest) taskapp.CreateCommand {
 	return taskapp.CreateCommand{
 		Title:              req.Title,
 		Prompt:             req.Prompt,
 		ProjectID:          req.ProjectID,
 		SystemPrompt:       req.SystemPrompt,
+		WorkflowMode:       req.WorkflowMode,
 		ExecutionProfile:   req.ExecutionProfile,
 		Repo:               req.Repo,
 		BaseBranch:         req.BaseBranch,
@@ -242,6 +255,9 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 		)
 		if errors.Is(err, orchestrator.ErrAgentLoopMisconfigured) {
 			WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, err.Error())
+			return
+		}
+		if writeTaskWorkflowPolicyError(w, err) {
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -636,6 +652,8 @@ func renderTaskItem(task types.Task) TaskItem {
 		BaseBranch:                       task.BaseBranch,
 		WorkspaceMode:                    task.WorkspaceMode,
 		ExecutionKind:                    task.ExecutionKind,
+		WorkflowMode:                     string(task.WorkflowMode),
+		WorkflowVersion:                  task.WorkflowVersion,
 		ShellCommand:                     task.ShellCommand,
 		GitCommand:                       task.GitCommand,
 		WorkingDirectory:                 task.WorkingDirectory,
@@ -745,6 +763,8 @@ func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 		Number:             run.Number,
 		Status:             run.Status,
 		Orchestrator:       run.Orchestrator,
+		WorkflowMode:       string(run.WorkflowMode),
+		WorkflowVersion:    run.WorkflowVersion,
 		Model:              run.Model,
 		Provider:           run.Provider,
 		ProviderKind:       run.ProviderKind,

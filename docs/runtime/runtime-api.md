@@ -254,6 +254,7 @@ type while preserving the status and remediation fields.
 - [Core resources](#core-resources)
   - [Task fields](#task-fields)
   - [Run fields](#run-fields)
+  - [Report-only QA workflow](#report-only-qa-workflow)
 - [Lifecycle endpoints](#lifecycle-endpoints)
   - [Resume semantics](#resume-semantics)
   - [Retry-from-model-call-N semantics](#retry-from-model-call-n-semantics)
@@ -287,6 +288,10 @@ type while preserving the status and remediation fields.
 The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 - `execution_kind` — one of `shell`, `git`, `file`, `agent_loop`
+- `workflow_mode` — optional built-in runbook selector. Omit for an ordinary
+  task; the only accepted value today is `"qa"`, which requires
+  `execution_kind="agent_loop"`. `workflow_version` is output-only and assigned
+  by Hecate, not a client input.
 - `prompt` — the user-facing prompt; required for `agent_loop`, optional description for the others
 - `project_id` — optional owning project id. Empty / omitted creates an unprojected task; `GET /hecate/v1/tasks?project_id=` lists only unprojected tasks
 - `system_prompt` — per-task agent prompt (narrowest of the three-layer composition); `agent_loop` only
@@ -312,6 +317,18 @@ omitted means the normal workspace `CLAUDE.md` / `AGENTS.md` prompt layer is
 eligible. `exclude` means the runner skips that compatibility layer for the
 task; native project assignments set this so Agent Preset context-source policy
 controls any workspace-instruction body inclusion.
+
+When `workflow_mode="qa"`, Hecate applies a report-only contract at create
+time. It rejects `mcp_servers`, `sandbox_network=true`, a non-`agent_loop`
+execution kind, and an explicitly requested workspace mode other than
+`"ephemeral"`. It then persists `workspace_mode="ephemeral"`,
+`sandbox_read_only=true`, `sandbox_network=false`, and the server-selected
+`workflow_version="v0"`, and `workspace_system_prompt_policy="exclude"`.
+A caller cannot widen this posture with task fields. The Task response exposes
+the selected workflow fields and excluded workspace-prompt policy; ordinary
+tasks omit the workflow fields. The task runtime independently enforces the
+same tool boundary when the Run executes, rather than relying only on these
+stored flags.
 
 Task list/detail responses summarize the selected latest Run with
 `latest_run_id`, `latest_model`, `latest_provider`,
@@ -382,6 +399,67 @@ committed ceiling.
   that source while receiving their own new `run_id`, so clients can return to
   the originating Chat Turn without inferring provenance from transcript
   fields.
+- `workflow_mode` / `workflow_version` — output-only snapshot of the built-in
+  runbook contract selected on the parent Task. They are absent for ordinary
+  Runs and let retry/resume history retain the exact QA contract that executed.
+
+### Report-only QA workflow
+
+`workflow_mode="qa"` is a native Hecate Task contract, not an External Agent
+or ACP capability and not a generic workflow scheduler. It permits only the
+structured read-only inspection tools `read_file`, `grep`, `glob`,
+`artifact_read`, `list_dir`, `git_status`, and `git_diff`. It blocks shell and
+terminal commands, workspace/Git writes, patch or proposal creation, external
+MCP tools, native HTTP requests, web search, and browser inspection. A tool call returned by a model that
+is outside that set is denied before approval or dispatch.
+
+QA v0 blocks `browser_inspect`. Its public Task creation surface has no
+assignment-launch selector for browser evidence, so it does not claim a
+conditional capability operators cannot select. A future QA contract may add
+constrained browser evidence only with an explicit Hecate runtime selection;
+it would not add browser automation, a URL-check endpoint, or a shell test
+runner.
+
+At execution time Hecate accepts only the canonical `qa` / `v0` contract.
+Malformed, partial, unknown, or future persisted workflow values, or an
+inherited workspace system-prompt policy, fail closed before workspace
+provisioning or executor selection. QA Runs use the generated Hecate-managed
+Task/Run workspace; retry, resume, and model-call retry create a fresh isolated
+workspace rather than reusing a prior source path. For a local Git source,
+Hecate snapshots the directory rather than performing a Git clone checkout, so
+host global Git filters cannot run before QA's bounded dispatcher.
+
+At Run start Hecate creates a static JSON `workflow_manifest` artifact. It
+contains the contract version and allowed/blocked capability lists, but no
+prompt, workspace path, credentials, or model output. When an agent produces a
+final response, Hecate creates a JSON `workflow_report` artifact with a stable
+envelope like:
+
+```json
+{
+  "schema_version": "hecate.workflow_report.v0",
+  "runbook_id": "builtin.qa.v0",
+  "workflow": { "mode": "qa", "version": "v0", "report_only": true },
+  "agent_reported": {
+    "outcome": "reported",
+    "summary_markdown": "Agent narrative goes here."
+  },
+  "hecate_observed": {
+    "manifest_artifact_id": "workflow-manifest-run_...",
+    "workspace_posture": "read_only",
+    "native_network_posture": "blocked",
+    "mcp_posture": "blocked",
+    "browser_evidence_posture": "unavailable_in_v0"
+  }
+}
+```
+
+`agent_reported` is agent prose, not verification that a test or browser check
+ran. `hecate_observed` is Hecate-derived posture and artifact linkage. If no
+agent final response exists—for example, the model is unavailable or the run
+ends before a final answer—Hecate retains the manifest but does not fabricate a
+workflow report. Both artifacts are retrieved through the ordinary Run artifact
+endpoints and are also projected through task/run detail and SSE snapshots.
 
 ## Lifecycle endpoints
 
@@ -400,7 +478,7 @@ committed ceiling.
 
 - resume is allowed when the source run is terminal (`completed`, `failed`, or `cancelled`)
 - resume creates a new run attempt (new `run_id`) rather than mutating the original run
-- the new run reuses the prior run workspace when available, so file state carries forward
+- the new run reuses the prior run workspace when available, so file state carries forward; the report-only `workflow_mode="qa"` contract is the exception: retry, resume, and retry-from-model-call create a fresh Hecate-managed workspace for the new run
 - optional payload: `{"reason":"..."}` to annotate the resume request
 - resumed executions include checkpoint context (source run id, last completed step, last event sequence) in step input so executors/tools can continue from the prior boundary
 - for `agent_loop` runs, the saved `agent_conversation` artifact is hydrated as the starting message history — the loop continues from where it left off rather than repeating prior model calls

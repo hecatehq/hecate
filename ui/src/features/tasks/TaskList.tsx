@@ -157,6 +157,20 @@ export function TaskList({
                     {t.execution_kind}
                   </span>
                 )}
+                {t.workflow_mode === "qa" && (
+                  <span
+                    className="badge badge-muted"
+                    title="Hecate report-only QA workflow"
+                    style={{
+                      fontSize: 9,
+                      fontFamily: "var(--font-mono)",
+                      padding: "1px 5px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    QA
+                  </span>
+                )}
                 <span
                   className="badge badge-muted"
                   title={source.title}

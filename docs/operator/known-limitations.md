@@ -102,6 +102,22 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   retain their prior native-network behavior. Preset-wide `approval_policy`
   remains inspection metadata in this alpha; global task approval policy and
   per-MCP-server policy remain authoritative and cannot be weakened by a preset.
+- The built-in `workflow_mode="qa"` slice is report-only inspection, not a
+  test runner or general workflow engine. It is available only to native
+  `agent_loop` Tasks and forces an ephemeral read-only/native-network-tool-disabled posture. It
+  rejects MCP servers and blocks shell/terminal commands, writes, patch or
+  proposal creation, native HTTP/search, and browser automation. Hecate writes a
+  `workflow_manifest` at Run start and a `workflow_report` only after the
+  agent returns a final response. The report's narrative is agent-reported; it
+  is not proof that tests or browser checks ran. QA excludes repository
+  `CLAUDE.md` / `AGENTS.md` from system prompt composition, uses a safe local
+  directory copy rather than Git checkout for local Git sources, and skips
+  automatic Git-summary capture. A separate constrained test runner would need
+  its own explicit permission model.
+- QA v0 blocks browser inspection. The public QA Task surface does not yet
+  select a browser-evidence assignment posture, so QA does not claim a
+  conditional browser capability that operators cannot launch. It has no
+  browser, URL-check endpoint, or interactive browser controls.
 - Native browser evidence is a deliberately narrow alpha capability, not
   browser automation. It is available only to a local native project-assignment
   task whose Agent Preset snapshots an exact-origin allowlist and only when the

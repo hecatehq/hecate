@@ -12,6 +12,11 @@ export type TaskRecord = {
   base_branch?: string;
   workspace_mode?: string;
   execution_kind?: string;
+  // Hecate-owned bounded task execution contract. "qa" is a
+  // report-only, read-only QA runbook; it is not Cairnline project
+  // coordination or an Agent Preset capability grant.
+  workflow_mode?: "qa";
+  workflow_version?: string;
   execution_profile?: string;
   agent_preset_id?: string;
   agent_preset_tools_enabled?: boolean;
@@ -88,6 +93,8 @@ export type TaskRunRecord = {
   number: number;
   status: string;
   orchestrator?: string;
+  workflow_mode?: "qa";
+  workflow_version?: string;
   model?: string;
   provider?: string;
   provider_kind?: string;

@@ -2,12 +2,15 @@ package orchestrator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -85,5 +88,72 @@ func TestRunnerExecuteRunHonorsWorkspaceSystemPromptPolicy(t *testing.T) {
 				t.Fatalf("system prompt = %q, want per-task prompt preserved", exec.spec.SystemPrompt)
 			}
 		})
+	}
+}
+
+func TestRunnerExecuteRunQAExcludesWorkspacePromptFromSystemInstruction(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	exec := &capturingSystemPromptExecutor{}
+	runner := &Runner{
+		store:      store,
+		agent:      exec,
+		workspaces: NewWorkspaceManager(t.TempDir()),
+	}
+	runner.SetSystemPromptResolver(func(_ context.Context, _, perTaskPrompt, workspacePath string) string {
+		if workspacePath != "" {
+			return "REPOSITORY-INSTRUCTION\n" + perTaskPrompt
+		}
+		return perTaskPrompt
+	})
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:                          "task-qa-system-prompt",
+		ExecutionKind:               "agent_loop",
+		WorkflowMode:                types.WorkflowModeQA,
+		WorkflowVersion:             taskworkflow.QAVersion,
+		WorkspaceMode:               "ephemeral",
+		SandboxReadOnly:             true,
+		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
+		SystemPrompt:                "QA task instruction.",
+		Status:                      "running",
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
+	}
+	run := types.TaskRun{
+		ID:              "run-qa-system-prompt",
+		TaskID:          task.ID,
+		Number:          1,
+		Status:          "running",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: taskworkflow.QAVersion,
+		StartedAt:       now,
+	}
+	_, workspacePath, _, err := runner.workspaces.plannedWorkspacePath(task.ID, run.ID)
+	if err != nil {
+		t.Fatalf("plannedWorkspacePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Clean(workspacePath), 0o755); err != nil {
+		t.Fatalf("create managed QA workspace: %v", err)
+	}
+	run.WorkspacePath = workspacePath
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	trace := profiler.NewTrace("req-qa-system-prompt", nil)
+	defer trace.Finalize()
+	if _, err := runner.executeRun(ctx, trace, task, run, "req-qa-system-prompt", nil); err != nil {
+		t.Fatalf("executeRun: %v", err)
+	}
+	if strings.Contains(exec.spec.SystemPrompt, "REPOSITORY-INSTRUCTION") {
+		t.Fatalf("QA system prompt inherited workspace instruction: %q", exec.spec.SystemPrompt)
+	}
+	if !strings.Contains(exec.spec.SystemPrompt, "QA task instruction.") {
+		t.Fatalf("QA system prompt = %q, want task instruction", exec.spec.SystemPrompt)
 	}
 }

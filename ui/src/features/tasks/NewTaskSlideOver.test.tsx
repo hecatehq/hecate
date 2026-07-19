@@ -67,6 +67,7 @@ describe("NewTaskSlideOver kind switching", () => {
     render();
     await user.click(screen.getByRole("button", { name: "Agent loop" }));
     expect(screen.getByPlaceholderText(/describe the task/i)).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: /workflow mode/i })).toBeTruthy();
   });
 
   it("hides the workspace input for file kind, shows it for shell/git/agent_loop", async () => {
@@ -281,6 +282,39 @@ describe("NewTaskSlideOver submit", () => {
     );
   });
 
+  it("submits report-only QA as a bounded agent-loop workflow", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      models: [
+        {
+          ...agentLoopModelFixtures[0],
+          metadata: { ...agentLoopModelFixtures[0].metadata, default: true },
+        },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: /workflow mode/i }), "qa");
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "inspect for regressions");
+
+    expect(screen.getByText(/does not run shell tests/i)).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: /system prompt/i })).toBeNull();
+    expect(screen.queryByText("MCP SERVERS")).toBeNull();
+    expect(screen.queryByLabelText(/run directly in this workspace/i)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+    const payload = onCreate.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      execution_kind: "agent_loop",
+      workflow_mode: "qa",
+      prompt: "inspect for regressions",
+    });
+    expect(payload.mcp_servers).toBeUndefined();
+    expect(payload.workspace_mode).toBeUndefined();
+    expect(payload.system_prompt).toBeUndefined();
+  });
+
   it("prefills workspace from the shared agent workspace default", async () => {
     const onCreate = vi.fn();
     const { render, user } = setup({ onCreate, defaultWorkspace: "/Users/me/dev/hecate" });
@@ -316,6 +350,9 @@ describe("NewTaskSlideOver submit", () => {
     expect(screen.getByRole("radio", { name: /file operation: write/i })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: /file path/i })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: /file content/i })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    expect(screen.getByRole("combobox", { name: /workflow mode/i })).toBeTruthy();
   });
 });
 

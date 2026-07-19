@@ -164,7 +164,7 @@ func (e *AgentLoopExecutor) performModelCall(ctx context.Context, spec Execution
 	return resp, nil
 }
 
-func (e *AgentLoopExecutor) runWithoutLLM(_ context.Context, spec ExecutionSpec) (*ExecutionResult, error) {
+func (e *AgentLoopExecutor) runWithoutLLM(_ context.Context, spec ExecutionSpec, initialArtifacts []types.TaskArtifact) (*ExecutionResult, error) {
 	startedAt := spec.StartedAt
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
@@ -190,9 +190,15 @@ func (e *AgentLoopExecutor) runWithoutLLM(_ context.Context, spec ExecutionSpec)
 	if err := upsertTaskStep(spec, step); err != nil {
 		return nil, err
 	}
+	for _, artifact := range initialArtifacts {
+		if err := upsertTaskArtifact(spec, artifact); err != nil {
+			return nil, err
+		}
+	}
 	return &ExecutionResult{
 		Status:            "failed",
 		Steps:             []types.TaskStep{step},
+		Artifacts:         initialArtifacts,
 		LastError:         errMsg,
 		OtelStatusCode:    "error",
 		OtelStatusMessage: errMsg,

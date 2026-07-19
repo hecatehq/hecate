@@ -1364,6 +1364,9 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 		AgentPresetToolsEnabled:          &toolsEnabled,
 		AgentPresetBrowserAllowed:        &browserAllowed,
 		AgentPresetBrowserAllowedOrigins: []string{"https://app.example.test"},
+		WorkflowMode:                     types.WorkflowModeQA,
+		WorkflowVersion:                  "v0",
+		WorkspaceSystemPromptPolicy:      types.WorkspaceSystemPromptExclude,
 		SandboxReadOnly:                  true,
 		SandboxNetwork:                   false,
 		Status:                           "queued",
@@ -1390,7 +1393,7 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	if got.Title != "demo" {
 		t.Fatalf("GetTask round-trip mismatch: %+v", got)
 	}
-	if got.AgentPresetID != "review_qa" || got.AgentPresetToolsEnabled == nil || *got.AgentPresetToolsEnabled || got.AgentPresetBrowserAllowed == nil || !*got.AgentPresetBrowserAllowed || len(got.AgentPresetBrowserAllowedOrigins) != 1 || got.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || !got.SandboxReadOnly || got.SandboxNetwork {
+	if got.AgentPresetID != "review_qa" || got.AgentPresetToolsEnabled == nil || *got.AgentPresetToolsEnabled || got.AgentPresetBrowserAllowed == nil || !*got.AgentPresetBrowserAllowed || len(got.AgentPresetBrowserAllowedOrigins) != 1 || got.AgentPresetBrowserAllowedOrigins[0] != "https://app.example.test" || got.WorkflowMode != types.WorkflowModeQA || got.WorkflowVersion != "v0" || got.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude || !got.SandboxReadOnly || got.SandboxNetwork {
 		t.Fatalf("GetTask runtime policy snapshot = %+v, want independent browser enabled/origin snapshot and review posture", got)
 	}
 	*got.AgentPresetToolsEnabled = true
@@ -1402,15 +1405,17 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 
 	run := types.TaskRun{
-		ID:           "run-1",
-		TaskID:       "task-1",
-		ProjectID:    "proj-1",
-		WorkItemID:   "work-1",
-		AssignmentID: "asgn-1",
-		Number:       1,
-		Status:       "running",
-		StartedAt:    time.Now().UTC(),
-		InputRef:     "msg-rich-input",
+		ID:              "run-1",
+		TaskID:          "task-1",
+		ProjectID:       "proj-1",
+		WorkItemID:      "work-1",
+		AssignmentID:    "asgn-1",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: "v0",
+		Number:          1,
+		Status:          "running",
+		StartedAt:       time.Now().UTC(),
+		InputRef:        "msg-rich-input",
 		InputProviderInstance: types.ProviderInstanceIdentity{
 			ID:   "runtime-rich-input",
 			Kind: types.ProviderInstanceIdentityRuntime,
@@ -1433,6 +1438,9 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 	if gotRun.ProjectID != "proj-1" || gotRun.WorkItemID != "work-1" || gotRun.AssignmentID != "asgn-1" {
 		t.Fatalf("GetRun linkage = project %q work %q assignment %q, want proj-1/work-1/asgn-1", gotRun.ProjectID, gotRun.WorkItemID, gotRun.AssignmentID)
+	}
+	if gotRun.WorkflowMode != types.WorkflowModeQA || gotRun.WorkflowVersion != "v0" {
+		t.Fatalf("GetRun workflow snapshot = %q/%q, want qa/v0", gotRun.WorkflowMode, gotRun.WorkflowVersion)
 	}
 	if gotRun.InputRef != run.InputRef || gotRun.InputProviderInstance != run.InputProviderInstance || gotRun.InputProviderDispatchRecorded != run.InputProviderDispatchRecorded || gotRun.InputProviderDisclosedInstance != run.InputProviderDisclosedInstance {
 		t.Fatalf("GetRun rich-input fence = ref %q admitted %+v dispatched %t disclosed %+v, want %q/%+v/%t/%+v", gotRun.InputRef, gotRun.InputProviderInstance, gotRun.InputProviderDispatchRecorded, gotRun.InputProviderDisclosedInstance, run.InputRef, run.InputProviderInstance, run.InputProviderDispatchRecorded, run.InputProviderDisclosedInstance)

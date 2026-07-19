@@ -11,7 +11,10 @@ type CreateTaskRequest struct {
 	// SystemPrompt is the per-task system prompt for agent_loop runs.
 	// It's the narrowest layer in the four-level composition (global
 	// → tenant → workspace CLAUDE.md/AGENTS.md → this).
-	SystemPrompt       string `json:"system_prompt,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	// WorkflowMode selects a bounded Hecate task runtime contract. Omit it
+	// for a normal task; "qa" creates the report-only QA runbook.
+	WorkflowMode       string `json:"workflow_mode,omitempty"`
 	ExecutionProfile   string `json:"execution_profile"`
 	Repo               string `json:"repo"`
 	BaseBranch         string `json:"base_branch"`
@@ -204,6 +207,8 @@ type TaskItem struct {
 	BaseBranch                       string   `json:"base_branch,omitempty"`
 	WorkspaceMode                    string   `json:"workspace_mode,omitempty"`
 	ExecutionKind                    string   `json:"execution_kind,omitempty"`
+	WorkflowMode                     string   `json:"workflow_mode,omitempty"`
+	WorkflowVersion                  string   `json:"workflow_version,omitempty"`
 	ShellCommand                     string   `json:"shell_command,omitempty"`
 	GitCommand                       string   `json:"git_command,omitempty"`
 	WorkingDirectory                 string   `json:"working_directory,omitempty"`
@@ -254,6 +259,8 @@ type TaskRunItem struct {
 	Number             int    `json:"number"`
 	Status             string `json:"status"`
 	Orchestrator       string `json:"orchestrator,omitempty"`
+	WorkflowMode       string `json:"workflow_mode,omitempty"`
+	WorkflowVersion    string `json:"workflow_version,omitempty"`
 	Model              string `json:"model,omitempty"`
 	Provider           string `json:"provider,omitempty"`
 	ProviderKind       string `json:"provider_kind,omitempty"`

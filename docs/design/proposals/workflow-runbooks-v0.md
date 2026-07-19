@@ -1,12 +1,18 @@
 # Workflow Runbooks V0
 
-> **Status:** proposed.
+> **Status:** partially implemented — report-only `qa` v0.
 > **Current source of truth:** [Runtime API](../../runtime/runtime-api.md),
 > [Agent runtime](../../runtime/agent-runtime.md),
 > [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
 > [Agent memory](agent-memory.md), and [Security](../../operator/security.md)
 > for today's task, context, approval, artifact, memory, and sandbox behavior.
-> **Implemented prerequisite:** Hecate now has a small native
+> **Implemented QA slice:** native `agent_loop` tasks may select
+> `workflow_mode="qa"`. Hecate snapshots the built-in `v0` contract onto the
+> Task and Run, emits a `workflow_manifest` before model work, admits only
+> structured read-only inspection, and wraps a model final response in a
+> versioned `workflow_report`. The report keeps agent-reported prose separate
+> from Hecate-observed posture and evidence references.
+> **Implemented prerequisite:** Hecate also has a small native
 > `browser_inspect` evidence capability for browser-enabled native
 > project-assignment tasks. It is local-only, approval-gated, exact-origin,
 > fresh-profile, script-disabled, `GET`/`HEAD`-only, and produces bounded
@@ -14,15 +20,18 @@
 > not this proposal's runbook engine and is not interactive browser automation,
 > visual capture, persistent browser state, Hecate Chat, or External Agent
 > support.
-> **Next action:** prototype a report-only `qa` workflow using existing task
-> runs, context packets, artifacts, approvals, memory candidates, and traces
-> before adding a standalone workflow engine.
+> **Deferred:** generic workflow scheduling, arbitrary runbook records, test
+> command execution, browser automation, and workflow-driven memory writes.
+> Those need separate product and permission decisions; this slice does not
+> create a standalone workflow engine.
 
 Hecate already has most of the substrate needed for repeatable agent workflows:
 projects, task runs, `agent_loop`, approvals, artifacts, project memory,
-context packets, External Agent supervision, and OpenTelemetry traces. This
-proposal adds a small typed runbook layer that names common operator intents
-without creating a parallel memory, prompt, or execution system.
+context packets, External Agent supervision, and OpenTelemetry traces. The
+implemented slice uses a deliberately small typed runbook contract to name one
+operator intent without creating a parallel memory, prompt, or execution
+system. This proposal keeps the broader runbook direction explicit while
+separating it from the available QA contract.
 
 The immediate inspiration is the pattern family visible in
 [`garrytan/gstack`](https://github.com/garrytan/gstack): named workflow
@@ -44,18 +53,17 @@ Workflow runbooks are named, typed task patterns. A runbook declares:
 - final report requirements
 - optional memory candidates for operator review
 
-The intended flow is:
+The implemented QA v0 flow is:
 
 ```mermaid
 flowchart LR
-    A["Project"] --> B["Context assembly"]
-    B --> C["Workflow run"]
-    C --> D["Evidence artifacts"]
-    C --> E["Run events + OTel traces"]
-    D --> F["Final report"]
-    F --> G["Memory candidates"]
-    G --> H["Operator approval"]
-    H --> I["Project memory"]
+    A["Native agent_loop Task<br/>workflow_mode=qa"] --> B["Task + Run snapshot<br/>qa · v0"]
+    B --> C["workflow_manifest<br/>Hecate contract"]
+    B --> D["Structured read-only inspection"]
+    D --> F["Agent final response"]
+    C --> G["workflow_report<br/>agent-reported + Hecate-observed"]
+    F --> G
+    G --> H["Task Detail + trace"]
 ```
 
 ## Useful Patterns
@@ -104,102 +112,64 @@ Runbooks should sit on top of current Hecate primitives:
 | Permissions   | Existing sandbox, WorkspaceFS, ProcessRunner, GitRunner, MCP policy, and approval settings. |
 | Approvals     | Blocking `TaskApproval` records with workflow metadata.                                     |
 | Evidence      | Task artifacts plus run events.                                                             |
-| Observability | Parent workflow span, per-step spans, trace id on events and artifacts.                     |
+| Observability | Existing Task/Run lifecycle spans, `hecate.workflow.mode`, and trace-linked artifacts.      |
 | Lessons       | Project memory candidates, promoted only by explicit operator action.                       |
 
-V0 should avoid a new durable workflow store. Store runbook metadata on the
-task/run or as a small `workflow_manifest` artifact. If the experiment proves
-valuable, promote workflow state to first-class storage later with the normal
-memory/SQLite parity rule.
+QA v0 avoids a new durable workflow store. It stores mode/version on the
+Task/Run and emits a small `workflow_manifest` artifact. If a future contract
+proves valuable, evaluate first-class workflow state with the normal
+memory/SQLite/Postgres parity rule instead of creating a parallel store.
 
 ## Named Workflow Modes
 
-Initial built-in modes:
+Candidate built-in modes:
 
-| Mode             | Primary question                                        | Default posture                      |
-| ---------------- | ------------------------------------------------------- | ------------------------------------ |
-| `review`         | What changed, and what risks or regressions are likely? | Read-only, diff-aware.               |
-| `investigate`    | What is the root cause?                                 | Evidence-first, no speculative fix.  |
-| `qa`             | Does the changed surface work from the user's view?     | Browser/test evidence, report-only.  |
-| `ship`           | Is this ready to publish?                               | Gate on tests, status, and approval. |
-| `security-audit` | What security or privacy risks changed?                 | Read-only, threat-model oriented.    |
-| `design-review`  | Does the UI meet product/design expectations?           | Browser visual and AX evidence.      |
+| Mode             | Status         | Primary question                                        | Default posture                                       |
+| ---------------- | -------------- | ------------------------------------------------------- | ----------------------------------------------------- |
+| `review`         | Deferred       | What changed, and what risks or regressions are likely? | Read-only, diff-aware.                                |
+| `investigate`    | Deferred       | What is the root cause?                                 | Evidence-first, no speculative fix.                   |
+| `qa`             | Implemented v0 | What can the agent inspect and report?                  | Structured read-only inspection and report-only.      |
+| `ship`           | Deferred       | Is this ready to publish?                               | Gate on tests, status, and approval.                  |
+| `security-audit` | Deferred       | What security or privacy risks changed?                 | Read-only, threat-model oriented.                     |
+| `design-review`  | Deferred       | Does the UI meet product/design expectations?           | Browser visual and AX evidence need a separate grant. |
 
 Modes are not models, providers, or personalities. They are runbook selectors
 that constrain context, tools, evidence, and stop conditions.
 
-## Minimal Typed Interface
+## Implemented Minimal Contract
 
-Sketch:
+The v0 contract is intentionally smaller than the earlier sketch. It supports
+only `qa`; the mode is selected on task creation and Hecate writes the version
+instead of accepting it from clients:
 
 ```go
 type WorkflowMode string
 
 const (
-    WorkflowReview        WorkflowMode = "review"
-    WorkflowInvestigate   WorkflowMode = "investigate"
-    WorkflowQA            WorkflowMode = "qa"
-    WorkflowShip          WorkflowMode = "ship"
-    WorkflowSecurityAudit WorkflowMode = "security-audit"
-    WorkflowDesignReview  WorkflowMode = "design-review"
+    WorkflowModeQA WorkflowMode = "qa"
 )
 
-type RunbookSpec struct {
-    ID              string
-    Version         string
-    Mode            WorkflowMode
-    Title           string
-    Description     string
-    Inputs          []RunbookInputSpec
-    DefaultPolicy   RunbookPolicy
-    Steps           []RunbookStepSpec
-    RequiredOutputs []ArtifactRequirement
-    StopConditions  []StopCondition
+type Task struct {
+    WorkflowMode    WorkflowMode
+    WorkflowVersion string
 }
 
-type RunbookInputSpec struct {
-    Name        string
-    Type        string // string | bool | int | enum | path | url | ref
-    Required    bool
-    Description string
-}
-
-type RunbookPolicy struct {
-    MutationsAllowed bool
-    NetworkAllowed   bool
-    BrowserAllowed   bool
-    SecretAccess     string // none | explicit_approval
-    ApprovalPolicy   string // auto | require_approval | block
-}
-
-type RunbookStepSpec struct {
-    ID               string
-    Kind             string // model_call | shell_check | browser_check | diff_review | approval_gate
-    PromptTemplate   string
-    Tools            []string
-    RequiresApproval bool
-    EmitsArtifacts   []ArtifactRequirement
-}
-
-type ArtifactRequirement struct {
-    Kind     string
-    Required bool
-}
-
-type StopCondition struct {
-    Kind   string // max_attempts | approval_rejected | failing_required_check | budget_exceeded | unsafe_permission | confidence_below_threshold
-    Value  any
-    Action string // fail | pause_for_approval | report_only
+type TaskRun struct {
+    WorkflowMode    WorkflowMode
+    WorkflowVersion string
 }
 ```
 
-V0 can encode this as JSON metadata and validate it before creating the
-underlying task. The typed Go shape can come when the first workflow endpoint
-or built-in runbook registry lands.
+`workflow_mode` is absent for ordinary tasks and may only be `qa` today. A QA
+Task must use `execution_kind=agent_loop`; Hecate records `workflow_version=v0`
+on the Task and snapshots both fields onto every new Run. The two fields are an
+atomic durable contract: a missing, non-canonical, or partial pair fails closed
+rather than falling back to a mutable Task value. No separate workflow endpoint,
+durable workflow store, registry, or scheduler is involved.
 
 ## Inputs, Permissions, Approvals, Artifacts, And Stop Conditions
 
-Common workflow inputs:
+Potential future workflow inputs:
 
 - `project_id`
 - `workspace`
@@ -212,7 +182,34 @@ Common workflow inputs:
 - `browser_evidence_target`
 - `deployment_target`
 
-Permission vocabulary should reuse existing Hecate concepts first:
+The implemented QA v0 contract has a much narrower posture:
+
+- Hecate rejects a non-`agent_loop` execution kind, configured MCP servers,
+  requested native HTTP/search access, and any explicitly requested non-ephemeral
+  workspace mode.
+- Hecate forces an ephemeral workspace, `sandbox_read_only=true`, and
+  `sandbox_network=false` before persistence. It excludes workspace
+  `CLAUDE.md` / `AGENTS.md` from system-prompt composition, and snapshots a
+  local Git source by safe directory copy instead of a clone checkout. Runtime
+  tool dispatch applies a second, mode-specific deny boundary rather than
+  trusting those fields alone.
+- The model sees only structured inspection tools: `read_file`, `grep`,
+  `glob`, `artifact_read`, `list_dir`, `git_status`, and `git_diff`.
+- QA blocks workspace writes, patch/proposal artifacts, shell and terminal
+  commands, external MCP tools, native HTTP requests, web search, and browser
+  inspection. It does not run test commands or add a `test_command` input.
+  It also skips automatic post-run Git summary capture; Git evidence exists
+  only when a bounded structured inspection tool returns it.
+- It emits `workflow_manifest` at run start. If the agent produces a final
+  response, Hecate wraps that response in `workflow_report`; no report is
+  invented for an unavailable model or a run that ends without a final answer.
+  The report's `agent_reported` prose is not proof that a test or browser check
+  ran. Its `hecate_observed` object records the enforced posture and declares
+  browser evidence unavailable in v0. The manifest calls
+  `workflow_report` a success artifact, because an unavailable model or an
+  early terminal failure intentionally remains manifest-only evidence.
+
+Future modes should reuse existing Hecate concepts first:
 
 - WorkspaceFS roots and read-only/write controls.
 - ProcessRunner/GitRunner execution through sandbox policy.
@@ -223,8 +220,8 @@ Permission vocabulary should reuse existing Hecate concepts first:
   separate permission model.
 - Future GitHub/deploy actions as explicit approval gates.
 
-Approval gates should be ordinary blocking approvals. Workflow-specific detail
-belongs in metadata:
+Future approval gates should be ordinary blocking approvals. Workflow-specific
+detail belongs in metadata:
 
 ```json
 {
@@ -236,10 +233,13 @@ belongs in metadata:
 }
 ```
 
-Recommended first artifact kinds:
+The implemented artifact kinds are:
 
 - `workflow_manifest`
 - `workflow_report`
+
+Potential future artifact kinds are:
+
 - `diff_summary`
 - `risk_findings`
 - `test_log`
@@ -249,9 +249,10 @@ Recommended first artifact kinds:
 - `browser_network_log`
 - `memory_candidate`
 
-Stop conditions should be machine-readable and rendered in the final report.
-The most important v0 condition is "report-only": if QA finds a failure, the run
-reports evidence and stops rather than attempting a fix.
+Future stop conditions should be machine-readable and rendered in the final
+report. The most important implemented condition is "report-only": the QA
+runtime denies an attempted fix before it can reach a workspace, MCP server,
+or network tool.
 
 ## Browser Support
 
@@ -278,10 +279,16 @@ controls remain an operator deployment responsibility. Even a `GET` request
 can have an application-specific side effect, so each call remains explicitly
 approval-gated.
 
+QA v0 does not invoke or reference browser evidence. Choosing
+`workflow_mode=qa` blocks browser inspection, does not add a URL input, and
+does not enable browser automation. A future QA contract needs an explicit
+Hecate-owned assignment-launch selection before it can claim constrained
+browser evidence.
+
 Future workflow work should build on that narrow primitive in this order:
 
-1. **Near-term:** use text evidence in report-only QA/runbook experiments and
-   validate its approval and artifact UX.
+1. **Next:** evaluate the manifest/report distinction and define an explicit
+   assignment-launch selection if constrained browser evidence is justified.
 2. **Later, if justified:** independently review visual capture or additional
    read-only evidence types with their own redaction and retention model.
 3. **Much later:** consider stateful or interactive browser work only with a
@@ -355,24 +362,25 @@ Candidate examples:
 The operator may edit and promote a candidate into project memory. Until then,
 the candidate remains a review artifact and is excluded from context packets.
 
-## Proposed V0 Scope
+## Implemented V0 Scope
 
-The smallest useful experiment is a report-only `qa` runbook:
+The available experiment is a report-only `qa` Task:
 
-- input: `project_id`
-- input: target `url`
-- optional input: `base_ref` and `head_ref`
-- optional input: one `test_command`
-- context: project memory, repo guidance metadata, diff summary if available
-- browser evidence: the existing approval-gated text-only `browser_evidence`
-  artifact (redacted final URL/origin, title, small accessibility summary,
-  bounded console lines, and network counters)
-- output: final `workflow_report`
-- optional output: project memory candidates
-- mutation policy: no file writes, no Git writes, no deploys, no memory writes
+- input: the normal `agent_loop` task prompt, workspace/context already owned
+  by the Task, and ordinary provider/model selection
+- context: normal task context and workspace guidance; no new workflow context
+  store or Project/Cairnline record
+- structured evidence: bounded file/search/artifact/directory and passive Git
+  inspection; no shell test runner
+- browser evidence: unavailable in QA v0; no browser automation or general
+  URL checker
+- output: a static `workflow_manifest` plus a `workflow_report` only after an
+  agent final response exists
+- mutation policy: no file or Git writes, patch/proposal creation, deploys,
+  memory writes, MCP tools, network requests, or search
 
-This validates whether named runbooks plus evidence artifacts improve operator
-trust before Hecate grows a full workflow engine.
+This tests whether a named runbook and clearly labelled evidence improve
+operator trust before Hecate considers a broader workflow engine.
 
 ## Non-goals
 
@@ -381,6 +389,7 @@ trust before Hecate grows a full workflow engine.
 - Replacing context assembly, memory, artifacts, or OTel with workflow-specific
   subsystems.
 - Supporting user-authenticated browser state in v0.
+- Shell or terminal test execution, including an arbitrary `test_command`.
 - Interactive navigation, clicking, typing, form submission, uploads, or
   downloads through the browser-evidence capability.
 - Remote browser sharing or hosted browser sessions.
@@ -390,26 +399,26 @@ trust before Hecate grows a full workflow engine.
 
 ## Testing Strategy
 
-- Unit tests for runbook validation, required inputs, permission resolution,
-  stop-condition evaluation, and artifact requirements.
-- API tests proving workflow metadata round-trips through task/run detail and
-  stream snapshots.
-- Artifact tests proving report and browser evidence artifacts carry
-  `task_id`, `run_id`, `step_id`, `workflow_mode`, and `trace_id`.
-- Redaction and privacy tests for browser text evidence and tool-call inputs.
-- Fresh-profile browser smoke tests against a static local page.
-- OTel tests proving workflow and step spans are correlated with task events.
-- Memory-candidate tests proving generated lessons remain pending until an
-  explicit promotion call.
+- Unit tests for `workflow_mode` validation, forced task posture, run snapshots,
+  the mode-specific dispatcher boundary, and manifest/report JSON envelopes.
+- API tests proving mode/version round-trip through task/run detail and stream
+  snapshots.
+- Runtime tests proving configured MCP hosts cannot start under QA, blocked
+  calls do not create approvals, and no report is fabricated without an agent
+  final response.
+- UI tests proving Task Detail labels agent-reported narrative separately from
+  Hecate-observed posture/evidence.
+- Existing browser tests retain responsibility for fresh-profile evidence; QA
+  does not create a broader browser or test-runner surface.
 
 ## Open Questions
 
-- Should built-in runbooks be hard-coded Go specs, embedded JSON files, or
-  project-configurable records?
-- Should workflow metadata live in `TaskRun`, task metadata, or a
-  `workflow_manifest` artifact for v0?
-- Which UI surface should show workflow reports: task detail, project activity,
-  or a dedicated workflow tab?
+- What evidence, if any, should a separately permissioned constrained test
+  runner produce and how should it be retained?
+- Which future modes justify a hard-coded contract before any registry or
+  project-configurable runbook record is considered?
+- Should a future workflow report appear outside Task Detail, such as project
+  activity, without duplicating Cairnline coordination state?
 - What evidence, if any, is worth adding beyond the current text-only,
   report-only browser inspection?
 - What isolation and explicit permissions would interactive or stateful
@@ -419,10 +428,9 @@ trust before Hecate grows a full workflow engine.
 
 ## Recommended Next Implementation Step
 
-Implement no broad framework first. Add a narrow design-backed experiment:
-
-1. Define a built-in `qa` runbook spec in tests or an internal package.
-2. Create one task/run metadata path for `workflow_mode=qa`.
-3. Produce a `workflow_report` artifact from existing task infrastructure.
-4. Use the implemented browser evidence only as an optional report input; do
-   not add interactive or persistent browser behavior to the runbook skeleton.
+Do not add a broad framework next. Evaluate this slice with operators: does the
+manifest/report distinction make evidence easier to review, and is a separately
+authorized, constrained test runner valuable enough to warrant its own
+permission model? Any such runner must be a new explicit capability, not an
+exception to QA's report-only boundary. Browser automation, generic workflow
+records, and workflow-managed Project memory remain separate decisions.

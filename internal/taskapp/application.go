@@ -14,6 +14,7 @@ import (
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -39,13 +40,19 @@ var (
 	ErrOriginValidationFailed    = taskruncoord.ErrOriginValidationFailed
 	ErrModelCallIndexRequired    = errors.New("model_call_index must be >= 1")
 	ErrPromptRequired            = errors.New("prompt is required")
-	ErrActiveRun                 = orchestrator.ErrActiveRun
-	ErrOtherActiveRun            = errors.New("task already has another active run")
-	ErrDeleteActiveRun           = errors.New("cannot delete a task with an active run; cancel it first")
-	ErrRunNotRetryable           = errors.New("run is not retryable until it reaches a terminal state")
-	ErrRunNotResumable           = errors.New("run is not resumable")
-	ErrRunNotModelCallRetryable  = errors.New("run is not retryable from a model call (must be terminal)")
-	ErrBudgetLower               = orchestrator.ErrBudgetLower
+	// Keep application-facing error names for API callers while making the
+	// runtime and create boundary share one fail-closed workflow contract.
+	ErrQAWorkflowRequiresAgentLoop = taskworkflow.ErrQARequiresAgentLoop
+	ErrQAWorkflowMCPServers        = taskworkflow.ErrQAMCPServers
+	ErrQAWorkflowNetwork           = taskworkflow.ErrQANetwork
+	ErrQAWorkflowWorkspaceMode     = taskworkflow.ErrQAWorkspaceMode
+	ErrActiveRun                   = orchestrator.ErrActiveRun
+	ErrOtherActiveRun              = errors.New("task already has another active run")
+	ErrDeleteActiveRun             = errors.New("cannot delete a task with an active run; cancel it first")
+	ErrRunNotRetryable             = errors.New("run is not retryable until it reaches a terminal state")
+	ErrRunNotResumable             = errors.New("run is not resumable")
+	ErrRunNotModelCallRetryable    = errors.New("run is not retryable from a model call (must be terminal)")
+	ErrBudgetLower                 = orchestrator.ErrBudgetLower
 )
 
 type ValidationError = apperrors.ValidationError
@@ -99,6 +106,7 @@ type CreateCommand struct {
 	Prompt             string
 	ProjectID          string
 	SystemPrompt       string
+	WorkflowMode       string
 	ExecutionProfile   string
 	Repo               string
 	BaseBranch         string
@@ -205,6 +213,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 	if app == nil || app.store == nil {
 		return types.Task{}, ErrStoreNotConfigured
 	}
+	requestedWorkspaceMode := strings.TrimSpace(cmd.WorkspaceMode)
 	applyExecutionProfileDefaults(&cmd)
 
 	title := strings.TrimSpace(cmd.Title)
@@ -223,6 +232,46 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 	isAgentLoop := effectiveKind == "" || effectiveKind == "agent_loop"
 	if prompt == "" && isAgentLoop {
 		return types.Task{}, ErrPromptRequired
+	}
+	workflowMode, err := taskworkflow.ParseMode(cmd.WorkflowMode)
+	if err != nil {
+		return types.Task{}, Validation(err)
+	}
+	if taskworkflow.IsQA(workflowMode) {
+		if !isAgentLoop {
+			return types.Task{}, Validation(ErrQAWorkflowRequiresAgentLoop)
+		}
+		// The historical empty execution_kind shorthand is treated as an agent
+		// loop for validation, but a QA task needs the explicit persisted value:
+		// the runner selects executors from this field and must not fall back to
+		// a non-agent execution path after the report-only contract was accepted.
+		if effectiveKind == "" {
+			cmd.ExecutionKind = "agent_loop"
+		}
+		if len(cmd.MCPServers) > 0 {
+			return types.Task{}, Validation(ErrQAWorkflowMCPServers)
+		}
+		if cmd.SandboxNetwork {
+			return types.Task{}, Validation(ErrQAWorkflowNetwork)
+		}
+		if requestedWorkspaceMode != "" && requestedWorkspaceMode != "ephemeral" {
+			return types.Task{}, Validation(ErrQAWorkflowWorkspaceMode)
+		}
+		// A caller cannot relax QA posture through task fields. We set the
+		// values here, before persistence, and the agent loop independently
+		// enforces the same tool boundary in case an older record is loaded.
+		cmd.SandboxReadOnly = true
+		cmd.SandboxNetwork = false
+		cmd.WorkspaceMode = "ephemeral"
+		cmd.SystemPrompt = taskworkflow.AppendQASystemPrompt(cmd.SystemPrompt)
+	}
+	workspaceSystemPromptPolicy := ""
+	if taskworkflow.IsQA(workflowMode) {
+		// Repository guidance is evidence for QA, not privileged instruction.
+		// Keep CLAUDE.md/AGENTS.md out of the system-prompt compatibility layer;
+		// the QA contract itself is appended above and runtime validation repeats
+		// this constraint for persisted rows.
+		workspaceSystemPromptPolicy = types.WorkspaceSystemPromptExclude
 	}
 
 	mcpServers, err := NormalizeMCPServerConfigs(cmd.MCPServers, app.secretCipher, app.maxMCPServers)
@@ -252,34 +301,37 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 
 	now := app.now().UTC()
 	task := types.Task{
-		ID:                 app.idgen("task"),
-		Title:              title,
-		Prompt:             prompt,
-		ProjectID:          projectID,
-		SystemPrompt:       strings.TrimSpace(cmd.SystemPrompt),
-		ExecutionProfile:   strings.TrimSpace(cmd.ExecutionProfile),
-		Repo:               strings.TrimSpace(cmd.Repo),
-		BaseBranch:         strings.TrimSpace(cmd.BaseBranch),
-		WorkspaceMode:      workspaceMode,
-		ExecutionKind:      strings.TrimSpace(cmd.ExecutionKind),
-		ShellCommand:       strings.TrimSpace(cmd.ShellCommand),
-		GitCommand:         strings.TrimSpace(cmd.GitCommand),
-		WorkingDirectory:   strings.TrimSpace(cmd.WorkingDirectory),
-		FileOperation:      strings.TrimSpace(cmd.FileOperation),
-		FilePath:           strings.TrimSpace(cmd.FilePath),
-		FileContent:        cmd.FileContent,
-		SandboxAllowedRoot: strings.TrimSpace(cmd.SandboxAllowedRoot),
-		SandboxReadOnly:    cmd.SandboxReadOnly,
-		SandboxNetwork:     cmd.SandboxNetwork,
-		TimeoutMS:          cmd.TimeoutMS,
-		Status:             "queued",
-		Priority:           priority,
-		RequestedModel:     strings.TrimSpace(cmd.RequestedModel),
-		RequestedProvider:  strings.TrimSpace(cmd.RequestedProvider),
-		BudgetMicrosUSD:    cmd.BudgetMicrosUSD,
-		MCPServers:         mcpServers,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		ID:                          app.idgen("task"),
+		Title:                       title,
+		Prompt:                      prompt,
+		ProjectID:                   projectID,
+		SystemPrompt:                strings.TrimSpace(cmd.SystemPrompt),
+		WorkspaceSystemPromptPolicy: workspaceSystemPromptPolicy,
+		WorkflowMode:                workflowMode,
+		WorkflowVersion:             taskworkflow.VersionForMode(workflowMode),
+		ExecutionProfile:            strings.TrimSpace(cmd.ExecutionProfile),
+		Repo:                        strings.TrimSpace(cmd.Repo),
+		BaseBranch:                  strings.TrimSpace(cmd.BaseBranch),
+		WorkspaceMode:               workspaceMode,
+		ExecutionKind:               strings.TrimSpace(cmd.ExecutionKind),
+		ShellCommand:                strings.TrimSpace(cmd.ShellCommand),
+		GitCommand:                  strings.TrimSpace(cmd.GitCommand),
+		WorkingDirectory:            strings.TrimSpace(cmd.WorkingDirectory),
+		FileOperation:               strings.TrimSpace(cmd.FileOperation),
+		FilePath:                    strings.TrimSpace(cmd.FilePath),
+		FileContent:                 cmd.FileContent,
+		SandboxAllowedRoot:          strings.TrimSpace(cmd.SandboxAllowedRoot),
+		SandboxReadOnly:             cmd.SandboxReadOnly,
+		SandboxNetwork:              cmd.SandboxNetwork,
+		TimeoutMS:                   cmd.TimeoutMS,
+		Status:                      "queued",
+		Priority:                    priority,
+		RequestedModel:              strings.TrimSpace(cmd.RequestedModel),
+		RequestedProvider:           strings.TrimSpace(cmd.RequestedProvider),
+		BudgetMicrosUSD:             cmd.BudgetMicrosUSD,
+		MCPServers:                  mcpServers,
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
 	}
 	return app.store.CreateTask(ctx, task)
 }

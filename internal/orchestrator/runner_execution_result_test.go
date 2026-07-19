@@ -3,7 +3,10 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -146,6 +150,63 @@ func TestExecutionResultPersister_PersistsStepsArtifactsAndTerminalCounts(t *tes
 		t.Fatalf("ListRunEvents() error = %v", err)
 	}
 	assertRunEventSubsequence(t, events, []string{"run.finished"})
+}
+
+func TestExecutionResultPersister_QASkipsAutomaticGitSummary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX fsmonitor hook")
+	}
+
+	ctx := t.Context()
+	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "qa-git-summary")
+	defer trace.Finalize()
+	workspace := t.TempDir()
+	runGit(t, workspace, "init")
+	runGit(t, workspace, "config", "user.email", "test@example.com")
+	runGit(t, workspace, "config", "user.name", "Test User")
+	tracked := filepath.Join(workspace, "main.go")
+	if err := os.WriteFile(tracked, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workspace, "add", "main.go")
+	runGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(tracked, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	marker := filepath.Join(t.TempDir(), "fsmonitor-called")
+	helper := filepath.Join(t.TempDir(), "fsmonitor")
+	script := fmt.Sprintf("#!/bin/sh\nprintf called > %q\n", marker)
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workspace, "config", "core.fsmonitor", helper)
+	runGit(t, workspace, "config", "core.fsmonitorHookVersion", "2")
+
+	task.WorkflowMode = types.WorkflowModeQA
+	task.WorkflowVersion = taskworkflow.QAVersion
+	task.WorkspaceMode = "ephemeral"
+	task.SandboxReadOnly = true
+	run.WorkflowMode = types.WorkflowModeQA
+	run.WorkflowVersion = taskworkflow.QAVersion
+	run.WorkspacePath = workspace
+	if _, err := store.UpdateTask(ctx, task); err != nil {
+		t.Fatalf("UpdateTask(QA): %v", err)
+	}
+	if _, err := store.UpdateRun(ctx, run); err != nil {
+		t.Fatalf("UpdateRun(QA): %v", err)
+	}
+
+	artifacts, err := newExecutionResultPersister(runner, trace, task, run, run.RequestID).persistArtifacts(ctx, nil)
+	if err != nil {
+		t.Fatalf("persistArtifacts(QA): %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("QA persisted artifacts = %+v, want no automatic git summary", artifacts)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("repository fsmonitor helper ran during QA automatic artifact persistence; stat error = %v", err)
+	}
 }
 
 func TestExecutionResultPersister_CountsAllDurableRecoveryChildren(t *testing.T) {

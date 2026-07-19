@@ -8,6 +8,7 @@ import (
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -106,12 +107,18 @@ func (p executionResultPersister) persistArtifacts(ctx context.Context, artifact
 		}
 		persistedArtifacts = append(persistedArtifacts, persistedArtifact)
 	}
-	if artifact, ok := p.runner.gitSummaryArtifact(ctx, p.task, p.run, p.requestID, p.trace.TraceID); ok {
-		persistedArtifact, err := p.persistArtifact(ctx, artifact, false)
-		if err != nil {
-			return nil, err
+	// QA v0's declared success artifacts are its manifest and report. More
+	// importantly, this legacy summary uses a broad local Git process rather
+	// than the bounded structured-read path, so it must not run outside QA's
+	// dispatcher-enforced evidence catalog.
+	if !taskworkflow.IsQAExecution(p.task, p.run) {
+		if artifact, ok := p.runner.gitSummaryArtifact(ctx, p.task, p.run, p.requestID, p.trace.TraceID); ok {
+			persistedArtifact, err := p.persistArtifact(ctx, artifact, false)
+			if err != nil {
+				return nil, err
+			}
+			persistedArtifacts = append(persistedArtifacts, persistedArtifact)
 		}
-		persistedArtifacts = append(persistedArtifacts, persistedArtifact)
 	}
 	return persistedArtifacts, nil
 }
@@ -231,12 +238,19 @@ func (p executionResultPersister) applyFinalResult(ctx context.Context, executio
 	if runDurationMS > 0 {
 		runFinishedAttrs[telemetry.AttrHecateRunDurationMS] = runDurationMS
 	}
+	if transition.Run.WorkflowMode != "" {
+		runFinishedAttrs[telemetry.AttrHecateWorkflowMode] = string(transition.Run.WorkflowMode)
+	}
 	p.trace.Record(telemetry.EventOrchestratorRunFinished, runFinishedAttrs)
-	p.trace.Record(telemetry.EventOrchestratorTaskFinished, map[string]any{
+	taskFinishedAttrs := map[string]any{
 		telemetry.AttrHecatePhase:  "orchestration",
 		telemetry.AttrHecateResult: resultKind,
 		telemetry.AttrHecateTaskID: transition.Task.ID,
-	})
+	}
+	if transition.Run.WorkflowMode != "" {
+		taskFinishedAttrs[telemetry.AttrHecateWorkflowMode] = string(transition.Run.WorkflowMode)
+	}
+	p.trace.Record(telemetry.EventOrchestratorTaskFinished, taskFinishedAttrs)
 	p.runner.metrics.RecordRun(ctx, telemetry.RunMetricsRecord{
 		TaskID:        transition.Task.ID,
 		RunID:         transition.Run.ID,

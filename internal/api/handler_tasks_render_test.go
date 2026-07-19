@@ -225,3 +225,46 @@ func TestRenderTaskItem_ExposesAgentPresetRuntimePolicySnapshot(t *testing.T) {
 		t.Fatalf("rendered policy snapshot = %+v, want independent browser snapshot and review posture", item)
 	}
 }
+
+func TestTaskWorkflowModeFlowsThroughCreateAndRenderContracts(t *testing.T) {
+	t.Parallel()
+
+	command := taskCreateCommandFromRequest(CreateTaskRequest{
+		Prompt:        "Inspect the workspace",
+		ExecutionKind: "agent_loop",
+		WorkflowMode:  "qa",
+	})
+	if command.WorkflowMode != "qa" {
+		t.Fatalf("create command workflow_mode = %q, want qa", command.WorkflowMode)
+	}
+	taskItem := renderTaskItem(types.Task{
+		ID:              "task_qa",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: "v0",
+		Status:          "queued",
+	})
+	if taskItem.WorkflowMode != "qa" || taskItem.WorkflowVersion != "v0" {
+		t.Fatalf("task item workflow = %q/%q, want qa/v0", taskItem.WorkflowMode, taskItem.WorkflowVersion)
+	}
+	runItem := renderTaskRun(types.TaskRun{
+		ID:              "run_qa",
+		TaskID:          "task_qa",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: "v0",
+		Status:          "queued",
+	})
+	if runItem.WorkflowMode != "qa" || runItem.WorkflowVersion != "v0" {
+		t.Fatalf("run item workflow = %q/%q, want qa/v0", runItem.WorkflowMode, runItem.WorkflowVersion)
+	}
+	payload, err := json.Marshal(runItem)
+	if err != nil {
+		t.Fatalf("marshal run item: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("decode run item: %v", err)
+	}
+	if fields["workflow_mode"] != "qa" || fields["workflow_version"] != "v0" {
+		t.Fatalf("run payload fields = %#v, want QA workflow snapshot", fields)
+	}
+}

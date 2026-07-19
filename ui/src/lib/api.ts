@@ -275,6 +275,7 @@ export type CreateTaskPayload = {
   title?: string;
   prompt: string;
   project_id?: string;
+  workflow_mode?: "qa";
   execution_kind?: string;
   shell_command?: string;
   git_command?: string;

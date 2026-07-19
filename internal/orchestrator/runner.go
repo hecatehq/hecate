@@ -18,6 +18,7 @@ import (
 	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspace"
@@ -212,9 +213,9 @@ type StartTaskResult struct {
 
 type startTaskOptions struct {
 	ResumeFromRun *types.TaskRun
-	// RetryFromRun carries same-input state into a fresh Run. Unlike
-	// ResumeFromRun, it does not inherit workspace, cost, or conversation
-	// checkpoints and emits no resume event.
+	// RetryFromRun carries same-input state and any retained workflow snapshot
+	// into a fresh Run. Unlike ResumeFromRun, it does not inherit workspace,
+	// cost, or conversation checkpoints and emits no resume event.
 	RetryFromRun   *types.TaskRun
 	ResumeReason   string
 	AppendPrompt   string
@@ -520,8 +521,8 @@ func (r *Runner) StartTask(ctx context.Context, task types.Task, idgen func(pref
 }
 
 // RetryTask creates a fresh Run while retaining canonical source provenance
-// from the selected Run's context packet. It intentionally does not resume
-// execution state or emit run.resumed_from_event.
+// and any bounded workflow contract recorded by the selected Run. It
+// intentionally does not resume execution state or emit run.resumed_from_event.
 func (r *Runner) RetryTask(ctx context.Context, task types.Task, run types.TaskRun, idgen func(prefix string) string) (*StartTaskResult, error) {
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, fmt.Errorf("task run %q is not retryable", run.ID)
@@ -569,6 +570,27 @@ func (r *Runner) beginWorkspaceProvisioningWrite(ctx context.Context, workspaceP
 		return nil, nil
 	}
 	return registry.WaitWriterForCreation(ctx, workspacePath)
+}
+
+// validateQAWorkspace binds a report-only QA Run to the generated workspace
+// for its own Task/Run IDs. Stored Run.WorkspacePath is otherwise an
+// execution-time input, so this check is intentionally repeated when a worker
+// claims a Run after a restart.
+func (r *Runner) validateQAWorkspace(task types.Task, run types.TaskRun) (types.TaskRun, error) {
+	if !taskworkflow.IsQAExecution(task, run) {
+		return run, nil
+	}
+	if r == nil || r.workspaces == nil {
+		return run, taskworkflow.ErrQAWorkspaceProvenance
+	}
+	managedPath, err := r.workspaces.managedRunWorkspacePath(task, run)
+	if err != nil {
+		// The attempted path can be an arbitrary persisted local path. Do not
+		// carry it into a durable run error, UI response, or telemetry field.
+		return run, taskworkflow.ErrQAWorkspaceProvenance
+	}
+	run.WorkspacePath = managedPath
+	return run, nil
 }
 
 func (r *Runner) beginOriginRunMutation(ctx context.Context, task types.Task) (*taskruncoord.Lease, error) {
@@ -732,15 +754,6 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		return nil, fmt.Errorf("workspace manager is not configured")
 	}
 
-	// Preflight: agent_loop needs a model before we create the run.
-	// Failing here (before the run row exists) gives the API caller a
-	// clean 422 and avoids a run that would immediately fail on its
-	// first LLM call with a confusing "no route" error.
-	if task.ExecutionKind == "agent_loop" {
-		if strings.TrimSpace(task.RequestedModel) == "" {
-			return nil, fmt.Errorf("%w: no model configured; set task.RequestedModel", ErrAgentLoopMisconfigured)
-		}
-	}
 	if options.BudgetMicrosUSD > 0 {
 		if options.BudgetMicrosUSD < task.BudgetMicrosUSD {
 			return nil, ErrBudgetLower
@@ -759,15 +772,6 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
 	now := time.Now().UTC()
 
-	trace.Record(telemetry.EventOrchestratorTaskStarted, map[string]any{
-		telemetry.AttrHecatePhase:          "orchestration",
-		telemetry.AttrHecateResult:         telemetry.ResultSuccess,
-		telemetry.AttrHecateTaskID:         task.ID,
-		telemetry.AttrHecateTaskStatus:     task.Status,
-		telemetry.AttrHecateTaskRepo:       task.Repo,
-		telemetry.AttrHecateTaskBaseBranch: task.BaseBranch,
-	})
-
 	runs, err := r.store.ListRuns(ctx, task.ID)
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, "", "run_list_failed", err)
@@ -780,21 +784,23 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	}
 
 	run := types.TaskRun{
-		ID:           idgen("run"),
-		TaskID:       task.ID,
-		ProjectID:    strings.TrimSpace(task.ProjectID),
-		WorkItemID:   strings.TrimSpace(task.WorkItemID),
-		AssignmentID: strings.TrimSpace(task.AssignmentID),
-		Number:       len(runs) + 1,
-		Status:       "queued",
-		Orchestrator: "builtin",
-		Model:        firstNonEmpty(task.RequestedModel, r.config.DefaultModel),
-		Provider:     task.RequestedProvider,
-		WorkspaceID:  "workspace_" + task.ID,
-		StartedAt:    now,
-		RequestID:    requestID,
-		TraceID:      trace.TraceID,
-		RootSpanID:   trace.RootSpanID(),
+		ID:              idgen("run"),
+		TaskID:          task.ID,
+		ProjectID:       strings.TrimSpace(task.ProjectID),
+		WorkItemID:      strings.TrimSpace(task.WorkItemID),
+		AssignmentID:    strings.TrimSpace(task.AssignmentID),
+		Number:          len(runs) + 1,
+		Status:          "queued",
+		Orchestrator:    "builtin",
+		WorkflowMode:    task.WorkflowMode,
+		WorkflowVersion: task.WorkflowVersion,
+		Model:           firstNonEmpty(task.RequestedModel, r.config.DefaultModel),
+		Provider:        task.RequestedProvider,
+		WorkspaceID:     "workspace_" + task.ID,
+		StartedAt:       now,
+		RequestID:       requestID,
+		TraceID:         trace.TraceID,
+		RootSpanID:      trace.RootSpanID(),
 	}
 	if r.approvalRequiredForTask(task) {
 		run.Status = "awaiting_approval"
@@ -807,6 +813,13 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		if strings.TrimSpace(prior.WorkspacePath) != "" {
 			run.WorkspacePath = prior.WorkspacePath
 			run.WorkspaceID = firstNonEmpty(prior.WorkspaceID, run.WorkspaceID)
+		}
+		// A retained run keeps the exact workflow contract it began with.
+		// This matters if a future task edit or migration changes defaults:
+		// resume must not silently broaden a report-only run's capabilities.
+		if taskworkflow.HasWorkflowSnapshot(prior) {
+			run.WorkflowMode = prior.WorkflowMode
+			run.WorkflowVersion = prior.WorkflowVersion
 		}
 		// Inherit cumulative cost from the source run so the per-task
 		// cost ceiling holds across the entire resume chain. Source's
@@ -829,6 +842,50 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			run.Model = firstNonEmpty(strings.TrimSpace(prior.Model), run.Model)
 		}
 	}
+	if options.RetryFromRun != nil && taskworkflow.HasWorkflowSnapshot(*options.RetryFromRun) {
+		// Retries are fresh attempts, but an existing bounded workflow must not
+		// silently adopt a later Task edit or future contract version.
+		run.WorkflowMode = options.RetryFromRun.WorkflowMode
+		run.WorkflowVersion = options.RetryFromRun.WorkflowVersion
+	}
+	// This is deliberately after the source-Run snapshot has been applied and
+	// before workspace planning/provisioning. Creation validation alone is not
+	// sufficient because persisted rows may originate from migrations or a
+	// different server version.
+	if err := taskworkflow.ValidateExecution(task, run); err != nil {
+		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workflow_policy_invalid", err)
+		return nil, fmt.Errorf("validate workflow execution: %w", err)
+	}
+	if taskworkflow.IsQAExecution(task, run) {
+		// Resumes and continuations normally reuse the preceding workspace.
+		// QA is read-only and has no work product to preserve, so a retained
+		// report-only contract instead receives a fresh managed workspace for
+		// this Run. That keeps its generated task/run path authoritative.
+		run.WorkspacePath = ""
+		run.WorkspaceID = "workspace_" + task.ID
+	}
+
+	// Preflight: agent_loop needs a model before we create the run.
+	// Failing here (before the run row exists) gives the API caller a
+	// clean 422 and avoids a run that would immediately fail on its
+	// first LLM call with a confusing "no route" error.
+	if task.ExecutionKind == "agent_loop" {
+		if strings.TrimSpace(task.RequestedModel) == "" {
+			return nil, fmt.Errorf("%w: no model configured; set task.RequestedModel", ErrAgentLoopMisconfigured)
+		}
+	}
+	taskStartedAttrs := map[string]any{
+		telemetry.AttrHecatePhase:          "orchestration",
+		telemetry.AttrHecateResult:         telemetry.ResultSuccess,
+		telemetry.AttrHecateTaskID:         task.ID,
+		telemetry.AttrHecateTaskStatus:     task.Status,
+		telemetry.AttrHecateTaskRepo:       task.Repo,
+		telemetry.AttrHecateTaskBaseBranch: task.BaseBranch,
+	}
+	if run.WorkflowMode != "" {
+		taskStartedAttrs[telemetry.AttrHecateWorkflowMode] = string(run.WorkflowMode)
+	}
+	trace.Record(telemetry.EventOrchestratorTaskStarted, taskStartedAttrs)
 	var provisionPlan workspaceProvisionPlan
 	if strings.TrimSpace(run.WorkspacePath) == "" {
 		provisionPlan, err = r.workspaces.planProvision(task, run)
@@ -860,6 +917,10 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			return nil, err
 		}
 	}
+	if run, err = r.validateQAWorkspace(task, run); err != nil {
+		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_policy_invalid", err)
+		return nil, err
+	}
 	contextSource := options.RetryFromRun
 	if contextSource == nil {
 		contextSource = options.ResumeFromRun
@@ -868,7 +929,33 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		run.ContextPacket = cloneRunContextPacketForNewRun(contextSource.ContextPacket, task.ID, run.ID, run.WorkspacePath, idgen)
 	}
 	if options.RunInitializer != nil {
+		// Initializers enrich a freshly prepared Run with caller-owned context
+		// (for example, a chat context packet). They are not an execution-policy
+		// authority: preserve the already validated workflow snapshot and, for
+		// QA, the generated managed workspace after the callback returns.
+		workflowMode := run.WorkflowMode
+		workflowVersion := run.WorkflowVersion
+		qaWorkspacePath := ""
+		qaWorkspaceID := ""
+		if taskworkflow.IsQAExecution(task, run) {
+			qaWorkspacePath = run.WorkspacePath
+			qaWorkspaceID = run.WorkspaceID
+		}
 		options.RunInitializer(&run)
+		run.WorkflowMode = workflowMode
+		run.WorkflowVersion = workflowVersion
+		if qaWorkspacePath != "" {
+			run.WorkspacePath = qaWorkspacePath
+			run.WorkspaceID = qaWorkspaceID
+		}
+		if err := taskworkflow.ValidateExecution(task, run); err != nil {
+			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workflow_policy_invalid", err)
+			return nil, fmt.Errorf("validate workflow execution after run initialization: %w", err)
+		}
+		if run, err = r.validateQAWorkspace(task, run); err != nil {
+			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_policy_invalid", err)
+			return nil, err
+		}
 	}
 	task.LatestRunID = run.ID
 	task.Status = run.Status
@@ -1108,6 +1195,20 @@ func (r *Runner) cleanupCancelledRunAfterDrain(ctx context.Context, task types.T
 // re-waited). Safe to call from multiple goroutines.
 
 func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, requestID string, resumeCheckpoint *ResumeCheckpoint) (*StartTaskResult, error) {
+	// Revalidate after a worker claims the durable row. This is a separate
+	// boundary from StartTask: queued work can outlive deployments, migrations,
+	// and direct store writes. Do not lease a workspace or select an executor
+	// until the recorded contract is known safe.
+	if err := taskworkflow.ValidateExecution(task, run); err != nil {
+		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workflow_policy_invalid", err)
+		return nil, fmt.Errorf("validate workflow execution: %w", err)
+	}
+	validatedRun, err := r.validateQAWorkspace(task, run)
+	if err != nil {
+		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_policy_invalid", err)
+		return nil, err
+	}
+	run = validatedRun
 	workspaceLease, err := r.beginWorkspaceWrite(ctx, run.WorkspacePath)
 	if err != nil {
 		return nil, err
@@ -1289,7 +1390,7 @@ func recordOrchestratorRunStarted(trace *profiler.Trace, taskID string, run type
 	if trace == nil {
 		return
 	}
-	trace.Record(telemetry.EventOrchestratorRunStarted, map[string]any{
+	attrs := map[string]any{
 		telemetry.AttrHecatePhase:       "orchestration",
 		telemetry.AttrHecateResult:      telemetry.ResultSuccess,
 		telemetry.AttrHecateTaskID:      taskID,
@@ -1297,7 +1398,11 @@ func recordOrchestratorRunStarted(trace *profiler.Trace, taskID string, run type
 		telemetry.AttrHecateRunNumber:   run.Number,
 		telemetry.AttrHecateRunStatus:   run.Status,
 		telemetry.AttrGenAIRequestModel: run.Model,
-	})
+	}
+	if run.WorkflowMode != "" {
+		attrs[telemetry.AttrHecateWorkflowMode] = string(run.WorkflowMode)
+	}
+	trace.Record(telemetry.EventOrchestratorRunStarted, attrs)
 }
 
 func recordOrchestratorRunFailed(trace *profiler.Trace, taskID, runID, errorKind string, err error) {

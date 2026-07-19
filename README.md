@@ -36,9 +36,9 @@
 > **Status: public alpha.** Hecate is useful today as an AI workspace for
 > model-provider routing, Hecate Chat, External Agent sessions,
 > project-scoped work, approvals, artifacts, usage, and observability. It is not
-> production-stable infrastructure yet: workflow runbooks, interactive browser
-> automation, richer Agent Presets, and sandbox hardening are still design or
-> early-alpha
+> production-stable infrastructure yet: the bounded report-only QA runbook is
+> available, while broader workflow modes, interactive browser automation,
+> richer Agent Presets, and sandbox hardening are still design or early-alpha
 > work. Read
 > [known limitations](docs/operator/known-limitations.md) before depending on it.
 
@@ -180,7 +180,7 @@ matters.
 | **Connections**      | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, external-agent readiness, and durable approval grants.                                                                                                                                                                                                                                                                                                                                                               |
 | **Chats**            | Provider-routed dictation, Hecate turns with image attachments, External Agent turns with arbitrary file inputs, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                                                                                                                                                |
 | **Projects**         | Cairnline-backed project identity, roots, context and skill metadata, roles, work items, assignments, handoffs, project memory, review artifacts, and memory candidates, presented through Hecate's native operator cockpit and execution links.                                                                                                                                                                                                                                                                                               |
-| **Tasks**            | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, and MCP registry discovery.                                                                                                                                                                                                                                                                                                                                          |
+| **Tasks**            | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, MCP registry discovery, and a built-in report-only `qa` workflow that records its read-only contract and clearly labels agent-reported findings separately from Hecate-observed posture/evidence.                                                                                                                                                                    |
 | **Browser evidence** | Optional, local native-browser inspection for native project-assignment tasks: script-disabled, exact-origin `GET`/`HEAD` static loads in a fresh profile, explicit approval for every call, a single wall-clock timeout, cancellation after 4 MiB of observed aggregate response data (with possible buffered overshoot), and a bounded text-only evidence artifact. It requires an operator-configured executable and does not expose scripts, clicks, typing, downloads, screenshots, saved browser state, Hecate Chat, or External Agents. |
 | **External Agent**   | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including file inputs, readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.                                                                                                                                                                                                                                                                  |
 | **Observability**    | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                                                                                                                                                                                                                                                                                                    |
@@ -189,13 +189,14 @@ matters.
 
 Design direction that is not yet a runtime contract:
 
-- Named workflow modes such as `review`, `investigate`, `qa`, `ship`,
-  `security-audit`, and `design-review`.
+- Named workflow modes beyond the available report-only `qa` slice: `review`,
+  `investigate`, `ship`, `security-audit`, and `design-review`.
 - Interactive browser automation, visual capture, and broader browser-backed
   QA beyond the narrow text-evidence slice.
 - Richer Agent Presets and preset workflows.
 - Broader context-window management and external memory provider selection.
-- A first-class workflow/runbook API if the v0 experiments prove valuable.
+- A first-class workflow/runbook API if the report-only QA experiment proves
+  valuable.
 
 ## Quick Start
 
@@ -474,7 +475,7 @@ Operator guides:
 
 Hecate is public-alpha software. The fastest-moving areas are supervised agent
 execution, memory/context visibility, External Agent ergonomics, desktop
-packaging, workflow runbook experiments, and sandbox hardening.
+packaging, the report-only QA runbook experiment, and sandbox hardening.
 
 Near-term design direction:
 
@@ -484,8 +485,9 @@ Near-term design direction:
    the shared substrate for all agent work.
 3. Add reversible runtime-wide writer quiescence before enabling in-process data
    reset; the reserved endpoint currently fails closed without deleting state.
-4. Prototype one report-only `qa` workflow using existing task runs before
-   adding a standalone workflow engine.
+4. Evaluate the built-in report-only `qa` workflow's manifest/report UX before
+   considering a separately permissioned test runner or a standalone workflow
+   engine.
 5. Expand the conservative browser-evidence slice only after its approval,
    privacy, and state-isolation boundaries have proven useful.
 6. Promote successful workflow lessons only as memory candidates with
