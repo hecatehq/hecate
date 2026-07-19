@@ -1649,7 +1649,7 @@ export async function resumeTaskRun(taskID: string, runID: string): Promise<Task
 // resume" affordance after a cost_ceiling_exceeded failure. The
 // gateway persists the new ceiling on the task before queueing the
 // resumed run so the agent loop's budget check sees the raised
-// value on its very first turn (no race between PATCH-task and
+// value on its very first model call (no race between PATCH-task and
 // POST-resume). budgetMicrosUSD must be >= the current ceiling;
 // the gateway rejects lower values with a 400.
 export async function resumeTaskRunRaisingCeiling(
@@ -1663,22 +1663,22 @@ export async function resumeTaskRunRaisingCeiling(
   );
 }
 
-// retryTaskRunFromTurn re-runs an agent_loop run starting at turn N
+// retryTaskRunFromModelCall re-runs an agent_loop run starting at model call N
 // with the prior conversation preserved up to (but not including)
-// that turn's assistant message. Returns the newly-created run.
+// that model call's assistant message. Returns the newly-created run.
 // The optional reason is stored in the run.resumed_from_event event so operators
-// can annotate why they branched from a particular turn.
-export async function retryTaskRunFromTurn(
+// can annotate why they branched from a particular model call.
+export async function retryTaskRunFromModelCall(
   taskID: string,
   runID: string,
-  turn: number,
+  modelCallIndex: number,
   reason?: string,
 ): Promise<TaskRunResponse> {
   return fetchJSON<TaskRunResponse>(
-    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry-from-turn`,
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry-from-model-call`,
     {
       method: "POST",
-      body: { turn, reason: reason ?? "" },
+      body: { model_call_index: modelCallIndex, reason: reason ?? "" },
     },
   );
 }

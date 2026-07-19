@@ -9,14 +9,14 @@ type agentChatStreamFrame struct {
 }
 
 type agentChatStreamProjector struct {
-	snapshot    agentChatSnapshotConfig
-	observedRun bool
+	snapshot     agentChatSnapshotConfig
+	observedTurn bool
 }
 
 func newAgentChatStreamProjector(session chat.Session, snapshot agentChatSnapshotConfig) *agentChatStreamProjector {
 	return &agentChatStreamProjector{
-		snapshot:    snapshot,
-		observedRun: session.Status == "running",
+		snapshot:     snapshot,
+		observedTurn: session.Status == "running",
 	}
 }
 
@@ -39,9 +39,9 @@ func (p *agentChatStreamProjector) project(payload AgentChatLiveEvent) []agentCh
 		frame := agentChatStreamFrame{Event: "snapshot", Data: *payload.SessionUpdate}
 		frames := []agentChatStreamFrame{frame}
 		if payload.SessionUpdate.Data.Status == "running" {
-			p.observedRun = true
+			p.observedTurn = true
 		}
-		if p.observedRun && isTerminalAgentChatStatus(payload.SessionUpdate.Data.Status) {
+		if p.observedTurn && isTerminalAgentChatStatus(payload.SessionUpdate.Data.Status) {
 			frames = append(frames, agentChatStreamFrame{Event: "done", Data: *payload.SessionUpdate, Done: true})
 		}
 		return frames

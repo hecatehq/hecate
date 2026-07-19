@@ -312,7 +312,7 @@ blocks and remote image URLs are not persisted in those artifacts. Same-input
 resume and retry runs rehydrate through the opaque reference. At the final
 provider-dispatch boundary, Hecate atomically records the exact resolved route
 on the run before provider I/O, so a worker restart cannot Auto-route the image
-elsewhere; the first model may be policy-rewritten, then every later tool turn
+elsewhere; the first model may be policy-rewritten, then every later model call
 stays on that same route and instance. This private may-disclose fence is
 distinct from the transcript marker, which is set only after a dispatched
 provider call reports its route. A pre-dispatch failure does not mark the
@@ -445,7 +445,7 @@ Runtime references:
 - [Runtime API](docs/runtime/runtime-api.md) - Hecate-native endpoints, task
   lifecycle, approvals, streaming, projects, memory, work items, and handoffs.
 - [Agent runtime](docs/runtime/agent-runtime.md) - `agent_loop`, tools, costs,
-  retry-from-turn, stdout/stderr, and system prompt layers.
+  retry-from-model-call, stdout/stderr, and system prompt layers.
 - [Chat sessions](docs/runtime/chat-sessions.md) - transcript segments, direct
   turns, task-backed turns, queued prompts, context packets, and External Agent
   chats.

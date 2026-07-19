@@ -12,10 +12,10 @@ import (
 // against every Store implementation that ships in this binary
 // (memory + sqlite). Each backend should:
 //
-//   - delete `turn.completed` rows older than maxAge
+//   - delete `model.call.completed` rows older than maxAge
 //   - leave other event types alone (run.finished, approval.*, etc.)
-//   - when maxCount > 0, keep only the most-recent maxCount turn rows
-//     by sequence DESC, dropping older surviving turns
+//   - when maxCount > 0, keep only the most-recent maxCount model-call rows
+//     by sequence DESC, dropping older surviving model calls
 //
 // The age path is verified by injecting a stale CreatedAt directly;
 // the count path uses real append order.
@@ -36,11 +36,11 @@ func TestPrune_AgeAndCount(t *testing.T) {
 			store := tc.open(t)
 			ctx := context.Background()
 
-			// Stale (10h ago) turn that the age sweep should drop.
+			// Stale (10h ago) model call that the age sweep should drop.
 			stale, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 				TaskID:    "t-1",
 				RunID:     "r-1",
-				EventType: "turn.completed",
+				EventType: "model.call.completed",
 				CreatedAt: time.Now().UTC().Add(-10 * time.Hour),
 			})
 			if err != nil {
@@ -48,7 +48,7 @@ func TestPrune_AgeAndCount(t *testing.T) {
 			}
 
 			// Stale run.finished — must NOT be touched even though it's
-			// older than the cutoff. The sweep only targets turn rows.
+			// older than the cutoff. The sweep only targets model-call rows.
 			_, err = store.AppendRunEvent(ctx, types.TaskRunEvent{
 				TaskID:    "t-1",
 				RunID:     "r-1",
@@ -59,11 +59,11 @@ func TestPrune_AgeAndCount(t *testing.T) {
 				t.Fatalf("append run.finished: %v", err)
 			}
 
-			// Fresh turn — must survive the age sweep.
+			// Fresh model call — must survive the age sweep.
 			fresh, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 				TaskID:    "t-1",
 				RunID:     "r-1",
-				EventType: "turn.completed",
+				EventType: "model.call.completed",
 			})
 			if err != nil {
 				t.Fatalf("append fresh: %v", err)
@@ -97,24 +97,24 @@ func TestPrune_AgeAndCount(t *testing.T) {
 				}
 			}
 			if gotStale {
-				t.Errorf("stale turn survived age sweep")
+				t.Errorf("stale model call survived age sweep")
 			}
 			if !gotFresh {
-				t.Errorf("fresh turn was deleted by age sweep")
+				t.Errorf("fresh model call was deleted by age sweep")
 			}
 			if !gotRunFinished {
-				t.Errorf("run.finished was deleted — sweep should only touch turn.completed")
+				t.Errorf("run.finished was deleted — sweep should only touch model.call.completed")
 			}
 
 			// --- count cap ---
-			// Append four more fresh turn events so we have five total
+			// Append four more fresh model-call events so we have five total
 			// surviving. With maxCount=2, the three oldest survivors
 			// should be dropped, leaving two most-recent.
 			for i := 0; i < 4; i++ {
 				_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 					TaskID:    "t-1",
 					RunID:     "r-1",
-					EventType: "turn.completed",
+					EventType: "model.call.completed",
 				})
 				if err != nil {
 					t.Fatalf("append fresh[%d]: %v", i, err)
@@ -130,11 +130,11 @@ func TestPrune_AgeAndCount(t *testing.T) {
 			}
 
 			events, err = store.ListEvents(ctx, EventFilter{
-				EventTypes: []string{"turn.completed"},
+				EventTypes: []string{"model.call.completed"},
 				Limit:      100,
 			})
 			if err != nil {
-				t.Fatalf("ListEvents(turn): %v", err)
+				t.Fatalf("ListEvents(model call): %v", err)
 			}
 			if len(events) != 2 {
 				t.Fatalf("after count cap len = %d, want 2", len(events))
@@ -164,7 +164,7 @@ func TestPrune_NoOpWithZeroBounds(t *testing.T) {
 				_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 					TaskID:    "t-noop",
 					RunID:     "r-noop",
-					EventType: "turn.completed",
+					EventType: "model.call.completed",
 					CreatedAt: time.Now().UTC().Add(-100 * time.Hour),
 				})
 				if err != nil {

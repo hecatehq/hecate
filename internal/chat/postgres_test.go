@@ -150,10 +150,10 @@ func TestPostgresStoreMessageUpdateAndTaskLinkUseOneLockOrder(t *testing.T) {
 	if _, err := first.Create(context.Background(), Session{ID: sessionID, AgentID: DefaultAgentID}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := first.AppendMessage(context.Background(), sessionID, Message{ID: "msg_user", Role: "user"}); err != nil {
+	if _, err := first.AppendMessage(context.Background(), sessionID, Message{ID: "msg_user", TurnID: "turn_lock_order", Role: "user"}); err != nil {
 		t.Fatalf("AppendMessage user: %v", err)
 	}
-	if _, err := first.AppendMessage(context.Background(), sessionID, Message{ID: "msg_assistant", Role: "assistant", Status: "running"}); err != nil {
+	if _, err := first.AppendMessage(context.Background(), sessionID, Message{ID: "msg_assistant", TurnID: "turn_lock_order", Role: "assistant", Status: "running"}); err != nil {
 		t.Fatalf("AppendMessage assistant: %v", err)
 	}
 
@@ -207,7 +207,7 @@ func TestPostgresStoreMessageUpdateAndTaskLinkUseOneLockOrder(t *testing.T) {
 	if got.TaskID != "task_lock_order" || got.LatestRunID != "run_lock_order" {
 		t.Fatalf("session link = task %q run %q", got.TaskID, got.LatestRunID)
 	}
-	if len(got.Messages) != 2 || got.Messages[1].Content != "settled" || got.Messages[1].TaskID != "task_lock_order" || got.Messages[1].RunID != "run_lock_order" {
+	if len(got.Messages) != 2 || got.Messages[0].TurnID != "turn_lock_order" || got.Messages[1].TurnID != "turn_lock_order" || got.Messages[1].Content != "settled" || got.Messages[1].TaskID != "task_lock_order" || got.Messages[1].RunID != "run_lock_order" {
 		t.Fatalf("assistant projection = %+v", got.Messages)
 	}
 }

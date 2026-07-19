@@ -69,7 +69,7 @@ func (h *Handler) closeIdleChatSessions(ctx context.Context, timeout time.Durati
 		settleCtx, settleCancel := context.WithTimeout(ctx, 3*time.Second)
 		operationsDrained := lifecycleClosure.waitForOperations(settleCtx)
 		settleCancel()
-		if !operationsDrained || h.agentChatLive.hasRun(session.ID) {
+		if !operationsDrained || h.agentChatLive.hasTurn(session.ID) {
 			release()
 			continue
 		}

@@ -81,9 +81,13 @@ import {
 } from "./HecateTaskApprovalsBanner";
 
 type Props = {
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
+  focusMessageID?: string | null;
+  onNavigate?: (workspace: "connections" | "tasks" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
+  onMessageFocusUnavailable?: (sessionID: string, messageID: string) => void;
+  onSelectChat?: (sessionID: string, mode?: "push" | "replace") => void;
+  onSelectChatIntent?: (sessionID: string) => void;
 };
 
 const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
@@ -123,7 +127,15 @@ function chatAttachmentsDisabledReason({
   return "";
 }
 
-export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
+export function ChatView({
+  focusMessageID,
+  onNavigate,
+  onOpenTask,
+  onOpenTrace,
+  onMessageFocusUnavailable,
+  onSelectChat,
+  onSelectChatIntent,
+}: Props) {
   const runtime = useRuntime();
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
@@ -254,6 +266,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusComposerAfterNewChatRef = useRef(false);
+  const createdChatNavigationPendingRef = useRef(false);
   const workspaceRefreshStateRef = useRef({ agentBusy: false, sessionID: "" });
 
   const activeSessionIsExternal = Boolean(
@@ -314,6 +327,17 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       }),
     [messages],
   );
+  useEffect(() => {
+    if (!focusMessageID || !selectedChatReady) return;
+    if (visibleMessages.some((message) => message.id === focusMessageID)) return;
+    onMessageFocusUnavailable?.(activeSessionID, focusMessageID);
+  }, [
+    activeSessionID,
+    focusMessageID,
+    onMessageFocusUnavailable,
+    selectedChatReady,
+    visibleMessages,
+  ]);
   const messageHistory = useMemo(
     () =>
       visibleMessages
@@ -657,7 +681,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const selectedCancellingTurnKind = selectedChatCancelling
     ? chat.state.chatCancellingTurnKind
     : "";
-  const activeRunKind = selectedCancellingTurnKind
+  const activeTurnKind = selectedCancellingTurnKind
     ? selectedCancellingTurnKind
     : state.chatTurnActive && selectedTurnLoading && chat.state.chatTurnKind
       ? chat.state.chatTurnKind
@@ -666,7 +690,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         : activeHecateAgentSegment || hecateTaskToolsAvailable
           ? "hecate_task"
           : "direct_model";
-  const activeRunCancellationAvailable = state.chatTurnActive
+  const activeTurnCancellationAvailable = state.chatTurnActive
     ? selectedTurnLoading && chat.state.chatTurnCancellationAvailable
     : agentBusy;
   const chatCreationPending = state.chatCreating;
@@ -866,8 +890,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   useEffect(() => {
-    if (selectedChatReady) setDraftChatStarted(false);
-  }, [selectedChatReady]);
+    if (!selectedChatReady) return;
+    if (createdChatNavigationPendingRef.current) {
+      createdChatNavigationPendingRef.current = false;
+      onSelectChat?.(activeSessionID, "replace");
+    }
+    setDraftChatStarted(false);
+  }, [activeSessionID, onSelectChat, selectedChatReady]);
 
   useEffect(() => {
     if (!selectedChatReady || !activeWorkspacePath.trim()) {
@@ -1092,9 +1121,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       {sidebarOpen && (
         <ChatSidebar
           isAgentChat={isAgentChat}
-          onSelectSession={async (sessionID) => {
+          onSelectSession={async (sessionID, mode) => {
+            createdChatNavigationPendingRef.current = false;
+            onSelectChatIntent?.(sessionID);
             const selected = await actions.selectChatSession(sessionID);
             if (!selected) return false;
+            if (mode) onSelectChat?.(sessionID, mode);
+            else onSelectChat?.(sessionID);
             setApprovalModal(null);
             setDraftChatStarted(!sessionID);
             focusComposerWhenReady();
@@ -1102,6 +1135,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             return true;
           }}
           onCreateChat={(agentID, projectID) => {
+            createdChatNavigationPendingRef.current = true;
             setApprovalModal(null);
             setChatSettingsOpen(false);
             setDraftChatStarted(true);
@@ -1288,6 +1322,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               <ChatTranscript
                 isHecateAgentChat={isHecateAgentChat}
                 activeSessionID={activeSessionID}
+                focusMessageID={focusMessageID}
                 transcriptItems={transcriptItems}
                 visibleMessageCount={visibleMessages.length}
                 streaming={streaming}
@@ -1469,7 +1504,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 isHecateChat={isHecateChat}
                 isExternalAgentChat={isExternalAgentChat}
                 hecateTaskToolsAvailable={hecateTaskToolsAvailable}
-                activeRunKind={activeRunKind}
+                activeTurnKind={activeTurnKind}
                 activeSessionID={activeSessionID}
                 textareaRef={textareaRef}
                 composerVisible={composerVisible}
@@ -1484,7 +1519,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 messageSendBlocked={messageSendBlocked}
                 sendDisabled={sendDisabled}
                 agentBusy={agentBusy}
-                activeRunCancellationAvailable={activeRunCancellationAvailable}
+                activeTurnCancellationAvailable={activeTurnCancellationAvailable}
                 attachmentTurnInFlight={attachmentTurnInFlight}
                 queueingMessage={queueingMessage}
                 attachmentAcceptance={attachmentAcceptance}
@@ -1638,7 +1673,7 @@ function buildActiveChatHeaderSubline({
   if (isExternalAgentChat) {
     const base = activeSession
       ? formatAgentSessionLabel(activeSession, selectedAgent)
-      : `${chatAgentOption(newChatAgentID, adapters).label} · new session`;
+      : `${chatAgentOption(newChatAgentID, adapters).label} · New chat`;
     return [base, activeSession?.workspace || ""].filter(Boolean).join(" · ");
   }
   const mode = isHecateAgentChat
@@ -1699,9 +1734,9 @@ function formatAgentSessionLabel(
       ? chatAgentOption(session.agent_id, []).label
       : "External agent");
   if (!session) {
-    return adapter?.available ? `${agentName} · New session` : `${agentName} · Not ready`;
+    return adapter?.available ? `${agentName} · New chat` : `${agentName} · Not ready`;
   }
-  return `${agentName} session · ${formatChatStatusLabel(session.status)}`;
+  return `${agentName} · ${formatChatStatusLabel(session.status)}`;
 }
 
 function formatChatStatusLabel(status?: string): string {

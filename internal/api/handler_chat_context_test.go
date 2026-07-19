@@ -556,6 +556,7 @@ func TestChatMessageContextEndpointReturnsPacket(t *testing.T) {
 	}
 	if _, err := chatStore.AppendMessage(ctx, "chat_1", chat.Message{
 		ID:      "msg_1",
+		TurnID:  "turn_1",
 		Role:    "assistant",
 		Content: "done",
 		Context: packet,
@@ -573,6 +574,9 @@ func TestChatMessageContextEndpointReturnsPacket(t *testing.T) {
 	}
 	if len(resp.Data.Items) != 1 || resp.Data.Items[0].Kind != "transcript" {
 		t.Fatalf("context packet items = %+v, want transcript item", resp.Data.Items)
+	}
+	if resp.Data.Refs == nil || resp.Data.Refs.SessionID != "chat_1" || resp.Data.Refs.TurnID != "turn_1" || resp.Data.Refs.MessageID != "msg_1" || resp.Data.Refs.RunID != "" {
+		t.Fatalf("context packet refs = %+v, want chat/turn/message identity without task run", resp.Data.Refs)
 	}
 }
 
@@ -827,8 +831,8 @@ func TestRenderChatContextPacketIncludesItems(t *testing.T) {
 		MessageCount:  2,
 		Refs: &chat.ContextRefs{
 			SessionID: "chat_1",
+			TurnID:    "turn_1",
 			MessageID: "msg_1",
-			RunID:     "run_1",
 		},
 		Items: []chat.ContextItem{{
 			Section:         contextSectionRuntime,
@@ -848,7 +852,7 @@ func TestRenderChatContextPacketIncludesItems(t *testing.T) {
 	if rendered == nil {
 		t.Fatal("renderChatContextPacket returned nil, want packet")
 	}
-	if rendered.ID != "ctx_1" || rendered.Refs == nil || rendered.Refs.SessionID != "chat_1" || rendered.Refs.RunID != "run_1" {
+	if rendered.ID != "ctx_1" || rendered.Refs == nil || rendered.Refs.SessionID != "chat_1" || rendered.Refs.TurnID != "turn_1" || rendered.Refs.MessageID != "msg_1" || rendered.Refs.RunID != "" {
 		t.Fatalf("rendered packet ids/refs = %+v, want ctx_1 with refs", rendered)
 	}
 	assertRenderedContextItem(t, *rendered, "external_agent_session", contextTrustRuntimeState, "adapter:Cursor Agent")
@@ -874,6 +878,8 @@ func TestNormalizeContextPacketDoesNotMutateInput(t *testing.T) {
 
 	normalized := chatcontext.Normalize(packet, chat.ContextRefs{
 		SessionID: "chat_1",
+		TurnID:    "turn_1",
+		TaskID:    "task_1",
 		RunID:     "run_1",
 	})
 
@@ -883,8 +889,8 @@ func TestNormalizeContextPacketDoesNotMutateInput(t *testing.T) {
 	if packet.Items[0].Section != "" {
 		t.Fatalf("input packet item section mutated to %q, want empty section", packet.Items[0].Section)
 	}
-	if normalized.Refs == nil || normalized.Refs.RunID != "run_1" {
-		t.Fatalf("normalized refs = %+v, want run_1", normalized.Refs)
+	if normalized.Refs == nil || normalized.Refs.TurnID != "turn_1" || normalized.Refs.TaskID != "task_1" || normalized.Refs.RunID != "run_1" {
+		t.Fatalf("normalized refs = %+v, want turn_1 and task_1/run_1", normalized.Refs)
 	}
 	if normalized.Items[0].Section != contextSectionRuntime {
 		t.Fatalf("normalized item section = %q, want %q", normalized.Items[0].Section, contextSectionRuntime)

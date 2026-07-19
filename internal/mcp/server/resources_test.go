@@ -67,7 +67,7 @@ func TestDefaultResource_ReadTaskDetail(t *testing.T) {
 	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/hecate/v1/tasks/task-123": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"id":"task-123","title":"Inspect","status":"completed","execution_kind":"agent_loop","step_count":4}}`))
+			_, _ = w.Write([]byte(`{"data":{"id":"task-123","title":"Inspect","status":"completed","execution_kind":"agent_loop","latest_run_step_count":4}}`))
 		},
 	})
 	server := NewServer("t", "0")
@@ -81,7 +81,7 @@ func TestDefaultResource_ReadTaskDetail(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.Contents[0].Text), &body); err != nil {
 		t.Fatalf("resource is not JSON: %v", err)
 	}
-	if body.Data.ID != "task-123" || body.Data.StepCount != 4 {
+	if body.Data.ID != "task-123" || body.Data.LatestRunStepCount != 4 {
 		t.Fatalf("task detail = %+v, want task-123 with 4 steps", body.Data)
 	}
 }

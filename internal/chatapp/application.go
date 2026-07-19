@@ -982,7 +982,7 @@ func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResu
 	if limits.MaxTurnsPerSession > 0 && cmd.Session.TurnsUsed >= limits.MaxTurnsPerSession {
 		return nil, MessageLimitError{
 			Code:      "turns",
-			Message:   fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", limits.MaxTurnsPerSession),
+			Message:   fmt.Sprintf("Chat has reached the %d-turn limit; start a new Chat to continue", limits.MaxTurnsPerSession),
 			Limit:     limits.MaxTurnsPerSession,
 			TurnsUsed: cmd.Session.TurnsUsed,
 		}
@@ -990,7 +990,7 @@ func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResu
 	if limits.MaxSessionDuration > 0 && !cmd.Session.CreatedAt.IsZero() && now.Sub(cmd.Session.CreatedAt) >= limits.MaxSessionDuration {
 		return nil, MessageLimitError{
 			Code:      "duration",
-			Message:   fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration),
+			Message:   fmt.Sprintf("Chat has reached the %s wall-clock limit; start a new Chat to continue", limits.MaxSessionDuration),
 			LimitMS:   limits.MaxSessionDuration.Milliseconds(),
 			StartedAt: cmd.Session.CreatedAt,
 			TurnsUsed: cmd.Session.TurnsUsed,
@@ -999,7 +999,7 @@ func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResu
 	if limits.IdleTimeout > 0 && !cmd.Session.UpdatedAt.IsZero() && now.Sub(cmd.Session.UpdatedAt) >= limits.IdleTimeout {
 		return nil, MessageLimitError{
 			Code:      "idle",
-			Message:   fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout),
+			Message:   fmt.Sprintf("Chat was idle for at least %s; start a new Chat to continue", limits.IdleTimeout),
 			LimitMS:   limits.IdleTimeout.Milliseconds(),
 			UpdatedAt: cmd.Session.UpdatedAt,
 			TurnsUsed: cmd.Session.TurnsUsed,

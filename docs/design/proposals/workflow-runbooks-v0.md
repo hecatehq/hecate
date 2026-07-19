@@ -174,7 +174,7 @@ type RunbookPolicy struct {
 
 type RunbookStepSpec struct {
     ID               string
-    Kind             string // model_turn | shell_check | browser_check | diff_review | approval_gate
+    Kind             string // model_call | shell_check | browser_check | diff_review | approval_gate
     PromptTemplate   string
     Tools            []string
     RequiresApproval bool

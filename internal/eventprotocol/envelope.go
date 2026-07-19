@@ -159,7 +159,7 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 	case "run.finished":
 		return compactMap(map[string]any{
 			"final_status":     "completed",
-			"turns":            numberValue(run, "StepCount", "step_count"),
+			"model_call_count": firstPresent(data["model_call_count"], numberValue(run, "ModelCallCount", "model_call_count")),
 			"cost_micros_usd":  firstPresent(data["cost_micros_usd"], numberValue(run, "TotalCostMicrosUSD", "total_cost_micros_usd")),
 			"duration_ms":      durationMSFromRun(run),
 			"error":            firstPresent(data["error"]),
@@ -171,11 +171,11 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 			message = stringValue(run, "LastError", "last_error")
 		}
 		return compactMap(map[string]any{
-			"code":        firstNonEmptyString(stringValue(run, "OtelStatusMessage", "otel_status_message"), "run_failed"),
-			"message":     message,
-			"retriable":   false,
-			"turns":       numberValue(run, "StepCount", "step_count"),
-			"duration_ms": durationMSFromRun(run),
+			"code":             firstNonEmptyString(stringValue(run, "OtelStatusMessage", "otel_status_message"), "run_failed"),
+			"message":          message,
+			"retriable":        false,
+			"model_call_count": firstPresent(data["model_call_count"], numberValue(run, "ModelCallCount", "model_call_count")),
+			"duration_ms":      durationMSFromRun(run),
 		})
 	case "run.cancelled":
 		reason := firstString(data, "reason")
@@ -188,11 +188,11 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 		})
 	case "run.resumed_from_event":
 		out := compactMap(map[string]any{
-			"from_run_id":           firstPresent(data["resumed_from_run_id"], data["from_run_id"]),
-			"from_sequence":         firstPresent(data["resume_from_event_sequence"], data["from_sequence"]),
-			"reason":                data["reason"],
-			"retry_from_turn":       data["retry_from_turn"],
-			"prior_cost_micros_usd": numberValue(run, "PriorCostMicrosUSD", "prior_cost_micros_usd"),
+			"from_run_id":             data["from_run_id"],
+			"from_sequence":           firstPresent(data["resume_from_event_sequence"], data["from_sequence"]),
+			"reason":                  data["reason"],
+			"source_model_call_index": data["source_model_call_index"],
+			"prior_cost_micros_usd":   numberValue(run, "PriorCostMicrosUSD", "prior_cost_micros_usd"),
 		})
 		return out
 	case "gap.run_disconnected":
@@ -203,7 +203,7 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 		})
 		copyKnown(out, data, "prior_status", "recovered_status", "recovery_strategy", "stale_threshold_ms")
 		return out
-	case "approval.requested", "approval.resolved", "turn.completed":
+	case "approval.requested", "approval.resolved", "model.call.completed":
 		return data
 	default:
 		if strings.HasPrefix(event.EventType, "tool.") || strings.HasPrefix(event.EventType, "policy.") {
@@ -236,6 +236,7 @@ func runSnapshot(data map[string]any) map[string]any {
 			"ProviderKind":          run.ProviderKind,
 			"WorkspacePath":         run.WorkspacePath,
 			"StepCount":             run.StepCount,
+			"ModelCallCount":        run.ModelCallCount,
 			"TotalCostMicrosUSD":    run.TotalCostMicrosUSD,
 			"PriorCostMicrosUSD":    run.PriorCostMicrosUSD,
 			"LastError":             run.LastError,
@@ -250,6 +251,7 @@ func runSnapshot(data map[string]any) map[string]any {
 			"provider_kind":         run.ProviderKind,
 			"workspace_path":        run.WorkspacePath,
 			"step_count":            run.StepCount,
+			"model_call_count":      run.ModelCallCount,
 			"total_cost_micros_usd": run.TotalCostMicrosUSD,
 			"prior_cost_micros_usd": run.PriorCostMicrosUSD,
 			"last_error":            run.LastError,

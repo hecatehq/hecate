@@ -3,9 +3,16 @@
 All chat persistence in Hecate today goes through chat sessions under
 `/hecate/v1/chat/sessions`. The same store backs two session-owner categories
 in the Chats workspace: Hecate-owned chats and supervised External Agent
-sessions (Codex, Claude Code, Cursor Agent). Hecate-owned chats can contain direct
-model turns and task-backed tools-on turns with a backing `agent_loop` task — see
+sessions (Codex, Claude Code, Cursor Agent). Hecate-owned chats can contain
+direct-model turns and task-backed tools-on turns with a backing `agent_loop` task — see
 [agent-runtime.md](agent-runtime.md) for the runtime.
+
+Every admitted Chat turn has a stable `turn_id`. Its user and assistant
+messages carry that same identity, and assistant context packets repeat it in
+`refs.turn_id`. A task-backed turn additionally carries `task_id` and `run_id`,
+where `run_id` identifies the backing Task Run. Direct-model and External Agent
+turns do not have a Task Run and therefore do not use `run_id`. Consumers must
+not infer a Turn identity from `run_id` when `turn_id` is absent.
 
 The Chats workspace has one shell and an agent picker. **Hecate** is always
 first and covers both direct model chat and Hecate-owned agent execution: the
@@ -114,7 +121,8 @@ Assistant turns may also expose a collapsed **context** inspector. This is a
 metadata snapshot that answers "what kind of context did this turn use?" without
 storing the prompt body. The packet records execution mode, provider/model when
 Hecate owns routing, workspace path, whether a system prompt was included, the
-visible transcript message count for that turn, the legacy high-level
+visible transcript message count for that turn, exact Chat/Turn/Message refs,
+Task/Run refs for task-backed turns, the legacy high-level
 `sources`, and itemized `items` with `kind`, `trust_level`, `origin`, `title`,
 optional `body` / `body_ref`, `included`, and `inclusion_reason`. Current items
 cover system prompt presence, prompt-policy notes, transcript count, enabled
@@ -148,7 +156,7 @@ summary of the older transcript window and stores it as `context_summary` with
 empty, or fails, Hecate falls back to the deterministic transcript summary:
 one bounded line per compacted message, capped from the oldest side, with
 `strategy: "deterministic_transcript_summary"`. Original chat messages remain
-stored; future Hecate-owned model turns inject the summary as background and
+stored; future Hecate-owned direct-model turns inject the summary as background and
 send newer transcript messages in full.
 
 ### Queued text delivery
@@ -311,8 +319,8 @@ check but before a successful destructive response fences the deleted sessions.
 These browser reservations are UX admission only. The backend gate remains the
 authoritative cross-tab fence and returns `chat.session_create_conflict` for a
 create that overlaps project deletion.
-Destructive operations on an existing chat also close that session's backend
-lifecycle before cancelling or checking its active run. Request snapshots are
+Destructive operations on an existing Chat also close that Chat's backend
+lifecycle before cancelling or checking its active Turn. Request snapshots are
 leased and released, allowing inactive lifecycle state to be reclaimed after
 all delayed requests drain. A turn that registers first is cancelled and
 awaited; a delete, project delete, or native-session close that closes
@@ -323,8 +331,8 @@ but execute serially and reread the authoritative session after acquiring
 ownership, so stale task or native-session fields are never dispatched.
 Task-backed Hecate Chat deletion additionally closes the shared task-origin
 mutation gate. It waits for already-admitted Task start, retry, resume,
-continue, retry-from-turn, and approval-resolution mutations, then cancels every
-non-terminal run whose durable Task origin names the chat while no later
+continue, retry-from-model-call, and approval-resolution mutations, then
+cancels every non-terminal Task Run whose durable Task origin names the Chat while no later
 mutation can enter. The gate remains held through transcript deletion and
 commits that deletion before release, so retained Task history stays
 inspectable but cannot be restarted or requeued after its chat owner
@@ -589,20 +597,20 @@ Hecate confirms or reloads the authoritative value. The composer announces the
 pending state and associates it with the disabled Send and attachment controls.
 After its first task-backed segment exists, the selector is locked so one
 transcript cannot silently switch between managed and live-folder execution. A
-managed run atomically replaces the session and launching message paths with the
-actual generated execution path, keeping Review, Files, and evidence scoped to
+managed Task Run atomically replaces the session and launching message paths
+with the actual generated execution path, keeping Review, Files, and evidence scoped to
 the files the agent changed. If a provider/model/MCP change starts a new task
 segment, it reuses that managed root so unstaged and untracked work remains
 visible to the next agent.
 
 All non-empty Hecate settings writes share the same exclusive turn boundary,
-including Compact command output changes. If the atomic task/run link cannot be
+including Compact command output changes. If the atomic Task/Run link cannot be
 confirmed after retry and an authoritative reread, Hecate cancels the backing
-run, terminalizes the assistant as failed, and keeps Review/Files closed. A
+Task Run, terminalizes the assistant as failed, and keeps Review/Files closed. A
 same-`client_request_id` replay returns that terminal transcript without
-dispatching another run. Durable chat-origin metadata remains a fallback Stop
+dispatching another Task Run. Durable chat-origin metadata remains a fallback Stop
 path if the first cancellation attempt could not be confirmed.
-Until that origin run is terminal, Hecate also rejects another turn instead of
+Until that origin Task Run is terminal, Hecate also rejects another turn instead of
 starting a second backing task against an incompletely linked transcript.
 
 Tools decides whether future turns stay as direct model calls or enter the
@@ -614,7 +622,7 @@ gateway process `PATH`, Hecate suggests enabling it during new-chat onboarding.
 When enabled, future shell/git tool calls in task-backed turns launch as
 `rtk sh -lc <command>`. Hecate still performs its own approval, policy,
 sandbox, timeout, and output-limit checks; RTK only changes the command output
-shape the model sees. Task/run activity carries the resulting argv and
+shape the model sees. Task Run activity carries the resulting argv and
 `hecate.sandbox.rtk.enabled` flag so debugging can confirm whether a command
 actually used RTK. When compact output is enabled, telemetry also carries
 `hecate.sandbox.rtk.command.before` and `hecate.sandbox.rtk.command.after` so
@@ -632,7 +640,7 @@ instead of split across two execution-mode values:
   and store user/assistant messages without creating Tasks.
 - **Task-backed Hecate Chat** segments map a tools-on stretch of a chat to one
   visible `agent_loop` task. The first tool-enabled prompt creates the task;
-  follow-up prompts continue the latest terminal run when the previous segment
+  follow-up prompts continue the latest terminal Task Run when the previous segment
   was also task-backed. If tools are re-enabled after a direct model segment,
   Hecate creates a new task-backed segment in the same transcript.
   While a task-backed segment is queued, running, or awaiting approval, the
@@ -640,9 +648,9 @@ instead of split across two execution-mode values:
   transcript cannot race a live task loop against a separate model turn. The
   composer shows the busy state with **Open task** and **Stop** actions so the
   operator can jump to the canonical Task view or cancel the active loop.
-  If the operator submits another prompt while the active run is still busy,
+  If the operator submits another prompt while the backing Task Run is still busy,
   the UI keeps it in a local **Queued next** FIFO and submits it automatically
-  after the run or approval reaches a terminal state. Queued prompts preserve
+  after that Run or approval reaches a terminal state. Queued prompts preserve
   the originating chat session and project plus the selected
   runtime/model/workspace snapshot from the moment they were queued, so
   switching to another chat cannot drain a prompt into the wrong transcript and
@@ -732,7 +740,7 @@ instead of split across two execution-mode values:
   execution remain request-bound and persist a cancelled terminal assistant
   after disconnect. The tools-on Hecate task watcher is server-owned after
   commit and continues across browser disconnect until the task finishes, the
-  operator stops it, or the 30-minute chat-run ceiling expires. That ceiling
+  operator stops it, or the 30-minute Chat-turn ceiling expires. That ceiling
   ends the chat watcher and terminalizes the chat turn; it does not cancel the
   orchestrator-owned Task. A Task that remains active, including one awaiting
   approval, stays visible and independently cancellable in Tasks. Replaying the
@@ -740,14 +748,16 @@ instead of split across two execution-mode values:
   ACP dispatch.
   The browser keeps a replayed queue item at the FIFO head until the exact
   committed user message has a terminal assistant before the next user message,
-  with compatible segment/run/task identity when both messages expose it. It
+  with the same exact `turn_id`. Missing or mismatched Turn identity fails
+  reconciliation closed; the browser does not fall back to segment, Task, or
+  Run identity. It
   observes the live stream and polls the authoritative session concurrently; if
   terminal proof is unavailable, the item remains `reconcile_required` and later
   queued work does not drain.
-  Chats projects the backing run activity into the transcript, links each
-  assistant turn back to its backing Task/run, and can approve/reject pending
+  Chats projects the backing Task Run activity into the transcript, links each
+  assistant turn back to its backing Task/Run, and can approve/reject pending
   task approvals inline. Low-level artifacts stay under transcript **Details**,
-  while Tasks remains the canonical run/artifact view. On refresh, the UI
+  while Tasks remains the canonical Run/artifact view. On refresh, the UI
   rehydrates the active Hecate Chat from the persisted session/task snapshot so
   queued, running, and awaiting-approval states stay visible without sending a
   new prompt.
@@ -759,16 +769,17 @@ instead of split across two execution-mode values:
   title/action-count metadata and a **Review in Projects** action. The linked
   artifact is the handoff; Chats does not create a second Project Assistant chat
   thread.
-  Deleting a Hecate Chat cancels any non-terminal backing task run before the
+  Deleting a Hecate Chat cancels any non-terminal backing Task Run before the
   transcript is removed; the backing Task record remains in Tasks for audit and
   artifact history.
   When the backing provider supports streaming, the running assistant message
-  updates from the task conversation artifact before the task run completes.
+  updates from the task conversation artifact before the Task Run completes.
 
-  API responses include derived `turn_kind` on messages and transcript
-  segments. Clients should prefer `turn_kind` (`direct_model`, `hecate_task`,
-  or `external_agent`) for UI routing and keep `execution_mode` /
-  `tools_enabled` as durable compatibility fields.
+  API responses include canonical `turn_id` and derived `turn_kind` on messages,
+  plus transcript segments. Clients should use `turn_id` for exact Chat Turn
+  identity and `turn_kind` (`direct_model`, `hecate_task`, or `external_agent`)
+  for UI routing. `run_id` remains exclusively the backing Task Run identity
+  on task-backed messages.
 
 - **External Agent** sessions map one chat session to one supervised ACP
   session such as Codex, Claude Code, Cursor Agent, or Grok Build. Composer
@@ -793,7 +804,7 @@ behavior is in [External Agents](external-agents.md).
 
 Hecate uses one compact activity vocabulary across Hecate Chat transcripts and
 Task Detail. This is deliberate: an operator should see the same story whether
-they stay in Chats or open the canonical Task/run view.
+they stay in Chats or open the canonical Task/Run view.
 
 Chat titles are operator metadata and can be renamed from the Chats sidebar.
 Renaming works the same way for Hecate Chat, direct model turns, and External
@@ -803,12 +814,12 @@ session.
 
 The shared renderer keeps the high-signal path visible:
 
-- model turns / thinking
+- model calls / thinking
 - tool calls
 - approval requested / approved / rejected / cancelled
 - workspace changes
 - final answer
-- terminal run state
+- terminal outcome
 
 Lower-level task artifacts, raw output markers, and internal bookkeeping are
 grouped under **Details**. Chats keeps those details collapsed by default so the

@@ -261,14 +261,14 @@ func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) 
 	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run, result.Task)})
 }
 
-// HandleRetryTaskRunFromTurn re-runs an agent_loop run from turn N,
+// HandleRetryTaskRunFromModelCall re-runs an agent_loop run from model call N,
 // preserving the source conversation up to (but not including) that
-// turn's assistant message. The new run is a sibling of the source
+// call's assistant message. The new run is a sibling of the source
 // (not a child) — it gets its own run number and step indices. Only
 // terminal runs are eligible; the source must have produced an
-// agent_conversation artifact, and the requested turn must lie within
-// the source's completed assistant-turn count.
-func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Request) {
+// agent_conversation artifact, and the requested call must lie within
+// the source Run's authoritative model_call_count.
+func (h *Handler) HandleRetryTaskRunFromModelCall(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
@@ -278,24 +278,24 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	var req RetryFromTurnRequest
+	var req RetryFromModelCallRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := h.taskApplication().RetryTaskRunFromTurn(ctx, task, run, taskapp.RetryFromTurnCommand{
-		Turn:   req.Turn,
-		Reason: req.Reason,
+	result, err := h.taskApplication().RetryTaskRunFromModelCall(ctx, task, run, taskapp.RetryFromModelCallCommand{
+		ModelCallIndex: req.ModelCallIndex,
+		Reason:         req.Reason,
 	})
 	if err != nil {
 		if writeTaskAppError(w, err) {
 			return
 		}
-		// Validation failures (missing conversation, turn out of
+		// Validation failures (missing conversation, model call out of
 		// range, malformed artifact) are user errors — return 400 so
 		// the UI can render an actionable message rather than a 500.
 		msg := err.Error()
 		if strings.Contains(msg, "no agent_conversation") ||
-			strings.Contains(msg, "turn") ||
+			strings.Contains(msg, "model call") ||
 			strings.Contains(msg, "malformed agent_conversation") {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, msg)
 			return

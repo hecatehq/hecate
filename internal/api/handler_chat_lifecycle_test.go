@@ -53,26 +53,26 @@ func TestAgentChatLiveLifecycleSnapshotsStayStaleAcrossClose(t *testing.T) {
 	closure := live.closeSessionLifecycle("session_1")
 	duringClose := live.snapshotLifecycle("session_1")
 
-	if got := live.registerRun(beforeClose, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun(snapshot before close) = %v, want admission closed", got)
+	if got := live.registerTurn(beforeClose, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn(snapshot before close) = %v, want admission closed", got)
 	}
-	if got := live.registerRun(duringClose, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun(snapshot during close) = %v, want admission closed", got)
+	if got := live.registerTurn(duringClose, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn(snapshot during close) = %v, want admission closed", got)
 	}
 
 	closure.release()
-	if got := live.registerRun(beforeClose, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun(snapshot before released close) = %v, want admission closed", got)
+	if got := live.registerTurn(beforeClose, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn(snapshot before released close) = %v, want admission closed", got)
 	}
-	if got := live.registerRun(duringClose, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun(snapshot during released close) = %v, want admission closed", got)
+	if got := live.registerTurn(duringClose, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn(snapshot during released close) = %v, want admission closed", got)
 	}
 
 	current := live.snapshotLifecycle("session_1")
-	if got := live.registerRun(current, func() {}); got != agentChatRunAccepted {
-		t.Fatalf("registerRun(current snapshot) = %v, want accepted", got)
+	if got := live.registerTurn(current, func() {}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn(current snapshot) = %v, want accepted", got)
 	}
-	live.clearRun("session_1")
+	live.clearTurn("session_1")
 
 	live.mu.Lock()
 	retained := len(live.lifecycles)
@@ -96,8 +96,8 @@ func TestAgentChatLiveLifecycleRejectsReleasedSnapshotAfterReclamation(t *testin
 	snapshot := live.snapshotLifecycle("session_released")
 	snapshot.release()
 
-	if got := live.registerRun(snapshot, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun(released snapshot) = %v, want admission closed", got)
+	if got := live.registerTurn(snapshot, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn(released snapshot) = %v, want admission closed", got)
 	}
 	live.mu.Lock()
 	retained := len(live.lifecycles)
@@ -319,7 +319,7 @@ func TestAgentChatCloseRereadsSessionAfterConcurrentDelete(t *testing.T) {
 	}
 }
 
-func TestAgentChatIdleSweepSkipsRunThatRegisteredFirst(t *testing.T) {
+func TestAgentChatIdleSweepSkipsTurnThatRegisteredFirst(t *testing.T) {
 	store := chat.NewMemoryStore()
 	now := time.Now().UTC()
 	old := now.Add(-2 * time.Hour)
@@ -342,10 +342,10 @@ func TestAgentChatIdleSweepSkipsRunThatRegisteredFirst(t *testing.T) {
 	apiHandler.SetAgentChatStore(store)
 	apiHandler.SetAgentChatRunner(runner)
 
-	if got := apiHandler.agentChatLive.registerRun(apiHandler.agentChatLive.snapshotLifecycle(session.ID), func() {}); got != agentChatRunAccepted {
-		t.Fatalf("registerRun() = %v, want accepted", got)
+	if got := apiHandler.agentChatLive.registerTurn(apiHandler.agentChatLive.snapshotLifecycle(session.ID), func() {}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn() = %v, want accepted", got)
 	}
-	defer apiHandler.agentChatLive.clearRun(session.ID)
+	defer apiHandler.agentChatLive.clearTurn(session.ID)
 
 	apiHandler.closeIdleChatSessions(context.Background(), time.Hour, now)
 
@@ -357,6 +357,6 @@ func TestAgentChatIdleSweepSkipsRunThatRegisteredFirst(t *testing.T) {
 		t.Fatalf("session after idle sweep = status %q native %q driver %q, want active handles preserved", got.Status, got.NativeSessionID, got.DriverKind)
 	}
 	if len(runner.closedSessions) != 0 {
-		t.Fatalf("closed sessions = %#v, want registered run skipped", runner.closedSessions)
+		t.Fatalf("closed sessions = %#v, want registered turn skipped", runner.closedSessions)
 	}
 }

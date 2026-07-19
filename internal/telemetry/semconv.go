@@ -140,6 +140,9 @@ const (
 	// External agent chats
 	AttrHecateChatSessionID              = "hecate.chat.session.id"
 	AttrHecateChatMessageID              = "hecate.chat.message.id"
+	AttrHecateChatTurnID                 = "hecate.chat.turn.id"
+	AttrHecateChatTurnStatus             = "hecate.chat.turn.status"
+	AttrHecateChatTurnDurationMS         = "hecate.chat.turn.duration_ms"
 	AttrHecateChatTimingBucket           = "hecate.chat.timing.bucket"
 	AttrHecateChatTimingTotalMS          = "hecate.chat.timing.total_ms"
 	AttrHecateChatTimingQueueMS          = "hecate.chat.timing.queue_ms"

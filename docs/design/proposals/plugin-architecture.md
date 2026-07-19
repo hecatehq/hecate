@@ -210,7 +210,7 @@ has to be enabled or used through the relevant Hecate surface.
 A plugin can ship or reference MCP server configs. Hecate may use them in two
 ways:
 
-- Mount into Hecate-owned task/chat runs through the existing `mcp_servers`
+- Mount into Hecate-owned Task Runs and Chat Turns through the existing `mcp_servers`
   path.
 - Expose as a connector-backed resource/tool surface in Hecate UI after an
   operator enables it.

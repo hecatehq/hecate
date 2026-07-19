@@ -57,14 +57,25 @@ func (c *agentLoopConversation) TailAssistantForResume() (types.Message, bool) {
 	return last, true
 }
 
-func (c *agentLoopConversation) UpsertArtifact(spec ExecutionSpec, turn int, when time.Time) (*types.TaskArtifact, error) {
-	return upsertConversationArtifact(spec, c.artifactID, c.messages, turn, when)
+func (c *agentLoopConversation) TailCompletedAssistant() (types.Message, bool) {
+	if len(c.messages) == 0 {
+		return types.Message{}, false
+	}
+	last := c.messages[len(c.messages)-1]
+	if last.Role != "assistant" || len(last.ToolCalls) != 0 {
+		return types.Message{}, false
+	}
+	return last, true
+}
+
+func (c *agentLoopConversation) UpsertArtifact(spec ExecutionSpec, modelCall int, when time.Time) (*types.TaskArtifact, error) {
+	return upsertConversationArtifact(spec, c.artifactID, c.messages, modelCall, "ready", when)
 }
 
 // pendingToolCallsForResume detects the resume-after-approval state:
 // the conversation tail is an assistant message with tool_calls and
 // no subsequent tool-role results. Returns the list of tool calls
-// that need dispatching. Empty slice = fresh turn (LLM call needed).
+// that need dispatching. Empty slice means a fresh model call is needed.
 func pendingToolCallsForResume(messages []types.Message) []types.ToolCall {
 	if len(messages) == 0 {
 		return nil
@@ -81,12 +92,10 @@ func pendingToolCallsForResume(messages []types.Message) []types.ToolCall {
 	return last.ToolCalls
 }
 
-// countAssistantTurns returns the number of assistant messages in the
-// saved conversation. Each agent_loop turn produces exactly one
-// assistant message (with tool_calls or a final answer), so the count
-// equals the number of completed turns. Used by the retry-from-turn-N
-// codepath to validate the requested turn lies within range.
-func countAssistantTurns(messages []types.Message) int {
+// countAssistantMessages counts assistant responses in the complete saved
+// conversation. On resumed Runs this includes responses inherited from prior
+// Runs, so it must not be treated as a Run-local model-call count.
+func countAssistantMessages(messages []types.Message) int {
 	n := 0
 	for _, m := range messages {
 		if m.Role == "assistant" {
@@ -96,22 +105,28 @@ func countAssistantTurns(messages []types.Message) int {
 	return n
 }
 
-// truncateConversationToTurn drops the Nth assistant message and
-// everything that follows it, so the next LLM call re-issues turn N
-// against the same prior context. The system message (if present) and
-// the user prompt are preserved, as are any prior assistant turns and
-// their tool results — the operator gets to explore an alternative
-// path from turn N forward.
-//
-// turn must be >= 1 and <= countAssistantTurns(messages). turn=1
-// truncates back to just the prelude (system + user); turn=N for the
-// final turn drops only that turn's assistant message.
+// truncateConversationToRunModelCall drops one Run-local assistant response
+// and everything after it. A resumed Run's conversation contains inherited
+// assistant responses before the responses accounted to that Run, so the
+// Run-local index maps into the assistant-message suffix identified by the
+// authoritative source Run count.
 //
 // Returns a fresh slice; the input is not modified.
-func truncateConversationToTurn(messages []types.Message, turn int) ([]types.Message, error) {
-	if turn < 1 {
-		return nil, fmt.Errorf("turn must be >= 1, got %d", turn)
+func truncateConversationToRunModelCall(messages []types.Message, runModelCallCount, modelCall int) ([]types.Message, error) {
+	if modelCall < 1 {
+		return nil, fmt.Errorf("model call must be >= 1, got %d", modelCall)
 	}
+	if runModelCallCount < 1 {
+		return nil, fmt.Errorf("source run has no completed model calls")
+	}
+	if modelCall > runModelCallCount {
+		return nil, fmt.Errorf("model call %d not found: source run has %d completed model call(s)", modelCall, runModelCallCount)
+	}
+	totalAssistant := countAssistantMessages(messages)
+	if runModelCallCount > totalAssistant {
+		return nil, fmt.Errorf("source run model_call_count %d exceeds conversation assistant count %d", runModelCallCount, totalAssistant)
+	}
+	targetAssistant := totalAssistant - runModelCallCount + modelCall
 	assistantSeen := 0
 	cutIndex := -1
 	for i, m := range messages {
@@ -119,13 +134,13 @@ func truncateConversationToTurn(messages []types.Message, turn int) ([]types.Mes
 			continue
 		}
 		assistantSeen++
-		if assistantSeen == turn {
+		if assistantSeen == targetAssistant {
 			cutIndex = i
 			break
 		}
 	}
 	if cutIndex == -1 {
-		return nil, fmt.Errorf("turn %d not found: conversation has %d assistant turn(s)", turn, assistantSeen)
+		return nil, fmt.Errorf("model call %d not found in source run conversation", modelCall)
 	}
 	out := make([]types.Message, cutIndex)
 	copy(out, messages[:cutIndex])
@@ -224,9 +239,9 @@ func environmentSystemMessage(spec ExecutionSpec) string {
 // upsertConversationArtifact writes the current conversation snapshot
 // to a stable artifact ID. Returns the artifact when it's newly
 // created (or on the first call) so the caller can include it in the
-// run's artifact list. Idempotent across turns: the same ID means the
+// run's artifact list. Idempotent across model calls: the same ID means the
 // artifact's content is replaced in place rather than appended.
-func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.Message, turn int, when time.Time) (*types.TaskArtifact, error) {
+func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.Message, completedModelCalls int, status string, when time.Time) (*types.TaskArtifact, error) {
 	if spec.UpsertArtifact == nil {
 		return nil, nil
 	}
@@ -237,18 +252,19 @@ func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.
 		// runtime corruption we shouldn't paper over.
 		return nil, fmt.Errorf("marshal agent conversation: %w", err)
 	}
+	description := conversationArtifactDescription(completedModelCalls)
 	art := types.TaskArtifact{
 		ID:          id,
 		TaskID:      spec.Task.ID,
 		RunID:       spec.Run.ID,
 		Kind:        "agent_conversation",
 		Name:        "agent-conversation.json",
-		Description: fmt.Sprintf("Agent loop conversation snapshot after turn %d", turn),
+		Description: description,
 		MimeType:    "application/json",
 		StorageKind: "inline",
 		ContentText: string(payload),
 		SizeBytes:   int64(len(payload)),
-		Status:      "ready",
+		Status:      status,
 		CreatedAt:   when,
 		RequestID:   spec.RequestID,
 		TraceID:     spec.TraceID,
@@ -259,10 +275,17 @@ func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.
 	return &art, nil
 }
 
+func conversationArtifactDescription(completedModelCalls int) string {
+	if completedModelCalls > 0 {
+		return fmt.Sprintf("Agent loop conversation snapshot after model call %d", completedModelCalls)
+	}
+	return "Agent loop conversation snapshot before the first model call"
+}
+
 // conversationMessagesForArtifact removes image blocks before a task
 // conversation snapshot is persisted. This avoids retaining inline bodies or
 // credential-bearing remote URLs. The live executor retains the original
-// blocks for subsequent turns in the same run. Persisted checkpoints carry an
+// blocks for subsequent model calls in the same run. Persisted checkpoints carry an
 // explicit marker; same-input resumes can restore that block from the opaque
 // run reference without copying private binary payloads into task artifacts.
 func conversationMessagesForArtifact(messages []types.Message) []types.Message {
@@ -305,7 +328,7 @@ func restoreArtifactInputMessage(messages []types.Message, input types.Message) 
 
 func hasArtifactImageOmission(blocks []types.ContentBlock) bool {
 	for _, block := range blocks {
-		if block.Type == "text" && strings.HasSuffix(block.Text, " attachment supplied for this turn; binary body not retained in task artifacts]") {
+		if block.Type == "text" && strings.HasSuffix(block.Text, " attachment supplied as Task input; binary body not retained in Task artifacts]") {
 			return true
 		}
 	}
@@ -313,5 +336,5 @@ func hasArtifactImageOmission(blocks []types.ContentBlock) bool {
 }
 
 func artifactImageOmissionText(mediaType string) string {
-	return "[" + mediaType + " attachment supplied for this turn; binary body not retained in task artifacts]"
+	return "[" + mediaType + " attachment supplied as Task input; binary body not retained in Task artifacts]"
 }

@@ -126,8 +126,8 @@ func writeChatSessionStopping(w http.ResponseWriter) {
 
 func writeChatSessionNotRunning(w http.ResponseWriter) {
 	WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, "agent chat session is not running", ErrorDetails{
-		UserMessage:    "There is no active run to stop.",
-		OperatorAction: "Send a new message if you want to start another run.",
+		UserMessage:    "There is no active turn to stop.",
+		OperatorAction: "Send a new message if you want to start another turn.",
 	})
 }
 

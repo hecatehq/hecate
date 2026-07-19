@@ -80,7 +80,7 @@ func adapterAppMissingHint(adapter Adapter) string {
 }
 
 // claudeCodeAuthErrorMessage is the user-facing message rendered in the chat
-// when a Claude Code agent run fails because the adapter couldn't sign in. The
+// when a Claude Code Chat Turn fails because the adapter couldn't sign in. The
 // UI pattern-matches the marker token to render the Connections shortcut.
 //
 // Keep `claude_code_auth_required` verbatim. TranscriptMessageRow strips the

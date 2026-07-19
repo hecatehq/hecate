@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
+import { ConsoleShell, getAvailableWorkspaces, resolveTaskFocusRequest } from "./AppShell";
 import { useChat } from "./state/chat";
 import {
   createRuntimeConsoleActions,
@@ -10,6 +10,7 @@ import {
 } from "../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../test/runtime-console-render";
 import {
+  getChatSession,
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
@@ -29,6 +30,24 @@ import type {
   ProjectWorkItemRecord,
 } from "../types/project";
 
+const tasksViewProbe = vi.hoisted(() => ({ render: vi.fn() }));
+
+vi.mock("../features/tasks/TasksView", () => {
+  return {
+    TasksView: (props: {
+      focusRequest?: { taskID: string; runID?: string; nonce: number } | null;
+      onOpenChat?: (sessionID: string, taskID?: string, runID?: string) => void;
+    }) => {
+      tasksViewProbe.render(props.focusRequest);
+      return (
+        <button type="button" onClick={() => props.onOpenChat?.("chat_task", "task_1", "run_1")}>
+          Open linked Task chat
+        </button>
+      );
+    },
+  };
+});
+
 vi.mock("../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/api")>();
   const emptyWorkItem = {
@@ -42,6 +61,17 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
   return {
     ...actual,
+    getChatSession: vi.fn(async () => ({
+      object: "chat_session",
+      data: {
+        id: "chat_task",
+        agent_id: "hecate",
+        title: "Task chat",
+        status: "completed",
+        workspace: "",
+        messages: [],
+      },
+    })),
     getProjectActivity: vi.fn(async () => ({
       object: "project_activity",
       data: emptyActivityData(),
@@ -240,6 +270,19 @@ function resetProjectWorkMocks() {
     created_at: "",
     updated_at: "",
   };
+  tasksViewProbe.render.mockClear();
+  vi.mocked(getChatSession).mockReset();
+  vi.mocked(getChatSession).mockResolvedValue({
+    object: "chat_session",
+    data: {
+      id: "chat_task",
+      agent_id: "hecate",
+      title: "Task chat",
+      status: "completed",
+      workspace: "",
+      messages: [],
+    },
+  });
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
     data: emptyActivityData(),
@@ -297,12 +340,12 @@ beforeEach(() => {
 // removed so text inputs, screen readers, and browser shortcuts own the
 // number keys without surprises.
 describe("getAvailableWorkspaces", () => {
-  it("returns chats / projects / runs / connections / overview / usage / settings", () => {
+  it("returns chats / projects / tasks / connections / overview / usage / settings", () => {
     const ws = getAvailableWorkspaces();
     expect(ws.map((w) => w.id)).toEqual([
       "chats",
       "projects",
-      "runs",
+      "tasks",
       "connections",
       "overview",
       "usage",
@@ -323,6 +366,13 @@ describe("getAvailableWorkspaces", () => {
     const ws = getAvailableWorkspaces();
     const settings = ws.find((w) => w.id === "settings");
     expect(settings?.label).toBe("Settings");
+  });
+
+  it("treats a present bare Tasks route as authoritative over imperative focus", () => {
+    const imperativeFocus = { taskID: "task_1", runID: "run_1", nonce: 1 };
+
+    expect(resolveTaskFocusRequest(undefined, imperativeFocus)).toBe(imperativeFocus);
+    expect(resolveTaskFocusRequest({ taskID: null, runID: null }, imperativeFocus)).toBeNull();
   });
 });
 
@@ -435,8 +485,8 @@ describe("ConsoleShell navigation", () => {
       await screen.findByText("No projects yet", undefined, { timeout: 30_000 }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "Tasks" }));
-    expect(onSelectWorkspace).toHaveBeenCalledWith("runs");
-  });
+    expect(onSelectWorkspace).toHaveBeenCalledWith("tasks");
+  }, 35_000);
 
   it("leaves modified workspace-link clicks to the browser", () => {
     const state = createRuntimeConsoleFixture();
@@ -457,6 +507,343 @@ describe("ConsoleShell navigation", () => {
     fireEvent.click(tasks, { ctrlKey: true });
 
     expect(onSelectWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("navigates from a Chat message to its exact Task and Run", async () => {
+    const onSelectWorkspace = vi.fn();
+    const onTaskNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "agent",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
+        agent_id: "hecate",
+        execution_mode: "hecate_task",
+        tools_enabled: true,
+        title: "Repo work",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        status: "completed",
+        messages: [
+          {
+            id: "message_1",
+            role: "assistant",
+            content: "Done.",
+            turn_kind: "hecate_task",
+            execution_mode: "hecate_task",
+            task_id: "task_1",
+            run_id: "run_1",
+            status: "completed",
+          },
+        ],
+      } as any,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          onSelectWorkspace={onSelectWorkspace}
+          onTaskNavigate={onTaskNavigate}
+        />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Run 1" }, { timeout: 30_000 }));
+
+    expect(onTaskNavigate).toHaveBeenCalledWith({ taskID: "task_1", runID: "run_1" });
+    expect(onSelectWorkspace).not.toHaveBeenCalledWith("tasks");
+  }, 35_000);
+
+  it("loads a Chat addressed by the URL", async () => {
+    const selectChatSession = vi.fn(async () => true);
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "",
+      activeChatSession: null,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_routed", messageID: null }}
+          onSelectWorkspace={() => {}}
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_routed"));
+  });
+
+  it("does not reapply the old Chat URL while a sidebar selection is completing", async () => {
+    const selectChatSession = vi.fn(async () => true);
+    const onChatNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "chat_a",
+      activeChatSession: {
+        id: "chat_a",
+        title: "Chat A",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      chatSessions: [
+        { id: "chat_a", title: "Chat A", agent_id: "hecate", status: "idle" } as any,
+        { id: "chat_b", title: "Chat B", agent_id: "hecate", status: "idle" } as any,
+      ],
+    });
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_a", messageID: null }}
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={() => {}}
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    fireEvent.click(await screen.findByText("Chat B", undefined, { timeout: 30_000 }));
+
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_b"));
+    expect(selectChatSession).not.toHaveBeenCalledWith("chat_a");
+    expect(onChatNavigate).toHaveBeenCalledWith({ chatID: "chat_b", messageID: null });
+  });
+
+  it("does not restore a routed Chat when a newer sidebar selection supersedes its load", async () => {
+    let resolveRoutedSelection: ((selected: boolean) => void) | undefined;
+    const selectChatSession = vi.fn((sessionID: string) => {
+      if (sessionID !== "chat_routed") return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolveRoutedSelection = resolve;
+      });
+    });
+    const onChatNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "chat_a",
+      activeChatSession: {
+        id: "chat_a",
+        title: "Chat A",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      chatSessions: [
+        { id: "chat_a", title: "Chat A", agent_id: "hecate", status: "idle" } as any,
+        { id: "chat_b", title: "Chat B", agent_id: "hecate", status: "idle" } as any,
+      ],
+    });
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_routed", messageID: null }}
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={() => {}}
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_routed"));
+    fireEvent.click(await screen.findByText("Chat B", undefined, { timeout: 30_000 }));
+    await waitFor(() => expect(selectChatSession).toHaveBeenCalledWith("chat_b"));
+    await act(async () => resolveRoutedSelection?.(false));
+
+    await waitFor(() =>
+      expect(onChatNavigate).toHaveBeenCalledWith({ chatID: "chat_b", messageID: null }),
+    );
+    expect(onChatNavigate).not.toHaveBeenCalledWith(
+      { chatID: "chat_a", messageID: null },
+      "replace",
+    );
+  }, 35_000);
+
+  it("drops an in-flight Task-to-Chat lookup after newer workspace navigation", async () => {
+    let resolveChatLookup:
+      | ((value: Awaited<ReturnType<typeof getChatSession>>) => void)
+      | undefined;
+    vi.mocked(getChatSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveChatLookup = resolve;
+        }),
+    );
+    const selectChatSession = vi.fn(async () => true);
+    const onChatNavigate = vi.fn();
+    const onSelectWorkspace = vi.fn();
+    const state = createRuntimeConsoleFixture();
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="tasks"
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={onSelectWorkspace}
+          taskNavigation={{ taskID: "task_1", runID: "run_1" }}
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 }),
+    );
+    await waitFor(() => expect(getChatSession).toHaveBeenCalledWith("chat_task"));
+    fireEvent.click(screen.getByRole("link", { name: "Connections" }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("connections");
+    await act(async () =>
+      resolveChatLookup?.({
+        object: "chat_session",
+        data: {
+          id: "chat_task",
+          agent_id: "hecate",
+          title: "Task chat",
+          status: "completed",
+          workspace: "",
+          messages: [],
+        },
+      }),
+    );
+
+    await waitFor(() => expect(selectChatSession).not.toHaveBeenCalled());
+    expect(onChatNavigate).not.toHaveBeenCalled();
+  });
+
+  it("drops an in-flight Task-to-Chat lookup after parent-driven route navigation", async () => {
+    let resolveChatLookup:
+      | ((value: Awaited<ReturnType<typeof getChatSession>>) => void)
+      | undefined;
+    vi.mocked(getChatSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveChatLookup = resolve;
+        }),
+    );
+    const selectChatSession = vi.fn(async () => true);
+    const onChatNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture();
+    const actions = { ...createRuntimeConsoleActions(), selectChatSession };
+    const view = render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="tasks"
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={() => {}}
+          taskNavigation={{ taskID: "task_1", runID: "run_1" }}
+        />,
+        { state, actions },
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 }),
+    );
+    await waitFor(() => expect(getChatSession).toHaveBeenCalledWith("chat_task"));
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="tasks"
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={() => {}}
+          taskNavigation={{ taskID: "task_2", runID: "run_2" }}
+        />,
+        { state, actions },
+      ),
+    );
+    await waitFor(() =>
+      expect(tasksViewProbe.render).toHaveBeenLastCalledWith(
+        expect.objectContaining({ taskID: "task_2", runID: "run_2" }),
+      ),
+    );
+    await act(async () =>
+      resolveChatLookup?.({
+        object: "chat_session",
+        data: {
+          id: "chat_task",
+          agent_id: "hecate",
+          title: "Task chat",
+          status: "completed",
+          workspace: "",
+          messages: [],
+        },
+      }),
+    );
+
+    await waitFor(() => expect(selectChatSession).not.toHaveBeenCalled());
+    expect(onChatNavigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps routed Task focus stable when its navigation object is recreated", async () => {
+    const state = createRuntimeConsoleFixture();
+    const actions = createRuntimeConsoleActions();
+    const view = render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="tasks"
+          onSelectWorkspace={() => {}}
+          taskNavigation={{ taskID: "task_1", runID: "run_1" }}
+        />,
+        { state, actions },
+      ),
+    );
+
+    await screen.findByRole("button", { name: "Open linked Task chat" }, { timeout: 30_000 });
+    const firstFocus = tasksViewProbe.render.mock.lastCall?.[0];
+    expect(firstFocus).toEqual(expect.objectContaining({ taskID: "task_1", runID: "run_1" }));
+
+    view.rerender(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="tasks"
+          onSelectWorkspace={() => {}}
+          taskNavigation={{ taskID: "task_1", runID: "run_1" }}
+        />,
+        { state, actions },
+      ),
+    );
+
+    await waitFor(() => expect(tasksViewProbe.render.mock.lastCall?.[0]).toBe(firstFocus));
+  });
+
+  it("replaces a stale Chat URL with the current selection", async () => {
+    const selectChatSession = vi.fn(async () => false);
+    const onChatNavigate = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "chat_current",
+      activeChatSession: {
+        id: "chat_current",
+        title: "Current chat",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+    });
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_missing", messageID: null }}
+          onChatNavigate={onChatNavigate}
+          onSelectWorkspace={() => {}}
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(onChatNavigate).toHaveBeenCalledWith(
+        { chatID: "chat_current", messageID: null },
+        "replace",
+      ),
+    );
   });
 
   it("keeps Chats available when no providers are configured", async () => {

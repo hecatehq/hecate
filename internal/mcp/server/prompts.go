@@ -67,7 +67,7 @@ func investigateTaskPrompt(_ context.Context, args map[string]string) (mcp.GetPr
 	if err != nil {
 		return mcp.GetPromptResult{}, err
 	}
-	text := fmt.Sprintf("Inspect Hecate task `%s`. Read `hecate://tasks/%s` as context if resources are available, then call `get_task_status` if you need live status. Summarize the current state, latest run, step count, and any pending approval or failure clue. Keep the answer operational and concise.", taskID, taskID)
+	text := fmt.Sprintf("Inspect Hecate Task `%s`. Read `hecate://tasks/%s` as context if resources are available, then call `get_task_status` if you need live status. Summarize the current state, latest Run and its Step count, and any pending approval or failure clue. Keep the answer operational and concise.", taskID, taskID)
 	return textPrompt("Investigate a Hecate task", text), nil
 }
 

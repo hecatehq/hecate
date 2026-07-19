@@ -153,7 +153,7 @@ func TestAgentLoopConversation_SameRunResumeRestoresRichInputInPlace(t *testing.
 	conversation := newAgentLoopConversation(spec)
 	messages := conversation.Messages()
 	if len(messages) != 2 {
-		t.Fatalf("messages = %d, want restored history without a duplicate user turn: %+v", len(messages), messages)
+		t.Fatalf("messages = %d, want restored history without a duplicate input message: %+v", len(messages), messages)
 	}
 	if image := messages[0].ContentBlocks[1].Image; image == nil || image.URL != richInput.ContentBlocks[1].Image.URL {
 		t.Fatalf("restored user message = %+v, want hydrated image block", messages[0])
@@ -216,7 +216,7 @@ func TestAgentLoopConversation_UpsertArtifactPersistsCurrentMessages(t *testing.
 	if got.ID != "convo-run-1" || got.Kind != "agent_conversation" || got.Status != "ready" {
 		t.Fatalf("artifact shape = %+v", got)
 	}
-	if got.Description != "Agent loop conversation snapshot after turn 3" {
+	if got.Description != "Agent loop conversation snapshot after model call 3" {
 		t.Fatalf("artifact description = %q", got.Description)
 	}
 	if !got.CreatedAt.Equal(when) {

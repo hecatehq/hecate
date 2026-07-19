@@ -397,9 +397,11 @@ func runStoreLifecycle(t *testing.T, store Store) {
 
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:            "msg_user",
+		TurnID:        "turn_1",
 		ExecutionMode: ExecutionModeHecateTask,
 		SegmentID:     "task:task_chat_1",
 		TaskID:        "task_chat_1",
+		RunID:         "run_chat_1",
 		Provider:      "openai",
 		Model:         "gpt-4o-mini",
 		Role:          "user",
@@ -410,10 +412,11 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	startedAt := time.Now().UTC().Add(-2 * time.Second)
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:            "msg_assistant",
+		TurnID:        "turn_1",
 		ExecutionMode: ExecutionModeHecateTask,
 		SegmentID:     "task:task_chat_1",
 		TaskID:        "task_chat_1",
-		RunID:         "agent_run_1",
+		RunID:         "run_chat_1",
 		Provider:      "openai",
 		Model:         "gpt-4o-mini",
 		Capabilities:  types.ModelCapabilities{ToolCalling: "basic", Streaming: true, Source: "provider"},
@@ -489,15 +492,15 @@ func runStoreLifecycle(t *testing.T, store Store) {
 			ReportedCostCurrency: "USD",
 		}
 		message.Timing = Timing{
-			TotalMS:      1500,
-			QueueMS:      20,
-			ModelMS:      900,
-			ToolMS:       200,
-			OverheadMS:   380,
-			TurnCount:    1,
-			ToolCount:    1,
-			Bottleneck:   "model",
-			BottleneckMS: 900,
+			TotalMS:        1500,
+			QueueMS:        20,
+			ModelMS:        900,
+			ToolMS:         200,
+			OverheadMS:     380,
+			ModelCallCount: 1,
+			ToolCount:      1,
+			Bottleneck:     "model",
+			BottleneckMS:   900,
 		}
 		message.Activities = []Activity{
 			{Type: "started", Status: "completed", Title: "Started external agent", CreatedAt: startedAt},
@@ -513,7 +516,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(updated.Messages) != 2 {
 		t.Fatalf("message count = %d, want 2", len(updated.Messages))
 	}
-	if got := updated.Messages[1]; got.Content != "done" || got.RawOutput == "" || got.TraceID != "trace_agent" || got.DiffStat != "1 file changed" || got.RunID != "agent_run_1" || got.CompletedAt.IsZero() || len(got.Activities) != 2 {
+	if got := updated.Messages[1]; got.Content != "done" || got.RawOutput == "" || got.TraceID != "trace_agent" || got.DiffStat != "1 file changed" || got.TurnID != "turn_1" || got.RunID != "run_chat_1" || got.CompletedAt.IsZero() || len(got.Activities) != 2 {
 		t.Fatalf("assistant message not updated: %+v", got)
 	}
 
@@ -542,11 +545,11 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.Messages[1].Usage.ContextSize != 200_000 || got.Messages[1].Usage.ContextUsed != 42_000 {
 		t.Fatalf("persisted usage = %+v, want 42000/200000", got.Messages[1].Usage)
 	}
-	if got.Messages[1].Timing.Bottleneck != "model" || got.Messages[1].Timing.ModelMS != 900 || got.Messages[1].Timing.TurnCount != 1 {
+	if got.Messages[1].Timing.Bottleneck != "model" || got.Messages[1].Timing.ModelMS != 900 || got.Messages[1].Timing.ModelCallCount != 1 {
 		t.Fatalf("persisted timing = %+v, want model bottleneck", got.Messages[1].Timing)
 	}
-	if got.Messages[1].ExecutionMode != ExecutionModeHecateTask || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
-		t.Fatalf("persisted message execution = mode %q segment %q task %q", got.Messages[1].ExecutionMode, got.Messages[1].SegmentID, got.Messages[1].TaskID)
+	if got.Messages[0].TurnID != "turn_1" || got.Messages[1].TurnID != "turn_1" || got.Messages[1].ExecutionMode != ExecutionModeHecateTask || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
+		t.Fatalf("persisted message execution = turn %q/%q mode %q segment %q task %q", got.Messages[0].TurnID, got.Messages[1].TurnID, got.Messages[1].ExecutionMode, got.Messages[1].SegmentID, got.Messages[1].TaskID)
 	}
 	if got.Messages[1].Provider != "openai" || got.Messages[1].Model != "gpt-4o-mini" || got.Messages[1].Capabilities.ToolCalling != "basic" {
 		t.Fatalf("persisted message model snapshot = provider %q model %q caps %+v", got.Messages[1].Provider, got.Messages[1].Model, got.Messages[1].Capabilities)
@@ -1078,7 +1081,7 @@ func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store St
 	}
 }
 
-func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
+func runStoreReconcileInterruptedTurns(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.Create(ctx, Session{
@@ -1092,6 +1095,7 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	}
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:        "msg_user",
+		TurnID:    "turn_interrupted",
 		Role:      "user",
 		Content:   "keep going",
 		CreatedAt: time.Now().UTC().Add(-2 * time.Minute),
@@ -1100,8 +1104,8 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	}
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:            "msg_assistant",
+		TurnID:        "turn_interrupted",
 		ExecutionMode: ExecutionModeExternalAgent,
-		RunID:         "agent_run_interrupted",
 		Role:          "assistant",
 		Content:       "partial answer",
 		AgentID:       "codex",
@@ -1118,9 +1122,9 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	}
 
 	now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
-	count, err := ReconcileInterruptedRuns(ctx, store, now)
+	count, err := ReconcileInterruptedTurns(ctx, store, now)
 	if err != nil {
-		t.Fatalf("ReconcileInterruptedRuns: %v", err)
+		t.Fatalf("ReconcileInterruptedTurns: %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("reconciled count = %d, want 1", count)
@@ -1144,9 +1148,9 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 		t.Fatalf("activities = %+v, want interrupted activity", assistant.Activities)
 	}
 
-	count, err = ReconcileInterruptedRuns(ctx, store, now.Add(time.Second))
+	count, err = ReconcileInterruptedTurns(ctx, store, now.Add(time.Second))
 	if err != nil {
-		t.Fatalf("ReconcileInterruptedRuns second call: %v", err)
+		t.Fatalf("ReconcileInterruptedTurns second call: %v", err)
 	}
 	if count != 0 {
 		t.Fatalf("second reconciled count = %d, want 0", count)
@@ -1154,7 +1158,7 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 
 	orphaned, err := store.Create(ctx, Session{
 		ID:              "chat_orphaned_external",
-		Title:           "Orphaned external run",
+		Title:           "Orphaned external turn",
 		AgentID:         "grok_build",
 		DriverKind:      "acp",
 		NativeSessionID: "native_orphaned",
@@ -1164,9 +1168,9 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	if err != nil {
 		t.Fatalf("Create(orphaned): %v", err)
 	}
-	count, err = ReconcileInterruptedRuns(ctx, store, now.Add(2*time.Second))
+	count, err = ReconcileInterruptedTurns(ctx, store, now.Add(2*time.Second))
 	if err != nil {
-		t.Fatalf("ReconcileInterruptedRuns orphaned: %v", err)
+		t.Fatalf("ReconcileInterruptedTurns orphaned: %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("orphaned reconciled count = %d, want 1", count)
@@ -1191,10 +1195,10 @@ func runStoreTaskRunLinkAtomic(t *testing.T, store Store) {
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := store.AppendMessage(ctx, sessionID, Message{ID: "msg_user", Role: "user", Content: "run"}); err != nil {
+	if _, err := store.AppendMessage(ctx, sessionID, Message{ID: "msg_user", TurnID: "turn_task_link", Role: "user", Content: "run"}); err != nil {
 		t.Fatalf("AppendMessage(user): %v", err)
 	}
-	if _, err := store.AppendMessage(ctx, sessionID, Message{ID: "msg_assistant", Role: "assistant", Status: "running"}); err != nil {
+	if _, err := store.AppendMessage(ctx, sessionID, Message{ID: "msg_assistant", TurnID: "turn_task_link", Role: "assistant", Status: "running"}); err != nil {
 		t.Fatalf("AppendMessage(assistant): %v", err)
 	}
 
@@ -1234,7 +1238,7 @@ func runStoreTaskRunLinkAtomic(t *testing.T, store Store) {
 		t.Fatalf("linked messages = %d, want 2", len(linked.Messages))
 	}
 	for _, message := range linked.Messages {
-		if message.TaskID != "task_1" || message.RunID != "run_1" || message.Workspace != "/managed" {
+		if message.TurnID != "turn_task_link" || message.TaskID != "task_1" || message.RunID != "run_1" || message.Workspace != "/managed" {
 			t.Fatalf("linked message = %+v", message)
 		}
 	}

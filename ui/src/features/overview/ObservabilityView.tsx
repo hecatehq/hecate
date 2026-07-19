@@ -48,7 +48,7 @@ type Props = {
   // AppShell wires it to onSelectWorkspace; in tests it's omitted and
   // the button no-ops.
   onNavigate?: (
-    workspace: "chats" | "connections" | "runs" | "overview" | "usage" | "settings",
+    workspace: "chats" | "connections" | "tasks" | "overview" | "usage" | "settings",
   ) => void;
   focusRequest?: { requestID: string; nonce: number } | null;
 };

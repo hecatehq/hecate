@@ -13,47 +13,47 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-// TestManagerSweepsRealTurnEventsButSparesOtherTypes wires a real
+// TestManagerSweepsRealModelCallEventsButSparesOtherTypes wires a real
 // MemoryStore into the retention Manager (instead of the fake
 // pruner used in retention_test.go) and verifies the end-to-end
-// path: the configured TurnEvents policy reaches the store, only
-// turn.completed rows are pruned, and the SubsystemResult
+// path: the configured ModelCallEvents policy reaches the store, only
+// model.call.completed rows are pruned, and the SubsystemResult
 // returns the right deletion count.
 //
 // Without this test, a regression that — say — passed the wrong
 // policy field to the pruner adapter, or accidentally widened the
 // SQL filter to delete other event types, would only show up at
-// runtime. The fakeTurnEventPruner in retention_test.go can't
+// runtime. The fakeModelCallEventPruner in retention_test.go can't
 // catch either class.
-func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
+func TestManagerSweepsRealModelCallEventsButSparesOtherTypes(t *testing.T) {
 	t.Parallel()
 
 	store := taskstate.NewMemoryStore()
 	ctx := context.Background()
 
-	// Seed: two stale turn events + one fresh turn event + one
+	// Seed: two stale model-call events + one fresh model-call event + one
 	// stale run.finished event (must not be pruned by the sweep).
 	stale := time.Now().UTC().Add(-10 * time.Hour)
 	for i := 0; i < 2; i++ {
 		_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 			TaskID:    "t",
 			RunID:     "r",
-			EventType: "turn.completed",
+			EventType: "model.call.completed",
 			CreatedAt: stale,
 		})
 		if err != nil {
-			t.Fatalf("seed stale turn[%d]: %v", i, err)
+			t.Fatalf("seed stale model call[%d]: %v", i, err)
 		}
 	}
 	if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 		TaskID:    "t",
 		RunID:     "r",
-		EventType: "turn.completed",
+		EventType: "model.call.completed",
 	}); err != nil {
-		t.Fatalf("seed fresh turn: %v", err)
+		t.Fatalf("seed fresh model call: %v", err)
 	}
-	// Stale run.finished — same age as the stale turns. The sweep
-	// must NOT delete it; only event_type='turn.completed'
+	// Stale run.finished — same age as the stale model calls. The sweep
+	// must NOT delete it; only event_type='model.call.completed'
 	// is in scope.
 	if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 		TaskID:    "t",
@@ -64,15 +64,15 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 		t.Fatalf("seed stale run.finished: %v", err)
 	}
 
-	// Build the manager with TurnEvents enabled at MaxAge=1h. All
+	// Build the manager with ModelCallEvents enabled at MaxAge=1h. All
 	// other subsystems are intentionally nil so they no-op.
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	tracer := profiler.NewInMemoryTracer(nil)
 	manager := NewManager(
 		logger,
 		config.RetentionConfig{
-			Enabled:    true,
-			TurnEvents: config.RetentionPolicy{MaxAge: time.Hour},
+			Enabled:         true,
+			ModelCallEvents: config.RetentionPolicy{MaxAge: time.Hour},
 		},
 		tracer,
 		nil, // traces
@@ -86,78 +86,78 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 
 	result := manager.Run(ctx, RunRequest{
 		Trigger:    "test",
-		Subsystems: []string{SubsystemTurnEvents},
+		Subsystems: []string{SubsystemModelCallEvents},
 	})
 
-	// Locate the turn-events subsystem result.
+	// Locate the model-call-events subsystem result.
 	var sub *SubsystemResult
 	for i := range result.Results {
-		if result.Results[i].Name == SubsystemTurnEvents {
+		if result.Results[i].Name == SubsystemModelCallEvents {
 			sub = &result.Results[i]
 			break
 		}
 	}
 	if sub == nil {
-		t.Fatalf("turn_events subsystem missing from result; got: %+v", result.Results)
+		t.Fatalf("model_call_events subsystem missing from result; got: %+v", result.Results)
 	}
 	if sub.Skipped {
-		t.Fatalf("turn_events skipped; want it to run")
+		t.Fatalf("model_call_events skipped; want it to run")
 	}
 	if sub.Error != "" {
-		t.Fatalf("turn_events error: %s", sub.Error)
+		t.Fatalf("model_call_events error: %s", sub.Error)
 	}
 	if sub.Deleted != 2 {
-		t.Errorf("Deleted = %d, want 2 (the two stale turn events)", sub.Deleted)
+		t.Errorf("Deleted = %d, want 2 (the two stale model-call events)", sub.Deleted)
 	}
 
-	// Confirm post-state: stale turn events gone, fresh turn event
+	// Confirm post-state: stale model-call events gone, fresh model-call event
 	// kept, stale run.finished untouched.
 	all, err := store.ListEvents(ctx, taskstate.EventFilter{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	turnCount, runFinishedCount := 0, 0
+	modelCallCount, runFinishedCount := 0, 0
 	for _, e := range all {
 		switch e.EventType {
-		case "turn.completed":
-			turnCount++
+		case "model.call.completed":
+			modelCallCount++
 		case "run.finished":
 			runFinishedCount++
 		}
 	}
-	if turnCount != 1 {
-		t.Errorf("surviving turn.completed = %d, want 1 (the fresh one)", turnCount)
+	if modelCallCount != 1 {
+		t.Errorf("surviving model.call.completed = %d, want 1 (the fresh one)", modelCallCount)
 	}
 	if runFinishedCount != 1 {
-		t.Errorf("surviving run.finished = %d, want 1 (sweep should not touch non-turn events)", runFinishedCount)
+		t.Errorf("surviving run.finished = %d, want 1 (sweep should not touch non-model-call events)", runFinishedCount)
 	}
 }
 
-// TestManagerCountCapDoesNotAffectNonTurnEvents pins down the
+// TestManagerCountCapDoesNotAffectNonModelCallEvents pins down the
 // count-cap branch's scope: even when MaxCount is exceeded by
-// non-turn events present in the same store, only turn events
+// non-model-call events present in the same store, only model-call events
 // should be pruned. The Prune implementations take the
-// count over turn.completed rows specifically — but a
+// count over model.call.completed rows specifically — but a
 // regression that counted across all event types would silently
 // delete operator-visible run.* events, which is the worst kind
 // of forensic-data loss.
-func TestManagerCountCapDoesNotAffectNonTurnEvents(t *testing.T) {
+func TestManagerCountCapDoesNotAffectNonModelCallEvents(t *testing.T) {
 	t.Parallel()
 
 	store := taskstate.NewMemoryStore()
 	ctx := context.Background()
 
-	// 4 turn events (we'll cap to 2) + 5 run.finished events. If
+	// 4 model-call events (we'll cap to 2) + 5 run.finished events. If
 	// the cap mistakenly counted across types, it would either
-	// (a) interpret "5 + 4 = 9 turn rows" and delete 7 (wrong), or
+	// (a) interpret "5 + 4 = 9 model-call rows" and delete 7 (wrong), or
 	// (b) include run.finished in the deletion candidate set. The
-	// correct behavior is: keep the latest 2 turns, leave all 5
+	// correct behavior is: keep the latest 2 model calls, leave all 5
 	// run.finished rows alone.
 	for i := 0; i < 4; i++ {
 		if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
-			TaskID: "t", RunID: "r", EventType: "turn.completed",
+			TaskID: "t", RunID: "r", EventType: "model.call.completed",
 		}); err != nil {
-			t.Fatalf("seed turn[%d]: %v", i, err)
+			t.Fatalf("seed model call[%d]: %v", i, err)
 		}
 	}
 	for i := 0; i < 5; i++ {
@@ -173,41 +173,41 @@ func TestManagerCountCapDoesNotAffectNonTurnEvents(t *testing.T) {
 	manager := NewManager(
 		logger,
 		config.RetentionConfig{
-			Enabled:    true,
-			TurnEvents: config.RetentionPolicy{MaxCount: 2},
+			Enabled:         true,
+			ModelCallEvents: config.RetentionPolicy{MaxCount: 2},
 		},
 		tracer,
 		nil, nil, nil, nil, store, nil, nil,
 	)
 	result := manager.Run(ctx, RunRequest{
 		Trigger:    "test",
-		Subsystems: []string{SubsystemTurnEvents},
+		Subsystems: []string{SubsystemModelCallEvents},
 	})
 
 	all, err := store.ListEvents(ctx, taskstate.EventFilter{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	turnCount, runFinishedCount := 0, 0
+	modelCallCount, runFinishedCount := 0, 0
 	for _, e := range all {
 		switch e.EventType {
-		case "turn.completed":
-			turnCount++
+		case "model.call.completed":
+			modelCallCount++
 		case "run.finished":
 			runFinishedCount++
 		}
 	}
-	if turnCount != 2 {
-		t.Errorf("surviving turn.completed = %d, want 2 (capped to MaxCount)", turnCount)
+	if modelCallCount != 2 {
+		t.Errorf("surviving model.call.completed = %d, want 2 (capped to MaxCount)", modelCallCount)
 	}
 	if runFinishedCount != 5 {
-		t.Errorf("surviving run.finished = %d, want 5 (count cap must not touch non-turn events)", runFinishedCount)
+		t.Errorf("surviving run.finished = %d, want 5 (count cap must not touch non-model-call events)", runFinishedCount)
 	}
 
-	// Result.Deleted should be 2 — only the two oldest turn rows.
+	// Result.Deleted should be 2 — only the two oldest model-call rows.
 	for _, sub := range result.Results {
-		if sub.Name == SubsystemTurnEvents && sub.Deleted != 2 {
-			t.Errorf("SubsystemResult.Deleted = %d, want 2 (4 turns - cap of 2)", sub.Deleted)
+		if sub.Name == SubsystemModelCallEvents && sub.Deleted != 2 {
+			t.Errorf("SubsystemResult.Deleted = %d, want 2 (4 model calls - cap of 2)", sub.Deleted)
 		}
 	}
 }

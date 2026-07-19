@@ -49,7 +49,7 @@ What works:
   `POST /hecate/v1/system/shutdown`, polls `/healthz` until it stops
   responding (12 s deadline), then exits — same code path as
   `SIGINT`/`SIGTERM` from a terminal. `pgrep hecate` is empty afterward
-  in both paths. When agent runs are in-flight, a native confirmation
+  in both paths. When agent work is in flight, a native confirmation
   dialog appears first.
 - Runtime discovery file (`hecate.runtime.json`) written by the sidecar gateway
   on successful startup and removed on app exit for native diagnostics.
@@ -150,10 +150,10 @@ the bundle is polished enough to recommend.
 
 ### Tier 1 — polish before the next alpha
 
-| Item                                 | Scope                 | Notes                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Test the Linux + Windows bundles** | ~30 min per OS        | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit (confirm the running-tasks dialog appears when an agent run is active), relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
-| **Homebrew distribution**            | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust.                                                                                                                                   |
+| Item                                 | Scope                 | Notes                                                                                                                                                                                                                                                                                                |
+| ------------------------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test the Linux + Windows bundles** | ~30 min per OS        | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit (confirm the running-work dialog appears while agent work is active), relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Homebrew distribution**            | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust.                                                                                                                                 |
 
 ### Tier 2 — operational gates
 
@@ -213,7 +213,7 @@ the ones likely to bite an operator:
   right-click → Open the first time. Windows is unsigned regardless;
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
-- **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and the menu "Quit Hecate" item all funnel through the same path. If any agent runs are in-flight, a native confirmation dialog appears ("X tasks still running. Quitting Hecate will stop them.") with Quit anyway / Keep running. On confirm — or when there are no running tasks — the gateway is asked to drain via `POST /hecate/v1/system/shutdown` (same code path as `SIGINT`/`SIGTERM`) before the app exits, so MCP subprocesses are torn down cleanly and no run is left stuck in `running`.
+- **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and the menu "Quit Hecate" item all funnel through the same path. If agent work is in flight, a native confirmation dialog appears ("X tasks still running. Quitting Hecate will stop them.") with Quit anyway / Keep running. On confirm — or when there is no active work — the gateway is asked to drain via `POST /hecate/v1/system/shutdown` (same code path as `SIGINT`/`SIGTERM`) before the app exits, so MCP subprocesses are torn down cleanly and no Task Run or Chat Turn is left stuck in `running`.
 - **Reset local data is unavailable while the app is running.** Settings →
   Maintenance → Danger zone shows the action disabled. Quit Hecate completely
   before removing or replacing its platform data directory; the reserved

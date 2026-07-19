@@ -48,8 +48,8 @@ func TestEventTypes(t *testing.T) {
 		runtimeevents.EventRunCancelled:              "run.cancelled",
 		runtimeevents.EventTaskUpdated:               "task.updated",
 		runtimeevents.EventGapRunDisconnected:        "gap.run_disconnected",
-		runtimeevents.EventTurnStarted:               "turn.started",
-		runtimeevents.EventTurnCompleted:             "turn.completed",
+		runtimeevents.EventModelCallStarted:          "model.call.started",
+		runtimeevents.EventModelCallCompleted:        "model.call.completed",
 		runtimeevents.EventAssistantTextComplete:     "assistant.text_complete",
 		runtimeevents.EventAssistantToolCallProposed: "assistant.tool_call_proposed",
 		runtimeevents.EventAssistantFinalAnswer:      "assistant.final_answer",
@@ -120,11 +120,11 @@ func TestPayloads_ApprovalResolved(t *testing.T) {
 	}
 }
 
-func TestPayloads_TurnCompleted(t *testing.T) {
+func TestPayloads_ModelCallCompleted(t *testing.T) {
 	t.Parallel()
 
-	got := runtimeevents.TurnCompleted(runtimeevents.TurnCompletedFields{
-		TurnIndex:                   2,
+	got := runtimeevents.ModelCallCompleted(runtimeevents.ModelCallCompletedFields{
+		ModelCallIndex:              2,
 		StepID:                      "step-model-2",
 		CostMicrosUSD:               42,
 		RunCumulativeCostMicrosUSD:  100,
@@ -132,7 +132,7 @@ func TestPayloads_TurnCompleted(t *testing.T) {
 		ToolCalls:                   3,
 	})
 	want := map[string]any{
-		"turn_index":                      2,
+		"model_call_index":                2,
 		"step_id":                         "step-model-2",
 		"cost_micros_usd":                 int64(42),
 		"run_cumulative_cost_micros_usd":  int64(100),
@@ -140,7 +140,7 @@ func TestPayloads_TurnCompleted(t *testing.T) {
 		"tool_calls":                      3,
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("TurnCompleted() = %+v, want %+v", got, want)
+		t.Fatalf("ModelCallCompleted() = %+v, want %+v", got, want)
 	}
 }
 

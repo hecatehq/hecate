@@ -9,20 +9,20 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-func TestTaskRunStreamProjector_TurnCompletedMergesOverlayWithLiveState(t *testing.T) {
+func TestTaskRunStreamProjector_ModelCallCompletedMergesOverlayWithLiveState(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	store := taskstate.NewMemoryStore()
-	seedTaskRunStreamProjectorRun(t, ctx, store, "task-turn", "run-turn", "running")
+	seedTaskRunStreamProjectorRun(t, ctx, store, "task-model-call", "run-model-call", "running")
 	projector := newTaskRunStreamProjector(store)
 
-	state, err := projector.projectEvent(ctx, "task-turn", "run-turn", types.TaskRunEvent{
+	state, err := projector.projectEvent(ctx, "task-model-call", "run-model-call", types.TaskRunEvent{
 		Sequence:  7,
-		EventType: "turn.completed",
+		EventType: "model.call.completed",
 		Data: map[string]any{
-			"turn_index":                      float64(3),
-			"step_id":                         "step-turn",
+			"model_call_index":                float64(3),
+			"step_id":                         "step-model-call",
 			"cost_micros_usd":                 float64(4200),
 			"run_cumulative_cost_micros_usd":  float64(8200),
 			"task_cumulative_cost_micros_usd": float64(12000),
@@ -32,20 +32,23 @@ func TestTaskRunStreamProjector_TurnCompletedMergesOverlayWithLiveState(t *testi
 	if err != nil {
 		t.Fatalf("projectEvent() error = %v", err)
 	}
-	if state.Run.ID != "run-turn" {
-		t.Fatalf("Run.ID = %q, want run-turn", state.Run.ID)
+	if state.Run.ID != "run-model-call" {
+		t.Fatalf("Run.ID = %q, want run-model-call", state.Run.ID)
 	}
-	if state.Sequence != 7 || state.EventType != "turn.completed" {
-		t.Fatalf("stream metadata = sequence %d event_type %q, want 7 turn.completed", state.Sequence, state.EventType)
+	if state.Sequence != 7 || state.EventType != "model.call.completed" {
+		t.Fatalf("stream metadata = sequence %d event_type %q, want 7 model.call.completed", state.Sequence, state.EventType)
 	}
 	if state.Terminal {
 		t.Fatal("Terminal = true, want false for running live state")
 	}
-	if state.Turn == nil {
-		t.Fatal("Turn is nil, want turn overlay")
+	if state.ModelCall == nil {
+		t.Fatal("ModelCall is nil, want model-call overlay")
 	}
-	if state.Turn.Turn != 3 || state.Turn.StepID != "step-turn" || state.Turn.CostMicrosUSD != 4200 {
-		t.Fatalf("Turn = %+v, want turn=3 step=step-turn cost=4200", state.Turn)
+	if state.ModelCall.ModelCall != 3 || state.ModelCall.StepID != "step-model-call" || state.ModelCall.CostMicrosUSD != 4200 {
+		t.Fatalf("ModelCall = %+v, want model_call=3 step=step-model-call cost=4200", state.ModelCall)
+	}
+	if state.Run.ModelCallCount != 3 {
+		t.Fatalf("Run.ModelCallCount = %d, want live projection 3", state.Run.ModelCallCount)
 	}
 }
 

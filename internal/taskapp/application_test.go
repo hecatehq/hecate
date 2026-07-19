@@ -25,8 +25,8 @@ type recordingTaskApplicationRunner struct {
 	continueCalls  int
 	continuePrompt string
 
-	retryFromTurnCalls int
-	retryFromTurn      int
+	retryFromModelCallCalls int
+	retryFromModelCall      int
 
 	cancelCalls  int
 	cancelRunID  string
@@ -65,10 +65,10 @@ func (r *recordingTaskApplicationRunner) ContinueAgentTask(_ context.Context, ta
 	return &orchestrator.StartTaskResult{Task: task, Run: continued}, nil
 }
 
-func (r *recordingTaskApplicationRunner) RetryTaskFromTurn(_ context.Context, task types.Task, run types.TaskRun, turn int, _ string, _ func(string) string) (*orchestrator.StartTaskResult, error) {
-	r.retryFromTurnCalls++
-	r.retryFromTurn = turn
-	retried := types.TaskRun{ID: "run_turn_retry", TaskID: task.ID, Status: "queued"}
+func (r *recordingTaskApplicationRunner) RetryTaskFromModelCall(_ context.Context, task types.Task, run types.TaskRun, modelCall int, _ string, _ func(string) string) (*orchestrator.StartTaskResult, error) {
+	r.retryFromModelCallCalls++
+	r.retryFromModelCall = modelCall
+	retried := types.TaskRun{ID: "run_model_call_retry", TaskID: task.ID, Status: "queued"}
 	return &orchestrator.StartTaskResult{Task: task, Run: retried}, nil
 }
 
@@ -96,7 +96,7 @@ func (r *recordingTaskApplicationRunner) ResolveTaskApproval(_ context.Context, 
 }
 
 func (r *recordingTaskApplicationRunner) totalCalls() int {
-	return r.startCalls + r.resumeCalls + r.continueCalls + r.retryFromTurnCalls + r.cancelCalls + r.resolveCalls
+	return r.startCalls + r.resumeCalls + r.continueCalls + r.retryFromModelCallCalls + r.cancelCalls + r.resolveCalls
 }
 
 func newTestTaskApplication(store taskstate.Store, runner Runner) *Application {
@@ -526,9 +526,9 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 			},
 		},
 		{
-			name: "retry_from_turn",
+			name: "retry_from_model_call",
 			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
-				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnCommand{Turn: 1, Reason: "rewind"})
+				_, err := app.RetryTaskRunFromModelCall(ctx, task, run, RetryFromModelCallCommand{ModelCallIndex: 1, Reason: "rewind"})
 				return err
 			},
 		},
@@ -549,7 +549,7 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 				LatestRunID: "run_active",
 			})
 			createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_active", TaskID: task.ID, Status: "running"})
-			run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_source", TaskID: task.ID, Status: "failed"})
+			run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_source", TaskID: task.ID, Status: "failed", ModelCallCount: 1})
 
 			err := tc.call(ctx, app, task, run)
 			if !errors.Is(err, ErrOtherActiveRun) {
@@ -587,12 +587,12 @@ func TestTaskApplication_LifecycleValidationPrecedesRunnerConfiguration(t *testi
 			want: ErrRunNotResumable,
 		},
 		{
-			name: "turn_retry_nonterminal",
+			name: "model_call_retry_nonterminal",
 			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
-				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnCommand{Turn: 1})
+				_, err := app.RetryTaskRunFromModelCall(ctx, task, run, RetryFromModelCallCommand{ModelCallIndex: 1})
 				return err
 			},
-			want: ErrRunNotTurnRetryable,
+			want: ErrRunNotModelCallRetryable,
 		},
 		{
 			name: "resume_other_active_before_lower_budget",
@@ -658,18 +658,22 @@ func TestTaskApplication_ResumeLowerBudgetPrecedesRunnerConfiguration(t *testing
 	}
 }
 
-func TestTaskApplication_RetryFromTurnValidatesTurnBeforeRunner(t *testing.T) {
+func TestTaskApplication_RetryFromModelCallValidatesModelCallBeforeRunner(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	store := taskstate.NewMemoryStore()
 	app := newTestTaskApplication(store, nil)
-	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_turn", Status: "failed"})
-	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_failed", TaskID: task.ID, Status: "failed"})
+	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_model_call", Status: "failed"})
+	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_failed", TaskID: task.ID, Status: "failed", ModelCallCount: 1})
 
-	_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnCommand{Turn: 0})
-	if !errors.Is(err, ErrTurnRequired) || !IsValidationError(err) {
-		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want task validation ErrTurnRequired", err)
+	_, err := app.RetryTaskRunFromModelCall(ctx, task, run, RetryFromModelCallCommand{ModelCallIndex: 0})
+	if !errors.Is(err, ErrModelCallIndexRequired) || !IsValidationError(err) {
+		t.Fatalf("RetryTaskRunFromModelCall(model call 0) error = %v, want task validation ErrModelCallIndexRequired", err)
+	}
+	_, err = app.RetryTaskRunFromModelCall(ctx, task, run, RetryFromModelCallCommand{ModelCallIndex: 2})
+	if err == nil || !IsValidationError(err) {
+		t.Fatalf("RetryTaskRunFromModelCall(model call 2) error = %v, want out-of-range validation", err)
 	}
 }
 

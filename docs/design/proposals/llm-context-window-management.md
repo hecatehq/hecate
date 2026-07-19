@@ -219,7 +219,7 @@ UI:
 | 2   | Add token estimator over `ContextPacket` items with unit tests.                       |
 | 3   | Add soft warning + hard cap for Hecate Chat direct-model and tools-on runs.           |
 | 4   | Surface context usage in Chat and Task Detail.                                        |
-| 5   | Add opt-in fitting policy for task-backed Hecate Chat runs.                           |
+| 5   | Add opt-in fitting policy for task-backed Hecate Chat Turns.                          |
 | 6   | Add summarization as a separate, evaluated feature.                                   |
 
 PRs 1-4 are the practical beta target. PRs 5-6 are useful but should not block

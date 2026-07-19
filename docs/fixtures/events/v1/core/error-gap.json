@@ -21,9 +21,9 @@
     "session_id": "chat_01HX0000000000000000000201",
     "sequence": 1,
     "occurred_at": "2026-05-03T10:10:00.250Z",
-    "type": "turn.failed",
+    "type": "model.call.failed",
     "data": {
-      "turn_index": 0,
+      "model_call_index": 1,
       "code": "model_timeout",
       "message": "no response in 60s",
       "will_retry": true
@@ -75,7 +75,7 @@
       "code": "budget_exceeded",
       "message": "task budget exceeded",
       "retriable": false,
-      "turns": 1
+      "model_call_count": 0
     }
   },
   {

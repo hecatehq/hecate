@@ -10,11 +10,15 @@ import {
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
 import {
+  chatNavigationURL,
   navigationURLsEqual,
   parseNavigationURL,
   projectNavigationURL,
+  taskNavigationURL,
   workspaceNavigationURL,
   type ProjectNavigationDestination,
+  type ChatNavigationDestination,
+  type TaskNavigationDestination,
 } from "./navigation";
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
@@ -114,6 +118,20 @@ function AppConsole() {
     [commitNavigation],
   );
 
+  const handleTaskNavigation = useCallback(
+    (destination: TaskNavigationDestination, mode: "push" | "replace" = "push") => {
+      commitNavigation(taskNavigationURL(window.location, destination), mode);
+    },
+    [commitNavigation],
+  );
+
+  const handleChatNavigation = useCallback(
+    (destination: ChatNavigationDestination, mode: "push" | "replace" = "push") => {
+      commitNavigation(chatNavigationURL(window.location, destination), mode);
+    },
+    [commitNavigation],
+  );
+
   useEffect(() => {
     const syncFromBrowser = () => {
       const currentURL = readBrowserNavigationURL();
@@ -152,11 +170,15 @@ function AppConsole() {
   return (
     <ConsoleShell
       activeWorkspace={activeWorkspace}
+      chatNavigation={parsedNavigation.workspace === "chats" ? parsedNavigation.chat : null}
+      onChatNavigate={handleChatNavigation}
       onProjectNavigate={handleProjectNavigation}
       onSelectWorkspace={handleSelectWorkspace}
+      onTaskNavigate={handleTaskNavigation}
       projectNavigation={
         parsedNavigation.workspace === "projects" ? parsedNavigation.project : null
       }
+      taskNavigation={parsedNavigation.workspace === "tasks" ? parsedNavigation.task : null}
     />
   );
 }

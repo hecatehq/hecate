@@ -126,13 +126,13 @@ const (
 
 // External agent chats
 const (
-	EventAgentChatRunStarted      = "chat.run.started"
+	EventAgentChatTurnStarted     = "chat.turn.started"
 	EventAgentChatOutputStarted   = "chat.output.started"
 	EventAgentChatFilesChanged    = "chat.files_changed"
 	EventAgentChatSessionReplaced = "chat.session_replaced"
-	EventAgentChatRunFinished     = "chat.run.finished"
-	EventAgentChatRunFailed       = "chat.run.failed"
-	EventAgentChatRunCancelled    = "chat.run.cancelled"
+	EventAgentChatTurnFinished    = "chat.turn.finished"
+	EventAgentChatTurnFailed      = "chat.turn.failed"
+	EventAgentChatTurnCancelled   = "chat.turn.cancelled"
 )
 
 var allEventNames = []string{
@@ -191,13 +191,13 @@ var allEventNames = []string{
 	EventRetentionSubsystemFinished,
 	EventRetentionHistoryFailed,
 	EventRetentionHistoryPersisted,
-	EventAgentChatRunStarted,
+	EventAgentChatTurnStarted,
 	EventAgentChatOutputStarted,
 	EventAgentChatFilesChanged,
 	EventAgentChatSessionReplaced,
-	EventAgentChatRunFinished,
-	EventAgentChatRunFailed,
-	EventAgentChatRunCancelled,
+	EventAgentChatTurnFinished,
+	EventAgentChatTurnFailed,
+	EventAgentChatTurnCancelled,
 }
 
 func AllEventNames() []string {
@@ -230,7 +230,7 @@ const (
 
 	SpanRetentionRun = "retention.run"
 
-	SpanAgentChatRun = "chat.run"
+	SpanAgentChatTurn = "chat.turn"
 )
 
 // ---------------------------------------------------------------------------
@@ -253,14 +253,14 @@ const (
 	MetricProviderCallDuration   = "hecate.provider.call.duration"
 
 	// External agent chat metrics
-	MetricAgentChatRunsTotal   = "hecate.chat.runs"
-	MetricAgentChatRunDuration = "hecate.chat.run.duration"
-	MetricAgentChatRunTiming   = "hecate.chat.run.timing"
-	// MetricAgentChatCancelledTotal counts agent-chat run/turn endings
+	MetricAgentChatTurnsTotal   = "hecate.chat.turns"
+	MetricAgentChatTurnDuration = "hecate.chat.turn.duration"
+	MetricAgentChatTurnTiming   = "hecate.chat.turn.timing"
+	// MetricAgentChatCancelledTotal counts agent-chat turn endings
 	// that terminated via cancellation. The reason label
 	// distinguishes operator (explicit Cancel call from the HTTP
 	// layer), request_cancelled (ctx died before the operator clicked
-	// anything), and shutdown (process tear-down). Runs that completed
+	// anything), and shutdown (process tear-down). Turns that completed
 	// or failed organically don't fire this counter.
 	MetricAgentChatCancelledTotal = "hecate.chat.cancelled"
 
@@ -527,49 +527,55 @@ var requiredEventAttrs = map[string][]string{
 		AttrHecateErrorKind,
 		AttrErrorType,
 	},
-	EventAgentChatRunStarted: {
+	EventAgentChatTurnStarted: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
+		AttrHecateChatTurnStatus,
 		AttrHecateAgentAdapterID,
 	},
 	EventAgentChatOutputStarted: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
+		AttrHecateChatTurnStatus,
 		AttrHecateAgentAdapterID,
 		AttrHecateAgentOutputBytes,
 	},
 	EventAgentChatFilesChanged: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
+		AttrHecateChatTurnStatus,
 		AttrHecateAgentAdapterID,
 		AttrHecateAgentDiffCaptured,
 	},
 	EventAgentChatSessionReplaced: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
 		AttrHecateAgentAdapterID,
 		AttrHecateAgentNativeSessionID,
 		AttrHecateAgentNativeSessionReplaced,
 	},
-	EventAgentChatRunFinished: {
+	EventAgentChatTurnFinished: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
 		AttrHecateAgentAdapterID,
-		AttrHecateRunDurationMS,
+		AttrHecateChatTurnStatus,
+		AttrHecateChatTurnDurationMS,
 	},
-	EventAgentChatRunFailed: {
+	EventAgentChatTurnFailed: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
 		AttrHecateAgentAdapterID,
-		AttrHecateRunDurationMS,
+		AttrHecateChatTurnStatus,
+		AttrHecateChatTurnDurationMS,
 		AttrHecateErrorKind,
 		AttrErrorType,
 	},
-	EventAgentChatRunCancelled: {
+	EventAgentChatTurnCancelled: {
 		AttrHecateChatSessionID,
-		AttrHecateRunID,
+		AttrHecateChatTurnID,
 		AttrHecateAgentAdapterID,
-		AttrHecateRunDurationMS,
+		AttrHecateChatTurnStatus,
+		AttrHecateChatTurnDurationMS,
 	},
 }
 

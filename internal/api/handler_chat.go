@@ -467,7 +467,7 @@ func (h *Handler) deleteExistingChatSession(ctx context.Context, session chat.Se
 	settlementClaim = h.agentChatSettlements.claimSession(sessionID, lifecycleClosure)
 	claimNeedsRelease = true
 	cancelCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
+	settled := h.agentChatLive.cancelTurnAndWait(cancelCtx, sessionID)
 	cancel()
 	if !settled {
 		return true, nil
@@ -532,7 +532,7 @@ func (h *Handler) HandleCancelChatSession(w http.ResponseWriter, r *http.Request
 		// The task cancellation and the chat watcher are separate ownership
 		// boundaries. Stamp the operator reason and wake the detached watcher so
 		// its terminal metric cannot misclassify this as a request disconnect.
-		h.agentChatLive.cancelRun(session.ID)
+		h.agentChatLive.cancelTurn(session.ID)
 		updated, updateErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 			item.Status = run.Status
 		})
@@ -544,7 +544,7 @@ func (h *Handler) HandleCancelChatSession(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, updateErr.Error())
 		return
 	}
-	if !h.agentChatLive.cancelRun(session.ID) {
+	if !h.agentChatLive.cancelTurn(session.ID) {
 		writeChatSessionNotRunning(w)
 		return
 	}
@@ -583,7 +583,7 @@ func (h *Handler) HandleCloseChatSession(w http.ResponseWriter, r *http.Request)
 	}
 	settlementClaim = h.agentChatSettlements.claimSession(session.ID, lifecycleClosure)
 	claimNeedsRelease = true
-	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, session.ID)
+	settled := h.agentChatLive.cancelTurnAndWait(cancelCtx, session.ID)
 	cancel()
 	if !settled {
 		writeChatSessionStopping(w)
@@ -697,10 +697,10 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	if req.WorkspaceMode != nil || req.RTKEnabled != nil {
 		releaseMutation, admission := h.agentChatLive.beginExclusiveMutation(lifecycle)
 		switch admission {
-		case agentChatRunAdmissionClosed:
+		case agentChatTurnAdmissionClosed:
 			writeChatSessionStopping(w)
 			return
-		case agentChatRunBusy:
+		case agentChatTurnBusy:
 			WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is busy", ErrorDetails{
 				UserMessage:    "This chat is busy.",
 				OperatorAction: "Wait for the active turn to finish before changing chat settings.",
@@ -1016,25 +1016,25 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		return
 	}
 	assistantID := newChatID("msg")
-	runID := newChatID("agent_run")
+	turnID := newChatID("turn")
 	trace, traceCtx := h.startAgentChatTrace(w, r)
 	defer trace.Finalize()
 
 	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
-	switch h.agentChatLive.registerRun(lifecycle, cancel) {
-	case agentChatRunAdmissionClosed:
+	switch h.agentChatLive.registerTurn(lifecycle, cancel) {
+	case agentChatTurnAdmissionClosed:
 		cancel()
 		writeChatSessionStopping(w)
 		return
-	case agentChatRunBusy:
+	case agentChatTurnBusy:
 		cancel()
 		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "agent chat session is already running", ErrorDetails{
 			UserMessage:    "This chat is already running.",
-			OperatorAction: "Wait for the active run to finish or stop it before sending another message.",
+			OperatorAction: "Wait for the active turn to finish or stop it before sending another message.",
 		})
 		return
 	}
-	defer h.agentChatLive.clearRun(session.ID)
+	defer h.agentChatLive.clearTurn(session.ID)
 	defer cancel()
 	settlementTurn, settlementErr := h.agentChatSettlements.acquireTurn(h, session.ID, assistantID)
 	if settlementErr != nil {
@@ -1108,6 +1108,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	appendAttempted = true
 	updated, err := requestGuard.appendUserMessage(r.Context(), session.ID, chat.Message{
 		ID:            userID,
+		TurnID:        turnID,
 		ExecutionMode: chat.ExecutionModeExternalAgent,
 		Role:          "user",
 		Content:       plan.Content,
@@ -1141,20 +1142,17 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	attachmentClaimPending = false
 	h.agentChatLive.publishSession(updated)
 	startedAt := time.Now().UTC()
-	trace.Record(telemetry.EventAgentChatRunStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-		telemetry.AttrHecateRunStatus: "running",
+	trace.Record(telemetry.EventAgentChatTurnStarted, agentChatTraceAttrs(session, adapter, turnID, assistantID, map[string]any{
+		telemetry.AttrHecateChatTurnStatus: "running",
 	}))
 	initialWriteCtx, initialWriteCancel := newAgentChatPersistenceContext(r.Context())
 	contextPacket := h.externalAgentContextPacket(initialWriteCtx, session, adapter.Name)
 	contextPacket.ID = newChatID("ctx")
-	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
-		chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
-		chatcontext.TaskRunRefs("", runID, session.ProjectID),
-	))
+	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.ChatMessageRefs(session.ID, turnID, assistantID, session.ProjectID))
 	updated, err = h.agentChat.AppendMessage(initialWriteCtx, session.ID, chat.Message{
 		ID:            assistantID,
+		TurnID:        turnID,
 		ExecutionMode: chat.ExecutionModeExternalAgent,
-		RunID:         runID,
 		RequestID:     RequestIDFromContext(r.Context()),
 		TraceID:       trace.TraceID,
 		SpanID:        trace.RootSpanID(),
@@ -1212,8 +1210,8 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 				message.Content = display
 				if strings.TrimSpace(display) != "" && !outputSeen {
 					message.Activities = append(message.Activities, newChatActivity("output", "running", "ACP output", "Streaming normalized transcript"))
-					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-						telemetry.AttrHecateRunStatus:        "running",
+					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, turnID, assistantID, map[string]any{
+						telemetry.AttrHecateChatTurnStatus:   "running",
 						telemetry.AttrHecateAgentOutputBytes: int64(len(display)),
 					}))
 					outputSeen = true
@@ -1281,7 +1279,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 				"previous_native_session_id", replacement.PreviousNativeSessionID,
 				"native_session_id", replacement.NativeSessionID,
 			)
-			trace.Record(telemetry.EventAgentChatSessionReplaced, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+			trace.Record(telemetry.EventAgentChatSessionReplaced, agentChatTraceAttrs(session, adapter, turnID, assistantID, map[string]any{
 				telemetry.AttrHecateAgentNativeSessionID:       replacement.NativeSessionID,
 				telemetry.AttrHecateAgentNativeSessionReplaced: true,
 			}))
@@ -1307,14 +1305,14 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	startedAt = outcome.StartedAt
 	completedAt := outcome.CompletedAt
 	if result.DiffStat != "" {
-		trace.Record(telemetry.EventAgentChatFilesChanged, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-			telemetry.AttrHecateRunStatus:         status,
+		trace.Record(telemetry.EventAgentChatFilesChanged, agentChatTraceAttrs(session, adapter, turnID, assistantID, map[string]any{
+			telemetry.AttrHecateChatTurnStatus:    status,
 			telemetry.AttrHecateAgentDiffCaptured: true,
 		}))
 	}
-	terminalAttrs := agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-		telemetry.AttrHecateRunStatus:            status,
-		telemetry.AttrHecateRunDurationMS:        outcome.DurationMS,
+	terminalAttrs := agentChatTraceAttrs(session, adapter, turnID, assistantID, map[string]any{
+		telemetry.AttrHecateChatTurnStatus:       status,
+		telemetry.AttrHecateChatTurnDurationMS:   outcome.DurationMS,
 		telemetry.AttrHecateAgentOutputBytes:     int64(len(output)),
 		telemetry.AttrHecateAgentRawOutputBytes:  int64(len(result.RawOutput)),
 		telemetry.AttrHecateAgentDiffCaptured:    result.Diff != "",
@@ -1339,7 +1337,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	if driverKind == "" {
 		driverKind = adapter.Kind
 	}
-	h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
+	h.agentChatMetrics.RecordTurn(traceCtx, telemetry.AgentChatTurnMetricsRecord{
 		AdapterID:  adapter.ID,
 		DriverKind: driverKind,
 		Status:     status,
@@ -1347,12 +1345,12 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		DurationMS: outcome.DurationMS,
 	})
 	if status == "cancelled" {
-		// Reason classification: cancelRun / cancelRunAndWait stamp
+		// Reason classification: cancelTurn / cancelTurnAndWait stamp
 		// "operator" before tripping the cancel func; if nothing was
 		// stamped, the parent r.Context() died first, which we label
 		// "request_cancelled". Shutdown-path cancels fire from
 		// SessionManager.Shutdown directly and don't reach this branch.
-		reason := h.agentChatLive.cancelReasonFor(session.ID)
+		reason := h.agentChatLive.turnCancelReason(session.ID)
 		if reason == "" {
 			reason = "request_cancelled"
 		}
@@ -1396,10 +1394,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		if activity, ok := externalAgentStopReasonActivity(result.StopReason); ok {
 			message.Activities = append(message.Activities, activity)
 		}
-		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
-			chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
-			chatcontext.TaskRunRefs("", runID, session.ProjectID),
-		))
+		message.Context = chatcontext.Normalize(message.Context, chatcontext.ChatMessageRefs(session.ID, message.TurnID, assistantID, session.ProjectID))
 		message.Activities = append(message.Activities, newChatActivity(status, status, finalChatActivityTitle(status), errorText))
 	})
 	if err != nil {
@@ -1555,23 +1550,28 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	}
 	userID := newChatID("msg")
 	assistantID := newChatID("msg")
-	runID := newChatID("model_run")
+	turnID := newChatID("turn")
 	startedAt := time.Now().UTC()
-	runCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
-	switch h.agentChatLive.registerRun(lifecycle, cancel) {
-	case agentChatRunAdmissionClosed:
+	traceSession := session
+	traceSession.Provider = provider
+	traceSession.Model = model
+	trace, traceCtx := h.startAgentChatTrace(w, r)
+	defer trace.Finalize()
+	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
+	switch h.agentChatLive.registerTurn(lifecycle, cancel) {
+	case agentChatTurnAdmissionClosed:
 		cancel()
 		writeChatSessionStopping(w)
 		return
-	case agentChatRunBusy:
+	case agentChatTurnBusy:
 		cancel()
 		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is already running", ErrorDetails{
 			UserMessage:    "This chat is already running.",
-			OperatorAction: "Wait for the active run to finish or stop it before sending another message.",
+			OperatorAction: "Wait for the active turn to finish or stop it before sending another message.",
 		})
 		return
 	}
-	defer h.agentChatLive.clearRun(session.ID)
+	defer h.agentChatLive.clearTurn(session.ID)
 	defer cancel()
 
 	claimRef := chatattachments.ClaimRef{
@@ -1639,6 +1639,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	appendAttempted = true
 	updated, err := requestGuard.appendUserMessage(r.Context(), session.ID, chat.Message{
 		ID:            userID,
+		TurnID:        turnID,
 		ExecutionMode: chat.ExecutionModeHecateTask,
 		// The model-chat handler dispatches when the operator submitted
 		// with tools off (or when the runtime downgraded a hecate_task
@@ -1686,21 +1687,23 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	}
 	attachmentClaimPending = false
 	h.agentChatLive.publishSession(updated)
+	trace.Record(telemetry.EventAgentChatTurnStarted, hecateAgentChatTraceAttrs(traceSession, turnID, "", "", assistantID, map[string]any{
+		telemetry.AttrHecateChatTurnStatus: "running",
+	}))
 
 	initialWriteCtx, initialWriteCancel := newAgentChatPersistenceContext(r.Context())
 	contextPacket := h.directModelContextPacket(initialWriteCtx, session, provider, model, effectiveSystemPrompt)
 	contextPacket.ID = newChatID("ctx")
-	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
-		chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
-		chatcontext.TaskRunRefs("", runID, session.ProjectID),
-	))
+	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.ChatMessageRefs(session.ID, turnID, assistantID, session.ProjectID))
 	updated, err = h.agentChat.AppendMessage(initialWriteCtx, session.ID, chat.Message{
 		ID:               assistantID,
+		TurnID:           turnID,
 		ExecutionMode:    chat.ExecutionModeHecateTask,
 		ToolsEnabled:     false,
 		SegmentID:        segmentID,
-		RunID:            runID,
 		RequestID:        RequestIDFromContext(r.Context()),
+		TraceID:          trace.TraceID,
+		SpanID:           trace.RootSpanID(),
 		Provider:         provider,
 		ProviderInstance: providerInstance,
 		Model:            model,
@@ -1750,7 +1753,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		},
 		Scope: requestscope.Build(routeProvider),
 	}
-	result, runErr := h.service.HandleChat(runCtx, chatReq)
+	result, runErr := h.service.HandleChatWithTrace(runCtx, chatReq, trace)
 	// Drop the handler's references to both binary and expanded image bodies
 	// before admitting another image turn. Providers own any copies they retain
 	// after their synchronous call returns.
@@ -1766,6 +1769,40 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	status := outcome.Status
 	output := outcome.Output
 	errorText := outcome.ErrorText
+	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	resultLabel := telemetry.ResultSuccess
+	if status == "failed" || status == "cancelled" {
+		resultLabel = telemetry.ResultError
+	}
+	terminalAttrs := hecateAgentChatTraceAttrs(traceSession, turnID, "", "", assistantID, map[string]any{
+		telemetry.AttrHecateChatTurnStatus:     status,
+		telemetry.AttrHecateChatTurnDurationMS: durationMS,
+		telemetry.AttrHecateAgentOutputBytes:   int64(len(output)),
+		telemetry.AttrHecateResult:             resultLabel,
+	})
+	if runErr != nil {
+		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
+		terminalAttrs[telemetry.AttrErrorType] = "model_request_failed"
+		terminalAttrs[telemetry.AttrErrorMessage] = errorText
+	}
+	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
+	h.agentChatMetrics.RecordTurn(traceCtx, telemetry.AgentChatTurnMetricsRecord{
+		AdapterID:  "hecate",
+		DriverKind: "hecate",
+		Status:     status,
+		Result:     resultLabel,
+		DurationMS: durationMS,
+	})
+	if status == "cancelled" {
+		reason := h.agentChatLive.turnCancelReason(session.ID)
+		if reason == "" {
+			reason = "request_cancelled"
+		}
+		h.agentChatMetrics.RecordChatCancelled(traceCtx, telemetry.AgentChatCancelledRecord{
+			AdapterID: "hecate",
+			Reason:    reason,
+		})
+	}
 	// Provider execution remains tied to the request through runCtx, but once it
 	// returns the transcript's terminal state is authoritative. Give those
 	// bounded writes enough time to finish even when the browser disconnects and
@@ -1781,7 +1818,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 			message.Capabilities = routeSnapshot.Capabilities
 		})
 		if routeUpdateErr != nil {
-			// The assistant terminal row is authoritative for run completion. A
+			// The assistant terminal row is authoritative for turn completion. A
 			// stale user-route annotation must not strand that row in "running".
 			h.logger.WarnContext(terminalCtx, "chat.direct_model.user_route_snapshot_update_failed",
 				"session_id", session.ID,
@@ -1801,18 +1838,13 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 		message.Model = routeSnapshot.Model
 		message.Capabilities = routeSnapshot.Capabilities
 		if result != nil {
-			message.TraceID = result.Metadata.TraceID
-			message.SpanID = result.Metadata.SpanID
 			message.Usage = chat.Usage{
 				ContextUsed: result.Metadata.TotalTokens,
 			}
 		}
 		message.Context.Provider = routeSnapshot.Provider
 		message.Context.Model = routeSnapshot.Model
-		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
-			chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
-			chatcontext.TaskRunRefs("", message.RunID, session.ProjectID),
-		))
+		message.Context = chatcontext.Normalize(message.Context, chatcontext.ChatMessageRefs(session.ID, message.TurnID, assistantID, session.ProjectID))
 		message.Activities = append(message.Activities, newChatActivity(status, status, finalChatActivityTitle(status), errorText))
 	})
 	if err != nil {

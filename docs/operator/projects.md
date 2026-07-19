@@ -514,7 +514,7 @@ returns its portable root ID.
 
 Root edits use typed server mutations per root. Adding, editing, or deleting a
 root changes project metadata only; it does not create or delete folders,
-branches, files, assignments, chats, tasks, or external-agent runs. Worktree
+branches, files, assignments, Chats, Tasks, or External Agent Turns. Worktree
 creation remains a separate explicit action.
 
 Worktree creation is an explicit operator action. In V1, Hecate creates

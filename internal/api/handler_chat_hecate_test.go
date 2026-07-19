@@ -93,6 +93,13 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 		t.Fatalf("first transcript = %+v", first.Data.Messages)
 	}
 	assistant := first.Data.Messages[len(first.Data.Messages)-1]
+	user := first.Data.Messages[0]
+	if !strings.HasPrefix(assistant.TurnID, "turn_") || user.TurnID != assistant.TurnID || user.RunID != first.Data.LatestRunID || assistant.RunID != first.Data.LatestRunID {
+		t.Fatalf("task-backed turn identity = user turn/run %q/%q assistant turn/run %q/%q, want shared turn_* and backing run %q", user.TurnID, user.RunID, assistant.TurnID, assistant.RunID, first.Data.LatestRunID)
+	}
+	if assistant.ContextPacket == nil || assistant.ContextPacket.Refs == nil || assistant.ContextPacket.Refs.TurnID != assistant.TurnID || assistant.ContextPacket.Refs.TaskID != first.Data.TaskID || assistant.ContextPacket.Refs.RunID != first.Data.LatestRunID {
+		t.Fatalf("task-backed context refs = %#v, want chat turn plus task run", assistant.ContextPacket)
+	}
 	if assistant.Workspace != first.Data.Workspace {
 		t.Fatalf("assistant workspace = %q, want isolated session workspace %q", assistant.Workspace, first.Data.Workspace)
 	}
@@ -114,8 +121,8 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if !agentChatMessageHasActivity(assistant, "run_result") {
 		t.Fatalf("assistant activities missing projected task run result activity: %+v", assistant.Activities)
 	}
-	if assistant.Timing == nil || assistant.Timing.TurnCount == 0 || assistant.Timing.Bottleneck == "" {
-		t.Fatalf("assistant timing = %+v, want persisted Hecate Chat run timing", assistant.Timing)
+	if assistant.Timing == nil || assistant.Timing.ModelCallCount == 0 || assistant.Timing.Bottleneck == "" {
+		t.Fatalf("assistant timing = %+v, want persisted Hecate Chat turn timing", assistant.Timing)
 	}
 
 	taskResponse := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+first.Data.TaskID, "")
@@ -188,16 +195,16 @@ func TestHecateAgentChatWorkspaceModeChangeSerializesWithTurns(t *testing.T) {
 		`{"agent_id":"hecate","workspace_mode":"persistent"}`)
 
 	lifecycle := apiHandler.agentChatLive.snapshotLifecycle(session.Data.ID)
-	if got := apiHandler.agentChatLive.registerRun(lifecycle, func() {}); got != agentChatRunAccepted {
+	if got := apiHandler.agentChatLive.registerTurn(lifecycle, func() {}); got != agentChatTurnAccepted {
 		lifecycle.release()
-		t.Fatalf("registerRun() = %v, want accepted", got)
+		t.Fatalf("registerTurn() = %v, want accepted", got)
 	}
 	busy := client.mustRequestStatus(http.StatusConflict, http.MethodPatch,
 		"/hecate/v1/chat/sessions/"+session.Data.ID+"/settings", `{"workspace_mode":"in_place"}`)
 	if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
 		t.Fatalf("busy workspace mode body = %s", busy.Body.String())
 	}
-	apiHandler.agentChatLive.clearRun(session.Data.ID)
+	apiHandler.agentChatLive.clearTurn(session.Data.ID)
 	lifecycle.release()
 
 	unchanged := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+session.Data.ID, "")
@@ -1479,7 +1486,7 @@ func findTaskRunItem(items []TaskRunItem, id string) TaskRunItem {
 
 func TestHecateAgentTimingFromRunState(t *testing.T) {
 	base := time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC)
-	run := types.TaskRun{ID: "run_1", TaskID: "task_1", StartedAt: base.Add(100 * time.Millisecond), FinishedAt: base.Add(7 * time.Second)}
+	run := types.TaskRun{ID: "run_1", TaskID: "task_1", ModelCallCount: 1, StartedAt: base.Add(100 * time.Millisecond), FinishedAt: base.Add(7 * time.Second)}
 	timing := hecateAgentTimingFromRunState(run, []types.TaskStep{
 		{
 			ID:         "step_model",
@@ -1516,11 +1523,52 @@ func TestHecateAgentTimingFromRunState(t *testing.T) {
 	if timing.OverheadMS != 1400 {
 		t.Fatalf("overhead_ms = %d, want 1400", timing.OverheadMS)
 	}
-	if timing.TurnCount != 1 || timing.ToolCount != 1 {
-		t.Fatalf("counts = turns %d tools %d, want 1/1", timing.TurnCount, timing.ToolCount)
+	if timing.ModelCallCount != 1 || timing.ToolCount != 1 {
+		t.Fatalf("counts = model calls %d tools %d, want 1/1", timing.ModelCallCount, timing.ToolCount)
 	}
 	if timing.Bottleneck != "approval" || timing.BottleneckMS != 3000 {
 		t.Fatalf("bottleneck = %s/%d, want approval/3000", timing.Bottleneck, timing.BottleneckMS)
+	}
+}
+
+func TestHecateAgentTimingFromRunStateDoesNotCountApprovalResumeMarkerAsModelCall(t *testing.T) {
+	base := time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC)
+	run := types.TaskRun{
+		ID:             "run_approval_resume",
+		TaskID:         "task_approval_resume",
+		ModelCallCount: 2,
+		StartedAt:      base,
+		FinishedAt:     base.Add(5 * time.Second),
+	}
+	timing := hecateAgentTimingFromRunState(run, []types.TaskStep{
+		{
+			RunID:      run.ID,
+			Kind:       "model",
+			ToolName:   "builtin.agent_loop_llm",
+			StartedAt:  base,
+			FinishedAt: base.Add(time.Second),
+		},
+		{
+			RunID:      run.ID,
+			Kind:       "model",
+			ToolName:   "builtin.agent_loop_resume",
+			StartedAt:  base.Add(time.Second),
+			FinishedAt: base.Add(3 * time.Second),
+		},
+		{
+			RunID:      run.ID,
+			Kind:       "model",
+			ToolName:   "builtin.agent_loop_llm",
+			StartedAt:  base.Add(3 * time.Second),
+			FinishedAt: base.Add(4 * time.Second),
+		},
+	}, nil, nil, base, base.Add(5*time.Second))
+
+	if timing.ModelCallCount != 2 {
+		t.Fatalf("model_call_count = %d, want authoritative run count 2", timing.ModelCallCount)
+	}
+	if timing.ModelMS != 2000 {
+		t.Fatalf("model_ms = %d, want only two provider calls (2000ms)", timing.ModelMS)
 	}
 }
 
@@ -1699,6 +1747,13 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 		t.Fatalf("model messages = %d, want 2", len(modelTurn.Data.Messages))
 	}
 	modelAssistant := modelTurn.Data.Messages[1]
+	modelUser := modelTurn.Data.Messages[0]
+	if !strings.HasPrefix(modelAssistant.TurnID, "turn_") || modelUser.TurnID != modelAssistant.TurnID || modelUser.RunID != "" || modelAssistant.RunID != "" {
+		t.Fatalf("direct-model turn identity = user turn/run %q/%q assistant turn/run %q/%q, want one turn_* and no task run", modelUser.TurnID, modelUser.RunID, modelAssistant.TurnID, modelAssistant.RunID)
+	}
+	if modelAssistant.ContextPacket == nil || modelAssistant.ContextPacket.Refs == nil || modelAssistant.ContextPacket.Refs.TurnID != modelAssistant.TurnID || modelAssistant.ContextPacket.Refs.RunID != "" {
+		t.Fatalf("direct-model context refs = %#v, want canonical turn and no task run", modelAssistant.ContextPacket)
+	}
 	if modelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
 		t.Fatalf("model assistant snapshot = execution_mode %q task %q model %q", modelAssistant.ExecutionMode, modelAssistant.TaskID, modelAssistant.Model)
 	}
@@ -1823,6 +1878,54 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	}
 	if segments[4].ID != "task:"+changedModelTools.Data.TaskID || segments[4].TaskID != changedModelTools.Data.TaskID || segments[4].Model != "gpt-4o-mini-2024-07-18" {
 		t.Fatalf("model-change tools segment = %+v, want task %q and changed model", segments[4], changedModelTools.Data.TaskID)
+	}
+}
+
+func TestRenderChatSessionSuppressesNonTaskRunIDs(t *testing.T) {
+	t.Parallel()
+
+	rendered := renderChatSession(chat.Session{
+		ID:      "chat_turn_identity",
+		AgentID: chat.DefaultAgentID,
+		Messages: []chat.Message{
+			{
+				ID:      "msg_direct",
+				TurnID:  "turn_direct",
+				RunID:   "model_run_old",
+				Role:    "assistant",
+				Context: chat.ContextPacket{Version: "chat.context.v1", Refs: &chat.ContextRefs{SessionID: "chat_turn_identity", TurnID: "turn_direct", MessageID: "msg_direct", RunID: "model_run_old"}},
+			},
+			{
+				ID:        "msg_task",
+				TurnID:    "turn_task",
+				SegmentID: "task:task_1",
+				TaskID:    "task_1",
+				RunID:     "run_1",
+				Role:      "assistant",
+				Context:   chat.ContextPacket{Version: "chat.context.v1", Refs: &chat.ContextRefs{SessionID: "chat_turn_identity", TurnID: "turn_task", MessageID: "msg_task", TaskID: "task_1", RunID: "run_1"}},
+			},
+		},
+	}, agentChatSnapshotConfig{})
+
+	if direct := rendered.Messages[0]; direct.TurnID != "turn_direct" || direct.RunID != "" || direct.ContextPacket == nil || direct.ContextPacket.Refs == nil || direct.ContextPacket.Refs.TurnID != "turn_direct" || direct.ContextPacket.Refs.RunID != "" {
+		t.Fatalf("rendered direct message = %+v, want turn id with fake run suppressed", direct)
+	}
+	if task := rendered.Messages[1]; task.TurnID != "turn_task" || task.TaskID != "task_1" || task.RunID != "run_1" || task.ContextPacket == nil || task.ContextPacket.Refs == nil || task.ContextPacket.Refs.RunID != "run_1" {
+		t.Fatalf("rendered task message = %+v, want canonical task run", task)
+	}
+	directJSON, err := json.Marshal(rendered.Messages[0])
+	if err != nil {
+		t.Fatalf("marshal direct message: %v", err)
+	}
+	if !strings.Contains(string(directJSON), `"turn_id":"turn_direct"`) || strings.Contains(string(directJSON), `"run_id"`) {
+		t.Fatalf("direct message wire = %s, want turn_id and no run_id", directJSON)
+	}
+	taskJSON, err := json.Marshal(rendered.Messages[1])
+	if err != nil {
+		t.Fatalf("marshal task message: %v", err)
+	}
+	if !strings.Contains(string(taskJSON), `"turn_id":"turn_task"`) || !strings.Contains(string(taskJSON), `"run_id":"run_1"`) {
+		t.Fatalf("task message wire = %s, want turn_id plus task run_id", taskJSON)
 	}
 }
 
@@ -2096,7 +2199,7 @@ func TestTaskActivityItemsCarryStepApprovalMetadata(t *testing.T) {
 		ID:         "step_1",
 		Kind:       "approval",
 		Status:     "awaiting_approval",
-		Title:      "Awaiting approval - turn 1",
+		Title:      "Awaiting approval - model call 1",
 		ApprovalID: "appr_123",
 		StartedAt:  "2026-05-03T10:00:00Z",
 	}}, nil, []TaskApprovalItem{{
@@ -2109,12 +2212,38 @@ func TestTaskActivityItemsCarryStepApprovalMetadata(t *testing.T) {
 	}
 }
 
+func TestTaskActivityItemsKeepApprovalResumeMarkerAsStep(t *testing.T) {
+	items := buildTaskActivityItems([]TaskStepItem{
+		{
+			ID:       "step_model_call_1",
+			Kind:     "model",
+			Status:   "completed",
+			Title:    "Model call 1",
+			ToolName: "builtin.agent_loop_llm",
+		},
+		{
+			ID:       "step_approval_resume",
+			Kind:     "control",
+			Status:   "completed",
+			Title:    "Dispatch approved tools from model call 1",
+			ToolName: "builtin.agent_loop_resume",
+		},
+	}, nil, nil, types.TaskRun{Status: "running"})
+
+	if got := taskActivityByID(items, "step:step_model_call_1").Type; got != "thinking" {
+		t.Fatalf("provider-call activity type = %q, want thinking", got)
+	}
+	if got := taskActivityByID(items, "step:step_approval_resume").Type; got != "step" {
+		t.Fatalf("approval-resume activity type = %q, want step", got)
+	}
+}
+
 func TestTaskActivityItemsUseResolvedApprovalStatusForStep(t *testing.T) {
 	items := buildTaskActivityItems([]TaskStepItem{{
 		ID:         "step_1",
 		Kind:       "approval",
 		Status:     "awaiting_approval",
-		Title:      "Awaiting approval - turn 1",
+		Title:      "Awaiting approval - model call 1",
 		ApprovalID: "appr_123",
 		StartedAt:  "2026-05-03T10:00:00Z",
 	}}, nil, []TaskApprovalItem{{

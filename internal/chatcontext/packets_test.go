@@ -76,6 +76,7 @@ func TestNormalizeMergesRefsAndDefaultSections(t *testing.T) {
 
 	got := Normalize(packet, chat.ContextRefs{
 		SessionID: "session_new",
+		TurnID:    "turn_1",
 		MessageID: "msg_1",
 		TaskID:    "task_1",
 		RunID:     "run_1",
@@ -84,7 +85,7 @@ func TestNormalizeMergesRefsAndDefaultSections(t *testing.T) {
 	if got.Refs == nil {
 		t.Fatalf("Normalize refs are nil, want merged refs")
 	}
-	if got.Refs.SessionID != "session_original" || got.Refs.MessageID != "msg_1" || got.Refs.TaskID != "task_1" || got.Refs.RunID != "run_1" || got.Refs.ProjectID != "proj_1" {
+	if got.Refs.SessionID != "session_original" || got.Refs.TurnID != "turn_1" || got.Refs.MessageID != "msg_1" || got.Refs.TaskID != "task_1" || got.Refs.RunID != "run_1" || got.Refs.ProjectID != "proj_1" {
 		t.Fatalf("Normalize refs = %+v, want original session plus supplied refs", *got.Refs)
 	}
 	if got.Items[0].Section != "instructions" || got.Items[1].Section != "sources" || got.Items[2].Section != "runtime" {
@@ -102,11 +103,11 @@ func TestRefsMergeCanonicalContextRefs(t *testing.T) {
 	t.Parallel()
 
 	refs := MergeRefs(
-		ChatMessageRefs(" session_1 ", " msg_1 ", " proj_1 "),
+		ChatMessageRefs(" session_1 ", " turn_1 ", " msg_1 ", " proj_1 "),
 		TaskRunRefs(" task_1 ", " run_1 ", "ignored_project"),
 		ProjectAssignmentRefs("proj_1", " work_1 ", " asgn_1 ", " role_1 "),
 	)
-	if refs.SessionID != "session_1" || refs.MessageID != "msg_1" || refs.TaskID != "task_1" || refs.RunID != "run_1" {
+	if refs.SessionID != "session_1" || refs.TurnID != "turn_1" || refs.MessageID != "msg_1" || refs.TaskID != "task_1" || refs.RunID != "run_1" {
 		t.Fatalf("runtime refs = %+v, want trimmed chat/task refs", refs)
 	}
 	if refs.ProjectID != "proj_1" || refs.WorkItemID != "work_1" || refs.AssignmentID != "asgn_1" || refs.RoleID != "role_1" {

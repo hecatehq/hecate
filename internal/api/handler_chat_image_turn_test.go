@@ -106,7 +106,7 @@ func TestHecateAgentChatToolsOnHydratesImageWithoutPersistingBodyInTaskArtifacts
 		if strings.Contains(artifact.ContentText, encodedBody) || strings.Contains(artifact.ContentText, "data:image/") {
 			t.Fatalf("agent conversation retained private image body: %s", artifact.ContentText)
 		}
-		if !strings.Contains(artifact.ContentText, "binary body not retained in task artifacts") {
+		if !strings.Contains(artifact.ContentText, "binary body not retained in Task artifacts") {
 			t.Fatalf("agent conversation missing image omission marker: %s", artifact.ContentText)
 		}
 	}

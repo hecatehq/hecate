@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -116,6 +117,84 @@ func TestClaimedRunProcessor_StartsExecutesAndAcksQueuedRun(t *testing.T) {
 		t.Fatalf("ListRunEvents() error = %v", err)
 	}
 	assertRunEventSubsequence(t, events, []string{"run.started", "run.finished"})
+}
+
+func TestClaimedRunProcessor_FailsClosedWhenResumeCheckpointIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	queue := &recordingQueue{}
+	runner := newClaimedRunProcessorTestRunner(store, queue)
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:            "task-broken-checkpoint",
+		Title:         "Broken checkpoint",
+		Prompt:        "must not start fresh",
+		Status:        "queued",
+		ExecutionKind: "stub",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	run := types.TaskRun{
+		ID:        "run-broken-checkpoint",
+		TaskID:    task.ID,
+		Number:    2,
+		Status:    "queued",
+		StartedAt: now,
+		RequestID: "request-broken-checkpoint",
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
+		ID:        "event-broken-checkpoint",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		EventType: "run.resumed_from_event",
+		Data: map[string]any{
+			"from_run_id":             "run-missing-source",
+			"source_model_call_index": 1,
+		},
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("AppendRunEvent() error = %v", err)
+	}
+
+	runner.queueCoordinator.processQueuedRun(QueueClaim{
+		ClaimID: "claim-broken-checkpoint",
+		Job:     QueueJob{TaskID: task.ID, RunID: run.ID},
+	})
+
+	if got, want := queue.acked, []string{"claim-broken-checkpoint"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("acked claims = %+v, want %+v", got, want)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun() found=%t error=%v", found, err)
+	}
+	if stored.Status != "failed" {
+		t.Fatalf("run status = %q, want failed", stored.Status)
+	}
+	if !strings.Contains(stored.LastError, "resume checkpoint unavailable") {
+		t.Fatalf("run error = %q, want checkpoint failure", stored.LastError)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents() error = %v", err)
+	}
+	assertRunEventSubsequence(t, events, []string{"gap.run_disconnected", "run.failed"})
+	for _, event := range events {
+		if event.EventType == "run.started" {
+			t.Fatalf("unexpected run.started after checkpoint failure: %+v", event)
+		}
+		if event.EventType == "gap.run_disconnected" && event.Data["action"] != "fail_run" {
+			t.Fatalf("gap action = %v, want fail_run", event.Data["action"])
+		}
+	}
 }
 
 func TestClaimedRunProcessor_AcksNonQueuedRunWithoutStarting(t *testing.T) {

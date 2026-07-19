@@ -73,6 +73,10 @@ export type ChatAttachmentRecord = {
 
 export type ChatMessageRecord = {
   id: string;
+  // turn_id identifies the Chat turn shared by its user and assistant
+  // messages. run_id is reserved for the backing Task Run on hecate_task
+  // turns and is not a fallback Chat-turn identity.
+  turn_id?: string;
   turn_kind?: "direct_model" | "hecate_task" | "external_agent" | string;
   execution_mode?: "external_agent" | "hecate_task" | string;
   // tools_enabled is the per-turn tools-on/off signal the gateway
@@ -156,7 +160,7 @@ export type ChatTimingRecord = {
   tool_ms?: number;
   approval_wait_ms?: number;
   overhead_ms?: number;
-  turn_count?: number;
+  model_call_count?: number;
   tool_count?: number;
   bottleneck?: string;
   bottleneck_ms?: number;

@@ -1,21 +1,21 @@
 # Agent Runtime
 
-Hecate's `agent_loop` execution kind runs an LLM-driven loop: the model picks tools, the runtime dispatches them, results feed back to the model, and the loop continues until the model produces a final answer or hits a safety bound (max turns, cost ceiling, approval gate). This document covers how the loop works, the built-in tools, the safety story, and the control surface.
+Hecate's `agent_loop` execution kind runs an LLM-driven loop: the model picks tools, the runtime dispatches them, results feed back to the model, and the loop continues until the model produces a final answer or hits a safety bound (maximum model calls, cost ceiling, approval gate). This document covers how the loop works, the built-in tools, the safety story, and the control surface.
 
 For the high-level execution flow that wraps it (queue, lease, sandbox, events), see [`architecture.md`](../contributor/architecture.md#task-runtime-flow). For the API endpoints that drive it, see [`runtime-api.md`](runtime-api.md).
 
 `agent_loop` is also the runtime behind **Hecate Chat** when tools are on. In
 that mode Chats creates a visible task with `execution_profile=chat_agent` and
 `origin_kind=chat`; the first tools-on user message starts the task, and
-follow-up tools-on messages continue the latest terminal run instead of
+follow-up tools-on messages continue the latest terminal Task Run instead of
 creating a new task per message. Turning tools off switches the same transcript
 back to direct model chat. Turning tools on again after a direct model segment
 starts a fresh task-backed segment in that transcript. Tasks remains canonical
 for approvals, events, artifacts, retry/resume, and patch review; Chats is the
 conversational entry point with compact activity, task/trace links, and inline
 approval actions. When the selected provider supports streaming, the agent loop
-streams assistant text into the conversation artifact during the model turn so
-Chats can show the answer before the task run reaches a terminal state.
+streams assistant text into the conversation artifact during the model call so
+Chats can show the answer before the Task Run reaches a terminal state.
 Providers without streaming fall back to the normal non-streaming chat call.
 
 When a Hecate Chat session is linked to a project, Hecate keeps the Chat UI
@@ -40,23 +40,23 @@ review/apply boundary still applies.
 Hecate Chat session can carry an arbitrary history of segments — alternating
 tools-on and tools-off — in one continuous transcript. Within that transcript
 **at most one task-backed loop is active at a time.** Each tools-on segment
-maps to exactly one backing task; while that task's latest run is non-terminal
+maps to exactly one backing task; while that Task's latest Run is non-terminal
 (`queued`, `running`, `awaiting_approval`), the chat is "busy" and the
 composer's submit control reflects three states:
 
 - **idle** — the regular `Send message` button (`aria-label="Send message"`).
 - **busy with empty composer** — a red icon button labelled
-  `Stop current run` that cancels the active run.
+  `Stop active task` that cancels the backing Task Run.
 - **busy with a typed prompt** — a `Queue message` button that buffers
-  the text locally and replays it automatically once the active run
+  the text locally and replays it automatically once the backing Task Run
   finishes.
 
 A yellow banner under the composer surfaces a queueing notice plus an
 `Open task` link to the backing task in the Tasks workspace and a `Stop`
-button (`aria-label="Stop active task"`) that also cancels the run. The
+button (`aria-label="Stop active task"`) that also cancels the backing Task Run. The
 backend returns `409 chat.agent_session_busy` if a client bypasses
-the UI. Once the active run reaches a terminal state, the next tools-on
-prompt either continues the same task with a new run or — if tools have
+the UI. Once the backing Task Run reaches a terminal state, the next tools-on
+prompt either continues the same Task with a new Run or — if tools have
 been toggled off and on in the meantime — starts a fresh task-backed
 segment. Historical segments persist for transcript context but never
 resume execution; the only loop the runtime drives forward is the active
@@ -84,28 +84,28 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 
 ## Loop mechanics
 
-A run with `execution_kind=agent_loop` walks turns:
+A run with `execution_kind=agent_loop` walks model calls:
 
-1. The runtime calls the LLM with the running conversation, available tool schemas, and the operator-composed system prompt. If the gateway route supports streaming, assistant text deltas are captured and persisted as a partial conversation snapshot while the turn is still running.
+1. The runtime calls the LLM with the running conversation, available tool schemas, and the operator-composed system prompt. If the gateway route supports streaming, assistant text deltas are captured and persisted as a partial conversation snapshot while the model call is still running.
 2. The model responds with either tool calls or a final answer.
-3. If tool calls: each is dispatched, the result is appended as a `tool` message, the loop runs another turn.
+3. If tool calls: each is dispatched, the result is appended as a `tool` message, and the loop makes another model call.
 4. If a final answer: the loop ends. The answer is persisted as a `summary` artifact.
 
-The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) on every turn. During a streaming model turn, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full turn snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-turn therefore all start from a known state.
+The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) after every model call. During a streaming model call, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-model-call therefore all start from a known state.
 
-Each fresh LLM turn records the same runtime accounting regardless of whether
+Each fresh model call records the same runtime accounting regardless of whether
 the provider streamed or returned one response body: resolved route metadata
 (`provider`, `provider_kind`, `model`), the assistant thinking step,
-`assistant.*` run events, per-turn cost records, and the updated conversation
-snapshot. Resume-after-approval turns are different: the model has already
+`assistant.*` run events, per-model-call cost records, and the updated conversation
+snapshot. Resume-after-approval iterations are different: the model has already
 produced the tool calls, so the runtime dispatches those approved calls without
-emitting a new `turn.started` or `turn.completed`.
+emitting a new `model.call.started` or `model.call.completed`.
 
 The implementation keeps those responsibilities split so the loop stays
 auditable:
 
 - `executor_agent_loop.go` owns the high-level loop: resume detection, final answer, approval gate, tool dispatch, cost-ceiling check.
-- `executor_agent_loop_chat.go` owns one fresh LLM turn: request construction, streaming capture, route capture, assistant events, thinking step, turn cost, conversation snapshot.
+- `executor_agent_loop_chat.go` owns one fresh model call: request construction, streaming capture, route capture, assistant events, thinking step, model-call cost, conversation snapshot.
 - `executor_agent_loop_run_state.go` owns in-memory run assembly: next step index, steps/artifacts, resolved route, cost totals, `ExecutionResult`.
 - `executor_agent_loop_conversation.go`, `executor_agent_loop_approval_gate.go`, and `executor_agent_loop_tools.go` own conversation hydration, approval-gate decisions, and tool dispatch respectively.
 
@@ -120,7 +120,7 @@ sequenceDiagram
     Runner->>Agent: Execute
     Agent->>Store: load saved conversation if resume
     Note over Agent,Tools: Tools-off preset snapshots send an empty catalog and skip MCP startup while other tasks use filtered built-ins with configured MCP tools
-    loop turn cycle
+    loop model-call cycle
         Agent->>LLM: Chat with messages and tool schemas
         LLM-->>Agent: assistant message
         Agent->>Store: persist conversation snapshot
@@ -141,8 +141,8 @@ sequenceDiagram
 
 Three things bound the loop:
 
-- **`HECATE_TASK_AGENT_LOOP_MAX_TURNS`** (default `8`) — hard ceiling on LLM round-trips per run. Runaway-cost safety net.
-- **`Task.BudgetMicrosUSD`** — per-task cost ceiling. Checked after each turn against `priorCost + costSpent`; failing the run preserves the assistant's last message.
+- **`HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS`** (default `8`) — hard ceiling on LLM round-trips per run. Runaway-cost safety net.
+- **`Task.BudgetMicrosUSD`** — per-task cost ceiling. Checked after each model call against `priorCost + costSpent`; failing the run preserves the assistant's last message.
 - **Approval gates** — when the model requests a gated tool, the loop pauses with `status=awaiting_approval` and emits an approval record. See below.
 
 ## Built-in tools
@@ -151,8 +151,8 @@ The agent gets its standard workspace tools by default. None require operator
 config beyond the approval policies; `http_request` reads the network policy
 from env. A configured web-search provider can add `web_search`; the separate
 native browser-evidence capability is opt-in, local-only, and much narrower.
-Project-linked Hecate Chat task-backed runs receive one additional proposal-only
-tool.
+Chat-origin Task Runs for project-linked Hecate Chat receive one additional
+proposal-only tool.
 
 | Tool                     | What it does                                                          | Policy                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -176,7 +176,7 @@ tool.
 | `http_request`           | Make an outbound HTTP request                                         | For preset-backed tasks, advertised only when the preset snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`, with private-IP, scheme, and optional host allowlist checks                                                                                                                                                                                                    |
 | `web_search`             | Search the web through the configured search provider                 | For preset-backed tasks, advertised only when configured and the snapshot has `sandbox_network=true`; unexpected calls fail closed. Then gated by `network_egress` or `all_tools`; endpoint and API key stay operator-owned                                                                                                                                                                                                               |
 | `browser_inspect`        | Load one approved static page and return bounded, text-only evidence  | Available only to native project-assignment tasks whose Agent Preset snapshot explicitly enables browser evidence with exact origins, and only when a local executable is configured. Every call requires an `agent_loop_tool_call` approval even if global tool approvals are disabled. Page scripts are disabled. It is not controlled by `sandbox_network`, and is omitted from Hecate Chat, External Agent, legacy, and manual tasks. |
-| `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to task-backed Hecate Chat runs with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                                          |
+| `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to Chat-origin Task Runs backing Hecate Chat Turns with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                       |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
 
@@ -192,7 +192,7 @@ missing snapshot preserves the catalog behavior of legacy and manually created
 tasks.
 
 The machine-generated system message states that tools are unavailable but
-omits the absolute workspace path because a model-only turn cannot use it.
+omits the absolute workspace path because a model-only call cannot use it.
 
 For a task carrying an `agent_preset_id` launch snapshot, `sandbox_network` is
 the master gate for Hecate-native egress. When false, `http_request` and
@@ -345,12 +345,12 @@ See [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client) for the full sc
 Every run has a workspace — a directory the sandbox locks tools to. Two modes:
 
 - **isolated clone** (default; `WorkspaceMode` empty / `persistent` / `ephemeral`) — the workspace manager copies or git-clones `task.WorkingDirectory` (or `task.Repo`) to a fresh temp dir under `${TMPDIR}/hecate-workspaces/<task_id>/<run_id>`. Writes don't touch the source. Safe by default.
-- **managed reuse** (internal `WorkspaceReuse`) — when Hecate Chat needs a new task segment after a managed run, the workspace manager reuses that runtime-owned root byte-for-byte. The operator source remains isolated, while unstaged and untracked work survives the segment boundary. Public task creation cannot set this flag.
+- **managed reuse** (internal `WorkspaceReuse`) — when Hecate Chat needs a new task segment after a managed Task Run, the workspace manager reuses that runtime-owned root byte-for-byte. The operator source remains isolated, while unstaged and untracked work survives the segment boundary. Public task creation cannot set this flag.
 - **`in_place`** — the workspace IS `task.WorkingDirectory`. Tools write directly to the operator's source. Necessarily destructive; opt-in. Requires an absolute existing directory or the run fails up-front rather than silently flipping back to the clone behavior.
 
 The new-task UI exposes `in_place` as a "Run directly in this workspace" checkbox under WORKSPACE.
 
-## Run activity in the UI
+## Task Run activity in the UI
 
 Task Detail renders the run's normalized activity array as the primary
 inspection timeline. Hecate Chat uses the same renderer when a tools-on chat
@@ -481,18 +481,18 @@ The approval banner stays in sync with the run state because approvals ride alon
 
 ## Cost tracking
 
-Per-turn LLM cost is captured at three granularities:
+Per-model-call LLM cost is captured at three granularities:
 
-- **`turn.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the per-turn spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/hecate/v1/events?event_type=turn.completed`; the wire shape is in [`events.md`](events.md#turncompleted). These rows are the only run events the retention worker prunes — see the `turn_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `HECATE_RETENTION_TURN_EVENTS_*` in `.env.example`.
+- **`model.call.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the model-call spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/hecate/v1/events?event_type=model.call.completed`; the wire shape is in [`events.md`](events.md#modelcallcompleted). These rows are the only run events the retention worker prunes — see the `model_call_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `HECATE_RETENTION_MODEL_CALL_EVENTS_*` in `.env.example`.
 - **`tool.file.patch` events** — emitted whenever `file_write`, `file_edit`, or `apply_patch` changes or proposes a file change. Each event points at a `patch` artifact containing the unified diff, giving operator UIs and future ACP/CLI consumers an inspectable edit record without re-deriving state from the workspace.
 - **Patch review API** — `GET /hecate/v1/tasks/{id}/runs/{run_id}/patches` lists patch artifacts. Applied patches can be reverted; proposed patches from `file_edit` or `apply_patch` with `propose=true` can be applied if the target file still matches the captured before-content.
 - **`git_summary` artifacts** — when the run workspace is a git repository and has changes at run completion, Hecate records a `git-changes.json` artifact with porcelain status entries and a diff stat for quick changed-file review.
-- **Model-step `OutputSummary`** — each thinking step's `OutputSummary.cost_micros_usd` carries the same per-turn figure, so the run-replay UI surfaces it next to "turn N" without a separate event subscription.
+- **Model-step `OutputSummary`** — each thinking step's `OutputSummary.cost_micros_usd` carries the same model-call figure, so the run-replay UI surfaces it next to "Model call N" without a separate event subscription.
 - **`TaskRun.TotalCostMicrosUSD` + `PriorCostMicrosUSD`** — finalized totals on the run record. Cumulative across the resume chain = `Prior + Total`.
 
-The per-task ceiling (`Task.BudgetMicrosUSD`) is checked against `priorCost + costSpent` after each turn — so a chain of resumes can't escape the ceiling by repeatedly resuming a maxed-out run.
+The per-task ceiling (`Task.BudgetMicrosUSD`) is checked against `priorCost + costSpent` after each model call — so a chain of resumes can't escape the ceiling by repeatedly resuming a maxed-out run.
 
-Same-run mid-approval resumes seed `costSpent` from the run's pre-pause `TotalCostMicrosUSD`, so the post-resume turns add to (rather than overwrite) the pre-pause spend.
+Same-run mid-approval resumes seed `costSpent` from the run's pre-pause `TotalCostMicrosUSD`, so post-resume model calls add to (rather than overwrite) the pre-pause spend.
 
 ## Retry and resume
 
@@ -501,7 +501,7 @@ Three operations land an agent_loop run back on the queue with prior context:
 - **Retry** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`. Creates a new run with the same task config but no conversation history. The cheapest "do it again from scratch" button.
 - **Resume** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`. Creates a new run that hydrates the source run's conversation and continues from where it left off. Used after a `failed` or `cancelled` run.
 - **Continue** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue` with `{ "prompt": "..." }`. Creates the next run in the same agent conversation, hydrates the source conversation, then appends the new user prompt. This is the ACP/editor-session path.
-- **Retry from turn N** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn` with `{ "turn": N, "reason": "..." }`. Creates a new run whose conversation is truncated to right before the Nth assistant message. Lets operators explore an alternate path from a known prior state. Turn must be in `[1, count(assistant messages)]`. The new run's step indices restart at 1; cumulative cost picks up from `source.PriorCost + source.Total`.
+- **Retry from model call N** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call` with `{ "model_call_index": N, "reason": "..." }`. `model_call_index` is 1-based within the selected source Run and must be in `[1, source_run.model_call_count]`. Hecate preserves inherited conversation context, truncates immediately before that Run-local response, and re-issues the call in a new Run. To branch from an inherited response, select the older Run that produced it. The new Run's model-call and Step indices restart at 1; cumulative cost picks up from `source.PriorCost + source.Total`.
 
 These actions share the task runtime's atomic start boundary. Concurrent
 requests cannot create two active runs. A resume may raise
@@ -509,33 +509,33 @@ requests cannot create two active runs. A resume may raise
 the same transaction that creates the run, so a stale lower request or a
 zero-budget retry cannot erase a higher committed ceiling.
 
-The conversation viewer in the run-replay UI shows a `↻ retry from here` button on each assistant turn (terminal runs only).
+The conversation viewer in the run-replay UI shows a `↻ retry from here` button on each assistant model call (terminal runs only).
 
 ## Configuration knobs
 
 Env vars that affect agent_loop runs:
 
-| Variable                                | Default            | What it does                                                                                                                                                                                                  |
-| --------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HECATE_TASK_AGENT_LOOP_MAX_TURNS`      | `8`                | Hard ceiling on LLM round-trips per run                                                                                                                                                                       |
-| `HECATE_TASK_AGENT_SYSTEM_PROMPT`       | `""`               | Global (broadest) layer of the three-layer system prompt                                                                                                                                                      |
-| `HECATE_TASK_HTTP_TIMEOUT`              | `30s`              | Timeout for the `http_request` tool                                                                                                                                                                           |
-| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES`   | `262144` (256 KiB) | Response size cap for `http_request`                                                                                                                                                                          |
-| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`    | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                                                                                                             |
-| `HECATE_TASK_HTTP_ALLOWED_HOSTS`        | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                                                                                                                |
-| `HECATE_TASK_BROWSER_EXECUTABLE`        | `""`               | Absolute path to a local Chromium-compatible executable for optional native browser evidence. Empty disables it; Hecate never finds or downloads a browser automatically, and remote-runtime mode rejects it. |
-| `HECATE_TASK_BROWSER_TIMEOUT`           | `20s`              | Positive wall-clock limit for one browser inspection, including preflight, browser startup, and page capture                                                                                                  |
-| `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS` | `false`            | Allows private/local destinations after an explicit operator opt-in. The inspector pins hostname resolution for the inspection, but this is still not an OS/network isolation boundary.                       |
-| `HECATE_TASK_WEB_SEARCH_PROVIDER`       | `""`               | Empty disables native web search. Supported values: `brave`, `tavily`, `exa`                                                                                                                                  |
-| `HECATE_TASK_WEB_SEARCH_API_KEY`        | `""`               | API key for the configured search provider. Provider aliases: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`                                                                                         |
-| `HECATE_TASK_WEB_SEARCH_ENDPOINT`       | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                                                                                                                      |
-| `HECATE_TASK_WEB_SEARCH_TIMEOUT`        | `15s`              | Timeout for the search-provider request                                                                                                                                                                       |
-| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`    | `5`                | Maximum results returned per `web_search` call, capped by Hecate and the provider                                                                                                                             |
-| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`    | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                                                                                                                       |
-| `HECATE_TASK_WEB_SEARCH_COUNTRY`        | `""`               | Optional default country code for searches                                                                                                                                                                    |
-| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`    | `""`               | Optional default search language                                                                                                                                                                              |
-| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS`   | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`                                                                                             |
-| `HECATE_TASK_SHELL_ALLOWED_HOSTS`       | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                                                                                                                      |
+| Variable                                 | Default            | What it does                                                                                                                                                                                                  |
+| ---------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS` | `8`                | Hard ceiling on LLM round-trips per run                                                                                                                                                                       |
+| `HECATE_TASK_AGENT_SYSTEM_PROMPT`        | `""`               | Global (broadest) layer of the three-layer system prompt                                                                                                                                                      |
+| `HECATE_TASK_HTTP_TIMEOUT`               | `30s`              | Timeout for the `http_request` tool                                                                                                                                                                           |
+| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES`    | `262144` (256 KiB) | Response size cap for `http_request`                                                                                                                                                                          |
+| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`     | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                                                                                                             |
+| `HECATE_TASK_HTTP_ALLOWED_HOSTS`         | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                                                                                                                |
+| `HECATE_TASK_BROWSER_EXECUTABLE`         | `""`               | Absolute path to a local Chromium-compatible executable for optional native browser evidence. Empty disables it; Hecate never finds or downloads a browser automatically, and remote-runtime mode rejects it. |
+| `HECATE_TASK_BROWSER_TIMEOUT`            | `20s`              | Positive wall-clock limit for one browser inspection, including preflight, browser startup, and page capture                                                                                                  |
+| `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS`  | `false`            | Allows private/local destinations after an explicit operator opt-in. The inspector pins hostname resolution for the inspection, but this is still not an OS/network isolation boundary.                       |
+| `HECATE_TASK_WEB_SEARCH_PROVIDER`        | `""`               | Empty disables native web search. Supported values: `brave`, `tavily`, `exa`                                                                                                                                  |
+| `HECATE_TASK_WEB_SEARCH_API_KEY`         | `""`               | API key for the configured search provider. Provider aliases: `BRAVE_SEARCH_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`                                                                                         |
+| `HECATE_TASK_WEB_SEARCH_ENDPOINT`        | provider default   | Optional provider endpoint override, mostly for tests or private proxies                                                                                                                                      |
+| `HECATE_TASK_WEB_SEARCH_TIMEOUT`         | `15s`              | Timeout for the search-provider request                                                                                                                                                                       |
+| `HECATE_TASK_WEB_SEARCH_MAX_RESULTS`     | `5`                | Maximum results returned per `web_search` call, capped by Hecate and the provider                                                                                                                             |
+| `HECATE_TASK_WEB_SEARCH_SAFE_SEARCH`     | `moderate`         | Provider safe-search default (`off`, `moderate`, or `strict` for Brave)                                                                                                                                       |
+| `HECATE_TASK_WEB_SEARCH_COUNTRY`         | `""`               | Optional default country code for searches                                                                                                                                                                    |
+| `HECATE_TASK_WEB_SEARCH_SEARCH_LANG`     | `""`               | Optional default search language                                                                                                                                                                              |
+| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS`    | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`                                                                                             |
+| `HECATE_TASK_SHELL_ALLOWED_HOSTS`        | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                                                                                                                      |
 
 For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. Browser evidence is different: `browser_inspect` always requires its own explicit approval and cannot be enabled by changing this list. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
@@ -581,4 +581,4 @@ not allowed`** — use an absolute HTTP(S) URL without credentials, a query
   unless the operator deliberately enabled
   `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS`.
 - **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was exceeded across the run + prior chain. Raise the ceiling and resume to continue.
-- **`agent loop hit maxTurns=N without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_TURNS`, narrow the prompt, or resume to give it more turns.
+- **`agent loop reached the maximum of N model calls without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS`, narrow the prompt, or resume to give it more model calls.

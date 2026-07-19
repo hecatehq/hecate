@@ -1584,6 +1584,8 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
           messages: [
             {
               id: "direct-user-e2e",
+              turn_id: "turn_direct_e2e",
+              turn_kind: "direct_model",
               execution_mode: "hecate_task",
               tools_enabled: false,
               role: "user",
@@ -1592,6 +1594,8 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
             },
             {
               id: "direct-assistant-e2e",
+              turn_id: "turn_direct_e2e",
+              turn_kind: "direct_model",
               execution_mode: "hecate_task",
               tools_enabled: false,
               role: "assistant",
@@ -1599,7 +1603,6 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
               status: "completed",
               provider: "ollama",
               model: "smollm2:135m",
-              run_id: "model_run_direct_e2e",
               request_id: "req_direct_e2e",
               trace_id: "trace_direct_e2e",
               cost_mode: "hecate",
@@ -1624,7 +1627,8 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
   await page.locator("button[type='submit']").click();
 
   await expect(page.locator("body")).toContainText("Direct response to: tell a tiny joke");
-  await expect(page.locator("body")).not.toContainText("agent run failed");
+  await expect(page.locator("body")).toContainText("Turn direct_e2e");
+  await expect(page.locator("body")).not.toContainText("agent turn failed");
   await expect
     .poll(() => messagePayload)
     .toMatchObject({
@@ -1797,7 +1801,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
   await page.locator("button[type='submit']").click();
 
   await expect(page.locator("body")).toContainText("+changed line");
-  await expect(page.locator("body")).not.toContainText("Hecate Agent run completed.");
+  await expect(page.locator("body")).not.toContainText("Hecate Agent turn completed.");
   await expect
     .poll(() => messagePayload)
     .toMatchObject({
@@ -1889,11 +1893,11 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
         detail: "completed · task-tools-1 · run-tools-1",
       },
       {
-        id: "turns-1",
-        type: "thinking",
+        id: "model-calls-1",
+        type: "model_calls",
         status: "completed",
-        title: "Model turns",
-        detail: "2 turns completed",
+        title: "Thinking",
+        detail: "2 model calls completed",
       },
     ];
     session = {
@@ -2001,6 +2005,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     messages.push(
       {
         id: `msg-user-${turn}`,
+        turn_id: `turn-tools-${turn}`,
         turn_kind: turnKind,
         execution_mode: executionMode,
         tools_enabled: isHecateAgent,
@@ -2014,6 +2019,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       },
       {
         id: `msg-assistant-${turn}`,
+        turn_id: `turn-tools-${turn}`,
         turn_kind: turnKind,
         execution_mode: executionMode,
         tools_enabled: isHecateAgent,
@@ -2790,11 +2796,11 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
             detail: "completed",
           },
           {
-            id: "turns-refresh",
-            type: "thinking",
+            id: "model-calls-refresh",
+            type: "model_calls",
             status: "completed",
-            title: "Model turns",
-            detail: "2 turns completed",
+            title: "Thinking",
+            detail: "2 model calls completed",
           },
         ],
       },

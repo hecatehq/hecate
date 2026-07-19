@@ -21,7 +21,7 @@ import (
 // external MCP servers. The production implementation is a
 // mcpclient.Pool wrapper; tests substitute an in-memory fake.
 //
-// Lifetime is one-per-run: built before the loop's first turn, closed
+// Lifetime is one-per-run: built before the loop's first model call, closed
 // before Execute returns. Long-lived per-task pooling is a follow-up
 // — for now we eat the spawn cost on each run because runs are short
 // and the simplicity of "subprocess dies with the run" is worth more

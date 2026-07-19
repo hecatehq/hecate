@@ -64,10 +64,10 @@ type ServerConfig struct {
 	// Default 30s. Set via HECATE_TASK_RECONCILE_INTERVAL (Go duration
 	// string, e.g. "30s", "1m").
 	TaskReconcileInterval time.Duration
-	// TaskAgentLoopMaxTurns caps how many LLM round-trips an
+	// TaskAgentLoopMaxModelCalls caps how many LLM round-trips an
 	// agent_loop run can make. Acts as a runaway-cost safety net.
 	// Default 8 (set in NewAgentLoopExecutor when zero).
-	TaskAgentLoopMaxTurns int
+	TaskAgentLoopMaxModelCalls int
 	// TaskMaxMCPServersPerTask caps how many entries an agent_loop
 	// task may declare under `mcp_servers`. Each entry produces one
 	// MCP client (subprocess for stdio, persistent connection for
@@ -377,10 +377,10 @@ type RetentionConfig struct {
 	UsageEvents     RetentionPolicy
 	AuditEvents     RetentionPolicy
 	ProviderHistory RetentionPolicy
-	// TurnEvents prunes `turn.completed` rows from the
+	// ModelCallEvents prunes `model.call.completed` rows from the
 	// task-run events table. Other event types (run.started/finished,
 	// approval.*) are kept for forensics.
-	TurnEvents RetentionPolicy
+	ModelCallEvents RetentionPolicy
 	// ChatApprovals prunes resolved (non-pending) external-adapter
 	// approval rows. Pending rows are never auto-pruned — they're caller
 	// state, not history. Grants are not subject to MaxAge / MaxCount;
@@ -522,7 +522,7 @@ func LoadFromEnv() Config {
 			TaskQueueBuffer:                getEnvInt("HECATE_TASK_QUEUE_BUFFER", 128),
 			TaskQueueLeaseSeconds:          getEnvInt("HECATE_TASK_QUEUE_LEASE_SECONDS", 30),
 			TaskReconcileInterval:          getEnvDuration("HECATE_TASK_RECONCILE_INTERVAL", 30*time.Second),
-			TaskAgentLoopMaxTurns:          getEnvInt("HECATE_TASK_AGENT_LOOP_MAX_TURNS", 8),
+			TaskAgentLoopMaxModelCalls:     getEnvInt("HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS", 8),
 			TaskMaxMCPServersPerTask:       getEnvInt("HECATE_TASK_MAX_MCP_SERVERS_PER_TASK", 16),
 			TaskMCPClientCacheMaxEntries:   getEnvInt("HECATE_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES", 256),
 			TaskMCPClientCachePingInterval: getEnvDuration("HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL", 60*time.Second),
@@ -609,10 +609,10 @@ func LoadFromEnv() Config {
 			UsageEvents:     loadRetentionPolicyFromEnv("HECATE_RETENTION_USAGE_EVENTS_", 30*24*time.Hour, 200),
 			AuditEvents:     loadRetentionPolicyFromEnv("HECATE_RETENTION_AUDIT_EVENTS_", 30*24*time.Hour, 500),
 			ProviderHistory: loadRetentionPolicyFromEnv("HECATE_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
-			// turn.completed events accumulate fast on long
-			// agent runs (one per LLM round-trip). 7d/100k is a
+			// model.call.completed events accumulate fast on long
+			// Task Runs (one per LLM round-trip). 7d/100k is a
 			// generous default; tune down on busy installs.
-			TurnEvents: loadRetentionPolicyFromEnv("HECATE_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),
+			ModelCallEvents: loadRetentionPolicyFromEnv("HECATE_RETENTION_MODEL_CALL_EVENTS_", 7*24*time.Hour, 100_000),
 			// External-adapter approval history. Only resolved rows
 			// are pruned; pending rows stay until startup reconcile
 			// flips them. Default 30d/10k mirrors task_approvals.
@@ -734,11 +734,11 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("HECATE_RETENTION_INTERVAL must be positive when retention is enabled"))
 	}
 	for label, policy := range map[string]RetentionPolicy{
-		"HECATE_RETENTION_TRACES":           c.Retention.TraceSnapshots,
-		"HECATE_RETENTION_USAGE_EVENTS":     c.Retention.UsageEvents,
-		"HECATE_RETENTION_AUDIT_EVENTS":     c.Retention.AuditEvents,
-		"HECATE_RETENTION_PROVIDER_HISTORY": c.Retention.ProviderHistory,
-		"HECATE_RETENTION_TURN_EVENTS":      c.Retention.TurnEvents,
+		"HECATE_RETENTION_TRACES":            c.Retention.TraceSnapshots,
+		"HECATE_RETENTION_USAGE_EVENTS":      c.Retention.UsageEvents,
+		"HECATE_RETENTION_AUDIT_EVENTS":      c.Retention.AuditEvents,
+		"HECATE_RETENTION_PROVIDER_HISTORY":  c.Retention.ProviderHistory,
+		"HECATE_RETENTION_MODEL_CALL_EVENTS": c.Retention.ModelCallEvents,
 	} {
 		if policy.MaxAge < 0 {
 			errs = append(errs, fmt.Errorf("%s_MAX_AGE must be zero or positive", label))
@@ -861,7 +861,7 @@ func durationEnvKeys() []string {
 		"HECATE_RETENTION_USAGE_EVENTS_MAX_AGE",
 		"HECATE_RETENTION_AUDIT_EVENTS_MAX_AGE",
 		"HECATE_RETENTION_PROVIDER_HISTORY_MAX_AGE",
-		"HECATE_RETENTION_TURN_EVENTS_MAX_AGE",
+		"HECATE_RETENTION_MODEL_CALL_EVENTS_MAX_AGE",
 		"HECATE_CHAT_MAX_SESSION_DURATION",
 		"HECATE_CHAT_IDLE_TIMEOUT",
 		"HECATE_SQLITE_BUSY_TIMEOUT",

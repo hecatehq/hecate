@@ -229,6 +229,14 @@ describe("describeRunEvent", () => {
   it("returns the canonical label + tone for known event types", () => {
     expect(describeRunEvent("run.started")).toEqual({ label: "Started", tone: "running" });
     expect(describeRunEvent("run.failed")).toEqual({ label: "Failed", tone: "failed" });
+    expect(describeRunEvent("model.call.started")).toEqual({
+      label: "Model call started",
+      tone: "running",
+    });
+    expect(describeRunEvent("model.call.completed")).toEqual({
+      label: "Model call done",
+      tone: "done",
+    });
     expect(describeRunEvent("tool.completed")).toEqual({ label: "Tool done", tone: "done" });
     expect(describeRunEvent("policy.tool_blocked")).toEqual({
       label: "Tool blocked",
@@ -300,13 +308,15 @@ describe("describeRunEventNote", () => {
     expect(describeRunEventNote({})).toBeNull();
   });
 
-  it("returns null when neither retry_from_turn nor reason is present", () => {
+  it("returns null when neither source_model_call_index nor reason is present", () => {
     expect(describeRunEventNote({ data: { other: "x" } })).toBeNull();
     expect(describeRunEventNote({ data: { reason: "   " } })).toBeNull();
   });
 
-  it("renders 'turn N' when retry_from_turn is a number", () => {
-    expect(describeRunEventNote({ data: { retry_from_turn: 3 } })).toBe("turn 3");
+  it("renders the source Run-local call when source_model_call_index is a number", () => {
+    expect(describeRunEventNote({ data: { source_model_call_index: 3 } })).toBe(
+      "source Run model call 3",
+    );
   });
 
   it("renders the trimmed reason on its own", () => {
@@ -315,10 +325,12 @@ describe("describeRunEventNote", () => {
     );
   });
 
-  it("joins turn and reason with em-dash separator", () => {
+  it("joins model call and reason with em-dash separator", () => {
     expect(
-      describeRunEventNote({ data: { retry_from_turn: 2, reason: "operator branched" } }),
-    ).toBe("turn 2 — operator branched");
+      describeRunEventNote({
+        data: { source_model_call_index: 2, reason: "operator branched" },
+      }),
+    ).toBe("source Run model call 2 — operator branched");
   });
 });
 
@@ -658,7 +670,7 @@ describe("taskActivityTitle", () => {
           kind: "agent_conversation",
         }),
       ),
-    ).toBe("Agent conversation");
+    ).toBe("Run model context");
     expect(taskActivityTitle(activity({ type: "changed_files" }))).toBe("Changed files");
     expect(taskActivityTitle(activity({ type: "final_answer" }))).toBe("Final answer");
     expect(taskActivityTitle(activity({ type: "patch" }))).toBe("Patch");

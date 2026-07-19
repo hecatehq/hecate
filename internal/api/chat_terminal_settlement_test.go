@@ -414,12 +414,12 @@ func TestAgentChatSettlementDestructiveOwnerUnblocksActiveTurnFinal(t *testing.T
 	lifecycle := h.agentChatLive.snapshotLifecycle("chat_owner_unblock")
 	_, runCancel := context.WithCancel(context.Background())
 	defer runCancel()
-	if got := h.agentChatLive.registerRun(lifecycle, runCancel); got != agentChatRunAccepted {
+	if got := h.agentChatLive.registerTurn(lifecycle, runCancel); got != agentChatTurnAccepted {
 		lifecycle.release()
-		t.Fatalf("registerRun = %v, want accepted", got)
+		t.Fatalf("registerTurn = %v, want accepted", got)
 	}
 	lifecycle.release()
-	defer h.agentChatLive.clearRun("chat_owner_unblock")
+	defer h.agentChatLive.clearTurn("chat_owner_unblock")
 
 	closure := h.agentChatLive.closeSessionLifecycle("chat_owner_unblock")
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), time.Second)
@@ -480,7 +480,7 @@ func TestAgentChatSettlementDestructiveOwnerUnblocksActiveTurnFinal(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("destructive owner did not unblock terminal settlement and active final")
 	}
-	h.agentChatLive.clearRun("chat_owner_unblock")
+	h.agentChatLive.clearTurn("chat_owner_unblock")
 	turn.finish()
 	closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
 	if !claim.sealAndDrain(closeCtx) {

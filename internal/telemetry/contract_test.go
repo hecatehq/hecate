@@ -99,6 +99,61 @@ func TestAllEventNamesReturnsStableUniqueCopy(t *testing.T) {
 	}
 }
 
+func TestAgentChatTurnTelemetryUsesTurnVocabulary(t *testing.T) {
+	t.Parallel()
+
+	wantEvents := map[string]bool{
+		"chat.turn.started":   true,
+		"chat.turn.finished":  true,
+		"chat.turn.failed":    true,
+		"chat.turn.cancelled": true,
+	}
+	for _, name := range AllEventNames() {
+		if len(name) >= len("chat.run.") && name[:len("chat.run.")] == "chat.run." {
+			t.Fatalf("removed chat-run event remains in contract: %q", name)
+		}
+		delete(wantEvents, name)
+	}
+	if len(wantEvents) != 0 {
+		t.Fatalf("missing chat-turn events: %#v", wantEvents)
+	}
+
+	if SpanAgentChatTurn != "chat.turn" {
+		t.Fatalf("SpanAgentChatTurn = %q, want chat.turn", SpanAgentChatTurn)
+	}
+	if MetricAgentChatTurnsTotal != "hecate.chat.turns" {
+		t.Fatalf("MetricAgentChatTurnsTotal = %q", MetricAgentChatTurnsTotal)
+	}
+	if MetricAgentChatTurnDuration != "hecate.chat.turn.duration" {
+		t.Fatalf("MetricAgentChatTurnDuration = %q", MetricAgentChatTurnDuration)
+	}
+	if MetricAgentChatTurnTiming != "hecate.chat.turn.timing" {
+		t.Fatalf("MetricAgentChatTurnTiming = %q", MetricAgentChatTurnTiming)
+	}
+
+	if AttrHecateChatTurnID != "hecate.chat.turn.id" ||
+		AttrHecateChatTurnStatus != "hecate.chat.turn.status" ||
+		AttrHecateChatTurnDurationMS != "hecate.chat.turn.duration_ms" {
+		t.Fatalf("chat-turn semantic attributes drifted: %q %q %q", AttrHecateChatTurnID, AttrHecateChatTurnStatus, AttrHecateChatTurnDurationMS)
+	}
+	for _, eventName := range []string{
+		EventAgentChatTurnStarted,
+		EventAgentChatOutputStarted,
+		EventAgentChatFilesChanged,
+		EventAgentChatSessionReplaced,
+		EventAgentChatTurnFinished,
+		EventAgentChatTurnFailed,
+		EventAgentChatTurnCancelled,
+	} {
+		required := RequiredAttrsForEvent(eventName)
+		for _, key := range required {
+			if key == AttrHecateRunID || key == AttrHecateRunStatus || key == AttrHecateRunDurationMS {
+				t.Fatalf("chat-turn event %q reserves task-run attribute %q", eventName, key)
+			}
+		}
+	}
+}
+
 func TestValidateEventAttrsPassesWhenAllRequiredPresent(t *testing.T) {
 	t.Parallel()
 
@@ -250,7 +305,7 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	om.RecordApproval(ctx, ApprovalMetricsRecord{ApprovalKind: "shell_command", Decision: "approved", WaitMS: 2000})
 	om.RecordQueueWait(ctx, QueueWaitRecord{QueueBackend: "memory", WaitMS: 50})
 	om.RecordLeaseExtendFailed(ctx)
-	am.RecordRun(ctx, AgentChatRunMetricsRecord{AdapterID: "codex", DriverKind: "acp", Status: "completed", Result: ResultSuccess, DurationMS: 750, Timing: AgentChatRunTimingRecord{ModelMS: 600}})
+	am.RecordTurn(ctx, AgentChatTurnMetricsRecord{AdapterID: "codex", DriverKind: "acp", Status: "completed", Result: ResultSuccess, DurationMS: 750, Timing: AgentChatTurnTimingRecord{ModelMS: 600}})
 	apm.RecordRequested(ctx, AgentAdapterApprovalRequestRecord{AdapterID: "codex", ToolKind: "file_write", Mode: "prompt"})
 	apm.RecordResolved(ctx, AgentAdapterApprovalResolveRecord{
 		AdapterID: "codex", ToolKind: "file_write", Mode: "auto",
@@ -291,9 +346,9 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		MetricProviderCallsTotal,
 		MetricProviderCallDuration,
 		// Agent chat
-		MetricAgentChatRunsTotal,
-		MetricAgentChatRunDuration,
-		MetricAgentChatRunTiming,
+		MetricAgentChatTurnsTotal,
+		MetricAgentChatTurnDuration,
+		MetricAgentChatTurnTiming,
 		MetricAgentChatCancelledTotal,
 		// External-adapter approvals
 		MetricAgentAdapterApprovalRequestedTotal,

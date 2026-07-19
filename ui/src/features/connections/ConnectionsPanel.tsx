@@ -44,7 +44,7 @@ import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 
 type Props = {
   onNavigate?: (
-    workspace: "connections" | "runs" | "overview" | "settings" | "chats" | "usage",
+    workspace: "connections" | "tasks" | "overview" | "settings" | "chats" | "usage",
   ) => void;
 };
 
@@ -191,7 +191,7 @@ export function ConnectionsPanel({
   ]);
 
   // One-shot scroll + highlight when the operator arrived here via
-  // an External Agent setup button on a failed agent run.
+  // an External Agent setup button on a failed agent turn.
   // Chat sets `hecate.connectionsFocus` in sessionStorage before
   // navigating; we read-and-clear it so subsequent visits don't
   // re-trigger the scroll.

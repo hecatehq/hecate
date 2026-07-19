@@ -105,9 +105,11 @@ func TestFromTaskRunEventNormalizesTerminalRunPayload(t *testing.T) {
 		Sequence:  3,
 		EventType: "run.finished",
 		Data: map[string]any{
+			"model_call_count": 1,
 			"run": types.TaskRun{
 				Status:             "completed",
 				StepCount:          2,
+				ModelCallCount:     1,
 				TotalCostMicrosUSD: 0,
 				StartedAt:          startedAt,
 				FinishedAt:         finishedAt,
@@ -129,8 +131,11 @@ func TestFromTaskRunEventNormalizesTerminalRunPayload(t *testing.T) {
 	if envelope.Data["final_status"] != "completed" {
 		t.Fatalf("final_status = %v", envelope.Data["final_status"])
 	}
-	if envelope.Data["turns"] != 2 {
-		t.Fatalf("turns = %v, want 2", envelope.Data["turns"])
+	if envelope.Data["model_call_count"] != 1 {
+		t.Fatalf("model_call_count = %v, want 1", envelope.Data["model_call_count"])
+	}
+	if _, ok := envelope.Data["turns"]; ok {
+		t.Fatalf("Data unexpectedly contains turns")
 	}
 	if envelope.Data["cost_micros_usd"] != int64(0) {
 		t.Fatalf("cost_micros_usd = %v, want 0", envelope.Data["cost_micros_usd"])
@@ -154,9 +159,11 @@ func TestFromTaskRunEventNormalizesResumePayload(t *testing.T) {
 			"run": types.TaskRun{
 				PriorCostMicrosUSD: 1234,
 			},
-			"resumed_from_run_id": "run_01HX0000000000000000000001",
-			"reason":              "continue after cancellation",
-			"retry_from_turn":     3,
+			"from_run_id":             "run_01HX0000000000000000000001",
+			"reason":                  "continue after cancellation",
+			"source_model_call_index": 3,
+			"resumed_from_run_id":     "run_legacy_ignored",
+			"retry_from_model_call":   9,
 		},
 	}
 
@@ -168,8 +175,14 @@ func TestFromTaskRunEventNormalizesResumePayload(t *testing.T) {
 	if envelope.Data["prior_cost_micros_usd"] != int64(1234) {
 		t.Fatalf("prior_cost_micros_usd = %v", envelope.Data["prior_cost_micros_usd"])
 	}
+	if envelope.Data["source_model_call_index"] != 3 {
+		t.Fatalf("source_model_call_index = %v", envelope.Data["source_model_call_index"])
+	}
 	if _, ok := envelope.Data["resumed_from_run_id"]; ok {
-		t.Fatalf("Data unexpectedly contains resumed_from_run_id")
+		t.Fatal("legacy resumed_from_run_id unexpectedly survived normalization")
+	}
+	if _, ok := envelope.Data["retry_from_model_call"]; ok {
+		t.Fatal("legacy retry_from_model_call unexpectedly survived normalization")
 	}
 }
 
@@ -177,12 +190,12 @@ func TestFromTaskRunEventStripsSnapshotsFromNonRunPayloads(t *testing.T) {
 	event := types.TaskRunEvent{
 		RunID:     "run_01HX0000000000000000000001",
 		Sequence:  4,
-		EventType: "turn.completed",
+		EventType: "model.call.completed",
 		Data: map[string]any{
 			"run":                            types.TaskRun{ID: "run_1"},
 			"steps":                          []types.TaskStep{{ID: "step_1"}},
 			"artifacts":                      []types.TaskArtifact{{ID: "artifact_1"}},
-			"turn_index":                     1,
+			"model_call_index":               1,
 			"cost_micros_usd":                int64(0),
 			"run_cumulative_cost_micros_usd": int64(0),
 		},
@@ -190,8 +203,8 @@ func TestFromTaskRunEventStripsSnapshotsFromNonRunPayloads(t *testing.T) {
 
 	envelope := FromTaskRunEvent(event)
 
-	if envelope.Data["turn_index"] != 1 {
-		t.Fatalf("turn_index = %v, want 1", envelope.Data["turn_index"])
+	if envelope.Data["model_call_index"] != 1 {
+		t.Fatalf("model_call_index = %v, want 1", envelope.Data["model_call_index"])
 	}
 	if envelope.Data["cost_micros_usd"] != int64(0) {
 		t.Fatalf("cost_micros_usd = %v, want 0", envelope.Data["cost_micros_usd"])

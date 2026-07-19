@@ -23,9 +23,9 @@ func (f fakeAuditPruner) Prune(context.Context, time.Duration, int) (int, error)
 	return f.deleted, nil
 }
 
-type fakeTurnEventPruner struct{ deleted int }
+type fakeModelCallEventPruner struct{ deleted int }
 
-func (f fakeTurnEventPruner) Prune(context.Context, time.Duration, int) (int, error) {
+func (f fakeModelCallEventPruner) Prune(context.Context, time.Duration, int) (int, error) {
 	return f.deleted, nil
 }
 
@@ -51,7 +51,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 				MaxAge:   time.Hour,
 				MaxCount: 5,
 			},
-			TurnEvents: config.RetentionPolicy{
+			ModelCallEvents: config.RetentionPolicy{
 				MaxAge:   time.Hour,
 				MaxCount: 100,
 			},
@@ -61,7 +61,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 		fakeUsagePruner{deleted: 2},
 		fakeAuditPruner{deleted: 3},
 		nil,
-		fakeTurnEventPruner{deleted: 6},
+		fakeModelCallEventPruner{deleted: 6},
 		nil,
 		NewMemoryHistoryStore(),
 	)
@@ -71,7 +71,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 
 	result := manager.Run(context.Background(), RunRequest{
 		Trigger:    "manual",
-		Subsystems: []string{SubsystemUsageEvents, SubsystemTurnEvents},
+		Subsystems: []string{SubsystemUsageEvents, SubsystemModelCallEvents},
 	})
 	if result.Trigger != "manual" {
 		t.Fatalf("trigger = %q, want manual", result.Trigger)
@@ -83,8 +83,8 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 	if result.Results[1].Name != SubsystemUsageEvents || result.Results[1].Deleted != 2 {
 		t.Fatalf("usage result = %#v, want usage deletion count 2", result.Results[1])
 	}
-	if result.Results[4].Name != SubsystemTurnEvents || result.Results[4].Deleted != 6 {
-		t.Fatalf("turn events result = %#v, want turn-event deletion count 6", result.Results[4])
+	if result.Results[4].Name != SubsystemModelCallEvents || result.Results[4].Deleted != 6 {
+		t.Fatalf("model-call events result = %#v, want model-call-event deletion count 6", result.Results[4])
 	}
 	if !result.Results[0].Skipped || !result.Results[2].Skipped || !result.Results[3].Skipped {
 		t.Fatalf("unexpected skip flags: %#v", result.Results)
@@ -100,19 +100,19 @@ func TestManagerRunPersistsHistory(t *testing.T) {
 	manager := NewManager(
 		logger,
 		config.RetentionConfig{
-			Enabled:        true,
-			Interval:       time.Minute,
-			TraceSnapshots: config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 10},
-			UsageEvents:    config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
-			AuditEvents:    config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
-			TurnEvents:     config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 100},
+			Enabled:         true,
+			Interval:        time.Minute,
+			TraceSnapshots:  config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 10},
+			UsageEvents:     config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
+			AuditEvents:     config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
+			ModelCallEvents: config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 100},
 		},
 		tracer,
 		tracer,
 		fakeUsagePruner{deleted: 2},
 		fakeAuditPruner{deleted: 3},
 		nil,
-		fakeTurnEventPruner{deleted: 6},
+		fakeModelCallEventPruner{deleted: 6},
 		nil,
 		history,
 	)

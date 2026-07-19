@@ -95,8 +95,8 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
     tone: "warning",
   },
   "chat.session_not_running": {
-    title: "No active run",
-    action: "Send a new message if you want to start another run.",
+    title: "No active turn",
+    action: "Send a new message if you want to start another turn.",
     tone: "warning",
   },
 };

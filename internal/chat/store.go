@@ -79,8 +79,12 @@ type Message struct {
 	// tools on. Independent of ExecutionMode: a Hecate-task turn with
 	// ToolsEnabled=false dispatches directly to the model without
 	// creating an agent_loop task.
-	ToolsEnabled    bool
-	SegmentID       string
+	ToolsEnabled bool
+	SegmentID    string
+	// TurnID identifies the Chat turn shared by its user and assistant
+	// messages. RunID is separate and is populated only when that turn is
+	// backed by a real Task Run.
+	TurnID          string
 	TaskID          string
 	RunID           string
 	RequestID       string
@@ -185,6 +189,7 @@ type ContextPacket struct {
 
 type ContextRefs struct {
 	SessionID    string `json:"session_id,omitempty"`
+	TurnID       string `json:"turn_id,omitempty"`
 	MessageID    string `json:"message_id,omitempty"`
 	TaskID       string `json:"task_id,omitempty"`
 	RunID        string `json:"run_id,omitempty"`
@@ -260,7 +265,7 @@ type Timing struct {
 	ToolMS         int64  `json:"tool_ms,omitempty"`
 	ApprovalWaitMS int64  `json:"approval_wait_ms,omitempty"`
 	OverheadMS     int64  `json:"overhead_ms,omitempty"`
-	TurnCount      int    `json:"turn_count,omitempty"`
+	ModelCallCount int    `json:"model_call_count,omitempty"`
 	ToolCount      int    `json:"tool_count,omitempty"`
 	Bottleneck     string `json:"bottleneck,omitempty"`
 	BottleneckMS   int64  `json:"bottleneck_ms,omitempty"`
@@ -273,7 +278,7 @@ func (t Timing) Empty() bool {
 		t.ToolMS == 0 &&
 		t.ApprovalWaitMS == 0 &&
 		t.OverheadMS == 0 &&
-		t.TurnCount == 0 &&
+		t.ModelCallCount == 0 &&
 		t.ToolCount == 0 &&
 		t.Bottleneck == "" &&
 		t.BottleneckMS == 0
@@ -301,7 +306,7 @@ type Store interface {
 	LinkTaskRun(ctx context.Context, sessionID, userMessageID, assistantMessageID string, update func(*Session, *Message, *Message)) (Session, error)
 }
 
-func ReconcileInterruptedRuns(ctx context.Context, store Store, now time.Time) (int, error) {
+func ReconcileInterruptedTurns(ctx context.Context, store Store, now time.Time) (int, error) {
 	if store == nil {
 		return 0, nil
 	}
@@ -332,14 +337,14 @@ func ReconcileInterruptedRuns(ctx context.Context, store Store, now time.Time) (
 				item.CompletedAt = now
 				item.Error = "interrupted by Hecate restart"
 				if item.Content == "" {
-					item.Content = "Agent run interrupted by Hecate restart."
+					item.Content = "Agent turn interrupted by Hecate restart."
 				}
 				if !activityTypeExists(item.Activities, "interrupted") {
 					item.Activities = append(item.Activities, Activity{
 						Type:      "interrupted",
 						Status:    "cancelled",
 						Title:     "Interrupted by restart",
-						Detail:    "Hecate restarted before this agent run finished.",
+						Detail:    "Hecate restarted before this agent turn finished.",
 						CreatedAt: now,
 					})
 				}

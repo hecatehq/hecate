@@ -538,7 +538,7 @@ Two-phase prune:
 
 This decouples "stop counting toward quotas" from "actually free disk space," so the operator-visible cap is responsive even when the disk is busy.
 
-`run.finished` and `run.failed` events trigger an immediate per-run prune sweep for `command_output` artifacts older than 1 hour, regardless of the global age. Rationale: most command output is interesting only while a run is in flight; once it's terminal, the metadata in `turn.completed` carries the operator-relevant summary. (Off by default — see [Open questions](#open-questions).)
+`run.finished` and `run.failed` events trigger an immediate per-run prune sweep for `command_output` artifacts older than 1 hour, regardless of the global age. Rationale: most command output is interesting only while a run is in flight; once it's terminal, the metadata in `model.call.completed` carries the operator-relevant summary. (Off by default — see [Open questions](#open-questions).)
 
 ## Access and same-origin
 

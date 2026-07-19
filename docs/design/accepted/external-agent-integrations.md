@@ -28,11 +28,12 @@ Hecate already has two strong surfaces:
 - **Tasks** — durable agent/runtime work with approvals, events, artifacts, and
   workspace state.
 
-Using Hecate with Codex, Claude Code, Cursor Agent, or Grok Build needs a third shape that
-is conversation-first like Chats but runtime-aware like Tasks. A user wants to
-type in Hecate and get a response from Codex, Claude Code, Cursor Agent, or Grok Build,
-while Hecate still records what happened, captures output, and eventually shows
-diffs and later artifacts.
+Using Hecate with Codex, Claude Code, Cursor Agent, or Grok Build belongs in
+Chats as an External Agent Turn. It is conversation-first like every other Chat
+Turn while exposing runtime-aware activity where useful; it is not a third
+top-level product shape beside Chats and Tasks. A user wants to type in Hecate
+and get a response from an external coding agent while Hecate still records what
+happened, captures output, and eventually shows diffs and later artifacts.
 
 Putting Codex, Claude Code, Cursor Agent, or Grok Build in the provider/model dropdown would be wrong:
 
@@ -43,19 +44,19 @@ Putting Codex, Claude Code, Cursor Agent, or Grok Build in the provider/model dr
 
 ## Goals
 
-- Add a product and backend seam for **External Agent chat** alongside
-  Hecate-owned chat.
+- Add a product and backend seam for **External Agent Turns** inside Chats,
+  alongside Hecate-owned direct-model and task-backed Turns.
 - Support Codex, Claude, Cursor Agent, and Grok Build through ACP-capable adapters first.
 - Keep provider/model routing unchanged.
-- Let Hecate supervise external agent sessions: start, stream, cancel,
-  timeout, capture exit status.
-- Store enough run/session state that UI and future clients can replay the
+- Let Hecate supervise External Agent Turn and session lifecycles: start or
+  restore sessions, stream/cancel/timeout Turns, and capture process exit status.
+- Store enough turn/session state that UI and future clients can replay the
   conversation.
 - Capture ACP updates as runtime output first, then richer structured events as
   the adapter surface matures.
 - Normalize ACP output into readable transcript text without discarding the raw
   diagnostic stream needed for future debugging.
-- Capture workspace diff after a run when the workspace is a Git repo.
+- Capture workspace diff after a turn when the workspace is a Git repo.
 - Use ACP for outbound external-agent sessions when an adapter is available.
 
 ## Non-goals
@@ -241,18 +242,18 @@ Hecate -> ACP -> Codex / Claude / Cursor Agent
 ```
 
 The adapter layer lets Hecate talk to ACP-capable external coding agents while
-keeping provider routing and Hecate-owned task runs separate.
+keeping provider routing and Hecate-owned Task Runs separate.
 
 ## Observability
 
-External Agent chat currently has three observability surfaces:
+External Agent Turns currently have three observability surfaces:
 
 - The per-session SSE stream emits typed `session_update`,
   `approval.requested`, and `approval.resolved` events.
-- Assistant messages carry stable run metadata (`run_id`, timestamps, duration,
+- Assistant messages carry stable Turn metadata (`turn_id`, timestamps, duration,
   trace ids, native session id), structured activity records, raw ACP
   diagnostics, usage updates, and captured diff data.
-- OpenTelemetry spans and metrics cover `chat.run`, adapter probe
+- OpenTelemetry spans and metrics cover `chat.turn`, adapter probe
   outcomes, approval request/resolve paths, approval timeout/grant counters,
   cancellation reasons, output byte counts, and diff-capture state.
 
@@ -264,7 +265,7 @@ Important attributes include:
 - `hecate.agent_adapter.native_session.id`
 - `hecate.chat.session.id`
 - `hecate.workspace.path`
-- `hecate.run.id`
+- `hecate.chat.turn.id`
 - `hecate.agent_adapter.output.bytes`
 - `hecate.agent_adapter.diff.captured`
 
@@ -304,12 +305,12 @@ not a drop-in fit.
       private resource-link turns withhold them when present because arbitrary
       chunking can expose temporary path fragments.
 - [x] Chats show structured activity markers for start/running/output/files-changed/final failure states.
-- [x] Timeout marks the run failed with a stable error.
+- [x] Timeout marks the turn failed with a stable error.
 - [x] Final response and raw output are replayable after refresh, and durable across gateway restarts when SQLite chat sessions are enabled.
 - [x] Workspace diff is captured when the workspace is a Git repo.
 - [x] Docs clearly state cost is external/unknown for these adapters.
 - [x] Streaming output reaches the UI while the process is still running.
-- [x] Cancellation signals the ACP turn and marks the session/run cancelled.
+- [x] Cancellation signals the ACP turn and marks the Turn and Chat session cancelled.
 - [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
 - [x] Adapter readiness can distinguish missing binaries, auth/billing failures, and versions outside Hecate's tested range.
 - [x] Operator approvals are prompt-first by default and visible through REST, SSE, Connections grants, and Chats review UI.

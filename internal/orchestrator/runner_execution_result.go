@@ -2,10 +2,12 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -39,7 +41,7 @@ func (p executionResultPersister) persist(ctx context.Context, execution *Execut
 		return nil, err
 	}
 
-	p.emitTurnCostEvents(ctx, execution.TurnCosts)
+	p.emitModelCallCostEvents(ctx, execution.ModelCallCosts)
 	if err := p.persistPendingApprovals(ctx, execution.PendingApprovals); err != nil {
 		return nil, err
 	}
@@ -132,21 +134,21 @@ func (p executionResultPersister) persistArtifact(ctx context.Context, artifact 
 	return artifact, p.runner.upsertArtifact(ctx, artifact)
 }
 
-func (p executionResultPersister) emitTurnCostEvents(ctx context.Context, turnCosts []TurnCostRecord) {
-	// Per-turn cost telemetry. The agent loop reports TurnCosts —
-	// one entry per LLM round-trip — and we emit a `turn.completed`
+func (p executionResultPersister) emitModelCallCostEvents(ctx context.Context, modelCallCosts []ModelCallCostRecord) {
+	// Per-model-call cost telemetry. The agent loop reports ModelCallCosts —
+	// one entry per LLM round-trip — and we emit a `model.call.completed`
 	// event for each. Operators replay these via the events feed to
 	// see how spend evolved across the run; the cumulative figure
 	// includes prior runs in the resume chain so a long chain shows
 	// total task spend, not just per-run.
-	for _, tc := range turnCosts {
-		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventTurnCompleted.String(), p.requestID, p.trace.TraceID, runtimeevents.TurnCompleted(runtimeevents.TurnCompletedFields{
-			TurnIndex:                   tc.Turn,
-			StepID:                      tc.StepID,
-			CostMicrosUSD:               tc.CostMicrosUSD,
-			RunCumulativeCostMicrosUSD:  tc.CumulativeMicrosUSD,
-			TaskCumulativeCostMicrosUSD: p.run.PriorCostMicrosUSD + tc.CumulativeMicrosUSD,
-			ToolCalls:                   tc.ToolCallCount,
+	for _, modelCallCost := range modelCallCosts {
+		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventModelCallCompleted.String(), p.requestID, p.trace.TraceID, runtimeevents.ModelCallCompleted(runtimeevents.ModelCallCompletedFields{
+			ModelCallIndex:              modelCallCost.ModelCall,
+			StepID:                      modelCallCost.StepID,
+			CostMicrosUSD:               modelCallCost.CostMicrosUSD,
+			RunCumulativeCostMicrosUSD:  modelCallCost.CumulativeMicrosUSD,
+			TaskCumulativeCostMicrosUSD: p.run.PriorCostMicrosUSD + modelCallCost.CumulativeMicrosUSD,
+			ToolCalls:                   modelCallCost.ToolCallCount,
 		}))
 	}
 }
@@ -170,13 +172,34 @@ func (p executionResultPersister) persistPendingApprovals(ctx context.Context, a
 }
 
 func (p executionResultPersister) applyFinalResult(ctx context.Context, execution *ExecutionResult, persistedSteps []types.TaskStep, persistedArtifacts []types.TaskArtifact) (*StartTaskResult, error) {
+	// Steps and artifacts are upserted while an agent loop is running, before
+	// this terminal pass. A same-Run recovery result contains only children
+	// produced by the recovery invocation, so count from the complete durable
+	// sets instead of overwriting Run totals with that partial slice.
+	durableSteps, err := p.runner.store.ListSteps(ctx, p.run.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list durable steps before Run settlement: %w", err)
+	}
+	durableArtifacts, err := p.runner.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: p.task.ID, RunID: p.run.ID})
+	if err != nil {
+		return nil, fmt.Errorf("list durable artifacts before Run settlement: %w", err)
+	}
+	durableModelCallCount, err := completedModelCallCountFromSteps(durableSteps)
+	if err != nil {
+		return nil, fmt.Errorf("reconstruct completed model-call count before Run settlement: %w", err)
+	}
+	terminalExecution := *execution
+	if durableModelCallCount > terminalExecution.ModelCallCount {
+		terminalExecution.ModelCallCount = durableModelCallCount
+	}
+
 	finishedAt := time.Now().UTC()
 	transitionInput := executionResultTerminalTransitionInput{
 		Task:               p.task,
 		Run:                p.run,
-		Execution:          execution,
-		PersistedSteps:     persistedSteps,
-		PersistedArtifacts: persistedArtifacts,
+		Execution:          &terminalExecution,
+		PersistedSteps:     durableSteps,
+		PersistedArtifacts: durableArtifacts,
 		RequestID:          p.requestID,
 		Trace:              p.trace,
 		FinishedAt:         finishedAt,

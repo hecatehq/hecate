@@ -385,29 +385,18 @@ func (h *Handler) HandleTaskRunStep(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleRetryTaskRunFromTurn re-runs an agent_loop run from turn N,
-// preserving the source conversation up to (but not including) that
-// turn's assistant message. The new run is a sibling of the source
-// (not a child) — it gets its own run number and step indices. Only
-// terminal runs are eligible; the source must have produced an
-// agent_conversation artifact, and the requested turn must lie within
-// the source's completed assistant-turn count.
-
 func buildTaskItem(ctx context.Context, store taskstate.Store, task types.Task) TaskItem {
 	item := renderTaskItem(task)
-	counts := loadTaskItemCounts(ctx, store, task.ID)
-	item.PendingApprovalCount = counts.PendingApprovalCount
-	item.StepCount = counts.StepCount
-	item.ArtifactCount = counts.ArtifactCount
-	// Fetch the latest run so the task list can show what model +
-	// provider actually ran (vs. what the operator requested, which
-	// may have been "auto"). One extra GetRun per task — same store
-	// hit pattern as loadTaskItemCounts already incurs. Cheap on
-	// memory/sqlite and avoids adding a dedicated task-list join.
+	item.PendingApprovalCount = loadPendingTaskApprovalCount(ctx, store, task.ID)
+	// Fetch the latest run so every latest-run summary field comes from
+	// one authoritative record rather than mixing run-local labels with
+	// task-wide aggregates.
 	if strings.TrimSpace(task.LatestRunID) != "" {
 		if run, found, err := store.GetRun(ctx, task.ID, task.LatestRunID); err == nil && found {
 			item.LatestModel = run.Model
 			item.LatestProvider = run.Provider
+			item.LatestRunStepCount = run.StepCount
+			item.LatestRunArtifactCount = run.ArtifactCount
 		}
 	}
 	return item
@@ -424,8 +413,10 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 		switch {
 		case step.ApprovalID != "" || step.Kind == "approval":
 			itemType = "approval"
-		case step.Kind == "model":
+		case step.Kind == "model" && step.ToolName == "builtin.agent_loop_llm":
 			itemType = "thinking"
+		case strings.HasPrefix(step.ToolName, "builtin.agent_loop_"):
+			itemType = "step"
 		case step.Kind == "tool" || step.Kind == "shell" || step.Kind == "git" || step.Kind == "file" || step.ToolName != "":
 			itemType = "tool_call"
 		}
@@ -624,12 +615,6 @@ func formatOptionalTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-type taskItemCounts struct {
-	PendingApprovalCount int
-	StepCount            int
-	ArtifactCount        int
-}
-
 func renderTaskItem(task types.Task) TaskItem {
 	item := TaskItem{
 		ID:                               task.ID,
@@ -732,30 +717,22 @@ func redactSecretMap(m map[string]string) map[string]string {
 	return out
 }
 
-func loadTaskItemCounts(ctx context.Context, store taskstate.Store, taskID string) taskItemCounts {
+func loadPendingTaskApprovalCount(ctx context.Context, store taskstate.Store, taskID string) int {
 	if store == nil {
-		return taskItemCounts{}
+		return 0
 	}
 
-	counts := taskItemCounts{}
-	runs, err := store.ListRuns(ctx, taskID)
-	if err == nil {
-		for _, run := range runs {
-			counts.StepCount += run.StepCount
-			counts.ArtifactCount += run.ArtifactCount
-		}
-	}
-
+	count := 0
 	approvals, err := store.ListApprovals(ctx, taskID)
 	if err == nil {
 		for _, approval := range approvals {
 			if approval.Status == "pending" {
-				counts.PendingApprovalCount++
+				count++
 			}
 		}
 	}
 
-	return counts
+	return count
 }
 
 func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
@@ -774,6 +751,7 @@ func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 		WorkspaceID:        run.WorkspaceID,
 		WorkspacePath:      run.WorkspacePath,
 		StepCount:          run.StepCount,
+		ModelCallCount:     run.ModelCallCount,
 		ApprovalCount:      run.ApprovalCount,
 		ArtifactCount:      run.ArtifactCount,
 		TotalCostMicrosUSD: run.TotalCostMicrosUSD,

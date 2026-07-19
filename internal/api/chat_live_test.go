@@ -74,26 +74,26 @@ func TestAgentChatLiveExclusiveMutationInvalidatesStaleTurnsWithoutBecomingCance
 	defer mutationSnapshot.release()
 
 	releaseMutation, admission := live.beginExclusiveMutation(mutationSnapshot)
-	if admission != agentChatRunAccepted {
+	if admission != agentChatTurnAccepted {
 		t.Fatalf("beginExclusiveMutation = %v, want accepted", admission)
 	}
 	currentTurn := live.snapshotLifecycle("s")
 	defer currentTurn.release()
-	if got := live.registerRun(currentTurn, func() {}); got != agentChatRunBusy {
-		t.Fatalf("registerRun during mutation = %v, want busy", got)
+	if got := live.registerTurn(currentTurn, func() {}); got != agentChatTurnBusy {
+		t.Fatalf("registerTurn during mutation = %v, want busy", got)
 	}
-	if live.cancelRun("s") {
-		t.Fatal("cancelRun reported an exclusive settings mutation as a run")
+	if live.cancelTurn("s") {
+		t.Fatal("cancelTurn reported an exclusive settings mutation as a turn")
 	}
 
 	releaseMutation()
-	if got := live.registerRun(staleTurn, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun with pre-mutation snapshot = %v, want admission closed", got)
+	if got := live.registerTurn(staleTurn, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn with pre-mutation snapshot = %v, want admission closed", got)
 	}
 	freshTurn := live.snapshotLifecycle("s")
 	defer freshTurn.release()
-	if got := live.registerRun(freshTurn, func() {}); got != agentChatRunAccepted {
-		t.Fatalf("registerRun after mutation = %v, want accepted", got)
+	if got := live.registerTurn(freshTurn, func() {}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn after mutation = %v, want accepted", got)
 	}
-	live.clearRun("s")
+	live.clearTurn("s")
 }

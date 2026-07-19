@@ -85,15 +85,14 @@ type ContinueTaskRunRequest struct {
 	Prompt string `json:"prompt"`
 }
 
-// RetryFromTurnRequest is the body for
-// POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn — re-run an
-// agent_loop run starting at turn N with the prior conversation
-// context preserved up to (but not including) that turn's assistant
-// message. Turn must be >= 1 and <= the source run's completed
-// assistant-turn count.
-type RetryFromTurnRequest struct {
-	Turn   int    `json:"turn"`
-	Reason string `json:"reason"`
+// RetryFromModelCallRequest is the body for
+// POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call — re-run an
+// agent_loop run starting at model call N with the prior conversation
+// context preserved up to (but not including) that call's assistant
+// message. ModelCallIndex is 1-based within the source Run.
+type RetryFromModelCallRequest struct {
+	ModelCallIndex int    `json:"model_call_index"`
+	Reason         string `json:"reason"`
 }
 
 type AppendTaskRunEventRequest struct {
@@ -227,19 +226,19 @@ type TaskItem struct {
 	// asked for "auto" or specified a model the router substituted.
 	// Surfaced on the task list so operators see at a glance which
 	// engine ran without drilling into the run detail.
-	LatestModel          string `json:"latest_model,omitempty"`
-	LatestProvider       string `json:"latest_provider,omitempty"`
-	PendingApprovalCount int    `json:"pending_approval_count,omitempty"`
-	StepCount            int    `json:"step_count,omitempty"`
-	ArtifactCount        int    `json:"artifact_count,omitempty"`
-	LastError            string `json:"last_error,omitempty"`
-	CreatedAt            string `json:"created_at,omitempty"`
-	UpdatedAt            string `json:"updated_at,omitempty"`
-	StartedAt            string `json:"started_at,omitempty"`
-	FinishedAt           string `json:"finished_at,omitempty"`
-	RootTraceID          string `json:"root_trace_id,omitempty"`
-	LatestTraceID        string `json:"latest_trace_id,omitempty"`
-	LatestRequestID      string `json:"latest_request_id,omitempty"`
+	LatestModel            string `json:"latest_model,omitempty"`
+	LatestProvider         string `json:"latest_provider,omitempty"`
+	PendingApprovalCount   int    `json:"pending_approval_count,omitempty"`
+	LatestRunStepCount     int    `json:"latest_run_step_count,omitempty"`
+	LatestRunArtifactCount int    `json:"latest_run_artifact_count,omitempty"`
+	LastError              string `json:"last_error,omitempty"`
+	CreatedAt              string `json:"created_at,omitempty"`
+	UpdatedAt              string `json:"updated_at,omitempty"`
+	StartedAt              string `json:"started_at,omitempty"`
+	FinishedAt             string `json:"finished_at,omitempty"`
+	RootTraceID            string `json:"root_trace_id,omitempty"`
+	LatestTraceID          string `json:"latest_trace_id,omitempty"`
+	LatestRequestID        string `json:"latest_request_id,omitempty"`
 	// MCPServers echoes the configured external MCP servers (if any).
 	// Surfaced on the task detail so operators can see at a glance
 	// which external tool sources a run will bring up.
@@ -261,6 +260,7 @@ type TaskRunItem struct {
 	WorkspaceID        string `json:"workspace_id,omitempty"`
 	WorkspacePath      string `json:"workspace_path,omitempty"`
 	StepCount          int    `json:"step_count,omitempty"`
+	ModelCallCount     int    `json:"model_call_count"`
 	ApprovalCount      int    `json:"approval_count,omitempty"`
 	ArtifactCount      int    `json:"artifact_count,omitempty"`
 	TotalCostMicrosUSD int64  `json:"total_cost_micros_usd,omitempty"`
@@ -293,13 +293,13 @@ type TaskRunStreamEventData struct {
 	// conversely a server-resolved approval might still render in the
 	// banner because the UI cached the old state).
 	Approvals []TaskApprovalItem `json:"approvals,omitempty"`
-	// Turn carries the per-turn cost breakdown when the snapshot was
-	// driven by a `turn.completed` event. It's populated only
-	// for that event type — every other snapshot leaves Turn nil.
-	// Lets the UI render a live per-turn cost/tokens summary without having
+	// ModelCall carries the per-model-call cost breakdown when the snapshot was
+	// driven by a `model.call.completed` event. It's populated only
+	// for that event type — every other snapshot leaves ModelCall nil.
+	// Lets the UI render a live per-model-call cost/tokens summary without having
 	// to subscribe to the public events stream separately.
-	Turn      *TaskRunStreamTurnCost `json:"turn,omitempty"`
-	EventType string                 `json:"event_type,omitempty"`
+	ModelCall *TaskRunStreamModelCallCost `json:"model_call,omitempty"`
+	EventType string                      `json:"event_type,omitempty"`
 }
 
 type TaskActivityItem struct {
@@ -319,12 +319,12 @@ type TaskActivityItem struct {
 	NeedsAction bool           `json:"needs_action,omitempty"`
 }
 
-// TaskRunStreamTurnCost mirrors the turn.completed event
+// TaskRunStreamModelCallCost mirrors the model.call.completed event
 // payload one-for-one. The field names match the event keys (we read
 // them straight from the event data map) so a future generalization
-// to other turn-shaped events stays trivial.
-type TaskRunStreamTurnCost struct {
-	Turn                    int    `json:"turn_index"`
+// to other model-call-shaped events stays trivial.
+type TaskRunStreamModelCallCost struct {
+	ModelCall               int    `json:"model_call_index"`
 	StepID                  string `json:"step_id,omitempty"`
 	CostMicrosUSD           int64  `json:"cost_micros_usd"`
 	RunCumulativeMicrosUSD  int64  `json:"run_cumulative_cost_micros_usd"`

@@ -89,17 +89,17 @@ func TestAgentLoopToolDispatchE2E(t *testing.T) {
 	}
 
 	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
-	assertE2EEventTypes(t, events.Data, "turn.started", "assistant.tool_call_proposed", "assistant.final_answer")
-	var turnStarted []e2eEventEnvelope
-	var turnEvents []e2eEventEnvelope
+	assertE2EEventTypes(t, events.Data, "model.call.started", "assistant.tool_call_proposed", "assistant.final_answer")
+	var modelCallStarted []e2eEventEnvelope
+	var modelCallEvents []e2eEventEnvelope
 	foundToolProposal := false
 	foundFinalAnswer := false
 	for _, event := range events.Data {
-		if event.Type == "turn.started" {
-			turnStarted = append(turnStarted, event)
+		if event.Type == "model.call.started" {
+			modelCallStarted = append(modelCallStarted, event)
 		}
-		if event.Type == "turn.completed" {
-			turnEvents = append(turnEvents, event)
+		if event.Type == "model.call.completed" {
+			modelCallEvents = append(modelCallEvents, event)
 		}
 		if event.Type == "assistant.tool_call_proposed" &&
 			event.Data["tool_call_id"] == "call-shell-e2e" &&
@@ -110,31 +110,31 @@ func TestAgentLoopToolDispatchE2E(t *testing.T) {
 			foundFinalAnswer = true
 		}
 	}
-	if len(turnStarted) != 2 {
-		t.Fatalf("turn.started events = %d, want 2: %+v", len(turnStarted), events.Data)
+	if len(modelCallStarted) != 2 {
+		t.Fatalf("model.call.started events = %d, want 2: %+v", len(modelCallStarted), events.Data)
 	}
-	assertE2ENumber(t, turnStarted[0].Data, "turn_index", 1)
-	assertE2ENumber(t, turnStarted[1].Data, "turn_index", 2)
+	assertE2ENumber(t, modelCallStarted[0].Data, "model_call_index", 1)
+	assertE2ENumber(t, modelCallStarted[1].Data, "model_call_index", 2)
 	if !foundToolProposal {
 		t.Fatalf("assistant.tool_call_proposed for call-shell-e2e not found in %+v", events.Data)
 	}
 	if !foundFinalAnswer {
 		t.Fatalf("assistant.final_answer not found in %+v", events.Data)
 	}
-	if len(turnEvents) != 2 {
-		t.Fatalf("turn.completed events = %d, want 2: %+v", len(turnEvents), events.Data)
+	if len(modelCallEvents) != 2 {
+		t.Fatalf("model.call.completed events = %d, want 2: %+v", len(modelCallEvents), events.Data)
 	}
-	assertE2ENumber(t, turnEvents[0].Data, "turn_index", 1)
-	assertE2ENumber(t, turnEvents[0].Data, "tool_calls", 1)
-	assertE2ENumber(t, turnEvents[0].Data, "run_cumulative_cost_micros_usd", 0)
-	if turnEvents[0].Data["step_id"] != modelSteps[0].ID {
-		t.Fatalf("turn 1 step_id = %v, want %s", turnEvents[0].Data["step_id"], modelSteps[0].ID)
+	assertE2ENumber(t, modelCallEvents[0].Data, "model_call_index", 1)
+	assertE2ENumber(t, modelCallEvents[0].Data, "tool_calls", 1)
+	assertE2ENumber(t, modelCallEvents[0].Data, "run_cumulative_cost_micros_usd", 0)
+	if modelCallEvents[0].Data["step_id"] != modelSteps[0].ID {
+		t.Fatalf("model call 1 step_id = %v, want %s", modelCallEvents[0].Data["step_id"], modelSteps[0].ID)
 	}
-	assertE2ENumber(t, turnEvents[1].Data, "turn_index", 2)
-	assertE2ENumber(t, turnEvents[1].Data, "tool_calls", 0)
-	assertE2ENumber(t, turnEvents[1].Data, "run_cumulative_cost_micros_usd", 0)
-	if turnEvents[1].Data["step_id"] != modelSteps[1].ID {
-		t.Fatalf("turn 2 step_id = %v, want %s", turnEvents[1].Data["step_id"], modelSteps[1].ID)
+	assertE2ENumber(t, modelCallEvents[1].Data, "model_call_index", 2)
+	assertE2ENumber(t, modelCallEvents[1].Data, "tool_calls", 0)
+	assertE2ENumber(t, modelCallEvents[1].Data, "run_cumulative_cost_micros_usd", 0)
+	if modelCallEvents[1].Data["step_id"] != modelSteps[1].ID {
+		t.Fatalf("model call 2 step_id = %v, want %s", modelCallEvents[1].Data["step_id"], modelSteps[1].ID)
 	}
 
 	bodies := capturedBodies(captured)

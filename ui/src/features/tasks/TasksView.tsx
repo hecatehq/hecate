@@ -7,6 +7,7 @@ import {
   deleteTask,
   getModels,
   getProviders,
+  getTask,
   getTaskApprovals,
   getTaskRunArtifacts,
   getTaskRunContext,
@@ -17,7 +18,7 @@ import {
   resolveTaskApproval,
   revertTaskRunPatch,
   retryTaskRun,
-  retryTaskRunFromTurn,
+  retryTaskRunFromModelCall,
   resumeTaskRun,
   resumeTaskRunRaisingCeiling,
   startTask,
@@ -49,15 +50,28 @@ import { formatProjectDeleteSummary } from "../projects/projectDisplay";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
+type TaskSelection = { taskID: string; runID: string };
 
-export function streamTurnCostKey(turnIndex: number | undefined): number | null {
-  if (typeof turnIndex !== "number" || !Number.isFinite(turnIndex) || turnIndex < 0) {
+export function streamModelCallCostKey(modelCallIndex: number | undefined): number | null {
+  if (
+    typeof modelCallIndex !== "number" ||
+    !Number.isFinite(modelCallIndex) ||
+    modelCallIndex < 1
+  ) {
     return null;
   }
-  return Math.trunc(turnIndex) + 1;
+  return Math.trunc(modelCallIndex);
 }
 
-function TaskStartState({ loading, onNewTask }: { loading: boolean; onNewTask: () => void }) {
+function TaskStartState({
+  loading,
+  notice,
+  onNewTask,
+}: {
+  loading: boolean;
+  notice: { tone: "success" | "error"; message: string } | null;
+  onNewTask: () => void;
+}) {
   return (
     <div
       style={{
@@ -75,8 +89,13 @@ function TaskStartState({ loading, onNewTask }: { loading: boolean; onNewTask: (
         <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.6, marginTop: 8 }}>
           {loading
             ? "Checking the task runtime for recent work."
-            : "Use Hecate's task runtime for shell commands, Git operations, file work, or agent-loop runs with approvals and artifacts."}
+            : "Tasks are durable units of work. Each start, continuation, retry, or resume creates a Run. Create standalone shell, Git, file, or agent-loop work here, or inspect work started from Chats and Projects."}
         </div>
+        {!loading && notice?.tone === "error" && (
+          <div className="page-banner page-banner--error" role="alert" style={{ marginTop: 16 }}>
+            {notice.message}
+          </div>
+        )}
         {!loading && (
           <button
             className="btn btn-primary"
@@ -96,10 +115,16 @@ export function TasksView({
   focusRequest,
   onOpenChat,
   onOpenTrace,
+  onSelectionChange,
 }: {
   focusRequest?: TaskFocusRequest | null;
-  onOpenChat?: (sessionID: string) => void;
+  onOpenChat?: (sessionID: string, taskID?: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
+  onSelectionChange?: (
+    taskID: string | null,
+    runID: string | null,
+    mode?: "push" | "replace",
+  ) => void;
 } = {}) {
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
@@ -111,12 +136,12 @@ export function TasksView({
   const [artifacts, setArtifacts] = useState<TaskArtifactRecord[]>([]);
   const [activity, setActivity] = useState<TaskActivityRecord[]>([]);
   const [runEvents, setRunEvents] = useState<TaskRunEventRecord[]>([]);
-  // Streamed per-turn costs, keyed by turn number. Populated as
-  // `turn.completed` events arrive on the SSE stream. Acts as a
+  // Streamed per-model-call costs, keyed by model-call number. Populated as
+  // `model.call.completed` events arrive on the SSE stream. Acts as a
   // fallback for the model-step output_summary path: when the step's
   // cost isn't recorded yet (or older runs that pre-date the cost
   // field), the conversation viewer reads from this map instead.
-  const [streamTurnCosts, setStreamTurnCosts] = useState<Map<number, number>>(new Map());
+  const [streamModelCallCosts, setStreamModelCallCosts] = useState<Map<number, number>>(new Map());
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [busyAction, setBusyAction] = useState("");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
@@ -133,10 +158,13 @@ export function TasksView({
   const providerPresets = useProvidersAndModels().state.providerPresets;
   const chat = useChat();
   const projects = useProjects();
+  const selectProject = projects.actions.selectProject;
   const activeProjectID = projects.activeProjectID;
   const defaultTaskWorkspace = projectDefaultWorkspace(projects.activeProject);
 
   const streamCursorRef = useRef(0);
+  const taskLoadGenerationRef = useRef(0);
+  const selectedTaskRunRef = useRef<TaskSelection>({ taskID: "", runID: "" });
 
   const selectedTask = useMemo(
     () => tasks.find((t) => t.id === selectedTaskID) ?? null,
@@ -146,48 +174,60 @@ export function TasksView({
     () => runs.find((r) => r.id === selectedRunID) ?? null,
     [runs, selectedRunID],
   );
-  const selectedTaskIDRef = useRef(selectedTaskID);
-
-  useEffect(() => {
-    selectedTaskIDRef.current = selectedTaskID;
-  }, [selectedTaskID]);
-
   const resetRunDetail = useCallback(() => {
     setSteps([]);
     setArtifacts([]);
     setActivity([]);
     setRunEvents([]);
-    setStreamTurnCosts(new Map());
+    setStreamModelCallCosts(new Map());
     streamCursorRef.current = 0;
   }, []);
 
-  const loadRunDetail = useCallback(
-    async (taskID: string, runID: string) => {
-      if (!taskID || !runID) {
+  const selectTaskRun = useCallback(
+    (taskID: string, runID: string) => {
+      const previous = selectedTaskRunRef.current;
+      if (previous.taskID !== taskID || previous.runID !== runID) {
         resetRunDetail();
-        return;
+      }
+      selectedTaskRunRef.current = { taskID, runID };
+      setSelectedTaskID(taskID);
+      setSelectedRunID(runID);
+    },
+    [resetRunDetail],
+  );
+
+  const loadRunDetail = useCallback(
+    async (taskID: string, runID: string, generation?: number): Promise<boolean> => {
+      const loadGeneration = generation ?? ++taskLoadGenerationRef.current;
+      if (!taskID || !runID) {
+        if (taskLoadGenerationRef.current === loadGeneration) resetRunDetail();
+        return taskLoadGenerationRef.current === loadGeneration;
       }
       const [stepsRes, artifactsRes, eventsRes] = await Promise.all([
         getTaskRunSteps(taskID, runID),
         getTaskRunArtifacts(taskID, runID),
         getTaskRunEvents(taskID, runID, 0),
       ]);
+      if (taskLoadGenerationRef.current !== loadGeneration) return false;
       setSteps(stepsRes.data ?? []);
       setArtifacts(artifactsRes.data ?? []);
       setRunEvents(
         (eventsRes.data ?? []).slice().sort((left, right) => left.sequence - right.sequence),
       );
+      return true;
     },
     [resetRunDetail],
   );
 
   const loadTaskDetail = useCallback(
-    async (taskID: string, preferredRunID = "") => {
-      if (!taskID) return;
+    async (taskID: string, preferredRunID = "", generation?: number): Promise<string | null> => {
+      const loadGeneration = generation ?? ++taskLoadGenerationRef.current;
+      if (!taskID) return "";
       const [runsRes, approvalsRes] = await Promise.all([
         getTaskRuns(taskID),
         getTaskApprovals(taskID),
       ]);
+      if (taskLoadGenerationRef.current !== loadGeneration) return null;
       const nextRuns = runsRes.data ?? [];
       setRuns(nextRuns);
       setApprovals(approvalsRes.data ?? []);
@@ -195,11 +235,14 @@ export function TasksView({
         (preferredRunID && nextRuns.some((r) => r.id === preferredRunID) ? preferredRunID : "") ||
         nextRuns[0]?.id ||
         "";
-      setSelectedRunID(nextRunID);
-      if (nextRunID) await loadRunDetail(taskID, nextRunID);
-      else resetRunDetail();
+      selectTaskRun(taskID, nextRunID);
+      if (nextRunID) {
+        const loaded = await loadRunDetail(taskID, nextRunID, loadGeneration);
+        if (!loaded) return null;
+      } else resetRunDetail();
+      return nextRunID;
     },
-    [loadRunDetail, resetRunDetail],
+    [loadRunDetail, resetRunDetail, selectTaskRun],
   );
 
   const loadTasks = useCallback(
@@ -207,14 +250,21 @@ export function TasksView({
       preferredTaskID = "",
       preferredRunID = "",
       projectID: string | null = activeProjectID,
-    ) => {
+      addressedTask?: TaskRecord,
+    ): Promise<TaskSelection | null> => {
+      const loadGeneration = ++taskLoadGenerationRef.current;
       // single-user: always authenticated
       setLoading(true);
       try {
         const res = await getTasks(30, projectID);
-        const nextTasks = res.data ?? [];
+        if (taskLoadGenerationRef.current !== loadGeneration) return null;
+        const listedTasks = res.data ?? [];
+        const nextTasks =
+          addressedTask && !listedTasks.some((task) => task.id === addressedTask.id)
+            ? [addressedTask, ...listedTasks]
+            : listedTasks;
         setTasks(nextTasks);
-        const currentTaskID = selectedTaskIDRef.current;
+        const currentTaskID = selectedTaskRunRef.current.taskID;
         const preservedTaskID =
           currentTaskID && nextTasks.some((t) => t.id === currentTaskID) ? currentTaskID : "";
         const nextTaskID =
@@ -224,25 +274,96 @@ export function TasksView({
           preservedTaskID ||
           nextTasks[0]?.id ||
           "";
-        setSelectedTaskID(nextTaskID);
-        if (nextTaskID) await loadTaskDetail(nextTaskID, preferredRunID);
+        if (selectedTaskRunRef.current.taskID !== nextTaskID) {
+          selectTaskRun(nextTaskID, "");
+        }
+        if (nextTaskID) {
+          const nextRunID = await loadTaskDetail(nextTaskID, preferredRunID, loadGeneration);
+          if (nextRunID === null) return null;
+          return { taskID: nextTaskID, runID: nextRunID };
+        }
+        setRuns([]);
+        setApprovals([]);
+        selectTaskRun("", "");
+        return { taskID: "", runID: "" };
       } catch {
         /* silently ignore */
+        return null;
       } finally {
-        setLoading(false);
+        if (taskLoadGenerationRef.current === loadGeneration) setLoading(false);
       }
     },
-    [activeProjectID, loadTaskDetail],
+    [activeProjectID, loadTaskDetail, selectTaskRun],
   );
 
   useEffect(() => {
-    void loadTasks();
-  }, [activeProjectID, loadTasks]);
+    if (focusRequest?.taskID) return;
+    let cancelled = false;
+    void loadTasks().then((selection) => {
+      if (cancelled || !selection) return;
+      onSelectionChange?.(selection.taskID || null, selection.runID || null, "replace");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProjectID, focusRequest?.taskID, loadTasks, onSelectionChange]);
 
   useEffect(() => {
     if (!focusRequest?.taskID) return;
-    void loadTasks(focusRequest.taskID, focusRequest.runID);
-  }, [focusRequest, loadTasks]);
+    let cancelled = false;
+    taskLoadGenerationRef.current += 1;
+    setLoading(true);
+    setNotice(null);
+    void (async () => {
+      try {
+        const addressedTask = (await getTask(focusRequest.taskID)).data;
+        if (cancelled) return;
+        const addressedProjectID = addressedTask.project_id ?? "";
+        if (addressedProjectID !== projects.activeProjectID) {
+          await selectProject(addressedProjectID);
+        }
+        if (cancelled) return;
+        const selection = await loadTasks(
+          focusRequest.taskID,
+          focusRequest.runID,
+          addressedProjectID,
+          addressedTask,
+        );
+        if (cancelled || !selection) return;
+        if (
+          selection.taskID === focusRequest.taskID &&
+          selection.runID === (focusRequest.runID ?? "")
+        ) {
+          return;
+        }
+        onSelectionChange?.(selection.taskID || null, selection.runID || null, "replace");
+      } catch (error) {
+        if (cancelled) return;
+        if (!(error instanceof ApiError) || error.status !== 404) {
+          selectTaskRun("", "");
+          setLoading(false);
+          setNotice({
+            tone: "error",
+            message: error instanceof Error ? error.message : "Failed to load the requested task.",
+          });
+          return;
+        }
+        const selection = await loadTasks("", "", projects.activeProjectID);
+        if (cancelled || !selection) return;
+        onSelectionChange?.(selection.taskID || null, selection.runID || null, "replace");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    focusRequest,
+    loadTasks,
+    onSelectionChange,
+    projects.activeProjectID,
+    selectProject,
+    selectTaskRun,
+  ]);
 
   useEffect(() => {
     // Models + providers + presets feed the new-task slideover's
@@ -271,6 +392,13 @@ export function TasksView({
       selectedTaskID,
       selectedRunID,
       ({ payload }) => {
+        const currentSelection = selectedTaskRunRef.current;
+        if (
+          currentSelection.taskID !== selectedTaskID ||
+          currentSelection.runID !== selectedRunID
+        ) {
+          return;
+        }
         setStreamState("live");
         streamCursorRef.current = payload.data.sequence ?? streamCursorRef.current;
         setRuns((cur) => {
@@ -280,16 +408,16 @@ export function TasksView({
         setSteps(payload.data.steps ?? []);
         setArtifacts(payload.data.artifacts ?? []);
         setActivity(payload.data.activity ?? []);
-        // Capture per-turn cost when the snapshot was driven by an
-        // `turn.completed` event. Dedup by turn number — the
+        // Capture per-model-call cost when the snapshot was driven by a
+        // `model.call.completed` event. Dedup by model-call number — the
         // SSE may replay the same event on reconnect, and we don't
         // want a duplicate to wipe the entry. A `0` cost keeps the
-        // entry (legitimate free tier / cached turn).
-        const turnCostKey = streamTurnCostKey(payload.data.turn?.turn_index);
-        if (payload.data.turn && turnCostKey !== null) {
-          setStreamTurnCosts((prev) => {
+        // entry (legitimate free tier / cached model call).
+        const modelCallCostKey = streamModelCallCostKey(payload.data.model_call?.model_call_index);
+        if (payload.data.model_call && modelCallCostKey !== null) {
+          setStreamModelCallCosts((prev) => {
             const next = new Map(prev);
-            next.set(turnCostKey, payload.data.turn!.cost_micros_usd ?? 0);
+            next.set(modelCallCostKey, payload.data.model_call!.cost_micros_usd ?? 0);
             return next;
           });
         }
@@ -325,8 +453,20 @@ export function TasksView({
             ];
           });
         }
+        const streamedRun = payload.data.run;
         setTasks((cur) =>
-          cur.map((t) => (t.id === selectedTaskID ? { ...t, status: payload.data.run.status } : t)),
+          cur.map((task) => {
+            if (task.id !== selectedTaskID || task.latest_run_id !== streamedRun.id) return task;
+            return {
+              ...task,
+              status: streamedRun.status,
+              latest_model: streamedRun.model,
+              latest_provider: streamedRun.provider,
+              latest_run_step_count: streamedRun.step_count ?? 0,
+              latest_run_artifact_count: streamedRun.artifact_count ?? 0,
+              last_error: streamedRun.last_error,
+            };
+          }),
         );
       },
       streamCursorRef.current,
@@ -349,11 +489,12 @@ export function TasksView({
   }, [loadTaskDetail, selectedRunID, selectedTaskID]);
 
   async function handleSelectTask(taskID: string) {
-    setSelectedTaskID(taskID);
-    resetRunDetail();
+    selectTaskRun(taskID, "");
     setNotice(null);
     try {
-      await loadTaskDetail(taskID);
+      const runID = await loadTaskDetail(taskID);
+      if (runID === null) return;
+      onSelectionChange?.(taskID, runID || null);
     } catch (err) {
       // 404 here means the cached task ID is stale (gateway restarted
       // with memory backend, tenant change, etc.). Drop the dead row
@@ -365,18 +506,20 @@ export function TasksView({
         setNotice({ tone: "error", message: "That task no longer exists. Refreshing." });
         setTasks((cur) => cur.filter((t) => t.id !== taskID));
         if (selectedTaskID === taskID) {
-          setSelectedTaskID("");
-          resetRunDetail();
+          selectTaskRun("", "");
         }
-        void loadTasks();
+        const selection = await loadTasks();
+        if (selection) {
+          onSelectionChange?.(selection.taskID || null, selection.runID || null, "replace");
+        }
       }
     }
   }
 
   async function handleSelectRun(runID: string) {
     if (!selectedTaskID || runID === selectedRunID) return;
-    setSelectedRunID(runID);
-    streamCursorRef.current = 0;
+    selectTaskRun(selectedTaskID, runID);
+    onSelectionChange?.(selectedTaskID, runID);
     setNotice(null);
     try {
       await loadRunDetail(selectedTaskID, runID);
@@ -421,6 +564,7 @@ export function TasksView({
     try {
       const res = await retryTaskRun(selectedTaskID, selectedRunID);
       await loadTasks(selectedTaskID, res.data.id);
+      onSelectionChange?.(selectedTaskID, res.data.id);
     } catch {
       /* ignore */
     } finally {
@@ -434,6 +578,7 @@ export function TasksView({
     try {
       const res = await resumeTaskRun(selectedTaskID, selectedRunID);
       await loadTasks(selectedTaskID, res.data.id);
+      onSelectionChange?.(selectedTaskID, res.data.id);
     } catch {
       /* ignore */
     } finally {
@@ -445,7 +590,7 @@ export function TasksView({
   // exposed in the run header when the prior run failed with
   // otel_status_message=cost_ceiling_exceeded. The gateway persists
   // the new ceiling before queueing the resumed run, so the agent
-  // loop sees the raised value on its first turn. Surfaces server
+  // loop sees the raised value on its first model call. Surfaces server
   // validation (e.g. "ceiling cannot be lower") as a notice rather
   // than failing silently.
   async function handleResumeRaisingCeiling(budgetMicrosUSD: number) {
@@ -455,9 +600,10 @@ export function TasksView({
       const res = await resumeTaskRunRaisingCeiling(selectedTaskID, selectedRunID, budgetMicrosUSD);
       setNotice({
         tone: "success",
-        message: `Ceiling raised to $${(budgetMicrosUSD / 1_000_000).toFixed(3)} and resumed (run #${res.data.number}).`,
+        message: `Ceiling raised to $${(budgetMicrosUSD / 1_000_000).toFixed(3)} and resumed in Run #${res.data.number}.`,
       });
       await loadTasks(selectedTaskID, res.data.id);
+      onSelectionChange?.(selectedTaskID, res.data.id);
     } catch (err) {
       setNotice({
         tone: "error",
@@ -502,31 +648,32 @@ export function TasksView({
     }
   }
 
-  // Retry-from-turn-N: re-issue the LLM call at turn N with the prior
+  // Retry-from-model-call-N: re-issue the LLM call at model call N with the prior
   // conversation preserved. Server-side validation rejects out-of-range
-  // turns and non-agent_loop runs with a 4xx — we surface the message
+  // model calls and non-agent_loop runs with a 4xx — we surface the message
   // in the run-level notice so the operator can correct and try again
   // rather than silently failing.
-  async function handleRetryFromTurn(turn: number, reason: string) {
+  async function handleRetryFromModelCall(modelCallIndex: number, reason: string) {
     if (!selectedTaskID || !selectedRunID) return;
-    setBusyAction("retry-from-turn");
+    setBusyAction("retry-from-model-call");
     try {
-      const res = await retryTaskRunFromTurn(
+      const res = await retryTaskRunFromModelCall(
         selectedTaskID,
         selectedRunID,
-        turn,
+        modelCallIndex,
         reason || undefined,
       );
       const reasonSuffix = reason ? ` — ${reason}` : "";
       setNotice({
         tone: "success",
-        message: `Retrying from turn ${turn}${reasonSuffix} (run #${res.data.number}).`,
+        message: `Retrying from source Run model call ${modelCallIndex}${reasonSuffix} (Run #${res.data.number}).`,
       });
       await loadTasks(selectedTaskID, res.data.id);
+      onSelectionChange?.(selectedTaskID, res.data.id);
     } catch (err) {
       setNotice({
         tone: "error",
-        message: err instanceof Error ? err.message : "retry-from-turn failed",
+        message: err instanceof Error ? err.message : "retry-from-model-call failed",
       });
     } finally {
       setBusyAction("");
@@ -541,9 +688,10 @@ export function TasksView({
       setTasks(nextTasks);
       if (selectedTaskID === taskID) {
         const next = nextTasks[0]?.id ?? "";
-        setSelectedTaskID(next);
-        if (next) await loadTaskDetail(next);
-        else resetRunDetail();
+        selectTaskRun(next, "");
+        const nextRunID = next ? await loadTaskDetail(next) : "";
+        if (nextRunID === null) return;
+        onSelectionChange?.(next || null, nextRunID || null, "replace");
       }
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "delete failed" });
@@ -562,6 +710,7 @@ export function TasksView({
       const started = await startTask(created.data.id);
       setNewTaskOpen(false);
       await loadTasks(created.data.id, started.data.id, activeProjectID);
+      onSelectionChange?.(created.data.id, started.data.id);
     } catch (err) {
       setNotice({
         tone: "error",
@@ -608,7 +757,10 @@ export function TasksView({
               </>
             )}
             onProjectSelected={(projectID) => {
-              void loadTasks("", "", projectID);
+              void loadTasks("", "", projectID).then((selection) => {
+                if (!selection) return;
+                onSelectionChange?.(selection.taskID || null, selection.runID || null, "replace");
+              });
             }}
             onProjectDeleted={(projectID, result) => {
               const browserQueueCleared = chat.actions.fenceDeletedChatProject(projectID);
@@ -639,7 +791,7 @@ export function TasksView({
           activity={activity}
           events={runEvents}
           approvals={approvals}
-          streamTurnCosts={streamTurnCosts}
+          streamModelCallCosts={streamModelCallCosts}
           streamState={streamState}
           busyAction={busyAction}
           notice={notice}
@@ -650,7 +802,9 @@ export function TasksView({
           onRetryRun={() => void handleRetryRun()}
           onResumeRun={() => void handleResumeRun()}
           onRefresh={() => void loadTasks(selectedTaskID, selectedRunID)}
-          onRetryFromTurn={(turn, reason) => void handleRetryFromTurn(turn, reason)}
+          onRetryFromModelCall={(modelCall, reason) =>
+            void handleRetryFromModelCall(modelCall, reason)
+          }
           onResumeRaisingCeiling={(budgetMicrosUSD) =>
             void handleResumeRaisingCeiling(budgetMicrosUSD)
           }
@@ -666,6 +820,7 @@ export function TasksView({
       ) : (
         <TaskStartState
           loading={loading}
+          notice={notice}
           onNewTask={() => {
             setNewTaskOpen(true);
           }}

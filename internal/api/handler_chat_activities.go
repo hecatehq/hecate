@@ -453,10 +453,10 @@ func finalChatActivityTitle(status string) string {
 func agentChatTerminalEvent(status string) string {
 	switch status {
 	case "cancelled":
-		return telemetry.EventAgentChatRunCancelled
+		return telemetry.EventAgentChatTurnCancelled
 	case "failed":
-		return telemetry.EventAgentChatRunFailed
+		return telemetry.EventAgentChatTurnFailed
 	default:
-		return telemetry.EventAgentChatRunFinished
+		return telemetry.EventAgentChatTurnFinished
 	}
 }

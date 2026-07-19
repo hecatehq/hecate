@@ -2,7 +2,7 @@
 
 Hecate exposes a coding-runtime API surface under `/hecate/v1/tasks` for client-orchestrated agents. The runtime is durable: a run survives process restarts, can be resumed from a terminal state, and is leased to one worker at a time so two replicas can share a queue without stepping on each other.
 
-For the high-level execution flow (lease semantics, sandbox boundary, event sequence), see [`architecture.md`](../contributor/architecture.md#task-runtime-flow). For the LLM-driven `agent_loop` execution kind specifically (tools, approval gating, cost tracking, retry-from-turn semantics), see [`agent-runtime.md`](agent-runtime.md).
+For the high-level execution flow (lease semantics, sandbox boundary, event sequence), see [`architecture.md`](../contributor/architecture.md#task-runtime-flow). For the LLM-driven `agent_loop` execution kind specifically (tools, approval gating, cost tracking, retry-from-model-call semantics), see [`agent-runtime.md`](agent-runtime.md).
 
 > Contributing here? Start at [`AGENTS.md`](../../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`docs-ai/`](../../docs-ai/README.md).
 
@@ -208,7 +208,7 @@ type while preserving the status and remediation fields.
   - [Run fields](#run-fields)
 - [Lifecycle endpoints](#lifecycle-endpoints)
   - [Resume semantics](#resume-semantics)
-  - [Retry-from-turn-N semantics](#retry-from-turn-n-semantics)
+  - [Retry-from-model-call-N semantics](#retry-from-model-call-n-semantics)
 - [Execution detail endpoints](#execution-detail-endpoints)
 - [Approval endpoints](#approval-endpoints)
   - [Approval kinds](#approval-kinds)
@@ -265,6 +265,12 @@ eligible. `exclude` means the runner skips that compatibility layer for the
 task; native project assignments set this so Agent Preset context-source policy
 controls any workspace-instruction body inclusion.
 
+Task list/detail responses summarize the selected latest Run with
+`latest_run_id`, `latest_model`, `latest_provider`,
+`latest_run_step_count`, and `latest_run_artifact_count`. The count fields are
+Run-local; Task responses do not expose cumulative `step_count` or
+`artifact_count` aliases across the Task's complete Run history.
+
 Task responses also include `work_item_id`, `assignment_id`, and
 `agent_preset_id` when a project-work assignment created the task. These fields
 are inspection links and a launch-time preset reference; they do not replace
@@ -282,7 +288,7 @@ for those tasks, while explicit `agent_preset_tools_enabled=false` is an
 all-tools denial.
 For `origin_kind="chat"`, every run-creation endpoint and approval-resolution
 requeue validates that the owning chat still exists and participates in the
-chat deletion fence. Start, retry, resume, continue, retry-from-turn, and
+chat deletion fence. Start, retry, resume, continue, retry-from-model-call, and
 approval resolution return `409 invalid_request` without creating or requeueing
 a run when deletion owns that origin or the durable chat owner is already
 missing. The retained Task and earlier run history remain readable.
@@ -320,7 +326,8 @@ committed ceiling.
   payload predates direct run linkage.
 - `total_cost_micros_usd` — this run's LLM spend (after routing).
 - `prior_cost_micros_usd` — cumulative spend of every prior run in this run's resume chain. Cumulative-across-task = `prior + total`.
-- `model` / `provider` / `provider_kind` — what was actually used (after routing). May differ from the task's `requested_*` when the operator picked auto. Agent-loop runs preserve these fields for both streaming and non-streaming model turns.
+- `model_call_count` — completed provider model calls accounted to this Run. It is always present, including explicit `0`, and is distinct from `step_count` because Steps also include tools and control activity.
+- `model` / `provider` / `provider_kind` — what was actually used (after routing). May differ from the task's `requested_*` when the operator picked auto. Agent-loop runs preserve these fields for both streaming and non-streaming model calls.
 
 ## Lifecycle endpoints
 
@@ -332,7 +339,7 @@ committed ceiling.
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`
-- `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/cancel`
 
 ### Resume semantics
@@ -342,7 +349,7 @@ committed ceiling.
 - the new run reuses the prior run workspace when available, so file state carries forward
 - optional payload: `{"reason":"..."}` to annotate the resume request
 - resumed executions include checkpoint context (source run id, last completed step, last event sequence) in step input so executors/tools can continue from the prior boundary
-- for `agent_loop` runs, the saved `agent_conversation` artifact is hydrated as the starting message history — the loop continues from where it left off rather than re-running prior turns
+- for `agent_loop` runs, the saved `agent_conversation` artifact is hydrated as the starting message history — the loop continues from where it left off rather than repeating prior model calls
 - the new run inherits the chain's cumulative cost via `PriorCostMicrosUSD`, so the per-task ceiling holds across the full chain
 
 ### Continue semantics
@@ -358,18 +365,19 @@ committed ceiling.
 - used by ACP/editor sessions where one editor conversation maps to one durable Hecate task and each user prompt becomes the next Hecate run
 - returns 409 when the source run is still active, and 400 for non-agent tasks, empty prompts, or missing/malformed conversation artifacts
 
-### Retry-from-turn-N semantics
+### Retry-from-model-call-N semantics
 
-`POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn` body:
+`POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call` body:
 
 ```json
-{ "turn": 2, "reason": "explore alternative" }
+{ "model_call_index": 2, "reason": "explore alternative" }
 ```
 
 - only valid on `agent_loop` runs that produced an `agent_conversation` artifact
-- `turn` must be in `[1, count(assistant turns)]`; out-of-range turns return 400
-- creates a new run whose conversation is truncated to right before the Nth assistant message; the LLM re-issues that turn from the prior context
-- step indices on the new run restart at 1 (semantically a fresh run that happens to share prior context, not a continuation)
+- `model_call_index` is 1-based within the selected source Run and must be in `[1, source_run.model_call_count]`; out-of-range values return 400
+- inherited assistant responses remain prior-Run context and are not addressable from the descendant Run; select the Run that produced an older response to branch there
+- creates a new Run whose conversation is truncated immediately before the selected Run-local response; the model re-issues that call from the preserved context
+- model-call and Step indices on the new Run restart at 1 (semantically a fresh Run that shares prior context, not a continuation)
 - see [`agent-runtime.md`](agent-runtime.md#retry-and-resume) for the full flow
 
 ## Execution detail endpoints
@@ -411,7 +419,7 @@ closure.
 `GET /hecate/v1/tasks/{id}/runs/{run_id}/context` returns the context packet
 snapshot for a task run. Hecate first returns a run-owned packet when the run
 persisted one directly, then falls back to a linked Hecate Chat assistant
-message packet for task-backed chat runs. Native project-assignment starts now
+message packet for task-backed Chat turns. Native project-assignment starts now
 persist a run-owned packet, and resume/retry chains carry the latest stored
 packet forward onto the new run with updated task/run refs. Older or unrelated
 runs can still return `404 not_found` when no stored or linked packet exists.
@@ -558,8 +566,8 @@ The full catalog of event types — including payload shapes, when each fires, a
 - `run.*` lifecycle (`run.created` / `run.queued` / `run.started` / `run.finished` / `run.failed` / `run.cancelled`)
 - typed `tool.*` events for in-run tool lifecycle detail
 - `approval.requested` / `approval.resolved` for human-gating flows
-- `turn.completed` for per-LLM-turn cost/tokens summaries in `agent_loop` runs
-- `run.resumed_from_event` for resume / retry-from-turn chains
+- `model.call.completed` for per-model-call cost/tokens summaries in `agent_loop` runs
+- `run.resumed_from_event` for resume / retry-from-model-call chains
 
 ## Queue execution model
 
@@ -642,7 +650,7 @@ replay cursor is durable across restarts. Workers claim queue items with
 renewable leases, so pending runs survive process restarts and can be recovered
 when a lease expires.
 
-For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy
+For `agent_loop`-specific knobs (maximum model calls, system-prompt layers, HTTP policy
 for the `http_request` tool, optional native `web_search`, and optional local
 browser evidence), see [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
@@ -1770,7 +1778,7 @@ capabilities, and slash-command collisions. It does not call external services.
 ## Agent preset endpoints
 
 Agent presets are reusable Hecate runtime postures for project work, Hecate
-Chat, task-backed runs, and external-agent launches. They describe defaults and
+Chat, Chat-origin Task Runs, and External Agent launches. They describe defaults and
 constraints such as instructions, surface, provider/model hints, tool/write/
 network posture, optional native browser-evidence posture, approval policy,
 project-memory policy, context-source policy, skill ids, and external-agent
@@ -2249,8 +2257,8 @@ PATCH /hecate/v1/projects/proj_.../roots/root_...
 Deletes one project-root metadata record and returns the updated project so
 clients can reconcile against the server state. Deleting a root only removes
 the project metadata reference; it does not delete local folders, Git
-worktrees, branches, files, work items, assignments, chats, tasks, or
-external-agent runs. If the deleted root was the default root, the store
+worktrees, branches, files, work items, assignments, Chats, Tasks, or External
+Agent turns. If the deleted root was the default root, the store
 normalizes the updated project to the first remaining root or to no default
 when no roots remain.
 
@@ -2337,7 +2345,7 @@ PATCH /hecate/v1/projects/proj_.../context-sources/ctxsrc_...
 Deletes one context-source metadata record and returns the updated project so
 clients can reconcile against the server state. Deleting a source only removes
 the project metadata reference; it does not delete local files, remote content,
-memory records, work items, assignments, chats, tasks, or external-agent runs.
+memory records, work items, assignments, Chats, Tasks, or External Agent turns.
 
 ```json
 DELETE /hecate/v1/projects/proj_.../context-sources/ctxsrc_...
@@ -4420,7 +4428,7 @@ chat from a project-work assignment so the empty chat shell is named after the
 work item and role before the first turn. The launch-context draft itself lives
 only in the client composer until the operator edits and submits it through
 `POST /hecate/v1/chat/sessions/{id}/messages`; creating the session does not
-create a user message or run.
+create a user message or turn.
 
 For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
 compaction preference. It is only applied when a future turn runs through the
@@ -4441,7 +4449,7 @@ For API compatibility, an omitted `workspace_mode` is stored and returned as
 project-free Hecate chats to `persistent`; project-linked chat creation uses
 the linked Cairnline Project's default as coordination intent. Once the first
 task-backed segment has been created, the mode is locked for that chat. Direct
-model turns store the posture but do not provision a workspace. A new task
+Direct-model turns store the posture but do not provision a workspace. A new task
 segment within an existing managed chat reuses the already-provisioned root
 instead of cloning away uncommitted or untracked work.
 
@@ -4451,7 +4459,7 @@ for External Agent creation; any explicit non-`in_place` value is rejected.
 
 When `workspace` is provided, it must be an operator-controlled local
 directory. Hecate validates and canonicalizes the path before a tool-backed or
-external-agent run starts, so later runs use the resolved directory instead of
+External Agent turn starts, so later turns use the resolved directory instead of
 failing only after execution starts.
 
 For external-agent `agent_id` values, session creation also starts or restores
@@ -4472,7 +4480,7 @@ list on the chat session and passes it to the adapter during ACP `session/new`
 or `session/load`; support beyond transport propagation depends on the selected
 adapter and upstream agent. Hecate-owned chats do not accept session-level
 `mcp_servers`; pass them on `POST /hecate/v1/chat/sessions/{id}/messages` so
-the backing task segment records the exact server set for that run.
+the backing Task segment records the exact server set for that Task Run.
 If an ACP agent advertises native slash commands with
 `available_commands_update`, Hecate stores the latest complete provider-owned
 replacement snapshot on the session as `available_commands`. An explicit empty
@@ -4598,13 +4606,18 @@ messages produced by the backing runtime. Hecate-owned sessions include
 `provider`, `model`, and the current capability snapshot; once a tools-on turn
 creates a backing task, they also include `task_id` and `latest_run_id`.
 Individual chat messages carry the durable runtime snapshot:
-`execution_mode`, derived `turn_kind`, `segment_id`, optional `task_id`,
-optional `run_id`, provider/model, and capabilities. Frontends should prefer
+`turn_id`, `execution_mode`, derived `turn_kind`, `segment_id`, optional
+`task_id`, optional `run_id`, provider/model, and capabilities. The user and
+assistant messages for one submitted Chat turn carry the same `turn_id`.
+`run_id` is present only for a task-backed `hecate_task` turn and identifies its
+backing Task Run; direct-model and External Agent messages do not use it.
+Frontends must not treat `run_id` as a Chat Turn identity or fall back from a
+missing `turn_id` to `run_id`. Frontends should prefer
 message-level `turn_kind` (`direct_model`, `hecate_task`, or `external_agent`)
-for UI routing and keep `execution_mode` / `tools_enabled` as compatibility
-fields. If tools are re-enabled after a direct model segment, Hecate creates a
-new task-backed segment in the same transcript; older messages keep their
-original runtime/model/task snapshots.
+for UI routing; `execution_mode` and `tools_enabled` are lower-level immutable
+runtime snapshot fields. If tools are re-enabled after a direct model segment,
+Hecate creates a new task-backed segment in the same transcript; older messages
+keep their original runtime/model/task snapshots.
 
 User messages with files also carry an `attachments` array containing only
 `id`, `session_id`, `filename`, `media_type`, `size_bytes`, `sha256`,
@@ -4620,7 +4633,7 @@ durable source of truth; segments are a render helper that groups contiguous
 turns with the same `segment_id` so clients can show transcript boundaries such
 as "tools off with smollm2" → "tools on with qwen2.5-coder". Each segment
 contains its derived `turn_kind`, `execution_mode`, provider/model snapshot,
-optional `task_id`, latest run id, status, message count, and first/last
+optional `task_id`, latest Task Run id, status, message count, and first/last
 timestamps.
 
 Hecate-owned sessions may include `context_summary` after automatic or manual
@@ -4714,7 +4727,7 @@ External Agent sessions reject it with `chat.runtime_mismatch` because their
 ACP adapters own command execution and use the selected workspace in place.
 
 When an existing Hecate Chat session already has a backing task, the task
-record is updated too so later continued runs inherit the same setting.
+record is updated too so later continued Task Runs inherit the same setting.
 Running turns are not mutated mid-flight. Every non-empty settings PATCH,
 including an RTK-only update, uses exclusive per-session admission and returns
 `409 chat.agent_session_busy` when a turn is active.
@@ -4724,15 +4737,15 @@ direct-model-only shell. Once `task_id` is present, changing to a different
 mode returns `409 conflict`; sending the already-selected value remains
 idempotent. A concurrent active turn returns `409 chat.agent_session_busy`;
 settings mutation and turn admission are exclusive so creation cannot snapshot
-one posture while the session persists another. The mutation is not a chat run,
-so the Cancel endpoint does not report or cancel it. When a managed task run
+one posture while the session persists another. The mutation is not a Chat turn,
+so the Cancel endpoint does not report or cancel it. When a managed Task Run
 starts, Hecate atomically updates the session and launching message pair to the
 actual generated execution path. SQL session updates serialize with that link;
 PostgreSQL operations lock the session row before any message rows. An
 ambiguous link result is reread with a bounded persistence context before
 Hecate decides to cancel. A confirmed
 link failure terminalizes the assistant, retains chat-origin cancellation
-recovery, rejects new turn admission while an unlinked origin run remains
+recovery, rejects new Turn admission while an unlinked origin Task Run remains
 active, and makes an idempotent replay return the failed transcript without
 redispatch. Workspace review and file browsing fail closed if a durable
 chat-origin task exists without that link; otherwise later task-backed turns
@@ -4979,8 +4992,9 @@ the user message and assistant output.
   terminalize as `cancelled` after a disconnect. The tools-on Hecate task
   watcher is server-owned after commit and continues across browser disconnect
   until the Task reaches a terminal state, the operator cancels it, or the
-  30-minute chat-run ceiling expires. That ceiling ends the chat watcher and
-  terminalizes the chat turn; it does not cancel the orchestrator-owned Task.
+  30-minute Chat Turn watcher ceiling expires. That ceiling ends the chat
+  watcher and terminalizes the Chat Turn; it does not cancel the
+  orchestrator-owned Task.
   A Task that remains active, including one awaiting approval, stays visible and
   independently cancellable through the Task API. Same-key replay only reads
   the resulting durable turn; it never redispatches it.
@@ -5011,7 +5025,7 @@ the user message and assistant output.
   must belong to this session and total no more than 12 MiB. Hecate-owned
   turns accept supported raster images with tools on or off and require a
   currently routable matching route whose effective capability is
-  `image_input="supported"`. A tools-on task run persists only an opaque input
+  `image_input="supported"`. A tools-on Task Run persists only an opaque input
   reference, hydrates the body immediately before agent-loop execution, and
   replaces image blocks with omission markers in its conversation artifact.
   Same-input resumes and retries inherit the reference. External Agent
@@ -5067,7 +5081,7 @@ the user message and assistant output.
 - `mcp_servers` — optional per-turn external MCP server configs for Hecate
   Chat tool-backed turns. Same shape and validation as task-create
   `mcp_servers`; when present, Hecate starts a fresh task-backed segment so the
-  server set is explicit for that run. MCP Apps resources returned by those
+  server set is explicit for that backing Task Run. MCP Apps resources returned by those
   tools render through `activities[].mcp_app`.
 
 For `tools_enabled=false` on a Hecate Chat session, Hecate calls the normal
@@ -5157,15 +5171,15 @@ change owner-controlled permissions/DACLs or inspect a discovered stage. A
 separate two-slot process-wide gate bounds
 attachment claim, hydration, staging, and synchronous ACP prompt lifetime; saturation returns
 `429 chat.external_file_turn_busy` with `Retry-After: 1` before claim or
-transcript mutation. Hecate rejects an already-cancelled run before prompt
+transcript mutation. Hecate rejects an already-cancelled External Agent Turn before prompt
 construction and rechecks cancellation immediately before ACP dispatch. The
 turn holds shared workspace-writer admission
 from before user-message append and ACP dispatch through terminal assistant
 persistence; an overlapping destructive closure rejects admission with
 `409 conflict` without appending or dispatching the turn. For
 `tools_enabled=true` on a Hecate Chat session, the first tool-enabled prompt
-creates a visible `agent_loop` task and starts it; follow-up prompts continue
-the latest terminal run when the
+creates a visible `agent_loop` Task and starts it; follow-up prompts continue
+the latest terminal Task Run when the
 immediately previous segment was also task-backed. If the previous segment was
 direct model chat (tools off), Hecate starts a fresh task-backed segment in
 the same transcript.
@@ -5174,11 +5188,11 @@ Only one task-backed segment can be active in a Hecate Chat session at a time.
 If the latest backing task is queued, running, or awaiting approval, **all** new
 turns on that chat are rejected with `409 chat.agent_session_busy`,
 including tools-off (`tools_enabled=false`) turns. Operators should wait for the
-task to finish, resolve the pending approval, or cancel/stop the active run
+backing Task Run to finish, resolve the pending approval, or cancel/stop that Run
 before sending another prompt. The operator UI layers a local composer queue on
-top of that API contract: prompts submitted while a run is busy are held in a
-client-side FIFO and posted only after the active task reaches a terminal
-state. Queue entries carry the chat session and project ownership that created
+top of that API contract: prompts submitted while a backing Task Run is busy
+are held in a client-side FIFO and posted only after the active Task reaches a
+terminal state. Queue entries carry the Chat and project ownership that created
 them, including an explicit empty project-free sentinel, so a prompt cannot
 drain into a different transcript and project deletion can target its durable
 record. Verified cleanup removes matching prompts; failures quarantine retained
@@ -5237,7 +5251,7 @@ session while the original turn is still running. For live output while the turn
 stream before posting the message. Task-backed Hecate Chat turns update the running
 assistant message's `content` when the backing task's model route supports
 streaming; non-streaming providers still publish the final assistant content
-when the run finishes. External Agent turns continue to publish normalized
+when the Task Run finishes. External Agent turns continue to publish normalized
 adapter output as it arrives.
 
 If an adapter proves that a provider-native conversation is missing before it
@@ -5282,12 +5296,15 @@ POST /hecate/v1/chat/sessions/chat_.../messages
     "messages": [
       {
         "id": "msg_...",
+        "turn_id": "turn_...",
+        "turn_kind": "external_agent",
         "role": "user",
         "content": "Review the current diff and suggest fixes."
       },
       {
         "id": "msg_...",
-        "run_id": "agent_run_...",
+        "turn_id": "turn_...",
+        "turn_kind": "external_agent",
         "request_id": "req_...",
         "trace_id": "d4c5...",
         "span_id": "8f3a...",
@@ -5338,14 +5355,17 @@ POST /hecate/v1/chat/sessions/chat_.../messages
 }
 ```
 
-Each adapter response gets a stable `run_id` plus start/end timestamps and
-duration so clients can correlate streamed updates, final output, and future
-artifacts without treating the assistant message id as the runtime identity.
+Each submitted External Agent turn gets a stable `turn_id`, shared by its user
+and assistant messages, plus start/end timestamps and duration so clients can
+correlate streamed updates, final output, and future artifacts without treating
+the assistant message id as the Turn identity. External Agent messages do not
+carry `run_id`; that field is reserved for a backing Task Run on task-backed
+Hecate Chat turns.
 It also stores `request_id`, `trace_id`, and `span_id`; use
 `GET /hecate/v1/traces?request_id=<request_id>` to inspect the OTel-shaped
-`chat.run` span for that prompt.
+`chat.turn` span for that prompt.
 Task-backed Hecate Chat messages also include a `timing` object derived from
-the backing run's task steps, approvals, and run events:
+the backing Task Run's Steps, approvals, and Run events:
 
 ```json
 {
@@ -5355,7 +5375,7 @@ the backing run's task steps, approvals, and run events:
   "tool_ms": 700,
   "approval_wait_ms": 2000,
   "overhead_ms": 1080,
-  "turn_count": 2,
+  "model_call_count": 2,
   "tool_count": 1,
   "bottleneck": "model",
   "bottleneck_ms": 8500
@@ -5395,9 +5415,9 @@ Chat execution errors:
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
 | `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                      |
 | `409`  | `conflict`                       | An External Agent turn cannot acquire workspace-writer admission because an overlapping destructive workspace operation currently owns the process-local closure.                           |
-| `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for tools-off turns in the same Hecate Chat session.       |
+| `409`  | `chat.agent_session_busy`        | The backing Task Run is queued, running, or awaiting approval. Resolve or cancel that Run before sending another prompt, even for tools-off Turns in the same Chat.                         |
 | `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                         |
-| `409`  | `chat.session_not_running`       | A stop request was issued when no run was active.                                                                                                                                           |
+| `409`  | `chat.session_not_running`       | A stop request was issued when no Chat Turn was active.                                                                                                                                     |
 | `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                         |
 | `422`  | `provider_ambiguous`             | The supplied provider alias matches multiple configured providers. Choose the provider by its canonical runtime name or remove the conflicting alias.                                       |
 | `422`  | `chat.model_capability_required` | A task-backed Hecate Chat turn was explicitly requested, but the selected model is not known to support tools. Continue with direct model chat or choose a model that reports tool support. |
@@ -5431,7 +5451,10 @@ GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
     "refs": {
       "session_id": "chat_...",
       "message_id": "msg_...",
-      "project_id": "proj_..."
+      "turn_id": "turn_...",
+      "project_id": "proj_...",
+      "task_id": "task_...",
+      "run_id": "run_..."
     },
     "sources": [
       {
@@ -5504,7 +5527,7 @@ Section values currently used by the runtime are:
 - `runtime` for transcript counts, task-runtime metadata, and external-agent session metadata
 
 `included=true` means the item was part of the prepared context for that
-message or run. `included=false` means the item is related inspectable metadata
+message or Task Run. `included=false` means the item is related inspectable metadata
 that V1 did not inject into the runtime context. Hecate-owned project chat
 packets use explicit `prompt_context` items to distinguish bounded project
 prelude content from visible-only project source metadata. External Agent chat
@@ -5796,7 +5819,7 @@ data: {"object":"chat_session","data":{"status":"completed",...}}
 Clients should subscribe before sending a message so they can receive live
 updates. For External Agent sessions, snapshots include partial ACP output from
 the adapter. For task-backed Hecate Chat turns, snapshots can include partial
-assistant text from the backing task's streamed model turn plus projected task
+assistant text from the backing task's streamed model call plus projected task
 activity.
 Projected task activity uses the same compact vocabulary as Task Detail:
 tool calls, approvals, changed files, final-answer artifacts, terminal state,
@@ -5851,15 +5874,15 @@ to delete the native session with ACP `session/delete` and terminates the owned
 process as part of deletion. If the adapter does not support `session/delete`,
 Hecate falls back to `session/close` before tearing down the process.
 If the session is a task-backed Hecate Chat, Hecate first cancels its linked
-backing run, waits for the live chat handler, then cancels every remaining
-non-terminal Task run durably owned by that chat origin. This final ownership
+backing Task Run, waits for the live Chat handler, then cancels every remaining
+non-terminal Task Run durably owned by that Chat origin. This final ownership
 scan catches a task created before its session link persisted. Before scanning,
 deletion closes the process-scoped origin-run gate and waits for every admitted
-start, retry, resume, continue, retry-from-turn, and approval-resolution
+start, retry, resume, continue, retry-from-model-call, and approval-resolution
 mutation to finish. It holds that fence through durable session deletion; later
 run creation and approval requeue also validate durable chat ownership so a
 process restart cannot reopen retained history and validator-backed in-memory
-fence state can be reclaimed. The backing Task records and run history remain
+fence state can be reclaimed. The backing Task records and Run history remain
 available from Tasks; cancellation uncertainty fails the delete closed with
 `409`.
 Deletion advances per-session lifecycle admission before cancellation and holds

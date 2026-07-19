@@ -33,8 +33,8 @@ func TestTool_ListTasks_FormatsRows(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[
-				{"id":"task-abc12345","title":"List wd","status":"completed","execution_kind":"shell","step_count":2,"latest_run_id":"run-fedc0987"},
-				{"id":"task-xyz98765","title":"","prompt":"echo hi","status":"running","execution_kind":"shell","step_count":1}
+				{"id":"task-abc12345","title":"List wd","status":"completed","execution_kind":"shell","latest_run_step_count":2,"latest_run_id":"run-fedc0987"},
+				{"id":"task-xyz98765","title":"","prompt":"echo hi","status":"running","execution_kind":"shell","latest_run_step_count":1}
 			]}`))
 		},
 	})
@@ -119,7 +119,7 @@ func TestTool_GetTaskStatus_FormatsDetail(t *testing.T) {
 	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/hecate/v1/tasks/abc-123": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"id":"abc-123","title":"Run db migration","status":"completed","execution_kind":"shell","shell_command":"./migrate.sh","step_count":3,"latest_run_id":"run-1","created_at":"2026-04-22T10:00:00Z"}}`))
+			_, _ = w.Write([]byte(`{"data":{"id":"abc-123","title":"Run db migration","status":"completed","execution_kind":"shell","shell_command":"./migrate.sh","latest_run_step_count":3,"latest_run_id":"run-1","created_at":"2026-04-22T10:00:00Z"}}`))
 		},
 	})
 	server := NewServer("t", "0")
@@ -130,7 +130,7 @@ func TestTool_GetTaskStatus_FormatsDetail(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	body := result.Content[0].Text
-	for _, want := range []string{"abc-123", "Run db migration", "completed", "shell", "./migrate.sh", "Steps: 3"} {
+	for _, want := range []string{"abc-123", "Run db migration", "completed", "shell", "./migrate.sh", "Latest Run steps: 3"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("want %q in output, got: %s", want, body)
 		}

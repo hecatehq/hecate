@@ -66,7 +66,7 @@ func TestHandleEvents_ReturnsAllEvents(t *testing.T) {
 	h, store := newEventsTestHandler(t)
 	seedTaskAndEvents(t, store, "task-A", []types.TaskRunEvent{
 		{RunID: "run-A", EventType: "run.created"},
-		{RunID: "run-A", EventType: "turn.completed"},
+		{RunID: "run-A", EventType: "model.call.completed"},
 	})
 	seedTaskAndEvents(t, store, "task-B", []types.TaskRunEvent{
 		{RunID: "run-B", EventType: "run.created"},
@@ -85,20 +85,20 @@ func TestHandleEvents_EventTypeFilter(t *testing.T) {
 	h, store := newEventsTestHandler(t)
 	seedTaskAndEvents(t, store, "task-A", []types.TaskRunEvent{
 		{RunID: "run-A", EventType: "run.created"},
-		{RunID: "run-A", EventType: "turn.completed"},
-		{RunID: "run-A", EventType: "turn.completed"},
+		{RunID: "run-A", EventType: "model.call.completed"},
+		{RunID: "run-A", EventType: "model.call.completed"},
 		{RunID: "run-A", EventType: "run.finished"},
 	})
 
-	code, resp := callEvents(t, h, "/hecate/v1/events?event_type=turn.completed")
+	code, resp := callEvents(t, h, "/hecate/v1/events?event_type=model.call.completed")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
 	if len(resp.Data) != 2 {
-		t.Errorf("got %d events, want 2 (event_type=turn.completed)", len(resp.Data))
+		t.Errorf("got %d events, want 2 (event_type=model.call.completed)", len(resp.Data))
 	}
 	for _, e := range resp.Data {
-		if e.Type != "turn.completed" {
+		if e.Type != "model.call.completed" {
 			t.Errorf("filter leaked %q", e.Type)
 		}
 	}
@@ -108,7 +108,7 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 	h, store := newEventsTestHandler(t)
 	seedTaskAndEvents(t, store, "task-A", []types.TaskRunEvent{
 		{RunID: "run-A", EventType: "run.created"},
-		{RunID: "run-A", EventType: "turn.completed"},
+		{RunID: "run-A", EventType: "model.call.completed"},
 		{RunID: "run-A", EventType: "run.finished"},
 	})
 

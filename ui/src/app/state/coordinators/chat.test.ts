@@ -130,14 +130,14 @@ describe("queuedCommittedTurnIsTerminal", () => {
           status: "completed",
           workspace: "",
           messages: [
-            { id: "u1", role: "user", content: "first", segment_id: "segment_1" },
-            { id: "u2", role: "user", content: "later", segment_id: "segment_2" },
+            { id: "u1", turn_id: "turn_1", role: "user", content: "first" },
+            { id: "u2", turn_id: "turn_2", role: "user", content: "later" },
             {
               id: "a2",
+              turn_id: "turn_2",
               role: "assistant",
               content: "later result",
               status: "completed",
-              segment_id: "segment_2",
             },
           ],
         },
@@ -146,7 +146,7 @@ describe("queuedCommittedTurnIsTerminal", () => {
     ).toBe(false);
   });
 
-  it("requires compatible turn identity when both messages provide it", () => {
+  it("requires the exact canonical turn_id on both messages", () => {
     const session = {
       id: "chat_1",
       title: "Replay",
@@ -154,18 +154,52 @@ describe("queuedCommittedTurnIsTerminal", () => {
       status: "completed",
       workspace: "",
       messages: [
-        { id: "u1", role: "user" as const, content: "first", segment_id: "segment_1" },
+        { id: "u1", turn_id: "turn_1", role: "user" as const, content: "first" },
         {
           id: "a1",
+          turn_id: "turn_2",
           role: "assistant" as const,
           content: "result",
           status: "completed",
-          segment_id: "segment_2",
         },
       ],
     };
     expect(queuedCommittedTurnIsTerminal(session, "u1")).toBe(false);
-    session.messages[1].segment_id = "segment_1";
+    session.messages[1].turn_id = "turn_1";
     expect(queuedCommittedTurnIsTerminal(session, "u1")).toBe(true);
+  });
+
+  it("does not fall back to segment or Task Run identity when turn_id is absent", () => {
+    expect(
+      queuedCommittedTurnIsTerminal(
+        {
+          id: "chat_1",
+          title: "Replay",
+          agent_id: "hecate",
+          status: "completed",
+          workspace: "",
+          messages: [
+            {
+              id: "u1",
+              role: "user",
+              content: "first",
+              segment_id: "segment_1",
+              task_id: "task_1",
+              run_id: "run_1",
+            },
+            {
+              id: "a1",
+              role: "assistant",
+              content: "result",
+              status: "completed",
+              segment_id: "segment_1",
+              task_id: "task_1",
+              run_id: "run_1",
+            },
+          ],
+        },
+        "u1",
+      ),
+    ).toBe(false);
   });
 });

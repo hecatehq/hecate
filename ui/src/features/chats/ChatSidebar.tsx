@@ -44,7 +44,7 @@ type Props = {
   // textarea and dispatch selectChatSession. Keeping the
   // coordination on the parent side avoids the sidebar reaching across
   // the canvas for the composer ref.
-  onSelectSession: (sessionID: string) => Promise<boolean>;
+  onSelectSession: (sessionID: string, mode?: "push" | "replace") => Promise<boolean>;
   // New-chat creation. Gated on agent readiness inside the sidebar.
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
   onOpenAgentSetup: (adapterID: string) => void;
@@ -667,7 +667,12 @@ export function ChatSidebar({
             setDeleteChatPending(true);
             try {
               const deleted = await chatActions.deleteChatSession(pendingDeleteChat.id);
-              if (deleted) setDeleteChatID(null);
+              if (deleted) {
+                setDeleteChatID(null);
+                if (pendingDeleteChat.id === activeSessionID) {
+                  await onSelectSession("", "replace");
+                }
+              }
             } finally {
               deleteChatPendingRef.current = false;
               setDeleteChatPending(false);

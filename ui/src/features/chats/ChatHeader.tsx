@@ -30,8 +30,8 @@ type Props = {
   onToggleWorkspaceChanges: () => void;
   onToggleChatSettings: () => void;
 
-  // External-agent turn budget pill — only renders when the active
-  // session has a max_turns_per_session set.
+  // External Agent Chat-turn budget pill — only renders when the active
+  // Chat has a max_turns_per_session set.
   activeChatSession: ChatSessionRecord | null;
 };
 
@@ -140,11 +140,11 @@ export function ChatHeader(props: Props) {
               }}
               title={
                 atLimit
-                  ? "Turn limit reached — start a new chat to continue"
-                  : `${turnsUsed} of ${maxTurns} turns used`
+                  ? "Chat turn limit reached — start a new chat to continue"
+                  : `${turnsUsed} of ${maxTurns} Chat turns used`
               }
             >
-              {turnsUsed}/{maxTurns} turns
+              {turnsUsed}/{maxTurns} Chat turns
             </span>
           );
         })()}

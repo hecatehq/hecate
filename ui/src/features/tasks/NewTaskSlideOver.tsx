@@ -73,7 +73,7 @@ export type CreateTaskPayload = {
   // global / tenant / workspace CLAUDE.md|AGENTS.md).
   system_prompt?: string;
   // Per-task cost ceiling in micro-USD. The agent loop sums LLM
-  // spend across turns and fails the run on overage. 0 / unset =
+  // spend across model calls and fails the run on overage. 0 / unset =
   // no ceiling.
   budget_micros_usd?: number;
   // External MCP servers the agent_loop run should bring up. Each
@@ -325,7 +325,8 @@ export function NewTaskSlideOver({
             onClick={submit}
             type="button"
           >
-            <Icon d={Icons.send} size={14} /> {busyAction === "create" ? "Creating…" : "Queue task"}
+            <Icon d={Icons.send} size={14} />{" "}
+            {busyAction === "create" ? "Creating task & starting run…" : "Create task & start run"}
           </button>
           <button className="btn" onClick={onClose} type="button">
             Cancel

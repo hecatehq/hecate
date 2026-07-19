@@ -1284,7 +1284,7 @@ func TestAgentAdaptersHonorsDiscoveryOverride(t *testing.T) {
 	}
 }
 
-func TestAgentChatRunsExternalAdapter(t *testing.T) {
+func TestAgentChatTurnsExternalAdapter(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {
 		_ = exec.Command("git", "-C", dir, "init", "-b", "main").Run()
@@ -1330,6 +1330,12 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if assistant.Role != "assistant" || assistant.AgentID != "codex" || assistant.Status != "completed" {
 		t.Fatalf("assistant message = %#v", assistant)
 	}
+	if user := updated.Data.Messages[0]; !strings.HasPrefix(assistant.TurnID, "turn_") || user.TurnID != assistant.TurnID || user.RunID != "" || assistant.RunID != "" {
+		t.Fatalf("external turn identity = user turn/run %q/%q assistant turn/run %q/%q, want one turn_* and no task run", user.TurnID, user.RunID, assistant.TurnID, assistant.RunID)
+	}
+	if assistant.ContextPacket == nil || assistant.ContextPacket.Refs == nil || assistant.ContextPacket.Refs.TurnID != assistant.TurnID || assistant.ContextPacket.Refs.RunID != "" {
+		t.Fatalf("external context refs = %#v, want canonical turn and no task run", assistant.ContextPacket)
+	}
 	if assistant.DriverKind != "acp" || assistant.NativeSessionID != "native_codex_1" {
 		t.Fatalf("assistant ACP metadata = kind %q native %q", assistant.DriverKind, assistant.NativeSessionID)
 	}
@@ -1358,7 +1364,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	var agentSpan *TraceSpanRecord
 	events := make(map[string]TraceEventRecord)
 	for _, span := range tracePayload.Data.Spans {
-		if span.Name == telemetry.SpanAgentChatRun {
+		if span.Name == telemetry.SpanAgentChatTurn {
 			span := span
 			agentSpan = &span
 		}
@@ -1367,7 +1373,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		}
 	}
 	if agentSpan == nil {
-		t.Fatalf("agent chat trace missing %s span: spans=%#v", telemetry.SpanAgentChatRun, tracePayload.Data.Spans)
+		t.Fatalf("agent chat trace missing %s span: spans=%#v", telemetry.SpanAgentChatTurn, tracePayload.Data.Spans)
 	}
 	if got := agentSpan.Attributes[telemetry.AttrHecatePhase]; got != "chat" {
 		t.Fatalf("agent span phase = %#v, want agent_chat", got)
@@ -1375,7 +1381,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	wantSpanAttrs := map[string]any{
 		telemetry.AttrHecateChatSessionID:        created.Data.ID,
 		telemetry.AttrHecateChatMessageID:        assistant.ID,
-		telemetry.AttrHecateRunID:                assistant.RunID,
+		telemetry.AttrHecateChatTurnID:           assistant.TurnID,
 		telemetry.AttrHecateExecutionKind:        "chat",
 		telemetry.AttrHecateAgentAdapterID:       "codex",
 		telemetry.AttrHecateAgentAdapterName:     "Codex",
@@ -1383,7 +1389,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		telemetry.AttrHecateAgentDriverKind:      agentadapters.DriverKindACP,
 		telemetry.AttrHecateAgentNativeSessionID: "native_codex_1",
 		telemetry.AttrHecateWorkspacePath:        assistant.Workspace,
-		telemetry.AttrHecateRunStatus:            "completed",
+		telemetry.AttrHecateChatTurnStatus:       "completed",
 		telemetry.AttrHecateResult:               telemetry.ResultSuccess,
 		telemetry.AttrHecateAgentDiffCaptured:    true,
 	}
@@ -1393,7 +1399,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		}
 	}
 	for _, key := range []string{
-		telemetry.AttrHecateRunDurationMS,
+		telemetry.AttrHecateChatTurnDurationMS,
 		telemetry.AttrHecateAgentOutputBytes,
 		telemetry.AttrHecateAgentRawOutputBytes,
 	} {
@@ -1401,11 +1407,20 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 			t.Fatalf("agent span attr %s missing: %#v", key, agentSpan.Attributes)
 		}
 	}
+	for _, key := range []string{
+		telemetry.AttrHecateRunID,
+		telemetry.AttrHecateRunStatus,
+		telemetry.AttrHecateRunDurationMS,
+	} {
+		if _, ok := agentSpan.Attributes[key]; ok {
+			t.Fatalf("external-agent Chat Turn must not emit Task Run attr %s: %#v", key, agentSpan.Attributes)
+		}
+	}
 	for _, eventName := range []string{
-		telemetry.EventAgentChatRunStarted,
+		telemetry.EventAgentChatTurnStarted,
 		telemetry.EventAgentChatOutputStarted,
 		telemetry.EventAgentChatFilesChanged,
-		telemetry.EventAgentChatRunFinished,
+		telemetry.EventAgentChatTurnFinished,
 	} {
 		event, ok := events[eventName]
 		if !ok {
@@ -1424,7 +1439,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if !agentChatActivitiesContain(assistant.Activities, "files_changed") {
 		t.Fatalf("files_changed activity missing: %#v", assistant.Activities)
 	}
-	if assistant.RunID == "" || assistant.StartedAt == "" || assistant.CompletedAt == "" || assistant.DurationMS < 0 {
+	if assistant.TurnID == "" || assistant.RunID != "" || assistant.StartedAt == "" || assistant.CompletedAt == "" || assistant.DurationMS < 0 {
 		t.Fatalf("assistant runtime metadata missing: %#v", assistant)
 	}
 	if got := updated.Data.WorkspaceBranch; got != "" && got != "main" {
@@ -2518,14 +2533,14 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 	func() {
 		lifecycle := apiHandler.agentChatLive.snapshotLifecycle(sessionID)
 		defer lifecycle.release()
-		if got := apiHandler.agentChatLive.registerRun(lifecycle, func() {}); got != agentChatRunAccepted {
-			t.Fatalf("register live run = %v, want accepted", got)
+		if got := apiHandler.agentChatLive.registerTurn(lifecycle, func() {}); got != agentChatTurnAccepted {
+			t.Fatalf("register live turn = %v, want accepted", got)
 		}
-		defer apiHandler.agentChatLive.clearRun(sessionID)
+		defer apiHandler.agentChatLive.clearTurn(sessionID)
 		busyBody := fmt.Sprintf(`{"paths":["notes.md"],"expected_revision":%q}`, resp.Data.Revision)
 		busy := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", busyBody)
 		if !strings.Contains(busy.Body.String(), errCodeAgentSessionBusy) {
-			t.Fatalf("live run body = %s", busy.Body.String())
+			t.Fatalf("live turn body = %s", busy.Body.String())
 		}
 	}()
 	if _, err := store.UpdateSession(context.Background(), sessionID, func(item *chat.Session) {
@@ -2583,15 +2598,15 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 		t.Fatal("revert did not reach blocked restore")
 	}
 	lifecycle := apiHandler.agentChatLive.snapshotLifecycle(sessionID)
-	registration := apiHandler.agentChatLive.registerRun(lifecycle, func() {})
+	registration := apiHandler.agentChatLive.registerTurn(lifecycle, func() {})
 	lifecycle.release()
-	if registration == agentChatRunAccepted {
-		apiHandler.agentChatLive.clearRun(sessionID)
+	if registration == agentChatTurnAccepted {
+		apiHandler.agentChatLive.clearTurn(sessionID)
 	}
 	close(blockingRunner.restoreRelease)
 	recorder := <-revertDone
-	if registration != agentChatRunAdmissionClosed {
-		t.Fatalf("run registration during restore = %v, want lifecycle admission closed", registration)
+	if registration != agentChatTurnAdmissionClosed {
+		t.Fatalf("turn registration during restore = %v, want lifecycle admission closed", registration)
 	}
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("fenced revert status = %d, want 200, body=%s", recorder.Code, recorder.Body.String())
@@ -4237,87 +4252,87 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 	}
 }
 
-func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
+func TestAgentChatLiveCancelTurnAndWaitTimesOutUntilTurnDone(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
 	cancelled := false
-	if got := live.registerRun(live.snapshotLifecycle("session_1"), func() { cancelled = true }); got != agentChatRunAccepted {
-		t.Fatalf("registerRun = %v, want accepted", got)
+	if got := live.registerTurn(live.snapshotLifecycle("session_1"), func() { cancelled = true }); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn = %v, want accepted", got)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
-	if live.cancelRunAndWait(ctx, "session_1") {
-		t.Fatal("cancelRunAndWait = true before run done, want false")
+	if live.cancelTurnAndWait(ctx, "session_1") {
+		t.Fatal("cancelTurnAndWait = true before turn done, want false")
 	}
 	if !cancelled {
 		t.Fatal("cancel callback was not called")
 	}
 
-	live.clearRun("session_1")
-	if !live.cancelRunAndWait(context.Background(), "session_1") {
-		t.Fatal("cancelRunAndWait without active run = false, want true")
+	live.clearTurn("session_1")
+	if !live.cancelTurnAndWait(context.Background(), "session_1") {
+		t.Fatal("cancelTurnAndWait without active turn = false, want true")
 	}
 }
 
-func TestAgentChatLiveRunAdmissionClosureIsRefcounted(t *testing.T) {
+func TestAgentChatLiveTurnAdmissionClosureIsRefcounted(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
 	firstClosure := live.closeSessionLifecycle("session_1")
 	secondClosure := live.closeSessionLifecycle("session_1")
 	duringClosure := live.snapshotLifecycle("session_1")
 
-	if got := live.registerRun(duringClosure, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun with two closures = %v, want admission closed", got)
+	if got := live.registerTurn(duringClosure, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn with two closures = %v, want admission closed", got)
 	}
 	firstClosure.release()
 	firstClosure.release()
-	if got := live.registerRun(duringClosure, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun after one release = %v, want admission closed", got)
+	if got := live.registerTurn(duringClosure, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn after one release = %v, want admission closed", got)
 	}
 	secondClosure.release()
-	if got := live.registerRun(duringClosure, func() {}); got != agentChatRunAdmissionClosed {
-		t.Fatalf("registerRun with snapshot captured during closure = %v, want admission closed", got)
+	if got := live.registerTurn(duringClosure, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn with snapshot captured during closure = %v, want admission closed", got)
 	}
-	if got := live.registerRun(live.snapshotLifecycle("session_1"), func() {}); got != agentChatRunAccepted {
-		t.Fatalf("registerRun after final release = %v, want accepted", got)
+	if got := live.registerTurn(live.snapshotLifecycle("session_1"), func() {}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn after final release = %v, want accepted", got)
 	}
-	live.clearRun("session_1")
+	live.clearTurn("session_1")
 }
 
-// TestAgentChatLiveCancelReasonForOperatorPath pins the reason
+// TestAgentChatLiveTurnCancelReasonForOperatorPath pins the reason
 // classification used by the agent-chat-cancelled counter:
-// cancelRun and cancelRunAndWait both stamp "operator", and a
+// cancelTurn and cancelTurnAndWait both stamp "operator", and a
 // session that never had cancel called against it surfaces empty
 // (the handler maps empty -> "request_cancelled").
-func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
+func TestAgentChatLiveTurnCancelReasonForOperatorPath(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
-	live.registerRun(live.snapshotLifecycle("session_explicit_cancel"), func() {})
-	if !live.cancelRun("session_explicit_cancel") {
-		t.Fatal("cancelRun = false, want true")
+	live.registerTurn(live.snapshotLifecycle("session_explicit_cancel"), func() {})
+	if !live.cancelTurn("session_explicit_cancel") {
+		t.Fatal("cancelTurn = false, want true")
 	}
-	if got := live.cancelReasonFor("session_explicit_cancel"); got != "operator" {
-		t.Errorf("cancelReasonFor after cancelRun = %q, want %q", got, "operator")
+	if got := live.turnCancelReason("session_explicit_cancel"); got != "operator" {
+		t.Errorf("turnCancelReason after cancelTurn = %q, want %q", got, "operator")
 	}
 
-	live.registerRun(live.snapshotLifecycle("session_wait_cancel"), func() {})
-	go func() { _ = live.cancelRunAndWait(context.Background(), "session_wait_cancel") }()
-	// Wait briefly for cancelRunAndWait to mark the reason; clearRun
+	live.registerTurn(live.snapshotLifecycle("session_wait_cancel"), func() {})
+	go func() { _ = live.cancelTurnAndWait(context.Background(), "session_wait_cancel") }()
+	// Wait briefly for cancelTurnAndWait to mark the reason; clearTurn
 	// closes done so the goroutine returns. The reason itself must
 	// be set before cancel(), which the live impl does, so a small
 	// sleep here is safe.
 	time.Sleep(10 * time.Millisecond)
-	if got := live.cancelReasonFor("session_wait_cancel"); got != "operator" {
-		t.Errorf("cancelReasonFor after cancelRunAndWait = %q, want %q", got, "operator")
+	if got := live.turnCancelReason("session_wait_cancel"); got != "operator" {
+		t.Errorf("turnCancelReason after cancelTurnAndWait = %q, want %q", got, "operator")
 	}
-	live.clearRun("session_wait_cancel")
+	live.clearTurn("session_wait_cancel")
 
-	live.registerRun(live.snapshotLifecycle("session_never_cancelled"), func() {})
-	if got := live.cancelReasonFor("session_never_cancelled"); got != "" {
-		t.Errorf("cancelReasonFor on uncancelled session = %q, want empty (handler maps to request_cancelled)", got)
+	live.registerTurn(live.snapshotLifecycle("session_never_cancelled"), func() {})
+	if got := live.turnCancelReason("session_never_cancelled"); got != "" {
+		t.Errorf("turnCancelReason on uncancelled session = %q, want empty (handler maps to request_cancelled)", got)
 	}
 
 	// Unknown session: empty, not a panic.
-	if got := live.cancelReasonFor("session_unknown"); got != "" {
-		t.Errorf("cancelReasonFor unknown session = %q, want empty", got)
+	if got := live.turnCancelReason("session_unknown"); got != "" {
+		t.Errorf("turnCancelReason for unknown session = %q, want empty", got)
 	}
 }
 
@@ -5041,11 +5056,11 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	if fetchedAfterStart.Data.LatestRunID != started.Data.ID {
 		t.Fatalf("latest_run_id = %q, want %q", fetchedAfterStart.Data.LatestRunID, started.Data.ID)
 	}
-	if fetchedAfterStart.Data.StepCount != 1 {
-		t.Fatalf("task step_count = %d, want 1", fetchedAfterStart.Data.StepCount)
+	if fetchedAfterStart.Data.LatestRunStepCount != 1 {
+		t.Fatalf("task latest_run_step_count = %d, want 1", fetchedAfterStart.Data.LatestRunStepCount)
 	}
-	if fetchedAfterStart.Data.ArtifactCount != 1 {
-		t.Fatalf("task artifact_count = %d, want 1", fetchedAfterStart.Data.ArtifactCount)
+	if fetchedAfterStart.Data.LatestRunArtifactCount != 1 {
+		t.Fatalf("task latest_run_artifact_count = %d, want 1", fetchedAfterStart.Data.LatestRunArtifactCount)
 	}
 	if completedRun.Data.StepCount != 1 {
 		t.Fatalf("step_count = %d, want 1", completedRun.Data.StepCount)
@@ -6130,20 +6145,20 @@ func TestTaskRunStream_CancelledSnapshotClearsPendingApproval(t *testing.T) {
 	}
 }
 
-func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing.T) {
-	// End-to-end check on the Turn overlay path:
+func TestTaskRunStream_AgentModelCallCompletedFlowsModelCallOverlayIntoSnapshot(t *testing.T) {
+	// End-to-end check on the ModelCall overlay path:
 	//
-	//   1. A `turn.completed` event lands in the run-event log
-	//   2. SSE projector reads the event, treats it as Turn-only
+	//   1. A `model.call.completed` event lands in the run-event log
+	//   2. SSE projector reads the event, treats it as ModelCall-only
 	//      (ok=false)
 	//   3. Projector preserves the overlay across live-state rebuild
 	//   4. Final snapshot carries BOTH the rebuilt Run/Steps/Artifacts
-	//      AND the Turn block
+	//      AND the ModelCall block
 	//
-	// The unit tests in turn_cost_stream_test.go pin steps 2-3 in
+	// The unit tests in model_call_cost_stream_test.go pin steps 2-3 in
 	// isolation. This test pins the wire-up: a regression that, say,
-	// rebuilt live state without preserving overlayTurn
-	// would silently swallow per-turn cost on the SSE feed without
+	// rebuilt live state without preserving overlayModelCall
+	// would silently swallow per-model-call cost on the SSE feed without
 	// any unit test failing. We POST the event via the public
 	// /events endpoint so we don't need a real LLM.
 	t.Parallel()
@@ -6156,12 +6171,12 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	taskID := "task-turn-overlay"
-	runID := "run-turn-overlay"
+	taskID := "task-model-call-overlay"
+	runID := "run-model-call-overlay"
 	if _, err := apiHandler.taskStore.CreateTask(ctx, types.Task{
 		ID:          taskID,
-		Title:       "Turn overlay",
-		Prompt:      "Test turn overlay flow",
+		Title:       "Model-call overlay",
+		Prompt:      "Test model-call overlay flow",
 		Status:      "running",
 		LatestRunID: runID,
 		CreatedAt:   now,
@@ -6180,15 +6195,15 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	// Inject a turn.completed event via the public events
+	// Inject a model.call.completed event via the public events
 	// endpoint. The endpoint always merges a `snapshot` key into
-	// data — but the decoder's turn.completed branch is
+	// data — but the decoder's model.call.completed branch is
 	// checked BEFORE the snapshot branch, so the type-specific
 	// path wins (which is what we're testing).
 	eventBody := `{
-		"type": "turn.completed",
+		"type": "model.call.completed",
 		"data": {
-			"turn_index": 2,
+			"model_call_index": 2,
 			"step_id": "step-injected",
 			"cost_micros_usd": 4242,
 			"run_cumulative_cost_micros_usd": 7777,
@@ -6216,12 +6231,12 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 	}
 	defer streamResp.Body.Close()
 
-	// Walk snapshots until we see one carrying our Turn block.
+	// Walk snapshots until we see one carrying our ModelCall block.
 	// SSE may emit several intervening snapshots (run.queued,
 	// run.awaiting_approval, etc.) before reaching ours; the
 	// stream handler tags every payload with its event_type, so
 	// we filter on that.
-	var sawTurn bool
+	var sawModelCall bool
 	for event := range readSSEEvents(t, streamResp.Body) {
 		if event.Event != "snapshot" {
 			continue
@@ -6230,43 +6245,43 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
 			t.Fatalf("unmarshal snapshot: %v", err)
 		}
-		if payload.Data.EventType != "turn.completed" {
+		if payload.Data.EventType != "model.call.completed" {
 			continue
 		}
 		// This is the snapshot we drove. Three assertions:
 		//
-		//   a) Turn is populated (the decoder did its job)
-		//   b) Turn fields match what we POSTed (no key rename
-		//      regression in decodeTurnCostFromEventData)
+		//   a) ModelCall is populated (the decoder did its job)
+		//   b) ModelCall fields match what we POSTed (no key rename
+		//      regression in decodeModelCallCostFromEventData)
 		//   c) Run.ID is also set (proves the overlay was merged
 		//      AFTER the projector rebuilt full state —
-		//      not a Turn-only payload that lost the rest of the
+		//      not a ModelCall-only payload that lost the rest of the
 		//      run context)
-		if payload.Data.Turn == nil {
-			t.Fatal("snapshot.Turn is nil; overlay was not populated on turn.completed snapshot")
+		if payload.Data.ModelCall == nil {
+			t.Fatal("snapshot.ModelCall is nil; overlay was not populated on model.call.completed snapshot")
 		}
-		if got := payload.Data.Turn.CostMicrosUSD; got != 4242 {
-			t.Errorf("Turn.CostMicrosUSD = %d, want 4242", got)
+		if got := payload.Data.ModelCall.CostMicrosUSD; got != 4242 {
+			t.Errorf("ModelCall.CostMicrosUSD = %d, want 4242", got)
 		}
-		if got := payload.Data.Turn.TaskCumulativeMicrosUSD; got != 12345 {
-			t.Errorf("Turn.TaskCumulativeMicrosUSD = %d, want 12345", got)
+		if got := payload.Data.ModelCall.TaskCumulativeMicrosUSD; got != 12345 {
+			t.Errorf("ModelCall.TaskCumulativeMicrosUSD = %d, want 12345", got)
 		}
-		if got := payload.Data.Turn.StepID; got != "step-injected" {
-			t.Errorf("Turn.StepID = %q, want step-injected", got)
+		if got := payload.Data.ModelCall.StepID; got != "step-injected" {
+			t.Errorf("ModelCall.StepID = %q, want step-injected", got)
 		}
-		if got := payload.Data.Turn.Turn; got != 2 {
-			t.Errorf("Turn.Turn = %d, want 2", got)
+		if got := payload.Data.ModelCall.ModelCall; got != 2 {
+			t.Errorf("ModelCall.ModelCall = %d, want 2", got)
 		}
 		if payload.Data.Run.ID != runID {
 			t.Errorf("Run.ID = %q, want %q (overlay should merge AFTER full state rebuild, not replace it)", payload.Data.Run.ID, runID)
 		}
-		sawTurn = true
+		sawModelCall = true
 		break
 	}
 	cancel()
 
-	if !sawTurn {
-		t.Fatal("never observed a turn.completed snapshot with a populated Turn block")
+	if !sawModelCall {
+		t.Fatal("never observed a model.call.completed snapshot with a populated ModelCall block")
 	}
 }
 
@@ -6644,12 +6659,13 @@ func TestTaskRunMutationsReturnConflictWhenAnotherLatestRunActive(t *testing.T) 
 		t.Fatalf("CreateTask: %v", err)
 	}
 	oldRun := types.TaskRun{
-		ID:         "run-old-terminal",
-		TaskID:     task.ID,
-		Number:     1,
-		Status:     "failed",
-		StartedAt:  now.Add(-2 * time.Minute),
-		FinishedAt: now.Add(-time.Minute),
+		ID:             "run-old-terminal",
+		TaskID:         task.ID,
+		Number:         1,
+		Status:         "failed",
+		ModelCallCount: 1,
+		StartedAt:      now.Add(-2 * time.Minute),
+		FinishedAt:     now.Add(-time.Minute),
 	}
 	if _, err := apiHandler.taskStore.CreateRun(context.Background(), oldRun); err != nil {
 		t.Fatalf("CreateRun(old): %v", err)
@@ -6686,9 +6702,9 @@ func TestTaskRunMutationsReturnConflictWhenAnotherLatestRunActive(t *testing.T) 
 			body: `{"prompt":"continue anyway"}`,
 		},
 		{
-			name: "retry from turn",
-			path: "/hecate/v1/tasks/" + task.ID + "/runs/" + oldRun.ID + "/retry-from-turn",
-			body: `{"turn":1}`,
+			name: "retry from model call",
+			path: "/hecate/v1/tasks/" + task.ID + "/runs/" + oldRun.ID + "/retry-from-model-call",
+			body: `{"model_call_index":1}`,
 		},
 	}
 	for _, tc := range cases {
@@ -6702,7 +6718,7 @@ func TestTaskRunMutationsReturnConflictWhenAnotherLatestRunActive(t *testing.T) 
 	}
 }
 
-func TestTaskRunRetryFromTurnInvalidTurnReturnsBadRequest(t *testing.T) {
+func TestTaskRunRetryFromModelCallInvalidModelCallReturnsBadRequest(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -6714,11 +6730,11 @@ func TestTaskRunRetryFromTurnInvalidTurnReturnsBadRequest(t *testing.T) {
 	now := time.Now().UTC()
 
 	task := types.Task{
-		ID:          "task-invalid-turn",
-		Title:       "invalid turn",
-		Prompt:      "retry should validate turn before runner dispatch",
+		ID:          "task-invalid-model-call",
+		Title:       "invalid model call",
+		Prompt:      "retry should validate model call before runner dispatch",
 		Status:      "failed",
-		LatestRunID: "run-invalid-turn",
+		LatestRunID: "run-invalid-model-call",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -6738,16 +6754,97 @@ func TestTaskRunRetryFromTurnInvalidTurnReturnsBadRequest(t *testing.T) {
 	}
 
 	rec := tasks.mustRequestStatus(http.StatusBadRequest, http.MethodPost,
-		"/hecate/v1/tasks/"+task.ID+"/runs/"+run.ID+"/retry-from-turn",
-		`{"turn":0}`)
+		"/hecate/v1/tasks/"+task.ID+"/runs/"+run.ID+"/retry-from-model-call",
+		`{"model_call_index":0}`)
 	payload := decodeRecorder[struct {
 		Error struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}](t, rec)
-	if payload.Error.Type != errCodeInvalidRequest || payload.Error.Message != "turn must be >= 1" {
-		t.Fatalf("error = %#v, want invalid_request turn validation", payload.Error)
+	if payload.Error.Type != errCodeInvalidRequest || payload.Error.Message != "model_call_index must be >= 1" {
+		t.Fatalf("error = %#v, want invalid_request model-call validation", payload.Error)
+	}
+
+	legacy := tasks.mustRequestStatus(http.StatusBadRequest, http.MethodPost,
+		"/hecate/v1/tasks/"+task.ID+"/runs/"+run.ID+"/retry-from-model-call",
+		`{"model_call":1}`)
+	legacyPayload := decodeRecorder[struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}](t, legacy)
+	if legacyPayload.Error.Message != "model_call_index must be >= 1" {
+		t.Fatalf("legacy model_call body error = %q, want missing canonical field", legacyPayload.Error.Message)
+	}
+}
+
+func TestTaskRunRetryFromModelCallUsesSourceRunLocalIndex(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
+	tasks := newTaskTestClient(t, handler)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	workspace := t.TempDir()
+
+	task := types.Task{
+		ID:               "task-run-local-model-call",
+		Title:            "Run-local retry",
+		Prompt:           "retry the current Run call",
+		ExecutionKind:    "agent_loop",
+		RequestedModel:   "test-model",
+		WorkspaceMode:    "in_place",
+		WorkingDirectory: workspace,
+		Status:           "completed",
+		LatestRunID:      "run-source-local",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if _, err := apiHandler.taskStore.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{
+		ID:             task.LatestRunID,
+		TaskID:         task.ID,
+		Number:         2,
+		Status:         "completed",
+		Orchestrator:   "agent_loop",
+		WorkspacePath:  workspace,
+		ModelCallCount: 1,
+		StartedAt:      now.Add(-time.Minute),
+		FinishedAt:     now,
+	}
+	if _, err := apiHandler.taskStore.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := apiHandler.taskStore.CreateArtifact(ctx, types.TaskArtifact{
+		ID:          "artifact-run-local-conversation",
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		Kind:        "agent_conversation",
+		StorageKind: "inline",
+		ContentText: `[{"role":"user","content":"first"},{"role":"assistant","content":"inherited"},{"role":"user","content":"continue"},{"role":"assistant","content":"current"}]`,
+		Status:      "ready",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+
+	outOfRange := tasks.mustRequestStatus(http.StatusBadRequest, http.MethodPost,
+		"/hecate/v1/tasks/"+task.ID+"/runs/"+run.ID+"/retry-from-model-call",
+		`{"model_call_index":2}`)
+	if !strings.Contains(outOfRange.Body.String(), "source Run has 1 completed model call") {
+		t.Fatalf("out-of-range error = %s", outOfRange.Body.String())
+	}
+
+	retried := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost,
+		"/hecate/v1/tasks/"+task.ID+"/runs/"+run.ID+"/retry-from-model-call",
+		`{"model_call_index":1,"reason":"branch locally"}`)
+	if retried.Data.ID == run.ID || retried.Data.Number != 3 {
+		t.Fatalf("retried Run = %#v, want new Run #3", retried.Data)
 	}
 }
 
@@ -6876,8 +6973,8 @@ func TestTaskRunResumeBuildsCheckpointStepContext(t *testing.T) {
 		t.Fatal("resumed run steps = 0, want at least one step")
 	}
 	step := steps.Data[0]
-	if step.Index <= 1 {
-		t.Fatalf("resumed step index = %d, want > 1", step.Index)
+	if step.Index != 1 {
+		t.Fatalf("resumed step index = %d, want Run-local index 1", step.Index)
 	}
 	if got, _ := step.Input["resume_from_run_id"].(string); got != started.Data.ID {
 		t.Fatalf("resume_from_run_id = %q, want %q", got, started.Data.ID)
@@ -6950,8 +7047,8 @@ func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
 	// Run terminates failed; the failure surfaces in last_error so
 	// operators see why directly on the run record.
 	finished := waitForRunStatusWithClient(tasks, created.Data.ID, started.Data.ID, "failed")
-	if !strings.Contains(finished.Data.LastError, "LLM") {
-		t.Fatalf("LastError = %q, want mention of LLM (no client configured)", finished.Data.LastError)
+	if !strings.Contains(finished.Data.LastError, "model call 1 failed") {
+		t.Fatalf("LastError = %q, want model-call failure context", finished.Data.LastError)
 	}
 }
 

@@ -153,7 +153,7 @@ func TestHecateChatDeleteWaitsForLateUnlinkedOriginRunCancellation(t *testing.T)
 	}
 
 	lateCreated := make(chan error, 1)
-	if got := apiHandler.agentChatLive.registerRun(apiHandler.agentChatLive.snapshotLifecycle(session.ID), func() {
+	if got := apiHandler.agentChatLive.registerTurn(apiHandler.agentChatLive.snapshotLifecycle(session.ID), func() {
 		now := time.Now().UTC()
 		task := types.Task{
 			ID:            "task_late_origin_run",
@@ -169,7 +169,7 @@ func TestHecateChatDeleteWaitsForLateUnlinkedOriginRunCancellation(t *testing.T)
 		}
 		if _, createErr := store.CreateTask(context.Background(), task); createErr != nil {
 			lateCreated <- createErr
-			apiHandler.agentChatLive.clearRun(session.ID)
+			apiHandler.agentChatLive.clearTurn(session.ID)
 			return
 		}
 		_, createErr := store.CreateRun(context.Background(), types.TaskRun{
@@ -180,9 +180,9 @@ func TestHecateChatDeleteWaitsForLateUnlinkedOriginRunCancellation(t *testing.T)
 			StartedAt: now,
 		})
 		lateCreated <- createErr
-		apiHandler.agentChatLive.clearRun(session.ID)
-	}); got != agentChatRunAccepted {
-		t.Fatalf("registerRun() = %v, want accepted", got)
+		apiHandler.agentChatLive.clearTurn(session.ID)
+	}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn() = %v, want accepted", got)
 	}
 
 	deleteDone := make(chan *httptest.ResponseRecorder, 1)
@@ -198,7 +198,7 @@ func TestHecateChatDeleteWaitsForLateUnlinkedOriginRunCancellation(t *testing.T)
 			t.Fatalf("create late origin task/run: %v", createErr)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("delete did not cancel the live run and create its late origin task")
+		t.Fatal("delete did not cancel the live turn and create its late origin task")
 	}
 	select {
 	case <-store.started:

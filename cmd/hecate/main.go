@@ -266,7 +266,7 @@ func runServe() {
 	}
 	retentionHistoryStore := buildRetentionHistoryStore(cfg, logger, sqliteClient, postgresClient)
 	// Build the task-state store before the retention manager so the
-	// turn-events sweep can target its events table directly.
+	// model-call-events sweep can target its events table directly.
 	taskStore := buildTaskStore(cfg, logger, sqliteClient, postgresClient)
 	retentionManager := retention.NewManager(
 		logger,

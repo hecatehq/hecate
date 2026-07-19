@@ -50,6 +50,7 @@ import {
   taskActivityToTranscriptActivity,
   taskBadgeProps,
   taskRunOutcome,
+  taskSource,
 } from "./taskDetailHelpers";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
@@ -158,8 +159,9 @@ function CostCeilingBanner({
       </div>
       <div style={{ padding: "12px 14px" }}>
         <div style={{ fontSize: 12, color: "var(--amber)", marginBottom: 10 }}>
-          The agent loop hit the per-task budget. Raise the ceiling and resume to continue from
-          where it stopped. The new ceiling persists on the task and applies to every future run.
+          The agent loop hit the per-task budget. Raise the ceiling and resume in a new Run to
+          continue from where it stopped. The new ceiling persists on the Task and applies to every
+          future Run.
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <label style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>
@@ -212,7 +214,7 @@ function CostCeilingBanner({
             style={{ gap: 5 }}
           >
             <Icon d={Icons.refresh} size={13} />
-            Raise ceiling & resume
+            Raise ceiling & resume in new Run
           </button>
         </div>
         {!isValid && raisedUSD !== "" && (
@@ -361,11 +363,11 @@ type Props = {
   artifacts: TaskArtifactRecord[];
   activity: TaskActivityRecord[];
   approvals: TaskApprovalRecord[];
-  // streamTurnCosts holds per-turn LLM spend pushed by the SSE stream
-  // (one entry per `turn.completed` event). Used as a fallback
+  // streamModelCallCosts holds per-model-call LLM spend pushed by the SSE stream
+  // (one entry per `model.call.completed` event). Used as a fallback
   // for the model-step output_summary path so old runs or steps
-  // missing the cost field still show a per-turn figure.
-  streamTurnCosts: Map<number, number>;
+  // missing the cost field still show a per-model-call figure.
+  streamModelCallCosts: Map<number, number>;
   streamState: StreamState;
   busyAction: string;
   notice: { tone: "success" | "error"; message: string } | null;
@@ -375,16 +377,16 @@ type Props = {
   onRetryRun: () => void;
   onResumeRun: () => void;
   onRefresh: () => void;
-  // onRetryFromTurn re-runs the agent_loop from turn N (1-indexed),
-  // preserving the conversation up to that turn's assistant message.
+  // onRetryFromModelCall re-runs the agent_loop from model call N (1-indexed),
+  // preserving the conversation up to that model call's assistant message.
   // The button appears next to each assistant bubble in the
   // conversation viewer. Only meaningful for terminal agent_loop runs;
   // the conversation viewer itself only renders for those, so we don't
   // need to gate the button further at the bubble level.
   // reason is the operator's annotation for why they're branching —
   // stored in run events and shown in the timeline.
-  onRetryFromTurn: (turn: number, reason: string) => void;
-  onOpenChat?: (sessionID: string) => void;
+  onRetryFromModelCall: (modelCall: number, reason: string) => void;
+  onOpenChat?: (sessionID: string, taskID?: string, runID?: string) => void;
   // onResumeRaisingCeiling raises the task's per-task cost ceiling
   // and resumes the run in one server-side transaction. Surfaced
   // only when the run failed with otel_status_message =
@@ -412,7 +414,7 @@ export function TaskDetail({
   artifacts,
   activity,
   approvals,
-  streamTurnCosts,
+  streamModelCallCosts,
   streamState,
   busyAction,
   notice,
@@ -422,7 +424,7 @@ export function TaskDetail({
   onRetryRun,
   onResumeRun,
   onRefresh,
-  onRetryFromTurn,
+  onRetryFromModelCall,
   onOpenChat,
   onResumeRaisingCeiling,
   onApplyPatch,
@@ -440,6 +442,7 @@ export function TaskDetail({
   const browserEvidenceArtifacts = artifacts.filter((a) => a.kind === "browser_evidence");
   const previewPatch = artifacts.find((a) => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
+  const source = taskSource(task);
   const requestedAutoProvider = run?.provider?.toLowerCase() === "auto";
   const resolvedProviderID = run?.provider && !requestedAutoProvider ? run.provider : "";
   const routeProviderLabel = resolvedProviderID
@@ -494,16 +497,24 @@ export function TaskDetail({
         >
           {task.title || task.prompt || "Untitled"}
         </span>
-        {task.origin_kind === "chat" && task.origin_id && onOpenChat && (
+        {source.kind === "chat" && task.origin_id && onOpenChat ? (
           <button
             className="btn btn-ghost btn-sm"
             type="button"
-            onClick={() => onOpenChat?.(task.origin_id!)}
+            onClick={() => onOpenChat?.(task.origin_id!, task.id, run?.id)}
             title={`Open source chat ${task.origin_id}`}
             style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}
           >
-            from chat
+            Open source chat
           </button>
+        ) : (
+          <span
+            className="badge badge-muted"
+            title={source.title}
+            style={{ fontFamily: "var(--font-mono)", fontSize: 9 }}
+          >
+            {source.label}
+          </span>
         )}
         {runs.length > 0 && (
           <div style={{ position: "relative" }}>
@@ -618,10 +629,10 @@ export function TaskDetail({
           {(run?.status === "failed" || run?.status === "cancelled") && (
             <>
               <button className="btn btn-sm" disabled={busyAction !== ""} onClick={onRetryRun}>
-                Retry
+                Retry as new Run
               </button>
               <button className="btn btn-sm" disabled={busyAction !== ""} onClick={onResumeRun}>
-                Resume
+                Resume in new Run
               </button>
             </>
           )}
@@ -747,6 +758,9 @@ export function TaskDetail({
                 [
                   ["Model", run.model || "—"],
                   ["Duration", formatDurationRange(run.started_at, run.finished_at) || "—"],
+                  ...(run.orchestrator === "agent_loop" || task.execution_kind === "agent_loop"
+                    ? [["Model calls", String(run.model_call_count)]]
+                    : []),
                   ...(task.agent_preset_id
                     ? [
                         ["Agent preset", task.agent_preset_id],
@@ -1077,28 +1091,36 @@ export function TaskDetail({
         {conversationArtifact?.content_text && (
           <AgentConversationView
             raw={conversationArtifact.content_text}
-            // Only show the per-turn retry control once the run is
+            // Only show the per-model-call retry control once the run is
             // terminal — retrying mid-flight would race the running
             // worker. The button is also disabled while another
             // action is in flight (e.g. cancel) to avoid stacking.
-            canRetryFromTurn={
+            canRetryFromModelCall={
               run
-                ? run.status === "completed" ||
-                  run.status === "failed" ||
-                  run.status === "cancelled"
+                ? run.model_call_count > 0 &&
+                  (run.status === "completed" ||
+                    run.status === "failed" ||
+                    run.status === "cancelled")
                 : false
             }
             busy={busyAction !== ""}
-            onRetryFromTurn={onRetryFromTurn}
+            onRetryFromModelCall={onRetryFromModelCall}
+            runModelCallCount={run?.model_call_count ?? 0}
+            runActive={
+              run
+                ? run.status !== "completed" &&
+                  run.status !== "failed" &&
+                  run.status !== "cancelled"
+                : false
+            }
             // Pass model-kind steps so each assistant bubble can show
-            // the LLM cost for its turn. Index N model step → turn N
-            // assistant message; the viewer joins them by ordinal.
+            // the LLM cost for its Run-local model call.
             steps={steps}
-            // Stream-pushed per-turn costs are a fallback when the
+            // Stream-pushed per-model-call costs are a fallback when the
             // model-step output_summary path doesn't carry the cost
             // (older runs, or step writes that completed before the
-            // cost was attached). Same key (turn number).
-            streamTurnCosts={streamTurnCosts}
+            // cost was attached). Same key (model-call number).
+            streamModelCallCosts={streamModelCallCosts}
           />
         )}
 
@@ -2000,7 +2022,7 @@ function StepDetail({ step }: { step: TaskStepRecord }) {
           already shows as a chat bubble. */}
       {mcp && (
         <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--t3)" }}>
-          Full upstream result rendered in the agent conversation below.
+          Full upstream result rendered in the Run model context below.
         </div>
       )}
       {step.error && (

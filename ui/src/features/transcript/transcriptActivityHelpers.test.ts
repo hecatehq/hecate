@@ -99,7 +99,7 @@ describe("isTerminalActivity", () => {
 
   it("returns false for non-terminal types without the flag", () => {
     expect(isTerminalActivity(activity({ type: "tool_call", title: "Ran tool" }))).toBe(false);
-    expect(isTerminalActivity(activity({ type: "thinking", title: "Agent turn 1" }))).toBe(false);
+    expect(isTerminalActivity(activity({ type: "thinking", title: "Model call 1" }))).toBe(false);
   });
 });
 
@@ -139,10 +139,11 @@ describe("compactAgentActivities", () => {
     expect(compactAgentActivities(items)).toEqual([items[0]]);
   });
 
-  it("drops generic 'run completed/failed/cancelled' summary rows", () => {
+  it("drops generic Chat Turn and Task Run terminal summary rows", () => {
     const items = [
       activity({ type: "tool_call", title: "Ran tool" }),
       activity({ type: "run_result", title: "Run completed" }),
+      activity({ type: "completed", title: "Turn completed" }),
     ];
     expect(compactAgentActivities(items)).toEqual([items[0]]);
   });
@@ -157,16 +158,28 @@ describe("compactAgentActivities", () => {
     expect(out.map((r) => r.type)).toEqual(["tool_call", "failed"]);
   });
 
-  it("collapses repeated 'thinking' agent-turn rows into a single 'model_turns' summary", () => {
+  it("collapses repeated thinking rows into a single model-calls summary", () => {
     const items = [
-      activity({ type: "thinking", title: "Agent turn 1" }),
-      activity({ type: "thinking", title: "Agent turn 2" }),
-      activity({ type: "thinking", title: "Agent turn 3" }),
+      activity({ type: "thinking", title: "Model call 1" }),
+      activity({ type: "thinking", title: "Model call 2" }),
+      activity({ type: "thinking", title: "Model call 3" }),
     ];
     const out = compactAgentActivities(items);
     expect(out).toHaveLength(1);
-    expect(out[0].type).toBe("model_turns");
-    expect(out[0].detail).toMatch(/3 model turns/);
+    expect(out[0].type).toBe("model_calls");
+    expect(out[0].detail).toMatch(/3 model calls/);
+  });
+
+  it("does not count an approval-resume Step as another model call", () => {
+    const items = [
+      activity({ type: "thinking", title: "Model call 1" }),
+      activity({ type: "step", title: "Dispatch approved tools from model call 1" }),
+      activity({ type: "thinking", title: "Model call 2" }),
+    ];
+    const out = compactAgentActivities(items);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ type: "model_calls", detail: "2 model calls completed" });
+    expect(out[1]).toBe(items[1]);
   });
 
   it("keeps only the last task_run row per session", () => {
@@ -409,14 +422,14 @@ describe("activityDisplay", () => {
     });
   });
 
-  it("renders the model-turn summary for collapsed model_turns rows", () => {
+  it("renders the model-call summary for collapsed model_calls rows", () => {
     expect(
       activityDisplay(
-        activity({ type: "model_turns", title: "Thinking", detail: "3 model turns completed" }),
+        activity({ type: "model_calls", title: "Thinking", detail: "3 model calls completed" }),
       ),
     ).toEqual({
       title: "Thinking",
-      detail: "3 model turns completed",
+      detail: "3 model calls completed",
     });
   });
 
@@ -501,7 +514,7 @@ describe("activityLinePrefix", () => {
   it("returns the prefix for known types", () => {
     expect(activityLinePrefix(activity({ type: "tool_call", title: "x" }))).toBe("tool");
     expect(activityLinePrefix(activity({ type: "thinking", title: "x" }))).toBe("model");
-    expect(activityLinePrefix(activity({ type: "model_turns", title: "x" }))).toBe("model");
+    expect(activityLinePrefix(activity({ type: "model_calls", title: "x" }))).toBe("model");
     expect(activityLinePrefix(activity({ type: "approval", title: "x" }))).toBe("approval");
   });
 

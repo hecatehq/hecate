@@ -117,8 +117,8 @@ export function ChatSettingsPanel({
           <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Chat settings</div>
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
             {showHecateControls
-              ? "Controls for future turns in this Hecate Chat. Running task turns keep the settings they started with."
-              : "Session details and agent-provided text settings for this External Agent chat."}
+              ? "Controls for future messages in this Hecate Chat. Active Task work keeps the settings it started with."
+              : "Chat details and agent-provided text settings for this External Agent chat."}
           </div>
         </div>
       </div>
@@ -216,7 +216,7 @@ export function ChatSettingsPanel({
             </div>
           </ChatSettingsSection>
         )}
-        <ChatSettingsSection title="Session context">
+        <ChatSettingsSection title="Chat details">
           <div
             style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}
           >
@@ -249,7 +249,7 @@ export function ChatSettingsPanel({
                 mono
               />
             ) : null}
-            {taskID && <ChatSettingsField label="Task" value={shortID(taskID)} mono />}
+            {taskID && <ChatSettingsField label="Linked Task" value={shortID(taskID)} mono />}
           </div>
         </ChatSettingsSection>
       </div>
@@ -463,8 +463,8 @@ function ChatSettingsToolsRow({
         <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Tools</div>
         <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
           {effectiveEnabled
-            ? "Use Hecate's task runtime, approvals, artifacts, and sandboxed tool calls."
-            : "Send the next turn directly to the selected provider/model without local tools."}
+            ? "Create or continue a linked Task with tools, approvals, artifacts, and sandboxed tool calls."
+            : "Send the next message directly to the selected provider/model. This does not create a Task or use local tools."}
         </div>
         {disabledForModel && (
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>

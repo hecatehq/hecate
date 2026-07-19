@@ -46,6 +46,7 @@ const refOrder: Array<[keyof ContextPacketRefsRecord, string]> = [
   ["task_id", "Task"],
   ["run_id", "Run"],
   ["session_id", "Chat session"],
+  ["turn_id", "Turn"],
   ["message_id", "Message"],
 ];
 

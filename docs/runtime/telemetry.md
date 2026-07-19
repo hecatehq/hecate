@@ -396,9 +396,9 @@ attributes, to avoid accidental high-cardinality trace dimensions. Runs carry
 `hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` —
 the time the run spent in the queue between enqueue and claim.
 
-`agent_loop` runs _also_ emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
+`agent_loop` runs _also_ emit one `model.call.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#modelcallcompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
 
-### Chat Run Spans
+### Chat Turn Spans
 
 Chat turns emit OTel-shaped trace data as well. `POST
 /hecate/v1/chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
@@ -407,7 +407,7 @@ Chats UI can point operators back to `/hecate/v1/traces?request_id=...`.
 
 | Span name                        | Events                                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `chat.run`                       | `chat.run.started`, `chat.output.started`, `chat.files_changed`, `chat.session_replaced`, `chat.run.finished`, `chat.run.failed`, `chat.run.cancelled`                                                                                                                                                                                           |
+| `chat.turn`                      | `chat.turn.started`, `chat.output.started`, `chat.files_changed`, `chat.session_replaced`, `chat.turn.finished`, `chat.turn.failed`, `chat.turn.cancelled`                                                                                                                                                                                       |
 | `agent_adapter.approval.request` | wraps the coordinator's RequestPermission decision (grant short-circuit, mode default, or prompt-mode wait); attributes include `hecate.agent_adapter.id`, `hecate.agent_adapter.session_id`, `hecate.agent_adapter.tool_kind`, `hecate.agent_adapter.approval.mode`, and `hecate.agent_adapter.approval.path` once the resolution path is known |
 | `agent_adapter.approval.resolve` | wraps the operator decision-application path; attributes include `hecate.agent_adapter.approval.id`, `hecate.agent_adapter.approval.decision`, `hecate.agent_adapter.approval.scope`, and the same adapter / session / tool_kind context once the row loads                                                                                      |
 
@@ -415,11 +415,18 @@ External Agent spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
 `hecate.agent_adapter.driver.kind`, `hecate.agent_adapter.native_session.id`,
 `hecate.agent_adapter.native_session.replaced`,
-`hecate.chat.session.id`, `hecate.run.id`, `hecate.workspace.path`,
+`hecate.chat.session.id`, `hecate.chat.turn.id`,
+`hecate.chat.turn.status`, `hecate.chat.turn.duration_ms`,
+`hecate.workspace.path`,
 `hecate.agent_adapter.output.bytes`, and
 `hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not
 emitted as OTel attributes; it is persisted on the chat message and shown
 behind the raw-output diagnostic disclosure instead.
+
+The `hecate.run.*` namespace is reserved for actual Task Runs. A task-backed
+Hecate Chat turn can therefore carry both `hecate.chat.turn.id` and the backing
+Task's `hecate.task.id` / `hecate.run.id`; direct-model and External Agent turns
+do not synthesize Task Run attributes.
 
 External-agent approval metrics:
 
@@ -447,13 +454,13 @@ Retention manager runs emit events under the `retention.run` span:
 
 The retention worker handles the following subsystems. The **subsystem name** is what the runtime exposes (in retention history rows, in `POST /hecate/v1/system/retention/run`'s `subsystems` array, and in `retention.subsystem.*` events); the **env-var prefix** is the config knob — they don't always match verbatim.
 
-| Subsystem (runtime) | Env-var prefix                       | What it prunes                                                                                                                                                                          |
-| ------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `trace_snapshots`   | `HECATE_RETENTION_TRACES_`           | Per-request profiler trace snapshots                                                                                                                                                    |
-| `usage_events`      | `HECATE_RETENTION_USAGE_EVENTS_`     | Gateway usage event rows                                                                                                                                                                |
-| `audit_events`      | `HECATE_RETENTION_AUDIT_EVENTS_`     | Settings audit log                                                                                                                                                                      |
-| `provider_history`  | `HECATE_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history`                                                                                       |
-| `turn_events`       | `HECATE_RETENTION_TURN_EVENTS_`      | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
+| Subsystem (runtime) | Env-var prefix                        | What it prunes                                                                                                                                                                                |
+| ------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trace_snapshots`   | `HECATE_RETENTION_TRACES_`            | Per-request profiler trace snapshots                                                                                                                                                          |
+| `usage_events`      | `HECATE_RETENTION_USAGE_EVENTS_`      | Gateway usage event rows                                                                                                                                                                      |
+| `audit_events`      | `HECATE_RETENTION_AUDIT_EVENTS_`      | Settings audit log                                                                                                                                                                            |
+| `provider_history`  | `HECATE_RETENTION_PROVIDER_HISTORY_`  | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history`                                                                                             |
+| `model_call_events` | `HECATE_RETENTION_MODEL_CALL_EVENTS_` | `model.call.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
 
 Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `HECATE_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
 
@@ -491,22 +498,22 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `HECATE_RETENTION_TRA
 | `hecate.orchestrator.mcp.tool_call.duration`      | Histogram | `ms`         | MCP tool dispatch wall-clock duration; same attribute set as the counter                                                                                 |
 | `hecate.orchestrator.mcp.cache_events`            | Counter   | `{event}`    | Shared-client cache events grouped by `hecate.mcp.cache.event` (`hit` / `miss` / `evicted`) and (when known) `hecate.mcp.server`                         |
 
-### Chat Run Metrics
+### Chat Turn Metrics
 
-| Instrument                 | Type      | Unit             | Description                                                                                                                                                                                                                                                    |
-| -------------------------- | --------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hecate.chat.runs`         | Counter   | `{run}`          | Chat runs grouped by adapter/runtime, driver kind, status, and result                                                                                                                                                                                          |
-| `hecate.chat.run.duration` | Histogram | `ms`             | Chat run wall-clock duration                                                                                                                                                                                                                                   |
-| `hecate.chat.run.timing`   | Histogram | `ms`             | Task-backed Hecate Chat timing buckets grouped by `hecate.chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.chat.run.duration`                                                 |
-| `hecate.chat.cancelled`    | Counter   | `{cancellation}` | Chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
+| Instrument                  | Type      | Unit             | Description                                                                                                                                                                                                                                                |
+| --------------------------- | --------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hecate.chat.turns`         | Counter   | `{turn}`         | Chat turns grouped by adapter/runtime, driver kind, status, and result                                                                                                                                                                                     |
+| `hecate.chat.turn.duration` | Histogram | `ms`             | Chat turn wall-clock duration                                                                                                                                                                                                                              |
+| `hecate.chat.turn.timing`   | Histogram | `ms`             | Task-backed Hecate Chat timing buckets grouped by `hecate.chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.chat.turn.duration`                                            |
+| `hecate.chat.cancelled`     | Counter   | `{cancellation}` | Chat turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
 
 Metric attributes reuse the same vocabulary as traces — provider, model,
-cache, failover, result, step kind, approval decision, queue backend, run
-status, agent adapter id/driver kind, plus the MCP-specific `hecate.mcp.*`
-attributes for the three MCP-client metrics above.
+cache, failover, result, step kind, approval decision, queue backend, Task Run
+status, Chat Turn status, agent adapter id/driver kind, plus the MCP-specific
+`hecate.mcp.*` attributes for the three MCP-client metrics above.
 
 Metric label guardrails are intentionally stricter than trace/event payloads:
-closed-set dimensions such as result, run status, execution kind, provider kind,
+closed-set dimensions such as result, Task Run or Chat Turn status, execution kind, provider kind,
 health status, approval kind/decision, queue backend, driver kind, MCP result,
 and MCP cache event collapse unknown values to `other`. Free-form but useful
 dimensions such as provider id, model id, agent adapter id, MCP server alias, and
@@ -659,7 +666,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 
 - traces, metrics, and logs can all be exported through a generic OTLP collector
 - `GET /hecate/v1/system/stats` returns runtime + telemetry signal health
-- runs UI shows telemetry health panel and SLO cards without errors
+- Tasks UI shows telemetry health panel and SLO cards without errors
 - run timeline links resolve to trace payloads for recent task runs
 - docs recipes and troubleshooting steps were exercised in a smoke environment
 

@@ -24,7 +24,7 @@ needs to expose that, the likely shape is:
 {
   "type": "assistant.tool_call_input_delta",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "tool_call_id": "call_01JXMZ...",
     "delta": "{\"path\":\"internal/"
   }
@@ -94,7 +94,7 @@ Possible event:
 {
   "type": "assistant.image_block",
   "data": {
-    "turn_index": 4,
+    "model_call_index": 4,
     "artifact_id": "art_01JXMZ...",
     "mime": "image/png",
     "summary": "Generated architecture sketch"
@@ -107,7 +107,7 @@ Candidate default: defer until artifact storage is candidate-stable.
 ## Conversation Branching
 
 Branching is a product primitive, not just an event shape. Hecate already has
-resume and retry-from-turn semantics; branch events should wait until the UI/CLI
+resume and retry-from-model-call semantics; branch events should wait until the UI/CLI
 needs a first-class branch graph.
 
 Possible event:

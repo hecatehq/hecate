@@ -1044,15 +1044,13 @@ type ChatSegmentItem struct {
 
 type ChatMessageItem struct {
 	ID            string `json:"id"`
+	TurnID        string `json:"turn_id"`
 	TurnKind      string `json:"turn_kind,omitempty"`
 	ExecutionMode string `json:"execution_mode,omitempty"`
 	// ToolsEnabled is the per-turn tools-on/off signal the gateway
 	// recorded when this message was appended. Always present on the
 	// wire (no `omitempty`) so `false` is a meaningful "tools were
 	// off" and not indistinguishable from "the field is absent."
-	// Clients that talk to a backend predating this field should
-	// treat it as `true` by default — the agent path is the safe
-	// assumption when no signal is present.
 	ToolsEnabled    bool                              `json:"tools_enabled"`
 	SegmentID       string                            `json:"segment_id,omitempty"`
 	TaskID          string                            `json:"task_id,omitempty"`
@@ -1122,6 +1120,7 @@ type ChatContextPacketItem struct {
 
 type ChatContextRefsItem struct {
 	SessionID    string `json:"session_id,omitempty"`
+	TurnID       string `json:"turn_id,omitempty"`
 	MessageID    string `json:"message_id,omitempty"`
 	TaskID       string `json:"task_id,omitempty"`
 	RunID        string `json:"run_id,omitempty"`
@@ -1277,7 +1276,7 @@ type ChatTimingItem struct {
 	ToolMS         int64  `json:"tool_ms,omitempty"`
 	ApprovalWaitMS int64  `json:"approval_wait_ms,omitempty"`
 	OverheadMS     int64  `json:"overhead_ms,omitempty"`
-	TurnCount      int    `json:"turn_count,omitempty"`
+	ModelCallCount int    `json:"model_call_count,omitempty"`
 	ToolCount      int    `json:"tool_count,omitempty"`
 	Bottleneck     string `json:"bottleneck,omitempty"`
 	BottleneckMS   int64  `json:"bottleneck_ms,omitempty"`

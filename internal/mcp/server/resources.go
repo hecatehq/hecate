@@ -25,7 +25,7 @@ func RegisterDefaultResources(s *Server, client *GatewayClient) {
 		URI:         resourceRecentTasksURI,
 		Name:        "recent_tasks",
 		Title:       "Recent Hecate tasks",
-		Description: "Recent task records with id, title, prompt, status, execution kind, step count, latest run id, and creation time.",
+		Description: "Recent task records with id, title, prompt, status, execution kind, latest-Run step count, latest Run id, and creation time.",
 		MIMEType:    resourceMIMEJSON,
 	}, recentTasksResourceHandler(client))
 

@@ -66,13 +66,16 @@ func executionResultTerminalTransition(input executionResultTerminalTransitionIn
 	}
 	run.Status = firstNonEmpty(input.Execution.Status, "completed")
 	run.StepCount = len(input.PersistedSteps)
+	if input.Execution.ModelCallCount > run.ModelCallCount {
+		run.ModelCallCount = input.Execution.ModelCallCount
+	}
 	run.ArtifactCount = len(input.PersistedArtifacts)
 	run.FinishedAt = input.FinishedAt
 	run.LastError = input.Execution.LastError
 	run.OtelStatusCode = firstNonEmpty(input.Execution.OtelStatusCode, "ok")
 	run.OtelStatusMessage = input.Execution.OtelStatusMessage
 	if input.Execution.CostMicrosUSD > 0 {
-		// Agent loop accumulates per-turn LLM cost and surfaces the
+		// Agent loop accumulates per-model-call LLM cost and surfaces the
 		// total here. Other executors don't talk to the LLM and leave
 		// CostMicrosUSD zero, so preserve any existing total.
 		run.TotalCostMicrosUSD = input.Execution.CostMicrosUSD
@@ -96,6 +99,7 @@ func executionResultTerminalTransition(input executionResultTerminalTransitionIn
 			InputProviderDisclosedInstance: run.InputProviderDisclosedInstance,
 			Model:                          run.Model,
 			StepCount:                      run.StepCount,
+			ModelCallCount:                 run.ModelCallCount,
 			ArtifactCount:                  run.ArtifactCount,
 			TotalCostMicrosUSD:             run.TotalCostMicrosUSD,
 		},
@@ -107,6 +111,7 @@ func executionResultTerminalTransition(input executionResultTerminalTransitionIn
 			target.InputProviderDisclosedInstance = run.InputProviderDisclosedInstance
 			target.Model = run.Model
 			target.StepCount = run.StepCount
+			target.ModelCallCount = run.ModelCallCount
 			target.ArtifactCount = run.ArtifactCount
 			target.TotalCostMicrosUSD = run.TotalCostMicrosUSD
 			target.OtelStatusCode = run.OtelStatusCode

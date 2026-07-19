@@ -135,7 +135,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		packet := cmd.ContextPacket
 		packet.Workspace = run.WorkspacePath
 		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(packet, chatcontext.MergeRefs(
-			chatcontext.ChatMessageRefs(cmd.Session.ID, "", cmd.Session.ProjectID),
+			chatcontext.ChatMessageRefs(cmd.Session.ID, "", "", cmd.Session.ProjectID),
 			chatcontext.TaskRunRefs(task.ID, run.ID, cmd.Session.ProjectID),
 		)))
 	})
@@ -171,7 +171,7 @@ func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecat
 		packet := cmd.ContextPacket
 		packet.Workspace = nextRun.WorkspacePath
 		nextRun.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(packet, chatcontext.MergeRefs(
-			chatcontext.ChatMessageRefs(cmd.Session.ID, "", cmd.Session.ProjectID),
+			chatcontext.ChatMessageRefs(cmd.Session.ID, "", "", cmd.Session.ProjectID),
 			chatcontext.TaskRunRefs(task.ID, nextRun.ID, cmd.Session.ProjectID),
 		)))
 	})

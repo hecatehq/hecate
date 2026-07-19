@@ -38,7 +38,12 @@ type ExecutionSpec struct {
 	NewID            func(prefix string) string
 	UpsertStep       func(step types.TaskStep) error
 	UpsertArtifact   func(artifact types.TaskArtifact) error
-	GetArtifact      func(taskID, artifactID string) (types.TaskArtifact, bool, error)
+	// RepairArtifact persists a corrective artifact snapshot after a provider
+	// failure even when the execution context has been cancelled. The runner
+	// supplies a fresh bounded context; executors use it only to replace
+	// transient partial output with the last completed conversation boundary.
+	RepairArtifact func(artifact types.TaskArtifact) error
+	GetArtifact    func(taskID, artifactID string) (types.TaskArtifact, bool, error)
 	// EmitRunEvent appends an event to the run's event stream. Used
 	// by executors that want to emit telemetry beyond steps and
 	// artifacts — currently the agent loop's MCP dispatcher, which
@@ -73,7 +78,7 @@ type ExecutionSpec struct {
 	// resolver owns its storage boundary; executors must not persist inline
 	// binary bodies in artifacts.
 	InputMessage *types.Message
-	// ChatRequirements fences every model turn that retains InputMessage in
+	// ChatRequirements fences every model call that retains InputMessage in
 	// conversation context (for example, image-capability and provider bounds).
 	ChatRequirements types.ChatRequestRequirements
 	// RecordProviderAttempt durably records the final rich-input route before
@@ -83,7 +88,12 @@ type ExecutionSpec struct {
 }
 
 type ResumeCheckpoint struct {
-	SourceRunID         string
+	SourceRunID string
+	// SameRun is true when the checkpoint was recovered from progress already
+	// written by the Run being executed. It lets the agent loop finish a
+	// completed assistant response after a worker crash without calling the
+	// provider again.
+	SameRun             bool
 	Reason              string
 	LastEventSequence   int64
 	LastCompletedStepID string
@@ -98,16 +108,6 @@ type ResumeCheckpoint struct {
 	// scratch — that's what lets the loop survive crashes and
 	// approval-gating mid-conversation.
 	AgentConversation []byte
-	// RetryFromTurn, when > 0, signals that AgentConversation has been
-	// truncated to right before the Nth assistant turn — the source
-	// run's tool results and reasoning prior to turn N are preserved,
-	// but turn N's assistant message and everything after it has been
-	// dropped. The agent loop's next LLM call re-issues turn N from
-	// the same starting context, letting operators explore alternative
-	// paths from a known prior state. The runner zeroes
-	// LastStepIndex/LastCompletedStepID for retry-from-turn so the new
-	// run's step indices start at 1 rather than continuing the source's.
-	RetryFromTurn int
 	// PriorCostMicrosUSD is the cumulative LLM spend of every prior
 	// run in the resume chain. Fresh runs see zero; resumed runs see
 	// source.PriorCostMicrosUSD + source.TotalCostMicrosUSD. The agent
@@ -125,6 +125,11 @@ type ResumeCheckpoint struct {
 	// rather than losing the pre-pause portion when the runner
 	// overwrites Total on finalization.
 	ThisRunCostMicrosUSD int64
+	// ThisRunModelCallCount is the number of completed model calls already
+	// attributed to the current run. It is non-zero only when the same run
+	// resumes after an approval pause, keeping both call indices and the
+	// max-model-calls guard continuous across the pause.
+	ThisRunModelCallCount int
 	// AppendUserPrompt, when set on a cross-run continuation,
 	// appends a new user message after the hydrated conversation.
 	// Used by ACP/editor sessions where one durable Hecate task
@@ -140,7 +145,7 @@ type ExecutionResult struct {
 	OtelStatusCode    string
 	OtelStatusMessage string
 	// Provider/ProviderKind/Model capture the route that actually
-	// served the agent-loop LLM turn. The run starts with the
+	// served the agent-loop model call. The run starts with the
 	// operator's requested provider hint ("auto" is common), but the
 	// UI and resume path need the resolved provider once routing has
 	// happened.
@@ -148,7 +153,7 @@ type ExecutionResult struct {
 	ProviderKind string
 	// ProviderInstance is the opaque runtime instance that received the
 	// provider-bound input. The runner persists it only for rich-input runs so
-	// later turns and same-input resumes cannot cross a same-name replacement.
+	// later model calls and same-input resumes cannot cross a same-name replacement.
 	ProviderInstance types.ProviderInstanceIdentity
 	Model            string
 	// PendingApprovals are approval records the executor produced
@@ -160,31 +165,36 @@ type ExecutionResult struct {
 	// pre-execution by the runner itself.
 	PendingApprovals []types.TaskApproval
 	// CostMicrosUSD is the total LLM spend for this execution. The
-	// agent loop accumulates per-turn ChatResponse.Cost.TotalMicrosUSD
+	// agent loop accumulates per-model-call ChatResponse.Cost.TotalMicrosUSD
 	// and sets this on result; the runner writes it to
 	// TaskRun.TotalCostMicrosUSD. Other executors don't make LLM
 	// calls and leave this zero.
 	CostMicrosUSD int64
-	// TurnCosts is the per-turn LLM-spend breakdown the agent loop
-	// produced. Each entry pairs a turn number with the LLM cost for
-	// that turn, the cumulative spend through it (this run only —
+	// ModelCallCosts is the per-model-call LLM-spend breakdown the agent loop
+	// produced. Each entry pairs a model-call number with the LLM cost for
+	// that call, the cumulative spend through it (this run only —
 	// PriorCostMicrosUSD is added by the runner before emitting the
 	// event), the assistant step ID, and the tool-call count. The
-	// runner emits one `turn.completed` event per entry so
+	// runner emits one `model.call.completed` event per entry so
 	// operators can replay cost evolution from the events feed.
-	TurnCosts []TurnCostRecord
+	ModelCallCosts []ModelCallCostRecord
+	// ModelCallCount is the authoritative number of completed provider calls
+	// attributed to this Run, including calls completed before a same-Run
+	// recovery checkpoint. It is explicit because len(ModelCallCosts) only
+	// covers calls made by the current executor invocation.
+	ModelCallCount int
 }
 
-// TurnCostRecord captures a single agent_loop turn's LLM-cost
-// telemetry. Built by the agent loop after each turn's LLM
+// ModelCallCostRecord captures a single agent_loop model call's LLM-cost
+// telemetry. Built by the agent loop after each model-call
 // round-trip; the runner consumes the slice on result and emits one
 // event per entry.
-type TurnCostRecord struct {
-	Turn          int
+type ModelCallCostRecord struct {
+	ModelCall     int
 	StepID        string
 	CostMicrosUSD int64
-	// CumulativeMicrosUSD is the running spend through this turn,
-	// counting only this run's turns. The runner adds the source
+	// CumulativeMicrosUSD is the running spend through this model call,
+	// counting only this run's model calls. The runner adds the source
 	// chain's PriorCostMicrosUSD before persisting, giving operators
 	// a "spend so far including prior resumes" figure in the event.
 	CumulativeMicrosUSD int64
@@ -425,7 +435,6 @@ func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec E
 	eventToolName := firstNonEmpty(spec.ToolName, commandSpec.toolName)
 	if commandSpec.kind == "shell" {
 		baseEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
-		baseEvent["turn_index"] = 0
 		emitTypedShellRunEvent(spec, runtimeevents.EventToolInvoked.String(), cloneMap(baseEvent))
 		emitTypedShellRunEvent(spec, runtimeevents.EventToolStarted.String(), cloneMap(baseEvent))
 		commandEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
@@ -902,7 +911,7 @@ func fileOperationInput(task types.Task, operation string) map[string]any {
 
 func newExecutionStep(spec ExecutionSpec, kind, title, toolName string, input map[string]any) types.TaskStep {
 	stepIndex := 1
-	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.LastStepIndex > 0 {
+	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.SameRun && spec.ResumeCheckpoint.LastStepIndex > 0 {
 		stepIndex = spec.ResumeCheckpoint.LastStepIndex + 1
 	}
 	if spec.ResumeCheckpoint != nil {

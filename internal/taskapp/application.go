@@ -37,14 +37,14 @@ var (
 	ErrOriginRunAdmissionClosed  = taskruncoord.ErrOriginRunAdmissionClosed
 	ErrOriginUnavailable         = taskruncoord.ErrOriginUnavailable
 	ErrOriginValidationFailed    = taskruncoord.ErrOriginValidationFailed
-	ErrTurnRequired              = errors.New("turn must be >= 1")
+	ErrModelCallIndexRequired    = errors.New("model_call_index must be >= 1")
 	ErrPromptRequired            = errors.New("prompt is required")
 	ErrActiveRun                 = orchestrator.ErrActiveRun
 	ErrOtherActiveRun            = errors.New("task already has another active run")
 	ErrDeleteActiveRun           = errors.New("cannot delete a task with an active run; cancel it first")
 	ErrRunNotRetryable           = errors.New("run is not retryable until it reaches a terminal state")
 	ErrRunNotResumable           = errors.New("run is not resumable")
-	ErrRunNotTurnRetryable       = errors.New("run is not retryable from a turn (must be terminal)")
+	ErrRunNotModelCallRetryable  = errors.New("run is not retryable from a model call (must be terminal)")
 	ErrBudgetLower               = orchestrator.ErrBudgetLower
 )
 
@@ -62,7 +62,7 @@ type Runner interface {
 	StartTask(context.Context, types.Task, func(string) string) (*orchestrator.StartTaskResult, error)
 	ResumeTaskWithBudget(context.Context, types.Task, types.TaskRun, string, int64, func(string) string) (*orchestrator.StartTaskResult, error)
 	ContinueAgentTask(context.Context, types.Task, types.TaskRun, string, func(string) string) (*orchestrator.StartTaskResult, error)
-	RetryTaskFromTurn(context.Context, types.Task, types.TaskRun, int, string, func(string) string) (*orchestrator.StartTaskResult, error)
+	RetryTaskFromModelCall(context.Context, types.Task, types.TaskRun, int, string, func(string) string) (*orchestrator.StartTaskResult, error)
 	CancelRun(context.Context, types.Task, string, string) (types.TaskRun, error)
 	ResolveTaskApproval(context.Context, orchestrator.ResolveApprovalRequest) (*orchestrator.ResolveApprovalResult, error)
 }
@@ -135,9 +135,9 @@ type ResumeCommand struct {
 	BudgetMicrosUSD int64
 }
 
-type RetryFromTurnCommand struct {
-	Turn   int
-	Reason string
+type RetryFromModelCallCommand struct {
+	ModelCallIndex int
+	Reason         string
 }
 
 type ResolveApprovalCommand struct {
@@ -547,15 +547,21 @@ func (app *Application) ContinueTaskRun(ctx context.Context, task types.Task, ru
 	return result, mapOtherActiveRunError(err)
 }
 
-func (app *Application) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, cmd RetryFromTurnCommand) (*orchestrator.StartTaskResult, error) {
+func (app *Application) RetryTaskRunFromModelCall(ctx context.Context, task types.Task, run types.TaskRun, cmd RetryFromModelCallCommand) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, ErrStoreNotConfigured
 	}
 	if !types.IsTerminalTaskRunStatus(run.Status) {
-		return nil, ErrRunNotTurnRetryable
+		return nil, ErrRunNotModelCallRetryable
 	}
-	if cmd.Turn < 1 {
-		return nil, Validation(ErrTurnRequired)
+	if cmd.ModelCallIndex < 1 {
+		return nil, Validation(ErrModelCallIndexRequired)
+	}
+	if run.ModelCallCount < 1 {
+		return nil, Validation(errors.New("source Run has no completed model calls"))
+	}
+	if cmd.ModelCallIndex > run.ModelCallCount {
+		return nil, Validation(fmt.Errorf("model call %d not found: source Run has %d completed model call(s)", cmd.ModelCallIndex, run.ModelCallCount))
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
@@ -567,7 +573,7 @@ func (app *Application) RetryTaskRunFromTurn(ctx context.Context, task types.Tas
 	if app.runner == nil {
 		return nil, ErrRunnerNotConfigured
 	}
-	result, err := app.runner.RetryTaskFromTurn(ctx, task, run, cmd.Turn, strings.TrimSpace(cmd.Reason), app.idgen)
+	result, err := app.runner.RetryTaskFromModelCall(ctx, task, run, cmd.ModelCallIndex, strings.TrimSpace(cmd.Reason), app.idgen)
 	return result, mapOtherActiveRunError(err)
 }
 

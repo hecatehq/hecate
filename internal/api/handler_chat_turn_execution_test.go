@@ -19,6 +19,8 @@ import (
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestExternalAgentTurnOutcomeCompletedUsesAdapterTimesAndPlaceholder(t *testing.T) {
@@ -275,6 +277,13 @@ func TestDirectModelTurnPersistsCancellationAfterRequestDisconnect(t *testing.T)
 		cancelled:    make(chan error, 1),
 	}
 	apiHandler := newTestAPIHandlerWithSettings(quietLogger(), []providers.Provider{provider}, config.Config{}, nil)
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := telemetry.NewAgentChatMetricsWithMeterProvider(meterProvider)
+	if err != nil {
+		t.Fatalf("NewAgentChatMetricsWithMeterProvider: %v", err)
+	}
+	apiHandler.agentChatMetrics = metrics
 	baseStore := chat.NewMemoryStore()
 	store := &terminalContextChatStore{Store: baseStore}
 	apiHandler.SetAgentChatStore(store)
@@ -349,5 +358,39 @@ func TestDirectModelTurnPersistsCancellationAfterRequestDisconnect(t *testing.T)
 	}
 	if deadline.IsZero() || !deadline.After(time.Now()) {
 		t.Fatalf("terminal UpdateMessage deadline = %s, want a live bounded deadline", deadline)
+	}
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect metrics: %v", err)
+	}
+	foundCancelledTurn := false
+	foundRequestCancellation := false
+	for _, scope := range collected.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			for _, point := range sum.DataPoints {
+				adapter := chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateAgentAdapterID)
+				switch metric.Name {
+				case telemetry.MetricAgentChatTurnsTotal:
+					if adapter == "hecate" &&
+						chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateChatTurnStatus) == "cancelled" &&
+						chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateResult) == telemetry.ResultError && point.Value == 1 {
+						foundCancelledTurn = true
+					}
+				case telemetry.MetricAgentChatCancelledTotal:
+					if adapter == "hecate" &&
+						chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateChatCancelReason) == "request_cancelled" && point.Value == 1 {
+						foundRequestCancellation = true
+					}
+				}
+			}
+		}
+	}
+	if !foundCancelledTurn || !foundRequestCancellation {
+		t.Fatalf("direct-model cancellation metrics = turn:%t cancellation:%t; metrics=%+v", foundCancelledTurn, foundRequestCancellation, collected)
 	}
 }

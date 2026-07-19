@@ -58,12 +58,12 @@ Together the write tools turn the MCP surface into an operator-grade control pla
 Hecate also exposes read-only MCP resources for clients that support attaching
 server-provided context directly to a prompt:
 
-| Resource / template            | MIME type          | Description                                                                                   |
-| ------------------------------ | ------------------ | --------------------------------------------------------------------------------------------- |
-| `hecate://tasks/recent`        | `application/json` | Recent task records, capped at 30, with status, execution kind, step count, and latest run id |
-| `hecate://tasks/{task_id}`     | `application/json` | Detailed status for one task by id                                                            |
-| `hecate://traces/recent`       | `application/json` | Recent trace summaries, capped at 100, with status, latency, trace id, and route metadata     |
-| `hecate://traces/{request_id}` | `application/json` | Detailed trace spans and route metadata for one gateway request id                            |
+| Resource / template            | MIME type          | Description                                                                                              |
+| ------------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `hecate://tasks/recent`        | `application/json` | Recent task records, capped at 30, with status, execution kind, latest-Run step count, and latest Run id |
+| `hecate://tasks/{task_id}`     | `application/json` | Detailed status for one task by id                                                                       |
+| `hecate://traces/recent`       | `application/json` | Recent trace summaries, capped at 100, with status, latency, trace id, and route metadata                |
+| `hecate://traces/{request_id}` | `application/json` | Detailed trace spans and route metadata for one gateway request id                                       |
 
 The two exact `recent` resources are returned from `resources/list`; the
 parameterized task and trace forms are advertised via
@@ -207,7 +207,7 @@ POST /hecate/v1/tasks
 }
 ```
 
-`name` is the operator-chosen alias used to namespace the server's tools. When task tool policy allows tools, each server entry produces one MCP client and the agent loop hands the LLM a merged catalog (built-ins + every server's tools) on every turn. When tools are disabled, no client starts and the catalog is empty.
+`name` is the operator-chosen alias used to namespace the server's tools. When task tool policy allows tools, each server entry produces one MCP client and the agent loop hands the LLM a merged catalog (built-ins + every server's tools) on every model call. When tools are disabled, no client starts and the catalog is empty.
 
 The same shape is reachable from the UI under "New task → Agent loop → MCP SERVERS → Add MCP server".
 
@@ -382,7 +382,7 @@ no-empty-iframe error fallback.
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `auto` (default — omittable) | Tool calls dispatch immediately.                                                                                                                                                                                                                                                                                          |
 | `require_approval`           | Every tool call to this server pauses the agent loop. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously-pending call. |
-| `block`                      | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next turn. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`.                                                           |
+| `block`                      | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next model call. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`.                                                     |
 
 The pause-and-resume machinery is the same the gateway already uses for built-in `shell_exec` gating; MCP gating reuses it without changing the runner or resume path.
 
@@ -441,7 +441,7 @@ Order still matters between the runner and cache and is enforced by the handler:
 | Subprocess can't spawn (`npx not found`, exec error)            | Run fails at start. `last_error` carries the spawn diagnostic.                                                                                                                         |
 | `initialize` handshake fails                                    | Run fails at start. For stdio servers, the error message includes the captured stderr — usually pinpoints missing deps, bad args, or auth failures the upstream prints before exiting. |
 | Tool call returns `isError: true`                               | The agent loop forwards the upstream's error text as a tool message with `is_error: true`. The LLM gets a chance to retry or pick a different tool; the run does NOT fail.             |
-| Transport closed mid-run (subprocess died, HTTP server hung up) | The cache evicts the entry; the call returns a transport error to the loop, which surfaces it as a tool error on the next turn. The next task respawns.                                |
+| Transport closed mid-run (subprocess died, HTTP server hung up) | The cache evicts the entry; the call returns a transport error to the loop, which surfaces it as a tool error before the next model call. The next task respawns.                      |
 | `enc:` value cannot be decrypted with the startup-resolved key  | Run fails fast at spawn time with a clear error.                                                                                                                                       |
 
 Bring-up (initialize + tools/list) gets one bounded retry with a 500ms backoff, rebuilding the transport from scratch between attempts. Absorbs ordinary flakiness — slow-booting subprocess, brief network blip, transient 5xx — without hiding real failures: a permanent broken config (missing binary, bad args, auth rejected) fails twice and surfaces the same diagnostic, just delayed by ~500ms. Cancellation aborts the retry promptly rather than waiting out the backoff, so runner shutdown stays responsive.

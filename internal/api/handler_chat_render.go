@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
@@ -63,12 +64,13 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 	for _, message := range session.Messages {
 		messages = append(messages, ChatMessageItem{
 			ID:              message.ID,
+			TurnID:          message.TurnID,
 			TurnKind:        chat.MessageTurnKind(session, message),
 			ExecutionMode:   message.ExecutionMode,
 			ToolsEnabled:    message.ToolsEnabled,
 			SegmentID:       message.SegmentID,
 			TaskID:          message.TaskID,
-			RunID:           message.RunID,
+			RunID:           chatMessageTaskRunID(message),
 			RequestID:       message.RequestID,
 			TraceID:         message.TraceID,
 			SpanID:          message.SpanID,
@@ -217,9 +219,10 @@ func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
 	if packet.Refs != nil {
 		refs = &ChatContextRefsItem{
 			SessionID:    packet.Refs.SessionID,
+			TurnID:       packet.Refs.TurnID,
 			MessageID:    packet.Refs.MessageID,
 			TaskID:       packet.Refs.TaskID,
-			RunID:        packet.Refs.RunID,
+			RunID:        chatContextTaskRunID(*packet.Refs),
 			ProjectID:    packet.Refs.ProjectID,
 			WorkItemID:   packet.Refs.WorkItemID,
 			AssignmentID: packet.Refs.AssignmentID,
@@ -310,8 +313,8 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 		if builder.item.Workspace == "" {
 			builder.item.Workspace = message.Workspace
 		}
-		if message.RunID != "" {
-			builder.item.LatestRunID = message.RunID
+		if runID := chatMessageTaskRunID(message); runID != "" {
+			builder.item.LatestRunID = runID
 		}
 		if message.Status != "" {
 			builder.item.Status = message.Status
@@ -333,6 +336,20 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 		segments = append(segments, item)
 	}
 	return segments
+}
+
+func chatMessageTaskRunID(message chat.Message) string {
+	if strings.TrimSpace(message.TaskID) == "" || !strings.HasPrefix(strings.TrimSpace(message.SegmentID), "task:") {
+		return ""
+	}
+	return message.RunID
+}
+
+func chatContextTaskRunID(refs chat.ContextRefs) string {
+	if refs.TaskID == "" {
+		return ""
+	}
+	return refs.RunID
 }
 
 func agentChatMessageSegmentID(session chat.Session, message chat.Message) string {
@@ -414,7 +431,7 @@ func renderChatTiming(timing chat.Timing) *ChatTimingItem {
 		ToolMS:         timing.ToolMS,
 		ApprovalWaitMS: timing.ApprovalWaitMS,
 		OverheadMS:     timing.OverheadMS,
-		TurnCount:      timing.TurnCount,
+		ModelCallCount: timing.ModelCallCount,
 		ToolCount:      timing.ToolCount,
 		Bottleneck:     timing.Bottleneck,
 		BottleneckMS:   timing.BottleneckMS,

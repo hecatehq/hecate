@@ -180,7 +180,7 @@ func defaultErrorUserMessage(code string) string {
 	case errCodeSessionDurationLimit:
 		return "This chat has reached its wall-clock limit."
 	case errCodeSessionIdleTimeout:
-		return "This chat session expired after being idle."
+		return "This Chat expired after being idle."
 	case errCodeAgentSessionBusy:
 		return "Hecate Chat is still working on this task."
 	case errCodeModelCapability:
@@ -228,7 +228,7 @@ func defaultErrorUserMessage(code string) string {
 	case errCodeSessionStopping:
 		return "This chat is still stopping."
 	case errCodeSessionNotRunning:
-		return "There is no active run to stop."
+		return "There is no active turn to stop."
 	case errCodeDictationInvalid:
 		return "The dictation request is invalid."
 	case errCodeDictationTooLarge:
@@ -334,7 +334,7 @@ func defaultErrorAction(code string) string {
 	case errCodeSessionStopping:
 		return "Wait a moment, then retry the action."
 	case errCodeSessionNotRunning:
-		return "Send a new message if you want to start another run."
+		return "Send a new message if you want to start another turn."
 	case errCodeDictationInvalid:
 		return "Record a new clip, select a configured provider, and retry."
 	case errCodeDictationTooLarge:

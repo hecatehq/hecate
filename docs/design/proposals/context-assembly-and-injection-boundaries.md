@@ -339,7 +339,7 @@ context assembly and automatic injection remain explicit future work.
 - Should operators be able to manually pin context items before memory exists?
   This is useful but may blur into memory. Recommendation: keep pinning out of
   v1 and implement memory deliberately.
-- Should external-agent runs get a packet? Recommendation: yes, but only as a
+- Should External Agent Chat Turns get a packet? Recommendation: yes, but only as a
   projection of what Hecate knows: operator prompt, workspace, adapter settings,
   ACP events, raw adapter output, and artifacts. Do not claim it is the
   adapter's full internal model context.

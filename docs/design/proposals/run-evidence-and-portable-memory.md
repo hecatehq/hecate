@@ -143,8 +143,8 @@ everything from sequence zero.
 Checkpoint candidates:
 
 - run queued/started;
-- before model turn;
-- after model turn;
+- before a model call;
+- after a model call;
 - before approval wait;
 - after approval resolution;
 - before patch apply/revert;

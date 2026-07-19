@@ -158,7 +158,7 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 	{method: http.MethodGet, path: "/hecate/v1/tasks/{id}/runs/{run_id}/events"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/events"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/retry"},
-	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn"},
+	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/resume"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/continue"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/runs/{run_id}/cancel"},

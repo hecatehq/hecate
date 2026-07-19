@@ -672,7 +672,7 @@ then review the mechanical diff separately from behavior changes.
 ```tsx
 function setup(overrides: Partial<React.ComponentProps<typeof TaskDetail>> = {}) {
   const props: React.ComponentProps<typeof TaskDetail> = {
-    /* sane defaults including new fields like streamTurnCosts: new Map() */
+    /* sane defaults including new fields like streamModelCallCosts: new Map() */
     ...overrides,
   };
   const user = userEvent.setup();
@@ -680,7 +680,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof TaskDetail>> = {})
 }
 ```
 
-When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setup` helper in the affected `*.test.tsx` files first — TypeScript will surface every test that needs the new value.
+When the Go side adds a required prop (e.g. `streamModelCallCosts`), update the `setup` helper in the affected `*.test.tsx` files first — TypeScript will surface every test that needs the new value.
 
 ## UI gotchas
 
@@ -729,7 +729,7 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 2. Accumulate it in `TasksView` — new `useState`, populate inside `streamTaskRun`'s `onPayload` callback, reset in `resetRunDetail`.
 3. Drill via props to `TaskDetail` and any consumer.
 4. Add to the `setup` defaults in affected `*.test.tsx` files.
-5. Add a focused test asserting the prop reaches the rendered output (see `TaskDetail.test.tsx` `falls back to streamTurnCosts...` for a template).
+5. Add a focused test asserting the prop reaches the rendered output (see `TaskDetail.test.tsx` `falls back to streamModelCallCosts...` for a template).
 
 ### Add a paired provider+model picker
 

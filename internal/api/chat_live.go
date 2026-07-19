@@ -72,7 +72,7 @@ type ChatApprovalResolvedEvent struct {
 type agentChatLive struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan AgentChatLiveEvent]struct{}
-	running     map[string]*agentChatRunControl
+	activeTurns map[string]*agentChatTurnControl
 	mutating    map[string]struct{}
 	lifecycles  map[string]*agentChatLifecycleState
 	snapshot    agentChatSnapshotConfig
@@ -116,20 +116,20 @@ type agentChatLifecycleClosure struct {
 	once              sync.Once
 }
 
-type agentChatRunRegistration uint8
+type agentChatTurnRegistration uint8
 
 const (
-	agentChatRunAccepted agentChatRunRegistration = iota
-	agentChatRunBusy
-	agentChatRunAdmissionClosed
+	agentChatTurnAccepted agentChatTurnRegistration = iota
+	agentChatTurnBusy
+	agentChatTurnAdmissionClosed
 )
 
-type agentChatRunControl struct {
+type agentChatTurnControl struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	// reason records the trigger for an operator-driven cancel
-	// (cancelRun / cancelRunAndWait). The handler reads this when
-	// the run terminates so the cancellation counter can label
+	// (cancelTurn / cancelTurnAndWait). The handler reads this when
+	// the turn terminates so the cancellation counter can label
 	// "operator" vs "request_cancelled" (parent ctx died first).
 	// Stored as an atomic *string so the cancel and complete paths
 	// can race without locking the live struct.
@@ -139,13 +139,13 @@ type agentChatRunControl struct {
 // markCancelReason CAS-installs the cancellation reason so the
 // handler can label the cancellation counter correctly. First write
 // wins — once a reason is recorded, later cancel calls (e.g.
-// cancelRunAndWait fired by Delete after Cancel) don't clobber it.
-func (c *agentChatRunControl) markCancelReason(reason string) {
+// cancelTurnAndWait fired by Delete after Cancel) don't clobber it.
+func (c *agentChatTurnControl) markCancelReason(reason string) {
 	c.reason.CompareAndSwap(nil, &reason)
 }
 
 // cancelReason reports the recorded reason or empty string.
-func (c *agentChatRunControl) cancelReason() string {
+func (c *agentChatTurnControl) cancelReason() string {
 	if r := c.reason.Load(); r != nil {
 		return *r
 	}
@@ -155,7 +155,7 @@ func (c *agentChatRunControl) cancelReason() string {
 func newAgentChatLive(snapshot agentChatSnapshotConfig) *agentChatLive {
 	return &agentChatLive{
 		subscribers: make(map[string]map[chan AgentChatLiveEvent]struct{}),
-		running:     make(map[string]*agentChatRunControl),
+		activeTurns: make(map[string]*agentChatTurnControl),
 		mutating:    make(map[string]struct{}),
 		lifecycles:  make(map[string]*agentChatLifecycleState),
 		snapshot:    snapshot,
@@ -334,7 +334,7 @@ func (l *agentChatLive) reapLifecycleLocked(sessionID string, state *agentChatLi
 	if state == nil || state.closures > 0 || state.operations > 0 || state.snapshots > 0 {
 		return
 	}
-	if _, running := l.running[sessionID]; running {
+	if _, active := l.activeTurns[sessionID]; active {
 		return
 	}
 	if _, mutating := l.mutating[sessionID]; mutating {
@@ -345,46 +345,46 @@ func (l *agentChatLive) reapLifecycleLocked(sessionID string, state *agentChatLi
 	}
 }
 
-// registerRun is the single admission point for every chat execution path.
+// registerTurn is the single admission point for every Chat execution path.
 // Destructive session operations close admission before checking for a live
-// run, so registration either wins first and is cancelled and awaited, or is
+// turn, so registration either wins first and is cancelled and awaited, or is
 // rejected before a message append, attachment claim, or provider dispatch.
-func (l *agentChatLive) registerRun(snapshot agentChatLifecycleSnapshot, cancel context.CancelFunc) agentChatRunRegistration {
+func (l *agentChatLive) registerTurn(snapshot agentChatLifecycleSnapshot, cancel context.CancelFunc) agentChatTurnRegistration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if _, current := l.snapshotCurrentLocked(snapshot); !current {
-		return agentChatRunAdmissionClosed
+		return agentChatTurnAdmissionClosed
 	}
-	if _, exists := l.running[snapshot.sessionID]; exists {
-		return agentChatRunBusy
+	if _, exists := l.activeTurns[snapshot.sessionID]; exists {
+		return agentChatTurnBusy
 	}
 	if _, exists := l.mutating[snapshot.sessionID]; exists {
-		return agentChatRunBusy
+		return agentChatTurnBusy
 	}
-	l.running[snapshot.sessionID] = &agentChatRunControl{cancel: cancel, done: make(chan struct{})}
-	return agentChatRunAccepted
+	l.activeTurns[snapshot.sessionID] = &agentChatTurnControl{cancel: cancel, done: make(chan struct{})}
+	return agentChatTurnAccepted
 }
 
 // beginExclusiveMutation admits a settings mutation that must exclude chat
-// turns without masquerading as a cancellable run. Releasing the mutation
+// turns without masquerading as a cancellable turn. Releasing the mutation
 // advances the lifecycle generation so any turn that read the session before
 // the winning write cannot later register and execute with that stale
 // snapshot. Count it as a lifecycle operation so delete/close waits for the
 // durable settings write to settle.
-func (l *agentChatLive) beginExclusiveMutation(snapshot agentChatLifecycleSnapshot) (func(), agentChatRunRegistration) {
+func (l *agentChatLive) beginExclusiveMutation(snapshot agentChatLifecycleSnapshot) (func(), agentChatTurnRegistration) {
 	l.mu.Lock()
 	state, current := l.snapshotCurrentLocked(snapshot)
 	if !current {
 		l.mu.Unlock()
-		return nil, agentChatRunAdmissionClosed
+		return nil, agentChatTurnAdmissionClosed
 	}
-	if _, exists := l.running[snapshot.sessionID]; exists {
+	if _, exists := l.activeTurns[snapshot.sessionID]; exists {
 		l.mu.Unlock()
-		return nil, agentChatRunBusy
+		return nil, agentChatTurnBusy
 	}
 	if _, exists := l.mutating[snapshot.sessionID]; exists {
 		l.mu.Unlock()
-		return nil, agentChatRunBusy
+		return nil, agentChatTurnBusy
 	}
 	if state.operations == 0 {
 		state.operationsDrained = make(chan struct{})
@@ -414,12 +414,12 @@ func (l *agentChatLive) beginExclusiveMutation(snapshot agentChatLifecycleSnapsh
 			}
 			l.mu.Unlock()
 		})
-	}, agentChatRunAccepted
+	}, agentChatTurnAccepted
 }
 
-// beginLifecycleOperation admits a non-run mutation that must finish before a
+// beginLifecycleOperation admits a non-turn mutation that must finish before a
 // destructive session operation can proceed. Attachment creation and native
-// config writes use this path because neither owns a registered run, but both
+// config writes use this path because neither owns a registered turn, but both
 // can otherwise commit through a stale session snapshot while delete/close is
 // cleaning up that same owner.
 func (l *agentChatLive) beginLifecycleOperation(snapshot agentChatLifecycleSnapshot) (func(), bool) {
@@ -453,7 +453,7 @@ func (l *agentChatLive) beginLifecycleOperation(snapshot agentChatLifecycleSnaps
 	}, true
 }
 
-// closeSessionLifecycle blocks new runs and counted operations, advances the
+// closeSessionLifecycle blocks new turns and counted operations, advances the
 // lifecycle epoch, and exposes the pre-existing operation drain to the caller.
 // The caller must wait for its serialized destructive turn and pre-existing
 // operations before destructive work, then hold the closure through that work.
@@ -565,62 +565,62 @@ func (c *agentChatLifecycleClosure) release() {
 	})
 }
 
-func (l *agentChatLive) clearRun(sessionID string) {
+func (l *agentChatLive) clearTurn(sessionID string) {
 	l.mu.Lock()
-	run, ok := l.running[sessionID]
+	turn, ok := l.activeTurns[sessionID]
 	if ok {
-		delete(l.running, sessionID)
-		close(run.done)
+		delete(l.activeTurns, sessionID)
+		close(turn.done)
 	}
 	l.reapLifecycleLocked(sessionID, l.lifecycles[sessionID])
 	l.mu.Unlock()
 }
 
-func (l *agentChatLive) hasRun(sessionID string) bool {
+func (l *agentChatLive) hasTurn(sessionID string) bool {
 	l.mu.Lock()
-	_, ok := l.running[sessionID]
+	_, ok := l.activeTurns[sessionID]
 	l.mu.Unlock()
 	return ok
 }
 
-// cancelReasonFor reports the cancellation reason recorded for the
-// given session (operator-driven via cancelRun*) or empty if either
-// no run is registered or no operator action was taken. The handler
-// uses this on the run-completion path to distinguish operator
+// turnCancelReason reports the cancellation reason recorded for the
+// given session (operator-driven via cancelTurn*) or empty if either
+// no turn is registered or no operator action was taken. The handler
+// uses this on the turn-completion path to distinguish operator
 // cancels from a request_cancelled (parent ctx died first).
-func (l *agentChatLive) cancelReasonFor(sessionID string) string {
+func (l *agentChatLive) turnCancelReason(sessionID string) string {
 	l.mu.Lock()
-	run, ok := l.running[sessionID]
+	turn, ok := l.activeTurns[sessionID]
 	l.mu.Unlock()
-	if !ok || run == nil {
+	if !ok || turn == nil {
 		return ""
 	}
-	return run.cancelReason()
+	return turn.cancelReason()
 }
 
-func (l *agentChatLive) cancelRun(sessionID string) bool {
+func (l *agentChatLive) cancelTurn(sessionID string) bool {
 	l.mu.Lock()
-	run, ok := l.running[sessionID]
+	turn, ok := l.activeTurns[sessionID]
 	l.mu.Unlock()
 	if !ok {
 		return false
 	}
-	run.markCancelReason("operator")
-	run.cancel()
+	turn.markCancelReason("operator")
+	turn.cancel()
 	return true
 }
 
-func (l *agentChatLive) cancelRunAndWait(ctx context.Context, sessionID string) bool {
+func (l *agentChatLive) cancelTurnAndWait(ctx context.Context, sessionID string) bool {
 	l.mu.Lock()
-	run, ok := l.running[sessionID]
+	turn, ok := l.activeTurns[sessionID]
 	l.mu.Unlock()
 	if !ok {
 		return true
 	}
-	run.markCancelReason("operator")
-	run.cancel()
+	turn.markCancelReason("operator")
+	turn.cancel()
 	select {
-	case <-run.done:
+	case <-turn.done:
 		return true
 	case <-ctx.Done():
 		return false

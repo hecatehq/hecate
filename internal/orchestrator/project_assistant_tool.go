@@ -103,7 +103,7 @@ func (d *agentLoopToolDispatcher) projectAssistantDraftProposalTool(ctx context.
 	if !projectAssistantDraftToolAvailable(spec.Task, d.projectAssistantDraftTool) {
 		step.Status = "failed"
 		step.Result = resultFromStatus("failed")
-		step.Error = "draft_project_proposal is only available to project-linked Hecate Chat agent runs"
+		step.Error = "draft_project_proposal is only available to project-linked, task-backed Hecate Chat Turns"
 		step.FinishedAt = finishedAt
 		step.OutputSummary = map[string]any{"is_error": true}
 		return agentLoopToolDispatchResult{Text: step.Error, Step: &step}

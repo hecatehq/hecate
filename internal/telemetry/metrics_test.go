@@ -208,7 +208,7 @@ func TestMetricsRecordProviderCallSkipsEmptyNormalizedProvider(t *testing.T) {
 	assertMetricHasNoDataPoints(t, collected, MetricProviderCallDuration)
 }
 
-func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
+func TestAgentChatMetricsRecordTurnEmitsCounterAndHistogram(t *testing.T) {
 	t.Parallel()
 
 	reader := sdkmetric.NewManualReader()
@@ -218,13 +218,13 @@ func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 		t.Fatalf("NewAgentChatMetricsWithMeterProvider() error = %v", err)
 	}
 
-	metrics.RecordRun(context.Background(), AgentChatRunMetricsRecord{
+	metrics.RecordTurn(context.Background(), AgentChatTurnMetricsRecord{
 		AdapterID:  "codex",
 		DriverKind: "acp",
 		Status:     "completed",
 		Result:     ResultSuccess,
 		DurationMS: 1250,
-		Timing: AgentChatRunTimingRecord{
+		Timing: AgentChatTurnTimingRecord{
 			QueueMS:        50,
 			ModelMS:        900,
 			ToolMS:         120,
@@ -234,34 +234,34 @@ func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 	})
 
 	collected := collectMetrics(t, reader)
-	runs := findMetric[metricdata.Sum[int64]](t, collected, MetricAgentChatRunsTotal)
-	if len(runs.DataPoints) != 1 {
-		t.Fatalf("run data points = %d, want 1", len(runs.DataPoints))
+	turns := findMetric[metricdata.Sum[int64]](t, collected, MetricAgentChatTurnsTotal)
+	if len(turns.DataPoints) != 1 {
+		t.Fatalf("turn data points = %d, want 1", len(turns.DataPoints))
 	}
-	if runs.DataPoints[0].Value != 1 {
-		t.Fatalf("run count = %d, want 1", runs.DataPoints[0].Value)
+	if turns.DataPoints[0].Value != 1 {
+		t.Fatalf("turn count = %d, want 1", turns.DataPoints[0].Value)
 	}
-	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateAgentAdapterID); got != "codex" {
+	if got := attrValue(turns.DataPoints[0].Attributes, AttrHecateAgentAdapterID); got != "codex" {
 		t.Fatalf("%s = %q, want codex", AttrHecateAgentAdapterID, got)
 	}
-	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateAgentDriverKind); got != "acp" {
+	if got := attrValue(turns.DataPoints[0].Attributes, AttrHecateAgentDriverKind); got != "acp" {
 		t.Fatalf("%s = %q, want acp", AttrHecateAgentDriverKind, got)
 	}
-	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateRunStatus); got != "completed" {
-		t.Fatalf("%s = %q, want completed", AttrHecateRunStatus, got)
+	if got := attrValue(turns.DataPoints[0].Attributes, AttrHecateChatTurnStatus); got != "completed" {
+		t.Fatalf("%s = %q, want completed", AttrHecateChatTurnStatus, got)
 	}
-	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateResult); got != ResultSuccess {
+	if got := attrValue(turns.DataPoints[0].Attributes, AttrHecateResult); got != ResultSuccess {
 		t.Fatalf("%s = %q, want %s", AttrHecateResult, got, ResultSuccess)
 	}
 
-	duration := findMetric[metricdata.Histogram[int64]](t, collected, MetricAgentChatRunDuration)
+	duration := findMetric[metricdata.Histogram[int64]](t, collected, MetricAgentChatTurnDuration)
 	if len(duration.DataPoints) != 1 {
 		t.Fatalf("duration data points = %d, want 1", len(duration.DataPoints))
 	}
 	if duration.DataPoints[0].Count != 1 || duration.DataPoints[0].Sum != 1250 {
 		t.Fatalf("duration count/sum = %d/%d, want 1/1250", duration.DataPoints[0].Count, duration.DataPoints[0].Sum)
 	}
-	timing := findMetric[metricdata.Histogram[int64]](t, collected, MetricAgentChatRunTiming)
+	timing := findMetric[metricdata.Histogram[int64]](t, collected, MetricAgentChatTurnTiming)
 	if len(timing.DataPoints) != 4 {
 		t.Fatalf("timing data points = %d, want 4 non-zero buckets", len(timing.DataPoints))
 	}
