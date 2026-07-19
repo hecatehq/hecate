@@ -805,6 +805,33 @@ func TestProjectsAPI_CairnlineReplacementModeCreatesCairnlineOnlyIdentity(t *tes
 	}
 }
 
+func TestProjectsAPI_CairnlineReplacementModeIgnoresLastOpenedAtPatch(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)
+	client := newAPITestClient(t, server)
+
+	created := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", `{
+		"name":"Replacement Auto Open"
+	}`)
+	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after replacement create, want no native identity row", ok, err)
+	}
+
+	openedAt := time.Date(2026, 7, 19, 9, 30, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	opened := mustRequestJSONStatus[ProjectResponse](client, http.StatusOK, http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, fmt.Sprintf(`{
+		"last_opened_at":%q
+	}`, openedAt))
+	if opened.Data.ID != created.Data.ID || opened.Data.Name != "Replacement Auto Open" || opened.Data.ReadBackend != "cairnline" {
+		t.Fatalf("last-opened response = %+v, want Cairnline-backed created project", opened.Data)
+	}
+	if opened.Data.LastOpenedAt != "" {
+		t.Fatalf("last_opened_at = %q, want omitted without native Hecate project state", opened.Data.LastOpenedAt)
+	}
+	if _, ok, err := handler.projects.Get(t.Context(), created.Data.ID); err != nil || ok {
+		t.Fatalf("Hecate project store ok=%v err=%v after last-opened patch, want no native identity row", ok, err)
+	}
+}
+
 func TestProjectsAPI_CairnlineReplacementModeRejectsDuplicateNameAndRootPath(t *testing.T) {
 	t.Parallel()
 	_, server := newProjectsCairnlineReplacementIdentityAuthorityTestServer(t)

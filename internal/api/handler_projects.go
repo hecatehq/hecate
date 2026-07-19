@@ -214,6 +214,19 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if h.config.ProjectsUseCairnlineOnly() && projectUpdateOnlyTouchesLastOpenedAt(req) {
+		project, err := h.renderProject(r.Context(), r.PathValue("id"))
+		if err != nil {
+			writeProjectReadRenderError(w, err)
+			return
+		}
+		if project == nil {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+		WriteJSON(w, http.StatusOK, ProjectResponse{Object: "project", Data: *project})
+		return
+	}
 	usesCairnlineMetadataDefaultsAuthority := h.projectMetadataDefaultsWritesUseCairnlineAuthority() && projectUpdateCanUseCairnlineMetadataDefaultsAuthority(req)
 	if req.DefaultRootID != nil && !usesCairnlineMetadataDefaultsAuthority {
 		defaultRootID := strings.TrimSpace(*req.DefaultRootID)
@@ -347,6 +360,22 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 
 func projectUpdateTouchesPortableMetadata(req updateProjectRequest) bool {
 	return req.Name != nil || req.Description != nil
+}
+
+func projectUpdateOnlyTouchesLastOpenedAt(req updateProjectRequest) bool {
+	return req.LastOpenedAt != nil &&
+		req.Name == nil &&
+		req.Description == nil &&
+		req.Roots == nil &&
+		req.ContextSources == nil &&
+		req.DefaultRootID == nil &&
+		req.DefaultProvider == nil &&
+		req.DefaultModel == nil &&
+		req.DefaultAgentProfile == nil &&
+		req.DefaultToolsEnabled == nil &&
+		req.DefaultWorkspaceMode == nil &&
+		req.DefaultSystemPrompt == nil &&
+		req.DefaultCompactToolOutput == nil
 }
 
 func projectUpdateTouchesPortableDefaults(req updateProjectRequest) bool {
