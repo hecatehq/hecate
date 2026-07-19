@@ -811,7 +811,6 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if identity, ok := remoteruntime.FromContext(r.Context()); ok {
-		item.RuntimeHost.ID = identity.RuntimeID
 		item.RuntimeHost.RuntimeMode = "remote_runtime"
 		item.RuntimeHost.OperatorAccess = "remote_supervision"
 		item.RuntimeHost.LocalOnlyActionsAvailable = false

@@ -70,8 +70,10 @@ runtime mode is not multi-user authentication by itself.
 In this mode every non-`/healthz` request must arrive through the trusted
 control-plane proxy. The proxy sends `X-Hecate-Remote-Runtime-Secret` plus
 `X-Hecate-Remote-Actor-ID`, `X-Hecate-Remote-Org-ID`,
-`X-Hecate-Remote-Project-ID`, and `X-Hecate-Remote-Runtime-ID`; Hecate records the
-actor identity on supported audit and telemetry paths. The legacy
+and `X-Hecate-Remote-Runtime-ID`; it may send
+`X-Hecate-Remote-Project-ID` when the operator is project-scoped. An omitted
+project header represents **No project**. Hecate records the actor identity on
+supported audit and telemetry paths. The legacy
 `HECATE_RUNTIME_TOKEN` and `HECATE_INFERENCE_TOKEN` guards are bypassed once a
 request has valid remote identity, so the trusted proxy is the authentication
 boundary for remote runtimes.
@@ -83,6 +85,12 @@ routes are classified for remote mode, and route coverage tests fail when a new
 registered route is not explicitly marked remote-safe or local-only. Keep the
 runtime network-private even with this mode enabled; the header secret is the
 internal proxy contract, not a public internet authentication system.
+
+The desktop app's outbound Cloud connector uses a mixed local/remote posture
+instead of enabling global remote runtime mode. It creates an ephemeral secret
+for the sidecar process, stamps only relayed requests with the authenticated
+Cloud owner identity, and leaves ordinary loopback requests local. Both
+postures enter the same remote endpoint guard after identity validation.
 
 Remote deployments using the published image must supply container- or
 VM-level isolation around each instance. The image intentionally includes a

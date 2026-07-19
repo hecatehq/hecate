@@ -234,7 +234,8 @@ automatically. State lives in the platform data dir:
 To reach this Hecate from a phone or another browser, open **Settings -> Remote
 access** in the desktop app and sign in to Hecate Cloud. The app handles browser
 approval and the outbound connection directly; installing the `hec` CLI is not
-required.
+required. Requests still execute on this computer, and Hecate keeps local-only
+operations unavailable over the remote connection.
 
 macOS release bundles are signed and notarized. Linux and Windows bundles are
 published by CI but have not yet had the same manual launch coverage. The

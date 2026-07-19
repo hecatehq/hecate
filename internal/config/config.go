@@ -695,9 +695,12 @@ func (c Config) Validate() error {
 	if token := strings.TrimSpace(c.Server.InferenceToken); token != "" && len(token) < 24 {
 		errs = append(errs, errors.New("HECATE_INFERENCE_TOKEN must be at least 24 characters when set"))
 	}
+	if secret := strings.TrimSpace(c.Server.RemoteRuntimeSecret); secret != "" && len(secret) < 24 {
+		errs = append(errs, errors.New("HECATE_REMOTE_RUNTIME_SECRET must be at least 24 characters when set"))
+	}
 	if c.Server.RemoteRuntimeMode {
-		if secret := strings.TrimSpace(c.Server.RemoteRuntimeSecret); len(secret) < 24 {
-			errs = append(errs, errors.New("HECATE_REMOTE_RUNTIME_SECRET must be at least 24 characters when HECATE_REMOTE_RUNTIME_MODE is enabled"))
+		if strings.TrimSpace(c.Server.RemoteRuntimeSecret) == "" {
+			errs = append(errs, errors.New("HECATE_REMOTE_RUNTIME_SECRET is required when HECATE_REMOTE_RUNTIME_MODE is enabled"))
 		}
 		if !c.Server.RemoteAllowLocalProviders && stringSliceContainsFold(c.Governor.AllowedProviderKinds, "local") {
 			errs = append(errs, errors.New("HECATE_REMOTE_ALLOW_LOCAL_PROVIDERS=1 is required before allowing local provider kind in remote runtime mode"))

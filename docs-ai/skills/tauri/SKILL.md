@@ -150,13 +150,24 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   must not depend on an installed `hec` binary. The app generates an app-session
   token, opens Hecate Cloud approval in the system browser, registers this
   computer, and keeps the outbound host WebSocket alive while the app runs.
-  `hec connect` remains the headless/manual fallback and shares the same Cloud
-  host-relay protocol.
+  `hec connect` remains a separate headless/manual connector that shares the
+  Cloud transport protocol; do not assume its local authentication posture is
+  interchangeable with the native app's per-launch sidecar boundary.
 - Cloud session and host tokens live only in the OS credential store via
   `keyring`. `<app_data_dir>/cloud-connection.json` contains reconnect posture,
-  account display email, org id, and host id, but never tokens, secrets, or the
-  approval URL. The approval token stays in Rust and the system-browser URL
+  account actor/display identity, org id, and host id, but never tokens,
+  secrets, or the approval URL. The approval token stays in Rust and the system-browser URL
   fragment; never return it through Tauri IPC to the webview.
+- Generate a fresh remote-runtime secret for each app launch, pass it to the
+  loopback sidecar as `HECATE_REMOTE_RUNTIME_SECRET`, and retain it only in Rust
+  memory. Relay requests must stamp the authenticated Cloud actor, org, and host
+  identity after filtering browser-provided headers. Never expose the secret or
+  accept remote identity through Tauri IPC.
+- Rust owns Cloud login, credential storage, reconnect, transport validation,
+  body limits, and response streaming. Go owns remote endpoint authorization.
+  Do not add a second Hecate route allowlist to `cloud_connection.rs`; every
+  relayed API request must acquire remote identity so the canonical Go policy
+  applies.
 - Turning Remote access off cancels the relay and disables reconnect without
   signing the account out. Signing out revokes the registered host and app
   session where possible, removes both keychain entries, and clears local Cloud

@@ -938,8 +938,10 @@ pub fn run() {
             // Seed managed state with an empty child slot. The background
             // task fills it once hecate is spawned.
             app.manage(GatewayChild(Mutex::new(None)));
+            let remote_runtime_secret = cloud_connection::new_remote_runtime_secret();
             app.manage(CloudConnectionSupervisor::new(
                 diagnostics.data_dir.join("cloud-connection.json"),
+                remote_runtime_secret.clone(),
             ));
             // Seed an empty base URL slot. Filled by the spawn task once
             // /healthz returns 200; read by handle_quit_request to reach
@@ -962,7 +964,7 @@ pub fn run() {
 
             // Spawn the gateway in a background task.
             tauri::async_runtime::spawn(async move {
-                match sidecar::spawn_and_wait(&app_handle).await {
+                match sidecar::spawn_and_wait(&app_handle, &remote_runtime_secret).await {
                     Ok(handle) => {
                         let sidecar_pid = handle.child.id();
                         let sidecar_port = handle.port;

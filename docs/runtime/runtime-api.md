@@ -66,10 +66,11 @@ with the indexed `messages[n].content[n]` or `messages[n].content_blocks[n]`
 field path before routing or any provider call.
 
 When `HECATE_REMOTE_RUNTIME_MODE=1`, `/healthz` remains the unauthenticated
-liveness probe and every other path requires trusted trusted proxy headers:
+liveness probe and every other path requires trusted proxy headers:
 `X-Hecate-Remote-Runtime-Secret`, `X-Hecate-Remote-Actor-ID`,
-`X-Hecate-Remote-Org-ID`, `X-Hecate-Remote-Project-ID`, and
-`X-Hecate-Remote-Runtime-ID`. Valid remote identity is attached to request
+`X-Hecate-Remote-Org-ID`, and `X-Hecate-Remote-Runtime-ID`.
+`X-Hecate-Remote-Project-ID` is optional; an omitted or empty value means
+**No project**. Valid remote identity is attached to request
 context, exposed from `GET /hecate/v1/whoami` as `data.remote_identity`, added to
 the top-level HTTP span attributes, and accepted in place of the local
 runtime/inference shared tokens. Remote mode rejects local-only endpoints for
@@ -78,6 +79,14 @@ management, agent-adapter authenticate, and local provider and MCP registry
 discovery. Hecate-native `/hecate/v1/*` routes are
 explicitly classified for remote mode, and route coverage tests fail when a new
 registered route is not marked remote-safe or local-only.
+
+The native desktop app uses the same boundary without putting the whole
+sidecar into remote runtime mode. It generates a new secret for each app
+launch, passes it only to the loopback sidecar, and adds trusted identity only
+to requests received through its outbound Cloud connection. Ordinary desktop
+webview requests remain local. Once either ingress path attaches remote
+identity, the same Go route policy blocks local-only and unclassified Hecate
+endpoints; the Rust connector does not maintain a second endpoint allowlist.
 
 `GET /hecate/v1/whoami` always identifies the Hecate runtime host in addition
 to the operator session:
@@ -98,8 +107,8 @@ to the operator session:
     "remote_identity": {
       "actor_id": "actor_1",
       "org_id": "org_1",
-      "project_id": "project_1",
-      "runtime_id": "runtime_00112233445566778899aabb"
+      "project_id": "",
+      "runtime_id": "host_1"
     }
   }
 }
@@ -108,13 +117,15 @@ to the operator session:
 Local requests report `runtime_mode: "local"`,
 `operator_access: "local_operator"`, and
 `local_only_actions_available: true`; `remote_identity` is omitted. Trusted
-remote-runtime requests report the proxy-provided `runtime_id` as the canonical
-`runtime_host.id`, `operator_access: "remote_supervision"`, and
-`local_only_actions_available: false`. `public_url` is present only when
-`HECATE_PUBLIC_URL` is configured. The stable local runtime ID is generated in
-`HECATE_DATA_DIR/hecate.runtime-host.json`; the operator-facing label comes from
-`HECATE_RUNTIME_HOST_LABEL` or the machine hostname. Neither field grants
-access.
+remote-runtime requests keep that same stable `runtime_host.id`, report
+`operator_access: "remote_supervision"`, and set
+`local_only_actions_available: false`. The separate
+`remote_identity.runtime_id` identifies the trusted proxy or Cloud routing
+target; it does not replace the host identity. `public_url` is present only
+when `HECATE_PUBLIC_URL` is configured. The stable local runtime ID is
+generated in `HECATE_DATA_DIR/hecate.runtime-host.json`; the operator-facing
+label comes from `HECATE_RUNTIME_HOST_LABEL` or the machine hostname. Neither
+field grants access.
 
 Remote mode disables local model providers by default. In that default posture,
 local presets are omitted, `kind=local` provider creates/updates are rejected,
