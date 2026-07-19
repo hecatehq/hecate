@@ -2169,13 +2169,17 @@ test("Projects attention is keyboard-operable and contained at 320px", async ({ 
   await expect(narrowAttention).toBeVisible();
   const contentBox = await page.locator(".hecate-content").boundingBox();
   const statusBarBox = await page.locator(".hecate-statusbar").boundingBox();
+  const activityBarBox = await page.locator(".hecate-activitybar").boundingBox();
   const attentionBox = await narrowAttention.boundingBox();
   expect(attentionBox?.x ?? 0).toBeGreaterThanOrEqual(contentBox?.x ?? 0);
   expect((attentionBox?.x ?? 0) + (attentionBox?.width ?? 0)).toBeLessThanOrEqual(
     (contentBox?.x ?? 0) + (contentBox?.width ?? 0) + 1,
   );
+  expect(attentionBox?.y ?? 0).toBeGreaterThanOrEqual(
+    (statusBarBox?.y ?? 0) + (statusBarBox?.height ?? 0) - 1,
+  );
   expect((attentionBox?.y ?? 0) + (attentionBox?.height ?? 0)).toBeLessThanOrEqual(
-    (statusBarBox?.y ?? 0) + 1,
+    (activityBarBox?.y ?? 0) + 1,
   );
   expect(
     await narrowAttention.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
