@@ -762,6 +762,10 @@ function ProjectAssistantActionRow({
 }: {
   action: ProjectAssistantProposal["actions"][number];
 }) {
+  if (action.kind === "create_memory_candidate") {
+    return <ProjectAssistantMemorySuggestionAction action={action} />;
+  }
+
   const targetEntries = Object.entries(action.target ?? {});
   const patchEntries = Object.entries(action.patch ?? {});
   return (
@@ -778,6 +782,101 @@ function ProjectAssistantActionRow({
           <ProjectAssistantFieldGroup title="Patch" entries={patchEntries} />
         )}
       </div>
+    </div>
+  );
+}
+
+function ProjectAssistantMemorySuggestionAction({
+  action,
+}: {
+  action: ProjectAssistantProposal["actions"][number];
+}) {
+  const targetEntries = Object.entries(action.target ?? {});
+  const patchEntries = Object.entries(action.patch ?? {});
+  const title = assistantStringField(action.patch, "title") || "Memory suggestion";
+  const body = assistantStringField(action.patch, "body");
+  const kind = assistantHumanLabel(assistantStringField(action.patch, "suggested_kind"));
+  const trustLabel = assistantHumanLabel(
+    assistantStringField(action.patch, "suggested_trust_label"),
+  );
+  const sourceID = assistantStringField(action.patch, "suggested_source_id");
+  const sourceRefs = assistantSourceRefs(action.patch?.source_refs);
+  const sourceLabel =
+    sourceRefs[0]?.title ||
+    sourceRefs[0]?.id ||
+    sourceID ||
+    assistantStringField(action.target, "project_id") ||
+    "Project";
+  const evidenceItems = sourceRefs.length > 0 ? sourceRefs : sourceID ? [{ id: sourceID }] : [];
+  const displayTitle = assistantMemorySuggestionTitle(title, sourceLabel);
+  const bodyPreview = assistantMemoryBodyPreview(body);
+
+  return (
+    <article style={assistantMemoryActionStyle} aria-label={`Memory suggestion ${displayTitle}`}>
+      <div style={assistantMemoryHeaderStyle}>
+        <span className="badge badge-muted">Save for review</span>
+        <div style={assistantMemoryTitleWrapStyle}>
+          <div style={sectionLabelStyle}>Memory suggestion</div>
+          <h4 style={assistantMemoryTitleStyle}>{displayTitle}</h4>
+          <div style={assistantMemoryReasonStyle}>
+            {action.reason || "Store guidance as a suggestion you can review before promotion."}
+          </div>
+        </div>
+      </div>
+      <figure style={assistantMemoryBodyStyle}>
+        <blockquote style={assistantMemoryQuoteStyle}>
+          {bodyPreview || "No memory text supplied. Review the technical details before applying."}
+        </blockquote>
+        {body && bodyPreview !== body && (
+          <figcaption style={assistantMemoryCaptionStyle}>
+            Preview only. Open technical details for the full proposed text.
+          </figcaption>
+        )}
+      </figure>
+      <div style={assistantMemoryMetaGridStyle} aria-label="Memory suggestion summary">
+        <ProjectAssistantMemoryMeta label="Source" value={sourceLabel} />
+        <ProjectAssistantMemoryMeta label="Review path" value="Pending promotion" />
+        <ProjectAssistantMemoryMeta label="Type" value={kind || "Project guidance"} />
+        <ProjectAssistantMemoryMeta label="Trust" value={trustLabel || "Review first"} />
+      </div>
+      {evidenceItems.length > 0 && (
+        <div style={assistantMemoryEvidenceStyle} aria-label="Memory suggestion evidence">
+          <span style={fieldLabelStyle}>Evidence</span>
+          <ul style={assistantMemoryEvidenceListStyle}>
+            {evidenceItems.map((item) => (
+              <li key={`${item.title ?? ""}-${item.id}`} style={assistantMemoryEvidenceItemStyle}>
+                {item.title || item.id}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div style={assistantMemorySafetyStyle}>
+        Applying saves a pending suggestion only. It does not change durable project memory until
+        you review and promote it.
+      </div>
+      {(targetEntries.length > 0 || patchEntries.length > 0) && (
+        <details style={assistantTechnicalDetailsStyle}>
+          <summary style={assistantTechnicalSummaryStyle}>Show payload details</summary>
+          <div style={assistantPatchGridStyle}>
+            {targetEntries.length > 0 && (
+              <ProjectAssistantFieldGroup title="Target" entries={targetEntries} />
+            )}
+            {patchEntries.length > 0 && (
+              <ProjectAssistantFieldGroup title="Patch" entries={patchEntries} />
+            )}
+          </div>
+        </details>
+      )}
+    </article>
+  );
+}
+
+function ProjectAssistantMemoryMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={assistantMemoryMetaStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <span style={assistantMemoryMetaValueStyle}>{value}</span>
     </div>
   );
 }
@@ -1010,6 +1109,52 @@ function formatAssistantValue(value: unknown): string {
     }
   }
   return String(value);
+}
+
+function assistantStringField(
+  record: Record<string, unknown> | Record<string, string> | undefined,
+  key: string,
+): string {
+  const value = record?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function assistantHumanLabel(value: string): string {
+  if (!value) return "";
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function assistantMemorySuggestionTitle(title: string, sourceLabel: string): string {
+  const trimmedTitle = title.trim();
+  const guidancePrefix = "Guidance source:";
+  if (trimmedTitle.toLowerCase().startsWith(guidancePrefix.toLowerCase())) {
+    const source = trimmedTitle.slice(guidancePrefix.length).trim() || sourceLabel;
+    return `Guidance from ${source}`;
+  }
+  return trimmedTitle || "Project guidance suggestion";
+}
+
+function assistantMemoryBodyPreview(body: string): string {
+  const trimmedBody = body.trim();
+  if (trimmedBody.length <= 420) return trimmedBody;
+  return `${trimmedBody.slice(0, 417).trimEnd()}…`;
+}
+
+function assistantSourceRefs(value: unknown): Array<{ id: string; title?: string }> {
+  if (!Array.isArray(value)) return [];
+  const refs: Array<{ id: string; title?: string }> = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const source = item as Record<string, unknown>;
+    const id = typeof source.id === "string" ? source.id : "";
+    const title = typeof source.title === "string" ? source.title : "";
+    if (id || title) refs.push(title ? { id, title } : { id });
+  }
+  return refs;
 }
 
 const assistantPanelStyle: CSSProperties = {
@@ -1371,6 +1516,140 @@ const assistantFieldValueStyle: CSSProperties = {
   margin: 0,
   minWidth: 0,
   overflowWrap: "anywhere",
+};
+
+const assistantMemoryActionStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 10,
+  minWidth: 0,
+  padding: 10,
+};
+
+const assistantMemoryHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 9,
+  minWidth: 0,
+};
+
+const assistantMemoryTitleWrapStyle: CSSProperties = {
+  display: "grid",
+  flex: "1 1 220px",
+  gap: 3,
+  minWidth: 0,
+};
+
+const assistantMemoryTitleStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 13,
+  lineHeight: 1.35,
+  margin: 0,
+  overflowWrap: "anywhere",
+};
+
+const assistantMemoryReasonStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 12,
+  lineHeight: 1.4,
+  overflowWrap: "anywhere",
+};
+
+const assistantMemoryBodyStyle: CSSProperties = {
+  background: "var(--bg0)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  margin: 0,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+  padding: "8px 9px",
+};
+
+const assistantMemoryQuoteStyle: CSSProperties = {
+  margin: 0,
+  whiteSpace: "pre-wrap",
+};
+
+const assistantMemoryCaptionStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 11,
+  marginTop: 6,
+};
+
+const assistantMemoryMetaGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 140px), 1fr))",
+  minWidth: 0,
+};
+
+const assistantMemoryMetaStyle: CSSProperties = {
+  background: "var(--bg0)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 3,
+  minWidth: 0,
+  padding: "7px 8px",
+};
+
+const assistantMemoryMetaValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
+
+const assistantMemoryEvidenceStyle: CSSProperties = {
+  display: "grid",
+  gap: 5,
+  minWidth: 0,
+};
+
+const assistantMemoryEvidenceListStyle: CSSProperties = {
+  color: "var(--t2)",
+  display: "grid",
+  gap: 3,
+  listStyle: "none",
+  margin: 0,
+  minWidth: 0,
+  padding: 0,
+};
+
+const assistantMemoryEvidenceItemStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
+
+const assistantMemorySafetyStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 12,
+  lineHeight: 1.45,
+};
+
+const assistantTechnicalDetailsStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  gap: 8,
+  minWidth: 0,
+  paddingTop: 8,
+};
+
+const assistantTechnicalSummaryStyle: CSSProperties = {
+  color: "var(--t2)",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+  lineHeight: 1.4,
+  listStylePosition: "inside",
 };
 
 const assistantProposalActionsStyle: CSSProperties = {
