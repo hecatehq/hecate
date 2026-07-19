@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../lib/api";
+import { createRuntimeHostFixture } from "../test/runtime-console-fixture";
+import type { SessionResponse } from "../types/runtime";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 
 vi.mock("../lib/api", async () => {
@@ -32,7 +34,13 @@ const emptyPrev = {
 
 function setupAllResolved() {
   vi.mocked(api.getHealth).mockResolvedValue({ status: "ok", time: "2026-05-05T00:00:00Z" });
-  vi.mocked(api.getSession).mockResolvedValue({ object: "session", data: { role: "operator" } });
+  vi.mocked(api.getSession).mockResolvedValue({
+    object: "session",
+    data: {
+      role: "operator",
+      runtime_host: createRuntimeHostFixture({ id: "runtime_1", label: "MacBook" }),
+    },
+  });
   vi.mocked(api.getModels).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getProviders).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getProviderPresets).mockResolvedValue({ object: "list", data: [] });
@@ -57,23 +65,50 @@ afterEach(() => {
 });
 
 describe("deriveSessionState", () => {
-  it("returns the local label without cloud identity", () => {
-    expect(deriveSessionState(null)).toEqual({ label: "Local" });
-    expect(deriveSessionState({ role: "operator" })).toEqual({ label: "Local" });
+  it("reports a failed runtime-host load without guessing local posture", () => {
+    expect(deriveSessionState(null)).toEqual({
+      label: "Runtime unavailable",
+      title: "Runtime host identity did not load.",
+    });
+    expect(deriveSessionState({ role: "operator" } as SessionResponse["data"])).toEqual({
+      label: "Runtime unavailable",
+      title: "Runtime host identity did not load.",
+    });
   });
 
-  it("returns the hosted label with cloud identity", () => {
-    expect(
-      deriveSessionState({
-        role: "operator",
-        remote_identity: {
-          actor_id: "actor_1",
-          org_id: "org_1",
-          project_id: "proj_1",
-          runtime_id: "rt_1",
-        },
-      }),
-    ).toEqual({ label: "Hosted" });
+  it("names the local execution host", () => {
+    const state = deriveSessionState({
+      role: "operator",
+      runtime_host: createRuntimeHostFixture({ id: "runtime_1", label: "MacBook" }),
+    });
+
+    expect(state.label).toBe("On MacBook");
+    expect(state.title).toContain("Files, tasks, and External Agents run on this host");
+    expect(state.title).toContain("Runtime ID: runtime_1");
+  });
+
+  it("names the remotely supervised execution host", () => {
+    const state = deriveSessionState({
+      role: "operator",
+      runtime_host: {
+        ...createRuntimeHostFixture({ id: "runtime_1", label: "MacBook" }),
+        runtime_mode: "remote_runtime",
+        operator_access: "remote_supervision",
+        local_only_actions_available: false,
+        public_url: "https://hecate.example.test",
+      },
+      remote_identity: {
+        actor_id: "actor_1",
+        org_id: "org_1",
+        project_id: "proj_1",
+        runtime_id: "runtime_1",
+      },
+    });
+
+    expect(state.label).toBe("Supervising MacBook");
+    expect(state.title).toContain("Files, tasks, and External Agents run on that host");
+    expect(state.title).toContain("Host-local actions are unavailable");
+    expect(state.title).toContain("Public URL: https://hecate.example.test");
   });
 });
 
@@ -370,7 +405,10 @@ describe("resolveDashboardSnapshot", () => {
     expect(onEssentials).toHaveBeenCalledTimes(1);
     const essentials = onEssentials.mock.calls[0][0];
     expect(essentials.health.status).toBe("ok");
-    expect(essentials.sessionInfo).toEqual({ role: "operator" });
+    expect(essentials.sessionInfo).toEqual({
+      role: "operator",
+      runtime_host: createRuntimeHostFixture({ id: "runtime_1", label: "MacBook" }),
+    });
     expect(essentials.settingsConfig?.providers).toEqual([]);
 
     // Secondary is still pending — finish it so the outer promise

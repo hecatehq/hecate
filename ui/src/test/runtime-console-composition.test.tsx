@@ -128,7 +128,19 @@ function defaultBackendMock(
     if (url === "/hecate/v1/whoami") {
       return jsonResponse({
         object: "session",
-        data: { authenticated: true, invalid_token: false, role: "admin", source: "anonymous" },
+        data: {
+          authenticated: true,
+          invalid_token: false,
+          role: "admin",
+          source: "anonymous",
+          runtime_host: {
+            id: "runtime_test",
+            label: "Test host",
+            runtime_mode: "local",
+            operator_access: "local_operator",
+            local_only_actions_available: true,
+          },
+        },
       });
     }
     if (url === "/v1/models") return jsonResponse({ object: "list", data: [] });
@@ -3654,10 +3666,10 @@ describe("useRuntimeConsole", () => {
     expect(window.localStorage.getItem("hecate.chatSessionID")).toBe("a1");
   });
 
-  it("settles into a Local session after the dashboard loads", async () => {
+  it("settles into the named local runtime after the dashboard loads", async () => {
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    expect(result.current.state.session.label).toBe("Local");
+    expect(result.current.state.session.label).toBe("On Test host");
   });
 
   // Regression for the "ModelPicker blinks fast when picking Ollama

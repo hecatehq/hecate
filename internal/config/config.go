@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/browserrunner"
+	"github.com/hecatehq/hecate/internal/runtimehost"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -47,18 +48,22 @@ type ServerConfig struct {
 	RemoteAllowACPTerminals           bool
 	PersonalRemoteExternalAgentLogins bool
 	PublicURL                         string
-	DataDir                           string
-	BootstrapFile                     string
-	ControlPlaneBackend               string
-	ControlPlaneKey                   string
-	ControlPlaneSecretKey             string
-	TasksBackend                      string
-	TaskApprovalPolicies              []string
-	TaskQueueBackend                  string
-	TaskQueueWorkers                  int
-	TaskQueueBuffer                   int
-	TaskQueueLeaseSeconds             int
-	TaskMaxConcurrentPerTenant        int
+	// RuntimeHostID is resolved from data-directory runtime-host state by
+	// cmd/hecate. It is not loaded directly from the environment.
+	RuntimeHostID              string
+	RuntimeHostLabel           string
+	DataDir                    string
+	BootstrapFile              string
+	ControlPlaneBackend        string
+	ControlPlaneKey            string
+	ControlPlaneSecretKey      string
+	TasksBackend               string
+	TaskApprovalPolicies       []string
+	TaskQueueBackend           string
+	TaskQueueWorkers           int
+	TaskQueueBuffer            int
+	TaskQueueLeaseSeconds      int
+	TaskMaxConcurrentPerTenant int
 	// TaskReconcileInterval controls how often the periodic reconciler
 	// scans for runs stuck in "running" past 3× the lease duration.
 	// Default 30s. Set via HECATE_TASK_RECONCILE_INTERVAL (Go duration
@@ -505,7 +510,8 @@ func LoadFromEnv() Config {
 			PersonalRemoteExternalAgentLogins: personalRemoteExternalAgentLogins,
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
-			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
+			PublicURL:        getEnv("HECATE_PUBLIC_URL", ""),
+			RuntimeHostLabel: getEnv("HECATE_RUNTIME_HOST_LABEL", ""),
 			// Default `.data/` keeps the auto-generated bootstrap file
 			// (AES-GCM key for persisted provider secrets) out of the repo root so a stray
 			// `git add .` can't sweep it up. Docker overrides this to /data
@@ -674,6 +680,9 @@ func (c Config) Validate() error {
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 			errs = append(errs, fmt.Errorf("HECATE_PUBLIC_URL must be an absolute http(s) URL (got %q)", publicURL))
 		}
+	}
+	if err := runtimehost.ValidateLabel(c.Server.RuntimeHostLabel); err != nil {
+		errs = append(errs, fmt.Errorf("HECATE_RUNTIME_HOST_LABEL: %w", err))
 	}
 	for _, origin := range c.Server.AllowedOrigins {
 		if !validAllowedOrigin(origin) {

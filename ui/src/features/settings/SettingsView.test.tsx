@@ -8,6 +8,7 @@ import { SettingsView } from "./SettingsView";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
+  createRuntimeHostFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
@@ -915,6 +916,11 @@ describe("Connections external-agent panel", () => {
         withAdapter({
           sessionInfo: {
             role: "operator",
+            runtime_host: createRuntimeHostFixture({
+              runtime_mode: "remote_runtime",
+              operator_access: "remote_supervision",
+              local_only_actions_available: false,
+            }),
             remote_identity: {
               actor_id: "actor_1",
               org_id: "org_1",

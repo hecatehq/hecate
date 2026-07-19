@@ -39,6 +39,7 @@ authenticating reverse proxy is your access-control boundary.
 
 - [Image pinning](#image-pinning)
 - [Remote runtime mode](#remote-runtime-mode)
+- [Remote supervision from another device](#remote-supervision-from-another-device)
 - [Binary install](#binary-install)
 - [Desktop app](#desktop-app)
 - [Resetting state](#resetting-state)
@@ -134,6 +135,48 @@ may restrict or forbid shared/account-delegated use of browser or CLI login
 state; Hecate does not interpret, bypass, or relax those terms. For anything
 beyond personal remote use, use vendor-supported API keys, team/project
 credentials, enterprise tokens, or future vendor auth flows.
+
+## Remote supervision from another device
+
+A phone or another browser can act as an operator surface for a Hecate runtime
+running on a laptop, workstation, VM, or container. The remote browser does not
+receive that host's filesystem, credentials, or processes. It sends supervised
+operations to the named runtime host, and work continues to execute there.
+
+```text
+Phone or remote browser
+        |
+        | authenticated operator request
+        v
+Hecate runtime host: MacBook
+        +-- chats, tasks, approvals, and traces
+        +-- workspaces, credentials, and External Agents
+        +-- embedded Cairnline project coordination
+```
+
+Set `HECATE_RUNTIME_HOST_LABEL` to a short operator-facing name such as
+`MacBook`. Hecate gives the runtime a stable opaque ID in
+`hecate.runtime-host.json`; the ID follows that Hecate data directory across
+restarts, while changing the label does not change the ID. The operator shell
+shows `On MacBook` for local access and `Supervising MacBook` when the request
+arrives through trusted remote-runtime identity. `GET /hecate/v1/whoami`
+exposes the same runtime identity and supervision posture to other clients.
+
+Hecate does not currently provision a public endpoint, tunnel, device pairing,
+or account system. The operator must provide the authenticated proxy, private
+network, VPN, or surrounding control plane. For Hecate's explicit remote-safe
+route policy, use remote runtime mode behind a trusted proxy as described
+above; do not expose the header secret directly to a browser. A self-hosted
+non-loopback bind with shared tokens remains an operator-managed deployment and
+does not activate trusted remote-runtime identity or its local-only route
+blocks.
+
+This is remote supervision of one runtime host, not process migration. Chats,
+tasks, approvals, credentials, workspaces, execution references, and running
+External Agents remain attached to that host. Cairnline owns the portable
+project coordination model, but Hecate currently uses its embedded local store;
+moving or sharing that graph between runtime hosts still requires an explicit
+coordination transport and host-readiness checks.
 
 ## Image pinning
 
@@ -346,6 +389,11 @@ the bootstrap key, not as env-only storage: Hecate persists that key to
 any existing bootstrap key, and the bootstrap path must be writable. Back up the
 env/secret-manager value and the bootstrap file with the same care as the
 database; if they diverge, the env value wins on the next startup.
+
+Runtime host identity is separate, non-secret state in
+`HECATE_DATA_DIR/hecate.runtime-host.json`. Include that file when restoring the
+same named runtime host. Omitting it creates a new runtime ID on the next start
+without changing the bootstrap encryption key or stored credentials.
 
 ## Storage backend
 

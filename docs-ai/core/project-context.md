@@ -67,7 +67,8 @@ proposal records. Hecate keeps the `/hecate/v1/projects*` API and operator UI as
 its facade over that state; do not add a second Hecate-native portable store,
 backend selector, mirror, migration route, or fallback authority.
 
-Hecate still owns execution concerns: Agent Presets, provider/model defaults,
+Hecate still owns execution concerns: stable runtime host identity and remote
+supervision posture, Agent Presets, provider/model defaults,
 task and External Agent dispatch, approvals, sandbox and workspace operations,
 runtime references, context snapshots, traces, and the operator shell.
 Assignment launch and preflight therefore combine Cairnline coordination state

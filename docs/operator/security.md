@@ -30,6 +30,13 @@ Hecate assumes the operator trusts their own machine, local user account, and se
   servers, mount tools, grant secrets, or make connector network calls.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.
 
+The runtime host ID and `HECATE_RUNTIME_HOST_LABEL` are display and continuity
+metadata, not authentication credentials. A remote browser must still reach
+Hecate through the deployment's authenticated access boundary. When the shell
+says `Supervising <host>`, files, tasks, credentials, and External Agents remain
+on that runtime host; the browser has not acquired a local shell or copied the
+runtime state to its device.
+
 ## Runtime boundaries
 
 Hecate has different execution and shell-access surfaces with different trust

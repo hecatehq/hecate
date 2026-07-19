@@ -19,6 +19,7 @@ import { readProjectAssistantChatHandoff } from "../../lib/project-assistant-cha
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
+  createRuntimeHostFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type { ProjectRecord } from "../../types/project";
@@ -2463,6 +2464,11 @@ describe("ChatView input", () => {
       agentAdapters: [],
       sessionInfo: {
         role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
         remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
@@ -7026,6 +7032,11 @@ describe("ChatView external-agent target", () => {
         agentWorkspace: "",
         sessionInfo: {
           role: "operator",
+          runtime_host: createRuntimeHostFixture({
+            runtime_mode: "remote_runtime",
+            operator_access: "remote_supervision",
+            local_only_actions_available: false,
+          }),
           remote_identity: {
             actor_id: "actor_1",
             org_id: "org_1",

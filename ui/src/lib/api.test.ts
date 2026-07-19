@@ -292,6 +292,13 @@ describe("api client", () => {
           invalid_token: false,
           role: "admin",
           source: "anonymous",
+          runtime_host: {
+            id: "runtime_test",
+            label: "Test host",
+            runtime_mode: "local",
+            operator_access: "local_operator",
+            local_only_actions_available: true,
+          },
           capabilities: {
             local_providers_allowed: true,
           },
@@ -306,6 +313,7 @@ describe("api client", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.role).toBe("admin");
+    expect(result.data.runtime_host.label).toBe("Test host");
     expect(result.data.capabilities?.local_providers_allowed).toBe(true);
   });
 

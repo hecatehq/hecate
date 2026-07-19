@@ -517,7 +517,16 @@ export async function mockGatewayAPIs(
     r.fulfill(
       ok({
         object: "session",
-        data: { role: "operator" },
+        data: {
+          role: "operator",
+          runtime_host: {
+            id: "runtime_test",
+            label: "Test host",
+            runtime_mode: "local",
+            operator_access: "local_operator",
+            local_only_actions_available: true,
+          },
+        },
       }),
     ),
   );

@@ -8,6 +8,7 @@ import { discoverLocalProviders } from "../../lib/api";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
+  createRuntimeHostFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
@@ -221,6 +222,11 @@ describe("ProvidersView add provider modal", () => {
       session: { label: "Hosted" },
       sessionInfo: {
         role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
         remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
@@ -900,6 +906,11 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       sessionInfo: {
         role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
         remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
