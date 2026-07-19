@@ -1011,14 +1011,45 @@ function projectAssistantActionSummary(
   patchEntries: Array<[string, unknown]>,
   targetEntries: Array<[string, unknown]>,
 ): string {
-  const entries = patchEntries.length > 0 ? patchEntries : targetEntries;
+  const prioritizedEntries = projectAssistantPrioritizedSummaryEntries(
+    patchEntries.length > 0 ? patchEntries : targetEntries,
+  );
+  const readableEntries = prioritizedEntries.filter(
+    ([key]) => projectAssistantSummaryKeyPriority(key) < 10,
+  );
+  const entries = readableEntries.length > 0 ? readableEntries : prioritizedEntries;
   if (entries.length === 0) return "";
   const visibleEntries = entries.slice(0, 2);
   const summary = visibleEntries
     .map(([key, value]) => `${assistantHumanLabel(key)}: ${formatAssistantValue(value)}`)
     .join(" · ");
-  const remaining = entries.length - visibleEntries.length;
+  const remaining = prioritizedEntries.length - visibleEntries.length;
   return remaining > 0 ? `${summary} · ${remaining} more` : summary;
+}
+
+function projectAssistantSummaryKeyPriority(key: string): number {
+  const priority = new Map([
+    ["name", 0],
+    ["title", 1],
+    ["brief", 2],
+    ["summary", 3],
+    ["status", 4],
+    ["destination_kind", 5],
+    ["role_id", 6],
+    ["owner_role_id", 7],
+  ]);
+  return priority.get(key) ?? (key.endsWith("_id") || key === "id" ? 20 : 10);
+}
+
+function projectAssistantPrioritizedSummaryEntries(
+  entries: Array<[string, unknown]>,
+): Array<[string, unknown]> {
+  return [...entries].sort(([leftKey], [rightKey]) => {
+    const leftPriority = projectAssistantSummaryKeyPriority(leftKey);
+    const rightPriority = projectAssistantSummaryKeyPriority(rightKey);
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return 0;
+  });
 }
 
 function projectAssistantFollowUpActions({
