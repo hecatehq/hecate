@@ -774,7 +774,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 
 	runs, err := r.store.ListRuns(ctx, task.ID)
 	if err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, "", "run_list_failed", err)
+		recordOrchestratorRunFailed(trace, task.ID, types.TaskRun{WorkflowMode: task.WorkflowMode}, "run_list_failed", err)
 		return nil, err
 	}
 	for _, existingRun := range runs {
@@ -853,7 +853,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	// sufficient because persisted rows may originate from migrations or a
 	// different server version.
 	if err := taskworkflow.ValidateExecution(task, run); err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workflow_policy_invalid", err)
+		recordOrchestratorRunFailed(trace, task.ID, run, "workflow_policy_invalid", err)
 		return nil, fmt.Errorf("validate workflow execution: %w", err)
 	}
 	if taskworkflow.IsQAExecution(task, run) {
@@ -890,7 +890,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	if strings.TrimSpace(run.WorkspacePath) == "" {
 		provisionPlan, err = r.workspaces.planProvision(task, run)
 		if err != nil {
-			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_provision_failed", err)
+			recordOrchestratorRunFailed(trace, task.ID, run, "workspace_provision_failed", err)
 			return nil, err
 		}
 		run.WorkspacePath = provisionPlan.workspacePath
@@ -913,12 +913,12 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		}
 		run.WorkspacePath, err = r.workspaces.provisionPlanned(ctx, provisionPlan)
 		if err != nil {
-			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_provision_failed", err)
+			recordOrchestratorRunFailed(trace, task.ID, run, "workspace_provision_failed", err)
 			return nil, err
 		}
 	}
 	if run, err = r.validateQAWorkspace(task, run); err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_policy_invalid", err)
+		recordOrchestratorRunFailed(trace, task.ID, run, "workspace_policy_invalid", err)
 		return nil, err
 	}
 	contextSource := options.RetryFromRun
@@ -949,11 +949,11 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			run.WorkspaceID = qaWorkspaceID
 		}
 		if err := taskworkflow.ValidateExecution(task, run); err != nil {
-			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workflow_policy_invalid", err)
+			recordOrchestratorRunFailed(trace, task.ID, run, "workflow_policy_invalid", err)
 			return nil, fmt.Errorf("validate workflow execution after run initialization: %w", err)
 		}
 		if run, err = r.validateQAWorkspace(task, run); err != nil {
-			recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_policy_invalid", err)
+			recordOrchestratorRunFailed(trace, task.ID, run, "workspace_policy_invalid", err)
 			return nil, err
 		}
 	}
@@ -974,7 +974,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		BudgetMicrosUSD: options.BudgetMicrosUSD,
 	})
 	if err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, run.ID, "run_create_failed", err)
+		recordOrchestratorRunFailed(trace, task.ID, run, "run_create_failed", err)
 		return nil, err
 	}
 	task = started.Task
@@ -1200,12 +1200,12 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 	// and direct store writes. Do not lease a workspace or select an executor
 	// until the recorded contract is known safe.
 	if err := taskworkflow.ValidateExecution(task, run); err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workflow_policy_invalid", err)
+		recordOrchestratorRunFailed(trace, task.ID, run, "workflow_policy_invalid", err)
 		return nil, fmt.Errorf("validate workflow execution: %w", err)
 	}
 	validatedRun, err := r.validateQAWorkspace(task, run)
 	if err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, run.ID, "workspace_policy_invalid", err)
+		recordOrchestratorRunFailed(trace, task.ID, run, "workspace_policy_invalid", err)
 		return nil, err
 	}
 	run = validatedRun
@@ -1276,7 +1276,7 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		},
 	})
 	if err != nil {
-		recordOrchestratorRunFailed(trace, task.ID, run.ID, "executor_failed", err)
+		recordOrchestratorRunFailed(trace, task.ID, run, "executor_failed", err)
 		return nil, err
 	}
 
@@ -1405,7 +1405,7 @@ func recordOrchestratorRunStarted(trace *profiler.Trace, taskID string, run type
 	trace.Record(telemetry.EventOrchestratorRunStarted, attrs)
 }
 
-func recordOrchestratorRunFailed(trace *profiler.Trace, taskID, runID, errorKind string, err error) {
+func recordOrchestratorRunFailed(trace *profiler.Trace, taskID string, run types.TaskRun, errorKind string, err error) {
 	if trace == nil || err == nil {
 		return
 	}
@@ -1417,8 +1417,13 @@ func recordOrchestratorRunFailed(trace *profiler.Trace, taskID, runID, errorKind
 		telemetry.AttrErrorMessage:    err.Error(),
 		telemetry.AttrHecateTaskID:    taskID,
 	}
-	if strings.TrimSpace(runID) != "" {
-		attrs[telemetry.AttrHecateRunID] = runID
+	if strings.TrimSpace(run.ID) != "" {
+		attrs[telemetry.AttrHecateRunID] = run.ID
+	}
+	// Failure telemetry can occur before a persisted snapshot validates. Emit
+	// only the closed QA selector, never an arbitrary malformed stored value.
+	if taskworkflow.IsQA(run.WorkflowMode) {
+		attrs[telemetry.AttrHecateWorkflowMode] = string(types.WorkflowModeQA)
 	}
 	trace.Record(telemetry.EventOrchestratorRunFailed, attrs)
 }
