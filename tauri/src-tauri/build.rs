@@ -19,6 +19,7 @@ fn main() {
             "cloud_connection_status",
             "cloud_connection_start",
             "cloud_connection_stop",
+            "cloud_connection_sign_out",
         ]));
     tauri_build::try_build(attributes).expect("tauri-build failed");
 }

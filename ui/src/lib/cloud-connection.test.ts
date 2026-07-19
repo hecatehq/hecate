@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canUseDesktopCloudConnection,
   getDesktopCloudConnectionStatus,
+  signOutDesktopCloudConnection,
   startDesktopCloudConnection,
   stopDesktopCloudConnection,
 } from "./cloud-connection";
@@ -33,29 +34,37 @@ describe("desktop cloud connection bridge", () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     invokeMock.mockResolvedValueOnce({
       available: true,
+      phase: "connected",
       running: true,
+      authorizing: false,
+      signed_in: true,
       gateway_ready: true,
       auto_start_enabled: true,
-      hec_path: "/Users/alice/.local/bin/hec",
+      account_email: "alice@example.com",
+      cloud_url: "https://console.hecatehq.com",
       base_url: "http://127.0.0.1:54321",
-      message: "Connected to Hecate Cloud.",
-      last_exit_status: null,
+      message: "Remote access is on.",
+      last_error: null,
     });
 
     await expect(getDesktopCloudConnectionStatus()).resolves.toEqual({
       available: true,
+      phase: "connected",
       running: true,
+      authorizing: false,
+      signed_in: true,
       gateway_ready: true,
       auto_start_enabled: true,
-      hec_path: "/Users/alice/.local/bin/hec",
+      account_email: "alice@example.com",
+      cloud_url: "https://console.hecatehq.com",
       base_url: "http://127.0.0.1:54321",
-      message: "Connected to Hecate Cloud.",
-      last_exit_status: null,
+      message: "Remote access is on.",
+      last_error: null,
     });
     expect(invokeMock).toHaveBeenCalledWith("cloud_connection_status", undefined);
   });
 
-  it("starts and stops through fixed native commands", async () => {
+  it("starts, stops, and signs out through fixed native commands", async () => {
     Reflect.set(window, "__TAURI__", {});
     invokeMock
       .mockResolvedValueOnce({
@@ -71,12 +80,21 @@ describe("desktop cloud connection bridge", () => {
         gateway_ready: true,
         auto_start_enabled: false,
         message: "Disconnected",
+      })
+      .mockResolvedValueOnce({
+        available: true,
+        running: false,
+        gateway_ready: true,
+        auto_start_enabled: false,
+        message: "Signed out",
       });
 
     await startDesktopCloudConnection();
     await stopDesktopCloudConnection();
+    await signOutDesktopCloudConnection();
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "cloud_connection_start", undefined);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "cloud_connection_stop", undefined);
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "cloud_connection_sign_out", undefined);
   });
 });
