@@ -14,21 +14,26 @@ import { Icon, Icons } from "./Icons";
 // tabs use, so dialogs read as part of the page rather than a foreign
 // system widget. Keyboard: Escape closes.
 function DialogChrome({
+  id,
   title,
   ariaLabel,
   children,
   dismissible = true,
   footer,
+  focusToken,
   initialFocusRef,
   onClose,
   returnFocusRef,
   surface,
 }: {
+  id?: string;
   title: string;
   ariaLabel?: string;
   children: React.ReactNode;
   dismissible?: boolean;
   footer: React.ReactNode;
+  /** Re-evaluate focus when an in-dialog action changes available controls. */
+  focusToken?: unknown;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
@@ -40,7 +45,6 @@ function DialogChrome({
   );
 
   useEffect(() => {
-    const dialog = dialogRef.current;
     const activeElement =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const requestedInitialFocus = initialFocusRef?.current;
@@ -50,10 +54,22 @@ function DialogChrome({
       isRenderedDialogControl(requestedInitialFocus)
     ) {
       requestedInitialFocus.focus();
-    } else if (!activeElement || !dialogRef.current?.contains(activeElement)) {
+    } else if (
+      !activeElement ||
+      !dialogRef.current?.contains(activeElement) ||
+      !isRenderedDialogControl(activeElement)
+    ) {
       const focusable = focusableDialogElements(dialogRef.current);
       (focusable[0] ?? dialogRef.current)?.focus();
     }
+  }, [focusToken, initialFocusRef]);
+
+  // Return focus only when the dialog actually closes. An earlier version
+  // combined this with the focusToken effect above, so changing an action
+  // from enabled to disabled could briefly return focus to the page while
+  // the modal was still open.
+  useEffect(() => {
+    const dialog = dialogRef.current;
     return () => {
       const activeElementOnClose =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -82,7 +98,7 @@ function DialogChrome({
         returnFocusRef.current.focus();
       }
     };
-  }, [initialFocusRef, returnFocusRef]);
+  }, [returnFocusRef]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -103,7 +119,11 @@ function DialogChrome({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 50,
+        // The desktop macOS titlebar sits at 1000 so its drag region
+        // stays above normal workspace content. Dialogs must still
+        // eclipse it; otherwise a portal-mounted update dialog leaves
+        // a live strip of titlebar over its scrim.
+        zIndex: 1100,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -114,6 +134,7 @@ function DialogChrome({
     >
       <div
         ref={dialogRef}
+        id={id}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel ?? title}
@@ -272,21 +293,25 @@ export function SlideOver({
 // content that interrupts to ask a question (vs SlideOver which feels
 // like an inspector slot attached to the page).
 export function Modal({
+  id,
   title,
   ariaLabel,
   children,
   dismissible = true,
   footer,
+  focusToken,
   initialFocusRef,
   onClose,
   returnFocusRef,
   width = 560,
 }: {
+  id?: string;
   title: string;
   ariaLabel?: string;
   children: React.ReactNode;
   dismissible?: boolean;
   footer: React.ReactNode;
+  focusToken?: unknown;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
@@ -294,10 +319,12 @@ export function Modal({
 }) {
   return (
     <DialogChrome
+      id={id}
       title={title}
       ariaLabel={ariaLabel}
       dismissible={dismissible}
       footer={footer}
+      focusToken={focusToken}
       initialFocusRef={initialFocusRef}
       onClose={onClose}
       returnFocusRef={returnFocusRef}

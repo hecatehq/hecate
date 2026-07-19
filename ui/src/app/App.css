@@ -9,10 +9,9 @@
   background: var(--bg0);
 }
 
-/* The overlay-titlebar strip is macOS-only. Linux/Windows render
-   the UpdateBanner inside .hecate-content instead — see
-   AppShell.tsx's hasOverlayTitlebar gate — so we don't reserve the
-   28-px top inset on those platforms. */
+/* The overlay-titlebar strip is macOS-only. Linux/Windows keep their
+   system titlebar outside the webview, so only macOS needs the 28-px
+   in-webview inset. */
 html[data-tauri-os="macos"] .hecate-shell {
   padding-top: 28px;
 }
@@ -34,28 +33,34 @@ html[data-tauri-os="macos"] .hecate-shell {
   cursor: default;
 }
 
-/* Compact the update banner so it lives in the 28-px overlay
-   titlebar instead of stealing a row below it. The base .page-banner
-   styling assumes a full-width below-titlebar slot; here we strip
-   the border/background and shrink to fit. */
-.hecate-titlebar .page-banner {
-  flex: 1;
-  height: 100%;
-  padding: 0;
-  border: 0;
+.desktop-update-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.desktop-update-control__trigger {
+  align-items: center;
   background: transparent;
-  font-size: 11px;
-  font-family: var(--font-sans);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 5px;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 6px;
+  white-space: nowrap;
 }
 
-.hecate-titlebar .page-banner--update {
-  color: var(--t1);
+.desktop-update-control__trigger:hover {
+  background: color-mix(in srgb, currentColor 13%, transparent);
 }
 
-.hecate-titlebar .page-banner .btn {
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 1.2;
+.desktop-update-control__trigger:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
 }
 
 .hecate-workarea {
@@ -199,6 +204,148 @@ html[data-tauri-os="macos"] .hecate-shell {
   white-space: nowrap;
 }
 
+.hecate-statusbar .desktop-update-control {
+  margin-left: auto;
+}
+
+.hecate-statusbar .desktop-update-control__trigger[data-update-state="available"] {
+  background: color-mix(in srgb, var(--accent-fg) 16%, transparent);
+  font-weight: 600;
+}
+
+.hecate-statusbar .desktop-update-control__trigger[data-update-state="error"] {
+  color: var(--amber-lo);
+}
+
+.desktop-update-details {
+  color: var(--t1);
+  display: grid;
+  font-size: 13px;
+  gap: 16px;
+  line-height: 1.5;
+}
+
+.desktop-update-details__status {
+  color: var(--t0);
+  font-size: 14px;
+  margin: 0;
+}
+
+.desktop-update-details__versions {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin: 0;
+  overflow: hidden;
+}
+
+.desktop-update-details__versions > div {
+  border-right: 1px solid var(--border);
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.desktop-update-details__versions > div:last-child {
+  border-right: 0;
+}
+
+.desktop-update-details__versions dt {
+  color: var(--t3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.desktop-update-details__versions dd {
+  color: var(--t0);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.desktop-update-details__progress {
+  align-items: center;
+  color: var(--t2);
+  display: grid;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  gap: 7px;
+  grid-template-columns: minmax(100px, 1fr) auto;
+}
+
+.desktop-update-details__progress-bar {
+  appearance: none;
+  background: var(--bg3);
+  border: 0;
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.desktop-update-details__progress-bar::-webkit-progress-bar {
+  background: var(--bg3);
+}
+
+.desktop-update-details__progress-bar::-webkit-progress-value {
+  background: var(--teal);
+  transition: width 100ms linear;
+}
+
+.desktop-update-details__progress-bar::-moz-progress-bar {
+  background: var(--teal);
+}
+
+.desktop-update-details__error {
+  background: var(--red-bg);
+  border-left: 2px solid var(--red);
+  color: var(--t0);
+  margin: 0;
+  padding: 9px 10px;
+}
+
+.desktop-update-details__notes {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.desktop-update-details__notes h3 {
+  color: var(--t2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.desktop-update-details__notes pre {
+  color: var(--t1);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.desktop-update-details__verification {
+  color: var(--t3);
+  font-size: 11px;
+  margin: 0;
+}
+
+.desktop-update-details__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 @media (max-width: 640px) {
   .hecate-shell {
     height: 100dvh;
@@ -328,47 +475,6 @@ html[data-tauri-os="macos"] .hecate-shell {
   border-color: var(--red-border);
   background: var(--red-bg);
   color: var(--red);
-}
-
-.page-banner--update {
-  border-color: var(--border);
-  background: var(--bg2);
-  color: var(--t1);
-  align-items: center;
-}
-
-.page-banner--update .page-banner__actions {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.page-banner__progress-text {
-  color: var(--t2);
-  margin-left: 4px;
-}
-
-.page-banner__progress {
-  width: 120px;
-  height: 4px;
-  appearance: none;
-  border: none;
-  border-radius: 2px;
-  overflow: hidden;
-  background: var(--bg3);
-}
-
-.page-banner__progress::-webkit-progress-bar {
-  background: var(--bg3);
-}
-
-.page-banner__progress::-webkit-progress-value {
-  background: var(--teal);
-  transition: width 100ms linear;
-}
-
-.page-banner__progress::-moz-progress-bar {
-  background: var(--teal);
 }
 
 /* Toast notifications */

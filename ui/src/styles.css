@@ -78,8 +78,11 @@ body {
   --shadow-dropdown: 0 4px 12px oklch(0 0 0 / 0.2);
   --shadow-modal: 0 12px 40px oklch(0 0 0 / 0.4);
 
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "Cascadia Code", monospace;
+  /* The desktop shell intentionally starts with local system fonts:
+     Hecate launches offline and should feel at home on the operator's
+     platform without disclosing a font request to a third party. */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
 
   --topbar-h: 44px;
   --radius: 6px;
@@ -100,6 +103,24 @@ body {
   --warning: var(--amber);
   --danger: var(--red);
   --shadow: 0 4px 12px oklch(0% 0 0 / 0.3);
+}
+
+/* Keep one console visual language, but let the desktop shell use the
+   typography each platform already gives its native controls. Browser
+   users retain the system-ui defaults above. */
+html[data-tauri-os="macos"] {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-mono: "SFMono-Regular", ui-monospace, Menlo, Monaco, monospace;
+}
+
+html[data-tauri-os="windows"] {
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+}
+
+html[data-tauri-os="linux"] {
+  --font-sans: "Noto Sans", Cantarell, Ubuntu, system-ui, sans-serif;
+  --font-mono: "Noto Sans Mono", "DejaVu Sans Mono", ui-monospace, monospace;
 }
 
 /* ─── Light theme ─────────────────────────────────────────────────────────

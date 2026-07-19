@@ -38,8 +38,8 @@ const APP_LOG_FILE: &str = "app";
 /// "update available" badge. useDesktopUpdate calls this when its
 /// state transitions in or out of "update detected." macOS gets a
 /// "•" label (matches the rest of the system's notification dot
-/// style); other platforms get a count of 1 since they don't
-/// support a custom label.
+/// style); Linux gets a count of 1. Windows does not support taskbar
+/// counts through Tauri, so it relies on the visible status-bar control.
 #[tauri::command]
 fn set_update_badge(window: tauri::WebviewWindow, visible: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -51,15 +51,45 @@ fn set_update_badge(window: tauri::WebviewWindow, visible: bool) -> Result<(), S
         };
         window.set_badge_label(label).map_err(|e| e.to_string())
     };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     let result = {
         let count = if visible { Some(1i64) } else { None };
         window.set_badge_count(count).map_err(|e| e.to_string())
+    };
+    #[cfg(target_os = "windows")]
+    let result: Result<(), String> = {
+        // Tauri does not support taskbar badge counts on Windows. The visible
+        // status-bar update control is the deliberate cross-platform cue.
+        let _ = (window, visible);
+        Ok(())
     };
     if let Err(ref err) = result {
         log::warn!("set update badge failed visible={visible}: {err}");
     }
     result
+}
+
+/// A native menu request can arrive while the splash screen is still shown,
+/// before the gateway-backed webview has registered its event listener. Keep
+/// one coalesced intent so the renderer consumes it as soon as it is ready.
+#[derive(Default)]
+struct PendingDesktopUpdateCheck(AtomicBool);
+
+impl PendingDesktopUpdateCheck {
+    fn enqueue(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    fn take(&self) -> bool {
+        self.0.swap(false, Ordering::SeqCst)
+    }
+}
+
+/// JS-invocable command: consume a native update-check request that arrived
+/// before the renderer began listening for `hecate:check-for-updates`.
+#[tauri::command]
+fn take_pending_desktop_update_check(pending: tauri::State<'_, PendingDesktopUpdateCheck>) -> bool {
+    pending.take()
 }
 
 #[tauri::command]
@@ -419,6 +449,7 @@ fn open_workspace_target(path: String, target: String) -> Result<(), String> {
     open_workspace_target_path(&path, target)
 }
 
+#[cfg(target_os = "macos")]
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     // Standard macOS application menu structure:
     //   App / Edit / View / Window
@@ -473,6 +504,51 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .item(&edit)
         .item(&view)
         .item(&window)
+        .build()?;
+    app.set_menu(menu).map(|_| ())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    // Windows and Linux conventionally put app actions in File and Help,
+    // rather than exposing macOS-only concepts such as Services and Hide.
+    // Keep the custom IDs consistent with the macOS menu so their handlers
+    // stay owned by the same application shell code below.
+    let file = SubmenuBuilder::new(app, "File")
+        .text("open-data-directory", "Open Data Directory")
+        .separator()
+        .quit()
+        .build()?;
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let view = SubmenuBuilder::new(app, "View").fullscreen().build()?;
+    let about_metadata = AboutMetadataBuilder::new()
+        .name(Some("Hecate"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .website(Some("https://hecate.sh"))
+        .website_label(Some("hecate.sh"))
+        .build();
+    let help = SubmenuBuilder::new(app, "Help")
+        .about(Some(about_metadata))
+        .separator()
+        .text("check-for-updates", "Check for Updates\u{2026}")
+        .separator()
+        .text("open-app-log", "Open App Log")
+        .text("open-gateway-log", "Open Gateway Log")
+        .text("copy-diagnostics", "Copy Diagnostics")
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&file)
+        .item(&edit)
+        .item(&view)
+        .item(&help)
         .build()?;
     app.set_menu(menu).map(|_| ())
 }
@@ -709,6 +785,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             set_update_badge,
+            take_pending_desktop_update_check,
             open_workspace_target,
             cloud_connection_status,
             cloud_connection_start,
@@ -718,7 +795,7 @@ pub fn run() {
             "check-for-updates" => {
                 // The actual check lives in the renderer (useDesktopUpdate
                 // owns the @tauri-apps/plugin-updater client and the
-                // banner state machine). Emit an event the webview can
+                // update control/dialog state machine). Emit an event the webview can
                 // hook into; the React side handles the rest.
                 if let Some(win) = app.get_webview_window("main") {
                     if let Err(e) = win.show() {
@@ -729,6 +806,11 @@ pub fn run() {
                     }
                 } else {
                     log::warn!("check-for-updates requested but main window was not found");
+                }
+                if let Some(pending) = app.try_state::<PendingDesktopUpdateCheck>() {
+                    pending.enqueue();
+                } else {
+                    log::warn!("check-for-updates requested before pending state was initialized");
                 }
                 if let Err(e) = app.emit("hecate:check-for-updates", ()) {
                     log::warn!("emit hecate:check-for-updates failed: {e}");
@@ -801,6 +883,7 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            app.manage(PendingDesktopUpdateCheck::default());
             install_menu(app)?;
 
             let diagnostics = sidecar::diagnostic_paths(app.handle())
@@ -1008,8 +1091,8 @@ pub fn run() {
 mod tests {
     use super::{
         format_running_tasks_message, parse_running_runs, remaining_splash_delay,
-        startup_failure_hint, validate_workspace_open_request, GatewayChild, WorkspaceOpenTarget,
-        MIN_SPLASH_DURATION,
+        startup_failure_hint, validate_workspace_open_request, GatewayChild,
+        PendingDesktopUpdateCheck, WorkspaceOpenTarget, MIN_SPLASH_DURATION,
     };
     use std::fs;
     use std::process::{Command, Stdio};
@@ -1059,6 +1142,17 @@ mod tests {
             remaining_splash_delay(MIN_SPLASH_DURATION + Duration::from_millis(1)),
             None,
         );
+    }
+
+    #[test]
+    fn test_pending_desktop_update_check_is_coalesced_and_consumed_once() {
+        let pending = PendingDesktopUpdateCheck::default();
+        assert!(!pending.take());
+
+        pending.enqueue();
+        pending.enqueue();
+        assert!(pending.take());
+        assert!(!pending.take());
     }
 
     #[test]

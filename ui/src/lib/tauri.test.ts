@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isTauriOnMacOS, isTauriRuntime } from "./tauri";
+import { desktopHost, isTauriOnMacOS, isTauriRuntime } from "./tauri";
 
 const originalPlatform = navigator.platform;
 
@@ -48,5 +48,23 @@ describe("isTauriOnMacOS", () => {
   it("returns false in a browser on macOS (no Tauri runtime)", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     expect(isTauriOnMacOS()).toBe(false);
+  });
+});
+
+describe("desktopHost", () => {
+  it("returns the supported Tauri host without changing browser behavior", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+    expect(desktopHost()).toBe("macos");
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Win32" });
+    expect(desktopHost()).toBe("windows");
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
+    expect(desktopHost()).toBe("linux");
+  });
+
+  it("returns null outside Tauri", () => {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+    expect(desktopHost()).toBeNull();
   });
 });

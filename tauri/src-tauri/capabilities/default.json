@@ -14,6 +14,7 @@
     "allow-cloud-connection-stop",
     "allow-open-workspace-target",
     "allow-set-update-badge",
+    "allow-take-pending-desktop-update-check",
     "log:default",
     "process:allow-restart",
     "updater:default"

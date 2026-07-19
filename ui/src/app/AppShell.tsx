@@ -20,7 +20,7 @@ import {
   type TaskNavigationState,
 } from "./navigation";
 import type { ChatUsageRecord } from "../types/chat";
-import { UpdateBanner } from "../features/shared/UpdateBanner";
+import { DesktopUpdateCenter } from "../features/shared/DesktopUpdateControl";
 import { getChatSession } from "../lib/api";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
@@ -624,23 +624,17 @@ function AuthenticatedShell({
   // Only macOS gets the overlay-titlebar surface. titleBarStyle:
   // "Overlay" is a macOS-only Tauri config; on Linux/Windows the OS
   // draws its own decorations above the webview, so stacking a custom
-  // 28-px strip below them would be redundant chrome. On those
-  // platforms the UpdateBanner falls back to its old slot at the top
-  // of the workspace content (below).
+  // 28-px strip below them would be redundant chrome. The titlebar stays a
+  // drag surface on macOS; one desktop update center lives in the existing
+  // status bar on every host so the main workspace never shifts for updates.
   const hasOverlayTitlebar = isTauriOnMacOS();
 
   return (
     <div className="hecate-shell">
-      {/* Overlay-titlebar surface. data-tauri-drag-region="deep" lets
-          clicks anywhere in the subtree start a window drag, except on
-          buttons / inputs (Tauri's drag.js auto-detects clickable
-          elements). When there's no update the bar is empty and the
-          whole strip drags. */}
-      {hasOverlayTitlebar && (
-        <div className="hecate-titlebar" data-tauri-drag-region="deep">
-          <UpdateBanner />
-        </div>
-      )}
+      {/* Overlay-titlebar surface. It intentionally has no controls: a clean
+          `deep` drag surface is more native on macOS and cannot interfere
+          with the portal-mounted update dialog. */}
+      {hasOverlayTitlebar && <div className="hecate-titlebar" data-tauri-drag-region="deep" />}
       <div className="hecate-workarea">
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
@@ -678,7 +672,6 @@ function AuthenticatedShell({
 
         {/* Main content */}
         <main className="hecate-content">
-          {!hasOverlayTitlebar && <UpdateBanner />}
           {runtime.state.error && (
             <div className="page-banner page-banner--error">{runtime.state.error}</div>
           )}
@@ -794,6 +787,7 @@ function AuthenticatedShell({
             )}
           </>
         )}
+        <DesktopUpdateCenter />
       </div>
 
       {/* Toast notifications */}
