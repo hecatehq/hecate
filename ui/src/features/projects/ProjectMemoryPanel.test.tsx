@@ -142,11 +142,16 @@ describe("ProjectMemoryPanel", () => {
     });
     expect(within(suggestion).getAllByText("Generated summary").length).toBeGreaterThan(0);
     expect(within(suggestion).getByText("Needs review")).toBeTruthy();
-    expect(within(suggestion).getByText("Why suggested")).toBeTruthy();
+    expect(within(suggestion).getByText("Suggested memory")).toBeTruthy();
+    expect(within(suggestion).getByText("Type")).toBeTruthy();
+    expect(within(suggestion).getByText("Why Hecate suggested it")).toBeTruthy();
     expect(within(suggestion).getByText("Evidence")).toBeTruthy();
-    expect(within(suggestion).getByText("Review and edit")).toBeTruthy();
+    expect(within(suggestion).getByText("Found in task_run Implementation run")).toBeTruthy();
+    expect(within(suggestion).getByText("Review to save")).toBeTruthy();
 
-    await userEvent.click(within(suggestion).getByText("Source details", { selector: "summary" }));
+    await userEvent.click(
+      within(suggestion).getByText("Evidence and payload details", { selector: "summary" }),
+    );
     expect(screen.getByText("Source refs: task_run Implementation run")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh project memory" }));
@@ -162,7 +167,9 @@ describe("ProjectMemoryPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     await userEvent.click(screen.getByRole("button", { name: "Delete memory Commit style" }));
     await userEvent.click(
-      screen.getByRole("button", { name: "Review memory suggestion Generated summary" }),
+      screen.getByRole("button", {
+        name: "Review memory suggestion Generated summary before saving",
+      }),
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Dismiss memory suggestion Generated summary" }),
@@ -298,9 +305,18 @@ describe("ProjectMemoryPanel", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Review memory suggestion" });
     expect(within(dialog).getByText("Suggested memory")).toBeTruthy();
+    expect(within(dialog).getByText("Needs review")).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "Hecate found this in task_run Implementation run. Save it only if it should become durable project guidance; edit the title or body first if the wording is too broad.",
+      ),
+    ).toBeTruthy();
     expect(within(dialog).getByText("Pending promotion")).toBeTruthy();
     expect(within(dialog).getByText("Evidence")).toBeTruthy();
-    await userEvent.click(within(dialog).getByText("Source details", { selector: "summary" }));
+    expect(within(dialog).getByText("Why Hecate suggested it")).toBeTruthy();
+    await userEvent.click(
+      within(dialog).getByText("Evidence and payload details", { selector: "summary" }),
+    );
     expect(within(dialog).getByText("Source refs: task_run Implementation run")).toBeTruthy();
     await userEvent.click(screen.getByText("Advanced memory details", { selector: "summary" }));
     fireEvent.change(screen.getByLabelText("Trust label"), {
@@ -395,7 +411,9 @@ describe("ProjectMemoryPanel", () => {
 
     expect(screen.getByRole("button", { name: "Review first suggestion" })).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Review memory suggestion Generated summary" }),
+      screen.getByRole("button", {
+        name: "Review memory suggestion Generated summary before saving",
+      }),
     ).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Dismiss memory suggestion Generated summary" }),

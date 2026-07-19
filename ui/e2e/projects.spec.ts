@@ -103,11 +103,14 @@ test("Projects journey: setup, first work, assignment, evidence, closeout", asyn
   });
   await expect(setupMemorySuggestion).toBeVisible();
   await expect(setupMemorySuggestion.getByText("Needs review")).toBeVisible();
-  await expect(setupMemorySuggestion.getByText("Why suggested")).toBeVisible();
-  await expect(setupMemorySuggestion.getByText("Evidence")).toBeVisible();
-  await expect(setupMemorySuggestion.getByText("Review and edit")).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Type")).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Why Hecate suggested it")).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Evidence", { exact: true })).toBeVisible();
+  await expect(setupMemorySuggestion.getByText("Review to save")).toBeVisible();
   await setupMemorySuggestion
-    .getByRole("button", { name: "Review memory suggestion Guidance source: AGENTS.md" })
+    .getByRole("button", {
+      name: "Review memory suggestion Guidance source: AGENTS.md before saving",
+    })
     .click();
   const memoryReviewDialog = page.getByRole("dialog", { name: "Review memory suggestion" });
   await expect(memoryReviewDialog).toBeVisible();
