@@ -270,10 +270,11 @@ describe("ProjectAssistantPanel", () => {
       .getByText("Show changed fields", { selector: "summary" })
       .closest("details");
     expect(changedFields).not.toHaveAttribute("open");
-    expect(within(assistant).getByText("Editor")).not.toBeVisible();
+    expect(within(assistant).getByText("Name: Editor")).toBeVisible();
+    expect(within(assistant).getByText("name")).not.toBeVisible();
     await user.click(within(assistant).getByText("Show changed fields", { selector: "summary" }));
     expect(changedFields).toHaveAttribute("open");
-    expect(within(assistant).getByText("Editor")).toBeVisible();
+    expect(within(assistant).getByText("name")).toBeVisible();
     await user.click(within(assistant).getByRole("button", { name: "Apply setup" }));
     expect(handlers.onApply).toHaveBeenCalledTimes(1);
   });

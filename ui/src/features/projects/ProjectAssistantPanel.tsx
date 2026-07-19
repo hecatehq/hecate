@@ -769,12 +769,14 @@ function ProjectAssistantActionRow({
   const targetEntries = Object.entries(action.target ?? {});
   const patchEntries = Object.entries(action.patch ?? {});
   const hasFieldDetails = targetEntries.length > 0 || patchEntries.length > 0;
+  const summary = projectAssistantActionSummary(patchEntries, targetEntries);
   return (
     <div style={assistantActionStyle}>
       <div style={assistantActionHeaderStyle}>
         <span className="badge badge-muted">{projectAssistantActionLabel(action.kind)}</span>
         {action.reason && <span style={subtleTextStyle}>{action.reason}</span>}
       </div>
+      {summary && <div style={assistantActionSummaryStyle}>{summary}</div>}
       {hasFieldDetails && (
         <details style={assistantTechnicalDetailsStyle}>
           <summary style={assistantTechnicalSummaryStyle}>Show changed fields</summary>
@@ -1003,6 +1005,20 @@ function projectAssistantActionLabel(kind: string): string {
     default:
       return kind.replace(/_/g, " ");
   }
+}
+
+function projectAssistantActionSummary(
+  patchEntries: Array<[string, unknown]>,
+  targetEntries: Array<[string, unknown]>,
+): string {
+  const entries = patchEntries.length > 0 ? patchEntries : targetEntries;
+  if (entries.length === 0) return "";
+  const visibleEntries = entries.slice(0, 2);
+  const summary = visibleEntries
+    .map(([key, value]) => `${assistantHumanLabel(key)}: ${formatAssistantValue(value)}`)
+    .join(" · ");
+  const remaining = entries.length - visibleEntries.length;
+  return remaining > 0 ? `${summary} · ${remaining} more` : summary;
 }
 
 function projectAssistantFollowUpActions({
@@ -1476,6 +1492,14 @@ const assistantActionHeaderStyle: CSSProperties = {
   flexWrap: "wrap",
   gap: 8,
   minWidth: 0,
+};
+
+const assistantActionSummaryStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  minWidth: 0,
+  overflowWrap: "anywhere",
 };
 
 const assistantPatchGridStyle: CSSProperties = {
