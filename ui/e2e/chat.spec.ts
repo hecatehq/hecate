@@ -34,7 +34,7 @@ async function startHecateChat(page: Page) {
   await expect(
     page
       .getByText(
-        /Ready when you are|Choose a workspace|No routable model|No models discovered|Nothing runnable yet/,
+        /Ready when you are|Choose a workspace|No routable model|No models discovered|Connect a model or agent/,
       )
       .first(),
   ).toBeVisible();
@@ -240,7 +240,7 @@ test("empty Hecate Chat points operators to Connections before send", async ({ p
 
   // Brand-new users land directly on the chat empty state with the
   // onboarding panel — no "click New Hecate chat to get started" detour.
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Connect a model or agent")).toBeVisible();
   await page.getByRole("button", { name: "Open Connections" }).click();
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute(
     "aria-label",
@@ -1331,11 +1331,9 @@ test("empty model chat can add all detected local providers in one click", async
   await expect
     .poll(() => created.map((body) => String(body.preset_id)).sort((a, b) => a.localeCompare(b)))
     .toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Connect a model or agent")).toBeVisible();
   await expect(
-    page.getByText(
-      /Add a model provider or install a supported coding-agent CLI before sending a message/,
-    ),
+    page.getByText(/Add a model provider in Connections or set up a supported external agent/),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
@@ -1367,7 +1365,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await expect
     .poll(() => created.map((body) => String(body.preset_id)).sort((a, b) => a.localeCompare(b)))
     .toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Connect a model or agent")).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
@@ -2941,11 +2939,9 @@ test("configured provider with no models shows troubleshooting, not detected-pro
   await page.waitForSelector(".hecate-activitybar");
   await switchToModel(page, false);
 
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Connect a model or agent")).toBeVisible();
   await expect(
-    page.getByText(
-      /Add a model provider or install a supported coding-agent CLI before sending a message/,
-    ),
+    page.getByText(/Add a model provider in Connections or set up a supported external agent/),
   ).toBeVisible();
   await expect(page.getByText("Detected locally")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);

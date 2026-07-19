@@ -478,7 +478,7 @@ describe("ConsoleShell navigation", () => {
     // still be queried synchronously.
     expect(screen.getByRole("link", { name: "Chats" })).toHaveAttribute("href", "/chats");
     expect(
-      await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 30_000 }),
+      await screen.findByText(/Connect a model or agent/i, undefined, { timeout: 30_000 }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/No model providers configured/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeInTheDocument();

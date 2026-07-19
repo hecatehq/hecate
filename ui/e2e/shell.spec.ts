@@ -41,7 +41,7 @@ test("workspace navigation keeps the current view visible while the next chunk l
 }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Connect a model or agent")).toBeVisible();
 
   let releaseUsageChunk: (() => void) | null = null;
   const usageChunkRequested = new Promise<void>((resolve) => {
@@ -57,7 +57,7 @@ test("workspace navigation keeps the current view visible while the next chunk l
   await page.locator(".hecate-activitybar [aria-label^='Usage']").click();
   await usageChunkRequested;
 
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Connect a model or agent")).toBeVisible();
   await expect(page.getByText("Loading workspace…")).toHaveCount(0);
 
   releaseUsageChunk?.();

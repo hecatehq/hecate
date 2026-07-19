@@ -1,27 +1,44 @@
 <h1 align="center">
-  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - Agent Operations Console" width="720">
+  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - AI Workspace and Runtime" width="720">
 </h1>
 
-[![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
-[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](docs/operator/deployment.md#image-pinning)
-[![Test](https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/hecatehq/hecate/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hecatehq/hecate)](https://goreportcard.com/report/github.com/hecatehq/hecate)
-[![Go version](https://img.shields.io/github/go-mod/go-version/hecatehq/hecate)](go.mod)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
-
 <p align="center">
-  <strong>Agent operations console and local runtime control plane.</strong><br>
-  Run Hecate between operators, AI clients, agent runtimes, model providers,
-  and local workspaces so agent work can be routed, supervised, approved,
-  traced, and reviewable.
+  <a href="https://github.com/hecatehq/hecate/releases">
+    <img alt="Latest release" src="https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases">
+  </a>
+  <a href="docs/operator/deployment.md#image-pinning">
+    <img alt="Container image" src="https://img.shields.io/badge/container-ghcr.io-2496ED?logo=docker&logoColor=white">
+  </a>
+  <a href="https://github.com/hecatehq/hecate/actions/workflows/test.yml">
+    <img alt="Test workflow" src="https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg?branch=master">
+  </a>
+  <a href="https://goreportcard.com/report/github.com/hecatehq/hecate">
+    <img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/hecatehq/hecate">
+  </a>
+  <a href="go.mod">
+    <img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/hecatehq/hecate">
+  </a>
+  <a href="LICENSE">
+    <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-yellow.svg">
+  </a>
+  <a href="https://opentelemetry.io/">
+    <img alt="OpenTelemetry enabled" src="https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white">
+  </a>
 </p>
 
-> **Status: public alpha.** Hecate is useful today for model-provider routing,
-> Hecate Chat, External Agent sessions, project-scoped work, approvals,
-> artifacts, usage, and observability. It is not production-stable
-> infrastructure yet: workflow runbooks, richer Agent Presets, browser QA, and
-> sandbox hardening are still design or early-alpha work. Read
+<p align="center">
+  <strong>AI workspace and runtime for projects, chats, providers, and supervised agents.</strong><br>
+  Run Hecate on your machine as the personal control plane for agent work:
+  create projects, chat with models, supervise external agents, approve risky
+  actions, inspect diffs, and trace what happened.
+</p>
+
+> **Status: public alpha.** Hecate is useful today as an AI workspace for
+> model-provider routing, Hecate Chat, External Agent sessions,
+> project-scoped work, approvals, artifacts, usage, and observability. It is not
+> production-stable infrastructure yet: workflow runbooks, richer Agent
+> Presets, browser QA, and sandbox hardening are still design or early-alpha
+> work. Read
 > [known limitations](docs/operator/known-limitations.md) before depending on it.
 
 ## Contents
@@ -40,15 +57,16 @@
 
 ## What Hecate Is
 
-Hecate is the operator-facing runtime layer for AI work. It gives you one local
-place to talk to models, run Hecate-native agent tasks, supervise external agent
-CLIs, inspect project context, approve risky actions, collect evidence, and see
-what happened after the run.
+Hecate is an AI workspace and runtime for people who want one place for
+projects, chats, model providers, memory, approvals, and supervised agent work.
+It gives you a product surface to talk to models, run Hecate-native agent tasks,
+supervise external agent CLIs, inspect project context, approve risky actions,
+collect evidence, and see what happened after the run.
 
-Hecate is local-first in the operational sense: the runtime and UI run on your
-machine, Hecate-owned state is stored locally, and the gateway binds to loopback
-by default. It is not local-only: you can route to cloud providers and supervise
-external coding-agent CLIs that use their own accounts.
+The open-source runtime can run as a desktop app, from source, in Docker, or
+behind an access layer for personal remote use. In the default desktop/source
+setup, Hecate-owned state is stored locally and the gateway binds to loopback;
+hosted deployments provide their own access-control and storage boundary.
 
 Hecate is not trying to be the only agent framework in your stack. It is the
 place where agents, agent frameworks, model calls, local tools, and project
@@ -72,9 +90,9 @@ The short version:
 - **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
   where available, and final run output close to the decision that produced it.
 
-The product goal is not just to make model calls. It is to give the operator a
-single place to coordinate project-scoped agent work and understand what is
-happening, what context it used, what it changed, what it cost, what needs
+The product goal is not just to make model calls. It is to give you a single
+place to coordinate personal and project-scoped agent work and understand what
+is happening, what context it used, what it changed, what it cost, what needs
 approval, and where the evidence lives.
 
 ## Positioning
@@ -84,11 +102,13 @@ them.
 
 | Question                                 | Hecate answer                                                                                                                                             |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Is Hecate a personal assistant?**      | It can be the runtime and memory base for one, but it stays grounded in visible chats, projects, tools, approvals, and evidence rather than a hidden bot. |
 | **Is Hecate an agent?**                  | It includes a native task agent loop, but Hecate itself is the operator console and runtime boundary around agent work, not a single autonomous persona.  |
 | **Is Hecate an orchestrator?**           | Yes, when it coordinates projects, assignments, native tasks, external-agent sessions, approvals, handoffs, and reviews. The operator remains in control. |
 | **Is Hecate an agent framework?**        | Not primarily. Hecate exposes APIs and runtime contracts, but it does not require teams to rewrite their agents into a Hecate SDK.                        |
 | **Is Hecate a model gateway?**           | Yes, but the gateway is one subsystem. It exists so chats, tasks, external tools, and compatible clients share routing, policy, usage, and observability. |
 | **Is Hecate a project-management tool?** | No. Projects are a coordination graph for AI work: context, assignments, evidence, memory candidates, reviews, handoffs, and runtime links.               |
+| **Is this Hecate Cloud?**                | No. This repo is the open-source Hecate runtime and app. Hecate Cloud is the separate hosted deployment and remote-access product at hecatehq.com.        |
 
 The practical model is:
 
@@ -178,11 +198,12 @@ Design direction that is not yet a runtime contract:
 
 Choose the path that matches how you want to run Hecate.
 
-| Path                        | Best for                                                                                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Desktop app](#desktop-app) | macOS personal use on your laptop with optional embedded workspace terminal support. No Docker required. Linux/Windows bundles are experimental. |
-| [Docker](#docker)           | Local container, scripted local deploys, and the safer Linux/Windows alpha path today.                                                           |
-| [From source](#from-source) | Contributors and local development.                                                                                                              |
+| Path                                 | Best for                                                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| [Desktop app](#desktop-app)          | Personal Hecate on your laptop. No Docker required. macOS is the most-tested path; Linux/Windows bundles are experimental. |
+| [Docker](#docker)                    | Local container, scripted local deploys, and Linux/Windows alpha use today.                                                |
+| [From source](#from-source)          | Contributors and local development.                                                                                        |
+| [Hecate Cloud](https://hecatehq.com) | Optional hosted deployment and browser access when you do not want to keep a local machine online.                         |
 
 ### Desktop app
 
@@ -435,7 +456,7 @@ Operator guides:
 
 - [Providers](docs/operator/providers.md) - provider presets, custom endpoints,
   credentials, model discovery, health, and circuit breaking.
-- [Security](docs/operator/security.md) - local-first threat model, workspace
+- [Security](docs/operator/security.md) - runtime threat model, workspace
   safety, approvals, secrets, and advisory handling.
 - [Known limitations](docs/operator/known-limitations.md) - the plain-language
   alpha boundary.
