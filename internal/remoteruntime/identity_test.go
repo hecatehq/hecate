@@ -23,8 +23,28 @@ func TestFromHeadersRequiresCompleteIdentity(t *testing.T) {
 	}
 
 	header.Del(HeaderProjectID)
+	identity, err = FromHeaders(header)
+	if err != nil {
+		t.Fatalf("FromHeaders() without project error = %v, want nil", err)
+	}
+	if identity.ProjectID != "" {
+		t.Fatalf("ProjectID = %q, want empty No project scope", identity.ProjectID)
+	}
+
+	header.Del(HeaderRuntimeID)
 	if _, err := FromHeaders(header); !errors.Is(err, ErrMissingIdentity) {
 		t.Fatalf("FromHeaders() error = %v, want ErrMissingIdentity", err)
+	}
+}
+
+func TestHeadersPresent(t *testing.T) {
+	header := http.Header{}
+	if HeadersPresent(header) {
+		t.Fatal("HeadersPresent(empty) = true")
+	}
+	header.Set(HeaderRuntimeSecret, "secret")
+	if !HeadersPresent(header) {
+		t.Fatal("HeadersPresent(remote secret) = false")
 	}
 }
 

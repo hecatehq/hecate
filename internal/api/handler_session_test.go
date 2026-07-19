@@ -77,14 +77,17 @@ func TestSessionReportsTrustedRemoteSupervisionHost(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	host := response.Data.RuntimeHost
-	if host.ID != "remote_runtime_1" {
-		t.Fatalf("runtime_host.id = %q, want trusted remote runtime id", host.ID)
+	if host.ID != "runtime_00112233445566778899aabb" {
+		t.Fatalf("runtime_host.id = %q, want stable host id", host.ID)
 	}
 	if host.Label != "MacBook" || host.RuntimeMode != "remote_runtime" || host.OperatorAccess != "remote_supervision" {
 		t.Fatalf("runtime_host posture = %+v", host)
 	}
 	if host.LocalOnlyActionsAvailable {
 		t.Fatal("local_only_actions_available = true, want false")
+	}
+	if response.Data.RemoteIdentity == nil || response.Data.RemoteIdentity.RuntimeID != "remote_runtime_1" {
+		t.Fatalf("remote_identity = %+v, want routing runtime id", response.Data.RemoteIdentity)
 	}
 }
 

@@ -189,11 +189,19 @@ func RuntimeTokenMiddleware(token string) middleware {
 func RemoteRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
 	secret = strings.TrimSpace(secret)
 	return func(next http.Handler) http.Handler {
-		if !enabled {
+		// Hosted remote runtimes require trusted identity on every non-health
+		// request. A local desktop sidecar can configure the same secret without
+		// enabling global remote mode; ordinary loopback requests then stay local,
+		// while relay-tagged requests must authenticate and acquire remote identity.
+		if !enabled && secret == "" {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/healthz" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !enabled && !remoteruntime.HeadersPresent(r.Header) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -213,10 +221,13 @@ func RemoteRuntimeIdentityMiddleware(enabled bool, secret string) middleware {
 
 func RemoteRuntimeLocalEndpointGuardMiddleware(enabled bool) middleware {
 	return func(next http.Handler) http.Handler {
-		if !enabled {
-			return next
-		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !enabled {
+				if _, remote := remoteruntime.FromContext(r.Context()); !remote {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
 			if reason := remoteRuntimeEndpointBlockReason(r.Method, r.URL.Path); reason != "" {
 				WriteError(w, http.StatusForbidden, errCodeForbidden, reason)
 				return

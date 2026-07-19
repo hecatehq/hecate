@@ -261,8 +261,16 @@ fn startup_failure_details(log_path: &Path) -> String {
 }
 
 /// Spawn the hecate binary and block (async) until `/healthz` responds 200
-/// or the deadline expires. Returns the gateway base URL on success.
-pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
+/// or the deadline expires. Returns the gateway base URL on success. The
+/// per-launch remote runtime secret authenticates only requests forwarded by
+/// the native Cloud connector; it is never persisted or exposed to the UI.
+pub async fn spawn_and_wait(
+    app: &AppHandle,
+    remote_runtime_secret: &str,
+) -> Result<GatewayHandle, String> {
+    if remote_runtime_secret.trim().len() < 24 {
+        return Err("remote connector credentials are unavailable".to_string());
+    }
     let bin = resolve_binary()?;
     let paths = resolve_paths(app)?;
     let port = free_port()?;
@@ -303,6 +311,10 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
         .env("HECATE_PUBLIC_URL", &base_url)
         .env("HECATE_DATA_DIR", &paths.data_dir)
         .env("HECATE_SQLITE_PATH", &paths.sqlite_path)
+        // The desktop runtime remains local. Only connector-tagged requests
+        // enter the remote boundary authenticated by the per-launch secret.
+        .env("HECATE_REMOTE_RUNTIME_MODE", "0")
+        .env("HECATE_REMOTE_RUNTIME_SECRET", remote_runtime_secret)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())

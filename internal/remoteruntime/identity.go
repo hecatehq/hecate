@@ -31,10 +31,30 @@ func FromHeaders(header http.Header) (Identity, error) {
 		ProjectID: strings.TrimSpace(header.Get(HeaderProjectID)),
 		RuntimeID: strings.TrimSpace(header.Get(HeaderRuntimeID)),
 	}
-	if identity.ActorID == "" || identity.OrgID == "" || identity.ProjectID == "" || identity.RuntimeID == "" {
+	// ProjectID is optional because "No project" is a valid operator scope.
+	// Actor, organization, and runtime identity still form the trusted remote
+	// boundary for every request.
+	if identity.ActorID == "" || identity.OrgID == "" || identity.RuntimeID == "" {
 		return Identity{}, ErrMissingIdentity
 	}
 	return identity, nil
+}
+
+// HeadersPresent reports whether a request is attempting to enter through the
+// trusted remote-runtime boundary. Local requests carry none of these headers.
+func HeadersPresent(header http.Header) bool {
+	for _, name := range []string{
+		HeaderActorID,
+		HeaderOrgID,
+		HeaderProjectID,
+		HeaderRuntimeID,
+		HeaderRuntimeSecret,
+	} {
+		if strings.TrimSpace(header.Get(name)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 type contextKey struct{}

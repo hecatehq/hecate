@@ -546,42 +546,51 @@ func TestInferenceTokenMiddlewareAllowsRemoteIdentity(t *testing.T) {
 func TestRemoteRuntimeIdentityMiddleware(t *testing.T) {
 	const secret = "cloud-runtime-secret-123456"
 	tests := []struct {
-		name        string
-		path        string
-		secret      string
-		setIdentity bool
-		want        int
+		name             string
+		enabled          bool
+		configuredSecret string
+		path             string
+		requestSecret    string
+		setIdentity      bool
+		projectID        string
+		want             int
+		wantRemote       bool
 	}{
-		{name: "disabled allows request", path: "/hecate/v1/whoami", want: http.StatusNoContent},
-		{name: "healthz bypasses cloud identity", path: "/healthz", want: http.StatusNoContent},
-		{name: "enabled requires secret", path: "/hecate/v1/whoami", want: http.StatusUnauthorized},
-		{name: "enabled requires identity", path: "/hecate/v1/whoami", secret: secret, want: http.StatusUnauthorized},
-		{name: "enabled accepts complete identity", path: "/hecate/v1/whoami", secret: secret, setIdentity: true, want: http.StatusNoContent},
-		{name: "enabled protects static ui too", path: "/", want: http.StatusUnauthorized},
+		{name: "local mode without connector allows request", path: "/hecate/v1/whoami", want: http.StatusNoContent},
+		{name: "local request bypasses configured connector", configuredSecret: secret, path: "/hecate/v1/whoami", want: http.StatusNoContent},
+		{name: "connector headers require connector secret", configuredSecret: secret, path: "/hecate/v1/whoami", setIdentity: true, want: http.StatusUnauthorized},
+		{name: "connector secret requires identity", configuredSecret: secret, path: "/hecate/v1/whoami", requestSecret: secret, want: http.StatusUnauthorized},
+		{name: "connector accepts identity with no project", configuredSecret: secret, path: "/hecate/v1/whoami", requestSecret: secret, setIdentity: true, want: http.StatusNoContent, wantRemote: true},
+		{name: "healthz bypasses cloud identity", enabled: true, configuredSecret: secret, path: "/healthz", want: http.StatusNoContent},
+		{name: "hosted mode requires secret", enabled: true, configuredSecret: secret, path: "/hecate/v1/whoami", want: http.StatusUnauthorized},
+		{name: "hosted mode requires identity", enabled: true, configuredSecret: secret, path: "/hecate/v1/whoami", requestSecret: secret, want: http.StatusUnauthorized},
+		{name: "hosted mode accepts complete identity", enabled: true, configuredSecret: secret, path: "/hecate/v1/whoami", requestSecret: secret, setIdentity: true, projectID: "proj_1", want: http.StatusNoContent, wantRemote: true},
+		{name: "hosted mode protects static ui too", enabled: true, configuredSecret: secret, path: "/", want: http.StatusUnauthorized},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enabled := tt.name != "disabled allows request"
-			handler := RemoteRuntimeIdentityMiddleware(enabled, secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tt.setIdentity {
+			handler := RemoteRuntimeIdentityMiddleware(tt.enabled, tt.configuredSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.wantRemote {
 					identity, ok := remoteruntime.FromContext(r.Context())
 					if !ok {
 						t.Fatal("cloud identity missing from context")
 					}
-					if identity.ActorID != "actor_1" || identity.OrgID != "org_1" || identity.ProjectID != "proj_1" || identity.RuntimeID != "rt_1" {
+					if identity.ActorID != "actor_1" || identity.OrgID != "org_1" || identity.ProjectID != tt.projectID || identity.RuntimeID != "rt_1" {
 						t.Fatalf("identity = %+v", identity)
 					}
 				}
 				w.WriteHeader(http.StatusNoContent)
 			}))
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			if tt.secret != "" {
-				req.Header.Set(remoteruntime.HeaderRuntimeSecret, tt.secret)
+			if tt.requestSecret != "" {
+				req.Header.Set(remoteruntime.HeaderRuntimeSecret, tt.requestSecret)
 			}
 			if tt.setIdentity {
 				req.Header.Set(remoteruntime.HeaderActorID, "actor_1")
 				req.Header.Set(remoteruntime.HeaderOrgID, "org_1")
-				req.Header.Set(remoteruntime.HeaderProjectID, "proj_1")
+				if tt.projectID != "" {
+					req.Header.Set(remoteruntime.HeaderProjectID, tt.projectID)
+				}
 				req.Header.Set(remoteruntime.HeaderRuntimeID, "rt_1")
 			}
 			rec := httptest.NewRecorder()
@@ -599,11 +608,13 @@ func TestRemoteRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 	tests := []struct {
 		name    string
 		enabled bool
+		remote  bool
 		method  string
 		path    string
 		want    int
 	}{
 		{name: "disabled allows local endpoint", method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusNoContent},
+		{name: "remote identity activates guard in local mode", remote: true, method: http.MethodPost, path: "/hecate/v1/system/shutdown", want: http.StatusForbidden},
 		{name: "blocks workspace dialog", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-dialog", want: http.StatusForbidden},
 		{name: "blocks workspace open", enabled: true, method: http.MethodPost, path: "/hecate/v1/workspace-open", want: http.StatusForbidden},
 		{name: "blocks reset data", enabled: true, method: http.MethodPost, path: "/hecate/v1/system/reset-data", want: http.StatusForbidden},
@@ -626,6 +637,9 @@ func TestRemoteRuntimeLocalEndpointGuardMiddleware(t *testing.T) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.remote {
+				req = req.WithContext(remoteruntime.WithIdentity(req.Context(), remoteruntime.Identity{ActorID: "actor_1", OrgID: "org_1", RuntimeID: "rt_1"}))
+			}
 			rec := httptest.NewRecorder()
 
 			handler.ServeHTTP(rec, req)
@@ -693,6 +707,66 @@ func TestNewServerWiresRemoteRuntimeIdentity(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"remote_identity"`) || !strings.Contains(rec.Body.String(), `"actor_id":"actor_1"`) {
 		t.Fatalf("whoami body = %s, want cloud identity", rec.Body.String())
+	}
+}
+
+func TestNewServerWiresTrustedDesktopRelayWithoutChangingLocalPosture(t *testing.T) {
+	const (
+		secret = "desktop-relay-secret-123456"
+		token  = "local-runtime-token-123456"
+	)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{
+			RemoteRuntimeSecret: secret,
+			RuntimeToken:        token,
+			RuntimeHostID:       "runtime_00112233445566778899aabb",
+			RuntimeHostLabel:    "MacBook",
+		},
+	}, logger, nil, nil, nil, nil))
+
+	local := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	local.Header.Set(runtimeTokenHeader, token)
+	localResponse := httptest.NewRecorder()
+	handler.ServeHTTP(localResponse, local)
+	if localResponse.Code != http.StatusOK {
+		t.Fatalf("local status = %d, want %d body=%s", localResponse.Code, http.StatusOK, localResponse.Body.String())
+	}
+	if strings.Contains(localResponse.Body.String(), `"remote_identity"`) || !strings.Contains(localResponse.Body.String(), `"operator_access":"local_operator"`) {
+		t.Fatalf("local whoami body = %s, want local posture", localResponse.Body.String())
+	}
+
+	remote := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	remote.Header.Set(remoteruntime.HeaderRuntimeSecret, secret)
+	remote.Header.Set(remoteruntime.HeaderActorID, "actor_1")
+	remote.Header.Set(remoteruntime.HeaderOrgID, "org_1")
+	remote.Header.Set(remoteruntime.HeaderRuntimeID, "host_1")
+	remoteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(remoteResponse, remote)
+	if remoteResponse.Code != http.StatusOK {
+		t.Fatalf("remote status = %d, want %d body=%s", remoteResponse.Code, http.StatusOK, remoteResponse.Body.String())
+	}
+	for _, want := range []string{
+		`"id":"runtime_00112233445566778899aabb"`,
+		`"operator_access":"remote_supervision"`,
+		`"actor_id":"actor_1"`,
+		`"project_id":""`,
+		`"runtime_id":"host_1"`,
+	} {
+		if !strings.Contains(remoteResponse.Body.String(), want) {
+			t.Fatalf("remote whoami body = %s, want %s", remoteResponse.Body.String(), want)
+		}
+	}
+
+	blocked := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/shutdown", nil)
+	blocked.Header.Set(remoteruntime.HeaderRuntimeSecret, secret)
+	blocked.Header.Set(remoteruntime.HeaderActorID, "actor_1")
+	blocked.Header.Set(remoteruntime.HeaderOrgID, "org_1")
+	blocked.Header.Set(remoteruntime.HeaderRuntimeID, "host_1")
+	blockedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(blockedResponse, blocked)
+	if blockedResponse.Code != http.StatusForbidden {
+		t.Fatalf("remote local-only status = %d, want %d body=%s", blockedResponse.Code, http.StatusForbidden, blockedResponse.Body.String())
 	}
 }
 

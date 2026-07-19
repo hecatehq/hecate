@@ -3,6 +3,7 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::redirect::Policy;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -26,6 +27,11 @@ const RELAY_MAX_CONCURRENCY: usize = 16;
 const RELAY_MAX_REQUEST_BODY: usize = 64 * 1024;
 const RELAY_MAX_PROXY_BODY: usize = 16 * 1024 * 1024;
 const RELAY_MAX_RESPONSE_BODY: usize = 16 * 1024 * 1024;
+const REMOTE_ACCESS_CANCELLED: &str = "Remote access was cancelled.";
+const REMOTE_ACTOR_ID_HEADER: &str = "x-hecate-remote-actor-id";
+const REMOTE_ORG_ID_HEADER: &str = "x-hecate-remote-org-id";
+const REMOTE_RUNTIME_ID_HEADER: &str = "x-hecate-remote-runtime-id";
+const REMOTE_RUNTIME_SECRET_HEADER: &str = "x-hecate-remote-runtime-secret";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CloudConnectionStatus {
@@ -54,6 +60,7 @@ struct SupervisorInner {
     credentials: Arc<dyn CredentialStore>,
     http: reqwest::Client,
     cloud_url: String,
+    remote_runtime_secret: String,
 }
 
 struct ConnectionState {
@@ -98,12 +105,13 @@ impl Default for CloudConnectionSupervisor {
             None,
             Arc::new(MemoryCredentialStore::default()),
             DEFAULT_CLOUD_URL,
+            new_remote_runtime_secret(),
         )
     }
 }
 
 impl CloudConnectionSupervisor {
-    pub fn new(preferences_path: PathBuf) -> Self {
+    pub fn new(preferences_path: PathBuf, remote_runtime_secret: String) -> Self {
         let cloud_url = std::env::var("HECATE_CLOUD_URL")
             .ok()
             .map(|value| value.trim().trim_end_matches('/').to_string())
@@ -113,6 +121,7 @@ impl CloudConnectionSupervisor {
             Some(preferences_path),
             Arc::new(KeyringCredentialStore),
             &cloud_url,
+            remote_runtime_secret,
         )
     }
 
@@ -120,6 +129,7 @@ impl CloudConnectionSupervisor {
         preferences_path: Option<PathBuf>,
         credentials: Arc<dyn CredentialStore>,
         cloud_url: &str,
+        remote_runtime_secret: String,
     ) -> Self {
         let preferences = preferences_path
             .as_deref()
@@ -159,9 +169,11 @@ impl CloudConnectionSupervisor {
                 credentials,
                 http: reqwest::Client::builder()
                     .connect_timeout(Duration::from_secs(10))
+                    .redirect(Policy::none())
                     .build()
                     .expect("native Cloud HTTP client configuration is valid"),
                 cloud_url: cloud_url.trim_end_matches('/').to_string(),
+                remote_runtime_secret,
             }),
         }
     }
@@ -199,6 +211,8 @@ impl CloudConnectionSupervisor {
         };
         if let Err(err) = self.launch_authenticated(base_url, session_token, false) {
             self.set_error("Remote access could not start.", Some(err));
+        } else {
+            log::info!("remote access reconnect started");
         }
     }
 
@@ -231,6 +245,7 @@ impl CloudConnectionSupervisor {
             }
             Err(err) => return Err(err),
         }
+        log::info!("remote access start requested");
         Ok(self.status(None))
     }
 
@@ -270,11 +285,12 @@ impl CloudConnectionSupervisor {
                 state.last_error = Some(err);
             }
         }
+        log::info!("remote access stopped");
         status_from_state(&state, &self.inner.cloud_url)
     }
 
     pub async fn sign_out(&self, base_url: Option<String>) -> CloudConnectionStatus {
-        let (session_token, host_id, org_id) = {
+        let (generation, session_token, host_id, host_org_id) = {
             let mut state = match self.inner.state.lock() {
                 Ok(state) => state,
                 Err(_) => return unavailable_status(base_url, &self.inner.cloud_url),
@@ -282,13 +298,18 @@ impl CloudConnectionSupervisor {
             cancel_current(&mut state);
             state.generation = state.generation.wrapping_add(1);
             (
+                state.generation,
                 self.inner
                     .credentials
                     .get(SESSION_CREDENTIAL)
                     .ok()
                     .flatten(),
                 state.preferences.host_id.clone(),
-                state.preferences.org_id.clone(),
+                state
+                    .preferences
+                    .host_org_id
+                    .clone()
+                    .or_else(|| state.preferences.org_id.clone()),
             )
         };
 
@@ -301,24 +322,41 @@ impl CloudConnectionSupervisor {
         if let (Some(session), Some(host), Some(org)) = (
             session_token.as_deref(),
             host_id.as_deref(),
-            org_id.as_deref(),
+            host_org_id.as_deref(),
         ) {
             if let Err(err) = client.revoke_host(session, org, host).await {
-                revoke_warning = Some(format!("Could not revoke this computer: {err}"));
+                append_warning(
+                    &mut revoke_warning,
+                    format!("Could not revoke this computer: {err}"),
+                );
             }
         }
         if let Some(session) = session_token.as_deref() {
             if let Err(err) = client.revoke_session(session).await {
-                revoke_warning = Some(format!("Could not revoke the account session: {err}"));
+                append_warning(
+                    &mut revoke_warning,
+                    format!("Could not revoke the account session: {err}"),
+                );
             }
         }
-        let _ = self.inner.credentials.delete(SESSION_CREDENTIAL);
-        let _ = self.inner.credentials.delete(HOST_CREDENTIAL);
-
         let mut state = match self.inner.state.lock() {
             Ok(state) => state,
             Err(_) => return unavailable_status(base_url, &self.inner.cloud_url),
         };
+        if state.generation != generation {
+            return status_from_state(&state, &self.inner.cloud_url);
+        }
+        for (credential, label) in [
+            (SESSION_CREDENTIAL, "account session"),
+            (HOST_CREDENTIAL, "computer credential"),
+        ] {
+            if let Err(err) = self.inner.credentials.delete(credential) {
+                append_warning(
+                    &mut revoke_warning,
+                    format!("Could not remove the local {label}: {err}"),
+                );
+            }
+        }
         state.preferences = CloudConnectionPreferences::default();
         state.signed_in = false;
         state.phase = ConnectionPhase::Disconnected;
@@ -327,8 +365,9 @@ impl CloudConnectionSupervisor {
         state.last_error = revoke_warning;
         state.message = "Signed out of Hecate Cloud.".to_string();
         if let Err(err) = self.persist_preferences(&state.preferences) {
-            state.last_error = Some(err);
+            append_warning(&mut state.last_error, err);
         }
+        log::info!("Hecate Cloud account signed out");
         status_from_state(&state, &self.inner.cloud_url)
     }
 
@@ -343,7 +382,6 @@ impl CloudConnectionSupervisor {
 
     fn launch_authorization(&self, base_url: String) -> Result<(), String> {
         let token = new_app_token()?;
-        self.inner.credentials.set(SESSION_CREDENTIAL, &token)?;
         let login_url = format!("{}/desktop-login#token={token}", self.inner.cloud_url);
         let (generation, cancel_rx) = {
             let mut state = self
@@ -351,6 +389,9 @@ impl CloudConnectionSupervisor {
                 .state
                 .lock()
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            // Serialize the keyring write with generation changes so an older
+            // connection attempt cannot delete this new pending session.
+            self.inner.credentials.set(SESSION_CREDENTIAL, &token)?;
             cancel_current(&mut state);
             state.generation = state.generation.wrapping_add(1);
             let generation = state.generation;
@@ -432,8 +473,7 @@ impl CloudConnectionSupervisor {
                 return;
             }
             match client.me(&token).await {
-                Ok(actor) => {
-                    self.apply_actor(generation, &actor);
+                Ok(_) => {
                     self.connect_authenticated(generation, base_url, token, cancel_rx)
                         .await;
                     return;
@@ -447,8 +487,7 @@ impl CloudConnectionSupervisor {
                     );
                 }
                 Err(err) => {
-                    let _ = self.inner.credentials.delete(SESSION_CREDENTIAL);
-                    self.set_error_if_current(
+                    self.fail_authorization_if_current(
                         generation,
                         "Sign-in was not completed. Try again.",
                         Some(err.to_string()),
@@ -472,6 +511,9 @@ impl CloudConnectionSupervisor {
         session_token: String,
         mut cancel_rx: watch::Receiver<bool>,
     ) {
+        if *cancel_rx.borrow() || !self.is_current(generation) {
+            return;
+        }
         let client = CloudClient::new(
             self.inner.cloud_url.clone(),
             self.inner.http.clone(),
@@ -480,9 +522,7 @@ impl CloudConnectionSupervisor {
         let actor = match client.me(&session_token).await {
             Ok(actor) => actor,
             Err(err) if err.status == Some(401) => {
-                let _ = self.inner.credentials.delete(SESSION_CREDENTIAL);
-                let _ = self.inner.credentials.delete(HOST_CREDENTIAL);
-                self.clear_account_if_current(
+                self.expire_account_if_current(
                     generation,
                     "Your Hecate Cloud session expired. Sign in again.",
                 );
@@ -497,14 +537,35 @@ impl CloudConnectionSupervisor {
                 return;
             }
         };
-        self.apply_actor(generation, &actor);
-
-        let (host_id, host_token) = match self.ensure_host(&client, &session_token, &actor).await {
+        if *cancel_rx.borrow() || !self.is_current(generation) {
+            return;
+        }
+        let (host_id, host_token) = match self
+            .ensure_host(generation, &client, &session_token, &actor)
+            .await
+        {
             Ok(credentials) => credentials,
             Err(err) => {
                 self.set_error_if_current(
                     generation,
                     "This computer could not be registered.",
+                    Some(err),
+                );
+                return;
+            }
+        };
+        self.apply_actor(generation, &actor);
+        let relay_authorization = match RelayAuthorization::new(
+            &self.inner.remote_runtime_secret,
+            &actor.id,
+            &actor.org_id,
+            &host_id,
+        ) {
+            Ok(authorization) => authorization,
+            Err(err) => {
+                self.set_error_if_current(
+                    generation,
+                    "Remote access identity is invalid.",
                     Some(err),
                 );
                 return;
@@ -527,8 +588,10 @@ impl CloudConnectionSupervisor {
                 &host_id,
                 &host_token,
                 &base_url,
+                relay_authorization.clone(),
                 cancel_rx.clone(),
                 || {
+                    log::info!("remote access relay connected");
                     self.set_phase_if_current(
                         generation,
                         ConnectionPhase::Connected,
@@ -569,19 +632,53 @@ impl CloudConnectionSupervisor {
 
     async fn ensure_host(
         &self,
+        generation: u64,
         client: &CloudClient,
         session_token: &str,
         actor: &CloudActor,
     ) -> Result<(String, String), String> {
-        let existing_id = self
-            .inner
-            .state
-            .lock()
-            .ok()
-            .and_then(|state| state.preferences.host_id.clone());
+        let (existing_id, existing_actor_id, existing_org_id) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            if state.generation != generation {
+                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+            }
+            (
+                state.preferences.host_id.clone(),
+                state.preferences.host_actor_id.clone(),
+                state.preferences.host_org_id.clone(),
+            )
+        };
         let existing_token = self.inner.credentials.get(HOST_CREDENTIAL)?;
-        if let (Some(id), Some(token)) = (existing_id, existing_token) {
-            return Ok((id, token));
+        if saved_host_owner_matches(
+            existing_actor_id.as_deref(),
+            existing_org_id.as_deref(),
+            actor,
+        ) {
+            if let (Some(id), Some(token)) = (existing_id.clone(), existing_token.clone()) {
+                if self.is_current(generation) {
+                    return Ok((id, token));
+                }
+                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+            }
+        }
+        if existing_id.is_some() || existing_token.is_some() {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            if state.generation != generation {
+                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+            }
+            self.inner.credentials.delete(HOST_CREDENTIAL)?;
+            state.preferences.host_id = None;
+            state.preferences.host_actor_id = None;
+            state.preferences.host_org_id = None;
+            self.persist_preferences(&state.preferences)?;
         }
 
         let created = client
@@ -591,17 +688,47 @@ impl CloudConnectionSupervisor {
         if created.host.id.trim().is_empty() || created.host_token.trim().is_empty() {
             return Err("Cloud did not return desktop host credentials.".to_string());
         }
+        if let Err(err) = self.save_created_host_if_current(generation, actor, &created) {
+            abandon_created_host(client, session_token, actor, &created.host.id).await;
+            return Err(err);
+        }
+        Ok((created.host.id, created.host_token))
+    }
+
+    fn save_created_host_if_current(
+        &self,
+        generation: u64,
+        actor: &CloudActor,
+        created: &CreatedHost,
+    ) -> Result<(), String> {
+        if !self.is_current(generation) {
+            return Err(REMOTE_ACCESS_CANCELLED.to_string());
+        }
         self.inner
             .credentials
             .set(HOST_CREDENTIAL, &created.host_token)?;
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .map_err(|_| "Remote access state is unavailable.".to_string())?;
-        state.preferences.host_id = Some(created.host.id.clone());
-        self.persist_preferences(&state.preferences)?;
-        Ok((created.host.id, created.host_token))
+        let result = (|| -> Result<(), String> {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            if state.generation != generation {
+                Err(REMOTE_ACCESS_CANCELLED.to_string())
+            } else {
+                let mut preferences = state.preferences.clone();
+                preferences.host_id = Some(created.host.id.clone());
+                preferences.host_actor_id = Some(actor.id.clone());
+                preferences.host_org_id = Some(actor.org_id.clone());
+                self.persist_preferences(&preferences)?;
+                state.preferences = preferences;
+                Ok(())
+            }
+        })();
+        if result.is_err() {
+            let _ = self.inner.credentials.delete(HOST_CREDENTIAL);
+        }
+        result
     }
 
     fn apply_actor(&self, generation: u64, actor: &CloudActor) {
@@ -621,20 +748,45 @@ impl CloudConnectionSupervisor {
         }
     }
 
-    fn clear_account_if_current(&self, generation: u64, message: &str) {
+    fn expire_account_if_current(&self, generation: u64, message: &str) {
         let Ok(mut state) = self.inner.state.lock() else {
             return;
         };
         if state.generation != generation {
             return;
         }
+        let mut errors = None;
+        for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
+            if let Err(err) = self.inner.credentials.delete(credential) {
+                append_warning(&mut errors, err);
+            }
+        }
         state.signed_in = false;
         state.phase = ConnectionPhase::Disconnected;
         state.preferences = CloudConnectionPreferences::default();
         state.message = message.to_string();
         state.login_url = None;
-        state.last_error = None;
-        let _ = self.persist_preferences(&state.preferences);
+        state.last_error = errors;
+        if let Err(err) = self.persist_preferences(&state.preferences) {
+            append_warning(&mut state.last_error, err);
+        }
+    }
+
+    fn fail_authorization_if_current(&self, generation: u64, message: &str, error: Option<String>) {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return;
+        };
+        if state.generation != generation {
+            return;
+        }
+        let mut error = error;
+        if let Err(err) = self.inner.credentials.delete(SESSION_CREDENTIAL) {
+            append_warning(&mut error, err);
+        }
+        state.phase = ConnectionPhase::Error;
+        state.message = message.to_string();
+        state.login_url = None;
+        state.last_error = error;
     }
 
     fn set_phase_if_current(
@@ -740,11 +892,24 @@ struct CloudConnectionPreferences {
     #[serde(default)]
     auto_start_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_actor_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_org_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     account_email: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     org_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     host_id: Option<String>,
+}
+
+fn append_warning(current: &mut Option<String>, warning: String) {
+    if let Some(current) = current {
+        current.push(' ');
+        current.push_str(&warning);
+    } else {
+        *current = Some(warning);
+    }
 }
 
 fn read_preferences(path: &Path) -> CloudConnectionPreferences {
@@ -852,6 +1017,12 @@ fn new_app_token() -> Result<String, String> {
     let mut raw = [0u8; 32];
     rand::rng().fill_bytes(&mut raw);
     Ok(format!("happ_{}", URL_SAFE_NO_PAD.encode(raw)))
+}
+
+pub fn new_remote_runtime_secret() -> String {
+    let mut raw = [0u8; 32];
+    rand::rng().fill_bytes(&mut raw);
+    format!("hrelay_{}", URL_SAFE_NO_PAD.encode(raw))
 }
 
 fn default_host_name() -> String {
@@ -1038,8 +1209,68 @@ struct CloudErrorBody {
 
 #[derive(Clone, Deserialize)]
 struct CloudActor {
+    id: String,
     email: String,
     org_id: String,
+}
+
+fn saved_host_owner_matches(
+    actor_id: Option<&str>,
+    org_id: Option<&str>,
+    actor: &CloudActor,
+) -> bool {
+    actor_id == Some(actor.id.as_str()) && org_id == Some(actor.org_id.as_str())
+}
+
+async fn abandon_created_host(
+    client: &CloudClient,
+    session_token: &str,
+    actor: &CloudActor,
+    host_id: &str,
+) {
+    if let Err(err) = client
+        .revoke_host(session_token, &actor.org_id, host_id)
+        .await
+    {
+        log::warn!("could not revoke a cancelled remote access host: {err}");
+    }
+}
+
+#[derive(Clone)]
+struct RelayAuthorization {
+    runtime_secret: HeaderValue,
+    actor_id: HeaderValue,
+    org_id: HeaderValue,
+    runtime_id: HeaderValue,
+}
+
+impl RelayAuthorization {
+    fn new(secret: &str, actor_id: &str, org_id: &str, runtime_id: &str) -> Result<Self, String> {
+        let mut runtime_secret = relay_header_value(secret, "connector secret")?;
+        runtime_secret.set_sensitive(true);
+        Ok(Self {
+            runtime_secret,
+            actor_id: relay_header_value(actor_id, "Cloud actor id")?,
+            org_id: relay_header_value(org_id, "Cloud organization id")?,
+            runtime_id: relay_header_value(runtime_id, "Cloud host id")?,
+        })
+    }
+
+    fn apply(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        builder
+            .header(REMOTE_RUNTIME_SECRET_HEADER, self.runtime_secret.clone())
+            .header(REMOTE_ACTOR_ID_HEADER, self.actor_id.clone())
+            .header(REMOTE_ORG_ID_HEADER, self.org_id.clone())
+            .header(REMOTE_RUNTIME_ID_HEADER, self.runtime_id.clone())
+    }
+}
+
+fn relay_header_value(value: &str, label: &str) -> Result<HeaderValue, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!("{label} is missing."));
+    }
+    HeaderValue::from_str(value).map_err(|_| format!("{label} is invalid."))
 }
 
 #[derive(Deserialize)]
@@ -1058,6 +1289,7 @@ async fn run_relay<F>(
     host_id: &str,
     host_token: &str,
     local_base_url: &str,
+    authorization: RelayAuthorization,
     mut cancel_rx: watch::Receiver<bool>,
     on_connected: F,
 ) -> Result<(), String>
@@ -1133,10 +1365,18 @@ where
                         };
                         let http = client.http.clone();
                         let local = local_base_url.to_string();
+                        let authorization = authorization.clone();
                         let outgoing = outgoing_tx.clone();
                         tauri::async_runtime::spawn(async move {
                             let _permit = permit;
-                            handle_relay_payload(&http, &local, payload.as_str(), &outgoing).await;
+                            handle_relay_payload(
+                                &http,
+                                &local,
+                                &authorization,
+                                payload.as_str(),
+                                &outgoing,
+                            )
+                            .await;
                         });
                     }
                     Some(Ok(Message::Ping(payload))) => {
@@ -1206,6 +1446,7 @@ struct RelayResponseEnd {
 async fn handle_relay_payload(
     http: &reqwest::Client,
     local_base_url: &str,
+    authorization: &RelayAuthorization,
     payload: &str,
     outgoing: &mpsc::Sender<String>,
 ) {
@@ -1220,11 +1461,12 @@ async fn handle_relay_payload(
     };
     match request.kind.as_str() {
         "http_request" => {
-            let response = execute_status_request(http, local_base_url, request).await;
+            let response =
+                execute_status_request(http, local_base_url, authorization, request).await;
             let _ = outgoing.send(response).await;
         }
         "http_proxy_request" => {
-            execute_proxy_request(http, local_base_url, request, outgoing).await;
+            execute_proxy_request(http, local_base_url, authorization, request, outgoing).await;
         }
         _ => {
             let _ = outgoing
@@ -1241,11 +1483,12 @@ async fn handle_relay_payload(
 async fn execute_status_request(
     http: &reqwest::Client,
     local_base_url: &str,
+    authorization: &RelayAuthorization,
     request: RelayRequest,
 ) -> String {
     let method = request.method.trim().to_ascii_uppercase();
     let path = request.path.trim();
-    if !status_route_allowed(&method, path) {
+    if !matches!(method.as_str(), "GET" | "POST") || !proxy_path_allowed(path) {
         return relay_error_response(&request.id, 403, "This remote route is not available.");
     }
     let body = match decode_request_body(&method, &request.body_base64, RELAY_MAX_REQUEST_BODY) {
@@ -1255,6 +1498,7 @@ async fn execute_status_request(
     execute_buffered_request(
         http,
         local_base_url,
+        authorization,
         &request.id,
         &method,
         path,
@@ -1268,6 +1512,7 @@ async fn execute_status_request(
 async fn execute_proxy_request(
     http: &reqwest::Client,
     local_base_url: &str,
+    authorization: &RelayAuthorization,
     request: RelayRequest,
     outgoing: &mpsc::Sender<String>,
 ) {
@@ -1314,7 +1559,7 @@ async fn execute_proxy_request(
             return;
         }
     };
-    let mut builder = http.request(reqwest_method, target);
+    let mut builder = authorization.apply(http.request(reqwest_method, target));
     builder = apply_proxy_headers(builder, &request.headers);
     if !body.is_empty() {
         builder = builder.body(body);
@@ -1418,6 +1663,7 @@ async fn execute_proxy_request(
 async fn execute_buffered_request(
     http: &reqwest::Client,
     local_base_url: &str,
+    authorization: &RelayAuthorization,
     id: &str,
     method: &str,
     path: &str,
@@ -1433,8 +1679,11 @@ async fn execute_buffered_request(
         Ok(method) => method,
         Err(_) => return relay_error_response(id, 405, "Method is not available."),
     };
-    let mut builder = apply_proxy_headers(http.request(reqwest_method, target), headers)
-        .timeout(Duration::from_secs(20));
+    let mut builder = apply_proxy_headers(
+        authorization.apply(http.request(reqwest_method, target)),
+        headers,
+    )
+    .timeout(Duration::from_secs(20));
     if !body.is_empty() {
         builder = builder.body(body);
     }
@@ -1556,53 +1805,6 @@ fn local_request_url(base_url: &str, path: &str) -> Result<reqwest::Url, String>
     Ok(base)
 }
 
-fn status_route_allowed(method: &str, path: &str) -> bool {
-    if path.contains(['?', '#']) {
-        return false;
-    }
-    match method {
-        "GET" => {
-            matches!(
-                path,
-                "/healthz"
-                    | "/hecate/v1/whoami"
-                    | "/hecate/v1/projects"
-                    | "/hecate/v1/chat/sessions"
-                    | "/hecate/v1/tasks"
-                    | "/hecate/v1/providers/status"
-                    | "/hecate/v1/agent-adapters"
-            ) || relay_path_matches("/hecate/v1/tasks/{id}/approvals", path)
-                || relay_path_matches("/hecate/v1/chat/sessions/{id}/approvals", path)
-        }
-        "POST" => {
-            relay_path_matches(
-                "/hecate/v1/tasks/{id}/approvals/{approval_id}/resolve",
-                path,
-            ) || relay_path_matches(
-                "/hecate/v1/chat/sessions/{id}/approvals/{approval_id}/resolve",
-                path,
-            )
-        }
-        _ => false,
-    }
-}
-
-fn relay_path_matches(pattern: &str, path: &str) -> bool {
-    let pattern_parts = pattern.split('/').collect::<Vec<_>>();
-    let path_parts = path.split('/').collect::<Vec<_>>();
-    pattern_parts.len() == path_parts.len()
-        && pattern_parts
-            .iter()
-            .zip(path_parts)
-            .all(|(expected, actual)| {
-                if expected.starts_with('{') && expected.ends_with('}') {
-                    !actual.is_empty() && !actual.contains(['/', '?', '#'])
-                } else {
-                    *expected == actual
-                }
-            })
-}
-
 fn proxy_method_allowed(method: &str) -> bool {
     matches!(
         method,
@@ -1657,9 +1859,20 @@ mod tests {
     }
 
     #[test]
+    fn remote_runtime_secrets_are_ephemeral_bearer_tokens() {
+        let first = new_remote_runtime_secret();
+        let second = new_remote_runtime_secret();
+        assert!(first.starts_with("hrelay_"));
+        assert!(first.len() >= 40);
+        assert_ne!(first, second);
+    }
+
+    #[test]
     fn preferences_never_serialize_credentials() {
         let preferences = CloudConnectionPreferences {
             auto_start_enabled: true,
+            host_actor_id: Some("actor_1".to_string()),
+            host_org_id: Some("org_1".to_string()),
             account_email: Some("operator@example.com".to_string()),
             org_id: Some("org_1".to_string()),
             host_id: Some("host_1".to_string()),
@@ -1679,6 +1892,8 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let preferences = CloudConnectionPreferences {
             auto_start_enabled: true,
+            host_actor_id: Some("actor_1".to_string()),
+            host_org_id: Some("org_1".to_string()),
             account_email: Some("operator@example.com".to_string()),
             org_id: Some("org_1".to_string()),
             host_id: Some("host_1".to_string()),
@@ -1703,14 +1918,145 @@ mod tests {
     }
 
     #[test]
-    fn status_routes_keep_the_narrow_approval_allowlist() {
-        assert!(status_route_allowed("GET", "/healthz"));
-        assert!(status_route_allowed(
-            "POST",
-            "/hecate/v1/tasks/task_1/approvals/approval_1/resolve"
+    fn relay_authorization_overrides_untrusted_identity_headers() {
+        let authorization =
+            RelayAuthorization::new("desktop-relay-secret-123456", "actor_1", "org_1", "host_1")
+                .expect("relay authorization");
+        let untrusted = HashMap::from([
+            (REMOTE_ACTOR_ID_HEADER.to_string(), "attacker".to_string()),
+            (
+                REMOTE_RUNTIME_SECRET_HEADER.to_string(),
+                "attacker-secret".to_string(),
+            ),
+            ("content-type".to_string(), "application/json".to_string()),
+        ]);
+
+        let request = apply_proxy_headers(
+            authorization.apply(reqwest::Client::new().get("http://127.0.0.1:8765/healthz")),
+            &untrusted,
+        )
+        .build()
+        .expect("relay request");
+
+        assert_eq!(
+            request.headers().get(REMOTE_ACTOR_ID_HEADER),
+            Some(&HeaderValue::from_static("actor_1"))
+        );
+        assert_eq!(
+            request.headers().get(REMOTE_ORG_ID_HEADER),
+            Some(&HeaderValue::from_static("org_1"))
+        );
+        assert_eq!(
+            request.headers().get(REMOTE_RUNTIME_ID_HEADER),
+            Some(&HeaderValue::from_static("host_1"))
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get(REMOTE_RUNTIME_SECRET_HEADER)
+                .and_then(|value| value.to_str().ok()),
+            Some("desktop-relay-secret-123456")
+        );
+    }
+
+    #[test]
+    fn saved_host_credentials_are_bound_to_the_cloud_owner() {
+        let actor = CloudActor {
+            id: "actor_1".to_string(),
+            email: "operator@example.com".to_string(),
+            org_id: "org_1".to_string(),
+        };
+
+        assert!(saved_host_owner_matches(
+            Some("actor_1"),
+            Some("org_1"),
+            &actor
         ));
-        assert!(!status_route_allowed("POST", "/hecate/v1/projects"));
-        assert!(!status_route_allowed("GET", "/hecate/v1/system/stats"));
+        assert!(!saved_host_owner_matches(
+            Some("actor_2"),
+            Some("org_1"),
+            &actor
+        ));
+        assert!(!saved_host_owner_matches(
+            Some("actor_1"),
+            Some("org_2"),
+            &actor
+        ));
+        assert!(!saved_host_owner_matches(None, Some("org_1"), &actor));
+    }
+
+    #[test]
+    fn host_registration_storage_is_generation_owned() {
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        let supervisor = CloudConnectionSupervisor::with_store(
+            None,
+            credentials.clone(),
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+        );
+        supervisor.inner.state.lock().expect("state").generation = 2;
+        let actor = CloudActor {
+            id: "actor_1".to_string(),
+            email: "operator@example.com".to_string(),
+            org_id: "org_1".to_string(),
+        };
+        let created = CreatedHost {
+            host: CloudHost {
+                id: "host_1".to_string(),
+            },
+            host_token: "host-token-12345678901234567890".to_string(),
+        };
+
+        let err = supervisor
+            .save_created_host_if_current(1, &actor, &created)
+            .expect_err("stale registration must fail");
+        assert_eq!(err, REMOTE_ACCESS_CANCELLED);
+        assert_eq!(
+            credentials.get(HOST_CREDENTIAL).expect("credential read"),
+            None
+        );
+
+        supervisor
+            .save_created_host_if_current(2, &actor, &created)
+            .expect("current registration");
+        assert_eq!(
+            credentials.get(HOST_CREDENTIAL).expect("credential read"),
+            Some(created.host_token.clone())
+        );
+        let state = supervisor.inner.state.lock().expect("state");
+        assert_eq!(state.preferences.host_id.as_deref(), Some("host_1"));
+        assert_eq!(state.preferences.host_actor_id.as_deref(), Some("actor_1"));
+        assert_eq!(state.preferences.host_org_id.as_deref(), Some("org_1"));
+    }
+
+    #[test]
+    fn stale_session_failure_cannot_delete_current_credentials() {
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        credentials
+            .set(SESSION_CREDENTIAL, "session-token-12345678901234567890")
+            .expect("session credential");
+        credentials
+            .set(HOST_CREDENTIAL, "host-token-12345678901234567890")
+            .expect("host credential");
+        let supervisor = CloudConnectionSupervisor::with_store(
+            None,
+            credentials.clone(),
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+        );
+        supervisor.inner.state.lock().expect("state").generation = 2;
+
+        supervisor.expire_account_if_current(1, "expired");
+        supervisor.fail_authorization_if_current(1, "failed", None);
+
+        assert!(credentials
+            .get(SESSION_CREDENTIAL)
+            .expect("session read")
+            .is_some());
+        assert!(credentials
+            .get(HOST_CREDENTIAL)
+            .expect("host read")
+            .is_some());
     }
 
     #[test]
@@ -1730,6 +2076,7 @@ mod tests {
             None,
             credentials,
             "https://console.example.test",
+            new_remote_runtime_secret(),
         );
         let status = supervisor.status(Some("http://127.0.0.1:8765".to_string()));
         assert!(status.available);
@@ -1748,6 +2095,7 @@ mod tests {
             None,
             credentials.clone(),
             "https://console.example.test",
+            new_remote_runtime_secret(),
         );
         {
             let mut state = supervisor.inner.state.lock().expect("state");

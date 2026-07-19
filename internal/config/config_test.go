@@ -740,13 +740,14 @@ func TestValidateAllowsRemoteRuntimeACPTerminalsWithRemoteOptIn(t *testing.T) {
 	}
 }
 
-func TestValidateAllowsRemoteRuntimeSecretOnlyWhenCloudModeDisabled(t *testing.T) {
+func TestValidateRejectsShortRemoteRuntimeSecretWhenModeDisabled(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.RemoteRuntimeMode = false
 	cfg.Server.RemoteRuntimeSecret = "short"
 
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v, want nil when remote runtime mode is disabled", err)
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "HECATE_REMOTE_RUNTIME_SECRET") {
+		t.Fatalf("Validate() error = %v, want short connector secret rejection", err)
 	}
 }
 

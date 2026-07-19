@@ -92,10 +92,24 @@ What works:
   required. Leave the app running, then open the computer from Hecate Cloud on
   a phone or another browser. Turning Remote access off preserves the signed-in
   account; signing out revokes the app session and computer registration.
+- Phone and remote-browser requests execute against this same running Hecate
+  and its laptop-local projects, chats, Task Runs, providers, and External
+  Agents. Hecate does not copy that state into Cloud or move a live process to
+  the phone. The runtime status identifies the laptop being supervised.
 - Cloud session and computer credentials are stored in the operating system's
   credential store. `<data_dir>/cloud-connection.json` contains only reconnect
   posture and non-secret account/host identifiers. When Remote access remains
   on, the app reconnects after its local runtime is healthy on the next launch.
+- Each desktop launch creates an ephemeral connector secret shared only with
+  the loopback sidecar. The connector stamps relayed requests with the signed-in
+  Cloud owner, organization, and registered-computer identity; browser headers
+  cannot override them. Hecate's Go API then applies its canonical remote route
+  policy. Workspace dialogs, local terminal surfaces, shutdown, reset, local
+  credential setup, and other local-only operations remain unavailable from a
+  phone even though they continue to work in the desktop webview.
+- The desktop opens only an outbound WebSocket to Cloud. It does not expose the
+  sidecar port to the internet, and neither the per-launch connector secret nor
+  Cloud credentials are returned through Tauri IPC to the webview.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.
