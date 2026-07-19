@@ -613,6 +613,28 @@ func TestValidateRejectsInvalidPublicURL(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvRuntimeHostLabel(t *testing.T) {
+	t.Setenv("HECATE_RUNTIME_HOST_LABEL", "MacBook")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.RuntimeHostLabel != "MacBook" {
+		t.Fatalf("RuntimeHostLabel = %q, want MacBook", cfg.Server.RuntimeHostLabel)
+	}
+}
+
+func TestValidateRejectsInvalidRuntimeHostLabel(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.RuntimeHostLabel = "MacBook\nspoofed"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid runtime host label error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_RUNTIME_HOST_LABEL") {
+		t.Fatalf("Validate() error = %q, want HECATE_RUNTIME_HOST_LABEL", err)
+	}
+}
+
 func TestValidateRejectsInvalidAllowedOrigin(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.AllowedOrigins = []string{"http://localhost:5173/app"}

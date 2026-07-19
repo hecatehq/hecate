@@ -18,7 +18,7 @@ test("shows the status bar with brand and session label", async ({ page }) => {
   const bar = page.locator(".hecate-statusbar");
   await expect(bar).toBeVisible();
   await expect(bar.locator(".hecate-statusbar__brand")).toHaveText("hecate");
-  await expect(bar).toContainText("Local");
+  await expect(bar).toContainText("On Test host");
 });
 
 test("status bar shows configured provider count and model count", async ({ page }) => {

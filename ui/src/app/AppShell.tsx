@@ -738,7 +738,13 @@ function AuthenticatedShell({
           </>
         )}
         <span className="hecate-statusbar__sep hecate-statusbar__sep--session">|</span>
-        <span className="hecate-statusbar__session">{session.label}</span>
+        <span
+          aria-label={session.title}
+          className="hecate-statusbar__session"
+          title={session.title}
+        >
+          {session.label}
+        </span>
         <span className="hecate-statusbar__sep hecate-statusbar__sep--providers">|</span>
         {/* "configured" = providers in the CP store (operator-added).
             "models" is intersected with the configured set so the count

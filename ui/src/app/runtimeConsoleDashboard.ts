@@ -10,7 +10,6 @@ import {
   getRuntimeStats,
   getSession,
 } from "../lib/api";
-import { isRemoteRuntimeSession } from "../lib/runtime-utils";
 import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
 import type { ConfiguredStateResponse, ProviderStatusResponse } from "../types/provider";
@@ -19,6 +18,7 @@ import type { ChatSessionRecord, ChatSessionsResponse } from "../types/chat";
 
 export type SessionState = {
   label: string;
+  title: string;
 };
 
 export type DashboardPreviousState = {
@@ -145,7 +145,25 @@ export async function resolveDashboardSnapshot(args: {
 }
 
 export function deriveSessionState(sessionInfo: SessionResponse["data"] | null): SessionState {
-  return { label: isRemoteRuntimeSession(sessionInfo) ? "Hosted" : "Local" };
+  if (!sessionInfo?.runtime_host) {
+    return {
+      label: "Runtime unavailable",
+      title: "Runtime host identity did not load.",
+    };
+  }
+  const host = sessionInfo.runtime_host;
+  const remote = host.operator_access === "remote_supervision";
+  const executionBoundary = remote
+    ? `This browser supervises ${host.label}. Files, tasks, and External Agents run on that host.`
+    : `Hecate is running on ${host.label}. Files, tasks, and External Agents run on this host.`;
+  const localOnlyActions = host.local_only_actions_available
+    ? "Host-local actions are available."
+    : "Host-local actions are unavailable.";
+  const publicURL = host.public_url ? ` Public URL: ${host.public_url}.` : "";
+  return {
+    label: remote ? `Supervising ${host.label}` : `On ${host.label}`,
+    title: `${executionBoundary} ${localOnlyActions} Runtime ID: ${host.id}.${publicURL}`,
+  };
 }
 
 async function loadDashboardResults(opts: {

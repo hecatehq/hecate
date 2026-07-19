@@ -34,6 +34,7 @@ import (
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/remoteruntime"
+	"github.com/hecatehq/hecate/internal/runtimehost"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
@@ -48,6 +49,7 @@ import (
 
 type Handler struct {
 	config                            config.Config
+	runtimeHost                       runtimehost.Identity
 	logger                            *slog.Logger
 	service                           *gateway.Service
 	controlPlane                      controlplane.Store
@@ -196,6 +198,10 @@ type StateCleaner interface {
 // one place. taskQueue may be nil — the runner falls back to its default
 // in-process queue, which is what the test fixtures rely on.
 func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service, cpStore controlplane.Store, taskStore taskstate.Store, taskQueue orchestrator.RunQueue, providerRuntimes ...ProviderRuntime) *Handler {
+	runtimeHost := runtimehost.NewEphemeral(cfg.Server.RuntimeHostLabel)
+	if id := strings.TrimSpace(cfg.Server.RuntimeHostID); id != "" {
+		runtimeHost.ID = id
+	}
 	var providerRuntime ProviderRuntime
 	if len(providerRuntimes) > 0 {
 		providerRuntime = providerRuntimes[0]
@@ -370,6 +376,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	}
 	h := &Handler{
 		config:                            cfg,
+		runtimeHost:                       runtimeHost,
 		logger:                            logger,
 		service:                           service,
 		controlPlane:                      cpStore,
@@ -788,13 +795,26 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
+	runtimeHost := RuntimeHostResponseItem{
+		ID:                        h.runtimeHost.ID,
+		Label:                     h.runtimeHost.Label,
+		RuntimeMode:               "local",
+		OperatorAccess:            "local_operator",
+		PublicURL:                 strings.TrimSpace(h.config.Server.PublicURL),
+		LocalOnlyActionsAvailable: true,
+	}
 	item := SessionResponseItem{
-		Role: "operator",
+		Role:        "operator",
+		RuntimeHost: runtimeHost,
 		Capabilities: SessionCapabilitiesItem{
 			LocalProvidersAllowed: h.config.LocalProvidersAllowed(),
 		},
 	}
 	if identity, ok := remoteruntime.FromContext(r.Context()); ok {
+		item.RuntimeHost.ID = identity.RuntimeID
+		item.RuntimeHost.RuntimeMode = "remote_runtime"
+		item.RuntimeHost.OperatorAccess = "remote_supervision"
+		item.RuntimeHost.LocalOnlyActionsAvailable = false
 		item.RemoteIdentity = &RemoteIdentityResponseItem{
 			ActorID:   identity.ActorID,
 			OrgID:     identity.OrgID,

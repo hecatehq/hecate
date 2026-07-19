@@ -525,11 +525,17 @@ sibling workspaces outside the registered project root.
 
 Hecate's Projects API and cockpit use the embedded [Cairnline](https://github.com/hecatehq/cairnline) coordination store. Cairnline owns the portable project graph: project identity, roots, context-source and skill metadata, roles, work items, assignments, evidence, reviews, handoffs, accepted project memory, memory candidates, and Project Assistant proposal records.
 
-Hecate owns the host-specific layer around that graph: Agent Presets, provider and model selection, task and External Agent launch, workspace and Git side effects, approvals, sandboxing, chats, execution references, context snapshots, traces, and the operator UI. Starting an assignment resolves Cairnline coordination intent into Hecate runtime behavior; Cairnline records never bypass Hecate policy.
+Hecate owns the host-specific layer around that graph: runtime host identity, Agent Presets, provider and model selection, task and External Agent launch, workspace and Git side effects, approvals, sandboxing, chats, execution references, context snapshots, traces, and the operator UI. Starting an assignment resolves Cairnline coordination intent into Hecate runtime behavior; Cairnline records never bypass Hecate policy. A remote operator can supervise this layer on its named runtime host, but the browser does not move running work or host-local state to another device.
 
 The Hecate facade remains at `/hecate/v1/projects*`, so the Projects UI does not depend on Cairnline's transport. Hecate stores embedded Cairnline state under its local data directory. There is no Hecate-native coordination backend, backend selector, mirror, or migration endpoint. A process-local project mutation fence only prevents Hecate cleanup rollback from interleaving with an acknowledged facade write to the same Cairnline graph; it does not store or duplicate coordination records. Multi-project Project Assistant operations, including chat moves, admit their complete project set together. Alpha dogfood records created by the removed native store are intentionally not migrated.
 
 Cairnline itself remains agent-neutral and can also be used directly over MCP by other agent hosts. A separately installed Cairnline connector is future work; Hecate currently uses the embedded Go package.
+
+Cross-host continuity therefore has two distinct checks: the project
+coordination graph must be reachable on the target host, and that host must have
+the required project root, Agent Preset, provider/model route, credentials, and
+External Agent adapter. Hecate does not currently claim that a task, chat, or
+running process can migrate between runtime hosts.
 
 ## What Projects V1 Does Not Do
 

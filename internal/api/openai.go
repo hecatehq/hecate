@@ -242,8 +242,18 @@ type SessionResponse struct {
 // actor propagated by the proxy.
 type SessionResponseItem struct {
 	Role           string                      `json:"role"`
+	RuntimeHost    RuntimeHostResponseItem     `json:"runtime_host"`
 	RemoteIdentity *RemoteIdentityResponseItem `json:"remote_identity,omitempty"`
 	Capabilities   SessionCapabilitiesItem     `json:"capabilities,omitempty"`
+}
+
+type RuntimeHostResponseItem struct {
+	ID                        string `json:"id"`
+	Label                     string `json:"label"`
+	RuntimeMode               string `json:"runtime_mode"`
+	OperatorAccess            string `json:"operator_access"`
+	PublicURL                 string `json:"public_url,omitempty"`
+	LocalOnlyActionsAvailable bool   `json:"local_only_actions_available"`
 }
 
 type SessionCapabilitiesItem struct {

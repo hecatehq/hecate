@@ -50,6 +50,19 @@ import type { ChatMessage } from "../lib/api";
 
 type SessionState = { label: string };
 
+export function createRuntimeHostFixture(
+  overrides: Partial<SessionResponse["data"]["runtime_host"]> = {},
+): SessionResponse["data"]["runtime_host"] {
+  return {
+    id: "runtime_test",
+    label: "Test host",
+    runtime_mode: "local",
+    operator_access: "local_operator",
+    local_only_actions_available: true,
+    ...overrides,
+  };
+}
+
 export type RuntimeConsoleFixtureState = {
   usageSummary: UsageSummaryResponse["data"] | null;
   activeChatSession: ChatSessionRecord | null;

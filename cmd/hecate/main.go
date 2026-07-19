@@ -35,6 +35,7 @@ import (
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/retention"
 	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/runtimehost"
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -74,6 +75,17 @@ func runServe() {
 		os.Exit(1)
 	}
 	cfg.Server.ControlPlaneSecretKey = boot.ControlPlaneSecretKey
+	runtimeHost, err := runtimehost.Resolve(cfg.Server.DataDir, cfg.Server.RuntimeHostLabel)
+	if err != nil {
+		slog.Error(
+			"runtime host identity init failed",
+			slog.String("path", filepath.Join(cfg.Server.DataDir, runtimehost.StateFilename)),
+			slog.Any("error", err),
+		)
+		os.Exit(1)
+	}
+	cfg.Server.RuntimeHostID = runtimeHost.ID
+	cfg.Server.RuntimeHostLabel = runtimeHost.Label
 
 	otelResource, err := telemetry.BuildResource(context.Background(), telemetry.ResourceOptions{
 		ServiceName:       cfg.OTel.ServiceName,

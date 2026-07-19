@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { createRuntimeHostFixture } from "../test/runtime-console-fixture";
+
 import {
   buildSpanWaterfall,
   buildTraceTimeline,
@@ -140,10 +142,17 @@ describe("runtime-utils", () => {
 
   it("detects remote runtime sessions from cloud identity", () => {
     expect(isRemoteRuntimeSession(null)).toBe(false);
-    expect(isRemoteRuntimeSession({ role: "operator" })).toBe(false);
+    expect(
+      isRemoteRuntimeSession({ role: "operator", runtime_host: createRuntimeHostFixture() }),
+    ).toBe(false);
     expect(
       isRemoteRuntimeSession({
         role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
         remote_identity: {
           actor_id: "actor-1",
           org_id: "org-1",

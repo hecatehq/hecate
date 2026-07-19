@@ -192,6 +192,14 @@ html[data-tauri-os="macos"] .hecate-shell {
   opacity: 0.5;
 }
 
+.hecate-statusbar__session {
+  min-width: 0;
+  max-width: min(34vw, 280px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hecate-statusbar__path {
   min-width: 0;
   overflow: hidden;
@@ -293,6 +301,10 @@ html[data-tauri-os="macos"] .hecate-shell {
   .hecate-statusbar__runtime,
   .hecate-statusbar__session {
     flex: 0 0 auto;
+  }
+
+  .hecate-statusbar__session {
+    max-width: 54vw;
   }
 
   .hecate-statusbar__path {

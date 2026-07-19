@@ -11,6 +11,14 @@ export type SessionResponse = {
   object: string;
   data: {
     role: string;
+    runtime_host: {
+      id: string;
+      label: string;
+      runtime_mode: "local" | "remote_runtime";
+      operator_access: "local_operator" | "remote_supervision";
+      public_url?: string;
+      local_only_actions_available: boolean;
+    };
     remote_identity?: {
       actor_id: string;
       org_id: string;

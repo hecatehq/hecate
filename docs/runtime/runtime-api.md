@@ -79,6 +79,43 @@ discovery. Hecate-native `/hecate/v1/*` routes are
 explicitly classified for remote mode, and route coverage tests fail when a new
 registered route is not marked remote-safe or local-only.
 
+`GET /hecate/v1/whoami` always identifies the Hecate runtime host in addition
+to the operator session:
+
+```json
+{
+  "object": "session",
+  "data": {
+    "role": "operator",
+    "runtime_host": {
+      "id": "runtime_00112233445566778899aabb",
+      "label": "MacBook",
+      "runtime_mode": "remote_runtime",
+      "operator_access": "remote_supervision",
+      "public_url": "https://hecate.example.com",
+      "local_only_actions_available": false
+    },
+    "remote_identity": {
+      "actor_id": "actor_1",
+      "org_id": "org_1",
+      "project_id": "project_1",
+      "runtime_id": "runtime_00112233445566778899aabb"
+    }
+  }
+}
+```
+
+Local requests report `runtime_mode: "local"`,
+`operator_access: "local_operator"`, and
+`local_only_actions_available: true`; `remote_identity` is omitted. Trusted
+remote-runtime requests report the proxy-provided `runtime_id` as the canonical
+`runtime_host.id`, `operator_access: "remote_supervision"`, and
+`local_only_actions_available: false`. `public_url` is present only when
+`HECATE_PUBLIC_URL` is configured. The stable local runtime ID is generated in
+`HECATE_DATA_DIR/hecate.runtime-host.json`; the operator-facing label comes from
+`HECATE_RUNTIME_HOST_LABEL` or the machine hostname. Neither field grants
+access.
+
 Remote mode disables local model providers by default. In that default posture,
 local presets are omitted, `kind=local` provider creates/updates are rejected,
 env-preconfigured local providers are skipped, and existing local provider rows

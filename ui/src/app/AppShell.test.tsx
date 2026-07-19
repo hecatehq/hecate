@@ -6,6 +6,7 @@ import { useChat } from "./state/chat";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
+  createRuntimeHostFixture,
   type RuntimeConsoleFixtureActions,
 } from "../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../test/runtime-console-render";
@@ -2170,8 +2171,11 @@ describe("ConsoleShell theme toggle", () => {
 // field genuinely missing). The workspace branch renders the embedded
 // views, which fan out fetches on mount; we stub fetch globally here so
 // those calls don't blow up under jsdom.
-describe("status bar version chip", () => {
-  function renderWorkspace(healthOverrides: Record<string, unknown> | null) {
+describe("status bar runtime identity", () => {
+  function renderWorkspace(
+    healthOverrides: Record<string, unknown> | null,
+    sessionInfo: ReturnType<typeof createRuntimeConsoleFixture>["sessionInfo"] = null,
+  ) {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -2187,6 +2191,7 @@ describe("status bar version chip", () => {
       // anything else replaces the whole object so the render branch
       // sees the version we feed it (or its absence).
       health: healthOverrides as never,
+      sessionInfo,
     });
     render(
       withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
@@ -2231,5 +2236,47 @@ describe("status bar version chip", () => {
     // to 4. Assert by counting separators.
     const sepCount = statusbar!.querySelectorAll(".hecate-statusbar__sep").length;
     expect(sepCount).toBe(3);
+  });
+
+  it("shows the named local runtime host", () => {
+    renderWorkspace(
+      { status: "ok", time: "2026-04-25T00:00:00Z" },
+      {
+        role: "operator",
+        runtime_host: createRuntimeHostFixture({ id: "runtime_1", label: "MacBook" }),
+      },
+    );
+
+    expect(screen.getByText("On MacBook")).toHaveAttribute(
+      "title",
+      expect.stringContaining("run on this host"),
+    );
+  });
+
+  it("shows remote supervision without implying execution moved to the browser", () => {
+    renderWorkspace(
+      { status: "ok", time: "2026-04-25T00:00:00Z" },
+      {
+        role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          id: "runtime_1",
+          label: "MacBook",
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
+        remote_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "runtime_1",
+        },
+      },
+    );
+
+    expect(screen.getByText("Supervising MacBook")).toHaveAttribute(
+      "title",
+      expect.stringContaining("run on that host"),
+    );
   });
 });
