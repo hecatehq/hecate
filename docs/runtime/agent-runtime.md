@@ -237,6 +237,7 @@ proposal-only tool.
 | `read_file`              | Read a file under the workspace, optionally by line range             | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
 | `grep`                   | Search workspace text files with a bounded regular-expression search  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
 | `glob`                   | Find workspace paths by glob pattern                                  | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                          |
+| `code_intelligence`      | Query code semantics, diagnostics, symbols, or structural patterns    | Ungated by default; gate with `read_file` or `all_tools` policy. Uses only allowlisted executables found on a trusted global gateway `PATH` or pinned by an exact operator path, with sanitized env, bounded protocol/output limits, and workspace-confined input/output paths. Semantic LSP calls fail closed when the task's read-only or network-denied policy cannot be enforced by the active OS wrapper                             |
 | `artifact_read`          | Read an inline artifact from the current task by artifact ID          | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                                                                                                                                                                                                 |
 | `list_dir`               | List entries under a workspace path                                   | Ungated unless `all_tools` is set. Path must resolve through WorkspaceFS within the workspace root                                                                                                                                                                                                                                                                                                                                        |
 | `git_status`             | Return structured branch and changed-file status                      | Gated by `git_exec` or `all_tools` policy (default on); immutable GitRunner metadata view with optional locks, lazy fetch, fsmonitor, global/system config/attributes, and recursion disabled; conversion attributes fail closed. QA v0 is an exception: it returns an unavailable evidence result without invoking Git.                                                                                                                  |
@@ -247,6 +248,112 @@ proposal-only tool.
 | `draft_project_proposal` | Draft a Project Assistant proposal artifact for the linked project    | Available only to Chat-origin Task Runs backing Hecate Chat Turns with `origin_kind=chat`, `execution_profile=chat_agent`, and a `project_id`; gated only by `all_tools`. Creates a `project_assistant_proposal` artifact for operator review and does not apply or start anything.                                                                                                                                                       |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
+
+### Code intelligence providers
+
+`code_intelligence` with `operation=capabilities` is permitted by the native
+sandbox gate, subject to normal preset tool enablement and approval policy. It
+resolves trusted executables and runs bounded `gopls version` / `tsc --version`
+probes, but does not initialize a language server; `ast-grep` discovery only
+inspects the executable. The other operations are available when the matching executable is installed
+on the gateway's trusted global `PATH` or bound to an exact operator-owned
+path:
+
+| Language / mode | Preferred provider                | Operations                                                         |
+| --------------- | --------------------------------- | ------------------------------------------------------------------ |
+| Go              | `gopls serve`                     | definition, references, hover, symbols, diagnostics                |
+| TypeScript / JS | TypeScript 7+ `tsc --lsp --stdio` | definition, references, hover, symbols, diagnostics                |
+| Structural      | `ast-grep run ... --json=stream`  | read-only structural search; rewrites are deliberately not exposed |
+
+`just doctor` reports the local discovery state. Typical operator-managed
+installs are `go install golang.org/x/tools/gopls@latest`, a global TypeScript
+7+ installation, and `npm install -g @ast-grep/cli`. Pin versions in
+reproducible runtime images instead of resolving `latest` during gateway
+startup. On Windows, the current alpha requires providers to resolve directly
+to native `.exe` files; npm-generated `.cmd` shims are rejected rather than
+routed through a command shell.
+
+An operator can pin exact executables with
+`HECATE_CODEINTEL_GOPLS_PATH`, `HECATE_CODEINTEL_TSC_PATH`, and
+`HECATE_CODEINTEL_AST_GREP_PATH`. Each value must be an absolute path to a
+regular executable. Exact paths are useful for immutable runtime images and
+layouts such as `/srv/app` plus `/srv/tools`; they are startup configuration,
+not tool arguments, and still cannot point inside the active project boundary.
+
+Hecate never auto-installs a provider. PATH discovery rejects providers inside
+the marked project boundary and providers below a non-root, non-home filesystem
+ancestor shared with a markerless workspace; that covers sibling trees such as
+`/repo/bin` and `/repo/node_modules/.bin`. A workspace-local executable is
+project code, not a trusted runtime dependency. Each semantic query starts a
+fresh bounded language server process and initializes exactly one workspace.
+It also receives a fresh temporary home plus private Go build, gopls, and XDG
+cache locations, which are removed after the query; sanitized operator-managed
+Go module and Volta locations remain available for dependency and shim
+resolution.
+Document-scoped operations open their requested file. `workspace_symbols` sends its query at
+workspace scope; TypeScript also requires a representative project file to open
+so the server loads the correct project, while Go can operate from its language
+and workspace root alone. Hecate then performs one read request and shuts the
+server down. This costs more startup time than pooling but prevents stale
+overlays and leaked daemons; per-run pooling can follow measured dogfooding
+data.
+
+Successful and failed provider calls both persist bounded Task steps. Failure
+steps contain operation shape, query byte length, duration, and one fixed error
+category: `not_configured`, `invalid_workspace`, `cancelled`, `timeout`,
+`diagnostics_incomplete`, `provider_unavailable`, `provider_protocol`,
+`invalid_request`, or `provider_error`. They omit the source path, query text,
+provider stderr, and raw protocol payload. This makes cold latency, availability, and useful-result rate
+measurable during Projects dogfooding without turning telemetry into a source
+disclosure channel.
+
+Capability discovery and fixed-argv structural search remain available to
+read-only tasks. Semantic operations can cause a language server to maintain
+caches or inspect build metadata, so Hecate permits them in a read-only task
+only under Linux `bwrap`, where the workspace is bound read-only. When a task
+denies network, semantic operations also require a wrapper that enforces that
+denial (`bwrap` or macOS `sandbox-exec`); wrapper-less hosts fail closed. A
+write-enabled, network-enabled task may run them without a wrapper because its
+resolved preset already authorizes those effects.
+
+LSP line/column arguments and results are 1-based, with columns expressed as
+UTF-8 byte offsets. Hecate converts those offsets to the server's negotiated
+position encoding. Native request validation caps encoded UTF-8 values at
+4 KiB for a path, 64 bytes for a language identifier, and 16 KiB for a symbol
+query or structural pattern; JSON Schema `maxLength` remains an additional
+model-facing hint rather than the enforcement boundary. Returned non-`file:`
+URIs, symlink escapes, and locations
+outside the task workspace are omitted and counted. That output filtering is a
+disclosure boundary for tool results, not a claim that an operator-installed
+language server is untrusted: on platforms without a kernel wrapper, and on
+macOS where the current wrapper confines network but not reads, the executable
+can still read whatever its OS account can read.
+
+Structural search invokes `ast-grep` from a neutral temporary directory and
+passes the validated workspace path explicitly. This prevents repository
+`sgconfig.yml` discovery from loading project-supplied custom-language shared
+libraries. Regular `grep` remains the universal fallback. It now also enforces
+workspace-entry, aggregate-byte, per-file, per-line, match, and rendered-output
+budgets. Grep regex/include and glob patterns are capped at 4 KiB of encoded
+UTF-8, and the complete rendered response—including headers and errors—is at
+most 64 KiB. Traversal admits at most 100,000 entries. Glob and grep-include
+matching also share one 67,108,864-unit match-work budget across full-path and
+basename checks; the reusable matcher retains only linear-in-pattern state
+instead of a per-entry pattern-by-path matrix. Exhaustion is reported as
+`scan_limit=pattern_work_limit`. A whole `**` glob segment matches zero or more
+directories, so `**/*.go` includes both root files and nested files. Grep reports
+bounded
+`incomplete`, `skipped_files`, and fixed-category `skip_reasons` metadata when
+a candidate cannot be searched (for example, a file exceeds the per-file cap,
+changes during its read, is non-text, or cannot be opened). Directory walking
+is streamed in bounded batches and checks context cancellation between entries;
+only handles confirmed to be regular files are read, with bounded reads. When
+the aggregate byte budget ends inside a line, grep may retain matches from
+earlier complete lines but never searches the incomplete trailing data. Search
+responses and Task steps report source traversal cutoffs as `scan_limit` and
+rendered-result truncation independently as `output_truncated`, so one limit
+cannot hide the other. A no-match search therefore cannot materialize or read
+an unbounded monorepo before returning.
 
 For a project-assignment task carrying an explicit
 `agent_preset_tools_enabled=false` snapshot, that setting is the master tool
@@ -476,8 +583,8 @@ Every fresh `agent_loop` run prepends a machine-generated system message that te
 > Use this path (or paths under it) when calling tools. `shell_exec` uses
 > ProcessRunner with the workspace as its default working directory; `git_exec`
 > runs Git from the workspace through the sandbox executor; `git_diff` uses
-> GitRunner from the workspace; `read_file` / `list_dir` / `grep` / `glob`
-> resolve relative paths through WorkspaceFS. Tool calls that target paths
+> GitRunner from the workspace; `read_file` / `list_dir` / `grep` / `glob` /
+> `code_intelligence` resolve relative paths through WorkspaceFS. Tool calls that target paths
 > outside this directory are rejected — don't reuse paths from the user prompt
 > verbatim if they fall outside the workspace.
 
@@ -534,9 +641,9 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 - `git_exec` → pauses on `git_exec`, `git_status`, and `git_diff` tool calls
   outside QA v0; QA v0 reports Git evidence unavailable without an approval
 - `file_write` → pauses on `file_write`, `file_edit`, and `apply_patch` tool calls
-- `read_file` → pauses on `read_file`, `grep`, `glob`, and `artifact_read` tool calls
+- `read_file` → pauses on `read_file`, `grep`, `glob`, `code_intelligence`, and `artifact_read` tool calls
 - `network_egress` → pauses on `http_request` and configured `web_search` tool calls
-- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`); QA v0 Git evidence remains unavailable without an approval
+- `all_tools` → pauses on every otherwise-permitted tool call (`shell_exec`, `terminal_open`, `terminal_write`, `terminal_read`, `terminal_wait`, `terminal_kill`, `git_exec`, `git_status`, `git_diff`, `file_write`, `file_edit`, `apply_patch`, `read_file`, `grep`, `glob`, `code_intelligence`, `artifact_read`, `list_dir`, `http_request`, `web_search`, `draft_project_proposal`); QA v0 Git evidence remains unavailable without an approval
 
 `browser_inspect` is intentionally not in that policy mapping: every otherwise
 permitted browser-inspection call pauses for `agent_loop_tool_call` approval,
@@ -597,6 +704,9 @@ Env vars that affect agent_loop runs:
 | `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES`    | `262144` (256 KiB) | Response size cap for `http_request`                                                                                                                                                                          |
 | `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`     | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                                                                                                             |
 | `HECATE_TASK_HTTP_ALLOWED_HOSTS`         | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                                                                                                                |
+| `HECATE_CODEINTEL_GOPLS_PATH`            | `""`               | Exact absolute `gopls` executable; empty discovers `gopls` from the trusted global PATH                                                                                                                       |
+| `HECATE_CODEINTEL_TSC_PATH`              | `""`               | Exact absolute TypeScript 7+ native `tsc` executable; empty discovers `tsc` from the trusted global PATH                                                                                                      |
+| `HECATE_CODEINTEL_AST_GREP_PATH`         | `""`               | Exact absolute `ast-grep` executable; empty discovers `ast-grep` from the trusted global PATH                                                                                                                 |
 | `HECATE_TASK_BROWSER_EXECUTABLE`         | `""`               | Absolute path to a local Chromium-compatible executable for optional native browser evidence. Empty disables it; Hecate never finds or downloads a browser automatically, and remote-runtime mode rejects it. |
 | `HECATE_TASK_BROWSER_TIMEOUT`            | `20s`              | Positive wall-clock limit for one browser inspection, including preflight, browser startup, and page capture                                                                                                  |
 | `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS`  | `false`            | Allows private/local destinations after an explicit operator opt-in. The inspector pins hostname resolution for the inspection, but this is still not an OS/network isolation boundary.                       |
@@ -611,7 +721,7 @@ Env vars that affect agent_loop runs:
 | `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS`    | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true`                                                                                             |
 | `HECATE_TASK_SHELL_ALLOWED_HOSTS`        | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                                                                                                                      |
 
-For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`; QA v0 is an exception because it reports the metadata-free Git limitation without invoking Git or asking for approval. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`), and task artifact reads. Browser evidence is different: `browser_inspect` always requires its own explicit approval and cannot be enabled by changing this list. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
+For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `shell_exec` gates one-shot shell calls plus native agent-loop terminal tools. `git_exec` gates arbitrary git commands plus structured `git_status` and `git_diff`; QA v0 is an exception because it reports the metadata-free Git limitation without invoking Git or asking for approval. `file_write` gates full-file writes, exact-match `file_edit`, and structured `apply_patch` calls. `read_file` gates direct reads, structured search tools (`grep`, `glob`, `code_intelligence`), and task artifact reads. Browser evidence is different: `browser_inspect` always requires its own explicit approval and cannot be enabled by changing this list. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
 Hecate Chat can opt a session into RTK command-output compaction from
 the chat settings panel. The setting is off by default. Hecate only

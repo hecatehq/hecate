@@ -499,6 +499,31 @@ Projects V1 is good enough for Hecate dogfooding when an operator can:
 Prefer dogfooding and small friction fixes over adding new Projects concepts
 until those journeys break down in real Hecate development work.
 
+### Hecate development dogfood loop
+
+For Hecate-on-Hecate coding, register the checkout as a project root and keep
+**Isolated copy** as the default workspace mode. Use a `hecate_task`-compatible
+Agent Preset with tools and writes enabled; choose its network posture together
+with the host sandbox. Semantic code intelligence can run network-denied under
+`bwrap` or `sandbox-exec`, while a wrapper-less host requires an explicitly
+network-enabled task. Normal write and shell approval policies still apply.
+
+Run `just doctor` on the runtime host before the first assignment. The agent can
+then call `code_intelligence` with `operation=capabilities`, use LSP for
+definitions/references/symbols/diagnostics, use optional `ast-grep` for
+structural patterns, and fall back to bounded `grep` when a provider is absent.
+Install code-intelligence providers globally or pin an operator-owned exact
+path rather than trusting the worktree's `node_modules`; hydrate ordinary
+project dependencies inside the isolated workspace when its compiler needs
+them.
+
+Keep each work item and assignment bounded to one reviewable improvement. Start
+it deliberately, inspect the Task's tool steps and changed-file evidence, record
+the verification result, and create a follow-up assignment only for a concrete
+gap found during the run. Projects remains a supervised coordination loop: it
+does not continuously dispatch new coding work, auto-approve tools, or accept
+project memory without an operator decision.
+
 ## Roots And Worktrees
 
 Project roots are concrete workspace paths, not project identity. A single

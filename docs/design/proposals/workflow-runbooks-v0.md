@@ -197,8 +197,9 @@ The implemented QA v0 contract has a much narrower posture:
   `glob`, `artifact_read`, and `list_dir`. `git_status` and `git_diff` report
   the metadata-free snapshot as unavailable without invoking Git.
 - QA blocks workspace writes, patch/proposal artifacts, shell and terminal
-  commands, external MCP tools, native HTTP requests, web search, and browser
-  inspection. It does not run test commands or add a `test_command` input.
+  commands, semantic and structural code intelligence, external MCP tools,
+  native HTTP requests, web search, and browser inspection. It does not run
+  test commands or add a `test_command` input.
   It also skips automatic post-run Git summary capture and has no Git evidence
   in v0; source Git metadata is not copied into the QA workspace.
 - It emits `workflow_manifest` at run start. If the agent produces a final

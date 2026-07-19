@@ -98,9 +98,19 @@ POSIX shell, git/ssh, common project-dependency tools (`build-essential`,
 Python/pip/venv, `pkg-config`, `ripgrep`, `jq`, and archive/process helpers),
 and External Agent CLIs. The Codex and Claude Code ACP bridges are compiled
 into the Hecate binary; the image only needs their vendor CLIs. The image does
-not install `bwrap` by default; Hecate still applies its process policy, env
-sanitisation, and approval gates, but filesystem/network isolation inside the
-container is normally reported as `none`.
+not bundle language servers or `ast-grep`; native `code_intelligence` reports
+those optional capabilities as missing until the operator adds trusted global
+executables to `PATH` or configures the exact `HECATE_CODEINTEL_*_PATH`, while
+`grep` remains available. Installing a language
+server alone does not enable semantic queries under the image's normal
+read-only or network-denied task policy. The image also does not install
+`bwrap` by default, so those calls remain denied until the deployment supplies
+a compatible OS sandbox; an explicitly write-enabled, network-enabled task can
+run a trusted server without one. Capability discovery and optional
+`ast-grep` structural search do not start a language server and remain usable.
+Hecate still applies its process policy, environment sanitisation, and approval
+gates, but filesystem/network isolation inside the stock container is normally
+reported as `none`.
 
 Remote mode also disables local model providers by default. Local presets are
 hidden, `kind=local` provider creates/updates are rejected, env-preconfigured
