@@ -2435,7 +2435,11 @@ describe("ChatView input", () => {
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
-    expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
+    expect(screen.getByText("Connect a model or agent")).toBeTruthy();
+    expect(screen.getByLabelText("Start checklist")).toBeTruthy();
+    expect(screen.getByText("Models")).toBeTruthy();
+    expect(screen.getByText("Workspace")).toBeTruthy();
+    expect(screen.getByText("Agents")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Choose agent for new chat" })).toBeTruthy();
@@ -7297,7 +7301,7 @@ describe("ChatView error display", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(await screen.findByText("Nothing runnable yet")).toBeTruthy();
+    expect(await screen.findByText("Connect a model or agent")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.queryByText("Selected model is unavailable")).toBeNull();
     expect(screen.queryByText("422 · model_not_configured")).toBeNull();

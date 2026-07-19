@@ -70,20 +70,20 @@ try {
 
 const capabilityRows = [
   [
-    "Model gateway",
-    "Route OpenAI-compatible and Anthropic-shaped requests across cloud and local providers with health, failover, and usage visibility.",
+    "Chats and routing",
+    "Talk to models through OpenAI-compatible and Anthropic-shaped APIs with health, failover, and usage visibility.",
   ],
   [
-    "Project orchestration",
-    "Coordinate durable projects, workspace roots, assignments, handoffs, context snapshots, and operator-approved memory.",
+    "Projects and memory",
+    "Keep work areas, workspace roots, assignments, context snapshots, evidence, and approved memory together.",
   ],
   [
-    "External agents",
-    "Supervise local Codex, Claude Code, Cursor, and Grok Build sessions while their CLIs keep their own accounts and runtimes.",
+    "Supervised agents",
+    "Run Codex, Claude Code, Cursor, and Grok Build from Hecate while their CLIs keep their own accounts and runtime behavior.",
   ],
   [
-    "Evidence",
-    "Keep traces, route reports, task artifacts, diffs, logs, usage, and final output close to the decision that produced them.",
+    "Observable work",
+    "Keep approvals, traces, route reports, artifacts, diffs, logs, usage, and final output close to the decision that produced them.",
   ],
 ];
 
@@ -101,10 +101,10 @@ const downloadRows = [
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Hecate is a local AI operations console for supervised agent work across AI clients, model providers, coding agents, workspace tools, projects, approvals, artifacts, and traces."
+      content="Hecate is an AI workspace and runtime for projects, chats, providers, memory, approvals, traces, and supervised external agents."
     />
     <link rel="icon" href="/brand/png/mark-trivium-black-64.png" sizes="64x64" />
-    <title>Hecate - Local AI Operations Console</title>
+    <title>Hecate - AI Workspace and Runtime</title>
   </head>
   <body>
     <header class="site-nav" aria-label="Primary navigation">
@@ -126,12 +126,12 @@ const downloadRows = [
           <img src="/product/chat-workspace-diff.png" alt="" />
         </div>
         <div class="hero__copy">
-          <p class="eyebrow">local AI operations console</p>
+          <p class="eyebrow">AI workspace and runtime</p>
           <h1 id="hero-title">hecate</h1>
           <p class="lede">
-            Run Hecate on your machine between AI clients, model providers,
-            coding agents, and workspace tools so project work can be coordinated,
-            routed, approved, traced, and reviewable.
+            Run Hecate on your machine as the personal control plane for AI work:
+            projects, chats, model providers, memory, approvals, diffs, traces,
+            and supervised external agents in one UI.
           </p>
 
           <div class="hero__actions" aria-label="Primary actions">
@@ -164,6 +164,10 @@ const downloadRows = [
         <div class="section-heading">
           <p class="eyebrow">public alpha</p>
           <h2 id="download-title">Install the local console.</h2>
+          <p>
+            Start with the desktop app, Docker image, or source checkout. Hecate
+            runs locally by default and keeps the runtime boundary visible.
+          </p>
         </div>
 
         <div class="download-table" aria-label="Download options">
@@ -180,11 +184,11 @@ const downloadRows = [
       <section class="workflow" id="workflow" aria-labelledby="workflow-title">
         <div class="workflow__copy">
           <p class="eyebrow">project workflow</p>
-          <h2 id="workflow-title">Project work gets a durable local identity.</h2>
+          <h2 id="workflow-title">One workspace for personal and project agents.</h2>
           <p>
             Start with a project, attach workspace roots when files matter, and
-            keep chats, tasks, external-agent sessions, context, memory, and evidence
-            connected to the same work.
+            keep chats, tasks, external-agent sessions, context, memory, and
+            evidence connected to the same work.
           </p>
         </div>
 
@@ -228,12 +232,13 @@ const downloadRows = [
 
       <section class="cloud-bridge" aria-labelledby="cloud-title">
         <div>
-          <p class="eyebrow">hosted direction</p>
-          <h2 id="cloud-title">Open source first. Hosted runtimes stay separate.</h2>
+          <p class="eyebrow">remote option</p>
+          <h2 id="cloud-title">Use Hecate away from your desk.</h2>
         </div>
         <p>
-          hecate.sh stays focused on the open-source local console. Hecate Cloud
-          will live separately at hecatehq.com, with the console at console.hecatehq.com.
+          hecate.sh is the open-source Hecate runtime and app. Hecate Cloud is
+          the separate hosted deployment and access layer for opening that same
+          Hecate UI from a browser.
         </p>
         <a class="button button--ghost" href="https://hecatehq.com">Hecate Cloud</a>
       </section>

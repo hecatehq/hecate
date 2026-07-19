@@ -309,6 +309,13 @@ h2 {
   max-width: 44rem;
 }
 
+.section-heading p:not(.eyebrow) {
+  margin: 1.1rem 0 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.6vw, 1.2rem);
+  line-height: 1.55;
+}
+
 .download-table {
   display: grid;
   align-content: start;

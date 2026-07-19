@@ -21,7 +21,9 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // Default fixture starts empty. Chats should stay useful by showing the
   // provider onboarding surface after the operator starts a chat.
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
-  await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
+  await expect(
+    page.getByText(/Connect a model or agent|No model provider configured/),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
   await expectComposerNotRunnable(page);
 
@@ -43,7 +45,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // are routable yet.
   await page.locator(".hecate-activitybar [aria-label^='Chats']").click();
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
-  await expect(page.getByText(/Nothing runnable yet|No routable model/)).toBeVisible();
+  await expect(page.getByText(/Connect a model or agent|No routable model/)).toBeVisible();
   await expectComposerNotRunnable(page);
 
   // Back to Connections, delete the row.
@@ -61,7 +63,9 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // returning to the same first-run setup surface.
   await page.locator(".hecate-activitybar [aria-label^='Chats']").click();
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
-  await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
+  await expect(
+    page.getByText(/Connect a model or agent|No model provider configured/),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
   await expectComposerNotRunnable(page);
 });

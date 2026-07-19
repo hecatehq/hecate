@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 
 import { type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
@@ -98,7 +98,7 @@ export function ChatEmptyState({
       : isExternalAgentChat && agentRouteUnavailable
         ? "No available coding agent"
         : nothingRunnable
-          ? "Nothing runnable yet"
+          ? "Connect a model or agent"
           : selectedModelIssue
             ? selectedModelIssue.title
             : setupRepair
@@ -112,7 +112,7 @@ export function ChatEmptyState({
       : isExternalAgentChat && agentRouteUnavailable
         ? "Hecate did not find any supported coding-agent CLI in the known operator locations."
         : nothingRunnable
-          ? "Add a model provider or install a supported coding-agent CLI before sending a message."
+          ? "Add a model provider in Connections or set up a supported external agent. Hecate will keep chats, approvals, files, and traces together once something can run."
           : selectedModelIssue
             ? selectedModelIssue.message
             : setupRepair
@@ -121,6 +121,14 @@ export function ChatEmptyState({
                 ? "Add a provider with discovered models before sending through Hecate."
                 : readyDetail;
   const emptyRepairAction = setupRepair;
+  const startGuideItems = buildStartGuideItems({
+    agentAdapters,
+    hasConfiguredProviders,
+    isRemoteRuntime,
+    modelRouteUnavailable,
+    selectedModelIssue,
+    setupRepair: emptyRepairAction,
+  });
 
   function runEmptyRepairAction() {
     if (!emptyRepairAction) return;
@@ -141,23 +149,15 @@ export function ChatEmptyState({
   }
 
   return (
-    <div
-      style={{ padding: "28px 16px 18px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}
-    >
-      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)", marginBottom: 5 }}>
-        {title}
+    <div style={emptyStateShellStyle}>
+      <div style={emptyStateHeaderStyle}>
+        <div style={emptyStateKickerStyle}>
+          {isExternalAgentChat ? "External agent" : "Hecate chat"}
+        </div>
+        <div style={emptyStateTitleStyle}>{title}</div>
+        <div style={emptyStateDetailStyle}>{detail}</div>
       </div>
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--t3)",
-          lineHeight: 1.5,
-          maxWidth: 430,
-          margin: "0 auto",
-        }}
-      >
-        {detail}
-      </div>
+      <StartGuide items={startGuideItems} />
       {isAgentChat && (agentRouteUnavailable || selectedAgentUnavailable) && (
         <AgentSetupHints adapters={agentAdapters} selectedID={selectedAgent?.id} />
       )}
@@ -252,6 +252,120 @@ export function ChatEmptyState({
         ))}
     </div>
   );
+}
+
+type StartGuideTone = "ready" | "needed" | "setup" | "optional";
+
+type StartGuideItem = {
+  detail: string;
+  icon: string | string[];
+  label: string;
+  status: string;
+  tone: StartGuideTone;
+};
+
+function StartGuide({ items }: { items: StartGuideItem[] }) {
+  return (
+    <div aria-label="Start checklist" style={startGuideStyle}>
+      {items.map((item, index) => (
+        <div
+          key={item.label}
+          style={{
+            ...startGuideRowStyle,
+            borderTop: index === 0 ? undefined : "1px solid var(--border)",
+          }}
+        >
+          <span style={startGuideIconStyle}>
+            <Icon d={item.icon} size={15} />
+          </span>
+          <span style={{ minWidth: 0 }}>
+            <span style={startGuideLabelStyle}>{item.label}</span>
+            <span style={startGuideDetailStyle}>{item.detail}</span>
+          </span>
+          <span style={{ ...startGuideStatusStyle, ...startGuideToneStyle(item.tone) }}>
+            {item.status}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function buildStartGuideItems({
+  agentAdapters,
+  hasConfiguredProviders,
+  isRemoteRuntime,
+  modelRouteUnavailable,
+  selectedModelIssue,
+  setupRepair,
+}: {
+  agentAdapters: AgentAdapterRecord[];
+  hasConfiguredProviders: boolean;
+  isRemoteRuntime: boolean;
+  modelRouteUnavailable: boolean;
+  selectedModelIssue: SelectedModelIssue | null;
+  setupRepair: ChatSetupRepairState | null;
+}): StartGuideItem[] {
+  const modelNeedsAttention =
+    !hasConfiguredProviders || modelRouteUnavailable || Boolean(selectedModelIssue);
+  const agentReady = agentAdapters.some((adapter) => adapter.available);
+  const workspaceNeedsAttention = setupRepair?.action === "choose_workspace";
+  return [
+    {
+      detail: isRemoteRuntime
+        ? "Add an API-key provider in Connections."
+        : "Add a provider, or use detected local model apps.",
+      icon: Icons.model,
+      label: "Models",
+      status: modelNeedsAttention ? "Needed" : "Ready",
+      tone: modelNeedsAttention ? "needed" : "ready",
+    },
+    {
+      detail: "Choose a folder when chats need files, diffs, tasks, or project context.",
+      icon: Icons.folder,
+      label: "Workspace",
+      status: workspaceNeedsAttention ? "Needed" : "Optional",
+      tone: workspaceNeedsAttention ? "needed" : "optional",
+    },
+    {
+      detail: isRemoteRuntime
+        ? "Use supported external agents after API-key setup."
+        : "Use Codex, Claude Code, Cursor, or Grok Build once ready.",
+      icon: Icons.terminal,
+      label: "Agents",
+      status: agentReady ? "Ready" : agentAdapters.length > 0 ? "Setup" : "Unavailable",
+      tone: agentReady ? "ready" : agentAdapters.length > 0 ? "setup" : "optional",
+    },
+  ];
+}
+
+function startGuideToneStyle(tone: StartGuideTone): CSSProperties {
+  switch (tone) {
+    case "ready":
+      return {
+        background: "var(--green-bg)",
+        borderColor: "var(--green-border)",
+        color: "var(--green)",
+      };
+    case "needed":
+      return {
+        background: "var(--amber-bg)",
+        borderColor: "var(--amber-border)",
+        color: "var(--amber)",
+      };
+    case "setup":
+      return {
+        background: "var(--teal-bg)",
+        borderColor: "var(--teal-border)",
+        color: "var(--teal)",
+      };
+    case "optional":
+      return {
+        background: "var(--bg2)",
+        borderColor: "var(--border)",
+        color: "var(--t3)",
+      };
+  }
 }
 
 function AgentSetupHints({
@@ -860,3 +974,94 @@ function localProviderReadiness(discovery: LocalProviderDiscoveryRecord): {
     border: "var(--amber-border)",
   };
 }
+
+const emptyStateShellStyle: CSSProperties = {
+  margin: "0 auto",
+  maxWidth: 760,
+  padding: "clamp(28px, 6vw, 52px) 16px 18px",
+  textAlign: "left",
+};
+
+const emptyStateHeaderStyle: CSSProperties = {
+  margin: "0 auto",
+  maxWidth: 620,
+  textAlign: "center",
+};
+
+const emptyStateKickerStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  fontWeight: 650,
+  letterSpacing: "0.06em",
+  marginBottom: 7,
+  textTransform: "uppercase",
+};
+
+const emptyStateTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: "clamp(18px, 2.4vw, 24px)",
+  fontWeight: 720,
+  lineHeight: 1.18,
+};
+
+const emptyStateDetailStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: 12,
+  lineHeight: 1.55,
+  margin: "8px auto 0",
+  maxWidth: 520,
+};
+
+const startGuideStyle: CSSProperties = {
+  borderBottom: "1px solid var(--border)",
+  borderTop: "1px solid var(--border)",
+  margin: "20px auto 0",
+  maxWidth: 640,
+};
+
+const startGuideRowStyle: CSSProperties = {
+  alignItems: "center",
+  display: "grid",
+  gap: 11,
+  gridTemplateColumns: "26px minmax(0, 1fr) auto",
+  minHeight: 60,
+  padding: "11px 0",
+};
+
+const startGuideIconStyle: CSSProperties = {
+  alignItems: "center",
+  border: "1px solid var(--border)",
+  borderRadius: 999,
+  color: "var(--t2)",
+  display: "inline-flex",
+  height: 26,
+  justifyContent: "center",
+  width: 26,
+};
+
+const startGuideLabelStyle: CSSProperties = {
+  color: "var(--t1)",
+  display: "block",
+  fontSize: 12,
+  fontWeight: 650,
+  lineHeight: 1.25,
+};
+
+const startGuideDetailStyle: CSSProperties = {
+  color: "var(--t3)",
+  display: "block",
+  fontSize: 11,
+  lineHeight: 1.45,
+  marginTop: 2,
+};
+
+const startGuideStatusStyle: CSSProperties = {
+  border: "1px solid var(--border)",
+  borderRadius: 999,
+  fontSize: 10,
+  fontWeight: 650,
+  lineHeight: "18px",
+  padding: "0 7px",
+  whiteSpace: "nowrap",
+};
