@@ -231,13 +231,17 @@ export function ChatSidebar({
   return (
     <>
       <div
+        className="chat-sidebar"
         style={{
-          width: 220,
-          borderRight: "1px solid var(--border)",
+          width: "var(--chat-sidebar-width, 220px)",
+          borderRight: "var(--chat-sidebar-border-right, 1px solid var(--border))",
+          borderBottom: "var(--chat-sidebar-border-bottom, 0)",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
+          maxHeight: "var(--chat-sidebar-max-height, none)",
           background: "var(--bg1)",
+          overflow: "hidden",
         }}
       >
         <ProjectScopePanel

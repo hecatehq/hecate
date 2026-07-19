@@ -774,7 +774,7 @@ function QuickLocalProviderAdd({
           </div>
         </div>
         {loading && (
-          <span style={{ fontSize: 11, color: "var(--t3)", paddingTop: 2 }}>Checking...</span>
+          <span style={{ fontSize: 11, color: "var(--t3)", paddingTop: 2 }}>Checking…</span>
         )}
         <button
           className="btn btn-ghost btn-sm"
@@ -925,7 +925,7 @@ function QuickLocalProviderAdd({
                 type="button"
                 style={{ display: "flex", alignItems: "center" }}
               >
-                {adding ? "Adding..." : "Add selected"}
+                {adding ? "Adding…" : "Add selected"}
               </button>
               <button
                 className="btn btn-ghost btn-sm"

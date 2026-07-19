@@ -36,6 +36,8 @@ test("adapts shell chrome for a phone viewport", async ({ page }) => {
   const statusbar = page.locator(".hecate-statusbar");
   const content = page.locator(".hecate-content");
   const nav = page.locator(".hecate-activitybar");
+  const chatSidebar = page.locator(".chat-sidebar");
+  const chatMainBody = page.locator(".chat-main-body");
 
   await expect(nav).toHaveCSS("flex-direction", "row");
   await expect(statusbar.locator(".hecate-statusbar__brand")).toBeVisible();
@@ -50,6 +52,34 @@ test("adapts shell chrome for a phone viewport", async ({ page }) => {
   expect(navBox).not.toBeNull();
   expect(statusBox!.y).toBeLessThan(contentBox!.y);
   expect(navBox!.y).toBeGreaterThan(contentBox!.y);
+
+  const sidebarBox = await chatSidebar.boundingBox();
+  const mainBodyBox = await chatMainBody.boundingBox();
+  expect(sidebarBox).not.toBeNull();
+  expect(mainBodyBox).not.toBeNull();
+  expect(sidebarBox!.width).toBeGreaterThan(330);
+  expect(mainBodyBox!.width).toBeGreaterThan(330);
+  expect(mainBodyBox!.y).toBeGreaterThan(sidebarBox!.y);
+});
+
+test("stacks settings maintenance controls for a phone viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
+
+  const controls = page.locator(".retention-controls");
+  const cleanupButton = page.locator(".retention-cleanup-button");
+  await expect(controls).toHaveCSS("flex-direction", "column");
+  await expect(cleanupButton).toBeVisible();
+
+  const controlsBox = await controls.boundingBox();
+  const buttonBox = await cleanupButton.boundingBox();
+  expect(controlsBox).not.toBeNull();
+  expect(buttonBox).not.toBeNull();
+  expect(buttonBox!.width).toBeGreaterThan(280);
+  expect(buttonBox!.y).toBeGreaterThan(controlsBox!.y + 40);
 });
 
 test("clicking a nav button switches the active workspace", async ({ page }) => {

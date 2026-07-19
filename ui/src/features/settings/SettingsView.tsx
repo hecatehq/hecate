@@ -628,7 +628,13 @@ function RetentionSettings({
 
       {/* Controls */}
       <div className="card" style={{ padding: "14px 16px", marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <div
+          className="retention-controls"
+          style={{
+            display: "flex",
+            marginBottom: 12,
+          }}
+        >
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>
               Run cleanup
@@ -638,17 +644,17 @@ function RetentionSettings({
             </div>
           </div>
           <span
+            className="retention-summary"
             style={{
               fontSize: 11,
               color: "var(--t3)",
               fontFamily: "var(--font-mono)",
-              marginLeft: "auto",
             }}
           >
             {selectedSet.size === 0 ? "full cleanup" : `${selectedSet.size} selected`}
           </span>
           <button
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary btn-sm retention-cleanup-button"
             disabled={state.loading}
             onClick={() => void runRetention()}
           >

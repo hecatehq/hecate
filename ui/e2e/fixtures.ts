@@ -573,6 +573,8 @@ export async function mockGatewayAPIs(
     r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),
   );
 
+  await page.route("/hecate/v1/plugins*", (r) => r.fulfill(ok({ object: "plugins", data: [] })));
+
   await page.route(/\/hecate\/v1\/chat\/sessions(?:\/.*)?(?:\?.*)?$/, async (route) => {
     const request = route.request();
     const method = request.method();
