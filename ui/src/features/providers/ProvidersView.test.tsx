@@ -821,6 +821,7 @@ describe("ProvidersView table renders", () => {
     const actions = { ...createRuntimeConsoleActions(), refreshProviders };
 
     render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+    expect(screen.getByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
 
     await waitFor(() => expect(refreshProviders).toHaveBeenCalledTimes(1));
   });

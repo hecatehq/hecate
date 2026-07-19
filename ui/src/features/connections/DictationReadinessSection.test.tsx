@@ -40,6 +40,9 @@ describe("DictationReadinessSection", () => {
     render(<DictationReadinessSection />);
 
     const section = await screen.findByTestId("connections-dictation");
+    expect(
+      within(section).getByRole("heading", { level: 2, name: "Speech-to-text route readiness" }),
+    ).toBeVisible();
     expect(within(section).getByLabelText("Speech-to-text route ready")).toBeVisible();
     expect(within(section).getByTestId("connections-dictation-ready")).toHaveTextContent(
       "1 speech-to-text route is ready for every chat target.",

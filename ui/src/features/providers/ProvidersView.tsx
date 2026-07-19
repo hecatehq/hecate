@@ -458,7 +458,9 @@ export function ProvidersView() {
       <div style={{ height: "100%", overflowY: "auto", padding: 16 }}>
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Connections</span>
+          <h1 style={{ color: "var(--t0)", fontSize: 14, fontWeight: 500, margin: 0 }}>
+            Connections
+          </h1>
           <button
             className="btn btn-primary btn-sm"
             style={{ marginLeft: "auto" }}
