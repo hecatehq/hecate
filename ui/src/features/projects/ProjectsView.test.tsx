@@ -4087,7 +4087,9 @@ describe("ProjectsView cockpit", () => {
     );
 
     await openProjectWorkspaceTab(/Memory/);
-    expect(await screen.findByText("Generated summary")).toBeTruthy();
+    expect(
+      await screen.findByRole("article", { name: "Memory suggestion Generated summary" }),
+    ).toBeTruthy();
     expect(screen.getByText("Temporary note")).toBeTruthy();
     expect(screen.getAllByText("generated_summary").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Source refs: task_run Implementation run/).length).toBeGreaterThan(
@@ -4106,7 +4108,9 @@ describe("ProjectsView cockpit", () => {
     const rejectedSuggestion = screen.getByRole("article", {
       name: "Memory suggestion Temporary note",
     });
-    expect(within(rejectedSuggestion).getByText("rejected", { exact: true })).toBeTruthy();
+    expect(
+      within(rejectedSuggestion).getAllByText("rejected", { exact: true }).length,
+    ).toBeGreaterThan(0);
     expect(
       within(rejectedSuggestion).queryByRole("button", {
         name: "Review memory suggestion Temporary note",
@@ -4118,8 +4122,8 @@ describe("ProjectsView cockpit", () => {
         name: "Review memory suggestion Generated summary",
       }),
     );
-    expect(screen.getByRole("button", { name: "Save to memory" })).toBeTruthy();
-    expect(screen.getByText("Suggestion source", { selector: "div" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save to project memory" })).toBeTruthy();
+    expect(screen.getByText("Suggested memory")).toBeTruthy();
     expect(screen.getAllByText(/Source refs: task_run Implementation run/).length).toBeGreaterThan(
       0,
     );
@@ -4130,7 +4134,7 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(screen.getByLabelText("Source kind"), {
       target: { value: "operator" },
     });
-    await user.click(screen.getByRole("button", { name: "Save to memory" }));
+    await user.click(screen.getByRole("button", { name: "Save to project memory" }));
 
     expect(promoteProjectMemoryCandidate).toHaveBeenCalledWith(project.id, memoryCandidate.id, {
       title: "Generated summary",
@@ -7836,7 +7840,7 @@ describe("ProjectsView cockpit", () => {
         name: "Review memory candidate: Memory candidate pending review",
       }),
     );
-    expect(screen.getByRole("button", { name: "Save to memory" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save to project memory" })).toBeTruthy();
   });
 
   it("uses activity inbox tabs to focus activity buckets", async () => {
