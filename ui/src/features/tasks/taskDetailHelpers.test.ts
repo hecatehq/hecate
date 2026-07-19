@@ -22,6 +22,7 @@ import {
   isVisibleRunEvent,
   nonInternalKind,
   outputActivityStream,
+  parseQAWorkflowReport,
   splitNamespacedToolName,
   STEP_STATUS_COLOR,
   stepColor,
@@ -850,15 +851,74 @@ describe("nonInternalKind", () => {
 });
 
 describe("isVisibleArtifactBadge", () => {
-  it("hides stdout / stderr / agent_conversation artifacts", () => {
+  it("hides artifacts that have dedicated detail panels", () => {
     expect(isVisibleArtifactBadge(artifact({ kind: "stdout" }))).toBe(false);
     expect(isVisibleArtifactBadge(artifact({ kind: "stderr" }))).toBe(false);
     expect(isVisibleArtifactBadge(artifact({ kind: "agent_conversation" }))).toBe(false);
     expect(isVisibleArtifactBadge(artifact({ kind: "browser_evidence" }))).toBe(false);
+    expect(isVisibleArtifactBadge(artifact({ kind: "workflow_manifest" }))).toBe(false);
+    expect(isVisibleArtifactBadge(artifact({ kind: "workflow_report" }))).toBe(false);
   });
 
   it("shows other artifact kinds", () => {
     expect(isVisibleArtifactBadge(artifact({ kind: "snapshot" }))).toBe(true);
     expect(isVisibleArtifactBadge(artifact({ kind: "patch" }))).toBe(true);
+  });
+});
+
+describe("parseQAWorkflowReport", () => {
+  const validReport = {
+    schema_version: "hecate.workflow_report.v0",
+    runbook_id: "builtin.qa.v0",
+    workflow: { mode: "qa", version: "v0", report_only: true },
+    agent_reported: { outcome: "reported", summary_markdown: "Observed a passing check." },
+    hecate_observed: {
+      manifest_artifact_id: "workflow-manifest-run-1",
+      workspace_posture: "read_only",
+      native_network_posture: "blocked",
+      mcp_posture: "blocked",
+      browser_evidence_posture: "unavailable_in_v0",
+    },
+  };
+
+  it("accepts only the observed QA posture emitted by the runtime", () => {
+    expect(parseQAWorkflowReport(JSON.stringify(validReport))).toMatchObject({
+      workspacePosture: "read_only",
+      nativeNetworkPosture: "blocked",
+      mcpPosture: "blocked",
+    });
+  });
+
+  it("rejects mismatched native-network or browser-evidence posture", () => {
+    expect(
+      parseQAWorkflowReport(
+        JSON.stringify({
+          ...validReport,
+          hecate_observed: { ...validReport.hecate_observed, native_network_posture: "enabled" },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseQAWorkflowReport(
+        JSON.stringify({
+          ...validReport,
+          hecate_observed: {
+            ...validReport.hecate_observed,
+            browser_evidence_posture: "browser_enabled",
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a mismatched runbook identity or workflow version", () => {
+    expect(
+      parseQAWorkflowReport(JSON.stringify({ ...validReport, runbook_id: "builtin.qa.v1" })),
+    ).toBeNull();
+    expect(
+      parseQAWorkflowReport(
+        JSON.stringify({ ...validReport, workflow: { ...validReport.workflow, version: "v1" } }),
+      ),
+    ).toBeNull();
   });
 });

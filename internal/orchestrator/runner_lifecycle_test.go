@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -117,6 +119,7 @@ func TestRunnerStartTaskSnapshotsProjectLinkageOnRun(t *testing.T) {
 		nil,
 		Config{ApprovalPolicies: []string{"shell_exec"}},
 	)
+	runner.workspaces = NewWorkspaceManager(t.TempDir())
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -127,13 +130,19 @@ func TestRunnerStartTaskSnapshotsProjectLinkageOnRun(t *testing.T) {
 		return prefix + "_linkage"
 	}
 	task := types.Task{
-		ID:            "task_project",
-		ProjectID:     "proj_1",
-		WorkItemID:    "work_1",
-		AssignmentID:  "asgn_1",
-		ExecutionKind: "shell",
-		ShellCommand:  "echo ready",
-		Status:        "queued",
+		ID:                          "task_project",
+		ProjectID:                   "proj_1",
+		WorkItemID:                  "work_1",
+		AssignmentID:                "asgn_1",
+		ExecutionKind:               "agent_loop",
+		WorkflowMode:                types.WorkflowModeQA,
+		WorkflowVersion:             "v0",
+		WorkspaceMode:               "ephemeral",
+		SandboxReadOnly:             true,
+		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
+		RequestedModel:              "test-model",
+		WorkingDirectory:            t.TempDir(),
+		Status:                      "queued",
 	}
 	if _, err := store.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -146,6 +155,9 @@ func TestRunnerStartTaskSnapshotsProjectLinkageOnRun(t *testing.T) {
 	if result.Run.ProjectID != "proj_1" || result.Run.WorkItemID != "work_1" || result.Run.AssignmentID != "asgn_1" {
 		t.Fatalf("result run linkage = project %q work %q assignment %q, want proj_1/work_1/asgn_1", result.Run.ProjectID, result.Run.WorkItemID, result.Run.AssignmentID)
 	}
+	if result.Run.WorkflowMode != types.WorkflowModeQA || result.Run.WorkflowVersion != "v0" {
+		t.Fatalf("result workflow = %q/%q, want qa/v0", result.Run.WorkflowMode, result.Run.WorkflowVersion)
+	}
 	storedRun, ok, err := store.GetRun(ctx, task.ID, result.Run.ID)
 	if err != nil || !ok {
 		t.Fatalf("GetRun: ok=%v err=%v", ok, err)
@@ -153,6 +165,33 @@ func TestRunnerStartTaskSnapshotsProjectLinkageOnRun(t *testing.T) {
 	if storedRun.ProjectID != "proj_1" || storedRun.WorkItemID != "work_1" || storedRun.AssignmentID != "asgn_1" {
 		t.Fatalf("stored run linkage = project %q work %q assignment %q, want proj_1/work_1/asgn_1", storedRun.ProjectID, storedRun.WorkItemID, storedRun.AssignmentID)
 	}
+	if storedRun.WorkflowMode != types.WorkflowModeQA || storedRun.WorkflowVersion != "v0" {
+		t.Fatalf("stored workflow = %q/%q, want qa/v0", storedRun.WorkflowMode, storedRun.WorkflowVersion)
+	}
+}
+
+func TestRecordOrchestratorRunStartedIncludesWorkflowMode(t *testing.T) {
+	t.Parallel()
+
+	trace := profiler.NewTrace("request-qa-workflow", nil)
+	defer trace.Finalize()
+	recordOrchestratorRunStarted(trace, "task-qa-workflow", types.TaskRun{
+		ID:           "run-qa-workflow",
+		Number:       1,
+		Status:       "queued",
+		WorkflowMode: types.WorkflowModeQA,
+	})
+
+	for _, event := range trace.Events() {
+		if event.Name != telemetry.EventOrchestratorRunStarted {
+			continue
+		}
+		if got := event.Attributes[telemetry.AttrHecateWorkflowMode]; got != "qa" {
+			t.Fatalf("workflow trace attribute = %#v, want qa", got)
+		}
+		return
+	}
+	t.Fatal("missing orchestrator run-started event")
 }
 
 // TestStartReconcileLoop_SkipsFreshRunningRun verifies that the loop does NOT
@@ -748,7 +787,6 @@ func TestResumeCheckpointPrefersOwnRunProgressAndRepairsStreamingPartial(t *test
 	}); err != nil {
 		t.Fatalf("CreateArtifact: %v", err)
 	}
-
 	checkpoint, err := runner.resumeCheckpointForRun(ctx, task.ID, run.ID)
 	if err != nil {
 		t.Fatalf("resumeCheckpointForRun: %v", err)

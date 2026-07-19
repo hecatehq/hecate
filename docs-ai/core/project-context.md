@@ -71,6 +71,28 @@ Hecate still owns execution concerns: stable runtime host identity and remote
 supervision posture, Agent Presets, provider/model defaults,
 task and External Agent dispatch, approvals, sandbox and workspace operations,
 runtime references, context snapshots, traces, and the operator shell.
+The built-in report-only QA runbook belongs to that Hecate execution boundary:
+`workflow_mode="qa"` is native `agent_loop` Task/Run metadata, with a
+server-assigned `workflow_version="v0"` snapshot. It is not Cairnline
+coordination intent, a Project role, an Agent Preset capability grant, or an
+External Agent/ACP command. QA creation forces an ephemeral read-only,
+native-network-tool-disabled workspace and rejects MCP servers; the agent-loop catalog and
+dispatcher independently permit only structured inspection. Do not weaken that
+boundary by treating ordinary read-only mode as equivalent: QA also blocks
+patch/proposal creation, shell/terminal execution, HTTP/search, and browser
+automation. Its workspace `CLAUDE.md` / `AGENTS.md` compatibility prompt layer
+is excluded, and a local Git source is copied rather than checked out with
+`git clone`, so repository guidance and host global Git filters cannot become
+agent instruction or pre-dispatch execution. It writes a path/prompt-free
+`workflow_manifest` at Run start and a `workflow_report` only after an agent
+final response exists. The report must keep `agent_reported` prose distinct
+from `hecate_observed` posture/evidence; never describe agent text as proof
+that tests or browser checks ran. Existing
+`browser_inspect` remains separately available only to an eligible native
+project assignment with its snapshotted Agent Preset grant and per-call
+approval. QA v0 blocks it entirely; a later QA contract needs an explicit
+Hecate-owned assignment-launch selection before it can claim constrained
+browser evidence.
 Assignment launch and preflight therefore combine Cairnline coordination state
 with Hecate runtime policy. The shared launch-plan seam validates preset surface
 compatibility; native assignment tasks snapshot the preset id and tools posture
@@ -177,6 +199,8 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
+internal/taskworkflow/     small built-in Task workflow contracts; no scheduler,
+                             Project coordination, or durable workflow store
 internal/browserrunner/    narrow local Chromium inspection seam for native,
                              approval-gated, script-disabled text evidence
 internal/workspacefs/      shared workspace path resolver for file/search/write

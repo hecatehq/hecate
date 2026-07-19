@@ -22,6 +22,7 @@ import (
 	"github.com/hecatehq/hecate/internal/browserrunner"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/internal/workspacecoord"
@@ -219,15 +220,28 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 	if spec.NewID == nil {
 		return nil, fmt.Errorf("resource id generator is required")
 	}
+	// TaskRun is the durable execution record. Prefer its workflow snapshot so
+	// a resumed run cannot acquire a broader task posture after it was queued.
+	if spec.Run.WorkflowMode != "" {
+		spec.Task.WorkflowMode = spec.Run.WorkflowMode
+		spec.Task.WorkflowVersion = spec.Run.WorkflowVersion
+	}
+	initialArtifacts, err := initialWorkflowArtifacts(spec)
+	if err != nil {
+		return nil, err
+	}
 	if e.llm == nil {
 		// No LLM configured — fall back to deterministic pass-through.
 		// This isn't an "agent loop" but it's better than a hard
 		// failure at runtime. The operator sees the result and knows
 		// to configure a model.
-		return e.runWithoutLLM(ctx, spec)
+		return e.runWithoutLLM(ctx, spec, initialArtifacts)
 	}
 
 	runState := newAgentLoopRunState(spec, e.maxModelCalls)
+	if err := runState.AddArtifacts(spec, initialArtifacts); err != nil {
+		return nil, err
+	}
 	conversation := newAgentLoopConversation(spec)
 	tools := agentToolDefinitionsForTask(spec.Task, agentToolDefinitionOptions{
 		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
@@ -251,7 +265,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 	// tools-disabled preset is different: its master policy intentionally skips
 	// every MCP host even if the stored task also carries server config.
 	var mcpHost AgentMCPHost
-	if !agentPresetDisablesTools(spec.Task) && len(spec.Task.MCPServers) > 0 {
+	if taskworkflow.IsQAExecution(spec.Task, spec.Run) && len(spec.Task.MCPServers) > 0 {
+		return e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), time.Now().UTC(),
+			"report-only QA workflows cannot start external MCP servers")
+	}
+	if !taskworkflow.IsQAExecution(spec.Task, spec.Run) && !agentPresetDisablesTools(spec.Task) && len(spec.Task.MCPServers) > 0 {
 		if e.mcpFactory == nil {
 			return e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), time.Now().UTC(),
 				"task configured mcp_servers but no MCP host factory is wired; this gateway build does not support external MCP servers")
@@ -281,7 +299,10 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			} else {
 				runState.TrackInitialConversationArtifact(artifact)
 			}
-			finalArtifact := buildFinalAnswerArtifact(spec, spec.ResumeCheckpoint.LastCompletedStepID, when, finalAssistant.Content)
+			finalArtifact, artifactErr := buildTerminalArtifact(spec, spec.ResumeCheckpoint.LastCompletedStepID, when, finalAssistant.Content)
+			if artifactErr != nil {
+				return nil, artifactErr
+			}
 			if addErr := runState.AddArtifact(spec, finalArtifact); addErr != nil {
 				return nil, addErr
 			}
@@ -339,7 +360,10 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// If no tool calls, assistant gave a final answer.
 			if len(assistantMsg.ToolCalls) == 0 {
 				emitAssistantFinalAnswer(spec, modelCall, assistantMsg)
-				finalArtifact := buildFinalAnswerArtifact(spec, modelCallResult.ThinkingStep.ID, modelCallStartedAt, assistantMsg.Content)
+				finalArtifact, artifactErr := buildTerminalArtifact(spec, modelCallResult.ThinkingStep.ID, modelCallStartedAt, assistantMsg.Content)
+				if artifactErr != nil {
+					return nil, artifactErr
+				}
 				if err := runState.AddArtifact(spec, finalArtifact); err != nil {
 					return nil, err
 				}
@@ -869,7 +893,7 @@ func agentToolDefinitionsForTask(task types.Task, opts agentToolDefinitionOption
 	tools := agentToolDefinitionsWithOptions(opts)
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {
-		if agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentPresetBlocksBrowser(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
+		if taskworkflow.BlocksTool(task.WorkflowMode, tool.Function.Name) || agentPresetBlocksNativeNetwork(task, tool.Function.Name) || agentPresetBlocksBrowser(task, tool.Function.Name) || agentReadOnlyBlocksTool(task, tool.Function.Name) {
 			continue
 		}
 		filtered = append(filtered, tool)
@@ -1122,6 +1146,28 @@ func buildFinalAnswerArtifact(spec ExecutionSpec, stepID string, startedAt time.
 		RequestID:   spec.RequestID,
 		TraceID:     spec.TraceID,
 	}
+}
+
+func initialWorkflowArtifacts(spec ExecutionSpec) ([]types.TaskArtifact, error) {
+	if !taskworkflow.IsQAExecution(spec.Task, spec.Run) {
+		return nil, nil
+	}
+	createdAt := spec.StartedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	manifest, err := taskworkflow.ManifestArtifact(spec.Task, spec.Run, createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return []types.TaskArtifact{manifest}, nil
+}
+
+func buildTerminalArtifact(spec ExecutionSpec, stepID string, startedAt time.Time, content string) (types.TaskArtifact, error) {
+	if taskworkflow.IsQAExecution(spec.Task, spec.Run) {
+		return taskworkflow.ReportArtifact(spec.Task, spec.Run, stepID, startedAt, content)
+	}
+	return buildFinalAnswerArtifact(spec, stepID, startedAt, content), nil
 }
 
 func agentLoopFinalAnswerArtifactID(runID string) string {

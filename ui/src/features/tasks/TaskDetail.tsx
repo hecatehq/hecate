@@ -26,6 +26,7 @@ import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
 import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { DiffViewer } from "../shared/DiffViewer";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
+import { TranscriptMarkdown } from "../transcript/TranscriptMarkdown";
 
 import { AgentConversationView } from "./TaskAgentConversation";
 import {
@@ -41,6 +42,7 @@ import {
   isVisibleArtifactBadge,
   isVisibleRunEvent,
   outputActivityStream,
+  parseQAWorkflowReport,
   splitNamespacedToolName,
   stepColor,
   summaryNumber,
@@ -88,6 +90,137 @@ function RunCostBadge({ run }: { run: TaskRunRecord }) {
         <span style={{ color: "var(--t3)" }}> / {formatMicrosUSD(cumulative)} task</span>
       )}
     </span>
+  );
+}
+
+function QAWorkflowReportPanel({
+  reportArtifact,
+  manifestArtifact,
+  report,
+}: {
+  reportArtifact: TaskArtifactRecord | null;
+  manifestArtifact: TaskArtifactRecord | null;
+  report: ReturnType<typeof parseQAWorkflowReport>;
+}) {
+  const observations: Array<[string, string]> = [
+    [
+      "Report artifact",
+      report ? "Captured" : reportArtifact ? "Unrecognized format" : "Unavailable",
+    ],
+    ["Workflow manifest", manifestArtifact ? "Recorded" : "Missing"],
+    [
+      "Workspace posture",
+      report?.workspacePosture === "read_only" ? "Read-only" : "Read-only contract",
+    ],
+    [
+      "Native HTTP/search",
+      report?.nativeNetworkPosture === "blocked" ? "Blocked" : "Blocked by QA contract",
+    ],
+    ["External MCP", report?.mcpPosture === "blocked" ? "Blocked" : "Blocked by QA contract"],
+    ["Browser evidence", "Unavailable in QA v0"],
+  ];
+  return (
+    <section
+      aria-label="QA report"
+      style={{
+        margin: "0 16px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg1)",
+      }}
+    >
+      <details open={Boolean(reportArtifact)}>
+        <summary
+          style={{
+            cursor: "pointer",
+            padding: "10px 12px",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            color: "var(--teal)",
+          }}
+        >
+          <span id="qa-report-heading">QA report</span>
+          <span style={{ color: "var(--t3)", marginLeft: 8 }}>
+            {report
+              ? "agent-reported"
+              : reportArtifact
+                ? "format unavailable"
+                : "not available yet"}
+          </span>
+        </summary>
+        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 12px" }}>
+          <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
+            The narrative below is agent-reported. It does not verify that tests or browser actions
+            ran; Hecate-observed runtime evidence is listed separately.
+          </div>
+          {report ? (
+            <div style={{ color: "var(--t1)", fontSize: 13, lineHeight: 1.55 }}>
+              <div
+                style={{
+                  color: "var(--t3)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  marginBottom: 6,
+                  textTransform: "uppercase",
+                }}
+              >
+                Agent-reported · {report.agentOutcome}
+              </div>
+              {report.summaryMarkdown.trim() ? (
+                <TranscriptMarkdown content={report.summaryMarkdown} />
+              ) : (
+                <span style={{ color: "var(--t2)" }}>The agent returned an empty report.</span>
+              )}
+            </div>
+          ) : reportArtifact ? (
+            <pre
+              style={{
+                margin: "0 0 12px",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                color: "var(--t2)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                lineHeight: 1.55,
+              }}
+            >
+              {reportArtifact.content_text || "The retained report artifact has no text."}
+            </pre>
+          ) : (
+            <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 12 }}>
+              No agent report is available. The run may still be active, or it may have ended before
+              the agent produced a final report.
+            </div>
+          )}
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              marginTop: 12,
+              paddingTop: 10,
+              display: "grid",
+              gap: 5,
+            }}
+          >
+            <div
+              style={{
+                color: "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                textTransform: "uppercase",
+              }}
+            >
+              Hecate observed
+            </div>
+            {observations.map(([label, value]) => (
+              <div key={label} style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                <span style={{ color: "var(--t2)", minWidth: 130 }}>{label}</span>
+                <span style={{ color: "var(--t1)" }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -447,6 +580,13 @@ export function TaskDetail({
   const stderrArtifact = artifacts.find((a) => a.kind === "stderr") ?? null;
   const conversationArtifact = artifacts.find((a) => a.kind === "agent_conversation") ?? null;
   const browserEvidenceArtifacts = artifacts.filter((a) => a.kind === "browser_evidence");
+  const workflowManifestArtifact = artifacts.find((a) => a.kind === "workflow_manifest") ?? null;
+  const workflowReportArtifact = artifacts.find((a) => a.kind === "workflow_report") ?? null;
+  // A selected run is an immutable execution record. Prefer its non-empty
+  // workflow snapshot so later edits to the task do not relabel past work.
+  const effectiveWorkflowMode = run?.workflow_mode || task.workflow_mode;
+  const isQAWorkflow = effectiveWorkflowMode === "qa";
+  const qaWorkflowReport = parseQAWorkflowReport(workflowReportArtifact?.content_text);
   const previewPatch = artifacts.find((a) => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
   const source = taskSource(task);
@@ -498,6 +638,15 @@ export function TaskDetail({
         }}
       >
         <Badge {...taskBadgeProps(task.status, task.last_error)} />
+        {isQAWorkflow && (
+          <span
+            className="badge badge-muted"
+            title="Hecate report-only QA workflow"
+            style={{ fontFamily: "var(--font-mono)", fontSize: 9 }}
+          >
+            QA · report only
+          </span>
+        )}
         <h1
           ref={titleRef}
           className="cross-surface-focus-target"
@@ -794,26 +943,28 @@ export function TaskDetail({
                   ...(run.orchestrator === "agent_loop" || task.execution_kind === "agent_loop"
                     ? [["Model calls", String(run.model_call_count)]]
                     : []),
-                  ...(task.agent_preset_id
-                    ? [
-                        ["Agent preset", task.agent_preset_id],
-                        ...(task.agent_preset_tools_enabled !== undefined
-                          ? [["Tools", task.agent_preset_tools_enabled ? "Enabled" : "Disabled"]]
-                          : []),
-                        ...(task.agent_preset_browser_allowed !== undefined
-                          ? [
-                              [
-                                "Browser evidence",
-                                task.agent_preset_browser_allowed
-                                  ? `Configured static evidence · approval-gated when the local browser runtime is ready · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
-                                  : "Disabled",
-                              ],
-                            ]
-                          : []),
-                        ["File access", task.sandbox_read_only ? "Read-only" : "Writes allowed"],
-                        ["Network", task.sandbox_network ? "Network enabled" : "Network blocked"],
-                      ]
-                    : []),
+                  ...(isQAWorkflow
+                    ? [["Workflow", "QA · report only"]]
+                    : task.agent_preset_id
+                      ? [
+                          ["Agent preset", task.agent_preset_id],
+                          ...(task.agent_preset_tools_enabled !== undefined
+                            ? [["Tools", task.agent_preset_tools_enabled ? "Enabled" : "Disabled"]]
+                            : []),
+                          ...(task.agent_preset_browser_allowed !== undefined
+                            ? [
+                                [
+                                  "Browser evidence",
+                                  task.agent_preset_browser_allowed
+                                    ? `Configured static evidence · approval-gated when the local browser runtime is ready · ${(task.agent_preset_browser_allowed_origins ?? []).join(", ") || "no origin snapshot"}`
+                                    : "Disabled",
+                                ],
+                              ]
+                            : []),
+                          ["File access", task.sandbox_read_only ? "Read-only" : "Writes allowed"],
+                          ["Network", task.sandbox_network ? "Network enabled" : "Network blocked"],
+                        ]
+                      : []),
                   [
                     "Run ID",
                     run.id ? <CopyableID key={`run-${run.id}`} text={run.id} compact /> : "—",
@@ -1154,6 +1305,14 @@ export function TaskDetail({
             // (older runs, or step writes that completed before the
             // cost was attached). Same key (model-call number).
             streamModelCallCosts={streamModelCallCosts}
+          />
+        )}
+
+        {isQAWorkflow && (
+          <QAWorkflowReportPanel
+            reportArtifact={workflowReportArtifact}
+            manifestArtifact={workflowManifestArtifact}
+            report={qaWorkflowReport}
           />
         )}
 

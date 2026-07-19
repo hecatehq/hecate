@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/browserrunner"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -69,7 +70,7 @@ func (g agentLoopApprovalGate) isGated(call types.ToolCall, task types.Task) boo
 	// Hard policy refusals run before approval semantics. Asking an operator
 	// to approve a call that the dispatcher must still refuse is misleading,
 	// and would turn a fail-closed decision into an unnecessary pause.
-	if agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
+	if taskworkflow.BlocksTool(task.WorkflowMode, toolName) || agentPresetDisablesTools(task) || agentPresetBlocksNativeNetwork(task, toolName) || agentPresetBlocksBrowser(task, toolName) || agentReadOnlyBlocksCall(task, call) || mcpServerPolicy(toolName, task) == types.MCPApprovalBlock {
 		return false
 	}
 	if toolName == AgentToolBrowserInspect {

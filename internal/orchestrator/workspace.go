@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -55,6 +56,37 @@ func (m *WorkspaceManager) Provision(ctx context.Context, task types.Task, run t
 	return m.provisionPlanned(ctx, plan)
 }
 
+// managedRunWorkspacePath verifies that a persisted Run still names the exact
+// Hecate-managed task/run directory that this manager would provision. It
+// canonicalizes both paths so symlink aliases cannot make a source checkout
+// appear to be an isolated workspace. Callers use this only for contracts
+// that require managed isolation; ordinary in-place and reused workspaces are
+// intentionally supported elsewhere.
+func (m *WorkspaceManager) managedRunWorkspacePath(task types.Task, run types.TaskRun) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("workspace manager is not configured")
+	}
+	if strings.TrimSpace(run.WorkspacePath) == "" {
+		return "", fmt.Errorf("run workspace path is required")
+	}
+	_, expectedPath, _, err := m.plannedWorkspacePath(task.ID, run.ID)
+	if err != nil {
+		return "", fmt.Errorf("plan managed workspace path: %w", err)
+	}
+	expectedCanonical, err := workspacecoord.CanonicalWorkspace(expectedPath)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize expected managed workspace: %w", err)
+	}
+	actualCanonical, err := workspacecoord.CanonicalWorkspace(run.WorkspacePath)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize run workspace: %w", err)
+	}
+	if actualCanonical != expectedCanonical {
+		return "", fmt.Errorf("run workspace %q is not managed path %q", actualCanonical, expectedCanonical)
+	}
+	return actualCanonical, nil
+}
+
 // planProvision resolves the exact workspace destination without creating any
 // filesystem entries. Task start uses the planned path to acquire shared
 // workspace admission before clone, copy, or mkdir can mutate the destination.
@@ -63,6 +95,15 @@ func (m *WorkspaceManager) planProvision(task types.Task, run types.TaskRun) (wo
 		return workspaceProvisionPlan{}, fmt.Errorf("workspace manager is not configured")
 	}
 	source := workspaceSource(task)
+	if taskworkflow.IsQAExecution(task, run) && source.kind == "git" {
+		// QA v0 treats repository files as evidence, not executable setup.
+		// A local `git clone` still performs a checkout and can consult a
+		// trusted-host global filter command, so snapshot the already-local
+		// source through the safe directory copier instead. This preserves the
+		// .git metadata required by QA's hardened structured Git reads without
+		// launching a Git checkout before the agent dispatcher starts.
+		source.kind = "directory"
+	}
 	// A new task segment may intentionally reuse a workspace that Hecate
 	// already provisioned for this chat. Re-provisioning a Git source with
 	// clone would discard unstaged and untracked work, so preserve the exact

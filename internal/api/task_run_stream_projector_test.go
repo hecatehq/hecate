@@ -169,6 +169,76 @@ func TestTaskRunStreamProjector_LiveStateUsesParentTaskProjectLinkage(t *testing
 	}
 }
 
+func TestTaskRunStreamProjector_QAWorkflowSnapshotPersistsAcrossLiveAndReplay(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	now := time.Now().UTC()
+	if _, err := store.CreateTask(ctx, types.Task{
+		ID:              "task-qa-stream",
+		Title:           "QA stream",
+		Prompt:          "inspect",
+		Status:          "running",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: "v0",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID:              "run-qa-stream",
+		TaskID:          "task-qa-stream",
+		Number:          1,
+		Status:          "running",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: "v0",
+		StartedAt:       now,
+	}); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	projector := newTaskRunStreamProjector(store)
+	live, err := projector.projectEvent(ctx, "task-qa-stream", "run-qa-stream", types.TaskRunEvent{
+		Sequence:  4,
+		EventType: "run.updated",
+	})
+	if err != nil {
+		t.Fatalf("project live event: %v", err)
+	}
+	if live.Run.WorkflowMode != "qa" || live.Run.WorkflowVersion != "v0" {
+		t.Fatalf("live stream workflow = %q/%q, want qa/v0", live.Run.WorkflowMode, live.Run.WorkflowVersion)
+	}
+
+	snapshot, err := projector.snapshotEventData(live)
+	if err != nil {
+		t.Fatalf("snapshotEventData: %v", err)
+	}
+	replayed, err := projector.projectEvent(ctx, "task-qa-stream", "run-qa-stream", types.TaskRunEvent{
+		Sequence:  5,
+		EventType: "run.snapshot",
+		Data:      map[string]any{"snapshot": snapshot},
+	})
+	if err != nil {
+		t.Fatalf("project replayed snapshot: %v", err)
+	}
+	if replayed.Run.WorkflowMode != "qa" || replayed.Run.WorkflowVersion != "v0" {
+		t.Fatalf("replayed stream workflow = %q/%q, want qa/v0", replayed.Run.WorkflowMode, replayed.Run.WorkflowVersion)
+	}
+	payload, err := taskRunStreamSnapshotPayload(replayed)
+	if err != nil {
+		t.Fatalf("taskRunStreamSnapshotPayload: %v", err)
+	}
+	var wire TaskRunStreamEventResponse
+	if err := json.Unmarshal(payload, &wire); err != nil {
+		t.Fatalf("decode stream wire payload: %v", err)
+	}
+	if wire.Data.Run.WorkflowMode != "qa" || wire.Data.Run.WorkflowVersion != "v0" {
+		t.Fatalf("wire stream workflow = %q/%q, want qa/v0", wire.Data.Run.WorkflowMode, wire.Data.Run.WorkflowVersion)
+	}
+}
+
 func TestTaskRunStreamProjector_DoesNotTopUpSnapshotApprovals(t *testing.T) {
 	t.Parallel()
 

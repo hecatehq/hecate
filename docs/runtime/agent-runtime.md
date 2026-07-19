@@ -71,6 +71,7 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 ## Contents
 
 - [Loop mechanics](#loop-mechanics)
+- [Report-only QA workflow](#report-only-qa-workflow)
 - [Built-in tools](#built-in-tools)
 - [External MCP tools](#external-mcp-tools)
 - [Workspace modes](#workspace-modes)
@@ -89,7 +90,9 @@ A run with `execution_kind=agent_loop` walks model calls:
 1. The runtime calls the LLM with the running conversation, available tool schemas, and the operator-composed system prompt. If the gateway route supports streaming, assistant text deltas are captured and persisted as a partial conversation snapshot while the model call is still running.
 2. The model responds with either tool calls or a final answer.
 3. If tool calls: each is dispatched, the result is appended as a `tool` message, and the loop makes another model call.
-4. If a final answer: the loop ends. The answer is persisted as a `summary` artifact.
+4. If a final answer: the loop ends. Ordinary agent-loop tasks persist the
+   answer as a `summary` artifact; report-only QA tasks persist a versioned
+   `workflow_report` that labels the answer as agent-reported.
 
 The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) after every model call. During a streaming model call, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-model-call therefore all start from a known state.
 
@@ -144,6 +147,65 @@ Three things bound the loop:
 - **`HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS`** (default `8`) — hard ceiling on LLM round-trips per run. Runaway-cost safety net.
 - **`Task.BudgetMicrosUSD`** — per-task cost ceiling. Checked after each model call against `priorCost + costSpent`; failing the run preserves the assistant's last message.
 - **Approval gates** — when the model requests a gated tool, the loop pauses with `status=awaiting_approval` and emits an approval record. See below.
+
+## Report-only QA workflow
+
+`workflow_mode="qa"` is Hecate's first built-in runbook contract. It is not a
+generic workflow engine, a Project/Cairnline record, or an External Agent
+command. It is available only on a native `execution_kind="agent_loop"` Task;
+ordinary model and task requirements still apply, including a requested model
+before the Task can start.
+
+Hecate owns the contract version. On creation it records
+`workflow_mode="qa"` and `workflow_version="v0"` on the Task and snapshots
+both fields on each Run, including retry/resume descendants. Clients do not
+supply `workflow_version`; the stored mode and version must be a complete,
+canonical pair, and unknown, non-canonical, missing, future, or partial
+persisted workflow values fail closed before a workspace or executor is
+selected. A QA
+create rejects configured `mcp_servers`, native HTTP/search network access, or
+an explicitly requested non-ephemeral workspace mode. The runtime then forces
+an ephemeral workspace, `sandbox_read_only=true`, and `sandbox_network=false`
+before the Task is stored. QA also rejects workspace reuse and binds each Run
+to its generated Hecate-managed Task/Run directory; follow-up Runs get a fresh
+isolated workspace rather than inheriting a prior path. The workspace
+`CLAUDE.md` / `AGENTS.md` compatibility layer is explicitly excluded, so
+repository guidance remains inspectable evidence rather than system-priority
+instruction. For a local Git source, QA provisions that isolated workspace by
+safe directory copy instead of `git clone` checkout, preserving `.git` for
+bounded reads while preventing host global Git filters from running before the
+dispatcher.
+
+Those stored fields are not the only boundary. The QA tool catalog and the
+dispatcher both fail closed. Only structured inspection can run:
+`read_file`, `grep`, `glob`, `artifact_read`, `list_dir`, `git_status`, and
+`git_diff`. It blocks shell and terminal commands, all workspace/Git writes,
+`file_edit` / `apply_patch` proposals, `draft_project_proposal`, external MCP
+tools, `http_request`, `web_search`, and `browser_inspect`. A model that nevertheless returns one
+of those calls receives a policy-denied tool result; Hecate does not create an
+approval or contact the blocked executor/service.
+
+QA v0 also blocks `browser_inspect`. Its public Task creation surface has no
+assignment-launch selector for browser evidence, so it must not imply a
+conditional capability that operators cannot actually select. A future QA
+contract may add constrained browser evidence only with an explicit Hecate
+runtime selection and its own review; it would still not enable browser
+automation.
+
+At Run start, Hecate writes a `workflow_manifest` JSON artifact containing the
+versioned contract and no prompt, workspace path, credentials, or model output.
+When—and only when—the agent produces a final response, Hecate writes a
+`workflow_report` JSON artifact. Its `agent_reported.summary_markdown` is the
+agent's narrative; it is not proof a test or browser check ran. Its
+`hecate_observed` object separately records the enforced read-only/native
+HTTP-and-search/MCP posture, the QA-v0-unavailable browser-evidence posture,
+and the manifest ID.
+QA v0 has no shell test runner, arbitrary test-command input, browser
+automation, automatic memory candidate, patch-application path, or automatic
+post-run Git-summary capture. Its Git evidence can only come from the bounded
+`git_status` and `git_diff` dispatcher paths above. These limits describe
+agent-exposed runtime capabilities; Hecate still performs the ordinary local
+filesystem work needed to create its managed workspace.
 
 ## Built-in tools
 
@@ -297,6 +359,11 @@ effective or ambiguous conversion filter. `file_edit` and `apply_patch` remain
 available for proposal artifacts, while their apply paths enforce read-only
 policy.
 
+That ordinary read-only posture still allows proposal artifacts from
+`file_edit` or `apply_patch`. Report-only QA is stricter: its workflow filter
+also rejects those proposal calls, so a QA run cannot create a new change
+artifact as a side effect of inspection.
+
 ### Network egress for shell_exec / git_exec
 
 `shell_exec` and `git_exec` are bounded by the same allowlist semantics as `http_request` when the task has `sandbox_network=true`:
@@ -331,7 +398,7 @@ handles and closes retained approval-paused handles too.
 
 ## External MCP tools
 
-In addition to the built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis.
+In addition to the built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis. Report-only QA is the exception: task creation rejects `mcp_servers`, and the runtime fails closed before starting an MCP host if a malformed or older stored QA task still carries one.
 
 Use MCP when a search server needs organization-specific credentials, ranking,
 or retrieval logic beyond Hecate's configured native provider. The native
@@ -555,6 +622,10 @@ redacted before export or persistence.
 Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 
 - `execution_kind: "agent_loop"` — picks this runtime
+- `workflow_mode: "qa"` — optional built-in report-only QA contract. Omit for
+  a normal Task; Hecate assigns and snapshots `workflow_version: "v0"`. QA
+  forces an ephemeral read-only/native-HTTP-and-search-disabled posture, rejects `mcp_servers`, and
+  allows only the structured inspection set described above.
 - `prompt` — the user message; required
 - `system_prompt` — narrowest layer of the three-layer composition; optional
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
@@ -573,6 +644,13 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
   gateway has an explicit `HECATE_TASK_BROWSER_EXECUTABLE`, the task came from
   a browser-enabled native Agent Preset, and the model requested the tool after
   approval. It is never offered to Hecate Chat or External Agent sessions.
+- **`workflow_mode=qa requires an ephemeral workspace`**, **`does not allow
+native network access`**, or **`does not allow mcp_servers`** — QA v0 deliberately
+  refuses a caller-supplied posture that would widen its report-only contract.
+  Omit the conflicting field; Hecate supplies the required ephemeral,
+  read-only, native-HTTP-and-search-disabled posture itself. QA v0 also blocks
+  browser inspection; browser evidence needs a later explicitly selected
+  Hecate runtime contract.
 - **`browser inspection URL is invalid`** or **`browser inspection origin is
 not allowed`** — use an absolute HTTP(S) URL without credentials, a query
   string, or a fragment, and add only its exact origin (not a path) to the

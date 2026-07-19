@@ -3,6 +3,7 @@ package taskapp
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func (r *recordingTaskApplicationRunner) RetryTask(_ context.Context, task types
 	r.retryCalls++
 	r.retryTask = task
 	r.retryRun = run
-	retried := types.TaskRun{ID: "run_retried", TaskID: task.ID, Status: "queued"}
+	retried := types.TaskRun{ID: "run_retried", TaskID: task.ID, Status: "queued", WorkflowMode: run.WorkflowMode, WorkflowVersion: run.WorkflowVersion}
 	return &orchestrator.StartTaskResult{Task: task, Run: retried}, nil
 }
 
@@ -263,6 +264,94 @@ func TestTaskApplication_CreateTaskValidation(t *testing.T) {
 	}
 	if task.Prompt != "" || task.Title != "New task" {
 		t.Fatalf("shell task prompt/title = %q/%q, want empty/New task", task.Prompt, task.Title)
+	}
+}
+
+func TestTaskApplication_CreateTaskQAWorkflowEnforcesReportOnlyPosture(t *testing.T) {
+	t.Parallel()
+
+	app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
+	task, err := app.CreateTask(t.Context(), CreateCommand{
+		Prompt:        "Inspect the current implementation for regressions.",
+		ExecutionKind: "agent_loop",
+		WorkflowMode:  " QA ",
+		SystemPrompt:  "Prefer concise findings.",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if task.WorkflowMode != types.WorkflowModeQA || task.WorkflowVersion != "v0" {
+		t.Fatalf("workflow snapshot = %q/%q, want qa/v0", task.WorkflowMode, task.WorkflowVersion)
+	}
+	if task.ExecutionKind != "agent_loop" {
+		t.Fatalf("execution kind = %q, want explicit agent_loop for QA", task.ExecutionKind)
+	}
+	if task.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude {
+		t.Fatalf("workspace system prompt policy = %q, want %q", task.WorkspaceSystemPromptPolicy, types.WorkspaceSystemPromptExclude)
+	}
+	if !task.SandboxReadOnly || task.SandboxNetwork || task.WorkspaceMode != "ephemeral" {
+		t.Fatalf("QA posture = read_only:%t network:%t workspace:%q, want true/false/ephemeral", task.SandboxReadOnly, task.SandboxNetwork, task.WorkspaceMode)
+	}
+	if !strings.Contains(task.SystemPrompt, "Prefer concise findings.") || !strings.Contains(task.SystemPrompt, "report-only QA workflow") {
+		t.Fatalf("system prompt = %q, want operator text plus trusted QA directive", task.SystemPrompt)
+	}
+}
+
+func TestTaskApplication_CreateTaskQAWorkflowRejectsRelaxedConfiguration(t *testing.T) {
+	t.Parallel()
+
+	app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
+	cases := []struct {
+		name string
+		cmd  CreateCommand
+		want error
+	}{
+		{
+			name: "non_agent_loop",
+			cmd:  CreateCommand{Prompt: "inspect", WorkflowMode: "qa", ExecutionKind: "shell"},
+			want: ErrQAWorkflowRequiresAgentLoop,
+		},
+		{
+			name: "mcp_servers",
+			cmd: CreateCommand{
+				Prompt: "inspect", WorkflowMode: "qa", ExecutionKind: "agent_loop",
+				MCPServers: []MCPServerCommand{{Name: "docs", Command: "fake"}},
+			},
+			want: ErrQAWorkflowMCPServers,
+		},
+		{
+			name: "network",
+			cmd:  CreateCommand{Prompt: "inspect", WorkflowMode: "qa", ExecutionKind: "agent_loop", SandboxNetwork: true},
+			want: ErrQAWorkflowNetwork,
+		},
+		{
+			name: "in_place_workspace",
+			cmd:  CreateCommand{Prompt: "inspect", WorkflowMode: "qa", ExecutionKind: "agent_loop", WorkspaceMode: "in_place"},
+			want: ErrQAWorkflowWorkspaceMode,
+		},
+		{
+			name: "unknown_mode",
+			cmd:  CreateCommand{Prompt: "inspect", WorkflowMode: "browser"},
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := app.CreateTask(t.Context(), tc.cmd)
+			if err == nil {
+				t.Fatal("CreateTask succeeded, want validation error")
+			}
+			if !IsValidationError(err) {
+				t.Fatalf("error = %v, want validation error", err)
+			}
+			if tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("error = %v, want %v", err, tc.want)
+			}
+			if tc.want == nil && !strings.Contains(err.Error(), "workflow_mode") {
+				t.Fatalf("error = %v, want workflow_mode diagnostic", err)
+			}
+		})
 	}
 }
 
@@ -606,6 +695,41 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 				t.Fatalf("runner calls = %d, want 0", runner.totalCalls())
 			}
 		})
+	}
+}
+
+func TestTaskApplication_RetryTaskRunDelegatesSourceRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingTaskApplicationRunner{}
+	app := newTestTaskApplication(store, runner)
+	task := createTaskForAppTest(t, ctx, store, types.Task{
+		ID:            "task_retry_workflow_snapshot",
+		Status:        "failed",
+		ExecutionKind: "agent_loop",
+		WorkflowMode:  types.WorkflowModeQA,
+	})
+	run := createRunForAppTest(t, ctx, store, types.TaskRun{
+		ID:              "run_retry_workflow_snapshot",
+		TaskID:          task.ID,
+		Status:          "failed",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: "v0",
+	})
+
+	if _, err := app.RetryTaskRun(ctx, task, run); err != nil {
+		t.Fatalf("RetryTaskRun: %v", err)
+	}
+	if runner.retryCalls != 1 {
+		t.Fatalf("RetryTask calls = %d, want 1", runner.retryCalls)
+	}
+	if runner.startCalls != 0 {
+		t.Fatalf("StartTask calls = %d, want 0", runner.startCalls)
+	}
+	if runner.retryTask.ID != task.ID || runner.retryRun.ID != run.ID {
+		t.Fatalf("RetryTask received task/run %q/%q, want %q/%q", runner.retryTask.ID, runner.retryRun.ID, task.ID, run.ID)
 	}
 }
 

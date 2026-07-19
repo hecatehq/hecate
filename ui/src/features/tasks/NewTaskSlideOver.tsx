@@ -17,6 +17,7 @@ import {
 } from "../../lib/mcp-server-form";
 
 export type ExecutionKind = "shell" | "git" | "file" | "agent_loop";
+type TaskWorkflowMode = "standard" | "qa";
 
 const KIND_LABELS: Record<ExecutionKind, string> = {
   shell: "Shell",
@@ -60,6 +61,7 @@ function KindTab({
 export type CreateTaskPayload = {
   prompt: string;
   execution_kind: ExecutionKind;
+  workflow_mode?: "qa";
   shell_command?: string;
   git_command?: string;
   file_path?: string;
@@ -123,6 +125,7 @@ export function NewTaskSlideOver({
 }: Props) {
   const normalizedDefaultWorkspace = defaultWorkspace.trim();
   const [taskKind, setTaskKind] = useState<ExecutionKind>("shell");
+  const [taskWorkflowMode, setTaskWorkflowMode] = useState<TaskWorkflowMode>("standard");
   const [taskPrompt, setTaskPrompt] = useState("");
   const [taskCommand, setTaskCommand] = useState("");
   const [taskGitCommand, setTaskGitCommand] = useState("");
@@ -230,6 +233,7 @@ export function NewTaskSlideOver({
   // as raw text rows in the form; parsed into the API shape on
   // submit. Empty array = no external MCP host (built-in tools only).
   const [mcpServers, setMcpServers] = useState<MCPServerFormEntry[]>([]);
+  const isReportOnlyQA = taskKind === "agent_loop" && taskWorkflowMode === "qa";
 
   useEffect(() => {
     if (!open) return;
@@ -270,7 +274,8 @@ export function NewTaskSlideOver({
     // mixing command + url is a hard error at the gateway, so we
     // never send both even if the operator's stale state for the
     // inactive side is still in memory.
-    const mcpPayload = taskKind === "agent_loop" ? mcpServerFormEntriesToPayload(mcpServers) : [];
+    const mcpPayload =
+      taskKind === "agent_loop" && !isReportOnlyQA ? mcpServerFormEntriesToPayload(mcpServers) : [];
 
     onCreate({
       prompt:
@@ -285,8 +290,9 @@ export function NewTaskSlideOver({
       ...(taskWorkingDir.trim() ? { working_directory: taskWorkingDir.trim() } : {}),
       ...(effectiveTaskModel ? { requested_model: effectiveTaskModel } : {}),
       ...(taskProvider !== "auto" ? { requested_provider: taskProvider } : {}),
-      ...(taskInPlace ? { workspace_mode: "in_place" } : {}),
-      ...(taskKind === "agent_loop" && taskSystemPrompt.trim()
+      ...(isReportOnlyQA ? { workflow_mode: "qa" as const } : {}),
+      ...(taskInPlace && !isReportOnlyQA ? { workspace_mode: "in_place" } : {}),
+      ...(taskKind === "agent_loop" && !isReportOnlyQA && taskSystemPrompt.trim()
         ? { system_prompt: taskSystemPrompt.trim() }
         : {}),
       ...(taskKind === "agent_loop" && parseFloat(taskBudgetUSD) > 0
@@ -295,6 +301,7 @@ export function NewTaskSlideOver({
       ...(mcpPayload.length > 0 ? { mcp_servers: mcpPayload } : {}),
     });
     setTaskPrompt("");
+    setTaskWorkflowMode("standard");
     setTaskCommand("");
     setTaskGitCommand("");
     setTaskWorkingDir(normalizedDefaultWorkspace);
@@ -550,28 +557,62 @@ export function NewTaskSlideOver({
         )}
 
         {taskKind === "agent_loop" && (
-          <div>
-            <label
-              style={{
-                fontSize: 11,
-                color: "var(--t2)",
-                display: "block",
-                marginBottom: 4,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              PROMPT <span style={{ color: "var(--red)" }}>*</span>
-            </label>
-            <textarea
-              className="input"
-              aria-label="Agent loop prompt"
-              placeholder="Describe the task…"
-              rows={4}
-              style={{ resize: "vertical" }}
-              value={taskPrompt}
-              onChange={(e) => setTaskPrompt(e.target.value)}
-            />
-          </div>
+          <>
+            <div>
+              <label
+                htmlFor="task-workflow-mode"
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  display: "block",
+                  marginBottom: 4,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                WORKFLOW MODE
+              </label>
+              <select
+                id="task-workflow-mode"
+                className="input"
+                aria-describedby="task-workflow-mode-help"
+                value={taskWorkflowMode}
+                onChange={(e) => setTaskWorkflowMode(e.target.value as TaskWorkflowMode)}
+              >
+                <option value="standard">Standard task</option>
+                <option value="qa">QA report (read-only)</option>
+              </select>
+              <div
+                id="task-workflow-mode-help"
+                style={{ fontSize: 11, color: "var(--t2)", marginTop: 5, lineHeight: 1.45 }}
+              >
+                {isReportOnlyQA
+                  ? "QA inspects with structured read-only tools and returns an agent-reported evidence summary. It does not run shell tests, change files, use MCP servers, make network requests, or add browser automation."
+                  : "Use a standard task for normal agent execution. QA report mode is a separate, report-only runtime contract."}
+              </div>
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  display: "block",
+                  marginBottom: 4,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                PROMPT <span style={{ color: "var(--red)" }}>*</span>
+              </label>
+              <textarea
+                className="input"
+                aria-label="Agent loop prompt"
+                placeholder="Describe the task…"
+                rows={4}
+                style={{ resize: "vertical" }}
+                value={taskPrompt}
+                onChange={(e) => setTaskPrompt(e.target.value)}
+              />
+            </div>
+          </>
         )}
 
         {(taskKind === "shell" || taskKind === "git" || taskKind === "agent_loop") && (
@@ -599,25 +640,27 @@ export function NewTaskSlideOver({
                   isolated clone). When on, the path entered above
                   must be an absolute, existing directory or the run
                   will fail before starting with a clear error. */}
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginTop: 8,
-                fontSize: 12,
-                color: taskInPlace ? "var(--t0)" : "var(--t2)",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={taskInPlace}
-                onChange={(e) => setTaskInPlace(e.target.checked)}
-                style={{ accentColor: "var(--teal)" }}
-              />
-              Run directly in this workspace
-            </label>
+            {!isReportOnlyQA && (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: taskInPlace ? "var(--t0)" : "var(--t2)",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={taskInPlace}
+                  onChange={(e) => setTaskInPlace(e.target.checked)}
+                  style={{ accentColor: "var(--teal)" }}
+                />
+                Run directly in this workspace
+              </label>
+            )}
             {/* Workspace preview — always visible so the operator
                   knows up-front where writes will land. The
                   isolated-clone path uses ${TMPDIR}/hecate-workspaces/
@@ -626,7 +669,11 @@ export function NewTaskSlideOver({
                   exist until create-time. The in-place case
                   reflects the actual entered path so the operator
                   can sanity-check before submitting. */}
-            <WorkspacePreview workingDir={taskWorkingDir} inPlace={taskInPlace} />
+            <WorkspacePreview
+              workingDir={taskWorkingDir}
+              inPlace={isReportOnlyQA ? false : taskInPlace}
+              readOnly={isReportOnlyQA}
+            />
           </div>
         )}
 
@@ -653,7 +700,7 @@ export function NewTaskSlideOver({
           </div>
         )}
 
-        {taskKind === "agent_loop" && (
+        {taskKind === "agent_loop" && !isReportOnlyQA && (
           <div>
             <label
               style={{
@@ -705,7 +752,7 @@ export function NewTaskSlideOver({
           </div>
         )}
 
-        {taskKind === "agent_loop" && (
+        {taskKind === "agent_loop" && !isReportOnlyQA && (
           <MCPServerEditor
             entries={mcpServers}
             onChange={setMcpServers}
@@ -775,9 +822,33 @@ function defaultModelID(models: ModelRecord[]): string {
 // in-place paths at run-create time with a concrete error; we
 // only flag the obvious missing-path case so the operator
 // notices before submitting.
-function WorkspacePreview({ workingDir, inPlace }: { workingDir: string; inPlace: boolean }) {
+function WorkspacePreview({
+  workingDir,
+  inPlace,
+  readOnly = false,
+}: {
+  workingDir: string;
+  inPlace: boolean;
+  readOnly?: boolean;
+}) {
   const trimmed = workingDir.trim();
   const isAbs = trimmed.startsWith("/") || /^[A-Za-z]:\\/.test(trimmed);
+  if (readOnly) {
+    return (
+      <div
+        style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", marginTop: 4 }}
+      >
+        Workspace: Hecate prepares an isolated workspace; the QA agent can inspect it but cannot
+        modify it.
+        {trimmed && (
+          <>
+            {" "}
+            · source <span style={{ color: "var(--t2)" }}>{trimmed}</span>
+          </>
+        )}
+      </div>
+    );
+  }
   if (inPlace) {
     if (!trimmed) {
       return (

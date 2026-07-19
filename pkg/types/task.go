@@ -5,6 +5,19 @@ import (
 	"time"
 )
 
+// WorkflowMode identifies a Hecate-owned, bounded task execution contract.
+// It is intentionally distinct from Cairnline coordination: a workflow mode
+// changes how Hecate executes and records a task, not how work is planned or
+// assigned across a project.
+type WorkflowMode string
+
+const (
+	// WorkflowModeQA is Hecate's report-only QA runbook. The runtime owns its
+	// read-only tool posture and report artifacts; callers cannot turn those
+	// restrictions into a broader agent workflow with request fields.
+	WorkflowModeQA WorkflowMode = "qa"
+)
+
 type Task struct {
 	ID     string
 	Title  string
@@ -57,8 +70,14 @@ type Task struct {
 	// operator-selected source remains isolated; the new task simply continues
 	// in the prior managed root instead of cloning it and dropping uncommitted
 	// or untracked work. Public task creation does not expose this flag.
-	WorkspaceReuse     bool
-	ExecutionKind      string
+	WorkspaceReuse bool
+	ExecutionKind  string
+	// WorkflowMode and WorkflowVersion identify a bounded Hecate runtime
+	// contract. They are blank for the ordinary task path. WorkflowVersion is
+	// stored with the task so retries and resumes do not silently adopt future
+	// runbook behavior.
+	WorkflowMode       WorkflowMode
+	WorkflowVersion    string
 	ExecutionProfile   string
 	OriginKind         string
 	OriginID           string
@@ -193,12 +212,17 @@ type TaskRun struct {
 	// boundary from the parent task at run creation time. They let
 	// run streams, traces, and retained run records remain project-aware
 	// even when the parent task is not loaded by the caller.
-	ProjectID          string
-	WorkItemID         string
-	AssignmentID       string
-	Number             int
-	Status             string
-	Orchestrator       string
+	ProjectID    string
+	WorkItemID   string
+	AssignmentID string
+	Number       int
+	Status       string
+	Orchestrator string
+	// WorkflowMode and WorkflowVersion snapshot the parent task's runtime
+	// contract at run creation. They keep retained runs self-describing when
+	// task defaults evolve later.
+	WorkflowMode       WorkflowMode
+	WorkflowVersion    string
 	Model              string
 	Provider           string
 	ProviderKind       string

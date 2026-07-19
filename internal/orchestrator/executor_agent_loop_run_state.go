@@ -92,9 +92,26 @@ func (s *agentLoopRunState) AddArtifacts(spec ExecutionSpec, artifacts []types.T
 }
 
 func (s *agentLoopRunState) TrackInitialConversationArtifact(artifact *types.TaskArtifact) {
-	if artifact != nil && len(s.artifacts) == 0 {
-		s.artifacts = append(s.artifacts, *artifact)
+	if artifact == nil {
+		return
 	}
+	// A QA run records its workflow manifest before the conversation. Do not
+	// use the total artifact count as a proxy for whether the conversation was
+	// retained, or the caller's ExecutionResult will omit the durable chat
+	// artifact. Replacing a matching entry also keeps the returned result in
+	// sync with the latest streaming conversation snapshot.
+	for i := range s.artifacts {
+		if s.artifacts[i].Kind != "agent_conversation" {
+			continue
+		}
+		if s.artifacts[i].ID == artifact.ID {
+			s.artifacts[i] = *artifact
+		}
+		// The initial conversation has one stable logical slot. Retain the
+		// existing record if a malformed caller supplies a second ID.
+		return
+	}
+	s.artifacts = append(s.artifacts, *artifact)
 }
 
 func (s *agentLoopRunState) RecordRoute(resp *types.ChatResponse) {

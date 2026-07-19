@@ -466,6 +466,68 @@ export function isVisibleArtifactBadge(a: TaskArtifactRecord): boolean {
     a.kind !== "stdout" &&
     a.kind !== "stderr" &&
     a.kind !== "agent_conversation" &&
-    a.kind !== "browser_evidence"
+    a.kind !== "browser_evidence" &&
+    a.kind !== "workflow_manifest" &&
+    a.kind !== "workflow_report"
   );
+}
+
+export type QAWorkflowReport = {
+  summaryMarkdown: string;
+  agentOutcome: string;
+  manifestArtifactID: string;
+  workspacePosture: "read_only";
+  nativeNetworkPosture: "blocked";
+  mcpPosture: "blocked";
+};
+
+// parseQAWorkflowReport accepts only the stable report envelope emitted by
+// Hecate's report-only QA runbook. Artifact text is untrusted by default, so
+// callers get null for malformed or future shapes and can render a plain-text
+// fallback without treating arbitrary JSON as a result contract.
+export function parseQAWorkflowReport(content: string | undefined): QAWorkflowReport | null {
+  if (!content?.trim()) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    value.schema_version !== "hecate.workflow_report.v0" ||
+    value.runbook_id !== "builtin.qa.v0"
+  )
+    return null;
+  if (
+    !isRecord(value.workflow) ||
+    value.workflow.mode !== "qa" ||
+    value.workflow.version !== "v0" ||
+    value.workflow.report_only !== true
+  )
+    return null;
+  if (!isRecord(value.agent_reported) || value.agent_reported.outcome !== "reported") return null;
+  if (typeof value.agent_reported.summary_markdown !== "string") return null;
+  if (!isRecord(value.hecate_observed)) return null;
+  const observed = value.hecate_observed;
+  if (typeof observed.manifest_artifact_id !== "string") return null;
+  if (
+    observed.workspace_posture !== "read_only" ||
+    observed.native_network_posture !== "blocked" ||
+    observed.mcp_posture !== "blocked" ||
+    observed.browser_evidence_posture !== "unavailable_in_v0"
+  )
+    return null;
+  return {
+    summaryMarkdown: value.agent_reported.summary_markdown,
+    agentOutcome: value.agent_reported.outcome,
+    manifestArtifactID: observed.manifest_artifact_id,
+    workspacePosture: "read_only",
+    nativeNetworkPosture: "blocked",
+    mcpPosture: "blocked",
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

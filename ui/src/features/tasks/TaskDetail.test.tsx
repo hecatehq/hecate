@@ -1993,4 +1993,117 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     expect(screen.getByText("weird")).toBeTruthy();
     expect(screen.getByText("double__under")).toBeTruthy();
   });
+
+  it("renders QA reports as agent-reported alongside Hecate-observed posture", () => {
+    const report: TaskArtifactRecord = {
+      id: "workflow-report-run-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "workflow_report",
+      mime_type: "application/json",
+      status: "ready",
+      content_text: JSON.stringify({
+        schema_version: "hecate.workflow_report.v0",
+        runbook_id: "builtin.qa.v0",
+        workflow: { mode: "qa", version: "v0", report_only: true },
+        agent_reported: {
+          outcome: "reported",
+          summary_markdown: "## Finding\nThe inspected diff has no uncommitted changes.",
+        },
+        hecate_observed: {
+          manifest_artifact_id: "workflow-manifest-run-1",
+          workspace_posture: "read_only",
+          native_network_posture: "blocked",
+          mcp_posture: "blocked",
+          browser_evidence_posture: "unavailable_in_v0",
+        },
+      }),
+    };
+    const manifest: TaskArtifactRecord = {
+      id: "workflow-manifest-run-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "workflow_manifest",
+      status: "ready",
+      content_text: "{}",
+    };
+    const { render } = setup({
+      task: makeTask({ execution_kind: "agent_loop", workflow_mode: "qa" }),
+      run: makeRun({ workflow_mode: "qa", workflow_version: "v0" }),
+      artifacts: [manifest, report],
+    });
+    render();
+
+    expect(screen.getAllByText("QA · report only").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Agent-reported · reported")).toBeTruthy();
+    expect(screen.getByText("The inspected diff has no uncommitted changes.")).toBeTruthy();
+    expect(screen.getByText("Hecate observed")).toBeTruthy();
+    expect(screen.getByText("Read-only")).toBeTruthy();
+    expect(screen.getAllByText("Blocked").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Native HTTP/search")).toBeTruthy();
+    expect(screen.getByText("Unavailable in QA v0")).toBeTruthy();
+    expect(screen.queryByText("qa-report.json")).toBeNull();
+  });
+
+  it("shows a missing QA report as unavailable rather than implying a result", () => {
+    const { render } = setup({
+      task: makeTask({ execution_kind: "agent_loop", workflow_mode: "qa" }),
+      run: makeRun({ workflow_mode: "qa" }),
+      artifacts: [],
+    });
+    render();
+
+    expect(screen.getByText(/No agent report is available/i)).toBeTruthy();
+    expect(screen.getByText("Hecate observed")).toBeTruthy();
+    expect(screen.getByText("Unavailable")).toBeTruthy();
+  });
+
+  it("falls back to raw text when a QA report artifact does not match Hecate's schema", () => {
+    const raw = '{"agent_reported":"<img src=x onerror=alert(1)>"}';
+    const { render } = setup({
+      task: makeTask({ execution_kind: "agent_loop", workflow_mode: "qa" }),
+      run: makeRun({ workflow_mode: "qa" }),
+      artifacts: [
+        {
+          id: "workflow-report-run-1",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "workflow_report",
+          status: "ready",
+          content_text: raw,
+        },
+      ],
+    });
+    render();
+
+    expect(screen.getByText("format unavailable")).toBeTruthy();
+    expect(screen.getByText(raw)).toBeTruthy();
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  it("uses the selected run workflow snapshot instead of a later task workflow edit", () => {
+    // Workflow modes are server-controlled. This non-QA value represents a
+    // future or retained run contract; Task Detail must not relabel it from a
+    // mutable task record that was later switched to QA.
+    const retainedNonQAWorkflowMode = "standard" as TaskRunRecord["workflow_mode"];
+    const { render } = setup({
+      task: makeTask({ execution_kind: "agent_loop", workflow_mode: "qa" }),
+      run: makeRun({ workflow_mode: retainedNonQAWorkflowMode }),
+    });
+    render();
+
+    expect(screen.queryByText("QA · report only")).toBeNull();
+    expect(screen.queryByRole("region", { name: "QA report" })).toBeNull();
+  });
+
+  it("uses a retained QA run snapshot after the task no longer has a workflow mode", () => {
+    const { render } = setup({
+      task: makeTask({ execution_kind: "agent_loop", workflow_mode: undefined }),
+      run: makeRun({ workflow_mode: "qa", workflow_version: "v0" }),
+    });
+    render();
+
+    expect(screen.getAllByText("QA · report only").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("region", { name: "QA report" })).toBeTruthy();
+  });
 });

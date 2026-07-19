@@ -63,6 +63,10 @@ const (
 	AttrHecateRunStatus     = "hecate.run.status"
 	AttrHecateRunDurationMS = "hecate.run.duration_ms"
 	AttrHecateExecutionKind = "hecate.execution.kind"
+	// AttrHecateWorkflowMode is a closed, Hecate-owned task posture selector.
+	// It deliberately carries the mode rather than a prompt or runbook input so
+	// traces remain useful without disclosing operator content.
+	AttrHecateWorkflowMode = "hecate.workflow.mode"
 
 	// Orchestrator — step
 	AttrHecateStepID         = "hecate.step.id"

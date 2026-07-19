@@ -10,6 +10,7 @@ import (
 	"github.com/hecatehq/hecate/internal/browserrunner"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/runtimeevents"
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/websearch"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -47,6 +48,9 @@ func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
 
 func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost, terminals *agentLoopTerminals) (agentLoopToolDispatchResult, error) {
 	startedAt := time.Now().UTC()
+	if taskworkflow.BlocksTool(taskworkflow.ModeForExecution(spec.Task, spec.Run), call.Function.Name) {
+		return blockedQAWorkflowToolCall(spec, call, stepIndex, startedAt), nil
+	}
 	if agentPresetDisablesTools(spec.Task) {
 		blocked := blockedAgentPresetToolCall(spec, call, stepIndex, startedAt)
 		if isMCPToolName(call.Function.Name) {
@@ -313,6 +317,18 @@ func blockedAgentPresetToolCall(spec ExecutionSpec, call types.ToolCall, stepInd
 
 func blockedNativeToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, policy, reason, recovery string) agentLoopToolDispatchResult {
 	return blockedToolCall(spec, call, stepIndex, startedAt, "builtin", policy, "sandbox_policy_denied", reason, recovery)
+}
+
+func blockedQAWorkflowToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time) agentLoopToolDispatchResult {
+	return blockedNativeToolCall(
+		spec,
+		call,
+		stepIndex,
+		startedAt,
+		"workflow_report_only",
+		"this tool is unavailable in Hecate's report-only QA workflow",
+		"use structured read-only inspection and describe any limitation in the final report",
+	)
 }
 
 func blockedToolCall(spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, kind, policy, errorKind, reason, recovery string) agentLoopToolDispatchResult {

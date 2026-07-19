@@ -252,6 +252,7 @@ Orchestrator-specific attributes include:
 - `hecate.run.status`
 - `hecate.run.duration_ms`
 - `hecate.execution.kind`
+- `hecate.workflow.mode`
 - `hecate.step.id`
 - `hecate.step.kind`
 - `hecate.step.index`
@@ -397,6 +398,13 @@ attributes, to avoid accidental high-cardinality trace dimensions. Runs carry
 the time the run spent in the queue between enqueue and claim.
 
 `agent_loop` runs _also_ emit one `model.call.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#modelcallcompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
+
+When a Task Run uses a built-in workflow contract, its lifecycle trace events
+carry `hecate.workflow.mode` (currently `qa`). The attribute identifies the
+small report-only runtime contract; it does not claim that an agent's narrative
+or a browser artifact is a verified test result. Contract version, report
+content, and evidence IDs remain on the Task/Run and artifacts rather than
+high-cardinality OTel attributes.
 
 ### Chat Turn Spans
 

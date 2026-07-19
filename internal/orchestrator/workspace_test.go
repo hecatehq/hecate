@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/taskworkflow"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -262,6 +264,77 @@ func TestWorkspaceManager_DefaultModeStillClones(t *testing.T) {
 	// And the marker copied across.
 	if _, err := os.Stat(filepath.Join(want, "marker.txt")); err != nil {
 		t.Errorf("marker not copied to clone: %v", err)
+	}
+}
+
+func TestWorkspaceManager_QAGitSourceSkipsCloneFilterExecution(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX Git smudge helper")
+	}
+
+	source := t.TempDir()
+	runGit(t, source, "init")
+	runGit(t, source, "config", "user.email", "test@example.com")
+	runGit(t, source, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(source, ".gitattributes"), []byte("*.evil filter=evil\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "fixture.evil"), []byte("evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, source, "add", ".gitattributes", "fixture.evil")
+	runGit(t, source, "commit", "-m", "fixture")
+
+	marker := filepath.Join(t.TempDir(), "smudge-called")
+	helper := filepath.Join(t.TempDir(), "smudge")
+	script := fmt.Sprintf("#!/bin/sh\nprintf called > %q\ncat\n", marker)
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	runGit(t, source, "config", "--global", "filter.evil.smudge", helper)
+
+	qaTask := types.Task{
+		ID:                          "task-qa-copy",
+		WorkingDirectory:            source,
+		WorkspaceMode:               "ephemeral",
+		WorkflowMode:                types.WorkflowModeQA,
+		WorkflowVersion:             taskworkflow.QAVersion,
+		SandboxReadOnly:             true,
+		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
+	}
+	qaRun := types.TaskRun{
+		ID:              "run-qa-copy",
+		WorkflowMode:    types.WorkflowModeQA,
+		WorkflowVersion: taskworkflow.QAVersion,
+	}
+	qaManager := NewWorkspaceManager(t.TempDir())
+	plan, err := qaManager.planProvision(qaTask, qaRun)
+	if err != nil {
+		t.Fatalf("planProvision(QA): %v", err)
+	}
+	if plan.source.kind != "directory" {
+		t.Fatalf("QA provision source kind = %q, want safe directory copy", plan.source.kind)
+	}
+	qaWorkspace, err := qaManager.provisionPlanned(t.Context(), plan)
+	if err != nil {
+		t.Fatalf("provisionPlanned(QA): %v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("global Git smudge helper ran during QA provisioning; stat error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(qaWorkspace, ".git")); err != nil {
+		t.Fatalf("QA directory snapshot did not preserve Git metadata: %v", err)
+	}
+
+	normalTask := types.Task{ID: "task-normal-clone", WorkingDirectory: source, WorkspaceMode: "ephemeral"}
+	normalManager := NewWorkspaceManager(t.TempDir())
+	if _, err := normalManager.Provision(t.Context(), normalTask, types.TaskRun{ID: "run-normal-clone"}); err != nil {
+		t.Fatalf("Provision(normal): %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("normal Git clone did not exercise configured smudge helper: %v", err)
 	}
 }
 
