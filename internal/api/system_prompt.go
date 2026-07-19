@@ -19,7 +19,7 @@ var agentWorkspacePromptFiles = []string{"CLAUDE.md", "AGENTS.md"}
 // agentWorkspacePromptMaxBytes caps how much of the workspace prompt
 // file we read. 8 KiB is generous for a directives doc — anything
 // longer is probably the file accidentally containing the whole
-// codebase, and we don't want to push that into every LLM turn.
+// codebase, and we don't want to push that into every model call.
 const agentWorkspacePromptMaxBytes = 8 * 1024
 
 // buildSystemPromptResolver returns the three-layer composer the

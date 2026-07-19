@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getPlugins } from "../../lib/api";
+import { ApiError, getPlugins } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -146,6 +146,44 @@ describe("SettingsView", () => {
       screen.getByText(/MCP github · stdio: npx -y @modelcontextprotocol\/server-github/i),
     ).toBeTruthy();
     expect(screen.getByText(/Unresolved auth: github_token/i)).toBeTruthy();
+  });
+
+  it("does not probe local-only plugin registry in remote runtime mode", async () => {
+    const { state, actions } = setup({
+      sessionInfo: {
+        role: "operator",
+        remote_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "rt_1",
+        },
+      },
+    });
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(
+      screen.getByText(/Plugin registry inspection is available only from a local Hecate runtime/i),
+    ).toBeTruthy();
+    await waitFor(() => expect(getPlugins).not.toHaveBeenCalled());
+    expect(screen.queryByText(/The request was blocked/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Refresh/i })).toBeNull();
+  });
+
+  it("treats a forbidden plugin registry probe as local-only", async () => {
+    vi.mocked(getPlugins).mockRejectedValueOnce(
+      new ApiError("The request was blocked.", 403, "forbidden"),
+    );
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(
+      await screen.findByText(
+        /Plugin registry inspection is available only from a local Hecate runtime/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/The request was blocked/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Refresh/i })).toBeNull();
   });
 
   it("shows desktop cloud connection controls inside the native app", async () => {

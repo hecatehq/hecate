@@ -412,7 +412,7 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 
 	// Block policy: never call upstream. Emit a denied policy step and feed
 	// a tool-error message back to the LLM so the model can pick a
-	// different path on the next turn. Operators use this to disable
+	// different path on the next model call. Operators use this to disable
 	// risky tool surfaces (e.g. write-side GitHub tools) without
 	// editing the upstream server's tool catalog.
 	if mcpServerPolicy(call.Function.Name, spec.Task) == types.MCPApprovalBlock {
@@ -483,7 +483,7 @@ func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec 
 	} else if isError {
 		// Tool-level error. The text already carries the upstream
 		// reason; mark the step failed so the run timeline shows it
-		// in red and the next-turn message ToolError is set.
+		// in red and the next-call message ToolError is set.
 		status = "failed"
 		resultKind = resultFromStatus(status)
 		callResult = telemetry.MCPCallResultToolError
@@ -633,14 +633,14 @@ func (d *agentLoopToolDispatcher) runSubExecutor(ctx context.Context, spec Execu
 	}
 
 	// Re-stamp artifacts with the loop's step ID so the run UI groups
-	// them under this turn rather than the sub-executor's step.
+	// them under this model call rather than the sub-executor's step.
 	artifacts := make([]types.TaskArtifact, 0, len(subResult.Artifacts))
 	for _, art := range subResult.Artifacts {
 		art.StepID = step.ID
 		artifacts = append(artifacts, art)
 	}
 
-	// What the LLM sees on the next turn. We summarize for token
+	// What the LLM sees on the next model call. We summarize for token
 	// efficiency: include status, error if any, and a digest of the
 	// stdout/file content. Full artifacts are still in the run for
 	// the UI; the LLM gets the relevant signal.

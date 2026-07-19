@@ -51,8 +51,11 @@ func TestAgentLoopApprovalGate_EvaluateConfiguredToolsDedupesAndBuildsPause(t *t
 	if step.Index != 7 || step.ApprovalID != approval.ID || step.ToolName != "builtin.agent_loop_approval" {
 		t.Fatalf("approval step linkage = %+v, approval id %q", step, approval.ID)
 	}
-	if got := step.Input["turn"]; got != 2 {
-		t.Fatalf("approval step turn input = %v, want 2", got)
+	if got := step.Input["model_call_index"]; got != 2 {
+		t.Fatalf("approval step model-call input = %v, want 2", got)
+	}
+	if _, ok := step.Input["model_call"]; ok {
+		t.Fatalf("legacy model_call unexpectedly present: %#v", step.Input)
 	}
 	if got := step.Input["reason"]; got != approval.Reason {
 		t.Fatalf("approval step reason input = %v, want %q", got, approval.Reason)

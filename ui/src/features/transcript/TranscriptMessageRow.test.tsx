@@ -46,6 +46,11 @@ function weatherMCPAppActivity(app: Partial<ChatMCPAppRecord> = {}): ChatActivit
 }
 
 describe("TranscriptMessageRow", () => {
+  it("anchors the rendered row to its exact Chat message id", () => {
+    const { container } = render(<TranscriptMessageRow {...baseProps} id="msg_exact" />);
+    expect(container.querySelector("#msg_exact")).toBeTruthy();
+  });
+
   it("renders assistant content as markdown", () => {
     render(<TranscriptMessageRow {...baseProps} content="**bold** and `code`" />);
     expect(screen.getByText("bold").tagName).toBe("STRONG");
@@ -57,9 +62,9 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("running")).toBeInTheDocument();
   });
 
-  it("renders an agent run failure notice when badge=failed and an error message is present", () => {
+  it("renders an agent turn failure notice when badge=failed and an error message is present", () => {
     render(<TranscriptMessageRow {...baseProps} badge="failed" error="adapter exited 1" />);
-    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("agent turn failed")).toBeInTheDocument();
     expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
   });
 
@@ -74,7 +79,7 @@ describe("TranscriptMessageRow", () => {
     );
 
     expect(screen.getByText("I updated the README before the tool failed.")).toBeInTheDocument();
-    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("agent turn failed")).toBeInTheDocument();
     expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
   });
 
@@ -96,7 +101,7 @@ describe("TranscriptMessageRow", () => {
       <TranscriptMessageRow {...baseProps} badge="failed" content="   " error="adapter exited 1" />,
     );
 
-    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("agent turn failed")).toBeInTheDocument();
     expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
     expect(screen.queryByText(/^\s+$/)).toBeNull();
   });
@@ -120,7 +125,7 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("agent turn failed")).toBeInTheDocument();
     expect(screen.getAllByText(/launch model required/)).toHaveLength(1);
     expect(screen.queryByText("Failed")).toBeNull();
   });
@@ -143,7 +148,7 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("agent turn failed")).toBeInTheDocument();
     expect(screen.queryByText(/working/)).toBeNull();
     expect(screen.queryByText("Running")).toBeNull();
     expect(screen.queryByText("Waiting for ACP output")).toBeNull();
@@ -178,7 +183,7 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("Ran git")).toBeInTheDocument();
   });
 
-  it("hides resumed-session metadata after a cancelled run", () => {
+  it("hides resumed-session metadata after a cancelled Chat Turn", () => {
     render(
       <TranscriptMessageRow
         {...baseProps}
@@ -195,13 +200,13 @@ describe("TranscriptMessageRow", () => {
             type: "cancelled",
             title: "Cancelled",
             status: "cancelled",
-            detail: "stopped before the run finished",
+            detail: "stopped before the Chat Turn finished",
           },
         ]}
       />,
     );
 
-    expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
+    expect(screen.getByText("agent turn cancelled")).toBeInTheDocument();
     expect(screen.queryByText("Resumed external session")).toBeNull();
     expect(screen.getByText("Cancelled")).toBeInTheDocument();
   });
@@ -212,11 +217,11 @@ describe("TranscriptMessageRow", () => {
         {...baseProps}
         badge="failed"
         content=""
-        error="agent run failed"
+        error="agent turn failed"
         activities={[
           {
             type: "run_result",
-            title: "LLM call failed on turn 2: timeout",
+            title: "LLM call failed on model call 2: timeout",
             status: "failed",
             terminal: true,
             detail: "rate limit exceeded",
@@ -225,7 +230,7 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    expect(screen.getByText("LLM call failed on turn 2: timeout")).toBeInTheDocument();
+    expect(screen.getByText("LLM call failed on model call 2: timeout")).toBeInTheDocument();
   });
 
   it("keeps failed tool-call rows even when their title looks generic", () => {
@@ -246,7 +251,7 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("agent turn failed")).toBeInTheDocument();
     expect(screen.getByText(/1 failed tool/)).toBeInTheDocument();
     expect(screen.getAllByText("failed")).toHaveLength(2);
   });
@@ -263,7 +268,7 @@ describe("TranscriptMessageRow", () => {
     expect(screen.queryByText(/claude_code_auth_required/)).toBeNull();
   });
 
-  it("renders the setup-action button on a failed agent run", () => {
+  it("renders the setup-action button on a failed agent turn", () => {
     const onClick = vi.fn();
     render(
       <TranscriptMessageRow
@@ -299,7 +304,7 @@ describe("TranscriptMessageRow", () => {
         error="operator stopped the run"
       />,
     );
-    expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
+    expect(screen.getByText("agent turn cancelled")).toBeInTheDocument();
     expect(screen.getByText("partial answer before stop")).toBeInTheDocument();
     expect(screen.getByText("operator stopped the run")).toBeInTheDocument();
   });
@@ -482,7 +487,7 @@ describe("TranscriptMessageRow", () => {
       tool_ms: 700,
       approval_wait_ms: 2_000,
       overhead_ms: 1_080,
-      turn_count: 2,
+      model_call_count: 2,
       tool_count: 1,
       bottleneck: "model",
       bottleneck_ms: 8_500,
@@ -491,7 +496,7 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByLabelText("Hecate Chat timing summary")).toBeInTheDocument();
     expect(screen.getByText(/bottleneck · model 8\.5s/)).toBeInTheDocument();
     expect(screen.getByText(/total 12s/)).toBeInTheDocument();
-    expect(screen.getByText(/2 turns · 1 tool/)).toBeInTheDocument();
+    expect(screen.getByText(/2 model calls · 1 tool/)).toBeInTheDocument();
   });
 
   it("renders a collapsed context inspector for assistant context packets", async () => {
@@ -604,6 +609,7 @@ describe("TranscriptMessageRow", () => {
       refs: {
         project_id: "proj_1",
         session_id: "chat_1",
+        turn_id: "turn_1",
         message_id: "msg_1",
       },
       items: [
@@ -1406,7 +1412,7 @@ describe("TranscriptMessageRow", () => {
         rawOutput="context canceled"
       />,
     );
-    expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
+    expect(screen.getByText("agent turn cancelled")).toBeInTheDocument();
     expect(screen.queryByText(/raw agent output/)).toBeNull();
     expect(screen.queryByText("context canceled")).toBeNull();
   });

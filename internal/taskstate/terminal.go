@@ -113,6 +113,9 @@ func mergeTrustedTerminalRunMetadata(winner types.TaskRun, supplemental *Termina
 	if supplemental.StepCount > merged.StepCount {
 		merged.StepCount = supplemental.StepCount
 	}
+	if supplemental.ModelCallCount > merged.ModelCallCount {
+		merged.ModelCallCount = supplemental.ModelCallCount
+	}
 	if supplemental.ArtifactCount > merged.ArtifactCount {
 		merged.ArtifactCount = supplemental.ArtifactCount
 	}

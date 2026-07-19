@@ -1282,7 +1282,7 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
   const startRequest = await startRequestPromise;
   expect(startRequest.postDataJSON()).toEqual({ driver_kind: "external_agent" });
 
-  await expect(page).toHaveURL(/\/chats$/);
+  await expect(page).toHaveURL(new RegExp(`/chats\\?chat=${chatSessionID}$`));
   const composer = page.getByRole("textbox", { name: "Message" });
   await expect(composer).toHaveValue(/Launch context/);
   const seededDraft = await composer.inputValue();
@@ -1331,7 +1331,7 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await preparedStory.getByRole("button", { name: "Continue in chat" }).click();
-  await expect(page).toHaveURL(/\/chats$/);
+  await expect(page).toHaveURL(new RegExp(`/chats\\?chat=${chatSessionID}$`));
   await expect(composer).toHaveValue(editedDraft);
 
   await page.getByRole("button", { name: /Chat Other project chat/ }).click();
@@ -1339,12 +1339,15 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
   await composer.fill("Unrelated operator draft that must stay with the other chat.");
 
   await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/chats\\?chat=${chatSessionID}$`));
+  await expect(composer).toHaveValue(editedDraft);
+  await page.goBack();
   await expect(page).toHaveURL(new RegExp(`${workURL.replaceAll("?", "\\?")}$`));
   const reopenedPreparedStory = page.getByRole("article", {
     name: "Implementation agent assignment execution assign_external",
   });
   await reopenedPreparedStory.getByRole("button", { name: "Continue in chat" }).click();
-  await expect(page).toHaveURL(/\/chats$/);
+  await expect(page).toHaveURL(new RegExp(`/chats\\?chat=${chatSessionID}$`));
   await expect(composer).toHaveValue(editedDraft);
 
   const messageRequestPromise = page.waitForRequest((request) => {

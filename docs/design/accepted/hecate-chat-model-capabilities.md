@@ -37,7 +37,7 @@ chat-native way to operate the task runtime, not a thin launcher that sends the
 operator away to Tasks for every serious action. The next implementation
 requirements after the baseline bridge are:
 
-- run activity rendered in Chats from task-run events _(implemented)_
+- Task Run activity rendered in Chats from Task Run events _(implemented)_
 - task approvals resolved directly from Chats _(implemented)_
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - local composer queueing while a backing task is busy _(implemented)_
@@ -312,32 +312,33 @@ is unresolved.
 When a workspace mode cannot be honored, the message endpoint should fail
 before starting the run with a stable error and operator-facing copy.
 
-## Run Activity In Chats
+## Task Run Activity In Chats
 
 Tasks remains canonical for task execution, but Hecate Agent Chats must render
-the live run activity directly. Operators should not need to switch to Tasks
+the live backing Task Run activity directly. Operators should not need to switch to Tasks
 just to understand whether the agent is thinking, waiting, running a tool, or
 blocked on approval.
 
-Chats should subscribe to the backing task-run stream and project task events
+Chats should subscribe to the backing Task Run stream and project Task events
 into the shared transcript/activity UI:
 
-| Task-run source     | Chat rendering                                            |
+| Task Run source     | Chat rendering                                            |
 | ------------------- | --------------------------------------------------------- |
-| `run.*`             | run started, queued, completed, failed, cancelled         |
-| `turn.*`            | thinking / model turn progress                            |
+| `run.*`             | Run started, queued, completed, failed, cancelled         |
+| `model.call.*`      | thinking / model-call progress                            |
 | `tool.*`            | tool started, running, output, failed                     |
 | `approval.*`        | approval requested/resolved                               |
 | `artifact.*`        | final answer, patch, stdout/stderr, conversation snapshot |
 | `gap.*` / `error.*` | stream gap or runtime error                               |
 
 This is projection, not a second event system. The source of truth stays the
-task run event log and task artifacts.
+Task Run event log and Task artifacts.
 
 Chat rows should preserve the same top-to-bottom conversation order as Model
-and External Agent chats. Run activity is attached to the active assistant turn
-or shown in a collapsible run details block below it. The primary activity
-list should stay quiet: model turns, tool calls, approvals, files changed, and
+and External Agent Chats. For a task-backed Turn, backing Task Run activity is
+attached to the active assistant Turn or shown in a collapsible Task Run details
+block below it. The primary activity list should stay quiet: model calls, tool
+calls, approvals, files changed, and
 the final outcome are first-class. Raw artifacts, stdout/stderr files, and
 other low-level task internals belong under an expandable **Details** group.
 
@@ -388,8 +389,8 @@ Shows:
 - workspace mode selector
 - profile selector
 - tools on/off switch
-- per-assistant-turn backing Task/run links
-- live run activity from task-run events
+- per-assistant-turn backing Task/Run links
+- live Task Run activity from Task Run events
 - pending task approvals with Approve / Deny actions
 
 Task-backed sends are disabled unless a workspace is selected. If the selected
@@ -463,7 +464,7 @@ Minimum coverage:
 - Memory/SQLite parity for new session fields.
 - UI target picker, tools on/off switches, tools-unavailable direct fallback,
   and task/run links.
-- Task-backed Hecate Chat run activity projection from task-run SSE into Chats.
+- Task-backed Hecate Chat Task Run activity projection from Task Run SSE into Chats.
 - Task-backed Hecate Chat task approval banner in Chats, including approve, reject, and a
   link to the backing Task.
 - Busy-state UX and local queued-prompt behavior in Chats.
@@ -484,7 +485,7 @@ Done in the core bridge:
 - chat sessions store task/run linkage
 - Tasks labels chat-origin tasks and links back to Chats; Hecate Agent
   assistant turns link back to their backing Task/run
-- backing task-run activity is projected into Hecate Agent chat transcripts
+- backing Task Run activity is projected into Hecate Agent Chat transcripts
 - Chats and Task Detail share the same compact transcript activity renderer
   for tool calls, approvals, changed files, final-answer artifacts, and
   low-level Details grouping

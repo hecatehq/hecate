@@ -72,12 +72,13 @@ discovery.
 
 ### Agent And Chat Runtime
 
-| Record                                                                            | Bucket      | Notes                                                                                                       |
-| --------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)  | Accepted    | Hecate Chat, tools on/off segments, observed capability metadata, profiles, future detection.               |
-| [External Agent integrations](accepted/external-agent-integrations.md)            | Accepted    | Codex, Claude Code, Cursor Agent, Grok Build, ACP controls, approvals, readiness, diagnostics, diff review. |
-| [ADK and A2A alignment](proposals/adk-a2a-alignment.md)                           | Proposal    | ADK concepts as design input, A2A as a future protocol adapter for Hecate and remote agents.                |
-| [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md) | Implemented | Prompt-first approvals, durable grants, startup reconcile, UI review, telemetry.                            |
+| Record                                                                                 | Bucket      | Notes                                                                                                       |
+| -------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| [Interaction and execution terminology](accepted/interaction-execution-terminology.md) | Accepted    | Canonical Chat, Turn, Task, Run, model-call, and cross-surface naming rules.                                |
+| [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)       | Accepted    | Hecate Chat, tools on/off segments, observed capability metadata, profiles, future detection.               |
+| [External Agent integrations](accepted/external-agent-integrations.md)                 | Accepted    | Codex, Claude Code, Cursor Agent, Grok Build, ACP controls, approvals, readiness, diagnostics, diff review. |
+| [ADK and A2A alignment](proposals/adk-a2a-alignment.md)                                | Proposal    | ADK concepts as design input, A2A as a future protocol adapter for Hecate and remote agents.                |
+| [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md)      | Implemented | Prompt-first approvals, durable grants, startup reconcile, UI review, telemetry.                            |
 
 ### Runtime Contracts
 
@@ -122,6 +123,7 @@ discovery.
 | [LLM context window management](proposals/llm-context-window-management.md)                             | Proposal           | Projects, context, and memory |
 | [Cairnline: portable project coordination](proposals/cairnline-portable-project-coordination.md)        | Proposal           | Projects, context, and memory |
 | [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                               | Proposal           | Workflow runbooks             |
+| [Interaction and execution terminology](accepted/interaction-execution-terminology.md)                  | Accepted           | Agent and chat runtime        |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                        | Accepted           | Agent and chat runtime        |
 | [External Agent integrations](accepted/external-agent-integrations.md)                                  | Accepted           | Agent and chat runtime        |
 | [ADK and A2A alignment](proposals/adk-a2a-alignment.md)                                                 | Proposal           | Agent and chat runtime        |

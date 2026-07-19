@@ -41,8 +41,8 @@ export type TaskRecord = {
   latest_model?: string;
   latest_provider?: string;
   pending_approval_count?: number;
-  step_count?: number;
-  artifact_count?: number;
+  latest_run_step_count?: number;
+  latest_run_artifact_count?: number;
   last_error?: string;
   created_at?: string;
   updated_at?: string;
@@ -94,6 +94,7 @@ export type TaskRunRecord = {
   workspace_id?: string;
   workspace_path?: string;
   step_count?: number;
+  model_call_count: number;
   approval_count?: number;
   artifact_count?: number;
   total_cost_micros_usd?: number;
@@ -220,12 +221,12 @@ export type TaskApprovalsResponse = {
   data: TaskApprovalRecord[];
 };
 
-// TaskRunStreamTurnCost mirrors the backend `Turn` block on
-// TaskRunStreamEventData. Populated only on snapshots driven by an
-// `turn.completed` event, so the UI can render a live per-turn
+// TaskRunStreamModelCallCost mirrors the backend `model_call` block on
+// TaskRunStreamEventData. Populated only on snapshots driven by a
+// `model.call.completed` event, so the UI can render a live per-model-call
 // cost/tokens summary without subscribing to the public events stream.
-export type TaskRunStreamTurnCost = {
-  turn_index: number;
+export type TaskRunStreamModelCallCost = {
+  model_call_index: number;
   step_id?: string;
   cost_micros_usd: number;
   run_cumulative_cost_micros_usd: number;
@@ -242,7 +243,7 @@ export type TaskRunStreamEventData = {
   approvals?: TaskApprovalRecord[];
   artifacts?: TaskArtifactRecord[];
   activity?: TaskActivityRecord[];
-  turn?: TaskRunStreamTurnCost;
+  model_call?: TaskRunStreamModelCallCost;
 };
 
 export type TaskActivityRecord = {

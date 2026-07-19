@@ -68,6 +68,7 @@ import {
   probeAgentAdapter,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
+  retryTaskRunFromModelCall,
   revertChatWorkspaceFiles,
   resolveChatApproval,
   setChatSettings,
@@ -2037,6 +2038,24 @@ describe("api client", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.id).toBe("ctx_3");
+  });
+
+  it("retries from a Run-local model_call_index without the removed model_call key", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ object: "task_run", data: { id: "run-2", model_call_count: 0 } }),
+    );
+
+    await retryTaskRunFromModelCall("task/1", "run/1", 2, "branch here");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/tasks/task%2F1/runs/run%2F1/retry-from-model-call",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ model_call_index: 2, reason: "branch here" }),
+      }),
+    );
+    const request = fetchMock.mock.calls.at(-1)?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).not.toHaveProperty("model_call");
   });
 
   // ─── Agent-chat SSE dispatch ───────────────────────────────────────────────

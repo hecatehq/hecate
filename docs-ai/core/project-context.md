@@ -126,7 +126,7 @@ telemetry, logs, or errors. A tools-on task may retain an admitted generation
 only beside its opaque run input reference; at final provider-dispatch
 admission, atomically persist the exact resolved route there before provider
 I/O. Keep that final-dispatch marker separate from admission: its first model
-may be governor-rewritten, while later tool turns, approval continuations, and
+may be governor-rewritten, while later model calls, approval continuations, and
 same-input retries must replay the persisted route and instance. Do not treat
 that fence as proof of disclosure. Mark the transcript only after a dispatched
 provider call returns attempted-route metadata. A durability or final-validation
@@ -189,7 +189,7 @@ internal/sandbox/          policy validation + OS isolation wrapper for tool
 internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          SQLite/Postgres SQL clients + dialect helpers
 internal/retention/        retention worker (subsystems: traces, usage_events, audit,
-                             provider_history, turn_events,
+                             provider_history, model_call_events,
                              chat_approvals)
 internal/mcp/              stdio MCP server (read tools + write tools)
 internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
@@ -268,7 +268,7 @@ These earn extra scrutiny; changes here are not drive-by territory.
   taskstate transition with the awaiting run/task, mandatory lifecycle events,
   and rejection cleanup; handlers and runners must not split those writes or
   route lifecycle resolution through low-level approval updates.
-- **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `chat_approvals`. Persisted things must mirror.
+- **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `model_call_events`, `chat_approvals`. Persisted things must mirror.
 - **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.
 - **No built-in multi-user auth layer in local mode.** Every local-mode request
   is processed as the operator. The gateway binds to `127.0.0.1` by default;

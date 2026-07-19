@@ -45,6 +45,7 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 		ContextPacket: chat.ContextPacket{
 			Version: "chat_context_v1",
 			Model:   "gpt-4o",
+			Refs:    &chat.ContextRefs{TurnID: "turn_start"},
 		},
 	})
 	if err != nil {
@@ -73,6 +74,7 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 	}
 	assertHecateAgentRunContextRefs(t, run.ContextPacket, chat.ContextRefs{
 		SessionID: "chat_start",
+		TurnID:    "turn_start",
 		TaskID:    "task_fixed",
 		RunID:     "run_fixed",
 		ProjectID: "proj_start",
@@ -238,6 +240,7 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 		Prompt: "continue with tools",
 		ContextPacket: chat.ContextPacket{
 			Version: "chat_context_v1",
+			Refs:    &chat.ContextRefs{TurnID: "turn_continue"},
 		},
 	})
 	if err != nil {
@@ -257,6 +260,7 @@ func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	}
 	assertHecateAgentRunContextRefs(t, run.ContextPacket, chat.ContextRefs{
 		SessionID: "chat_continue",
+		TurnID:    "turn_continue",
 		TaskID:    task.ID,
 		RunID:     "run_next",
 		ProjectID: "proj_continue",
@@ -314,7 +318,7 @@ func assertHecateAgentRunContextRefs(t *testing.T, raw json.RawMessage, refs cha
 	if packet.Refs == nil {
 		t.Fatalf("context packet refs are nil: %+v", packet)
 	}
-	if packet.Refs.SessionID != refs.SessionID || packet.Refs.TaskID != refs.TaskID || packet.Refs.RunID != refs.RunID || packet.Refs.ProjectID != refs.ProjectID {
+	if packet.Refs.SessionID != refs.SessionID || packet.Refs.TurnID != refs.TurnID || packet.Refs.TaskID != refs.TaskID || packet.Refs.RunID != refs.RunID || packet.Refs.ProjectID != refs.ProjectID {
 		t.Fatalf("context refs = %+v, want %+v", *packet.Refs, refs)
 	}
 }

@@ -22,7 +22,7 @@ function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
     status: "completed",
     execution_kind: "shell",
     shell_command: "ls -la",
-    step_count: 2,
+    latest_run_step_count: 2,
     latest_run_id: "run-1",
     ...overrides,
   } as TaskRecord;
@@ -34,6 +34,7 @@ function makeRun(overrides: Partial<TaskRunRecord> = {}): TaskRunRecord {
     task_id: "task-1",
     number: 1,
     status: "completed",
+    model_call_count: 2,
     model: "gpt-4o-mini",
     started_at: "2026-04-27T17:00:00Z",
     finished_at: "2026-04-27T17:00:02Z",
@@ -55,6 +56,20 @@ function makeStep(overrides: Partial<TaskStepRecord> = {}): TaskStepRecord {
     exit_code: 0,
     ...overrides,
   } as TaskStepRecord;
+}
+
+function makeModelCallStep(
+  modelCall: number,
+  overrides: Partial<TaskStepRecord> = {},
+): TaskStepRecord {
+  return makeStep({
+    index: modelCall,
+    kind: "model",
+    title: `Model call ${modelCall}`,
+    tool_name: "builtin.agent_loop_llm",
+    ...overrides,
+    input: { model_call_index: modelCall, ...overrides.input },
+  });
 }
 
 function makeEvent(overrides: Partial<TaskRunEventRecord> = {}): TaskRunEventRecord {
@@ -111,7 +126,7 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
     artifacts: [],
     activity: [],
     approvals: [],
-    streamTurnCosts: new Map(),
+    streamModelCallCosts: new Map(),
     streamState: "closed",
     busyAction: "",
     notice: null,
@@ -121,7 +136,7 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
     onRetryRun: vi.fn(),
     onResumeRun: vi.fn(),
     onRefresh: vi.fn(),
-    onRetryFromTurn: vi.fn(),
+    onRetryFromModelCall: vi.fn(),
     onResumeRaisingCeiling: vi.fn(),
     onApplyPatch: vi.fn(),
     onRevertPatch: vi.fn(),
@@ -191,14 +206,36 @@ describe("TaskDetail run picker", () => {
       onOpenChat,
     });
     render();
-    await user.click(screen.getByRole("button", { name: /from chat/i }));
-    expect(onOpenChat).toHaveBeenCalledWith("chat_123");
+    await user.click(screen.getByRole("button", { name: "Open source chat" }));
+    expect(onOpenChat).toHaveBeenCalledWith("chat_123", "task-1", "run-1");
+  });
+
+  it("shows standalone source metadata", () => {
+    const { render } = setup({ task: makeTask() });
+    render();
+    expect(screen.getByText("Standalone")).toBeTruthy();
+  });
+
+  it("shows project-assignment source metadata without a chat action", () => {
+    const { render } = setup({
+      task: makeTask({ assignment_id: "asgn_123", origin_kind: "project_work_item" }),
+    });
+    render();
+    expect(screen.getByText("Project assignment")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open source chat" })).toBeNull();
   });
 
   it("hides the picker when there are zero runs", () => {
     const { render } = setup({ runs: [], run: null });
     render();
     expect(screen.queryByRole("button", { name: /select run/i })).toBeNull();
+  });
+
+  it("makes retry and resume creating a new Run explicit", () => {
+    const { render } = setup({ run: makeRun({ status: "failed" }) });
+    render();
+    expect(screen.getByRole("button", { name: "Retry as new Run" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resume in new Run" })).toBeTruthy();
   });
 
   it("opens a context inspector for the selected run", async () => {
@@ -265,7 +302,7 @@ describe("TaskDetail run picker", () => {
       artifacts: [],
       activity: [],
       approvals: [],
-      streamTurnCosts: new Map(),
+      streamModelCallCosts: new Map(),
       streamState: "live",
       busyAction: "",
       notice: null,
@@ -275,7 +312,7 @@ describe("TaskDetail run picker", () => {
       onRetryRun: vi.fn(),
       onResumeRun: vi.fn(),
       onRefresh: vi.fn(),
-      onRetryFromTurn: vi.fn(),
+      onRetryFromModelCall: vi.fn(),
       onResumeRaisingCeiling: vi.fn(),
       onApplyPatch: vi.fn(),
       onRevertPatch: vi.fn(),
@@ -311,6 +348,18 @@ describe("TaskDetail run picker", () => {
 });
 
 describe("TaskDetail effective sandbox posture", () => {
+  it("shows the Run-local model call count for agent-loop execution", () => {
+    const { render } = setup({
+      task: makeTask({ execution_kind: "agent_loop" }),
+      run: makeRun({ orchestrator: "agent_loop", model_call_count: 2 }),
+    });
+    render();
+
+    const overview = screen.getByText("Run overview").parentElement!;
+    const label = within(overview).getByText("Model calls");
+    expect(label.parentElement).toHaveTextContent("Model calls2");
+  });
+
   it("shows the preset and restricted policy applied to a task", () => {
     const { render } = setup({
       task: makeTask({
@@ -509,7 +558,7 @@ describe("TaskDetail runtime activity and patches", () => {
           id: "activity-thinking",
           type: "thinking",
           status: "completed",
-          title: "Agent turn 2",
+          title: "Model call 2",
           tool_name: undefined,
           path: undefined,
           terminal: true,
@@ -601,7 +650,7 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getAllByText("file-12.ts").length).toBeGreaterThan(0);
   });
 
-  it("hides agent conversation artifacts from runtime activity because the conversation renders separately", () => {
+  it("hides model-context artifacts from runtime activity because the context renders separately", () => {
     const { render } = setup({
       activity: [
         makeActivity({
@@ -617,7 +666,7 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
 
     expect(screen.getByText(/Runtime activity/i)).toBeTruthy();
-    expect(screen.queryByText("Agent conversation")).toBeNull();
+    expect(screen.queryByText("Run model context")).toBeNull();
     expect(screen.queryByText("agent-conversation.json")).toBeNull();
   });
 
@@ -1065,32 +1114,35 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText(/Approval done/i)).toBeTruthy();
   });
 
-  it("annotates run.resumed_from_event events with turn and reason when both are present", () => {
+  it("annotates resumed events with model call and reason when both are present", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
-        data: { from_run_id: "run-0", reason: "wrong tool choice", retry_from_turn: 3 },
+        data: {
+          from_run_id: "run-0",
+          reason: "wrong tool choice",
+          source_model_call_index: 3,
+        },
       }),
     ];
     const { render } = setup({ events });
     render();
-    // Both turn and reason should appear joined by " — ".
-    expect(screen.getByText("turn 3 — wrong tool choice")).toBeTruthy();
+    expect(screen.getByText("source Run model call 3 — wrong tool choice")).toBeTruthy();
   });
 
-  it("annotates run.resumed_from_event events with turn only when reason is absent", () => {
+  it("annotates resumed events with model call only when reason is absent", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
-        data: { from_run_id: "run-0", retry_from_turn: 2 },
+        data: { from_run_id: "run-0", source_model_call_index: 2 },
       }),
     ];
     const { render } = setup({ events });
     render();
-    expect(screen.getByText("turn 2")).toBeTruthy();
+    expect(screen.getByText("source Run model call 2")).toBeTruthy();
   });
 
-  it("annotates run.resumed_from_event events with reason only when retry_from_turn is absent", () => {
+  it("annotates resumed events with reason only when source_model_call_index is absent", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
@@ -1102,7 +1154,7 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText("continue after cancellation")).toBeTruthy();
   });
 
-  it("shows no annotation on run.resumed_from_event events with no reason and no turn", () => {
+  it("shows no annotation on resumed events with no reason and no model call", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
@@ -1113,7 +1165,7 @@ describe("TaskDetail runtime debugging", () => {
     render();
     // Only "Resumed" label — no extra annotation line.
     expect(screen.getByText(/Resumed/i)).toBeTruthy();
-    expect(screen.queryByText(/turn/i)).toBeNull();
+    expect(screen.queryByText(/model call/i)).toBeNull();
   });
 
   it("labels the broad run interrupt as Stop run for active runs", async () => {
@@ -1226,7 +1278,7 @@ describe("TaskDetail runtime debugging", () => {
   });
 });
 
-describe("TaskDetail agent conversation viewer", () => {
+describe("TaskDetail Run model context viewer", () => {
   const conversation = JSON.stringify([
     { role: "user", content: "Summarize the README." },
     {
@@ -1263,7 +1315,7 @@ describe("TaskDetail agent conversation viewer", () => {
   it("renders the conversation when an agent_conversation artifact is present", () => {
     const { render } = setup({ artifacts: [makeConvoArtifact()] });
     render();
-    expect(screen.getByText(/Agent conversation · 4 messages/)).toBeTruthy();
+    expect(screen.getByText(/Run model context · 4 entries/)).toBeTruthy();
     expect(screen.getByText("Summarize the README.")).toBeTruthy();
     expect(screen.getByText("Let me read it.")).toBeTruthy();
     expect(screen.getByText(/Hecate is the gateway/)).toBeTruthy();
@@ -1278,7 +1330,7 @@ describe("TaskDetail agent conversation viewer", () => {
     ]);
     const { render } = setup({ artifacts: [makeConvoArtifact(content)] });
     render();
-    expect(screen.getByText(/Agent conversation · 2 messages/)).toBeTruthy();
+    expect(screen.getByText(/Run model context · 2 entries/)).toBeTruthy();
     expect(screen.queryByText(/Your workspace is at/i)).toBeNull();
     expect(screen.getByText("echo lol please")).toBeTruthy();
     expect(screen.getByText("I'll run it.")).toBeTruthy();
@@ -1318,23 +1370,23 @@ describe("TaskDetail agent conversation viewer", () => {
   it("falls back to an inline error on corrupt JSON instead of crashing", () => {
     const { render } = setup({ artifacts: [makeConvoArtifact("not valid json {")] });
     render();
-    expect(screen.getByText(/Could not parse agent conversation/i)).toBeTruthy();
+    expect(screen.getByText(/Could not parse Run model context/i)).toBeTruthy();
   });
 
   it("renders nothing when no agent_conversation artifact exists", () => {
     const { render } = setup({ artifacts: [] });
     render();
-    expect(screen.queryByText(/Agent conversation/)).toBeNull();
+    expect(screen.queryByText(/Run model context/)).toBeNull();
   });
 
-  it("shows a 'retry from here' button on each assistant turn for terminal runs", async () => {
+  it("shows a retry control on each assistant model call for terminal Runs", async () => {
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
       run: makeRun({ status: "completed" }),
     });
     render();
-    // Two assistant turns in the fixture — both should show the retry control.
-    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    // Two assistant model calls in the fixture — both should show the retry control.
+    const retryButtons = screen.getAllByRole("button", { name: /retry from model call/i });
     expect(retryButtons.length).toBe(2);
   });
 
@@ -1344,39 +1396,39 @@ describe("TaskDetail agent conversation viewer", () => {
       run: makeRun({ status: "completed" }),
     });
     render();
-    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    const retryButtons = screen.getAllByRole("button", { name: /retry from model call/i });
     await user.click(retryButtons[0]);
-    // Modal title includes the turn number.
-    expect(screen.getByText(/Retry from turn 1/i)).toBeTruthy();
-    // The reason textarea and Retry confirm button are present.
+    // Modal title includes the model-call number.
+    expect(screen.getByText(/Retry from model call 1/i)).toBeTruthy();
+    // The reason textarea and explicit new-Run confirm button are present.
     expect(screen.getByPlaceholderText(/why are you branching/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^retry$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /retry in new run/i })).toBeTruthy();
   });
 
-  it("fires onRetryFromTurn with turn and empty reason when confirmed without typing", async () => {
+  it("fires onRetryFromModelCall with model call and empty reason", async () => {
     const { props, user, render } = setup({
       artifacts: [makeConvoArtifact()],
       run: makeRun({ status: "completed" }),
     });
     render();
-    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    const retryButtons = screen.getAllByRole("button", { name: /retry from model call/i });
     await user.click(retryButtons[0]);
-    await user.click(screen.getByRole("button", { name: /^retry$/i }));
-    expect(props.onRetryFromTurn).toHaveBeenCalledWith(1, "");
+    await user.click(screen.getByRole("button", { name: /retry in new run/i }));
+    expect(props.onRetryFromModelCall).toHaveBeenCalledWith(1, "");
   });
 
-  it("fires onRetryFromTurn with turn and trimmed reason when confirmed with a reason", async () => {
+  it("fires onRetryFromModelCall with model call and a trimmed reason", async () => {
     const { props, user, render } = setup({
       artifacts: [makeConvoArtifact()],
       run: makeRun({ status: "completed" }),
     });
     render();
-    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    const retryButtons = screen.getAllByRole("button", { name: /retry from model call/i });
     await user.click(retryButtons[1]);
-    // Turn 2 — type a reason.
+    // Model call 2 — type a reason.
     await user.type(screen.getByPlaceholderText(/why are you branching/i), "  wrong tool choice  ");
-    await user.click(screen.getByRole("button", { name: /^retry$/i }));
-    expect(props.onRetryFromTurn).toHaveBeenCalledWith(2, "wrong tool choice");
+    await user.click(screen.getByRole("button", { name: /retry in new run/i }));
+    expect(props.onRetryFromModelCall).toHaveBeenCalledWith(2, "wrong tool choice");
   });
 
   it("closes the modal without firing when Cancel is clicked", async () => {
@@ -1385,40 +1437,45 @@ describe("TaskDetail agent conversation viewer", () => {
       run: makeRun({ status: "completed" }),
     });
     render();
-    await user.click(screen.getAllByRole("button", { name: /retry from here/i })[0]);
-    expect(screen.getByText(/Retry from turn 1/i)).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: /retry from model call/i })[0]);
+    expect(screen.getByText(/Retry from model call 1/i)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /cancel/i }));
-    expect(screen.queryByText(/Retry from turn 1/i)).toBeNull();
-    expect(props.onRetryFromTurn).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Retry from model call 1/i)).toBeNull();
+    expect(props.onRetryFromModelCall).not.toHaveBeenCalled();
   });
 
-  it("hides the 'retry from here' button while the run is still active", () => {
+  it("hides the model-call retry control while the Run is still active", () => {
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
       run: makeRun({ status: "running" }),
     });
     render();
-    expect(screen.queryAllByRole("button", { name: /retry from here/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: /retry from model call/i })).toHaveLength(0);
+    expect(screen.getAllByText("Live Run context")).toHaveLength(2);
+    expect(screen.queryByText("Prior Run context")).toBeNull();
+    expect(screen.queryByText(/^model call \d+$/i)).toBeNull();
   });
 
-  it("shows per-turn LLM cost next to the turn label when the model step has cost", () => {
-    // Two assistant turns in the conversation fixture map to two
-    // model-kind steps. We seed each step's OutputSummary with a
-    // cost; the bubble must surface that cost as $X.XXX next to
-    // "turn N". 1500 µUSD = $0.002 (rounded), 250000 = $0.250.
+  it("shows per-model-call LLM cost next to the model-call label", () => {
+    // Approval continuation adds a control Step between provider calls. It
+    // must not shift the authoritative model_call indices or their costs.
+    // 1500 µUSD = $0.002 (rounded), 250000 = $0.250.
     const modelSteps: TaskStepRecord[] = [
-      makeStep({
+      makeModelCallStep(1, {
         id: "s-m1",
-        index: 1,
-        kind: "model",
-        title: "Agent turn 1",
         output_summary: { cost_micros_usd: 1500 },
       }),
       makeStep({
-        id: "s-m2",
+        id: "s-resume-1",
         index: 2,
-        kind: "model",
-        title: "Agent turn 2",
+        kind: "control",
+        title: "Dispatch approved tools from model call 1",
+        tool_name: "builtin.agent_loop_resume",
+        input: { model_call_index: 1, resumed: true },
+      }),
+      makeModelCallStep(2, {
+        id: "s-m2",
+        index: 3,
         output_summary: { cost_micros_usd: 250000 },
       }),
     ];
@@ -1431,14 +1488,56 @@ describe("TaskDetail agent conversation viewer", () => {
     expect(screen.getByText(/\$0\.250/)).toBeTruthy();
   });
 
-  it("hides the per-turn cost when the model step lacks a cost field", () => {
+  it("labels inherited responses separately and retries with the Run-local index", async () => {
+    const { props, render, user } = setup({
+      artifacts: [makeConvoArtifact()],
+      run: makeRun({ status: "completed", model_call_count: 1 }),
+      // This Run inherited the first assistant message and made one new
+      // provider call, recorded locally as model_call_index=1.
+      steps: [
+        makeModelCallStep(1, {
+          id: "s-current-run-m1",
+          output_summary: { cost_micros_usd: 250000 },
+        }),
+      ],
+    });
+    render();
+
+    const inheritedHeader = screen.getByText("Prior Run context").parentElement!;
+    const currentRunHeader = screen
+      .getAllByText(/^model call 1$/i)
+      .find((element) => element.parentElement?.classList.contains("kicker"))?.parentElement;
+    expect(within(inheritedHeader).queryByText(/\$/)).toBeNull();
+    expect(currentRunHeader).toBeTruthy();
+    expect(within(currentRunHeader!).getByText(/\$0\.250/)).toBeTruthy();
+    expect(screen.queryByText(/^model call 2$/i)).toBeNull();
+
+    const retryButton = screen.getByRole("button", { name: /retry from model call/i });
+    await user.click(retryButton);
+    await user.click(screen.getByRole("button", { name: /retry in new run/i }));
+    expect(props.onRetryFromModelCall).toHaveBeenCalledWith(1, "");
+  });
+
+  it("treats every assistant response as prior context when this Run completed no model calls", () => {
+    const { render } = setup({
+      artifacts: [makeConvoArtifact()],
+      run: makeRun({ status: "failed", model_call_count: 0 }),
+      steps: [],
+    });
+    render();
+
+    expect(screen.getAllByText("Prior Run context")).toHaveLength(2);
+    expect(screen.queryAllByRole("button", { name: /retry from model call/i })).toHaveLength(0);
+  });
+
+  it("hides the per-model-call cost when the model step lacks a cost field", () => {
     // Older runs (or resumed-after-approval steps that didn't
     // re-call the LLM) won't carry cost in OutputSummary. The
     // bubble must NOT render a misleading "$0.000" — the cost
     // chip should be absent entirely.
     const modelSteps: TaskStepRecord[] = [
-      makeStep({ id: "s-m1", index: 1, kind: "model", title: "Agent turn 1", output_summary: {} }),
-      makeStep({ id: "s-m2", index: 2, kind: "model", title: "Agent turn 2", output_summary: {} }),
+      makeModelCallStep(1, { id: "s-m1", output_summary: {} }),
+      makeModelCallStep(2, { id: "s-m2", output_summary: {} }),
     ];
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
@@ -1451,38 +1550,38 @@ describe("TaskDetail agent conversation viewer", () => {
     expect(screen.queryByText(/\$/)).toBeNull();
   });
 
-  it("falls back to streamTurnCosts when the model step has no cost", () => {
-    // The turn.completed SSE event is the canonical per-turn
+  it("falls back to streamModelCallCosts when the model step has no cost", () => {
+    // The model.call.completed SSE event is the canonical per-model-call
     // cost summary. When the model step's OutputSummary doesn't
     // carry the cost — historical runs, or steps that finalized
     // before the cost was attached — the conversation viewer
     // should still surface the figure from the stream.
     const modelSteps: TaskStepRecord[] = [
-      makeStep({ id: "s-m1", index: 1, kind: "model", title: "Agent turn 1", output_summary: {} }),
-      makeStep({ id: "s-m2", index: 2, kind: "model", title: "Agent turn 2", output_summary: {} }),
+      makeModelCallStep(1, { id: "s-m1", output_summary: {} }),
+      makeModelCallStep(2, { id: "s-m2", output_summary: {} }),
     ];
-    const streamTurnCosts = new Map<number, number>([
+    const streamModelCallCosts = new Map<number, number>([
       [1, 1500], // $0.002
       [2, 250000], // $0.250
     ]);
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
       steps: modelSteps,
-      streamTurnCosts,
+      streamModelCallCosts,
     });
     render();
     expect(screen.getByText(/\$0\.002/)).toBeTruthy();
     expect(screen.getByText(/\$0\.250/)).toBeTruthy();
   });
 
-  it("disables 'retry from here' while another action is in flight", () => {
+  it("disables model-call retry while another action is in flight", () => {
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
       run: makeRun({ status: "completed" }),
       busyAction: "cancel",
     });
     render();
-    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    const retryButtons = screen.getAllByRole("button", { name: /retry from model call/i });
     expect(retryButtons.length).toBe(2);
     retryButtons.forEach((b) => expect((b as HTMLButtonElement).disabled).toBe(true));
   });
@@ -1767,7 +1866,7 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     render();
     await user.click(screen.getByRole("button", { name: /step mcp__filesystem__read_text_file/i }));
     expect(
-      screen.getByText(/full upstream result rendered in the agent conversation/i),
+      screen.getByText(/full upstream result rendered in the Run model context/i),
     ).toBeTruthy();
   });
 

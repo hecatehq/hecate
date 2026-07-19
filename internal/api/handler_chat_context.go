@@ -65,7 +65,7 @@ func (h *Handler) HandleChatMessageContext(w http.ResponseWriter, r *http.Reques
 		if message.ID != messageID {
 			continue
 		}
-		writeChatContextPacket(w, chatcontext.Normalize(message.Context, chatcontext.ChatMessageRefs(sessionID, messageID, session.ProjectID)))
+		writeChatContextPacket(w, chatcontext.Normalize(message.Context, chatcontext.ChatMessageRefs(sessionID, message.TurnID, messageID, session.ProjectID)))
 		return
 	}
 	WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat message not found")
@@ -165,7 +165,7 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 	writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.MergeRefs(
 		chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, assignment.RoleID),
 		chatcontext.TaskRunRefs(assignment.ExecutionRef.TaskID, assignment.ExecutionRef.RunID, projectID),
-		chatcontext.ChatMessageRefs(assignment.ExecutionRef.ChatSessionID, assignment.ExecutionRef.MessageID, projectID),
+		chatcontext.ChatMessageRefs(assignment.ExecutionRef.ChatSessionID, "", assignment.ExecutionRef.MessageID, projectID),
 	)))
 }
 
@@ -292,7 +292,7 @@ func (h *Handler) contextPacketForStrictEmbeddedCairnlineRuntimeAssignment(ctx c
 	return chatcontext.Normalize(packet, chatcontext.MergeRefs(
 		chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID),
 		chatcontext.TaskRunRefs(ref.TaskID, ref.RunID, projectID),
-		chatcontext.ChatMessageRefs(ref.ChatSessionID, ref.MessageID, projectID),
+		chatcontext.ChatMessageRefs(ref.ChatSessionID, "", ref.MessageID, projectID),
 	)), true, nil
 }
 

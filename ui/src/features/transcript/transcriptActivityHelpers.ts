@@ -1,7 +1,7 @@
 import type { ChatActivityRecord } from "../../types/chat";
 import { agentTerminalToolActivityTitle } from "../../lib/agent-terminal-tools";
 
-const terminalRunSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
+const terminalSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
 
 export function formatDiffStatSummary(diffStat: string): string {
   const lines = diffStat
@@ -42,11 +42,11 @@ export function compactAgentActivities(
     if (hiddenTypes.has(activity.type)) continue;
     if (hasDiffStat && activity.type === "files_changed") continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
-    if (isTerminalRunSummary(activity)) continue;
+    if (isTerminalLifecycleSummary(activity)) continue;
     // Drop terminal-shaped rows that aren't the chosen one. The
     // chooser prefers a diagnostic `terminal: true` row over a
     // generic agent-chat-handler row (see pickTerminalActivityIndex)
-    // so an informative "LLM call failed on turn 3" beats a
+    // so an informative "LLM call failed on model call 3" beats a
     // bare-bones "Failed". When no row is chosen we keep them all.
     if (terminalIndex !== -1 && index !== terminalIndex && isTerminalActivity(activity)) continue;
     if (terminalIndex !== -1 && (activity.type === "started" || activity.type === "running"))
@@ -61,7 +61,7 @@ export function compactAgentActivities(
       continue;
     out.push(activity);
   }
-  return collapseModelTurnActivities(out);
+  return collapseModelCallActivities(out);
 }
 
 export function summarizeTimelineActivities(
@@ -102,7 +102,7 @@ export function summarizeTimelineActivities(
 // (which only looked at completed/failed/cancelled+terminal) pick
 // the wrong row when a `run_result`-typed terminal arrived later.
 export function isTerminalActivity(activity: ChatActivityRecord): boolean {
-  return activity.terminal === true || terminalRunSummaryTypes.has(activity.type);
+  return activity.terminal === true || terminalSummaryTypes.has(activity.type);
 }
 
 // pickTerminalActivityIndex selects the row that should win on the
@@ -112,7 +112,7 @@ export function isTerminalActivity(activity: ChatActivityRecord): boolean {
 //   1. The latest row with `terminal: true`. These are explicit
 //      diagnostic rows from the runtime (the synced `task_run`
 //      mirror, kind=run_result with detail like "LLM call failed
-//      on turn 3"). They carry the most useful operator
+//      on model call 3"). They carry the most useful operator
 //      information; if one exists, it should win.
 //   2. Otherwise, the latest row whose type alone makes it
 //      terminal-shaped (completed/failed/cancelled/run_result
@@ -199,33 +199,33 @@ function isTaskRunActivity(activity: ChatActivityRecord): boolean {
   );
 }
 
-function isTerminalRunSummary(activity: ChatActivityRecord): boolean {
-  if (!terminalRunSummaryTypes.has(activity.type)) return false;
-  return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
+function isTerminalLifecycleSummary(activity: ChatActivityRecord): boolean {
+  if (!terminalSummaryTypes.has(activity.type)) return false;
+  return /^(?:turn|run)\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
 }
 
-function collapseModelTurnActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
-  const turnActivities = activities.filter(isModelTurnActivity);
-  if (turnActivities.length <= 1) return activities;
+function collapseModelCallActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
+  const modelCallActivities = activities.filter(isModelCallActivity);
+  if (modelCallActivities.length <= 1) return activities;
 
-  const firstTurnIndex = activities.findIndex(isModelTurnActivity);
-  const status = aggregateActivityStatus(turnActivities);
+  const firstModelCallIndex = activities.findIndex(isModelCallActivity);
+  const status = aggregateActivityStatus(modelCallActivities);
   const collapsed: ChatActivityRecord = {
-    id: "hecate-agent:model-turns",
-    type: "model_turns",
+    id: "hecate-agent:model-calls",
+    type: "model_calls",
     status,
     kind: "model",
     title: "Thinking",
-    detail: `${turnActivities.length} model turns ${humanActivityStatus(status)}`,
+    detail: `${modelCallActivities.length} model calls ${humanActivityStatus(status)}`,
   };
 
-  const out = activities.filter((activity) => !isModelTurnActivity(activity));
-  out.splice(Math.max(firstTurnIndex, 0), 0, collapsed);
+  const out = activities.filter((activity) => !isModelCallActivity(activity));
+  out.splice(Math.max(firstModelCallIndex, 0), 0, collapsed);
   return out;
 }
 
-function isModelTurnActivity(activity: ChatActivityRecord): boolean {
-  return activity.type === "thinking" && /^Agent turn \d+/i.test(activity.title.trim());
+function isModelCallActivity(activity: ChatActivityRecord): boolean {
+  return activity.type === "thinking" && /^Model call \d+/i.test(activity.title.trim());
 }
 
 function aggregateActivityStatus(activities: ChatActivityRecord[]): string {
@@ -273,8 +273,8 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
       detail: cleanActivityDetail(activity),
     };
   }
-  if (activity.type === "thinking" && isModelTurnActivity(activity)) {
-    return { title: "Thinking", detail: modelTurnDetail(activity) };
+  if (activity.type === "thinking" && isModelCallActivity(activity)) {
+    return { title: "Thinking", detail: modelCallDetail(activity) };
   }
   if (activity.type === "thinking") {
     return { title: "Thinking" };
@@ -288,7 +288,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
       detail: cleanActivityDetail(activity) || activity.title,
     };
   }
-  if (activity.type === "model_turns") {
+  if (activity.type === "model_calls") {
     return { title: "Thinking", detail: activity.detail };
   }
   if (activity.type === "files_changed") {
@@ -318,7 +318,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   if (activity.type === "cancelled") {
     return {
       title: "Cancelled",
-      detail: cleanActivityDetail(activity) || "stopped before the run finished",
+      detail: cleanActivityDetail(activity) || "stopped before the Chat Turn finished",
     };
   }
   if (!isTaskRunActivity(activity)) {
@@ -337,7 +337,7 @@ export function activityLinePrefix(activity: ChatActivityRecord): string | undef
       if (isThinkingToolActivity(activity)) return "model";
       return "tool";
     case "thinking":
-    case "model_turns":
+    case "model_calls":
       return "model";
     case "approval":
       return "approval";
@@ -450,10 +450,10 @@ function isThinkingToolActivity(activity: ChatActivityRecord): boolean {
   return kind === "think" || title === "think" || /^think(?:\s|·|$)/.test(detail);
 }
 
-function modelTurnDetail(activity: ChatActivityRecord): string {
+function modelCallDetail(activity: ChatActivityRecord): string {
   const status = humanActivityStatus(activity.status);
-  const turn = activity.title.match(/turn\s+(\d+)/i)?.[1];
-  return turn ? `turn ${turn} ${status}` : status;
+  const modelCall = activity.title.match(/model call\s+(\d+)/i)?.[1];
+  return modelCall ? `model call ${modelCall} ${status}` : status;
 }
 
 function fallbackToolDetail(
@@ -741,7 +741,7 @@ function activitySortPhase(activity: ChatActivityRecord): number {
   if (activity.type === "running") return 1;
   if (isTaskRunActivity(activity)) return 2;
   if (activity.type === "plan") return 3;
-  if (activity.type === "thinking" || activity.type === "model_turns") return 4;
+  if (activity.type === "thinking" || activity.type === "model_calls") return 4;
   if (activity.type === "approval") return 5;
   if (activity.type === "tool_call") return 6;
   if (activity.type === "terminal") return 7;

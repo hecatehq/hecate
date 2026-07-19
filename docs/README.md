@@ -42,7 +42,7 @@ Docs are organized by audience and stability:
 | Doc                                           | What it answers                                                                                                                              |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Runtime API](runtime/runtime-api.md)         | `/hecate/v1/tasks/*`, `/hecate/v1/chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints.                      |
-| [Agent runtime](runtime/agent-runtime.md)     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn.          |
+| [Agent runtime](runtime/agent-runtime.md)     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-model-call.    |
 | [Chat sessions](runtime/chat-sessions.md)     | Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queued prompts, approvals, context packets, External Agent chats. |
 | [External Agents](runtime/external-agents.md) | Codex, Claude Code, Cursor Agent, and Grok Build from Chats; install checks, credential boundaries, persistence, troubleshooting.            |
 | [Events](runtime/events.md)                   | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted.                                                    |
@@ -52,13 +52,13 @@ Docs are organized by audience and stability:
 
 ## Contributor Docs
 
-| Doc                                         | What it answers                                                                                               |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [Architecture](contributor/architecture.md) | Gateway flow, orchestrator responsibilities, task-runtime queue/lease model, agent turn cycle, storage tiers. |
-| [Development](contributor/development.md)   | Go + Bun + just + Rust/Cargo setup, local dev, test ladder, screenshot tooling, package map.                  |
-| [Release](contributor/release.md)           | Versioning, verification gate, release script, image build, recovery, release-note shape.                     |
-| [Beta roadmap](contributor/beta-roadmap.md) | Beta gate, core runtime work, view-by-view UX order, cleanup/refactoring, and branch/release workflow.        |
-| [`docs-ai/`](../docs-ai/README.md)          | Vendor-neutral agent guidance: workflow, verification, skills, task recipes.                                  |
+| Doc                                         | What it answers                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [Architecture](contributor/architecture.md) | Gateway flow, orchestrator responsibilities, task-runtime queue/lease model, agent model-call cycle, storage tiers. |
+| [Development](contributor/development.md)   | Go + Bun + just + Rust/Cargo setup, local dev, test ladder, screenshot tooling, package map.                        |
+| [Release](contributor/release.md)           | Versioning, verification gate, release script, image build, recovery, release-note shape.                           |
+| [Beta roadmap](contributor/beta-roadmap.md) | Beta gate, core runtime work, view-by-view UX order, cleanup/refactoring, and branch/release workflow.              |
+| [`docs-ai/`](../docs-ai/README.md)          | Vendor-neutral agent guidance: workflow, verification, skills, task recipes.                                        |
 
 ## Design Records
 

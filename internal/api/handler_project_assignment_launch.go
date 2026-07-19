@@ -1300,7 +1300,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 	}
 	contextPacket.Refs.SessionID = session.ID
 	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
-		chatcontext.ChatMessageRefs(session.ID, "", project.ID),
+		chatcontext.ChatMessageRefs(session.ID, "", "", project.ID),
 		chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
 	))
 	packetBytes := chatcontext.Marshal(contextPacket)

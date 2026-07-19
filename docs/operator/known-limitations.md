@@ -145,7 +145,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   The HTTP API rejects new turns with `409 chat.agent_session_busy` while
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt
-  after the active run settles. Queue entries are synchronously persisted in
+  after the active backing Task Run settles. Queue entries are synchronously persisted in
   independent per-item records before dispatch. Same-origin tabs in that
   browser profile merge those records and preserve another tab's in-flight
   delivery fence, but the queue is not server-owned or portable to another

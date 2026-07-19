@@ -9,6 +9,10 @@ describe("describeGatewayError", () => {
       "Tools unavailable for this model",
     );
     expect(describeGatewayError("chat.workspace_required")?.action).toContain("Choose a workspace");
+    expect(describeGatewayError("chat.session_not_running")).toMatchObject({
+      title: "No active turn",
+      action: "Send a new message if you want to start another turn.",
+    });
     expect(describeGatewayError("model_not_configured")?.title).toBe(
       "Selected model is unavailable",
     );

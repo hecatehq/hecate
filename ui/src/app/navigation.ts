@@ -3,7 +3,7 @@ import type { WorkspaceID } from "./AppShell";
 export const WORKSPACE_PATHS: Record<WorkspaceID, string> = {
   chats: "/chats",
   projects: "/projects",
-  runs: "/tasks",
+  tasks: "/tasks",
   connections: "/connections",
   overview: "/observability",
   usage: "/usage",
@@ -18,9 +18,21 @@ export type ProjectNavigationState = {
   workItemID: string | null;
 };
 
+export type TaskNavigationState = {
+  taskID: string | null;
+  runID: string | null;
+};
+
+export type ChatNavigationState = {
+  chatID: string | null;
+  messageID: string | null;
+};
+
 export type ParsedNavigationURL = {
   workspace: WorkspaceID | null;
   project: ProjectNavigationState | null;
+  task: TaskNavigationState | null;
+  chat: ChatNavigationState | null;
   canonicalURL: string;
   isCanonical: boolean;
 };
@@ -29,6 +41,16 @@ export type ProjectNavigationDestination = {
   projectID?: string | null;
   view?: ProjectNavigationView;
   workItemID?: string | null;
+};
+
+export type TaskNavigationDestination = {
+  taskID?: string | null;
+  runID?: string | null;
+};
+
+export type ChatNavigationDestination = {
+  chatID?: string | null;
+  messageID?: string | null;
 };
 
 export type NavigationURLInput = string | Pick<Location, "pathname" | "search" | "hash">;
@@ -44,6 +66,8 @@ export type NavigationClickEvent = {
 
 const NAVIGATION_BASE_URL = "http://hecate.local";
 const PROJECT_QUERY_KEYS = ["project", "view", "work"] as const;
+const TASK_QUERY_KEYS = ["task", "run"] as const;
+const CHAT_QUERY_KEYS = ["chat", "message"] as const;
 const PROJECT_QUERY_VIEWS = new Set<ProjectNavigationView>([
   "work",
   "timeline",
@@ -63,15 +87,34 @@ export function parseNavigationURL(input: NavigationURLInput): ParsedNavigationU
     return {
       workspace: null,
       project: null,
+      task: null,
+      chat: null,
       canonicalURL: relativeURL(canonical),
       isCanonical: true,
     };
   }
 
   canonical.pathname = WORKSPACE_PATHS[workspace];
+  const taskID = workspace === "tasks" ? opaqueQueryValue(current.searchParams, "task") : null;
+  const runID = taskID ? opaqueQueryValue(current.searchParams, "run") : null;
+  const chatID = workspace === "chats" ? opaqueQueryValue(current.searchParams, "chat") : null;
+  const messageID = chatID ? opaqueQueryValue(current.searchParams, "message") : null;
+
+  if (workspace === "tasks") {
+    const task = { taskID, runID } satisfies TaskNavigationState;
+    clearWorkspaceQuery(canonical.searchParams);
+    writeTaskQuery(canonical.searchParams, task);
+    return parsedResult(current, canonical, workspace, null, task, null);
+  }
+  if (workspace === "chats") {
+    const chat = { chatID, messageID } satisfies ChatNavigationState;
+    clearWorkspaceQuery(canonical.searchParams);
+    writeChatQuery(canonical.searchParams, chat);
+    return parsedResult(current, canonical, workspace, null, null, chat);
+  }
   if (workspace !== "projects") {
-    clearProjectQuery(canonical.searchParams);
-    return parsedResult(current, canonical, workspace, null);
+    clearWorkspaceQuery(canonical.searchParams);
+    return parsedResult(current, canonical, workspace, null, null, null);
   }
 
   const projectID = opaqueQueryValue(current.searchParams, "project");
@@ -80,14 +123,15 @@ export function parseNavigationURL(input: NavigationURLInput): ParsedNavigationU
   const view = projectID ? (workItemID ? "work" : projectView(rawView)) : "overview";
   const project = { projectID, view, workItemID } satisfies ProjectNavigationState;
 
+  clearWorkspaceQuery(canonical.searchParams);
   writeProjectQuery(canonical.searchParams, project);
-  return parsedResult(current, canonical, workspace, project);
+  return parsedResult(current, canonical, workspace, project, null, null);
 }
 
 export function workspaceNavigationURL(input: NavigationURLInput, workspace: WorkspaceID): string {
   const destination = toURL(input);
   destination.pathname = WORKSPACE_PATHS[workspace];
-  clearProjectQuery(destination.searchParams);
+  clearWorkspaceQuery(destination.searchParams);
   return relativeURL(destination);
 }
 
@@ -105,7 +149,38 @@ export function projectNavigationURL(
   };
 
   url.pathname = WORKSPACE_PATHS.projects;
+  clearWorkspaceQuery(url.searchParams);
   writeProjectQuery(url.searchParams, project);
+  return relativeURL(url);
+}
+
+export function taskNavigationURL(
+  input: NavigationURLInput,
+  destination: TaskNavigationDestination = {},
+): string {
+  const url = toURL(input);
+  const task: TaskNavigationState = {
+    taskID: opaqueValue(destination.taskID),
+    runID: opaqueValue(destination.taskID) ? opaqueValue(destination.runID) : null,
+  };
+  url.pathname = WORKSPACE_PATHS.tasks;
+  clearWorkspaceQuery(url.searchParams);
+  writeTaskQuery(url.searchParams, task);
+  return relativeURL(url);
+}
+
+export function chatNavigationURL(
+  input: NavigationURLInput,
+  destination: ChatNavigationDestination = {},
+): string {
+  const url = toURL(input);
+  const chat: ChatNavigationState = {
+    chatID: opaqueValue(destination.chatID),
+    messageID: opaqueValue(destination.chatID) ? opaqueValue(destination.messageID) : null,
+  };
+  url.pathname = WORKSPACE_PATHS.chats;
+  clearWorkspaceQuery(url.searchParams);
+  writeChatQuery(url.searchParams, chat);
   return relativeURL(url);
 }
 
@@ -129,11 +204,15 @@ function parsedResult(
   canonical: URL,
   workspace: WorkspaceID,
   project: ProjectNavigationState | null,
+  task: TaskNavigationState | null,
+  chat: ChatNavigationState | null,
 ): ParsedNavigationURL {
   const canonicalURL = relativeURL(canonical);
   return {
     workspace,
     project,
+    task,
+    chat,
     canonicalURL,
     isCanonical: canonicalURL === relativeURL(current),
   };
@@ -170,6 +249,16 @@ function writeProjectQuery(params: URLSearchParams, project: ProjectNavigationSt
   writeOptionalQueryValue(params, "work", project.workItemID);
 }
 
+function writeTaskQuery(params: URLSearchParams, task: TaskNavigationState): void {
+  writeOptionalQueryValue(params, "task", task.taskID);
+  writeOptionalQueryValue(params, "run", task.runID);
+}
+
+function writeChatQuery(params: URLSearchParams, chat: ChatNavigationState): void {
+  writeOptionalQueryValue(params, "chat", chat.chatID);
+  writeOptionalQueryValue(params, "message", chat.messageID);
+}
+
 function writeOptionalQueryValue(params: URLSearchParams, key: string, value: string | null): void {
   if (value === null) {
     params.delete(key);
@@ -178,8 +267,8 @@ function writeOptionalQueryValue(params: URLSearchParams, key: string, value: st
   }
 }
 
-function clearProjectQuery(params: URLSearchParams): void {
-  for (const key of PROJECT_QUERY_KEYS) {
+function clearWorkspaceQuery(params: URLSearchParams): void {
+  for (const key of [...PROJECT_QUERY_KEYS, ...TASK_QUERY_KEYS, ...CHAT_QUERY_KEYS]) {
     params.delete(key);
   }
 }

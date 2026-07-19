@@ -354,7 +354,7 @@ func (h *Handler) chatWorkspaceGitRunner() chatWorkspaceGitRunner {
 }
 
 func (h *Handler) chatWorkspaceRevertBusy(ctx context.Context, session chat.Session) (bool, string) {
-	if h.agentChatLive != nil && h.agentChatLive.hasRun(session.ID) {
+	if h.agentChatLive != nil && h.agentChatLive.hasTurn(session.ID) {
 		return true, "running"
 	}
 	if busy, status := h.hecateAgentSessionBusy(ctx, session); busy {
@@ -476,7 +476,7 @@ func (h *Handler) chatWorkspaceLinkReady(ctx context.Context, w http.ResponseWri
 	}
 	WriteErrorDetails(w, http.StatusConflict, errCodeConflict, "chat workspace link is incomplete", ErrorDetails{
 		UserMessage:    "Hecate cannot safely identify this chat's managed workspace yet.",
-		OperatorAction: "Retry after checking storage health. Do not review or discard source-folder changes as this run's output.",
+		OperatorAction: "Retry after checking storage health. Do not review or discard source-folder changes as this turn's output.",
 	})
 	return false
 }

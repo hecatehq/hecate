@@ -312,8 +312,14 @@ func spanSpecForEvent(name string) spanSpec {
 		return spanSpec{name: telemetry.SpanOrchestratorQueue, kind: "internal"}
 	case hasPrefix(name, "retention."):
 		return spanSpec{name: telemetry.SpanRetentionRun, kind: "internal"}
-	case hasPrefix(name, "chat."):
-		return spanSpec{name: telemetry.SpanAgentChatRun, kind: "internal"}
+	case name == telemetry.EventAgentChatTurnStarted ||
+		name == telemetry.EventAgentChatOutputStarted ||
+		name == telemetry.EventAgentChatFilesChanged ||
+		name == telemetry.EventAgentChatSessionReplaced ||
+		name == telemetry.EventAgentChatTurnFinished ||
+		name == telemetry.EventAgentChatTurnFailed ||
+		name == telemetry.EventAgentChatTurnCancelled:
+		return spanSpec{name: telemetry.SpanAgentChatTurn, kind: "internal"}
 	case hasPrefix(name, "governor."):
 		return spanSpec{name: telemetry.SpanGatewayGovernor, kind: "internal"}
 	case hasPrefix(name, "router."):

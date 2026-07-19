@@ -355,7 +355,7 @@ export function chatAgentOption(
   return {
     id: "hecate",
     label: "Hecate",
-    title: "Chat with Hecate; enable tools to use Hecate's task runtime.",
+    title: "Chat with Hecate; enable tools to create or continue a linked Task.",
   };
 }
 
@@ -578,13 +578,13 @@ export function HecateToolsToggle({
   const effectiveEnabled = enabled && !toolsDisabledForModel;
   const toolsOnTitle = toolsDisabledForModel
     ? "This model does not report tool-calling support. Hecate will send messages as direct model chat until you choose a tool-capable model."
-    : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
+    : "Create or continue a linked Task with tools, approvals, artifacts, and telemetry.";
   const title =
     enabled && toolsDisabledForModel
       ? toolsOnTitle
       : effectiveEnabled
         ? toolsOnTitle
-        : "Chat directly with the selected model. No task run or tools.";
+        : "Chat directly with the selected model. This does not create a Task or use tools.";
   return (
     <div
       role="group"
@@ -1004,7 +1004,7 @@ function ExternalAgentTextConfigControl({
         <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>{label}</div>
         <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
           {option.description ||
-            "Agent-provided text setting for future turns in this external-agent session."}
+            "Agent-provided text setting for future messages in this External Agent chat."}
         </div>
       </div>
       <textarea

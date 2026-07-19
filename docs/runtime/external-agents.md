@@ -12,6 +12,12 @@ client contract, records transcript/diagnostics, handles approvals, and shows
 Git diffs. The model gateway path is not involved; `/v1` provider routing and
 Hecate model credentials stay separate.
 
+Each submitted External Agent turn has one stable `turn_id`, shared by its
+durable user and assistant messages and repeated in assistant context refs.
+External Agent turns do not create Hecate Tasks or Runs, so their messages do
+not carry `run_id`. Clients must not reinterpret an older or unrelated
+`run_id` as a Chat Turn identity when `turn_id` is absent.
+
 With `HECATE_BACKEND=sqlite` or `postgres`, Hecate keeps the transcript and the
 agent's native ACP session id. After restart, the next prompt asks the agent to
 `session/load` that native session when supported. Durable or unknown native
@@ -539,7 +545,7 @@ Use this order when troubleshooting:
    adapter runtime and opens a temporary ACP session. This refreshes version,
    auth/capability, and launch-control details and is the best "will it run?"
    check.
-3. **Chat run** — send a real prompt only after discovery/probe are green. If
+3. **Chat turn** — send a real prompt only after discovery/probe are green. If
    the agent still fails, open the message's raw diagnostics disclosure; the
    normalized transcript is for reading, raw ACP output is for debugging.
    File-bearing turns that use private resource-link staging withhold raw ACP
@@ -597,7 +603,7 @@ they authenticate the underlying vendor CLI through the remote-safe environment
 Hecate passed to the vendor CLI process.
 
 If discovery cannot find a direct CLI adapter, install the vendor CLI and
-restart Hecate from an environment where the command is on `PATH`. If a run
+restart Hecate from an environment where the command is on `PATH`. If a turn
 fails with an authentication-required message, authenticate the CLI in the same
 environment that starts Hecate.
 
@@ -710,8 +716,8 @@ follow-through state without embedding the full chat transcript. When the
 External Agent turn settles, Hecate also best-effort
 reconciles the linked assignment row to the chat outcome, including the
 assistant `message_id` and terminal status. Handoffs created from these
-assignments can carry the source assignment, chat session, message, run, and
-context refs for provenance. If the work item declares reviewer roles, the
+assignments can carry the source assignment, Chat, Turn, Message, and context
+refs for provenance. If the work item declares reviewer roles, the
 Projects cockpit can prefill a review handoff from the External Agent
 assignment, but accepting the handoff, creating the follow-up assignment, and
 starting that assignment remain operator-controlled.
@@ -763,7 +769,7 @@ enqueue into a per-session settlement dispatcher, so older-terminal activity,
 current streaming output, turn-final metadata, and live session snapshots are
 persisted and published in one order. The callback returns without waiting for
 storage. A matching terminal-closed signal follows the authoritative final
-activity and ends callback ownership; the ordinary Run-scoped activity callback
+activity and ends callback ownership; the ordinary Turn-scoped activity callback
 is never retained as a fallback. When an ACP tool-call update references a
 terminal, Hecate also reuses the retained terminal output preview in the
 `tool_call` activity detail and artifact preview when available. This makes
@@ -816,7 +822,7 @@ adapter still sends unstable `elicitation/create`, Hecate replies with the ACP
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
-/hecate/v1/traces?request_id=<request_id>` shows the `chat.run` span with adapter
+/hecate/v1/traces?request_id=<request_id>` shows the `chat.turn` span with adapter
 identity, workspace, status, duration, output byte counts, and diff-capture
 state. Approval gating adds two more spans:
 `agent_adapter.approval.request` covers the coordinator's decision (grant
@@ -825,7 +831,7 @@ short-circuit, mode default, or prompt-mode wait) and carries
 `agent_adapter.approval.resolve` wraps the operator's decision-application
 path with `decision` and `scope` attributes.
 Transcript-authorized native-session replacement adds
-`chat.session_replaced` to the `chat.run` span with
+`chat.session_replaced` to the `chat.turn` span with
 `hecate.agent_adapter.native_session.replaced=true` and the new opaque native
 session id. Prompt bodies and file contents are never trace attributes.
 
@@ -890,7 +896,7 @@ round-trips per chat session. When a session reaches the ceiling,
 {
   "error": {
     "type": "chat.session_limit_exceeded",
-    "message": "session has reached the 50-turn limit; start a new session to continue",
+    "message": "Chat has reached the 50-turn limit; start a new Chat to continue",
     "limit": 50,
     "turns_used": 50
   }

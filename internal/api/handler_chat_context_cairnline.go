@@ -16,7 +16,7 @@ import (
 
 const cairnlineAssignmentContextReason = "Inspectable Cairnline launch packet; Hecate has not created a task/chat execution snapshot for this assignment"
 const cairnlineAssignmentLaunchEvidenceReason = "Portable Cairnline launch packet evidence for Hecate runtime launch review"
-const cairnlineAssignmentContextAuthorityText = "Preview only: Cairnline owns portable coordination; Hecate has not created a task, chat session, or external-agent run from this context read."
+const cairnlineAssignmentContextAuthorityText = "Preview only: Cairnline owns portable coordination; Hecate has not created a Task, Chat, or External Agent Chat Turn from this context read."
 
 func (h *Handler) contextPacketForCairnlineProjectAssignment(ctx context.Context, assignment projectwork.Assignment) (chat.ContextPacket, bool, error) {
 	if h == nil || !h.projectReadRoutesUseCairnlineReadModel() {

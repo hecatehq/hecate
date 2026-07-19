@@ -436,11 +436,11 @@ func (s *SQLiteStore) appendMessageTx(ctx context.Context, tx storage.Tx, sessio
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, sequence, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id,
+				id, session_id, sequence, execution_mode, tools_enabled, segment_id, turn_id, task_id, run_id, request_id, trace_id, span_id,
 				role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code,
 				cost_mode, provider, provider_instance, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
 				error, activities, usage, timing, context_packet
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
@@ -449,6 +449,7 @@ func (s *SQLiteStore) appendMessageTx(ctx context.Context, tx storage.Tx, sessio
 		message.ExecutionMode,
 		boolToSQLiteInt(message.ToolsEnabled),
 		message.SegmentID,
+		message.TurnID,
 		message.TaskID,
 		message.RunID,
 		message.RequestID,
@@ -539,7 +540,7 @@ func (s *SQLiteStore) updateMessageRecord(ctx context.Context, runner execRunner
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   execution_mode = ?, tools_enabled = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, attachments = ?, raw_output = ?, agent_id = ?, agent_name = ?,
+			   execution_mode = ?, tools_enabled = ?, segment_id = ?, turn_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, attachments = ?, raw_output = ?, agent_id = ?, agent_name = ?,
 			   driver_kind = ?, native_session_id = ?, agent_info = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, provider = ?, provider_instance = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?, timing = ?, context_packet = ?
@@ -549,6 +550,7 @@ func (s *SQLiteStore) updateMessageRecord(ctx context.Context, runner execRunner
 		message.ExecutionMode,
 		boolToSQLiteInt(message.ToolsEnabled),
 		message.SegmentID,
+		message.TurnID,
 		message.TaskID,
 		message.RunID,
 		message.RequestID,
@@ -693,6 +695,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				sequence INTEGER NOT NULL,
 				execution_mode TEXT NOT NULL DEFAULT '',
 				segment_id TEXT NOT NULL DEFAULT '',
+				turn_id TEXT NOT NULL DEFAULT '',
 				task_id TEXT NOT NULL DEFAULT '',
 				role TEXT NOT NULL,
 				content TEXT NOT NULL,
@@ -808,6 +811,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		// messages with tools_enabled=0.
 		{name: "tools_enabled", definition: "INTEGER NOT NULL DEFAULT 1"},
 		{name: "segment_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "turn_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "task_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "request_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "trace_id", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -937,7 +941,7 @@ func (s *SQLiteStore) loadMessagesFrom(ctx context.Context, runner queryRunner, 
 	rows, err := runner.QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, tools_enabled, segment_id, turn_id, task_id, run_id, request_id, trace_id, span_id, role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
 				        provider, provider_instance, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE session_id = ?
@@ -969,6 +973,7 @@ func (s *SQLiteStore) loadMessagesFrom(ctx context.Context, runner queryRunner, 
 			&message.ExecutionMode,
 			&toolsEnabledInt,
 			&message.SegmentID,
+			&message.TurnID,
 			&message.TaskID,
 			&message.RunID,
 			&message.RequestID,
@@ -1103,7 +1108,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, tools_enabled, segment_id, turn_id, task_id, run_id, request_id, trace_id, span_id, role, content, attachments, raw_output, agent_id, agent_name, driver_kind, native_session_id, agent_info, status, exit_code, cost_mode,
 			        provider, provider_instance, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE id = ? AND session_id = ?%s`,
@@ -1117,6 +1122,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.ExecutionMode,
 		&toolsEnabledInt,
 		&message.SegmentID,
+		&message.TurnID,
 		&message.TaskID,
 		&message.RunID,
 		&message.RequestID,

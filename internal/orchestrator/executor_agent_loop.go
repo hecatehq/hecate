@@ -43,7 +43,7 @@ type AgentLLMClient interface {
 
 // AgentLLMStreamingClient is the optional streaming extension for
 // AgentLLMClient. The agent loop uses it when available so chat UIs
-// can see assistant text while the model is still producing the turn,
+// can see assistant text while the model is still producing the response,
 // then falls back to Chat for test doubles and non-streaming backends.
 type AgentLLMStreamingClient interface {
 	ChatStream(ctx context.Context, req types.ChatRequest, onContentDelta func(string)) (*types.ChatResponse, error)
@@ -60,17 +60,17 @@ func (f AgentLLMClientFunc) Chat(ctx context.Context, req types.ChatRequest) (*t
 	return f(ctx, req)
 }
 
-// AgentLoopExecutor drives an LLM in a tool-use loop. The flow each
-// turn:
+// AgentLoopExecutor drives an LLM in a tool-use loop. The flow for each
+// model call:
 //
-//  1. Send the conversation (system prompt + user prompt + prior turns)
+//  1. Send the conversation (system prompt + user prompt + prior calls)
 //     plus the tool catalog to the LLM
 //  2. If the assistant returns tool_calls, dispatch each one to the
 //     local tool executor (shell / git / file) and append the result
 //     as a tool-role message
 //  3. If no tool_calls, the assistant has finished; return its message
 //     as the final answer
-//  4. Loop until done or MaxTurns hits
+//  4. Loop until done or MaxModelCalls hits
 //
 // Mid-loop tool calls can be gated on approvals: when the LLM
 // requests a tool whose name is in `gatedTools` (e.g. shell_exec,
@@ -81,7 +81,7 @@ func (f AgentLLMClientFunc) Chat(ctx context.Context, req types.ChatRequest) (*t
 // without a second LLM call.
 type AgentLoopExecutor struct {
 	llm            AgentLLMClient
-	maxTurns       int
+	maxModelCalls  int
 	approvalGate   agentLoopApprovalGate
 	toolDispatcher *agentLoopToolDispatcher
 	terminalMu     sync.Mutex
@@ -101,7 +101,7 @@ type AgentLoopExecutor struct {
 // with a clear "no LLM configured" error — the right signal for the
 // operator to wire a model before retrying.
 //
-// maxTurns caps how many LLM round-trips a single run can do. 0 (or
+// maxModelCalls caps how many LLM round-trips a single run can do. 0 (or
 // negative) defaults to 8 — generous enough for typical multi-step
 // tasks but tight enough that a runaway loop costs <$0.10 even on
 // expensive models.
@@ -114,9 +114,9 @@ type AgentLoopExecutor struct {
 // and the loop hydrates from the saved conversation, dispatches the
 // previously-pending tool calls, and continues. Empty/nil = no gating
 // (every tool runs immediately).
-func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git Executor, maxTurns int, gatedTools []string, httpPolicy HTTPRequestPolicy, opts ...AgentLoopExecutorOption) *AgentLoopExecutor {
-	if maxTurns <= 0 {
-		maxTurns = 8
+func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git Executor, maxModelCalls int, gatedTools []string, httpPolicy HTTPRequestPolicy, opts ...AgentLoopExecutorOption) *AgentLoopExecutor {
+	if maxModelCalls <= 0 {
+		maxModelCalls = 8
 	}
 	// Apply safe defaults to the HTTP policy. Operators who don't
 	// configure HECATE_TASK_HTTP_* still get sensible bounds.
@@ -129,13 +129,13 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 	// Dedicated client per executor so the timeout is enforced and
 	// connections are pooled. We don't enable redirects-following
 	// past 10 (Go's default) — agents that get stuck redirect-looping
-	// blow through their max-turns cap before causing damage.
+	// blow through their max-model-calls cap before causing damage.
 	httpClient := &http.Client{Timeout: httpPolicy.Timeout}
 
 	executor := &AgentLoopExecutor{
-		llm:          llm,
-		maxTurns:     maxTurns,
-		approvalGate: newAgentLoopApprovalGate(gatedTools),
+		llm:           llm,
+		maxModelCalls: maxModelCalls,
+		approvalGate:  newAgentLoopApprovalGate(gatedTools),
 		toolDispatcher: &agentLoopToolDispatcher{
 			shell:      shell,
 			file:       file,
@@ -211,7 +211,7 @@ func (e *AgentLoopExecutor) SetMCPHostFactory(f AgentMCPHostFactory) {
 	e.mcpFactory = f
 }
 
-// Execute runs the loop. Steps and artifacts produced by each turn
+// Execute runs the loop. Steps and artifacts produced by each model call
 // (model thinking + tool execution) are upserted via the spec's
 // callbacks; the final ExecutionResult mirrors the standard executor
 // shape so the runner can persist it identically.
@@ -227,7 +227,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		return e.runWithoutLLM(ctx, spec)
 	}
 
-	runState := newAgentLoopRunState(spec, e.maxTurns)
+	runState := newAgentLoopRunState(spec, e.maxModelCalls)
 	conversation := newAgentLoopConversation(spec)
 	tools := agentToolDefinitionsForTask(spec.Task, agentToolDefinitionOptions{
 		IncludeProjectAssistantDraft: projectAssistantDraftToolAvailable(spec.Task, e.toolDispatcher.projectAssistantDraftTool),
@@ -271,10 +271,28 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 	// Resume detection: if the conversation tail is an assistant
 	// message with tool_calls and no following tool messages, we're
 	// resuming after operator approval. Dispatch the pending tool
-	// calls before doing the next LLM turn — they were just approved.
+	// calls before doing the next model call — they were just approved.
+	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.SameRun &&
+		spec.ResumeCheckpoint.ThisRunModelCallCount > 0 && spec.ResumeCheckpoint.LastCompletedStepID != "" {
+		if finalAssistant, ok := conversation.TailCompletedAssistant(); ok {
+			when := time.Now().UTC()
+			if artifact, upsertErr := conversation.UpsertArtifact(spec, runState.ModelCallCount(), when); upsertErr != nil {
+				return nil, upsertErr
+			} else {
+				runState.TrackInitialConversationArtifact(artifact)
+			}
+			finalArtifact := buildFinalAnswerArtifact(spec, spec.ResumeCheckpoint.LastCompletedStepID, when, finalAssistant.Content)
+			if addErr := runState.AddArtifact(spec, finalArtifact); addErr != nil {
+				return nil, addErr
+			}
+			res := runState.Result("completed")
+			res.OtelStatusCode = "ok"
+			return res, nil
+		}
+	}
 	pendingToolCalls := conversation.PendingToolCallsForResume()
 
-	for turn := 1; turn <= e.maxTurns; turn++ {
+	for {
 		if err := ctx.Err(); err != nil {
 			res := runState.Result("cancelled")
 			res.LastError = err.Error()
@@ -284,35 +302,44 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		}
 
 		var assistantMsg types.Message
-		turnStartedAt := time.Now().UTC()
+		modelCall := runState.ModelCallCount()
+		modelCallStartedAt := time.Now().UTC()
 
 		if len(pendingToolCalls) > 0 {
-			// Skip the LLM call this turn — the assistant message is
+			// Skip the LLM call — the assistant message is
 			// already at the tail of `messages` (saved by the previous
-			// run). Dispatch the approved tool calls and let the next
-			// turn's LLM call reason over the results.
+			// execution). Dispatch the approved tool calls and let the next
+			// model call reason over the results.
 			var ok bool
 			assistantMsg, ok = conversation.TailAssistantForResume()
 			if !ok {
-				failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), turnStartedAt,
+				failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), modelCallStartedAt,
 					"resume checkpoint had pending tool calls but no assistant tail")
 				return runState.attachAccounting(failed), ferr
 			}
-			thinkingStep := buildResumeThinkingStep(spec, runState.NextStepIndex(), turn, turnStartedAt, assistantMsg)
-			if err := runState.AddStep(spec, thinkingStep); err != nil {
+			resumeStep := buildApprovalResumeStep(spec, runState.NextStepIndex(), modelCall, modelCallStartedAt, assistantMsg)
+			if err := runState.AddStep(spec, resumeStep); err != nil {
 				return nil, err
 			}
 		} else {
-			turnResult, failed, err := e.runLLMTurn(ctx, spec, &conversation, runState, tools, turn, turnStartedAt)
+			if runState.ModelCallCount() >= e.maxModelCalls {
+				res = runState.Result("failed")
+				res.LastError = fmt.Sprintf("agent loop reached the maximum of %d model calls without producing a final answer", e.maxModelCalls)
+				res.OtelStatusCode = "error"
+				res.OtelStatusMessage = "max_model_calls_exceeded"
+				return res, nil
+			}
+			modelCall = runState.ModelCallCount() + 1
+			modelCallResult, failed, err := e.runModelCall(ctx, spec, &conversation, runState, tools, modelCall, modelCallStartedAt)
 			if failed != nil || err != nil {
 				return failed, err
 			}
-			assistantMsg = turnResult.Assistant
+			assistantMsg = modelCallResult.Assistant
 
 			// If no tool calls, assistant gave a final answer.
 			if len(assistantMsg.ToolCalls) == 0 {
-				emitAssistantFinalAnswer(spec, turn, assistantMsg)
-				finalArtifact := buildFinalAnswerArtifact(spec, turnResult.ThinkingStep.ID, turnStartedAt, assistantMsg.Content)
+				emitAssistantFinalAnswer(spec, modelCall, assistantMsg)
+				finalArtifact := buildFinalAnswerArtifact(spec, modelCallResult.ThinkingStep.ID, modelCallStartedAt, assistantMsg.Content)
 				if err := runState.AddArtifact(spec, finalArtifact); err != nil {
 					return nil, err
 				}
@@ -321,7 +348,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 				return res, nil
 			}
 
-			// 4b. Approval gate. If any tool in this turn is gated,
+			// 4b. Approval gate. If any tool in this model call is gated,
 			// pause the loop: persist conversation (already done),
 			// emit an approval record covering all pending tool
 			// calls, return awaiting_approval. The runner persists
@@ -329,7 +356,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// the same run is re-queued and we re-enter the loop
 			// with the same conversation tail — this branch is
 			// short-circuited by the resume-detection above.
-			pause, ok := e.approvalGate.Evaluate(spec, turn, runState.NextStepIndex(), turnStartedAt, assistantMsg.ToolCalls)
+			pause, ok := e.approvalGate.Evaluate(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, assistantMsg.ToolCalls)
 			if ok {
 				if err := runState.AddStep(spec, pause.Step); err != nil {
 					return nil, err
@@ -379,19 +406,19 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			_ = dispatchErr
 		}
 		// Snapshot after tool results.
-		if _, err := conversation.UpsertArtifact(spec, turn, turnStartedAt); err != nil {
+		if _, err := conversation.UpsertArtifact(spec, modelCall, modelCallStartedAt); err != nil {
 			return nil, err
 		}
-		// Resume mode is a one-shot — clear so subsequent turns hit
+		// Resume mode is a one-shot — clear so subsequent iterations hit
 		// the LLM normally.
 		pendingToolCalls = nil
 
-		// Per-task cost ceiling check. We do this AFTER the turn is
+		// Per-task cost ceiling check. We do this AFTER the model call is
 		// fully recorded (assistant message + tool results in the
 		// conversation snapshot) so the operator sees what was paid
 		// for. The ceiling is task-cumulative — prior resume-chain
 		// spend plus this run's spend. Crossing the ceiling marks
-		// the run failed with an actionable error; future turns don't
+		// the run failed with an actionable error; future model calls don't
 		// fire. Operators can raise the ceiling and resume to continue.
 		if msg, exceeded := runState.CostCeilingExceededMessage(); exceeded {
 			res := runState.Result("failed")
@@ -401,56 +428,48 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			return res, nil
 		}
 	}
-
-	// Hit max turns without a final answer. Mark incomplete; the user
-	// can resume the run if they want more turns.
-	res = runState.Result("failed")
-	res.LastError = fmt.Sprintf("agent loop hit maxTurns=%d without producing a final answer", e.maxTurns)
-	res.OtelStatusCode = "error"
-	res.OtelStatusMessage = "max_turns_exceeded"
-	return res, nil
 }
 
-func emitAgentTurnStarted(spec ExecutionSpec, turn int, req types.ChatRequest) {
+func emitAgentModelCallStarted(spec ExecutionSpec, modelCall int, req types.ChatRequest) {
 	if spec.EmitRunEvent == nil {
 		return
 	}
-	spec.EmitRunEvent(runtimeevents.EventTurnStarted.String(), map[string]any{
-		"turn_index":            turn,
+	spec.EmitRunEvent(runtimeevents.EventModelCallStarted.String(), map[string]any{
+		"model_call_index":      modelCall,
 		"model":                 req.Model,
 		"provider":              req.Scope.ProviderHint,
 		"input_tokens_estimate": estimateAgentPromptTokens(req.Messages),
 	})
 }
 
-func emitAssistantMessageEvents(spec ExecutionSpec, turn int, msg types.Message) {
+func emitAssistantMessageEvents(spec ExecutionSpec, modelCall int, msg types.Message) {
 	if spec.EmitRunEvent == nil {
 		return
 	}
 	if strings.TrimSpace(msg.Content) != "" {
 		spec.EmitRunEvent(runtimeevents.EventAssistantTextComplete.String(), map[string]any{
-			"turn_index":  turn,
-			"block_index": 0,
-			"text":        msg.Content,
+			"model_call_index": modelCall,
+			"block_index":      0,
+			"text":             msg.Content,
 		})
 	}
 	for _, call := range msg.ToolCalls {
 		spec.EmitRunEvent(runtimeevents.EventAssistantToolCallProposed.String(), map[string]any{
-			"turn_index":   turn,
-			"tool_call_id": call.ID,
-			"tool_name":    call.Function.Name,
-			"input":        decodeToolArgumentsForEvent(call.Function.Arguments),
+			"model_call_index": modelCall,
+			"tool_call_id":     call.ID,
+			"tool_name":        call.Function.Name,
+			"input":            decodeToolArgumentsForEvent(call.Function.Arguments),
 		})
 	}
 }
 
-func emitAssistantFinalAnswer(spec ExecutionSpec, turn int, msg types.Message) {
+func emitAssistantFinalAnswer(spec ExecutionSpec, modelCall int, msg types.Message) {
 	if spec.EmitRunEvent == nil {
 		return
 	}
 	spec.EmitRunEvent(runtimeevents.EventAssistantFinalAnswer.String(), map[string]any{
-		"turn_index": turn,
-		"summary":    msg.Content,
+		"model_call_index": modelCall,
+		"summary":          msg.Content,
 	})
 }
 
@@ -491,7 +510,7 @@ func estimateAgentPromptTokens(messages []types.Message) int {
 // ─── Tool definitions ────────────────────────────────────────────────
 
 // agentToolDefinitions returns the OpenAI tool-call format the loop
-// passes to the LLM each turn. Names match the dispatch switch in
+// passes to the LLM on each model call. Names match the dispatch switch in
 // dispatchToolCall(). Schemas are JSON Schema 2020-12, kept minimal
 // because verbose schemas waste tokens.
 func agentToolDefinitions(includeProjectAssistantDraftOpt ...bool) []types.Tool {
@@ -1037,16 +1056,16 @@ type applyPatchArgs struct {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-func buildThinkingStep(spec ExecutionSpec, index, turn int, startedAt time.Time, msg types.Message, resp *types.ChatResponse, runCumulativeMicrosUSD int64) types.TaskStep {
+func buildThinkingStep(spec ExecutionSpec, index, modelCall int, startedAt time.Time, msg types.Message, resp *types.ChatResponse, runCumulativeMicrosUSD int64) types.TaskStep {
 	toolNames := make([]string, 0, len(msg.ToolCalls))
 	for _, tc := range msg.ToolCalls {
 		toolNames = append(toolNames, tc.Function.Name)
 	}
 	model := ""
-	turnCost := int64(0)
+	modelCallCost := int64(0)
 	if resp != nil {
 		model = resp.Model
-		turnCost = resp.Cost.TotalMicrosUSD
+		modelCallCost = resp.Cost.TotalMicrosUSD
 	}
 	return types.TaskStep{
 		ID:       spec.NewID("step"),
@@ -1054,29 +1073,28 @@ func buildThinkingStep(spec ExecutionSpec, index, turn int, startedAt time.Time,
 		RunID:    spec.Run.ID,
 		Index:    index,
 		Kind:     "model",
-		Title:    fmt.Sprintf("Agent turn %d", turn),
+		Title:    fmt.Sprintf("Model call %d", modelCall),
 		Status:   "completed",
 		Phase:    "thinking",
 		Result:   telemetry.ResultSuccess,
 		ToolName: "builtin.agent_loop_llm",
 		Input: map[string]any{
-			"turn":  turn,
-			"model": model,
+			"model_call_index": modelCall,
+			"model":            model,
 		},
-		// cost_micros_usd is this turn's LLM spend; the UI renders
-		// it next to the turn label in the conversation viewer so
+		// cost_micros_usd is this model call's LLM spend; the UI renders
+		// it next to the model-call label in the conversation viewer so
 		// operators see cost in context. run_cumulative_cost_micros_usd
 		// is the running total for this run only — task-level
 		// cumulative (including prior runs in the resume chain) lives
 		// on the run cost badge in the header. Both numbers serialize
 		// as JSON ints; clients should treat absent/zero as "no LLM
-		// cost was attributed" (e.g. resumed-after-approval steps
-		// emitted via buildResumeThinkingStep).
+		// cost was attributed.
 		OutputSummary: map[string]any{
 			"content_chars":                  len(msg.Content),
 			"tool_calls":                     toolNames,
 			"finish_reason":                  finishReason(resp),
-			"cost_micros_usd":                turnCost,
+			"cost_micros_usd":                modelCallCost,
 			"run_cumulative_cost_micros_usd": runCumulativeMicrosUSD,
 		},
 		StartedAt:  startedAt,
@@ -1088,7 +1106,7 @@ func buildThinkingStep(spec ExecutionSpec, index, turn int, startedAt time.Time,
 
 func buildFinalAnswerArtifact(spec ExecutionSpec, stepID string, startedAt time.Time, content string) types.TaskArtifact {
 	return types.TaskArtifact{
-		ID:          spec.NewID("artifact"),
+		ID:          agentLoopFinalAnswerArtifactID(spec.Run.ID),
 		TaskID:      spec.Task.ID,
 		RunID:       spec.Run.ID,
 		StepID:      stepID,
@@ -1104,6 +1122,10 @@ func buildFinalAnswerArtifact(spec ExecutionSpec, stepID string, startedAt time.
 		RequestID:   spec.RequestID,
 		TraceID:     spec.TraceID,
 	}
+}
+
+func agentLoopFinalAnswerArtifactID(runID string) string {
+	return "final-answer-" + runID
 }
 
 func toolInputForLog(name string, task types.Task) map[string]any {
@@ -1651,7 +1673,7 @@ func listDirTool(spec ExecutionSpec, args listDirArgs, stepIndex int, startedAt 
 		return fmt.Sprintf("list_dir: %v", err), nil, nil, nil
 	}
 	// Sort for deterministic output — saves token churn across
-	// equivalent calls in different turns.
+	// equivalent calls in different model calls.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 
 	relPath := args.Path
@@ -2495,11 +2517,11 @@ func buildHTTPRequestStep(spec ExecutionSpec, index int, startedAt time.Time, to
 	}
 }
 
-// buildApprovalForTurn constructs the approval record covering one
-// or more gated tool calls in a turn. The reason text lists the tool
+// buildApprovalForModelCall constructs the approval record covering one
+// or more gated tool calls in a model call. The reason text lists the tool
 // names so the operator UI can render a clear "approve agent's use of
 // shell_exec, git_exec" prompt without parsing the conversation.
-func buildApprovalForTurn(spec ExecutionSpec, turn int, gatedNames []string, when time.Time) types.TaskApproval {
+func buildApprovalForModelCall(spec ExecutionSpec, gatedNames []string, when time.Time) types.TaskApproval {
 	return types.TaskApproval{
 		ID:        spec.NewID("approval"),
 		TaskID:    spec.Task.ID,
@@ -2516,22 +2538,22 @@ func buildApprovalForTurn(spec ExecutionSpec, turn int, gatedNames []string, whe
 // buildAwaitingApprovalStep is the timeline step the run UI shows
 // while paused. Carries the approval id so the operator UI can link
 // the step to the approval action.
-func buildAwaitingApprovalStep(spec ExecutionSpec, index, turn int, when time.Time, approval types.TaskApproval) types.TaskStep {
+func buildAwaitingApprovalStep(spec ExecutionSpec, index, modelCall int, when time.Time, approval types.TaskApproval) types.TaskStep {
 	return types.TaskStep{
 		ID:         spec.NewID("step"),
 		TaskID:     spec.Task.ID,
 		RunID:      spec.Run.ID,
 		Index:      index,
 		Kind:       "approval",
-		Title:      fmt.Sprintf("Awaiting approval — turn %d", turn),
+		Title:      fmt.Sprintf("Awaiting approval — model call %d", modelCall),
 		Status:     "awaiting_approval",
 		Phase:      "approval",
 		Result:     telemetry.ResultSuccess,
 		ToolName:   "builtin.agent_loop_approval",
 		ApprovalID: approval.ID,
 		Input: map[string]any{
-			"turn":   turn,
-			"reason": approval.Reason,
+			"model_call_index": modelCall,
+			"reason":           approval.Reason,
 		},
 		StartedAt:  when,
 		FinishedAt: when,
@@ -2540,33 +2562,36 @@ func buildAwaitingApprovalStep(spec ExecutionSpec, index, turn int, when time.Ti
 	}
 }
 
-// buildResumeThinkingStep marks the timeline entry for a resumed turn
-// (where we skip the LLM call because the assistant message was
-// produced by the previous run). Lets the operator see in the run
-// history that the agent didn't re-think — it just dispatched the
-// approved calls.
-func buildResumeThinkingStep(spec ExecutionSpec, index, turn int, when time.Time, msg types.Message) types.TaskStep {
+// buildApprovalResumeStep records that a Run continued by dispatching tool
+// calls from an already-completed model call. It is a control Step, not another
+// model call: approval continuation does not contact the provider again.
+func buildApprovalResumeStep(spec ExecutionSpec, index, modelCall int, when time.Time, msg types.Message) types.TaskStep {
 	toolNames := make([]string, 0, len(msg.ToolCalls))
 	for _, tc := range msg.ToolCalls {
 		toolNames = append(toolNames, tc.Function.Name)
 	}
+	title := "Dispatch approved tools from source Run"
+	input := map[string]any{
+		"resumed":        true,
+		"tool_calls":     toolNames,
+		"approved_tools": toolNames,
+	}
+	if modelCall > 0 {
+		title = fmt.Sprintf("Dispatch approved tools from model call %d", modelCall)
+		input["model_call_index"] = modelCall
+	}
 	return types.TaskStep{
-		ID:       spec.NewID("step"),
-		TaskID:   spec.Task.ID,
-		RunID:    spec.Run.ID,
-		Index:    index,
-		Kind:     "model",
-		Title:    fmt.Sprintf("Agent turn %d (resumed after approval)", turn),
-		Status:   "completed",
-		Phase:    "thinking",
-		Result:   telemetry.ResultSuccess,
-		ToolName: "builtin.agent_loop_resume",
-		Input: map[string]any{
-			"turn":           turn,
-			"resumed":        true,
-			"tool_calls":     toolNames,
-			"approved_tools": toolNames,
-		},
+		ID:         spec.NewID("step"),
+		TaskID:     spec.Task.ID,
+		RunID:      spec.Run.ID,
+		Index:      index,
+		Kind:       "control",
+		Title:      title,
+		Status:     "completed",
+		Phase:      "execution",
+		Result:     telemetry.ResultSuccess,
+		ToolName:   "builtin.agent_loop_resume",
+		Input:      input,
 		StartedAt:  when,
 		FinishedAt: when,
 		RequestID:  spec.RequestID,

@@ -195,10 +195,10 @@ func TestProjectAssignmentReconcile_DoesNotJoinActiveChatDeleteWaitCycle(t *test
 	defer snapshot.release()
 	cancelled := make(chan struct{})
 	var cancelOnce sync.Once
-	if got := handler.agentChatLive.registerRun(snapshot, func() {
+	if got := handler.agentChatLive.registerTurn(snapshot, func() {
 		cancelOnce.Do(func() { close(cancelled) })
-	}); got != agentChatRunAccepted {
-		t.Fatalf("registerRun = %v, want accepted", got)
+	}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn = %v, want accepted", got)
 	}
 
 	releaseState, err := handler.stateMutationGate.beginDestructive(t.Context())
@@ -214,12 +214,12 @@ func TestProjectAssignmentReconcile_DoesNotJoinActiveChatDeleteWaitCycle(t *test
 
 	waitDone := make(chan bool, 1)
 	go func() {
-		waitDone <- handler.agentChatLive.cancelRunAndWait(context.Background(), sessionID)
+		waitDone <- handler.agentChatLive.cancelTurnAndWait(context.Background(), sessionID)
 	}()
 	select {
 	case <-cancelled:
 	case <-time.After(5 * time.Second):
-		t.Fatal("delete did not cancel the active chat run")
+		t.Fatal("delete did not cancel the active Chat turn")
 	}
 
 	reconcileDone := make(chan struct{})
@@ -232,16 +232,16 @@ func TestProjectAssignmentReconcile_DoesNotJoinActiveChatDeleteWaitCycle(t *test
 	case <-time.After(5 * time.Second):
 		t.Fatal("terminal reconciliation waited on the delete-owned project fence")
 	}
-	// The real terminal handler clears its run after this best-effort
-	// reconciliation. Reaching clearRun proves delete can finish its wait.
-	handler.agentChatLive.clearRun(sessionID)
+	// The real terminal handler clears its turn after this best-effort
+	// reconciliation. Reaching clearTurn proves delete can finish its wait.
+	handler.agentChatLive.clearTurn(sessionID)
 	select {
 	case settled := <-waitDone:
 		if !settled {
-			t.Fatal("delete did not observe the active chat run settle")
+			t.Fatal("delete did not observe the active Chat turn settle")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("delete remained stuck waiting for the active chat run")
+		t.Fatal("delete remained stuck waiting for the active Chat turn")
 	}
 }
 

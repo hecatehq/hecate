@@ -38,13 +38,13 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.cancelled`                | Run lifecycle           | Run was cancelled (operator or system)                                               |
 | `run.resumed_from_event`       | Run lifecycle           | Run is a continuation of a prior run                                                 |
 | `gap.run_disconnected`         | Gap / recovery          | Runtime continuity was broken and Hecate recovered by re-queueing or starting fresh  |
-| `turn.started`                 | Agent loop              | An `agent_loop` LLM turn is about to call the model                                  |
-| `assistant.text_complete`      | Agent loop              | Assistant text content for a turn is available                                       |
+| `model.call.started`           | Agent loop              | An `agent_loop` model call is about to start                                         |
+| `assistant.text_complete`      | Agent loop              | Assistant text content for a model call is available                                 |
 | `assistant.tool_call_proposed` | Agent loop              | Assistant proposed a tool call before runtime dispatch                               |
 | `assistant.final_answer`       | Agent loop              | Assistant ended the loop without more tool calls                                     |
 | `approval.requested`           | Approvals               | An approval gate was created (pre-execution or mid-loop)                             |
 | `approval.resolved`            | Approvals               | Operator or system resolved an approval gate                                         |
-| `turn.completed`               | Agent loop              | One LLM round-trip in an `agent_loop` run finished                                   |
+| `model.call.completed`         | Agent loop              | One LLM round-trip in an `agent_loop` run finished                                   |
 | `tool.invoked`                 | Typed shell tool events | Shell executor accepted a tool call or direct shell task                             |
 | `tool.started`                 | Typed shell tool events | Shell execution is about to start                                                    |
 | `tool.shell.command`           | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected                              |
@@ -146,13 +146,13 @@ reported by `run.resumed_from_event`, not this event.
 
 The resume marker on the _new_ run, emitted after `run.created`.
 
-| Extra key               | Type     | Notes                                         |
-| ----------------------- | -------- | --------------------------------------------- |
-| `from_run_id`           | `string` | Source run id                                 |
-| `from_sequence`         | `int64`  | Source event sequence when known              |
-| `reason`                | `string` | Operator-supplied rationale                   |
-| `retry_from_turn`       | `int`    | Present on retry-from-turn-N                  |
-| `prior_cost_micros_usd` | `int64`  | Cost carried into the new run from prior runs |
+| Extra key                 | Type     | Notes                                                  |
+| ------------------------- | -------- | ------------------------------------------------------ |
+| `from_run_id`             | `string` | Source Run id                                          |
+| `from_sequence`           | `int64`  | Source event sequence when known                       |
+| `reason`                  | `string` | Operator-supplied rationale                            |
+| `source_model_call_index` | `int`    | 1-based call index within `from_run_id` on model retry |
+| `prior_cost_micros_usd`   | `int64`  | Cost carried into the new Run from prior Runs          |
 
 ### `run.awaiting_approval`
 
@@ -180,8 +180,22 @@ A worker claimed the run and started executing. For resumed runs the payload car
 
 Terminal status emit. Successful runs emit `run.finished`; failed runs emit
 `run.failed`. Public event envelopes expose `data.final_status="completed"` for
-`run.finished`; raw persisted terminal payloads carry the `status` / `error`
-extras below.
+`run.finished`. Both public terminal envelopes report the number of completed
+model calls. A request that emitted `model.call.started` but failed before
+Hecate recorded a complete response does not increment that count, so a run
+whose first request fails reports `model_call_count: 0`.
+
+| Public key         | Type     | Notes                                                                                                       |
+| ------------------ | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `final_status`     | `string` | `completed` on `run.finished`; absent on `run.failed`                                                       |
+| `model_call_count` | `int`    | Completed, accounted model calls on the run; `0` when no model call completed                               |
+| `cost_micros_usd`  | `int64`  | Run cost on `run.finished` when non-zero                                                                    |
+| `duration_ms`      | `int64`  | Run duration when both terminal timestamps are available                                                    |
+| `code`             | `string` | Stable failure classification on `run.failed`                                                               |
+| `message`          | `string` | Human-readable failure detail on `run.failed`                                                               |
+| `retriable`        | `bool`   | Currently `false` on `run.failed`; callers should not infer provider retryability from a terminal run event |
+
+Raw persisted terminal payloads carry the `status` / `error` extras below.
 
 | Extra key | Type     | Notes                                                     |
 | --------- | -------- | --------------------------------------------------------- |
@@ -253,23 +267,30 @@ reject, the run and task terminate `cancelled` with
 
 ## Agent loop
 
-Fresh LLM turns follow this persisted-event shape: `turn.started`, zero or more
-`assistant.text_complete` / `assistant.tool_call_proposed` events,
-optionally `assistant.final_answer`, then one `turn.completed` emitted from the
-turn-cost record. Resume-after-approval dispatches do not call the model again,
-so they do not emit a new `turn.started` or `turn.completed`; the approved tool
+For each fresh call, the executor emits `model.call.started`, then zero or more
+`assistant.text_complete` / `assistant.tool_call_proposed` events and,
+optionally, `assistant.final_answer`. Tool lifecycle events can follow a tool
+proposal before the next model call begins. The runner persists
+`model.call.completed` accounting rows only when that execution segment yields:
+one for each completed response, in ascending `model_call_index` order, after
+the segment's assistant/tool events and before its approval or terminal run
+event. A request that fails before a complete response therefore may have
+`model.call.started` without `model.call.completed`.
+
+Resume-after-approval dispatches do not call the model again, so they do not
+emit a new `model.call.started` or `model.call.completed`; the approved tool
 calls continue from the assistant message already saved in the conversation
 artifact.
 
-### `turn.started`
+### `model.call.started`
 
 Emitted immediately before an `agent_loop` LLM request. Resume-after-approval
-turns that only dispatch already-approved tool calls do not emit this event
+iterations that only dispatch already-approved tool calls do not emit this event
 because no model call is made.
 
 | Extra key               | Type     | Notes                                                                                                    |
 | ----------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `turn_index`            | `int`    | 1-indexed turn number within this run                                                                    |
+| `model_call_index`      | `int`    | 1-indexed model-call number within this run                                                              |
 | `model`                 | `string` | Requested model for this run                                                                             |
 | `provider`              | `string` | Provider hint when pinned by the task                                                                    |
 | `input_tokens_estimate` | `int`    | Cheap local estimate for operator/debug rendering; provider usage remains authoritative after completion |
@@ -278,13 +299,13 @@ because no model call is made.
 
 Emitted when the assistant response carries text content. Hecate does not yet
 stream internal agent-loop text deltas into the persisted event stream, so this
-is the full text block for the turn.
+is the full text block for the model call.
 
-| Extra key     | Type     | Notes                                             |
-| ------------- | -------- | ------------------------------------------------- |
-| `turn_index`  | `int`    | 1-indexed turn number within this run             |
-| `block_index` | `int`    | Currently `0`; reserved for multi-block rendering |
-| `text`        | `string` | Assistant text                                    |
+| Extra key          | Type     | Notes                                             |
+| ------------------ | -------- | ------------------------------------------------- |
+| `model_call_index` | `int`    | 1-indexed model-call number within this run       |
+| `block_index`      | `int`    | Currently `0`; reserved for multi-block rendering |
+| `text`             | `string` | Assistant text                                    |
 
 ### `assistant.tool_call_proposed`
 
@@ -292,39 +313,42 @@ Emitted once per assistant tool call before policy gates or runtime dispatch.
 The later `approval.*`, `tool.*`, and `policy.*` events describe what Hecate
 did with that proposal.
 
-| Extra key      | Type     | Notes                                                               |
-| -------------- | -------- | ------------------------------------------------------------------- |
-| `turn_index`   | `int`    | 1-indexed turn number within this run                               |
-| `tool_call_id` | `string` | Provider tool-call id                                               |
-| `tool_name`    | `string` | Requested tool name                                                 |
-| `input`        | `object` | Parsed tool arguments when valid JSON, otherwise `{ "raw": "..." }` |
+| Extra key          | Type     | Notes                                                               |
+| ------------------ | -------- | ------------------------------------------------------------------- |
+| `model_call_index` | `int`    | 1-indexed model-call number within this run                         |
+| `tool_call_id`     | `string` | Provider tool-call id                                               |
+| `tool_name`        | `string` | Requested tool name                                                 |
+| `input`            | `object` | Parsed tool arguments when valid JSON, otherwise `{ "raw": "..." }` |
 
 ### `assistant.final_answer`
 
 Emitted when the assistant response contains no tool calls and the agent loop
 can finish.
 
-| Extra key    | Type     | Notes                                 |
-| ------------ | -------- | ------------------------------------- |
-| `turn_index` | `int`    | 1-indexed turn number within this run |
-| `summary`    | `string` | Final assistant text                  |
+| Extra key          | Type     | Notes                                       |
+| ------------------ | -------- | ------------------------------------------- |
+| `model_call_index` | `int`    | 1-indexed model-call number within this run |
+| `summary`          | `string` | Final assistant text                        |
 
-### `turn.completed`
+### `model.call.completed`
 
-Emitted once per LLM round-trip in an `agent_loop` run. The richest cost-tracking payload in the catalog.
+Emitted once per completed LLM round-trip in an `agent_loop` run when the
+runner persists the execution result. These accounting events are batched at
+the end of the current execution segment rather than interleaved immediately
+after each response. This is the richest cost-tracking payload in the catalog.
 
 | Extra key                         | Type     | Notes                                                                                              |
 | --------------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
-| `turn_index`                      | `int`    | 1-indexed turn number within this run                                                              |
-| `step_id`                         | `string` | The assistant model step produced this turn                                                        |
-| `cost_micros_usd`                 | `int64`  | This turn's LLM spend in micro-USD                                                                 |
+| `model_call_index`                | `int`    | 1-indexed model-call number within this run                                                        |
+| `step_id`                         | `string` | The assistant model step produced by this model call                                               |
+| `cost_micros_usd`                 | `int64`  | This model call's LLM spend in micro-USD                                                           |
 | `run_cumulative_cost_micros_usd`  | `int64`  | Running total across this run only                                                                 |
 | `task_cumulative_cost_micros_usd` | `int64`  | Running total across the entire resume chain (this run + every prior run via `PriorCostMicrosUSD`) |
-| `tool_calls`                      | `int`    | Tool calls the assistant emitted on this turn                                                      |
+| `tool_calls`                      | `int`    | Tool calls the assistant emitted on this model call                                                |
 
-The per-turn figure is also stamped on the matching model step's `OutputSummary.cost_micros_usd` so the run-replay UI surfaces it without subscribing here. See [agent-runtime.md](agent-runtime.md#cost-tracking) for the full cost model.
+The per-model-call figure is also stamped on the matching model step's `OutputSummary.cost_micros_usd` so the run-replay UI surfaces it without subscribing here. See [agent-runtime.md](agent-runtime.md#cost-tracking) for the full cost model.
 
-These rows are the only event type pruned by the retention worker (`turn_events` subsystem) — they accumulate fast on long agent runs. Other event types are kept indefinitely. See `HECATE_RETENTION_TURN_EVENTS_*` in `.env.example`.
+These rows are the only event type pruned by the retention worker (`model_call_events` subsystem) — they accumulate fast on long agent-loop Task Runs. Other event types are kept indefinitely. See `HECATE_RETENTION_MODEL_CALL_EVENTS_*` in `.env.example`.
 
 ## Typed shell tool events
 
@@ -434,7 +458,7 @@ execution target. Current producers are:
 
 The event is an audit signal rather than a runtime failure. Its task step uses
 `status=completed`, `phase=policy`, and `result=denied`, while the agent still
-receives a tool-error result and may choose a permitted path on its next turn.
+receives a tool-error result and may choose a permitted path on its next model call.
 Common payload fields are:
 
 | Extra key      | Type     | Notes                                                                               |
@@ -577,6 +601,6 @@ Callers can also pass an arbitrary `data` map alongside; those keys are merged i
 ## Related docs
 
 - [runtime-api.md](runtime-api.md#public-events-feed) — endpoint shape, query params, access model
-- [agent-runtime.md](agent-runtime.md#cost-tracking) — cost-model details for `turn.completed`
+- [agent-runtime.md](agent-runtime.md#cost-tracking) — cost-model details for `model.call.completed`
 - [telemetry.md](telemetry.md) — OTel spans / metrics (a different stream from this catalog)
 - [architecture.md](../contributor/architecture.md) — where events fit in the request lifecycle

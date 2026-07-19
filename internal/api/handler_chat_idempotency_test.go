@@ -528,7 +528,7 @@ func TestCreateHecateChatMessageStaleRequestLeaseDoesNotRecordRunStarted(t *test
 	}
 	for _, trace := range traces {
 		for _, event := range trace.Events() {
-			if event.Name == telemetry.EventAgentChatRunStarted {
+			if event.Name == telemetry.EventAgentChatTurnStarted {
 				t.Fatalf("stale-owner commit recorded phantom %q event: %+v", event.Name, event)
 			}
 		}

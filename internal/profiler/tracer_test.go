@@ -103,13 +103,13 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventRetentionHistoryFailed, telemetry.SpanRetentionRun},
 		{telemetry.EventRetentionHistoryPersisted, telemetry.SpanRetentionRun},
 		// External agent chats
-		{telemetry.EventAgentChatRunStarted, telemetry.SpanAgentChatRun},
-		{telemetry.EventAgentChatOutputStarted, telemetry.SpanAgentChatRun},
-		{telemetry.EventAgentChatFilesChanged, telemetry.SpanAgentChatRun},
-		{telemetry.EventAgentChatSessionReplaced, telemetry.SpanAgentChatRun},
-		{telemetry.EventAgentChatRunFinished, telemetry.SpanAgentChatRun},
-		{telemetry.EventAgentChatRunFailed, telemetry.SpanAgentChatRun},
-		{telemetry.EventAgentChatRunCancelled, telemetry.SpanAgentChatRun},
+		{telemetry.EventAgentChatTurnStarted, telemetry.SpanAgentChatTurn},
+		{telemetry.EventAgentChatOutputStarted, telemetry.SpanAgentChatTurn},
+		{telemetry.EventAgentChatFilesChanged, telemetry.SpanAgentChatTurn},
+		{telemetry.EventAgentChatSessionReplaced, telemetry.SpanAgentChatTurn},
+		{telemetry.EventAgentChatTurnFinished, telemetry.SpanAgentChatTurn},
+		{telemetry.EventAgentChatTurnFailed, telemetry.SpanAgentChatTurn},
+		{telemetry.EventAgentChatTurnCancelled, telemetry.SpanAgentChatTurn},
 	}
 
 	for _, tc := range cases {
@@ -141,6 +141,14 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 				t.Errorf("event %q: want span %q, got spans %v", tc.event, tc.wantSpan, names)
 			}
 		})
+	}
+}
+
+func TestSpanSpecForEventDoesNotAcceptRemovedChatRunEvent(t *testing.T) {
+	t.Parallel()
+
+	if got := spanSpecForEvent("chat.run.started").name; got != telemetry.SpanGatewayRuntime {
+		t.Fatalf("removed chat.run event mapped to %q, want %q", got, telemetry.SpanGatewayRuntime)
 	}
 }
 

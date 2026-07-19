@@ -53,7 +53,13 @@ func (p *claimedRunProcessor) process() {
 	if !p.startClaimedRun(ctx) {
 		return
 	}
-	resumeCheckpoint := p.emitRunStarted(ctx)
+	resumeCheckpoint, checkpointErr := p.emitRunStarted(ctx)
+	if checkpointErr != nil {
+		_ = p.runner.finalizeFailedRun(ctx, p.trace, p.task, p.run, p.requestID, "failed", "resume checkpoint unavailable: "+checkpointErr.Error())
+		p.recordQueueAcked()
+		p.ackClaim()
+		return
+	}
 	newClaimedRunExecution(p, jobCtx, resumeCheckpoint).execute(ctx)
 	p.recordQueueAcked()
 	p.ackClaim()
@@ -181,14 +187,15 @@ func (p *claimedRunProcessor) settleUnavailableOriginClaim(ctx context.Context) 
 	}
 }
 
-func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) *ResumeCheckpoint {
+func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) (*ResumeCheckpoint, error) {
 	resumeCheckpoint, checkpointErr := p.runner.resumeCheckpointForRun(ctx, p.task.ID, p.run.ID)
 	if checkpointErr != nil {
 		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventGapRunDisconnected.String(), p.requestID, p.trace.TraceID, map[string]any{
 			"reason":  "resume_checkpoint_unavailable",
-			"action":  "start_fresh",
+			"action":  "fail_run",
 			"message": checkpointErr.Error(),
 		})
+		return nil, checkpointErr
 	}
 	runEvent := map[string]any{}
 	if resumeCheckpoint != nil {
@@ -197,7 +204,7 @@ func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) *ResumeCheckpo
 		runEvent["resume_from_event_sequence"] = resumeCheckpoint.LastEventSequence
 	}
 	_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventRunStarted.String(), p.requestID, p.trace.TraceID, runEvent)
-	return resumeCheckpoint
+	return resumeCheckpoint, nil
 }
 
 func (p *claimedRunProcessor) recordQueueAcked() {

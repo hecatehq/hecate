@@ -1,5 +1,6 @@
 export type ContextPacketRefsRecord = {
   session_id?: string;
+  turn_id?: string;
   message_id?: string;
   task_id?: string;
   run_id?: string;

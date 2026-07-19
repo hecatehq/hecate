@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chatNavigationURL,
   isPlainNavigationClick,
   navigationURLsEqual,
   parseNavigationURL,
   projectNavigationURL,
+  taskNavigationURL,
   workspaceNavigationURL,
   WORKSPACE_PATHS,
 } from "./navigation";
@@ -25,7 +27,7 @@ describe("workspace navigation URLs", () => {
   it.each([
     ["/chats", "chats"],
     ["/projects", "projects"],
-    ["/tasks", "runs"],
+    ["/tasks", "tasks"],
     ["/connections", "connections"],
     ["/observability", "overview"],
     ["/usage", "usage"],
@@ -39,6 +41,8 @@ describe("workspace navigation URLs", () => {
     expect(parseNavigationURL("/unknown?project=opaque#section")).toEqual({
       workspace: null,
       project: null,
+      task: null,
+      chat: null,
       canonicalURL: "/unknown?project=opaque#section",
       isCanonical: true,
     });
@@ -48,6 +52,8 @@ describe("workspace navigation URLs", () => {
     expect(parseNavigationURL("/usage/?source=desktop#totals")).toEqual({
       workspace: "usage",
       project: null,
+      task: null,
+      chat: null,
       canonicalURL: "/usage?source=desktop#totals",
       isCanonical: false,
     });
@@ -57,7 +63,7 @@ describe("workspace navigation URLs", () => {
     expect(
       workspaceNavigationURL(
         "/projects?source=notification&project=proj_1&view=work&work=work_1#evidence",
-        "runs",
+        "tasks",
       ),
     ).toBe("/tasks?source=notification#evidence");
   });
@@ -70,7 +76,58 @@ describe("workspace navigation URLs", () => {
     ).toEqual({
       workspace: "connections",
       project: null,
+      task: null,
+      chat: null,
       canonicalURL: "/connections?source=notification#providers",
+      isCanonical: false,
+    });
+  });
+});
+
+describe("task and chat navigation URLs", () => {
+  it("roundtrips an exact Task and Run destination", () => {
+    const destination = taskNavigationURL("/chats?source=transcript&chat=chat_1", {
+      taskID: "task/opaque +λ",
+      runID: "run/opaque +π",
+    });
+
+    expect(destination).toBe(
+      "/tasks?source=transcript&task=task%2Fopaque+%2B%CE%BB&run=run%2Fopaque+%2B%CF%80",
+    );
+    expect(parseNavigationURL(destination)).toMatchObject({
+      workspace: "tasks",
+      task: { taskID: "task/opaque +λ", runID: "run/opaque +π" },
+      chat: null,
+      isCanonical: true,
+    });
+  });
+
+  it("roundtrips an exact Chat and Message destination", () => {
+    const destination = chatNavigationURL("/tasks?source=task&task=task_1&run=run_1", {
+      chatID: "chat/opaque +λ",
+      messageID: "msg/opaque +π",
+    });
+
+    expect(destination).toBe(
+      "/chats?source=task&chat=chat%2Fopaque+%2B%CE%BB&message=msg%2Fopaque+%2B%CF%80",
+    );
+    expect(parseNavigationURL(destination)).toMatchObject({
+      workspace: "chats",
+      chat: { chatID: "chat/opaque +λ", messageID: "msg/opaque +π" },
+      task: null,
+      isCanonical: true,
+    });
+  });
+
+  it("drops orphan Run and Message targets", () => {
+    expect(parseNavigationURL("/tasks?run=run_orphan")).toMatchObject({
+      task: { taskID: null, runID: null },
+      canonicalURL: "/tasks",
+      isCanonical: false,
+    });
+    expect(parseNavigationURL("/chats?message=msg_orphan")).toMatchObject({
+      chat: { chatID: null, messageID: null },
+      canonicalURL: "/chats",
       isCanonical: false,
     });
   });
@@ -93,6 +150,8 @@ describe("project navigation URLs", () => {
     expect(parseNavigationURL("/projects?project=proj_1&view=work&work=work_1")).toEqual({
       workspace: "projects",
       project: { projectID: "proj_1", view: "work", workItemID: "work_1" },
+      task: null,
+      chat: null,
       canonicalURL: "/projects?project=proj_1&view=work&work=work_1",
       isCanonical: true,
     });
@@ -102,6 +161,8 @@ describe("project navigation URLs", () => {
     expect(parseNavigationURL("/projects?project=proj_1&view=timeline&work=work_1")).toEqual({
       workspace: "projects",
       project: { projectID: "proj_1", view: "work", workItemID: "work_1" },
+      task: null,
+      chat: null,
       canonicalURL: "/projects?project=proj_1&view=work&work=work_1",
       isCanonical: false,
     });

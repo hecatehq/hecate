@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -476,7 +477,7 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 	}
 }
 
-func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
+func TestRetryTaskFromModelCallCarriesForwardContextPacket(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -506,6 +507,7 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 		TaskID:                        task.ID,
 		Number:                        1,
 		Status:                        "completed",
+		ModelCallCount:                1,
 		StartedAt:                     now,
 		FinishedAt:                    now,
 		InputRef:                      "msg_retry_input",
@@ -532,16 +534,19 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 		RunID:       run.ID,
 		Kind:        "agent_conversation",
 		StorageKind: "inline",
-		ContentText: `[{"role":"user","content":"hello"},{"role":"assistant","content":"done"}]`,
+		ContentText: `[{"role":"user","content":"first"},{"role":"assistant","content":"prior answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"current answer"}]`,
 		Status:      "ready",
 		CreatedAt:   now,
 	}); err != nil {
 		t.Fatalf("CreateArtifact: %v", err)
 	}
+	if _, err := runner.RetryTaskFromModelCall(ctx, task, run, 2, "operator_retry", defaultResourceID); err == nil {
+		t.Fatal("RetryTaskFromModelCall(model call 2) succeeded for a source Run with model_call_count=1")
+	}
 
-	result, err := runner.RetryTaskFromTurn(ctx, task, run, 1, "operator_retry", defaultResourceID)
+	result, err := runner.RetryTaskFromModelCall(ctx, task, run, 1, "operator_retry", defaultResourceID)
 	if err != nil {
-		t.Fatalf("RetryTaskFromTurn: %v", err)
+		t.Fatalf("RetryTaskFromModelCall: %v", err)
 	}
 	stored, found, err := store.GetRun(ctx, task.ID, result.Run.ID)
 	if err != nil || !found {
@@ -553,6 +558,106 @@ func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
 	}
 	if stored.Provider != run.Provider || stored.ProviderKind != run.ProviderKind || stored.Model != run.Model || stored.InputProviderInstance != inputProviderInstance || !stored.InputProviderDispatchRecorded {
 		t.Fatalf("inherited input route = provider %q kind %q model %q instance %+v dispatched=%t, want %q/%q/%q/%+v/true", stored.Provider, stored.ProviderKind, stored.Model, stored.InputProviderInstance, stored.InputProviderDispatchRecorded, run.Provider, run.ProviderKind, run.Model, inputProviderInstance)
+	}
+	checkpoint, err := runner.resumeCheckpointForRun(ctx, task.ID, stored.ID)
+	if err != nil {
+		t.Fatalf("resumeCheckpointForRun: %v", err)
+	}
+	if checkpoint == nil {
+		t.Fatal("resumeCheckpointForRun returned nil")
+	}
+	var truncated []types.Message
+	if err := json.Unmarshal(checkpoint.AgentConversation, &truncated); err != nil {
+		t.Fatalf("checkpoint conversation = %s, want decodable truncated context", checkpoint.AgentConversation)
+	}
+	if len(truncated) != 3 || truncated[1].Role != "assistant" || truncated[1].Content != "prior answer" || truncated[2].Role != "user" || truncated[2].Content != "continue" {
+		t.Fatalf("truncated conversation = %#v, want inherited assistant plus source Run prompt", truncated)
+	}
+}
+
+func TestResumeCheckpointPrefersOwnRunProgressAndRepairsStreamingPartial(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+	now := time.Now().UTC()
+	task := types.Task{ID: "task-own-checkpoint", ExecutionKind: "agent_loop", Status: "running", CreatedAt: now, UpdatedAt: now}
+	run := types.TaskRun{ID: "run-own-checkpoint", TaskID: task.ID, Number: 2, Status: "queued", StartedAt: now}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
+		ID:        "event-resumed",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		EventType: "run.resumed_from_event",
+		Data:      map[string]any{"from_run_id": "run-parent", "source_model_call_index": 1},
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("AppendRunEvent: %v", err)
+	}
+	if _, err := store.AppendStep(ctx, types.TaskStep{
+		ID:       "step-model-1",
+		TaskID:   task.ID,
+		RunID:    run.ID,
+		Index:    1,
+		Kind:     "model",
+		Status:   "completed",
+		ToolName: "builtin.agent_loop_llm",
+		Input:    map[string]any{"model_call_index": 1},
+		OutputSummary: map[string]any{
+			"run_cumulative_cost_micros_usd": int64(75),
+		},
+		StartedAt:  now,
+		FinishedAt: now,
+	}); err != nil {
+		t.Fatalf("AppendStep: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, types.TaskArtifact{
+		ID:          "convo-" + run.ID,
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		Kind:        "agent_conversation",
+		StorageKind: "inline",
+		ContentText: `[{"role":"user","content":"work"},{"role":"assistant","content":"completed call"},{"role":"assistant","content":"partial next call"}]`,
+		Status:      "streaming",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+
+	checkpoint, err := runner.resumeCheckpointForRun(ctx, task.ID, run.ID)
+	if err != nil {
+		t.Fatalf("resumeCheckpointForRun: %v", err)
+	}
+	if checkpoint == nil || !checkpoint.SameRun || checkpoint.SourceRunID != run.ID {
+		t.Fatalf("checkpoint = %+v, want current-Run checkpoint", checkpoint)
+	}
+	if checkpoint.ThisRunModelCallCount != 1 || checkpoint.ThisRunCostMicrosUSD != 75 {
+		t.Fatalf("checkpoint accounting = calls %d cost %d, want 1/75", checkpoint.ThisRunModelCallCount, checkpoint.ThisRunCostMicrosUSD)
+	}
+	var messages []types.Message
+	if err := json.Unmarshal(checkpoint.AgentConversation, &messages); err != nil {
+		t.Fatalf("decode checkpoint conversation: %v", err)
+	}
+	if len(messages) != 2 || messages[1].Content != "completed call" {
+		t.Fatalf("checkpoint conversation = %+v, want completed boundary without partial tail", messages)
+	}
+	repaired, found, err := store.GetArtifact(ctx, task.ID, "convo-"+run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetArtifact found=%t err=%v", found, err)
+	}
+	if repaired.Status != "ready" || strings.Contains(repaired.ContentText, "partial next call") {
+		t.Fatalf("repaired artifact = %+v, want ready completed boundary", repaired)
 	}
 }
 

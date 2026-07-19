@@ -16,8 +16,8 @@ const (
 	EventTaskUpdated         EventType = "task.updated"
 	EventGapRunDisconnected  EventType = "gap.run_disconnected"
 
-	EventTurnStarted   EventType = "turn.started"
-	EventTurnCompleted EventType = "turn.completed"
+	EventModelCallStarted   EventType = "model.call.started"
+	EventModelCallCompleted EventType = "model.call.completed"
 
 	EventAssistantTextComplete     EventType = "assistant.text_complete"
 	EventAssistantToolCallProposed EventType = "assistant.tool_call_proposed"
@@ -45,8 +45,8 @@ func (t EventType) String() string {
 	return string(t)
 }
 
-type TurnCompletedFields struct {
-	TurnIndex                   int
+type ModelCallCompletedFields struct {
+	ModelCallIndex              int
 	StepID                      string
 	CostMicrosUSD               int64
 	RunCumulativeCostMicrosUSD  int64
@@ -82,9 +82,9 @@ func ApprovalResolved(approval types.TaskApproval) map[string]any {
 	}
 }
 
-func TurnCompleted(fields TurnCompletedFields) map[string]any {
+func ModelCallCompleted(fields ModelCallCompletedFields) map[string]any {
 	return map[string]any{
-		"turn_index":                      fields.TurnIndex,
+		"model_call_index":                fields.ModelCallIndex,
 		"step_id":                         fields.StepID,
 		"cost_micros_usd":                 fields.CostMicrosUSD,
 		"run_cumulative_cost_micros_usd":  fields.RunCumulativeCostMicrosUSD,

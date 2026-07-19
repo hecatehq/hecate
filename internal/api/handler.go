@@ -242,7 +242,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		ReconcileInterval:      cfg.Server.TaskReconcileInterval,
 		MaxConcurrentPerTenant: cfg.Server.TaskMaxConcurrentPerTenant,
 		DeferQueueStart:        true,
-		AgentLoopMaxTurns:      cfg.Server.TaskAgentLoopMaxTurns,
+		AgentLoopMaxModelCalls: cfg.Server.TaskAgentLoopMaxModelCalls,
 		HTTPPolicy: orchestrator.HTTPRequestPolicy{
 			Timeout:          cfg.Server.TaskHTTPTimeout,
 			MaxResponseBytes: cfg.Server.TaskHTTPMaxResponseBytes,
@@ -629,13 +629,13 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	if h.agentChat == nil {
 		return
 	}
-	count, err := chat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
+	count, err := chat.ReconcileInterruptedTurns(ctx, h.agentChat, time.Now().UTC())
 	if err != nil {
 		telemetry.Warn(h.logger, ctx, "agent chat reconciliation failed", slog.Any("error", err))
 		return
 	}
 	if count > 0 {
-		telemetry.Info(h.logger, ctx, "agent chat reconciliation completed", slog.Int("interrupted_runs", count))
+		telemetry.Info(h.logger, ctx, "agent chat reconciliation completed", slog.Int("interrupted_turns", count))
 		h.reconcileProjectAssignmentsForAllChats(ctx)
 	}
 }

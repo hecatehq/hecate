@@ -142,6 +142,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	}
 	if _, err := store.AppendMessage(context.Background(), "chat_1", Message{
 		ID:               "msg_1",
+		TurnID:           "turn_external_1",
 		Role:             "user",
 		Content:          "hello",
 		ProviderInstance: types.ProviderInstanceIdentity{ID: "runtime-before-update", Kind: types.ProviderInstanceIdentityRuntime},
@@ -156,6 +157,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	}
 	if _, err := store.AppendMessage(context.Background(), "chat_1", Message{
 		ID:            "msg_2",
+		TurnID:        "turn_external_1",
 		ExecutionMode: ExecutionModeExternalAgent,
 		Role:          "assistant",
 		Content:       "hello from cursor",
@@ -164,6 +166,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 			ExecutionMode: ExecutionModeExternalAgent,
 			Workspace:     "/tmp/hecate",
 			MessageCount:  2,
+			Refs:          &ContextRefs{SessionID: "chat_1", TurnID: "turn_external_1", MessageID: "msg_2"},
 			Sources: []ContextSource{
 				{
 					Kind:  "adapter_session",
@@ -211,8 +214,40 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	if got.Messages[0].ProviderInstance != wantProviderInstance {
 		t.Fatalf("reopened provider instance = %+v, want %+v", got.Messages[0].ProviderInstance, wantProviderInstance)
 	}
-	if len(got.Messages) != 2 || got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.Sources[0].Label != "Cursor Agent ACP session" || got.Messages[1].Context.Items[0].Kind != "external_agent_session" {
+	if len(got.Messages) != 2 || got.Messages[0].TurnID != "turn_external_1" || got.Messages[1].TurnID != "turn_external_1" || got.Messages[1].Context.Refs == nil || got.Messages[1].Context.Refs.TurnID != "turn_external_1" || got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.Sources[0].Label != "Cursor Agent ACP session" || got.Messages[1].Context.Items[0].Kind != "external_agent_session" {
 		t.Fatalf("reopened context packet mismatch: %+v", got.Messages)
+	}
+}
+
+func TestSQLiteStoreMigratesTurnIDWithoutReinterpretingRunID(t *testing.T) {
+	t.Parallel()
+
+	store := newSQLiteTestStore(t)
+	if _, err := store.Create(context.Background(), Session{ID: "chat_old_fake_run", Title: "Old fake run", AgentID: DefaultAgentID}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	if _, err := store.AppendMessage(context.Background(), "chat_old_fake_run", Message{
+		ID:      "msg_old_fake_run",
+		RunID:   "model_run_old",
+		Role:    "assistant",
+		Content: "old direct response",
+	}); err != nil {
+		t.Fatalf("AppendMessage old row: %v", err)
+	}
+	if _, err := store.client.DB().ExecContext(context.Background(), "ALTER TABLE "+store.messagesTable+" DROP COLUMN turn_id"); err != nil {
+		t.Fatalf("drop turn_id test column: %v", err)
+	}
+
+	migrated, err := newSQLStore(context.Background(), store.client)
+	if err != nil {
+		t.Fatalf("newSQLStore migration: %v", err)
+	}
+	got, ok, err := migrated.Get(context.Background(), "chat_old_fake_run")
+	if err != nil || !ok {
+		t.Fatalf("Get old session after migration: found=%v err=%v", ok, err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].TurnID != "" || got.Messages[0].RunID != "model_run_old" {
+		t.Fatalf("old message after migration = %+v, want empty turn id without run-id reinterpretation", got.Messages)
 	}
 }
 

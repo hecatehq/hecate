@@ -93,10 +93,12 @@ describe("NewTaskSlideOver kind switching", () => {
 });
 
 describe("NewTaskSlideOver submit", () => {
-  it("disables 'Queue task' until the required field is filled", async () => {
+  it("disables 'Create task & start run' until the required field is filled", async () => {
     const { render, user } = setup();
     render();
-    const queueBtn = screen.getByRole("button", { name: /queue task/i }) as HTMLButtonElement;
+    const queueBtn = screen.getByRole("button", {
+      name: /create task & start run/i,
+    }) as HTMLButtonElement;
     expect(queueBtn.disabled).toBe(true);
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
     expect(queueBtn.disabled).toBe(false);
@@ -107,7 +109,7 @@ describe("NewTaskSlideOver submit", () => {
     const { render, user } = setup({ onCreate });
     render();
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         execution_kind: "shell",
@@ -123,7 +125,7 @@ describe("NewTaskSlideOver submit", () => {
     render();
     await user.click(screen.getByRole("button", { name: "Git" }));
     await user.type(screen.getByPlaceholderText(/status/i), "log --oneline");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         execution_kind: "git",
@@ -140,7 +142,7 @@ describe("NewTaskSlideOver submit", () => {
     await user.click(screen.getByRole("button", { name: "File" }));
     await user.type(screen.getByPlaceholderText(/\/path\/to\/file/i), "/tmp/note.txt");
     await user.type(screen.getByPlaceholderText(/file content/i), "hello");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         execution_kind: "file",
@@ -157,7 +159,7 @@ describe("NewTaskSlideOver submit", () => {
     render();
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
     await user.type(screen.getByPlaceholderText("/Users/alice/dev/project"), "/tmp");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         working_directory: "/tmp",
@@ -173,7 +175,7 @@ describe("NewTaskSlideOver submit", () => {
     const { render, user } = setup({ onCreate });
     render();
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     const payload = onCreate.mock.calls[0][0];
     expect(payload.working_directory).toBeUndefined();
   });
@@ -220,7 +222,7 @@ describe("NewTaskSlideOver submit", () => {
     await user.type(screen.getByPlaceholderText(/describe the task/i), "show git diff");
     await user.click(screen.getByRole("button", { name: /Any provider/i }));
     await user.click(screen.getByRole("option", { name: /Ollama/i }));
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
 
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -269,7 +271,7 @@ describe("NewTaskSlideOver submit", () => {
     await user.type(screen.getByPlaceholderText(/describe the task/i), "show git diff");
     await user.click(screen.getByRole("button", { name: /Model picker:/i }));
     await user.click(screen.getByRole("option", { name: /ministral-3:latest/i }));
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
 
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -287,7 +289,7 @@ describe("NewTaskSlideOver submit", () => {
       "/Users/me/dev/hecate",
     );
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         working_directory: "/Users/me/dev/hecate",
@@ -546,7 +548,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
       screen.getByPlaceholderText(/^env \(KEY=VALUE per line/i),
       "TOKEN=abc{enter}DEBUG=1",
     );
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate).toHaveBeenCalled();
     const payload = onCreate.mock.calls[0][0];
     expect(payload.mcp_servers).toEqual([
@@ -579,7 +581,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
       screen.getByPlaceholderText(/^headers \(KEY=VALUE/i),
       "Authorization=Bearer xyz{enter}X-Trace=on",
     );
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     const payload = onCreate.mock.calls[0][0];
     expect(payload.mcp_servers).toEqual([
       {
@@ -603,7 +605,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "github");
     await user.type(screen.getByPlaceholderText(/^command \(e\.g\. npx\)/i), "npx");
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate.mock.calls[0][0].mcp_servers[0].approval_policy).toBeUndefined();
   });
 
@@ -621,7 +623,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     await user.type(screen.getByPlaceholderText(/^command \(e\.g\. npx\)/i), "npx");
     const policyGroup = screen.getByRole("group", { name: /server 1 approval policy/i });
     await user.click(within(policyGroup).getByRole("button", { name: /^require approval$/i }));
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate.mock.calls[0][0].mcp_servers[0].approval_policy).toBe("require_approval");
   });
 
@@ -636,7 +638,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     await user.type(screen.getByPlaceholderText(/^command \(e\.g\. npx\)/i), "npx");
     const policyGroup = screen.getByRole("group", { name: /server 1 approval policy/i });
     await user.click(within(policyGroup).getByRole("button", { name: /^block$/i }));
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     expect(onCreate.mock.calls[0][0].mcp_servers[0].approval_policy).toBe("block");
   });
 
@@ -650,7 +652,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     render();
     // Add a row, leave it empty.
     await gotoAgentLoopAndAddMCPRow(user);
-    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
     const payload = onCreate.mock.calls[0][0];
     // mcp_servers should either be undefined OR an empty array; both
     // are acceptable since the form's optional-spread treats an

@@ -278,6 +278,9 @@ func TestShellExecutorEmitsTypedEventProtocolShellEvents(t *testing.T) {
 		if events[i].eventType != want {
 			t.Fatalf("events[%d] = %q, want %q", i, events[i].eventType, want)
 		}
+		if _, ok := events[i].data["model_call_index"]; ok {
+			t.Fatalf("events[%d] unexpectedly includes model_call_index: %#v", i, events[i].data)
+		}
 	}
 	if got := events[0].data["tool_call_id"]; got != "call-shell-1" {
 		t.Fatalf("tool_call_id = %v, want call-shell-1", got)

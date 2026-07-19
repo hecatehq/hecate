@@ -52,4 +52,22 @@ describe("ChatHeader", () => {
     expect(screen.queryByRole("button", { name: /Open workspace in/i })).toBeNull();
     expect(screen.queryByRole("button", { name: "Choose workspace opener" })).toBeNull();
   });
+
+  it("labels the External Agent message budget as Chat turns", () => {
+    renderChatHeader({
+      isExternalAgentChat: true,
+      activeChatSession: {
+        id: "chat_1",
+        title: "Codex chat",
+        agent_id: "codex",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        turns_used: 3,
+        max_turns_per_session: 10,
+        messages: [],
+      },
+    });
+
+    expect(screen.getByText("3/10 Chat turns")).toHaveAttribute("title", "3 of 10 Chat turns used");
+  });
 });

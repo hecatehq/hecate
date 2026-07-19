@@ -74,7 +74,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   child cleanup without another terminal event or overwriting a newer run's
   authoritative task projection. Boot recovery must cursor
   through every pending-run page rather than treating a page size as a cap.
-- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/runtime/events.md`.
+- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `model.call.*`, `assistant.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/runtime/events.md`.
 - **Chat message idempotency is a storage commit boundary.** The optional
   `client_request_id` on Hecate-native chat message creation is scoped to one
   session. Reserve and compare its one-way payload fingerprint through
@@ -102,9 +102,9 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   Hecate task/run ownership links, and terminal assistant/session state; never
   hold one across a long turn. Direct model and ACP execution stay request-bound.
   The task-backed Hecate Chat watcher is server-owned after commit and waits on
-  its own bounded context plus the explicit live-run cancel hook, so browser
+  its own bounded context plus the explicit live-turn cancel hook, so browser
   disconnect does not abandon a queued/running task or strand its transcript.
-  The 30-minute chat-run ceiling ends that watcher and terminalizes the chat
+  The 30-minute Chat turn ceiling ends that watcher and terminalizes the Chat
   turn; it does not cancel the orchestrator-owned Task. A Task that remains
   active, including one awaiting approval, stays visible and independently
   cancellable through the Task runtime.
@@ -142,7 +142,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   mirrors, and the response decision. Different project keys remain
   independent. Chat terminal/idle assignment reconciliation is best-effort and must use nonblocking project
   admission: project deletion can own the key while it waits for that active
-  chat handler to clear its run, so blocking reconciliation before `clearRun`
+  Chat handler to clear its turn, so blocking reconciliation before `clearTurn`
   would form a lock cycle. A skipped projection is retried by the next terminal
   or strict read reconciliation.
   Canonicalize Project Assistant proposals before deriving those keys. An
@@ -317,7 +317,7 @@ Hecate-owned chat sessions also persist workspace posture. Normalize only
 `persistent`, `ephemeral`, and `in_place`; preserve omitted legacy requests as
 `in_place`. Snapshot the effective value onto every backing task, reject a
 different value after `task_id` exists, and serialize mode mutation through the
-same exclusive live-run admission as message turns. Update the
+same exclusive live-turn admission as message turns. Update the
 session/message/context workspace to the generated run path for managed execution. External Agent
 sessions always remain `in_place` because the ACP adapter owns the selected
 workspace. Cairnline Project defaults are coordination intent supplied at chat
@@ -426,7 +426,7 @@ ordinary Run-scoped `OnActivity` callback.
 Destructive chat close, delete, and idle cleanup must first close
 the chat lifecycle and drain counted operations. Once the destructive token is
 held, install that exact lifecycle closure as settlement-dispatcher owner before
-cancelling an active run. This lets a detached terminal job that lost ordinary
+cancelling an active turn. This lets a detached terminal job that lost ordinary
 epoch admission settle without head-of-line blocking the turn's synchronous
 final write. Close the native session while the owner is installed, then seal
 and drain the dispatcher before clearing or deleting transcript state. Every
@@ -589,7 +589,7 @@ native close/delete, adapter config option writes, Hecate Chat settings, and
 cleanup after prepare/update failure belong there. Session reads/rename and
 message admission / dispatch planning also belong in `chatapp` so handlers do
 not re-own transcript validation or execution-mode branching. Handlers keep
-HTTP parsing, live-run cancellation, workspace validation, model/profile
+HTTP parsing, live-turn cancellation, workspace validation, model/profile
 resolution, live publish, and response rendering. Extend that app seam before
 adding more chat store, task-store, or adapter-runner orchestration to
 `handler_chat.go`, and keep dependencies narrow to the methods the command
@@ -836,14 +836,14 @@ persistence, live publishing, and response rendering.
 
 Native `agent_loop` code is intentionally split by responsibility:
 
-- `executor_agent_loop.go` is the control-flow spine. Keep it focused on turn
+- `executor_agent_loop.go` is the control-flow spine. Keep it focused on model-call
   progression, resume detection, final answer, approval gate, tool dispatch,
   and ceiling checks.
-- `executor_agent_loop_chat.go` owns a fresh LLM turn: request construction,
-  streaming capture, route capture, assistant events, thinking step, turn cost,
+- `executor_agent_loop_chat.go` owns a fresh model call: request construction,
+  streaming capture, route capture, assistant events, thinking step, model-call cost,
   and conversation snapshot.
 - `executor_agent_loop_run_state.go` owns run assembly: next step index,
-  steps/artifacts, resolved route, per-turn cost records, and final
+  steps/artifacts, resolved route, per-model-call cost records, and final
   `ExecutionResult` accounting.
 - `executor_agent_loop_conversation.go`, `executor_agent_loop_approval_gate.go`,
   and `executor_agent_loop_tools.go` own conversation persistence, approval
@@ -883,10 +883,10 @@ When changing this path:
 
 1. Pick an event-protocol name from the existing taxonomy before adding a new dotted name. Prefer generic families such as `tool.*`, `policy.*`, `gap.*`, and `error.*` with specific details in `data` over subsystem-specific names.
 2. Write normal run events through the event recorder path: orchestrator code uses `r.emitRunEvent(...)`, and HTTP/API-owned writes use `internal/runtimeevents.Recorder`. Avoid direct `store.AppendRunEvent` calls outside storage tests and store-level run transitions, where terminal events or approval-resolution events must remain in the same transaction as their state mutation.
-3. Put shared event names and payload shapes in `internal/runtimeevents`. Event names use `runtimeevents.Event...` constants; payload shapes use small builder functions that return `map[string]any`. Reuse existing builders such as `ApprovalRequested`, `ApprovalResolved`, `TurnCompleted`, `PatchApplied`, and `PatchReverted` instead of recreating key sets inline.
+3. Put shared event names and payload shapes in `internal/runtimeevents`. Event names use `runtimeevents.Event...` constants; payload shapes use small builder functions that return `map[string]any`. Reuse existing builders such as `ApprovalRequested`, `ApprovalResolved`, `ModelCallCompleted`, `PatchApplied`, and `PatchReverted` instead of recreating key sets inline.
 4. In orchestrator code, call `r.emitRunEvent(ctx, taskID, runID, runtimeevents.EventYourName.String(), ..., extraDataMap)` at the right life-cycle moment. Emit the event **before** handing off to the queue — see the emit-before-enqueue gotcha above.
 5. Document the event and its payload in `docs/runtime/events.md`.
-6. If high-cardinality, wire into `internal/retention/retention.go` as a new subsystem (see `turn_events` for the pattern).
+6. If high-cardinality, wire into `internal/retention/retention.go` as a new subsystem (see `model_call_events` for the pattern).
 
 ### Add a start-time validation error (HTTP 422)
 

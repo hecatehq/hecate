@@ -69,6 +69,7 @@ func FromProjectAssignmentPayload(raw json.RawMessage) (chat.ContextPacket, bool
 func Refs(refs chat.ContextRefs) chat.ContextRefs {
 	return chat.ContextRefs{
 		SessionID:    strings.TrimSpace(refs.SessionID),
+		TurnID:       strings.TrimSpace(refs.TurnID),
 		MessageID:    strings.TrimSpace(refs.MessageID),
 		TaskID:       strings.TrimSpace(refs.TaskID),
 		RunID:        strings.TrimSpace(refs.RunID),
@@ -84,6 +85,7 @@ func MergeRefs(values ...chat.ContextRefs) chat.ContextRefs {
 	for _, value := range values {
 		value = Refs(value)
 		merged.SessionID = firstNonEmpty(merged.SessionID, value.SessionID)
+		merged.TurnID = firstNonEmpty(merged.TurnID, value.TurnID)
 		merged.MessageID = firstNonEmpty(merged.MessageID, value.MessageID)
 		merged.TaskID = firstNonEmpty(merged.TaskID, value.TaskID)
 		merged.RunID = firstNonEmpty(merged.RunID, value.RunID)
@@ -95,9 +97,10 @@ func MergeRefs(values ...chat.ContextRefs) chat.ContextRefs {
 	return merged
 }
 
-func ChatMessageRefs(sessionID, messageID, projectID string) chat.ContextRefs {
+func ChatMessageRefs(sessionID, turnID, messageID, projectID string) chat.ContextRefs {
 	return Refs(chat.ContextRefs{
 		SessionID: sessionID,
+		TurnID:    turnID,
 		MessageID: messageID,
 		ProjectID: projectID,
 	})
@@ -128,6 +131,7 @@ func Normalize(packet chat.ContextPacket, refs chat.ContextRefs) chat.ContextPac
 	}
 	if packet.Refs != nil {
 		packet.Refs.SessionID = firstNonEmpty(packet.Refs.SessionID, refs.SessionID)
+		packet.Refs.TurnID = firstNonEmpty(packet.Refs.TurnID, refs.TurnID)
 		packet.Refs.MessageID = firstNonEmpty(packet.Refs.MessageID, refs.MessageID)
 		packet.Refs.TaskID = firstNonEmpty(packet.Refs.TaskID, refs.TaskID)
 		packet.Refs.RunID = firstNonEmpty(packet.Refs.RunID, refs.RunID)
@@ -174,6 +178,7 @@ func Marshal(packet chat.ContextPacket) json.RawMessage {
 
 func refsEmpty(refs chat.ContextRefs) bool {
 	return refs.SessionID == "" &&
+		refs.TurnID == "" &&
 		refs.MessageID == "" &&
 		refs.TaskID == "" &&
 		refs.RunID == "" &&

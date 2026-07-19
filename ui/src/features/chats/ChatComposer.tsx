@@ -157,7 +157,7 @@ export type ChatComposerProps = {
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
   hecateTaskToolsAvailable: boolean;
-  activeRunKind: ChatTurnKind;
+  activeTurnKind: ChatTurnKind;
   activeSessionID: string;
 
   // Cross-region ref. ChatView owns creation so onSelectSession can
@@ -175,7 +175,7 @@ export type ChatComposerProps = {
   messageSendBlocked: boolean;
   sendDisabled: boolean;
   agentBusy: boolean;
-  activeRunCancellationAvailable: boolean;
+  activeTurnCancellationAvailable: boolean;
   attachmentTurnInFlight: boolean;
   queueingMessage: boolean;
   attachmentAcceptance: ChatAttachmentAcceptance;
@@ -211,7 +211,7 @@ export type ChatComposerProps = {
   messageHistory: string[];
 
   // Threaded from ChatView's own Props.
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
+  onNavigate?: (workspace: "connections" | "tasks" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onDraftProjectProposal?: (request?: string) => void;
@@ -259,7 +259,7 @@ export function ChatComposer(props: ChatComposerProps) {
     isHecateChat,
     isExternalAgentChat,
     hecateTaskToolsAvailable,
-    activeRunKind,
+    activeTurnKind,
     activeSessionID,
     textareaRef,
     composerVisible,
@@ -272,7 +272,7 @@ export function ChatComposer(props: ChatComposerProps) {
     messageSendBlocked,
     sendDisabled,
     agentBusy,
-    activeRunCancellationAvailable,
+    activeTurnCancellationAvailable,
     attachmentTurnInFlight,
     queueingMessage,
     attachmentAcceptance,
@@ -308,15 +308,15 @@ export function ChatComposer(props: ChatComposerProps) {
     rawChatCancelling && chat.state.chatCancellingSessionID === activeSessionID;
   const anotherChatCancelling = rawChatCancelling && !chatCancelling;
   const stopActionLabel =
-    activeRunKind === "external_agent"
+    activeTurnKind === "external_agent"
       ? "Stop external agent"
-      : activeRunKind === "direct_model"
+      : activeTurnKind === "direct_model"
         ? "Stop model response"
         : "Stop active task";
   const stoppingStatusText =
-    activeRunKind === "external_agent"
+    activeTurnKind === "external_agent"
       ? "Stopping external agent..."
-      : activeRunKind === "direct_model"
+      : activeTurnKind === "direct_model"
         ? "Stopping model response..."
         : "Stopping active task...";
   const activeExternalAgentID =
@@ -348,7 +348,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const composerNoticeVisible = Boolean(
     composerRepair || chatError || (isHecateChat && selectedModelIssue),
   );
-  const activeRunStatusText = attachmentTurnInFlight
+  const activeTurnStatusText = attachmentTurnInFlight
     ? "Chat is processing attached files. New text stays in the composer until the response finishes."
     : agentBusy
       ? isExternalAgentChat
@@ -364,7 +364,7 @@ export function ChatComposer(props: ChatComposerProps) {
     ? "Confirming workspace execution. Sending and chat settings are paused."
     : "";
   const composerStatusText =
-    workspaceModeStatusText || activeRunStatusText || baselineComposerStatus;
+    workspaceModeStatusText || activeTurnStatusText || baselineComposerStatus;
 
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -759,7 +759,7 @@ export function ChatComposer(props: ChatComposerProps) {
           return;
         }
         if (onNavigate) {
-          onNavigate("runs");
+          onNavigate("tasks");
           clearLocalCommandMessage();
           return;
         }
@@ -993,7 +993,7 @@ export function ChatComposer(props: ChatComposerProps) {
                                 (queued) => queued.delivery_state === "retryable",
                               )
                             ? "review the failed item before retrying"
-                            : "will send when the active run finishes"}
+                            : "will send when current work finishes"}
                 </span>
               </div>
               {activeQueuedChatMessages.map((queued, index) => (
@@ -1319,7 +1319,7 @@ export function ChatComposer(props: ChatComposerProps) {
                     : attachmentTurnInFlight
                       ? "Wait for the attachment response before sending this message"
                       : queueingMessage
-                        ? "Queue this message after the active run finishes"
+                        ? "Queue this message after current work finishes"
                         : messageSendBlocked
                           ? "Complete chat setup before sending"
                           : "Send message"
@@ -1424,7 +1424,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 workspaceModePending
                   ? "Workspace execution status"
                   : agentBusy
-                    ? "Active run status"
+                    ? "Current work status"
                     : undefined
               }
               aria-live={workspaceModePending ? "polite" : undefined}
@@ -1462,7 +1462,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 </button>
               )}
               {(agentBusy || chatCancelling) &&
-                (activeRunCancellationAvailable || chatCancelling) && (
+                (activeTurnCancellationAvailable || chatCancelling) && (
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useChat, type ChatState } from "./state/chat";
 import { useProvidersAndModels } from "./state/providersAndModels";
@@ -12,11 +12,16 @@ import { deriveSessionState } from "./runtimeConsoleDashboard";
 import {
   isPlainNavigationClick,
   workspaceNavigationURL,
+  type ChatNavigationDestination,
+  type ChatNavigationState,
   type ProjectNavigationDestination,
   type ProjectNavigationState,
+  type TaskNavigationDestination,
+  type TaskNavigationState,
 } from "./navigation";
 import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
+import { getChatSession } from "../lib/api";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
 import type { ProviderFilter } from "../types/provider";
@@ -50,7 +55,7 @@ const ProjectsView = lazy(() =>
   import("../features/projects/ProjectsView").then((m) => ({ default: m.ProjectsView })),
 );
 const TasksView = lazy(() =>
-  import("../features/runs/TasksView").then((m) => ({ default: m.TasksView })),
+  import("../features/tasks/TasksView").then((m) => ({ default: m.TasksView })),
 );
 
 // Single source of truth for the workspace ID set. Exported as a
@@ -60,7 +65,7 @@ const TasksView = lazy(() =>
 export const WORKSPACE_IDS = [
   "overview",
   "projects",
-  "runs",
+  "tasks",
   "chats",
   "connections",
   "usage",
@@ -84,6 +89,33 @@ type ProjectChatRequest = {
   title?: string;
   draft?: string;
 };
+
+type ShellProps = {
+  activeWorkspace: WorkspaceID;
+  chatNavigation?: ChatNavigationState | null;
+  onChatNavigate?: (destination: ChatNavigationDestination, mode?: "push" | "replace") => void;
+  onProjectNavigate?: (
+    destination: ProjectNavigationDestination,
+    mode?: "push" | "replace",
+  ) => void;
+  onSelectWorkspace: (workspace: WorkspaceID) => void;
+  onTaskNavigate?: (destination: TaskNavigationDestination, mode?: "push" | "replace") => void;
+  projectNavigation?: ProjectNavigationState | null;
+  taskNavigation?: TaskNavigationState | null;
+};
+
+export function resolveTaskFocusRequest(
+  taskNavigation: TaskNavigationState | null | undefined,
+  fallback: TaskFocusRequest | null,
+): TaskFocusRequest | null {
+  if (taskNavigation === undefined) return fallback;
+  if (!taskNavigation?.taskID) return null;
+  return {
+    taskID: taskNavigation.taskID,
+    runID: taskNavigation.runID ?? undefined,
+    nonce: 0,
+  };
+}
 
 // Icon paths match the design handoff
 const IC = {
@@ -211,16 +243,16 @@ const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   chats: { id: "chats", label: "Chats", icon: <SvgIcon d={IC.chat} /> },
   projects: { id: "projects", label: "Projects", icon: <SvgIcon d={IC.projects} /> },
   connections: { id: "connections", label: "Connections", icon: <SvgIcon d={IC.connections} /> },
-  runs: { id: "runs", label: "Tasks", icon: <SvgIcon d={IC.tasks} /> },
+  tasks: { id: "tasks", label: "Tasks", icon: <SvgIcon d={IC.tasks} /> },
   overview: { id: "overview", label: "Observability", icon: <SvgIcon d={IC.observe} /> },
   usage: { id: "usage", label: "Usage", icon: <SvgIcon d={IC.usage} /> },
   settings: { id: "settings", label: "Settings", icon: <SvgIcon d={IC.settings} /> },
 };
 
-const BARE_WORKSPACES: WorkspaceID[] = ["chats", "projects", "runs"];
+const BARE_WORKSPACES: WorkspaceID[] = ["chats", "projects", "tasks"];
 
 export function getAvailableWorkspaces(): WorkspaceDefinition[] {
-  return [WS.chats, WS.projects, WS.runs, WS.connections, WS.overview, WS.usage, WS.settings];
+  return [WS.chats, WS.projects, WS.tasks, WS.connections, WS.overview, WS.usage, WS.settings];
 }
 
 function runtimeVersionLabel(version: string | undefined): string {
@@ -232,18 +264,14 @@ function runtimeVersionLabel(version: string | undefined): string {
 
 export function ConsoleShell({
   activeWorkspace,
+  chatNavigation,
+  onChatNavigate,
   onProjectNavigate,
   onSelectWorkspace,
+  onTaskNavigate,
   projectNavigation,
-}: {
-  activeWorkspace: WorkspaceID;
-  onProjectNavigate?: (
-    destination: ProjectNavigationDestination,
-    mode?: "push" | "replace",
-  ) => void;
-  onSelectWorkspace: (workspace: WorkspaceID) => void;
-  projectNavigation?: ProjectNavigationState | null;
-}) {
+  taskNavigation,
+}: ShellProps) {
   const runtime = useRuntime();
   // No auth: render the full console immediately. The brief
   // first-load splash stays so the workspace doesn't flash with
@@ -254,9 +282,13 @@ export function ConsoleShell({
   return (
     <AuthenticatedShell
       activeWorkspace={activeWorkspace}
+      chatNavigation={chatNavigation}
+      onChatNavigate={onChatNavigate}
       onProjectNavigate={onProjectNavigate}
       onSelectWorkspace={onSelectWorkspace}
+      onTaskNavigate={onTaskNavigate}
       projectNavigation={projectNavigation}
+      taskNavigation={taskNavigation}
     />
   );
 }
@@ -304,18 +336,14 @@ function AuthLoadingShell() {
 
 function AuthenticatedShell({
   activeWorkspace,
+  chatNavigation,
+  onChatNavigate,
   onProjectNavigate,
   onSelectWorkspace,
+  onTaskNavigate,
   projectNavigation,
-}: {
-  activeWorkspace: WorkspaceID;
-  onProjectNavigate?: (
-    destination: ProjectNavigationDestination,
-    mode?: "push" | "replace",
-  ) => void;
-  onSelectWorkspace: (workspace: WorkspaceID) => void;
-  projectNavigation?: ProjectNavigationState | null;
-}) {
+  taskNavigation,
+}: ShellProps) {
   const runtime = useRuntime();
   const chat = useChat();
   const projects = useProjects();
@@ -327,21 +355,126 @@ function AuthenticatedShell({
     chatTarget,
     setNoticeMessage: settingsActions.setNoticeMessage,
   });
+  const selectChatSessionRef = useRef(chatActions.selectChatSession);
+  selectChatSessionRef.current = chatActions.selectChatSession;
   const session = deriveSessionState(runtime.state.sessionInfo);
   const runtimeVersion = runtimeVersionLabel(runtime.state.health?.version);
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
+  const routedChatSelectionRef = useRef<string | null>(null);
+  const taskChatNavigationGenerationRef = useRef(0);
+  const routedNavigationIdentityRef = useRef({
+    workspace: activeWorkspace,
+    chatNavigationPresent: chatNavigation !== undefined,
+    chatID: chatNavigation?.chatID ?? null,
+    messageID: chatNavigation?.messageID ?? null,
+    taskNavigationPresent: taskNavigation !== undefined,
+    taskID: taskNavigation?.taskID ?? null,
+    runID: taskNavigation?.runID ?? null,
+  });
   const [theme, toggleTheme] = useTheme();
+  const taskNavigationPresent = taskNavigation !== undefined;
+  const routedTaskID = taskNavigation?.taskID ?? null;
+  const routedRunID = taskNavigation?.runID ?? null;
+  const routedTaskFocusRequest = useMemo(
+    () =>
+      resolveTaskFocusRequest(
+        taskNavigationPresent ? { taskID: routedTaskID, runID: routedRunID } : undefined,
+        taskFocusRequest,
+      ),
+    [routedRunID, routedTaskID, taskFocusRequest, taskNavigationPresent],
+  );
+
+  const invalidateTaskChatNavigation = useCallback(() => {
+    taskChatNavigationGenerationRef.current += 1;
+  }, []);
+
+  useEffect(() => {
+    const nextIdentity = {
+      workspace: activeWorkspace,
+      chatNavigationPresent: chatNavigation !== undefined,
+      chatID: chatNavigation?.chatID ?? null,
+      messageID: chatNavigation?.messageID ?? null,
+      taskNavigationPresent: taskNavigation !== undefined,
+      taskID: taskNavigation?.taskID ?? null,
+      runID: taskNavigation?.runID ?? null,
+    };
+    const previousIdentity = routedNavigationIdentityRef.current;
+    routedNavigationIdentityRef.current = nextIdentity;
+    if (
+      previousIdentity.workspace === nextIdentity.workspace &&
+      previousIdentity.chatNavigationPresent === nextIdentity.chatNavigationPresent &&
+      previousIdentity.chatID === nextIdentity.chatID &&
+      previousIdentity.messageID === nextIdentity.messageID &&
+      previousIdentity.taskNavigationPresent === nextIdentity.taskNavigationPresent &&
+      previousIdentity.taskID === nextIdentity.taskID &&
+      previousIdentity.runID === nextIdentity.runID
+    ) {
+      return;
+    }
+    invalidateTaskChatNavigation();
+  }, [
+    activeWorkspace,
+    chatNavigation?.chatID,
+    chatNavigation?.messageID,
+    chatNavigation !== undefined,
+    invalidateTaskChatNavigation,
+    taskNavigation?.runID,
+    taskNavigation?.taskID,
+    taskNavigation !== undefined,
+  ]);
+
+  const handleWorkspaceSelection = useCallback(
+    (workspace: WorkspaceID) => {
+      routedChatSelectionRef.current = null;
+      invalidateTaskChatNavigation();
+      onSelectWorkspace(workspace);
+    },
+    [invalidateTaskChatNavigation, onSelectWorkspace],
+  );
+
+  useEffect(() => {
+    const chatID = chatNavigation?.chatID;
+    if (activeWorkspace !== "chats" || !chatID || chat.state.activeChatSession?.id === chatID) {
+      routedChatSelectionRef.current = null;
+      return;
+    }
+    if (routedChatSelectionRef.current === chatID) return;
+    routedChatSelectionRef.current = chatID;
+    let cancelled = false;
+    void selectChatSessionRef.current(chatID).then((selected) => {
+      const ownsRoutedSelection = routedChatSelectionRef.current === chatID;
+      if (ownsRoutedSelection) routedChatSelectionRef.current = null;
+      if (cancelled || selected || !ownsRoutedSelection) return;
+      onChatNavigate?.(
+        { chatID: chat.state.activeChatSession?.id ?? null, messageID: null },
+        "replace",
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace, chatNavigation?.chatID, onChatNavigate]);
 
   function openTaskFromChat(taskID: string, runID?: string) {
+    invalidateTaskChatNavigation();
     setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
-    onSelectWorkspace("runs");
+    if (onTaskNavigate) {
+      onTaskNavigate({ taskID, runID });
+    } else {
+      onSelectWorkspace("tasks");
+    }
   }
 
   function openTaskFromProject(taskID: string, runID?: string) {
+    invalidateTaskChatNavigation();
     setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
-    onSelectWorkspace("runs");
+    if (onTaskNavigate) {
+      onTaskNavigate({ taskID, runID });
+    } else {
+      onSelectWorkspace("tasks");
+    }
   }
 
   function projectChatOwnershipBlockReason(): string {
@@ -358,6 +491,7 @@ function AuthenticatedShell({
   }
 
   async function openChatFromProject(request: ProjectChatRequest) {
+    invalidateTaskChatNavigation();
     const ownershipBlockReason = projectChatOwnershipBlockReason();
     if (ownershipBlockReason) {
       settingsActions.setNoticeMessage("error", ownershipBlockReason);
@@ -376,7 +510,11 @@ function AuthenticatedShell({
       if (request.projectID) {
         void projects.actions.selectProject(request.projectID);
       }
-      onSelectWorkspace("chats");
+      if (onChatNavigate) {
+        onChatNavigate({ chatID: request.chatSessionID, messageID: null });
+      } else {
+        onSelectWorkspace("chats");
+      }
       return;
     }
     if (
@@ -412,16 +550,69 @@ function AuthenticatedShell({
     onSelectWorkspace("chats");
   }
 
-  function openChatFromTask(sessionID: string) {
+  async function openChatFromTask(sessionID: string, taskID?: string, runID?: string) {
+    const navigationGeneration = ++taskChatNavigationGenerationRef.current;
     chatActions.setChatTarget("agent");
-    void chatActions.selectChatSession(sessionID);
-    onSelectWorkspace("chats");
+    let messageID: string | null = null;
+    if (taskID || runID) {
+      try {
+        const snapshot = await getChatSession(sessionID);
+        const messages = snapshot.data.messages ?? [];
+        const matchesExecution = (message: (typeof messages)[number]) =>
+          (!taskID || message.task_id === taskID) && (!runID || message.run_id === runID);
+        messageID =
+          messages.find((message) => message.role === "user" && matchesExecution(message))?.id ??
+          messages.find(matchesExecution)?.id ??
+          null;
+      } catch {
+        // Session selection owns the visible error and stale-target behavior.
+      }
+    }
+    if (taskChatNavigationGenerationRef.current !== navigationGeneration) return;
+    const selected = await chatActions.selectChatSession(sessionID);
+    if (!selected || taskChatNavigationGenerationRef.current !== navigationGeneration) return;
+    if (onChatNavigate) {
+      onChatNavigate({ chatID: sessionID, messageID });
+    } else {
+      onSelectWorkspace("chats");
+    }
   }
 
   function openTraceFromChat(requestID: string) {
+    invalidateTaskChatNavigation();
     setTraceFocusRequest({ requestID, nonce: Date.now() });
     onSelectWorkspace("overview");
   }
+
+  const handleChatSelectionIntent = useCallback(() => {
+    routedChatSelectionRef.current = null;
+    invalidateTaskChatNavigation();
+  }, [invalidateTaskChatNavigation]);
+
+  const handleChatSelection = useCallback(
+    (sessionID: string, mode?: "push" | "replace") => {
+      invalidateTaskChatNavigation();
+      const destination = { chatID: sessionID, messageID: null };
+      if (mode) onChatNavigate?.(destination, mode);
+      else onChatNavigate?.(destination);
+    },
+    [invalidateTaskChatNavigation, onChatNavigate],
+  );
+  const handleMissingChatMessage = useCallback(
+    (sessionID: string, messageID: string) => {
+      if (chatNavigation?.chatID === sessionID && chatNavigation.messageID === messageID) {
+        onChatNavigate?.({ chatID: sessionID, messageID: null }, "replace");
+      }
+    },
+    [chatNavigation?.chatID, chatNavigation?.messageID, onChatNavigate],
+  );
+  const handleTaskSelection = useCallback(
+    (taskID: string | null, runID: string | null, mode?: "push" | "replace") => {
+      if (mode !== "replace") invalidateTaskChatNavigation();
+      onTaskNavigate?.({ taskID, runID }, mode);
+    },
+    [invalidateTaskChatNavigation, onTaskNavigate],
+  );
 
   const isBare = BARE_WORKSPACES.includes(activeWorkspace);
   const agentWorkspace = chat.state.activeChatSession?.workspace || chat.state.agentWorkspace;
@@ -463,7 +654,7 @@ function AuthenticatedShell({
               onClick={(event) => {
                 if (!isPlainNavigationClick(event)) return;
                 event.preventDefault();
-                onSelectWorkspace(ws.id);
+                handleWorkspaceSelection(ws.id);
               }}
               title={ws.label}
             >
@@ -495,29 +686,34 @@ function AuthenticatedShell({
             <Suspense fallback={<WorkspaceFallback />}>
               {activeWorkspace === "overview" && (
                 <ObservabilityView
-                  onNavigate={onSelectWorkspace}
+                  onNavigate={handleWorkspaceSelection}
                   focusRequest={traceFocusRequest}
                 />
               )}
               {activeWorkspace === "chats" && (
                 <ChatView
-                  onNavigate={onSelectWorkspace}
+                  focusMessageID={chatNavigation?.messageID}
+                  onNavigate={handleWorkspaceSelection}
+                  onMessageFocusUnavailable={handleMissingChatMessage}
                   onOpenTask={openTaskFromChat}
                   onOpenTrace={openTraceFromChat}
+                  onSelectChat={handleChatSelection}
+                  onSelectChatIntent={handleChatSelectionIntent}
                 />
               )}
-              {activeWorkspace === "runs" && (
+              {activeWorkspace === "tasks" && (
                 <TasksView
-                  focusRequest={taskFocusRequest}
+                  focusRequest={routedTaskFocusRequest}
                   onOpenChat={openChatFromTask}
                   onOpenTrace={openTraceFromChat}
+                  onSelectionChange={handleTaskSelection}
                 />
               )}
               {activeWorkspace === "projects" && (
                 <ProjectsView
                   navigation={projectNavigation}
                   onOpenChat={openChatFromProject}
-                  onOpenConnections={() => onSelectWorkspace("connections")}
+                  onOpenConnections={() => handleWorkspaceSelection("connections")}
                   onOpenTask={openTaskFromProject}
                   onNavigate={onProjectNavigate}
                 />

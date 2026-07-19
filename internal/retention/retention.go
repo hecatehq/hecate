@@ -17,13 +17,13 @@ const (
 	SubsystemUsageEvents     = "usage_events"
 	SubsystemAuditEvents     = "audit_events"
 	SubsystemProviderHistory = "provider_history"
-	// SubsystemTurnEvents prunes the high-cardinality
-	// `turn.completed` rows from the task-run events table.
+	// SubsystemModelCallEvents prunes the high-cardinality
+	// `model.call.completed` rows from the task-run events table.
 	// Other event types (run.started / run.finished / approval.*) are
-	// kept for forensics — turn events are bulk telemetry that's only
+	// kept for forensics — model-call events are bulk telemetry that's only
 	// useful while the run is hot.
-	SubsystemTurnEvents    = "turn_events"
-	SubsystemChatApprovals = "chat_approvals"
+	SubsystemModelCallEvents = "model_call_events"
+	SubsystemChatApprovals   = "chat_approvals"
 )
 
 // Pruner prunes old or excess records from a subsystem store. Each
@@ -81,7 +81,7 @@ func NewManager(
 	usage Pruner,
 	audit Pruner,
 	providerHistory Pruner,
-	turnEvents Pruner,
+	modelCallEvents Pruner,
 	approvals Pruner,
 	history HistoryStore,
 ) *Manager {
@@ -94,7 +94,7 @@ func NewManager(
 			{SubsystemUsageEvents, cfg.UsageEvents, usage},
 			{SubsystemAuditEvents, cfg.AuditEvents, audit},
 			{SubsystemProviderHistory, cfg.ProviderHistory, providerHistory},
-			{SubsystemTurnEvents, cfg.TurnEvents, turnEvents},
+			{SubsystemModelCallEvents, cfg.ModelCallEvents, modelCallEvents},
 			{SubsystemChatApprovals, cfg.ChatApprovals, approvals},
 		},
 		history: history,

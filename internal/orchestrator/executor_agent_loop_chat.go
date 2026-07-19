@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,28 +12,44 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-type agentLoopLLMTurn struct {
+type agentLoopModelCall struct {
 	Assistant    types.Message
 	ThinkingStep types.TaskStep
 }
 
-func (e *AgentLoopExecutor) runLLMTurn(ctx context.Context, spec ExecutionSpec, conversation *agentLoopConversation, runState *agentLoopRunState, tools []types.Tool, turn int, startedAt time.Time) (agentLoopLLMTurn, *ExecutionResult, error) {
+func (e *AgentLoopExecutor) runModelCall(ctx context.Context, spec ExecutionSpec, conversation *agentLoopConversation, runState *agentLoopRunState, tools []types.Tool, modelCall int, startedAt time.Time) (agentLoopModelCall, *ExecutionResult, error) {
 	messages := conversation.Messages()
 	req := agentLoopChatRequest(spec, messages, tools)
 	runState.fenceProviderBoundRequest(&req)
-	emitAgentTurnStarted(spec, turn, req)
+	emitAgentModelCallStarted(spec, modelCall, req)
 
-	turnCtx := providerdispatch.WithAttemptRecorder(ctx, spec.RecordProviderAttempt)
-	resp, err := e.chatTurn(turnCtx, spec, conversation.ArtifactID(), messages, turn, req)
+	modelCallCtx := providerdispatch.WithAttemptRecorder(ctx, spec.RecordProviderAttempt)
+	resp, err := e.performModelCall(modelCallCtx, spec, conversation.ArtifactID(), messages, modelCall, req)
 	runState.RecordRoute(resp)
+	restoreCompletedConversation := func(cause error) error {
+		repairSpec := spec
+		if repairSpec.RepairArtifact != nil {
+			repairSpec.UpsertArtifact = repairSpec.RepairArtifact
+		}
+		artifact, restoreErr := conversation.UpsertArtifact(repairSpec, modelCall-1, time.Now().UTC())
+		if artifact != nil {
+			runState.TrackInitialConversationArtifact(artifact)
+		}
+		if restoreErr != nil {
+			return errors.Join(cause, fmt.Errorf("restore completed conversation after failed model call: %w", restoreErr))
+		}
+		return cause
+	}
 	if err != nil {
-		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, llmTurnErrorMessage(spec, turn, len(tools) > 0, err))
-		return agentLoopLLMTurn{}, runState.attachAccounting(failed), ferr
+		err = restoreCompletedConversation(err)
+		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, modelCallErrorMessage(spec, modelCall, len(tools) > 0, err))
+		return agentLoopModelCall{}, runState.attachAccounting(failed), ferr
 	}
 	if resp == nil || len(resp.Choices) == 0 {
+		emptyErr := restoreCompletedConversation(fmt.Errorf("LLM returned empty response on model call %d", modelCall))
 		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt,
-			fmt.Sprintf("LLM returned empty response on turn %d", turn))
-		return agentLoopLLMTurn{}, runState.attachAccounting(failed), ferr
+			emptyErr.Error())
+		return agentLoopModelCall{}, runState.attachAccounting(failed), ferr
 	}
 
 	assistantMsg := resp.Choices[0].Message
@@ -40,23 +57,23 @@ func (e *AgentLoopExecutor) runLLMTurn(ctx context.Context, spec ExecutionSpec, 
 	// any invalid raw arguments before the assistant message is emitted or
 	// checkpointed, where a query could otherwise be retained as operator data.
 	assistantMsg = sanitizeBrowserInspectionToolCalls(assistantMsg)
-	emitAssistantMessageEvents(spec, turn, assistantMsg)
+	emitAssistantMessageEvents(spec, modelCall, assistantMsg)
 
-	turnCost := runState.AccumulateCost(resp)
-	thinkingStep := buildThinkingStep(spec, runState.NextStepIndex(), turn, startedAt, assistantMsg, resp, runState.CostSpent())
+	modelCallCost := runState.AccumulateCost(resp)
+	thinkingStep := buildThinkingStep(spec, runState.NextStepIndex(), modelCall, startedAt, assistantMsg, resp, runState.CostSpent())
 	if err := runState.AddStep(spec, thinkingStep); err != nil {
-		return agentLoopLLMTurn{}, nil, err
+		return agentLoopModelCall{}, nil, err
 	}
-	runState.AddTurnCost(turn, thinkingStep.ID, turnCost, len(assistantMsg.ToolCalls))
+	runState.AddModelCallCost(modelCall, thinkingStep.ID, modelCallCost, len(assistantMsg.ToolCalls))
 
 	conversation.AppendAssistant(assistantMsg)
-	if art, err := conversation.UpsertArtifact(spec, turn, startedAt); err != nil {
-		return agentLoopLLMTurn{}, nil, err
+	if art, err := conversation.UpsertArtifact(spec, modelCall, startedAt); err != nil {
+		return agentLoopModelCall{}, nil, err
 	} else {
 		runState.TrackInitialConversationArtifact(art)
 	}
 
-	return agentLoopLLMTurn{
+	return agentLoopModelCall{
 		Assistant:    assistantMsg,
 		ThinkingStep: thinkingStep,
 	}, nil, nil
@@ -73,7 +90,7 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	// tasks that didn't specify a provider.
 	requirements := spec.ChatRequirements
 	// Rich input needs one candidate that is explicitly capable of both the
-	// image and the tool catalog. Ordinary agent runs retain their established
+	// image and the tool catalog. Ordinary Task Runs retain their established
 	// optimistic behavior for providers whose capability discovery is unknown;
 	// the provider remains the authority for a normal tool-call rejection.
 	requirements.ToolCalling = requirements.ImageInput && len(tools) > 0
@@ -89,15 +106,15 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	}
 }
 
-func llmTurnErrorMessage(spec ExecutionSpec, turn int, toolsRequired bool, err error) string {
-	message := fmt.Sprintf("LLM call failed on turn %d: %v", turn, err)
+func modelCallErrorMessage(spec ExecutionSpec, modelCall int, toolsRequired bool, err error) string {
+	message := fmt.Sprintf("model call %d failed: %v", modelCall, err)
 	if !toolsRequired || !isModelLacksToolsError(err) {
 		return message
 	}
-	return fmt.Sprintf("LLM call failed on turn %d: model %q does not support tool-calling, which agent_loop requires. Pick a tool-capable model (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen2.5-coder for Ollama). Underlying error: %v", turn, spec.Run.Model, err)
+	return fmt.Sprintf("model call %d failed: model %q does not support tool-calling, which agent_loop requires. Pick a tool-capable model (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen2.5-coder for Ollama). Underlying error: %v", modelCall, spec.Run.Model, err)
 }
 
-func (e *AgentLoopExecutor) chatTurn(ctx context.Context, spec ExecutionSpec, conversationArtifactID string, messages []types.Message, turn int, req types.ChatRequest) (*types.ChatResponse, error) {
+func (e *AgentLoopExecutor) performModelCall(ctx context.Context, spec ExecutionSpec, conversationArtifactID string, messages []types.Message, modelCall int, req types.ChatRequest) (*types.ChatResponse, error) {
 	streamer, ok := e.llm.(AgentLLMStreamingClient)
 	if !ok {
 		return e.llm.Chat(ctx, req)
@@ -121,7 +138,7 @@ func (e *AgentLoopExecutor) chatTurn(ctx context.Context, spec ExecutionSpec, co
 		partial := make([]types.Message, 0, len(messages))
 		partial = append(partial, messages...)
 		partial = append(partial, types.Message{Role: "assistant", Content: content})
-		_, persistErr = upsertConversationArtifact(spec, conversationArtifactID, partial, turn, now)
+		_, persistErr = upsertConversationArtifact(spec, conversationArtifactID, partial, modelCall-1, "streaming", now)
 		if persistErr == nil {
 			lastPersistedLen = len(content)
 			lastPersistedAt = now

@@ -31,11 +31,11 @@ func (h *Handler) startAgentChatTrace(w http.ResponseWriter, r *http.Request) (*
 // agentChatTraceAttrs builds the OTel attribute bag attached to every
 // agent-chat trace event. Callers pass per-event attrs in the final
 // map and they overwrite any defaults.
-func agentChatTraceAttrs(session chat.Session, adapter agentadapters.Adapter, runID, messageID string, attrs map[string]any) map[string]any {
+func agentChatTraceAttrs(session chat.Session, adapter agentadapters.Adapter, turnID, messageID string, attrs map[string]any) map[string]any {
 	out := map[string]any{
 		telemetry.AttrHecateChatSessionID:       session.ID,
 		telemetry.AttrHecateChatMessageID:       messageID,
-		telemetry.AttrHecateRunID:               runID,
+		telemetry.AttrHecateChatTurnID:          turnID,
 		telemetry.AttrHecateExecutionKind:       "chat",
 		telemetry.AttrHecateAgentAdapterID:      adapter.ID,
 		telemetry.AttrHecateAgentAdapterName:    adapter.Name,
@@ -54,15 +54,14 @@ func agentChatTraceAttrs(session chat.Session, adapter agentadapters.Adapter, ru
 }
 
 // hecateAgentChatTraceAttrs mirrors agentChatTraceAttrs for Hecate-owned
-// task-backed chats. The backing task/run trace carries the detailed queue,
-// model, tool, approval, and artifact timings; these attrs make the chat
-// wrapper itself visible in the same chat dashboards.
-func hecateAgentChatTraceAttrs(session chat.Session, taskID, runID, messageID string, attrs map[string]any) map[string]any {
+// turns. A direct-model turn adds its gateway routing spans to this trace; a
+// task-backed turn links the wrapper to the detailed Task Run trace through
+// the optional task and run IDs.
+func hecateAgentChatTraceAttrs(session chat.Session, turnID, taskID, runID, messageID string, attrs map[string]any) map[string]any {
 	out := map[string]any{
 		telemetry.AttrHecateChatSessionID:    session.ID,
 		telemetry.AttrHecateChatMessageID:    messageID,
-		telemetry.AttrHecateTaskID:           taskID,
-		telemetry.AttrHecateRunID:            runID,
+		telemetry.AttrHecateChatTurnID:       turnID,
 		telemetry.AttrHecateExecutionKind:    "chat",
 		telemetry.AttrHecateAgentAdapterID:   "hecate",
 		telemetry.AttrHecateAgentAdapterName: "Hecate Chat",
@@ -71,6 +70,12 @@ func hecateAgentChatTraceAttrs(session chat.Session, taskID, runID, messageID st
 		telemetry.AttrGenAIProviderName:      session.Provider,
 		telemetry.AttrGenAIRequestModel:      session.Model,
 		telemetry.AttrHecateResult:           telemetry.ResultSuccess,
+	}
+	if taskID != "" {
+		out[telemetry.AttrHecateTaskID] = taskID
+	}
+	if runID != "" {
+		out[telemetry.AttrHecateRunID] = runID
 	}
 	for key, value := range attrs {
 		out[key] = value

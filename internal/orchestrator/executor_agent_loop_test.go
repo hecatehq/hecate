@@ -39,7 +39,7 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 // scriptedLLM returns a canned response on each call. Tests build the
-// script in advance — { "turn 1 wants shell_exec(ls)", "turn 2 wants
+// script in advance — { "model call 1 wants shell_exec(ls)", "model call 2 wants
 // final answer" } — and the loop drives through it. Each call records
 // what messages it received so we can assert the conversation grew
 // correctly.
@@ -199,7 +199,7 @@ func newNetworkAgentLoopSpec(t *testing.T) ExecutionSpec {
 	return spec
 }
 
-func TestAgentLoop_FinalAnswerOnFirstTurn(t *testing.T) {
+func TestAgentLoop_FinalAnswerOnFirstModelCall(t *testing.T) {
 	// Simplest happy path: assistant answers immediately, no tool
 	// calls. Loop should produce one thinking step + one final-answer
 	// artifact and return completed.
@@ -220,7 +220,7 @@ func TestAgentLoop_FinalAnswerOnFirstTurn(t *testing.T) {
 		t.Errorf("Steps = %d, want 1 (just the thinking step)", len(res.Steps))
 	}
 	// Two artifacts now: the conversation snapshot (persisted every
-	// turn for resume) and the final-answer summary.
+	// model call for resume) and the final-answer summary.
 	finalAnswer := findArtifactByKind(res.Artifacts, "summary")
 	if finalAnswer == nil {
 		t.Fatalf("no summary artifact; got: %+v", res.Artifacts)
@@ -273,7 +273,7 @@ func TestAgentLoop_StreamingLLMPersistsPartialConversation(t *testing.T) {
 }
 
 func TestAgentLoop_ToolCallThenAnswer(t *testing.T) {
-	// Realistic two-turn flow: LLM calls shell_exec, gets the result,
+	// Realistic two-model-call flow: LLM calls shell_exec, gets the result,
 	// then produces a final answer. Asserts the dispatched task
 	// carries the right command and that the second LLM request sees
 	// the tool result in its conversation history.
@@ -368,10 +368,10 @@ func TestAgentLoop_EmitsCandidateCoreAssistantEvents(t *testing.T) {
 	events := append([]capturedEvent(nil), cap.events...)
 	cap.mu.Unlock()
 	wantTypes := []string{
-		"turn.started",
+		"model.call.started",
 		"assistant.text_complete",
 		"assistant.tool_call_proposed",
-		"turn.started",
+		"model.call.started",
 		"assistant.text_complete",
 		"assistant.final_answer",
 	}
@@ -385,8 +385,8 @@ func TestAgentLoop_EmitsCandidateCoreAssistantEvents(t *testing.T) {
 		assertAgentLoopEventContract(t, events[i])
 	}
 
-	if got := len(cap.byType("turn.started")); got != 2 {
-		t.Fatalf("turn.started count = %d, want 2", got)
+	if got := len(cap.byType("model.call.started")); got != 2 {
+		t.Fatalf("model.call.started count = %d, want 2", got)
 	}
 	textEvents := cap.byType("assistant.text_complete")
 	if len(textEvents) != 2 {
@@ -421,25 +421,25 @@ func TestAgentLoop_EmitsCandidateCoreAssistantEvents(t *testing.T) {
 func assertAgentLoopEventContract(t *testing.T, event capturedEvent) {
 	t.Helper()
 	required := map[string][]string{
-		"turn.started": {
-			"turn_index",
+		"model.call.started": {
+			"model_call_index",
 			"model",
 			"provider",
 			"input_tokens_estimate",
 		},
 		"assistant.text_complete": {
-			"turn_index",
+			"model_call_index",
 			"block_index",
 			"text",
 		},
 		"assistant.tool_call_proposed": {
-			"turn_index",
+			"model_call_index",
 			"tool_call_id",
 			"tool_name",
 			"input",
 		},
 		"assistant.final_answer": {
-			"turn_index",
+			"model_call_index",
 			"summary",
 		},
 	}
@@ -448,16 +448,16 @@ func assertAgentLoopEventContract(t *testing.T, event capturedEvent) {
 			t.Fatalf("%s missing required data key %q: %+v", event.Type, key, event.Data)
 		}
 	}
-	for _, legacyKey := range []string{"turn", "tool_call_count"} {
+	for _, legacyKey := range []string{"turn", "turn_index", "tool_call_count"} {
 		if _, ok := event.Data[legacyKey]; ok {
 			t.Fatalf("%s carried legacy data key %q: %+v", event.Type, legacyKey, event.Data)
 		}
 	}
 }
 
-func TestAgentLoop_MaxTurnsHonored(t *testing.T) {
+func TestAgentLoop_MaxModelCallsHonored(t *testing.T) {
 	// LLM keeps asking for tool calls forever; loop must stop at
-	// maxTurns and return failed status. Without this cap a runaway
+	// maxModelCalls and return failed status. Without this cap a runaway
 	// agent could exhaust the model budget.
 	loopingResponse := makeChatResp(makeAssistantMsg("", types.ToolCall{
 		ID: "call-x", Type: "function",
@@ -473,10 +473,10 @@ func TestAgentLoop_MaxTurnsHonored(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	if res.Status != "failed" {
-		t.Errorf("Status = %q, want failed (max turns)", res.Status)
+		t.Errorf("Status = %q, want failed (max model calls)", res.Status)
 	}
-	if !strings.Contains(res.LastError, "maxTurns=3") {
-		t.Errorf("LastError = %q, want mention of maxTurns=3", res.LastError)
+	if !strings.Contains(res.LastError, "maximum of 3 model calls") {
+		t.Errorf("LastError = %q, want plain-language model-call limit", res.LastError)
 	}
 	if got := llm.calls.Load(); got != 3 {
 		t.Errorf("LLM calls = %d, want 3 (capped)", got)
@@ -496,8 +496,8 @@ func TestAgentLoop_LLMErrorBubbles(t *testing.T) {
 	if res.Status != "failed" {
 		t.Errorf("Status = %q, want failed", res.Status)
 	}
-	if !strings.Contains(res.LastError, "LLM call failed") {
-		t.Errorf("LastError = %q, want 'LLM call failed'", res.LastError)
+	if !strings.Contains(res.LastError, "model call 1 failed") {
+		t.Errorf("LastError = %q, want 'model call 1 failed'", res.LastError)
 	}
 }
 
@@ -521,7 +521,7 @@ func TestAgentLoop_NoLLM_FailsWithActionableError(t *testing.T) {
 func TestAgentLoop_BadToolArgsBecomeToolError(t *testing.T) {
 	// Malformed tool arguments must NOT crash the loop or become a
 	// Go error — the LLM should see the parse error as its tool
-	// result and decide what to do. Then on the next turn we provide
+	// result and decide what to do. Then on the next model call we provide
 	// a valid answer to terminate the loop.
 	llm := &scriptedLLM{
 		responses: []*types.ChatResponse{
@@ -611,7 +611,7 @@ func TestAgentLoop_UnknownToolBecomesToolError(t *testing.T) {
 func TestAgentLoop_ReadFileTool(t *testing.T) {
 	// Happy path: agent calls read_file on a workspace file. Loop
 	// reads the file inline (no FileExecutor, no shell), surfaces
-	// the content as the tool result, and the next LLM turn answers.
+	// the content as the tool result, and the next model call answers.
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello world\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -644,7 +644,7 @@ func TestAgentLoop_ReadFileTool(t *testing.T) {
 		}
 	}
 	if !hasContent {
-		t.Errorf("read_file content didn't surface to next LLM turn: %+v", secondReq.Messages)
+		t.Errorf("read_file content didn't surface to next model call: %+v", secondReq.Messages)
 	}
 }
 
@@ -1822,11 +1822,11 @@ func findArtifactByKind(arts []types.TaskArtifact, kind string) *types.TaskArtif
 	return nil
 }
 
-func TestAgentLoop_ConversationPersistsAcrossTurns(t *testing.T) {
-	// Pin the resume contract: every turn writes a snapshot to the
+func TestAgentLoop_ConversationPersistsAcrossModelCalls(t *testing.T) {
+	// Pin the resume contract: every model call writes a snapshot to the
 	// same stable artifact ID (`convo-{run.ID}`). A test stub records
 	// each upsert so we can verify (a) the artifact ID is stable
-	// across turns, (b) the JSON-decoded payload reflects the latest
+	// across model calls, (b) the JSON-decoded payload reflects the latest
 	// conversation state, and (c) tool results are in the snapshot.
 	upserts := make([]types.TaskArtifact, 0)
 	llm := &scriptedLLM{
@@ -1863,7 +1863,7 @@ func TestAgentLoop_ConversationPersistsAcrossTurns(t *testing.T) {
 		}
 	}
 	if len(convoUpserts) < 2 {
-		t.Fatalf("conversation upserts = %d, want >= 2 (one per turn)", len(convoUpserts))
+		t.Fatalf("conversation upserts = %d, want >= 2 (one per model call)", len(convoUpserts))
 	}
 	// Stable ID across all upserts.
 	for i, u := range convoUpserts {
@@ -1874,9 +1874,9 @@ func TestAgentLoop_ConversationPersistsAcrossTurns(t *testing.T) {
 	// Last snapshot must contain the final assistant message.
 	last := convoUpserts[len(convoUpserts)-1]
 	if !strings.Contains(last.ContentText, "Done.") {
-		t.Errorf("last snapshot missing final assistant turn: %s", last.ContentText)
+		t.Errorf("last snapshot missing final assistant message: %s", last.ContentText)
 	}
-	// Tool result was in the conversation between turn 1 and turn 2,
+	// Tool result was in the conversation between model call 1 and model call 2,
 	// so an intermediate snapshot must include it.
 	hasToolResult := false
 	for _, u := range convoUpserts {
@@ -1916,7 +1916,7 @@ func TestAgentLoop_HydratesFromResumeCheckpoint(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	if len(llm.lastReqs) != 1 {
-		t.Fatalf("LLM calls = %d, want 1 (single resume turn)", len(llm.lastReqs))
+		t.Fatalf("LLM calls = %d, want 1 (single resumed model call)", len(llm.lastReqs))
 	}
 	resumed := llm.lastReqs[0].Messages
 	if len(resumed) != 3 {
@@ -1995,83 +1995,72 @@ func TestAgentLoop_HydrateGracefulFallbackOnCorruptCheckpoint(t *testing.T) {
 	}
 }
 
-func TestTruncateConversationToTurn(t *testing.T) {
-	// Build a 3-turn conversation: system + user, then turns 1/2/3,
-	// each with a tool call + result, plus a final answer in turn 3.
+func TestTruncateConversationToRunModelCall(t *testing.T) {
+	// The source Run owns the final two model calls; the first two assistant
+	// responses are inherited from prior Runs in the conversation artifact.
 	conv := []types.Message{
 		{Role: "system", Content: "be concise"},
-		{Role: "user", Content: "list /etc"},
-		{Role: "assistant", Content: "", ToolCalls: []types.ToolCall{{ID: "c1", Function: types.ToolCallFunction{Name: "shell_exec"}}}},
-		{Role: "tool", Content: "result1", ToolCallID: "c1"},
-		{Role: "assistant", Content: "", ToolCalls: []types.ToolCall{{ID: "c2", Function: types.ToolCallFunction{Name: "shell_exec"}}}},
-		{Role: "tool", Content: "result2", ToolCallID: "c2"},
-		{Role: "assistant", Content: "done."},
+		{Role: "user", Content: "first prompt"},
+		{Role: "assistant", Content: "", ToolCalls: []types.ToolCall{{ID: "inherited-1", Function: types.ToolCallFunction{Name: "shell_exec"}}}},
+		{Role: "tool", Content: "prior result", ToolCallID: "inherited-1"},
+		{Role: "assistant", Content: "prior answer"},
+		{Role: "user", Content: "continue"},
+		{Role: "assistant", Content: "", ToolCalls: []types.ToolCall{{ID: "source-1", Function: types.ToolCallFunction{Name: "shell_exec"}}}},
+		{Role: "tool", Content: "source result", ToolCallID: "source-1"},
+		{Role: "assistant", Content: "source answer"},
 	}
 
-	t.Run("turn 1 keeps prelude only", func(t *testing.T) {
-		got, err := truncateConversationToTurn(conv, 1)
-		if err != nil {
-			t.Fatalf("err: %v", err)
-		}
-		if len(got) != 2 {
-			t.Fatalf("len = %d, want 2 (system+user)", len(got))
-		}
-		if got[0].Role != "system" || got[1].Role != "user" {
-			t.Errorf("prelude shape wrong: %+v", got)
-		}
-	})
-
-	t.Run("turn 2 keeps turn 1's tool result", func(t *testing.T) {
-		got, err := truncateConversationToTurn(conv, 2)
-		if err != nil {
-			t.Fatalf("err: %v", err)
-		}
-		// Should be: system, user, assistant_1, tool_1
-		if len(got) != 4 {
-			t.Fatalf("len = %d, want 4", len(got))
-		}
-		if got[3].Role != "tool" || got[3].ToolCallID != "c1" {
-			t.Errorf("tail expected to be tool result for c1, got %+v", got[3])
-		}
-	})
-
-	t.Run("final turn drops only that assistant message", func(t *testing.T) {
-		got, err := truncateConversationToTurn(conv, 3)
+	t.Run("source Run model call 1 preserves inherited context", func(t *testing.T) {
+		got, err := truncateConversationToRunModelCall(conv, 2, 1)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		if len(got) != 6 {
-			t.Fatalf("len = %d, want 6", len(got))
+			t.Fatalf("len = %d, want 6 inherited-context messages", len(got))
 		}
-		// Tail is the second tool result; assistant_3 (final) and
-		// nothing else have been dropped.
-		if got[len(got)-1].Role != "tool" || got[len(got)-1].ToolCallID != "c2" {
+		if got[len(got)-1].Role != "user" || got[len(got)-1].Content != "continue" {
+			t.Errorf("tail = %+v, want source Run prompt", got[len(got)-1])
+		}
+	})
+
+	t.Run("source Run model call 2 keeps its first tool result", func(t *testing.T) {
+		got, err := truncateConversationToRunModelCall(conv, 2, 2)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if len(got) != 8 {
+			t.Fatalf("len = %d, want 8", len(got))
+		}
+		if got[len(got)-1].Role != "tool" || got[len(got)-1].ToolCallID != "source-1" {
 			t.Errorf("tail wrong: %+v", got[len(got)-1])
 		}
 	})
 
-	t.Run("out-of-range turn fails", func(t *testing.T) {
-		if _, err := truncateConversationToTurn(conv, 4); err == nil {
-			t.Errorf("turn 4 of 3-turn conv should fail")
+	t.Run("invalid Run-local ranges and artifact mismatch fail", func(t *testing.T) {
+		if _, err := truncateConversationToRunModelCall(conv, 2, 3); err == nil {
+			t.Errorf("model call 3 of a 2-call source Run should fail")
 		}
-		if _, err := truncateConversationToTurn(conv, 0); err == nil {
-			t.Errorf("turn 0 should fail")
+		if _, err := truncateConversationToRunModelCall(conv, 2, 0); err == nil {
+			t.Errorf("model call 0 should fail")
 		}
-		if _, err := truncateConversationToTurn(conv, -1); err == nil {
-			t.Errorf("negative turn should fail")
+		if _, err := truncateConversationToRunModelCall(conv, 0, 1); err == nil {
+			t.Errorf("source Run with zero model calls should fail")
+		}
+		if _, err := truncateConversationToRunModelCall(conv, 5, 1); err == nil {
+			t.Errorf("source Run count greater than conversation count should fail")
 		}
 	})
 
 	t.Run("does not mutate input", func(t *testing.T) {
 		before := len(conv)
-		_, _ = truncateConversationToTurn(conv, 2)
+		_, _ = truncateConversationToRunModelCall(conv, 2, 2)
 		if len(conv) != before {
 			t.Errorf("input mutated: len changed from %d to %d", before, len(conv))
 		}
 	})
 }
 
-func TestCountAssistantTurns(t *testing.T) {
+func TestCountAssistantMessages(t *testing.T) {
 	cases := []struct {
 		name string
 		msgs []types.Message
@@ -2079,7 +2068,7 @@ func TestCountAssistantTurns(t *testing.T) {
 	}{
 		{"empty", nil, 0},
 		{"user only", []types.Message{{Role: "user", Content: "hi"}}, 0},
-		{"three turns", []types.Message{
+		{"three model calls", []types.Message{
 			{Role: "user"},
 			{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "c1"}}},
 			{Role: "tool", ToolCallID: "c1"},
@@ -2095,26 +2084,26 @@ func TestCountAssistantTurns(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := countAssistantTurns(tc.msgs); got != tc.want {
-				t.Errorf("countAssistantTurns = %d, want %d", got, tc.want)
+			if got := countAssistantMessages(tc.msgs); got != tc.want {
+				t.Errorf("countAssistantMessages = %d, want %d", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestAgentLoop_RetryFromTurn_TruncatedConversationDrivesNextLLMCall(t *testing.T) {
-	// Simulate a retry-from-turn where the runner has already
+func TestAgentLoop_RetryFromModelCall_TruncatedConversationDrivesNextLLMCall(t *testing.T) {
+	// Simulate a retry-from-model-call where the runner has already
 	// truncated the conversation (e.g. operator clicked "retry from
-	// turn 2"). The loop should see the truncated history, call the
+	// model call 2"). The loop should see the truncated history, call the
 	// LLM again at that point, and run normally from there. We
-	// pre-truncate to turn 2 (drops assistant_2 onwards), leaving
+	// pre-truncate to model call 2 (drops assistant_2 onwards), leaving
 	// system+user+assistant_1+tool_1 — the next LLM call happens at
-	// turn 2 with that context.
+	// model call 2 with that context.
 	saved := []types.Message{
 		{Role: "user", Content: "list things"},
 		{Role: "assistant", Content: "", ToolCalls: []types.ToolCall{{ID: "c1", Type: "function", Function: types.ToolCallFunction{Name: "shell_exec", Arguments: `{"command":"ls"}`}}}},
 		{Role: "tool", Content: "result1", ToolCallID: "c1"},
-		// turn 2's assistant message + everything after has been
+		// model call 2's assistant message + everything after has been
 		// dropped by the runner before we get here.
 	}
 	savedJSON, _ := json.Marshal(saved)
@@ -2129,8 +2118,7 @@ func TestAgentLoop_RetryFromTurn_TruncatedConversationDrivesNextLLMCall(t *testi
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
 		SourceRunID:       "run-prev",
 		AgentConversation: savedJSON,
-		LastStepIndex:     0, // runner zeroes this for retry-from-turn so step indices restart at 1
-		RetryFromTurn:     2,
+		LastStepIndex:     0, // every new Run starts its Step indices at 1
 	}
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
@@ -2140,11 +2128,11 @@ func TestAgentLoop_RetryFromTurn_TruncatedConversationDrivesNextLLMCall(t *testi
 		t.Fatalf("Status = %q, want completed", res.Status)
 	}
 	if len(llm.lastReqs) != 1 {
-		t.Fatalf("LLM calls = %d, want 1 (retry runs the truncated turn once)", len(llm.lastReqs))
+		t.Fatalf("LLM calls = %d, want 1 (retry runs the truncated model call once)", len(llm.lastReqs))
 	}
 	// Critical: the LLM saw the prior context (3 messages), not the
 	// dropped assistant_2. This is what lets the LLM produce a
-	// different answer than the original turn 2.
+	// different answer than the original model call 2.
 	got := llm.lastReqs[0].Messages
 	if len(got) != 3 {
 		t.Fatalf("LLM saw %d messages, want 3 (the truncated context)", len(got))
@@ -2153,16 +2141,16 @@ func TestAgentLoop_RetryFromTurn_TruncatedConversationDrivesNextLLMCall(t *testi
 		t.Errorf("last message before retry should be tool result for c1, got %+v", got[2])
 	}
 	// And the retry produced an assistant final answer, so the loop
-	// completed (no further turns).
+	// completed (no further model calls).
 	if res.Steps[0].Index != 1 {
-		t.Errorf("first step index = %d, want 1 (fresh-numbered for retry-from-turn)", res.Steps[0].Index)
+		t.Errorf("first step index = %d, want 1 (fresh-numbered for retry-from-model-call)", res.Steps[0].Index)
 	}
 }
 
 func TestAgentLoop_GatedToolPausesAndEmitsApproval(t *testing.T) {
 	// LLM asks for shell_exec, which is gated. Loop must pause:
 	// status=awaiting_approval, one approval in PendingApprovals
-	// covering the turn, conversation persisted, shell NOT executed.
+	// covering the model call, conversation persisted, shell NOT executed.
 	// On the runner side, this drives the run into awaiting_approval
 	// where the operator decides whether to allow the tool call.
 	llm := &scriptedLLM{
@@ -2210,7 +2198,7 @@ func TestAgentLoop_GatedToolPausesAndEmitsApproval(t *testing.T) {
 
 func TestAgentLoop_NonGatedToolDispatchesNormally(t *testing.T) {
 	// file_write is NOT in the gated set; loop runs it inline and
-	// continues to the next turn. Verifies that gating is opt-in by
+	// continues to the next model call. Verifies that gating is opt-in by
 	// tool name, not blanket.
 	llm := &scriptedLLM{
 		responses: []*types.ChatResponse{
@@ -2843,12 +2831,12 @@ func TestAgentLoop_ApplyPatchUpdateHandlesBlankLines(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_ResumeAfterApprovalDispatchesPendingCalls(t *testing.T) {
+func TestAgentLoop_CrossRunResumeDispatchesPendingCallsBeforeFirstModelCall(t *testing.T) {
 	// On resume: the conversation has a trailing assistant message
 	// with tool_calls and no following tool result. The loop must
 	// detect this, skip the LLM call (which already happened in the
 	// previous run), dispatch the approved tool, and continue. Then
-	// the next turn's LLM call sees the tool result and produces a
+	// the next model call sees the tool result and produces a
 	// final answer.
 	saved := []types.Message{
 		{Role: "user", Content: "summarize the working directory"},
@@ -2878,9 +2866,10 @@ func TestAgentLoop_ResumeAfterApprovalDispatchesPendingCalls(t *testing.T) {
 	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
-		SourceRunID:       "run-1",
-		AgentConversation: savedJSON,
-		Reason:            "approved_mid_loop",
+		SourceRunID:           "run-source",
+		AgentConversation:     savedJSON,
+		Reason:                "approved_mid_loop",
+		ThisRunModelCallCount: 0,
 	}
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
@@ -2892,11 +2881,23 @@ func TestAgentLoop_ResumeAfterApprovalDispatchesPendingCalls(t *testing.T) {
 	if len(shell.calls) != 1 {
 		t.Errorf("shell_exec should have run on resume; got %+v", shell.calls)
 	}
-	// Exactly one LLM call (the post-dispatch reasoning turn). The
-	// resumed turn does NOT call the LLM since the assistant message
+	// Exactly one LLM call (the post-dispatch reasoning model call). The
+	// resumed execution does NOT call the LLM since the assistant message
 	// is already in the saved conversation.
 	if got := llm.calls.Load(); got != 1 {
 		t.Errorf("LLM calls = %d, want 1 (resume skips the first LLM round-trip)", got)
+	}
+	if res.ModelCallCount != 1 {
+		t.Errorf("ModelCallCount = %d, want 1 Run-local provider call", res.ModelCallCount)
+	}
+	if len(res.Steps) < 2 {
+		t.Fatalf("Steps = %+v, want resume control plus Run-local model Step", res.Steps)
+	}
+	if _, ok := res.Steps[0].Input["model_call_index"]; ok {
+		t.Fatalf("cross-Run resume Step has Run-local model_call_index: %+v", res.Steps[0].Input)
+	}
+	if got := res.Steps[len(res.Steps)-1].Input["model_call_index"]; got != 1 {
+		t.Fatalf("first Run-local model Step index = %v, want 1", got)
 	}
 	// The single LLM request must have seen the tool result.
 	if len(llm.lastReqs) != 1 {
@@ -2934,9 +2935,10 @@ func TestAgentLoop_ToolsDisabledResumeDeniesPreviouslyPendingCall(t *testing.T) 
 	spec.Task.AgentPresetID = "review_qa"
 	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
-		SourceRunID:       "run-before-upgrade",
-		AgentConversation: savedJSON,
-		Reason:            "approved_mid_loop",
+		SourceRunID:           "run-before-upgrade",
+		AgentConversation:     savedJSON,
+		Reason:                "approved_mid_loop",
+		ThisRunModelCallCount: 1,
 	}
 
 	res, err := loop.Execute(context.Background(), spec)
@@ -2960,9 +2962,9 @@ func TestAgentLoop_ToolsDisabledResumeDeniesPreviouslyPendingCall(t *testing.T) 
 	}
 }
 
-func TestAgentLoop_GatedToolListedWithMultipleToolsInTurn(t *testing.T) {
-	// LLM asks for both a gated and a non-gated tool in one turn.
-	// We pause for approval (any gated tool gates the whole turn);
+func TestAgentLoop_GatedToolListedWithMultipleToolsInModelCall(t *testing.T) {
+	// LLM asks for both a gated and a non-gated tool in one model call.
+	// We pause for approval (any gated tool gates the whole model call);
 	// the approval reason mentions only the gated tool name to match
 	// what the operator must consent to. No tools dispatched yet.
 	llm := &scriptedLLM{
@@ -2987,7 +2989,7 @@ func TestAgentLoop_GatedToolListedWithMultipleToolsInTurn(t *testing.T) {
 		t.Errorf("no tools should run before approval; shell=%d file=%d", len(shell.calls), len(file.calls))
 	}
 	if len(res.PendingApprovals) != 1 {
-		t.Fatalf("PendingApprovals = %d, want 1 (one approval covers the whole turn)", len(res.PendingApprovals))
+		t.Fatalf("PendingApprovals = %d, want 1 (one approval covers the whole model call)", len(res.PendingApprovals))
 	}
 	reason := res.PendingApprovals[0].Reason
 	if !strings.Contains(reason, "shell_exec") {
@@ -3240,9 +3242,9 @@ func TestAgentLoop_SystemPromptNotReinjectedOnResume(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_CostAccumulatesAcrossTurns(t *testing.T) {
+func TestAgentLoop_CostAccumulatesAcrossModelCalls(t *testing.T) {
 	// Each LLM response carries Cost.TotalMicrosUSD; the loop must
-	// sum these across turns and surface the total on
+	// sum these across model calls and surface the total on
 	// ExecutionResult.CostMicrosUSD. The runner reads this value to
 	// populate run.TotalCostMicrosUSD.
 	respWithCost := func(content string, cost int64) *types.ChatResponse {
@@ -3252,8 +3254,8 @@ func TestAgentLoop_CostAccumulatesAcrossTurns(t *testing.T) {
 	}
 	llm := &scriptedLLM{
 		responses: []*types.ChatResponse{
-			respWithCost("", 100),              // turn 1: tool call
-			respWithCost("Final answer.", 250), // turn 2: final
+			respWithCost("", 100),              // model call 1: tool call
+			respWithCost("Final answer.", 250), // model call 2: final
 		},
 	}
 	llm.responses[0].Choices[0].Message.ToolCalls = []types.ToolCall{{
@@ -3328,7 +3330,7 @@ func TestAgentLoop_ResultKeepsResolvedRouteOnLaterLLMFailure(t *testing.T) {
 
 func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
 	// When BudgetMicrosUSD is set and cumulative cost crosses it,
-	// the loop fails with an actionable error. Subsequent turns
+	// the loop fails with an actionable error. Subsequent model calls
 	// don't fire — even if the LLM was about to give a final answer.
 	respWithCost := func(content string, cost int64, calls ...types.ToolCall) *types.ChatResponse {
 		msg := makeAssistantMsg(content, calls...)
@@ -3347,7 +3349,7 @@ func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
 	}
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
-	spec.Task.BudgetMicrosUSD = 500 // ceiling under the first turn's cost
+	spec.Task.BudgetMicrosUSD = 500 // ceiling under the first model call's cost
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -3362,9 +3364,9 @@ func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
 		t.Errorf("CostMicrosUSD = %d, want 600 (the spent amount that crossed the ceiling)", res.CostMicrosUSD)
 	}
 	// Only the first LLM call should have happened — the ceiling
-	// check fires before the second turn.
+	// check fires before the second model call.
 	if got := llm.calls.Load(); got != 1 {
-		t.Errorf("LLM calls = %d, want 1 (loop bailed after first turn)", got)
+		t.Errorf("LLM calls = %d, want 1 (loop bailed after first model call)", got)
 	}
 }
 
@@ -3393,11 +3395,11 @@ func TestAgentLoop_NoCeilingMeansUnlimited(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_TurnCostRecords_CapturedPerTurn(t *testing.T) {
-	// Per-turn cost telemetry: the loop must surface a TurnCostRecord
+func TestAgentLoop_ModelCallCostRecords_CapturedPerModelCall(t *testing.T) {
+	// Per-model-call cost telemetry: the loop must surface a ModelCallCostRecord
 	// for each LLM round-trip, including the assistant step ID and
 	// the running cumulative for this run. The runner consumes these
-	// to emit `turn.completed` events.
+	// to emit `model.call.completed` events.
 	respWithCost := func(content string, cost int64, calls ...types.ToolCall) *types.ChatResponse {
 		msg := makeAssistantMsg(content, calls...)
 		r := makeChatResp(msg)
@@ -3415,30 +3417,30 @@ func TestAgentLoop_TurnCostRecords_CapturedPerTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if len(res.TurnCosts) != 2 {
-		t.Fatalf("TurnCosts = %d, want 2 (one per LLM call)", len(res.TurnCosts))
+	if len(res.ModelCallCosts) != 2 {
+		t.Fatalf("ModelCallCosts = %d, want 2 (one per LLM call)", len(res.ModelCallCosts))
 	}
-	if res.TurnCosts[0].Turn != 1 || res.TurnCosts[0].CostMicrosUSD != 100 || res.TurnCosts[0].CumulativeMicrosUSD != 100 {
-		t.Errorf("TurnCosts[0] = %+v, want {Turn:1 Cost:100 Cumulative:100}", res.TurnCosts[0])
+	if res.ModelCallCosts[0].ModelCall != 1 || res.ModelCallCosts[0].CostMicrosUSD != 100 || res.ModelCallCosts[0].CumulativeMicrosUSD != 100 {
+		t.Errorf("ModelCallCosts[0] = %+v, want {ModelCall:1 Cost:100 Cumulative:100}", res.ModelCallCosts[0])
 	}
-	if res.TurnCosts[0].ToolCallCount != 1 {
-		t.Errorf("TurnCosts[0].ToolCallCount = %d, want 1", res.TurnCosts[0].ToolCallCount)
+	if res.ModelCallCosts[0].ToolCallCount != 1 {
+		t.Errorf("ModelCallCosts[0].ToolCallCount = %d, want 1", res.ModelCallCosts[0].ToolCallCount)
 	}
-	if res.TurnCosts[1].Turn != 2 || res.TurnCosts[1].CostMicrosUSD != 250 || res.TurnCosts[1].CumulativeMicrosUSD != 350 {
-		t.Errorf("TurnCosts[1] = %+v, want {Turn:2 Cost:250 Cumulative:350}", res.TurnCosts[1])
+	if res.ModelCallCosts[1].ModelCall != 2 || res.ModelCallCosts[1].CostMicrosUSD != 250 || res.ModelCallCosts[1].CumulativeMicrosUSD != 350 {
+		t.Errorf("ModelCallCosts[1] = %+v, want {ModelCall:2 Cost:250 Cumulative:350}", res.ModelCallCosts[1])
 	}
 	// StepID on each entry should match the corresponding thinking
-	// step so consumers can join the cost back to the assistant turn.
-	if res.TurnCosts[0].StepID == "" || res.TurnCosts[1].StepID == "" {
-		t.Errorf("TurnCosts entries missing StepID: %+v", res.TurnCosts)
+	// step so consumers can join the cost back to the assistant model call.
+	if res.ModelCallCosts[0].StepID == "" || res.ModelCallCosts[1].StepID == "" {
+		t.Errorf("ModelCallCosts entries missing StepID: %+v", res.ModelCallCosts)
 	}
 }
 
-func TestAgentLoop_ThinkingStepCarriesPerTurnCost(t *testing.T) {
-	// The model-kind step's OutputSummary must surface this turn's
+func TestAgentLoop_ThinkingStepCarriesPerModelCallCost(t *testing.T) {
+	// The model-kind step's OutputSummary must surface this model call's
 	// LLM cost (cost_micros_usd) and the run-cumulative figure
 	// (run_cumulative_cost_micros_usd) so the run-replay UI can
-	// render cost next to each "turn N" without joining against
+	// render cost next to each "model call N" without joining against
 	// the events feed.
 	respWithCost := func(content string, cost int64, calls ...types.ToolCall) *types.ChatResponse {
 		r := makeChatResp(makeAssistantMsg(content, calls...))
@@ -3467,19 +3469,19 @@ func TestAgentLoop_ThinkingStepCarriesPerTurnCost(t *testing.T) {
 		t.Fatalf("model steps = %d, want 2", len(modelSteps))
 	}
 
-	// Turn 1: cost=100, run cumulative=100.
+	// Model call 1: cost=100, run cumulative=100.
 	if got := modelSteps[0].OutputSummary["cost_micros_usd"]; got != int64(100) {
-		t.Errorf("turn 1 cost_micros_usd = %v, want 100", got)
+		t.Errorf("model call 1 cost_micros_usd = %v, want 100", got)
 	}
 	if got := modelSteps[0].OutputSummary["run_cumulative_cost_micros_usd"]; got != int64(100) {
-		t.Errorf("turn 1 run_cumulative_cost_micros_usd = %v, want 100", got)
+		t.Errorf("model call 1 run_cumulative_cost_micros_usd = %v, want 100", got)
 	}
-	// Turn 2: cost=250, run cumulative=350.
+	// Model call 2: cost=250, run cumulative=350.
 	if got := modelSteps[1].OutputSummary["cost_micros_usd"]; got != int64(250) {
-		t.Errorf("turn 2 cost_micros_usd = %v, want 250", got)
+		t.Errorf("model call 2 cost_micros_usd = %v, want 250", got)
 	}
 	if got := modelSteps[1].OutputSummary["run_cumulative_cost_micros_usd"]; got != int64(350) {
-		t.Errorf("turn 2 run_cumulative_cost_micros_usd = %v, want 350", got)
+		t.Errorf("model call 2 run_cumulative_cost_micros_usd = %v, want 350", got)
 	}
 }
 
@@ -3487,7 +3489,7 @@ func TestAgentLoop_CumulativeCeilingAppliesPriorChainCost(t *testing.T) {
 	// Cumulative ceiling: a fresh run's spend looks small in
 	// isolation but, when combined with prior runs in the resume
 	// chain (PriorCostMicrosUSD), can already exceed the ceiling.
-	// The loop must bail at the first turn that crosses the cap,
+	// The loop must bail at the first model call that crosses the cap,
 	// not run unbounded.
 	respWithCost := func(content string, cost int64, calls ...types.ToolCall) *types.ChatResponse {
 		r := makeChatResp(makeAssistantMsg(content, calls...))
@@ -3504,8 +3506,8 @@ func TestAgentLoop_CumulativeCeilingAppliesPriorChainCost(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	spec.Task.BudgetMicrosUSD = 500
 	// Prior chain already spent 400 µUSD. This run can spend at most
-	// 100 before hitting the ceiling. Turn 1 spends 200 — so the
-	// ceiling fires after turn 1.
+	// 100 before hitting the ceiling. Model call 1 spends 200 — so the
+	// ceiling fires after model call 1.
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
 		SourceRunID:        "run-prev",
 		PriorCostMicrosUSD: 400,
@@ -3523,9 +3525,9 @@ func TestAgentLoop_CumulativeCeilingAppliesPriorChainCost(t *testing.T) {
 	if res.CostMicrosUSD != 200 {
 		t.Errorf("CostMicrosUSD = %d, want 200 (this run only)", res.CostMicrosUSD)
 	}
-	// LLM call 1 happened; call 2 did not — ceiling check is between turns.
+	// LLM call 1 happened; call 2 did not — ceiling check is between model calls.
 	if got := llm.calls.Load(); got != 1 {
-		t.Errorf("LLM calls = %d, want 1 (bail before turn 2)", got)
+		t.Errorf("LLM calls = %d, want 1 (bail before model call 2)", got)
 	}
 }
 
@@ -3534,10 +3536,10 @@ func TestAgentLoop_SameRunResumeSeedsCostSpentFromPrePauseTotal(t *testing.T) {
 	// TotalCostMicrosUSD=X. On resume we don't get a fresh cost
 	// counter — costSpent must seed from X so the persisted total
 	// after this resume reflects the entire run's spend, not just
-	// the post-resume turns.
+	// the post-resume model calls.
 	saved := []types.Message{
 		{Role: "user", Content: "do work"},
-		// Pretend turn 1 happened pre-pause and incurred cost X.
+		// Pretend model call 1 happened pre-pause and incurred cost X.
 		// The conversation tail is an assistant msg with tool_calls
 		// that triggers the resume-after-approval dispatch path.
 		{Role: "assistant", Content: "", ToolCalls: []types.ToolCall{{ID: "c1", Type: "function", Function: types.ToolCallFunction{Name: "shell_exec", Arguments: `{"command":"ls"}`}}}},
@@ -3557,10 +3559,11 @@ func TestAgentLoop_SameRunResumeSeedsCostSpentFromPrePauseTotal(t *testing.T) {
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
-		SourceRunID:          spec.Run.ID,
-		Reason:               "approved_mid_loop",
-		AgentConversation:    savedJSON,
-		ThisRunCostMicrosUSD: 100, // pre-pause spend on THIS run
+		SourceRunID:           spec.Run.ID,
+		Reason:                "approved_mid_loop",
+		AgentConversation:     savedJSON,
+		ThisRunCostMicrosUSD:  100, // pre-pause spend on THIS run
+		ThisRunModelCallCount: 1,
 	}
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
@@ -3608,7 +3611,7 @@ func TestAgentLoop_HTTPRequest_HappyPath(t *testing.T) {
 		}
 	}
 	if !hasUpstream {
-		t.Errorf("upstream body didn't reach next LLM turn: %+v", llm.lastReqs[1].Messages)
+		t.Errorf("upstream body didn't reach next model call: %+v", llm.lastReqs[1].Messages)
 	}
 }
 
@@ -4055,7 +4058,7 @@ func TestAgentLoop_WebSearch_HappyPath(t *testing.T) {
 		}
 	}
 	if !hasSearchResult {
-		t.Fatalf("web search result did not reach next LLM turn: %+v", llm.lastReqs[1].Messages)
+		t.Fatalf("web search result did not reach next model call: %+v", llm.lastReqs[1].Messages)
 	}
 	var searchStep *types.TaskStep
 	for i := range res.Steps {

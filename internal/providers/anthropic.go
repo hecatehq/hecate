@@ -115,14 +115,14 @@ type anthropicMessagesResponse struct {
 type anthropicUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
-	// CacheReadInputTokens are tokens served from a prior turn's
+	// CacheReadInputTokens are tokens served from a prior model call's
 	// prompt cache. Anthropic bills these at a steeply discounted
 	// rate (typically 0.1× the base input rate). The API returns
 	// them disjoint from input_tokens, so we map them to
 	// types.Usage.CachedPromptTokens for reporting.
 	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
 	// CacheCreationInputTokens are tokens written to the cache on
-	// this turn (charged at ~1.25× base rate at Anthropic).
+	// this model call (charged at ~1.25× base rate at Anthropic).
 	// Hecate folds these into Usage.PromptTokens so token reporting
 	// accounts for cache writes instead of dropping them.
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`

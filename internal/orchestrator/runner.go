@@ -71,10 +71,10 @@ type Config struct {
 	// owner stores before any worker can claim or reconcile persisted work.
 	// Standalone runner callers retain the historical auto-start default.
 	DeferQueueStart bool
-	// AgentLoopMaxTurns caps how many LLM round-trips a single
+	// AgentLoopMaxModelCalls caps how many LLM round-trips a single
 	// agent_loop run can make. Default 8 (set in NewAgentLoopExecutor
 	// when zero or negative). Acts as a runaway-cost safety net.
-	AgentLoopMaxTurns int
+	AgentLoopMaxModelCalls int
 	// HTTPPolicy bounds the agent_loop `http_request` tool: timeout,
 	// response size cap, SSRF guards, optional host allowlist. Zero
 	// values fall back to safe defaults inside the executor (30s,
@@ -215,13 +215,14 @@ type startTaskOptions struct {
 	ResumeReason   string
 	AppendPrompt   string
 	RunInitializer func(*types.TaskRun)
-	// RetryFromTurn, when > 0, signals the new run should resume from
-	// the source run's conversation truncated to right before turn N.
-	// Used by the retry-from-turn-N code path; ignored when
+	// SourceModelCallIndex, when > 0, signals the new run should resume from
+	// the source run's conversation truncated to right before Run-local model
+	// call N.
+	// Used by the retry-from-model-call-N code path; ignored when
 	// ResumeFromRun is nil. The runner persists this on the new run's
-	// `run.created` event so the worker that later claims the run can
+	// `run.resumed_from_event` event so the worker that later claims the run can
 	// rebuild the truncated checkpoint without keeping in-memory state.
-	RetryFromTurn int
+	SourceModelCallIndex int
 	// BudgetMicrosUSD raises the durable task ceiling while the same origin
 	// lease that creates the resumed run is held.
 	BudgetMicrosUSD int64
@@ -278,14 +279,14 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 		ReconcileInterval: reconcileInterval,
 		WorkerID:          defaultWorkerID(),
 	})
-	// LLM client + max-turns are wired post-construction via
+	// LLM client + max-model-calls are wired post-construction via
 	// SetAgentLLMClient — main.go injects the gateway.Service after
 	// it's built. nil here means the loop falls back to a pass-through
 	// step until configured (see executor_agent_loop.go runWithoutLLM).
 	// Gated tools come from the same approval policies as
 	// task-level gating, so an operator who approves shell at the
 	// task layer also approves it inside agent_loop tool calls.
-	agent := NewAgentLoopExecutor(nil, runner.shell, runner.file, runner.git, cfg.AgentLoopMaxTurns, agentLoopGatedTools(runner.policies), cfg.HTTPPolicy, WithWebSearchClient(cfg.WebSearch), WithBrowserInspector(cfg.BrowserInspector))
+	agent := NewAgentLoopExecutor(nil, runner.shell, runner.file, runner.git, cfg.AgentLoopMaxModelCalls, agentLoopGatedTools(runner.policies), cfg.HTTPPolicy, WithWebSearchClient(cfg.WebSearch), WithBrowserInspector(cfg.BrowserInspector))
 	agent.SetMCPHostFactory(DefaultMCPHostFactory)
 	runner.mcpHostFactory = DefaultMCPHostFactory
 	runner.agent = agent
@@ -355,7 +356,7 @@ func (r *Runner) SetAgentInputResolver(resolver AgentInputResolver) {
 // service is constructed, since the chat path needs its own deps that
 // the runner doesn't otherwise know about. Nil unwires the loop.
 func (r *Runner) SetAgentLLMClient(llm AgentLLMClient) {
-	agent := NewAgentLoopExecutor(llm, r.shell, r.file, r.git, r.config.AgentLoopMaxTurns, agentLoopGatedTools(r.policies), r.config.HTTPPolicy, WithWebSearchClient(r.config.WebSearch), WithBrowserInspector(r.config.BrowserInspector))
+	agent := NewAgentLoopExecutor(llm, r.shell, r.file, r.git, r.config.AgentLoopMaxModelCalls, agentLoopGatedTools(r.policies), r.config.HTTPPolicy, WithWebSearchClient(r.config.WebSearch), WithBrowserInspector(r.config.BrowserInspector))
 	// Re-bind the stored MCP factory — the executor is rebuilt from
 	// scratch above so the prior binding is gone. Fall back to the
 	// no-cipher default if SetMCPHostFactory was never called.
@@ -615,8 +616,7 @@ func (r *Runner) continueAgentTaskWithOptions(ctx context.Context, task types.Ta
 			if artifact.Kind != "agent_conversation" || len(artifact.ContentText) == 0 {
 				continue
 			}
-			var saved []types.Message
-			if err := json.Unmarshal([]byte(artifact.ContentText), &saved); err != nil {
+			if _, _, err := completedConversationMessages(artifact); err != nil {
 				return nil, fmt.Errorf("task run %q has malformed agent_conversation artifact: %w", run.ID, err)
 			}
 			foundConversation = true
@@ -632,20 +632,26 @@ func (r *Runner) continueAgentTaskWithOptions(ctx context.Context, task types.Ta
 	return r.startTaskWithOptions(ctx, task, idgen, options)
 }
 
-// RetryTaskFromTurn creates a new run that re-issues turn N of the
-// source run with the prior conversation context preserved. Validates
-// the source is a terminal agent_loop run with at least N completed
-// assistant turns, then enqueues a new run whose checkpoint will carry
+// RetryTaskFromModelCall creates a new run that re-issues Run-local model call
+// N of the source run with the prior conversation context preserved. It
+// validates against the source Run's authoritative ModelCallCount, then
+// enqueues a new run whose checkpoint will carry
 // the truncated conversation. The actual truncation happens later in
 // resumeCheckpointForRun (worker side) so failures during truncation
 // surface as run-level errors with full event context, not as
 // pre-create API errors that lose tracing.
-func (r *Runner) RetryTaskFromTurn(ctx context.Context, task types.Task, run types.TaskRun, turn int, reason string, idgen func(prefix string) string) (*StartTaskResult, error) {
+func (r *Runner) RetryTaskFromModelCall(ctx context.Context, task types.Task, run types.TaskRun, modelCallIndex int, reason string, idgen func(prefix string) string) (*StartTaskResult, error) {
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, fmt.Errorf("task run %q is not retryable", run.ID)
 	}
-	if turn < 1 {
-		return nil, fmt.Errorf("turn must be >= 1, got %d", turn)
+	if modelCallIndex < 1 {
+		return nil, fmt.Errorf("model_call_index must be >= 1, got %d", modelCallIndex)
+	}
+	if run.ModelCallCount < 1 {
+		return nil, fmt.Errorf("source run has no completed model calls")
+	}
+	if modelCallIndex > run.ModelCallCount {
+		return nil, fmt.Errorf("model call %d not found: source run has %d completed model call(s)", modelCallIndex, run.ModelCallCount)
 	}
 	// Validate the source has a conversation we can truncate. We do
 	// this up-front so the API returns a clean 4xx rather than the
@@ -655,29 +661,29 @@ func (r *Runner) RetryTaskFromTurn(ctx context.Context, task types.Task, run typ
 		if err != nil {
 			return nil, err
 		}
-		var convo []byte
+		var conversationArtifact *types.TaskArtifact
 		for _, art := range artifacts {
 			if art.Kind == "agent_conversation" && len(art.ContentText) > 0 {
-				convo = []byte(art.ContentText)
+				copy := art
+				conversationArtifact = &copy
 				break
 			}
 		}
-		if len(convo) == 0 {
+		if conversationArtifact == nil {
 			return nil, fmt.Errorf("task run %q has no agent_conversation artifact to truncate", run.ID)
 		}
-		var saved []types.Message
-		if err := json.Unmarshal(convo, &saved); err != nil {
+		saved, _, err := completedConversationMessages(*conversationArtifact)
+		if err != nil {
 			return nil, fmt.Errorf("task run %q has malformed agent_conversation artifact: %w", run.ID, err)
 		}
-		turns := countAssistantTurns(saved)
-		if turn > turns {
-			return nil, fmt.Errorf("turn %d not found: source run has %d assistant turn(s)", turn, turns)
+		if _, err := truncateConversationToRunModelCall(saved, run.ModelCallCount, modelCallIndex); err != nil {
+			return nil, err
 		}
 	}
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{
-		ResumeFromRun: &run,
-		ResumeReason:  strings.TrimSpace(reason),
-		RetryFromTurn: turn,
+		ResumeFromRun:        &run,
+		ResumeReason:         strings.TrimSpace(reason),
+		SourceModelCallIndex: modelCallIndex,
 	})
 }
 
@@ -866,14 +872,14 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunCreated.String(), requestID, trace.TraceID, nil)
 	if options.ResumeFromRun != nil {
 		resumedData := map[string]any{
-			"resumed_from_run_id": options.ResumeFromRun.ID,
-			"reason":              options.ResumeReason,
+			"from_run_id": options.ResumeFromRun.ID,
+			"reason":      options.ResumeReason,
 		}
 		if strings.TrimSpace(options.AppendPrompt) != "" {
 			resumedData["append_user_prompt"] = options.AppendPrompt
 		}
-		if options.RetryFromTurn > 0 {
-			resumedData["retry_from_turn"] = options.RetryFromTurn
+		if options.SourceModelCallIndex > 0 {
+			resumedData["source_model_call_index"] = options.SourceModelCallIndex
 		}
 		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunResumedFromEvent.String(), requestID, trace.TraceID, resumedData)
 	}
@@ -1119,6 +1125,11 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		NewID:            defaultResourceID,
 		UpsertStep:       func(step types.TaskStep) error { return r.upsertStep(ctx, step) },
 		UpsertArtifact:   func(artifact types.TaskArtifact) error { return r.upsertArtifact(ctx, artifact) },
+		RepairArtifact: func(artifact types.TaskArtifact) error {
+			repairCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			return r.upsertArtifact(repairCtx, artifact)
+		},
 		GetArtifact: func(taskID, artifactID string) (types.TaskArtifact, bool, error) {
 			return r.store.GetArtifact(ctx, taskID, artifactID)
 		},
@@ -1140,7 +1151,13 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		return nil, err
 	}
 
-	return newExecutionResultPersister(r, trace, task, run, requestID).persist(ctx, execution)
+	// Run settlement must outlive cancellation of the executor context. In
+	// particular, an operator cancellation persists the terminal winner before
+	// cancelling this context; the drained executor still has authoritative
+	// completed-model-call accounting to merge into that durable winner.
+	settlementCtx, cancelSettlement := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancelSettlement()
+	return newExecutionResultPersister(r, trace, task, run, requestID).persist(settlementCtx, execution)
 }
 
 func mergeStepTelemetryAttrs(dst map[string]any, src map[string]any) {

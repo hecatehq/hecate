@@ -30,7 +30,7 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 - **Schema migrations.** Which storage tiers are affected? Memory is rebuilt on
   boot (fine). SQLite and Postgres need forward-compatible migrations and
   roll-forward considerations. The retention worker subsystems (`traces`,
-  `usage_events`, `audit`, `provider_history`, `turn_events`,
+  `usage_events`, `audit`, `provider_history`, `model_call_events`,
   `chat_approvals`) must keep mirroring.
 - **Deploy and release risk.** Is this safe to roll out behind a flag? Does it need a flag at all? What's the blast radius if it misbehaves?
 - **Rollback.** Can this change be reverted cleanly? If a schema change is involved, is the rollback path documented?

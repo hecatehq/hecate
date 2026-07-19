@@ -42,7 +42,7 @@ const WORKSPACE_KEY = "hecate.workspace";
 const WORKSPACE_PATHS = {
   chats: "/chats",
   projects: "/projects",
-  runs: "/tasks",
+  tasks: "/tasks",
   connections: "/connections",
   overview: "/observability",
   usage: "/usage",
@@ -576,10 +576,10 @@ function docsHecateChatSession() {
           },
           {
             id: "hecate-docs-activity-model",
-            type: "model_turn",
+            type: "model_calls",
             status: "completed",
-            title: "Model turns",
-            detail: "2 turns completed",
+            title: "Thinking",
+            detail: "2 model calls completed",
             terminal: true,
             created_at: docsTimestamp(-1),
           },
@@ -597,7 +597,7 @@ function docsHecateChatSession() {
           model_ms: 18_600,
           tool_ms: 1_120,
           overhead_ms: 5_680,
-          turn_count: 2,
+          model_call_count: 2,
           tool_count: 1,
           bottleneck: "model",
           bottleneck_ms: 18_600,
@@ -1865,7 +1865,7 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
       run_id: docsRunID,
       index: 1,
       kind: "builtin.agent_loop_llm",
-      title: "Agent turn 1",
+      title: "Model call 1",
       status: "completed",
       started_at: docsTimestamp(-12),
       finished_at: docsTimestamp(-11),
@@ -1942,12 +1942,12 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
   const activity = [
     {
       id: "activity_docs_model",
-      type: "model_turn",
+      type: "thinking",
       status: "completed",
-      title: "Thinking",
+      title: "Model call 1",
       step_id: "step_docs_model",
       kind: "builtin.agent_loop_llm",
-      summary: { turns: 1 },
+      summary: { model_call: 1 },
       occurred_at: docsTimestamp(-11),
     },
     {
@@ -2538,7 +2538,7 @@ async function main() {
 
   // ── 6. Hecate Chat transcript ──────────────────────────────────────────────
   // The README's primary chat screenshot should document the current
-  // product shape: one transcript with tools-off model turns and tools-on
+  // product shape: one transcript with tools-off direct-model turns and tools-on
   // task-backed Hecate Agent turns. Keep it fixture-backed so the shot
   // doesn't depend on whichever local model happens to be installed.
   console.log("→ seeding chat sessions for observability");
@@ -2615,7 +2615,7 @@ async function main() {
   // ── 9. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (failed tool diagnostics fixture)");
   await routeTaskDiagnosticsDocsFixture(page);
-  await openWorkspace(page, "runs");
+  await openWorkspace(page, "tasks");
   await page.waitForSelector("text=git_exec", { timeout: 5_000 });
   await page.locator("details").evaluateAll((nodes) => {
     for (const node of nodes) {

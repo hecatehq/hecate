@@ -4296,7 +4296,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentStrictEmbeddedReadModelLaunc
 		t.Fatalf("prepare requests = %+v, want one codex preparation in workspace %q", runner.prepareRequests, resolvedWorkspace)
 	}
 	if len(runner.runRequests) != 0 {
-		t.Fatalf("run requests = %+v, want no automatic external-agent run", runner.runRequests)
+		t.Fatalf("run requests = %+v, want no automatic External Agent Chat Turn", runner.runRequests)
 	}
 	session, ok, err := handler.agentChat.Get(t.Context(), ref.ChatSessionID)
 	if err != nil || !ok {

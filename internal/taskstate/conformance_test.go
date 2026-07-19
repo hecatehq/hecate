@@ -1318,7 +1318,7 @@ func runStoreWakesOnRunScopedMutations(t *testing.T, store Store) {
 			return err
 		}},
 		{"AppendRunEvent", func() error {
-			_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{TaskID: taskID, RunID: runID, EventType: "turn.completed", RequestID: "req-wake"})
+			_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{TaskID: taskID, RunID: runID, EventType: "model.call.completed", RequestID: "req-wake"})
 			return err
 		}},
 		{"ApplyRunTerminalTransition", func() error {
@@ -1732,9 +1732,9 @@ func runStoreListEventsCrossRunFilters(t *testing.T, store Store) {
 		}
 		return evt
 	}
-	e1 := mustAppend("t-A", "r-A", "turn.completed")
+	e1 := mustAppend("t-A", "r-A", "model.call.completed")
 	e2 := mustAppend("t-A", "r-A", "run.finished")
-	e3 := mustAppend("t-B", "r-B", "turn.completed")
+	e3 := mustAppend("t-B", "r-B", "model.call.completed")
 	e4 := mustAppend("t-C", "r-C", "approval.requested")
 	_ = e1
 	_ = e2
@@ -1757,15 +1757,15 @@ func runStoreListEventsCrossRunFilters(t *testing.T, store Store) {
 	})
 
 	t.Run("event_type filter matches OR semantics", func(t *testing.T) {
-		events, err := store.ListEvents(ctx, EventFilter{EventTypes: []string{"turn.completed"}})
+		events, err := store.ListEvents(ctx, EventFilter{EventTypes: []string{"model.call.completed"}})
 		if err != nil {
 			t.Fatalf("ListEvents: %v", err)
 		}
 		if len(events) != 2 {
-			t.Fatalf("len = %d, want 2 (two turn.completed)", len(events))
+			t.Fatalf("len = %d, want 2 (two model.call.completed)", len(events))
 		}
 		for _, e := range events {
-			if e.EventType != "turn.completed" {
+			if e.EventType != "model.call.completed" {
 				t.Errorf("unexpected type %q", e.EventType)
 			}
 		}
@@ -1801,7 +1801,7 @@ func runStoreListEventsCrossRunFilters(t *testing.T, store Store) {
 
 	t.Run("combined filters AND together", func(t *testing.T) {
 		events, err := store.ListEvents(ctx, EventFilter{
-			EventTypes: []string{"turn.completed"},
+			EventTypes: []string{"model.call.completed"},
 			TaskIDs:    []string{"t-B"},
 		})
 		if err != nil {
@@ -2065,6 +2065,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 	winnerRun.OtelStatusCode = "error"
 	winnerRun.OtelStatusMessage = winnerReason
 	winnerRun.StepCount = 2
+	winnerRun.ModelCallCount = 1
 	winnerRun.ArtifactCount = 5
 	winnerRun.TotalCostMicrosUSD = 100
 	winnerTask := task
@@ -2126,6 +2127,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 	replayRun.ProviderKind = "openai"
 	replayRun.Model = "model-terminal-replay"
 	replayRun.StepCount = 4
+	replayRun.ModelCallCount = 3
 	replayRun.ArtifactCount = 3
 	replayRun.TotalCostMicrosUSD = 250
 	replayTask := task
@@ -2142,6 +2144,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 			ProviderKind:       replayRun.ProviderKind,
 			Model:              replayRun.Model,
 			StepCount:          replayRun.StepCount,
+			ModelCallCount:     replayRun.ModelCallCount,
 			ArtifactCount:      replayRun.ArtifactCount,
 			TotalCostMicrosUSD: replayRun.TotalCostMicrosUSD,
 		},
@@ -2173,7 +2176,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 	}
 	if replay.Run.Provider != replayRun.Provider || replay.Run.ProviderKind != replayRun.ProviderKind ||
 		replay.Run.Model != replayRun.Model || replay.Run.StepCount != 4 ||
-		replay.Run.ArtifactCount != 5 || replay.Run.TotalCostMicrosUSD != 250 {
+		replay.Run.ModelCallCount != 3 || replay.Run.ArtifactCount != 5 || replay.Run.TotalCostMicrosUSD != 250 {
 		t.Fatalf("replay run metadata = %+v, want safe supplemental fields with monotonic counts/cost", replay.Run)
 	}
 	if replay.Task.Title != winnerTask.Title || replay.Task.LastError != winnerReason ||
@@ -2184,7 +2187,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
 	if err != nil || !found || storedRun.LastError != winnerReason ||
 		storedRun.Provider != replayRun.Provider || storedRun.StepCount != 4 ||
-		storedRun.ArtifactCount != 5 || storedRun.TotalCostMicrosUSD != 250 {
+		storedRun.ModelCallCount != 3 || storedRun.ArtifactCount != 5 || storedRun.TotalCostMicrosUSD != 250 {
 		t.Fatalf("stored replay run = %+v found=%t err=%v, want winner plus supplemental metadata", storedRun, found, err)
 	}
 	if len(replay.CancelledApprovals) != 1 || replay.CancelledApprovals[0].ID != lateApproval.ID {
@@ -2212,6 +2215,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 	staleCancelRun.ProviderKind = "stale-cancel-kind"
 	staleCancelRun.Model = "stale-cancel-model"
 	staleCancelRun.StepCount = 99
+	staleCancelRun.ModelCallCount = 99
 	staleCancelRun.ArtifactCount = 99
 	staleCancelRun.TotalCostMicrosUSD = 999
 	staleCancel, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
@@ -2226,7 +2230,7 @@ func runStoreApplyRunTerminalTransitionSameStatusReplay(t *testing.T, store Stor
 	}
 	if staleCancel.Run.Provider != replayRun.Provider || staleCancel.Run.ProviderKind != replayRun.ProviderKind ||
 		staleCancel.Run.Model != replayRun.Model || staleCancel.Run.StepCount != 4 ||
-		staleCancel.Run.ArtifactCount != 5 || staleCancel.Run.TotalCostMicrosUSD != 250 {
+		staleCancel.Run.ModelCallCount != 3 || staleCancel.Run.ArtifactCount != 5 || staleCancel.Run.TotalCostMicrosUSD != 250 {
 		t.Fatalf("stale cancellation replay replaced trusted execution metadata: %+v", staleCancel.Run)
 	}
 
@@ -2298,6 +2302,7 @@ func runStoreApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner
 	winnerRun.OtelStatusCode = "error"
 	winnerRun.OtelStatusMessage = winnerReason
 	winnerRun.StepCount = 1
+	winnerRun.ModelCallCount = 1
 	winnerRun.ArtifactCount = 4
 	winnerRun.TotalCostMicrosUSD = 50
 	winnerTask := task
@@ -2333,6 +2338,7 @@ func runStoreApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner
 	loserRun.ProviderKind = "openai"
 	loserRun.Model = "actual-model"
 	loserRun.StepCount = 3
+	loserRun.ModelCallCount = 3
 	loserRun.ArtifactCount = 2
 	loserRun.TotalCostMicrosUSD = 250
 	loserRun.OtelStatusCode = "ok"
@@ -2349,6 +2355,7 @@ func runStoreApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner
 			ProviderKind:       loserRun.ProviderKind,
 			Model:              loserRun.Model,
 			StepCount:          loserRun.StepCount,
+			ModelCallCount:     loserRun.ModelCallCount,
 			ArtifactCount:      loserRun.ArtifactCount,
 			TotalCostMicrosUSD: loserRun.TotalCostMicrosUSD,
 		},
@@ -2378,7 +2385,7 @@ func runStoreApplyRunTerminalTransitionTrustedMetadataAfterDifferentStatusWinner
 	}
 	if loser.Run.Provider != loserRun.Provider || loser.Run.ProviderKind != loserRun.ProviderKind ||
 		loser.Run.Model != loserRun.Model || loser.Run.StepCount != 3 ||
-		loser.Run.ArtifactCount != 4 || loser.Run.TotalCostMicrosUSD != 250 {
+		loser.Run.ModelCallCount != 3 || loser.Run.ArtifactCount != 4 || loser.Run.TotalCostMicrosUSD != 250 {
 		t.Fatalf("trusted loser metadata = %+v, want safe route and monotonic accounting", loser.Run)
 	}
 	if loser.Task.Title != winnerTask.Title || loser.Task.Status != "cancelled" ||

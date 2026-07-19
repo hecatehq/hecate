@@ -13,7 +13,7 @@ function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
     status: "completed",
     execution_kind: "shell",
     shell_command: "ls -la",
-    step_count: 2,
+    latest_run_step_count: 2,
     latest_run_id: "run-abcdef12",
     ...overrides,
   } as TaskRecord;
@@ -60,12 +60,12 @@ describe("TaskList", () => {
     expect(screen.getByText(/no tasks yet/i)).toBeTruthy();
   });
 
-  it("renders task title, kind badge, and step count without exposing run ids in the list", () => {
+  it("renders task title, kind badge, and latest Run step count without exposing Run ids", () => {
     const { render } = setup();
     render();
     expect(screen.getByText("List the working directory")).toBeTruthy();
     expect(screen.getByText("shell")).toBeTruthy();
-    expect(screen.getByText(/2 steps/)).toBeTruthy();
+    expect(screen.getByText("Latest run · 2 steps")).toBeTruthy();
     expect(screen.queryByText(/run abcdef12/)).toBeNull();
   });
 
@@ -217,8 +217,24 @@ describe("TaskList", () => {
       ],
     });
     render();
-    expect(screen.getByText("from chat")).toBeTruthy();
+    expect(screen.getByText("From chat")).toBeTruthy();
     expect(screen.getByText("hecate agent")).toBeTruthy();
+  });
+
+  it("labels project-assignment and standalone task sources", () => {
+    const { render } = setup({
+      tasks: [
+        makeTask({
+          id: "task-assigned",
+          assignment_id: "asgn_123",
+          origin_kind: "project_work_item",
+        }),
+        makeTask({ id: "task-standalone", origin_kind: undefined, origin_id: undefined }),
+      ],
+    });
+    render();
+    expect(screen.getByText("Project assignment")).toBeTruthy();
+    expect(screen.getByText("Standalone")).toBeTruthy();
   });
 
   it("renders an 'MCP × N' chip when the task configures MCP servers", () => {

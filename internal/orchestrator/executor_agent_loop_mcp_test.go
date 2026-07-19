@@ -215,14 +215,14 @@ func TestAgentLoop_MCPTool_DispatchedToHost(t *testing.T) {
 	}
 
 	// Catalog must include the host's tool. Inspect what the LLM
-	// saw on the first turn — that's the freshest evidence the
+	// saw on the first model call — that's the freshest evidence the
 	// merge happened.
 	if len(llm.lastReqs) == 0 {
 		t.Fatal("LLM not called")
 	}
-	firstTurn := llm.lastReqs[0]
+	firstModelCall := llm.lastReqs[0]
 	var sawMCPTool bool
-	for _, tt := range firstTurn.Tools {
+	for _, tt := range firstModelCall.Tools {
 		if tt.Function.Name == "mcp__filesystem__read_file" {
 			sawMCPTool = true
 			break
@@ -246,21 +246,21 @@ func TestAgentLoop_MCPTool_DispatchedToHost(t *testing.T) {
 		t.Errorf("call args = %s, want path passthrough", gotCalls[0].Args)
 	}
 
-	// The LLM's second turn should see the host's result as a tool
+	// The LLM's second model call should see the host's result as a tool
 	// message in the conversation history.
 	if len(llm.lastReqs) < 2 {
-		t.Fatal("LLM second turn missing")
+		t.Fatal("LLM second model call missing")
 	}
-	secondTurn := llm.lastReqs[1]
+	secondModelCall := llm.lastReqs[1]
 	var sawToolMsg bool
-	for _, m := range secondTurn.Messages {
+	for _, m := range secondModelCall.Messages {
 		if m.Role == "tool" && strings.Contains(m.Content, "file contents: hello") {
 			sawToolMsg = true
 			break
 		}
 	}
 	if !sawToolMsg {
-		t.Errorf("second turn did not see tool result; messages=%v", secondTurn.Messages)
+		t.Errorf("second model call did not see tool result; messages=%v", secondModelCall.Messages)
 	}
 
 	// Host shutdown happens via deferred Close in Execute.
@@ -271,7 +271,7 @@ func TestAgentLoop_MCPTool_DispatchedToHost(t *testing.T) {
 
 // TestAgentLoop_MCPTool_UpstreamErrorFeedsBackToLLM pins that an
 // IsError result from the host becomes a tool-role message with
-// ToolError=true on the next turn — the LLM gets a chance to retry
+// ToolError=true on the next model call — the LLM gets a chance to retry
 // rather than the run failing outright.
 func TestAgentLoop_MCPTool_UpstreamErrorFeedsBackToLLM(t *testing.T) {
 	t.Parallel()
@@ -313,11 +313,11 @@ func TestAgentLoop_MCPTool_UpstreamErrorFeedsBackToLLM(t *testing.T) {
 	if result.Status != "completed" {
 		t.Fatalf("status = %q, want completed (loop should recover from tool error)", result.Status)
 	}
-	// Second turn's conversation must carry the tool message with
+	// Second model call's conversation must carry the tool message with
 	// ToolError set. That's the contract the providers rely on to
 	// surface is_error=true on the wire.
 	if len(llm.lastReqs) < 2 {
-		t.Fatal("LLM second turn missing")
+		t.Fatal("LLM second model call missing")
 	}
 	var foundErr bool
 	for _, m := range llm.lastReqs[1].Messages {
@@ -327,7 +327,7 @@ func TestAgentLoop_MCPTool_UpstreamErrorFeedsBackToLLM(t *testing.T) {
 		}
 	}
 	if !foundErr {
-		t.Errorf("second turn did not see ToolError=true tool message; messages=%+v", llm.lastReqs[1].Messages)
+		t.Errorf("second model call did not see ToolError=true tool message; messages=%+v", llm.lastReqs[1].Messages)
 	}
 }
 
@@ -474,7 +474,7 @@ func TestAgentLoop_MCPRequireApproval_PausesBeforeHostCall(t *testing.T) {
 // ApprovalPolicy=block short-circuits at the dispatcher: the host is
 // never called, a denied policy step is recorded, and a tool-error message
 // goes back to the LLM so it can pick a different path on the next
-// turn. The run does NOT pause for approval — block is a hard refusal,
+// model call. The run does NOT pause for approval — block is a hard refusal,
 // not a gate.
 func TestAgentLoop_MCPBlock_ReturnsToolErrorWithoutCallingHost(t *testing.T) {
 	t.Parallel()
@@ -524,10 +524,10 @@ func TestAgentLoop_MCPBlock_ReturnsToolErrorWithoutCallingHost(t *testing.T) {
 		t.Errorf("host.Call ran despite block policy; calls=%d", gotCalls)
 	}
 
-	// LLM's second turn must have seen a tool message marked as an
+	// LLM's second model call must have seen a tool message marked as an
 	// error so the model knows the call was refused.
 	if len(llm.lastReqs) < 2 {
-		t.Fatalf("LLM second turn missing; got %d reqs", len(llm.lastReqs))
+		t.Fatalf("LLM second model call missing; got %d reqs", len(llm.lastReqs))
 	}
 	var sawBlockedToolMsg bool
 	for _, m := range llm.lastReqs[1].Messages {
@@ -537,7 +537,7 @@ func TestAgentLoop_MCPBlock_ReturnsToolErrorWithoutCallingHost(t *testing.T) {
 		}
 	}
 	if !sawBlockedToolMsg {
-		t.Errorf("second turn did not see blocked tool error; messages=%v", llm.lastReqs[1].Messages)
+		t.Errorf("second model call did not see blocked tool error; messages=%v", llm.lastReqs[1].Messages)
 	}
 
 	// A denied policy step for the blocked call should be in the timeline

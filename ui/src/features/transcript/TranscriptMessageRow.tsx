@@ -79,7 +79,7 @@ export function TranscriptMessageRow({
   agentTiming?: ChatTimingRecord;
   contextPacket?: ChatContextPacketRecord;
   error?: string;
-  // setupAction is an inline button rendered inside the agent-run
+  // setupAction is an inline button rendered inside the agent-turn
   // failure notice. The chat passes it when the failure has a
   // known one-click recovery path — currently just the Claude Code
   // auth error (where the button deep-links to the guided setup
@@ -116,7 +116,9 @@ export function TranscriptMessageRow({
       ? activities.filter((activity) => {
           if ((failed || cancelled) && isTerminalSessionMetadata(activity)) return false;
           if ((failed || cancelled) && isStaleTerminalPlaceholder(activity)) return false;
-          if (failed && duplicatesFailureNotice(activity, error || content)) return false;
+          if (failed && duplicatesFailureNotice(activity, error || content, Boolean(taskLink))) {
+            return false;
+          }
           if (
             isFilesChangedActivity(activity) &&
             (changedFilesLink || diffStat?.trim() || diff?.trim())
@@ -156,6 +158,7 @@ export function TranscriptMessageRow({
 
   return (
     <div
+      id={id}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{ padding: "4px 16px 12px", maxWidth: 820, margin: "0 auto", width: "100%" }}
@@ -287,13 +290,13 @@ export function TranscriptMessageRow({
               {shouldRenderFailedContent(content, error) ? (
                 <TranscriptMarkdown content={content} />
               ) : null}
-              <AgentRunNotice status="failed" message={error || content} action={setupAction} />
+              <AgentTurnNotice status="failed" message={error || content} action={setupAction} />
             </>
           ) : cancelled ? (
             <>
               {/* Cancel messages may be normalized by the backend; preserve partial text as-is. */}
               {content.trim() ? <TranscriptMarkdown content={content} /> : null}
-              <AgentRunNotice
+              <AgentTurnNotice
                 status="cancelled"
                 message={error || "Stopped before the agent returned more output."}
               />
@@ -1161,20 +1164,26 @@ function shouldRenderFailedContent(content: string, error?: string): boolean {
   return visible !== (error ?? "").trim();
 }
 
-function duplicatesFailureNotice(activity: ChatActivityRecord, message: string): boolean {
+function duplicatesFailureNotice(
+  activity: ChatActivityRecord,
+  message: string,
+  taskBacked: boolean,
+): boolean {
   if (activity.type !== "failed" && activity.status !== "failed") return false;
   if (activity.type === "tool_call") return false;
   // Keep this title list in sync with generic terminal failure rows from
   // internal/api/handler_chat_activities.go and handler_chat.go. Richer
   // diagnostic titles should remain visible in the activity timeline.
   const title = activity.title.trim().toLowerCase();
-  if (title !== "failed" && title !== "run failed") return false;
+  if (title !== "failed" && title !== "turn failed" && !(taskBacked && title === "run failed")) {
+    return false;
+  }
   const detail = activity.detail?.trim() ?? "";
   if (!detail) return true;
   return detail === message.trim();
 }
 
-function AgentRunNotice({
+function AgentTurnNotice({
   status,
   message,
   action,
@@ -1201,7 +1210,7 @@ function AgentRunNotice({
       }}
     >
       <div style={{ color, fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 4 }}>
-        agent run {status}
+        agent turn {status}
       </div>
       {visible && (
         <div style={{ color: "var(--t0)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
@@ -1294,7 +1303,9 @@ function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
     ["overhead", timing.overhead_ms],
   ].filter(([, value]) => typeof value === "number" && value > 0) as [string, number][];
   const counts = [
-    timing.turn_count ? `${timing.turn_count} turn${timing.turn_count === 1 ? "" : "s"}` : "",
+    timing.model_call_count
+      ? `${timing.model_call_count} model call${timing.model_call_count === 1 ? "" : "s"}`
+      : "",
     timing.tool_count ? `${timing.tool_count} tool${timing.tool_count === 1 ? "" : "s"}` : "",
   ]
     .filter(Boolean)
@@ -1336,7 +1347,7 @@ function agentTimingEmpty(timing: ChatTimingRecord): boolean {
     !timing.tool_ms &&
     !timing.approval_wait_ms &&
     !timing.overhead_ms &&
-    !timing.turn_count &&
+    !timing.model_call_count &&
     !timing.tool_count &&
     !timing.bottleneck
   );

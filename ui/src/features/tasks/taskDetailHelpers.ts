@@ -70,6 +70,40 @@ export function taskBadgeProps(
   return { status: taskBadgeStatus(status) };
 }
 
+export type TaskSource = {
+  kind: "standalone" | "chat" | "project_assignment";
+  label: "Standalone" | "From chat" | "Project assignment";
+  title: string;
+};
+
+export function taskSource(task: TaskRecord): TaskSource {
+  const originKind = (task.origin_kind ?? "").trim();
+  const originID = (task.origin_id ?? "").trim();
+  const assignmentID = (task.assignment_id ?? "").trim();
+  if (originKind === "chat") {
+    return {
+      kind: "chat",
+      label: "From chat",
+      title: originID ? `Created from chat ${originID}` : "Created from Hecate Chat",
+    };
+  }
+  if (assignmentID || originKind === "project_work_item") {
+    const sourceID = assignmentID || originID;
+    return {
+      kind: "project_assignment",
+      label: "Project assignment",
+      title: sourceID
+        ? `Created from project assignment ${sourceID}`
+        : "Created from a project assignment",
+    };
+  }
+  return {
+    kind: "standalone",
+    label: "Standalone",
+    title: "Created directly in Tasks",
+  };
+}
+
 export type TaskRunOutcome = {
   label: "Last error" | "Outcome" | "Reason";
   value: string;
@@ -127,8 +161,8 @@ export function describeRunEvent(eventType: string): {
     "run.finished": { label: "Completed", tone: "done" },
     "run.resumed_from_event": { label: "Resumed", tone: "running" },
     "gap.run_disconnected": { label: "Runtime recovered", tone: "queued" },
-    "turn.started": { label: "Turn started", tone: "running" },
-    "turn.completed": { label: "Turn done", tone: "done" },
+    "model.call.started": { label: "Model call started", tone: "running" },
+    "model.call.completed": { label: "Model call done", tone: "done" },
     "assistant.tool_call_proposed": { label: "Tool proposed", tone: "queued" },
     "tool.invoked": { label: "Tool invoked", tone: "running" },
     "tool.started": { label: "Tool started", tone: "running" },
@@ -172,18 +206,21 @@ export function isVisibleRunEvent(event: TaskRunEventRecord): boolean {
 // data payload. Returns null when there is nothing worth surfacing.
 //
 // Covers two axes:
-//   retry_from_turn — the turn number a retry-from-turn was branched at
-//   reason          — the operator's annotation for why they resumed/branched
+//   source_model_call_index — the Run-local call a retry was branched at
+//   reason                  — the operator's annotation for why they resumed/branched
 //
 // run.resumed_from_event stores the operator annotation under "reason".
 export function describeRunEventNote(event: { data?: Record<string, unknown> }): string | null {
   const d = event.data;
   if (!d) return null;
-  const turn = typeof d["retry_from_turn"] === "number" ? (d["retry_from_turn"] as number) : null;
+  const modelCallIndex =
+    typeof d["source_model_call_index"] === "number"
+      ? (d["source_model_call_index"] as number)
+      : null;
   const reason = (typeof d["reason"] === "string" ? d["reason"] : "").trim();
-  if (!turn && !reason) return null;
+  if (!modelCallIndex && !reason) return null;
   const parts: string[] = [];
-  if (turn) parts.push(`turn ${turn}`);
+  if (modelCallIndex) parts.push(`source Run model call ${modelCallIndex}`);
   if (reason) parts.push(reason);
   return parts.join(" — ");
 }
@@ -332,7 +369,7 @@ export function taskActivityTitle(item: TaskActivityRecord): string {
       if (item.status === "rejected" || item.status === "denied") return "Approval rejected";
       return "Approval";
     case "artifact":
-      if ((item.kind ?? "").trim() === "agent_conversation") return "Agent conversation";
+      if ((item.kind ?? "").trim() === "agent_conversation") return "Run model context";
       if (isOutputArtifactActivity(item)) return "Output";
       return "Artifact";
     case "changed_files":

@@ -100,6 +100,37 @@ func TestLoadFromEnvTraceBodyModeDefaultsToMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvUsesModelCallConfigNames(t *testing.T) {
+	t.Setenv("HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS", "13")
+	t.Setenv("HECATE_RETENTION_MODEL_CALL_EVENTS_MAX_AGE", "2h")
+	t.Setenv("HECATE_RETENTION_MODEL_CALL_EVENTS_MAX_COUNT", "42")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.TaskAgentLoopMaxModelCalls != 13 {
+		t.Fatalf("TaskAgentLoopMaxModelCalls = %d, want 13", cfg.Server.TaskAgentLoopMaxModelCalls)
+	}
+	if cfg.Retention.ModelCallEvents.MaxAge != 2*time.Hour || cfg.Retention.ModelCallEvents.MaxCount != 42 {
+		t.Fatalf("ModelCallEvents = %+v, want 2h/42", cfg.Retention.ModelCallEvents)
+	}
+}
+
+func TestLoadFromEnvIgnoresRemovedTurnConfigNames(t *testing.T) {
+	t.Setenv("HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS", "")
+	t.Setenv("HECATE_RETENTION_MODEL_CALL_EVENTS_MAX_AGE", "")
+	t.Setenv("HECATE_RETENTION_MODEL_CALL_EVENTS_MAX_COUNT", "")
+	t.Setenv("HECATE_TASK_AGENT_LOOP_MAX_TURNS", "99")
+	t.Setenv("HECATE_RETENTION_TURN_EVENTS_MAX_AGE", "1h")
+	t.Setenv("HECATE_RETENTION_TURN_EVENTS_MAX_COUNT", "9")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.TaskAgentLoopMaxModelCalls != 8 {
+		t.Fatalf("TaskAgentLoopMaxModelCalls = %d, want default 8", cfg.Server.TaskAgentLoopMaxModelCalls)
+	}
+	if cfg.Retention.ModelCallEvents.MaxAge != 7*24*time.Hour || cfg.Retention.ModelCallEvents.MaxCount != 100_000 {
+		t.Fatalf("ModelCallEvents = %+v, want defaults", cfg.Retention.ModelCallEvents)
+	}
+}
+
 func TestLoadFromEnvNonLoopbackBindAcknowledgement(t *testing.T) {
 	t.Setenv("HECATE_ALLOW_NON_LOOPBACK_BIND", "true")
 

@@ -3,13 +3,16 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/hecatehq/hecate/internal/eventprotocol"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -18,6 +21,56 @@ import (
 type failingTerminalTransitionStore struct {
 	taskstate.Store
 	err error
+}
+
+type cancellationSettlementExecutor struct {
+	persisted chan struct{}
+}
+
+func (e *cancellationSettlementExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*ExecutionResult, error) {
+	when := time.Now().UTC()
+	step := types.TaskStep{
+		ID:         "step-cancelled-model-call",
+		TaskID:     spec.Task.ID,
+		RunID:      spec.Run.ID,
+		Index:      1,
+		Kind:       "model",
+		Title:      "Completed model call",
+		Status:     "completed",
+		Phase:      "planning",
+		Result:     telemetry.ResultSuccess,
+		ToolName:   "builtin.agent_loop_llm",
+		Input:      map[string]any{"model_call_index": 1},
+		StartedAt:  when,
+		FinishedAt: when,
+	}
+	artifact := types.TaskArtifact{
+		ID:          "convo-" + spec.Run.ID,
+		TaskID:      spec.Task.ID,
+		RunID:       spec.Run.ID,
+		Kind:        "agent_conversation",
+		Name:        "agent-conversation.json",
+		StorageKind: "inline",
+		ContentText: `[{"role":"user","content":"work"},{"role":"assistant","content":"completed answer"}]`,
+		Status:      "ready",
+		CreatedAt:   when,
+	}
+	if err := spec.UpsertStep(step); err != nil {
+		return nil, err
+	}
+	if err := spec.UpsertArtifact(artifact); err != nil {
+		return nil, err
+	}
+	close(e.persisted)
+	<-ctx.Done()
+	// Deliberately omit ModelCallCount to exercise reconstruction from the
+	// completed durable model Step during cancellation settlement.
+	return &ExecutionResult{
+		Status:    "cancelled",
+		Steps:     []types.TaskStep{step},
+		Artifacts: []types.TaskArtifact{artifact},
+		LastError: "run cancelled",
+	}, nil
 }
 
 func (s failingTerminalTransitionStore) ApplyRunTerminalTransition(context.Context, taskstate.TerminalRunTransition) (taskstate.TerminalRunTransitionResult, error) {
@@ -95,23 +148,165 @@ func TestExecutionResultPersister_PersistsStepsArtifactsAndTerminalCounts(t *tes
 	assertRunEventSubsequence(t, events, []string{"run.finished"})
 }
 
-func TestExecutionResultPersister_EmitsTurnCostsAndPersistsTotalCost(t *testing.T) {
+func TestExecutionResultPersister_CountsAllDurableRecoveryChildren(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "turn-cost")
+	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "recovery-children")
+	when := time.Now().UTC()
+	if _, err := store.AppendStep(ctx, types.TaskStep{
+		ID: "step-before-recovery", TaskID: task.ID, RunID: run.ID, Index: 1,
+		Kind: "model", Status: "completed", ToolName: "builtin.agent_loop_llm",
+		Input: map[string]any{"model_call_index": 1}, StartedAt: when, FinishedAt: when,
+	}); err != nil {
+		t.Fatalf("AppendStep() error = %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, types.TaskArtifact{
+		ID: "convo-" + run.ID, TaskID: task.ID, RunID: run.ID,
+		Kind: "agent_conversation", StorageKind: "inline", Status: "ready", CreatedAt: when,
+		ContentText: `[{"role":"user","content":"work"},{"role":"assistant","content":"saved final"}]`,
+	}); err != nil {
+		t.Fatalf("CreateArtifact() error = %v", err)
+	}
+	finalAnswerID := agentLoopFinalAnswerArtifactID(run.ID)
+	if _, err := store.CreateArtifact(ctx, types.TaskArtifact{
+		ID: finalAnswerID, TaskID: task.ID, RunID: run.ID,
+		Kind: "summary", Name: "agent-final-answer.txt", StorageKind: "inline", Status: "ready", CreatedAt: when,
+		ContentText: "saved final",
+	}); err != nil {
+		t.Fatalf("CreateArtifact(final answer) error = %v", err)
+	}
+
+	result, err := newExecutionResultPersister(runner, trace, task, run, run.RequestID).persist(ctx, &ExecutionResult{
+		Status: "completed",
+		Artifacts: []types.TaskArtifact{{
+			ID: finalAnswerID, TaskID: task.ID, RunID: run.ID,
+			Kind: "summary", Name: "agent-final-answer.txt", StorageKind: "inline",
+			ContentText: "saved final", Status: "ready", CreatedAt: when,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("persist() error = %v", err)
+	}
+	if result.Run.StepCount != 1 || result.Run.ArtifactCount != 2 || result.Run.ModelCallCount != 1 {
+		t.Fatalf("terminal counts = steps:%d artifacts:%d model_calls:%d, want 1/2/1 from all durable children", result.Run.StepCount, result.Run.ArtifactCount, result.Run.ModelCallCount)
+	}
+}
+
+func TestRunnerCancellationSettlementPreservesSQLiteModelCallCountForRetry(t *testing.T) {
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "cancellation-settlement.db"),
+		TablePrefix: "cancellation_settlement",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	store, err := taskstate.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	runner := newClaimedRunProcessorTestRunner(store, &recordingQueue{})
+	runner.workspaces = NewWorkspaceManager("")
+	executor := &cancellationSettlementExecutor{persisted: make(chan struct{})}
+	runner.agent = executor
+
+	now := time.Now().UTC().Add(-time.Second)
+	workspace := t.TempDir()
+	task := types.Task{
+		ID: "task-cancellation-settlement", Title: "Cancellation settlement", Prompt: "work",
+		Status: "running", ExecutionKind: "agent_loop", RequestedModel: "test-model",
+		WorkingDirectory: workspace, SandboxAllowedRoot: workspace,
+		CreatedAt: now, UpdatedAt: now, StartedAt: now,
+	}
+	run := types.TaskRun{
+		ID: "run-cancellation-settlement", TaskID: task.ID, Number: 1,
+		Status: "running", Model: "test-model", StartedAt: now,
+		RequestID: "request-cancellation-settlement",
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	trace := runner.tracer.Start(run.RequestID)
+	defer trace.Finalize()
+
+	jobCtx, cancelJob := context.WithCancel(ctx)
+	type executeOutcome struct {
+		result *StartTaskResult
+		err    error
+	}
+	executed := make(chan executeOutcome, 1)
+	go func() {
+		result, err := runner.executeRun(jobCtx, trace, task, run, run.RequestID, nil)
+		executed <- executeOutcome{result: result, err: err}
+	}()
+	select {
+	case <-executor.persisted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not persist its completed model call")
+	}
+
+	winner, err := runner.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(
+		task, run, "run cancelled: operator stop", run.RequestID, trace.TraceID, trace, time.Now().UTC(),
+	))
+	if err != nil {
+		t.Fatalf("apply cancellation winner error = %v", err)
+	}
+	if winner.Run.Status != "cancelled" {
+		t.Fatalf("winner status = %q, want cancelled", winner.Run.Status)
+	}
+	cancelJob()
+	var outcome executeOutcome
+	select {
+	case outcome = <-executed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor settlement did not finish after cancellation")
+	}
+	if outcome.err != nil {
+		t.Fatalf("executeRun() settlement error = %v", outcome.err)
+	}
+	if outcome.result == nil || outcome.result.Run.Status != "cancelled" {
+		t.Fatalf("executeRun() result = %+v, want durable cancellation winner", outcome.result)
+	}
+
+	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun() found=%t error=%v", found, err)
+	}
+	if storedRun.ModelCallCount != 1 || storedRun.StepCount != 1 || storedRun.ArtifactCount != 1 {
+		t.Fatalf("stored cancellation accounting = model_calls:%d steps:%d artifacts:%d, want 1/1/1", storedRun.ModelCallCount, storedRun.StepCount, storedRun.ArtifactCount)
+	}
+	storedTask, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask() found=%t error=%v", found, err)
+	}
+	if _, err := runner.RetryTaskFromModelCall(ctx, storedTask, storedRun, 1, "operator_retry", defaultResourceID); err != nil {
+		t.Fatalf("RetryTaskFromModelCall() error = %v", err)
+	}
+}
+
+func TestExecutionResultPersister_EmitsModelCallCostsAndPersistsTotalCost(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "model-call-cost")
 	run.PriorCostMicrosUSD = 1_000
 	if _, err := store.UpdateRun(ctx, run); err != nil {
 		t.Fatalf("UpdateRun() error = %v", err)
 	}
 	execution := &ExecutionResult{
-		Status:        "completed",
-		Provider:      "openai",
-		ProviderKind:  "openai",
-		Model:         "gpt-4.1",
-		CostMicrosUSD: 250,
-		TurnCosts: []TurnCostRecord{{
-			Turn:                2,
+		Status:         "completed",
+		Provider:       "openai",
+		ProviderKind:   "openai",
+		Model:          "gpt-4.1",
+		CostMicrosUSD:  250,
+		ModelCallCount: 2,
+		ModelCallCosts: []ModelCallCostRecord{{
+			ModelCall:           2,
 			StepID:              "step-model-2",
 			CostMicrosUSD:       150,
 			CumulativeMicrosUSD: 250,
@@ -124,16 +319,52 @@ func TestExecutionResultPersister_EmitsTurnCostsAndPersistsTotalCost(t *testing.
 		t.Fatalf("persist() error = %v", err)
 	}
 
-	if result.Run.TotalCostMicrosUSD != 250 || result.Run.Model != "gpt-4.1" || result.Run.Provider != "openai" {
+	if result.Run.TotalCostMicrosUSD != 250 || result.Run.ModelCallCount != 2 || result.Run.Model != "gpt-4.1" || result.Run.Provider != "openai" {
 		t.Fatalf("run accounting/route = %+v, want cost and route persisted", result.Run)
 	}
-	event := requireRunEvent(t, store, task.ID, run.ID, "turn.completed")
-	assertEventData(t, event.Data, "turn_index", 2)
+	event := requireRunEvent(t, store, task.ID, run.ID, "model.call.completed")
+	assertEventData(t, event.Data, "model_call_index", 2)
 	assertEventData(t, event.Data, "step_id", "step-model-2")
 	assertEventData(t, event.Data, "cost_micros_usd", int64(150))
 	assertEventData(t, event.Data, "run_cumulative_cost_micros_usd", int64(250))
 	assertEventData(t, event.Data, "task_cumulative_cost_micros_usd", int64(1_250))
 	assertEventData(t, event.Data, "tool_calls", 3)
+}
+
+func TestExecutionResultPersister_FailedFirstModelCallNormalizesZeroCompletedModelCalls(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runner, store, trace, task, run := newExecutionResultPersisterFixture(t, ctx, "failed-first-model-call")
+	execution := &ExecutionResult{
+		Status:            "failed",
+		LastError:         "model call 1 failed: upstream unavailable",
+		OtelStatusCode:    "error",
+		OtelStatusMessage: "upstream unavailable",
+	}
+
+	result, err := newExecutionResultPersister(runner, trace, task, run, run.RequestID).persist(ctx, execution)
+	if err != nil {
+		t.Fatalf("persist() error = %v", err)
+	}
+	if result.Run.ModelCallCount != 0 {
+		t.Fatalf("completed model calls = %d, want 0", result.Run.ModelCallCount)
+	}
+
+	event := requireRunEvent(t, store, task.ID, run.ID, "run.failed")
+	if got, ok := event.Data["model_call_count"]; !ok || got != 0 {
+		t.Fatalf("raw model_call_count = %T(%v), present=%t, want explicit int(0); data=%+v", got, got, ok, event.Data)
+	}
+	for _, legacyKey := range []string{"turns", "turn_count"} {
+		if _, ok := event.Data[legacyKey]; ok {
+			t.Fatalf("raw terminal event contains legacy key %q: %+v", legacyKey, event.Data)
+		}
+	}
+
+	envelope := eventprotocol.FromTaskRunEvent(event)
+	if got, ok := envelope.Data["model_call_count"]; !ok || got != 0 {
+		t.Fatalf("normalized model_call_count = %T(%v), present=%t, want explicit int(0); data=%+v", got, got, ok, envelope.Data)
+	}
 }
 
 func TestExecutionResultPersister_ReportsDurableCancellationWinner(t *testing.T) {

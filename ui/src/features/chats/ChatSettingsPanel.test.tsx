@@ -99,6 +99,40 @@ describe("ChatSettingsPanel external-agent MCP servers", () => {
 });
 
 describe("ChatSettingsPanel Hecate workspace execution", () => {
+  it("explains when chat messages create or continue a linked Task", () => {
+    const { rerender } = render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        toolsEnabled
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Create or continue a linked Task with tools, approvals, artifacts, and sandboxed tool calls.",
+      ),
+    ).toBeTruthy();
+
+    rerender(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        toolsEnabled={false}
+        usageSource="hecate"
+        externalSession={null}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Send the next message directly to the selected provider/model. This does not create a Task or use local tools.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("explains isolated execution and changes the workspace mode", () => {
     const onWorkspaceModeChange = vi.fn();
     render(

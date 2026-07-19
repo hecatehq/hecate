@@ -3,6 +3,7 @@ import type { ChatMessageRecord, ChatSegmentRecord } from "../../types/chat";
 export type ChatTurnKind = "direct_model" | "hecate_task" | "external_agent" | "unknown";
 
 type ChatTurnWire = {
+  turn_id?: string;
   turn_kind?: string;
   execution_mode?: string;
   tools_enabled?: boolean;
@@ -23,6 +24,7 @@ export type ChatTurnViewModel = {
   turnKind: ChatTurnKind;
   executionMode: string;
   toolsEnabled: boolean | undefined;
+  turnID: string;
   segmentID: string;
   taskID: string;
   runID: string;
@@ -71,6 +73,7 @@ function toChatTurnViewModel(input: ChatTurnWire): ChatTurnViewModel {
     turnKind,
     executionMode: input.execution_mode ?? "",
     toolsEnabled: input.tools_enabled,
+    turnID: input.turn_id ?? "",
     segmentID: input.segment_id ?? "",
     taskID,
     runID,

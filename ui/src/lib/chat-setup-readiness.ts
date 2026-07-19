@@ -164,13 +164,13 @@ function externalAgentSetupMessage(
 
   switch (agentID) {
     case "cursor_agent":
-      return "Cursor Agent needs the local CLI installed, available on PATH, and signed in with cursor-agent login before Hecate can start a session.";
+      return "Cursor Agent needs the local CLI installed, available on PATH, and signed in with cursor-agent login before Hecate can start an External Agent chat.";
     case "grok_build":
-      return "Grok Build needs the Grok CLI installed, signed in with grok login, and a model selected before Hecate can start a session.";
+      return "Grok Build needs the Grok CLI installed, signed in with grok login, and a model selected before Hecate can start an External Agent chat.";
     case "claude_code":
-      return "Claude Code needs local CLI sign-in before Hecate can start a session.";
+      return "Claude Code needs local CLI sign-in before Hecate can start an External Agent chat.";
     default:
-      return `${agent} needs local CLI sign-in before Hecate can start a session.`;
+      return `${agent} needs local CLI sign-in before Hecate can start an External Agent chat.`;
   }
 }
 

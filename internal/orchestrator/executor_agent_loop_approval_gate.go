@@ -33,22 +33,22 @@ func newAgentLoopApprovalGate(gatedTools []string) agentLoopApprovalGate {
 	return agentLoopApprovalGate{gatedTools: gated}
 }
 
-func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, turn, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
-	gatedNames := g.gatedToolsInTurn(calls, spec.Task)
+func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
+	gatedNames := g.gatedToolsInModelCall(calls, spec.Task)
 	if len(gatedNames) == 0 {
 		return agentLoopApprovalPause{}, false
 	}
-	approval := buildApprovalForTurn(spec, turn, gatedNames, when)
+	approval := buildApprovalForModelCall(spec, gatedNames, when)
 	if detail := browserApprovalDetail(calls, spec.Task); detail != "" {
 		approval.Reason += ". " + detail
 	}
 	return agentLoopApprovalPause{
 		Approval: approval,
-		Step:     buildAwaitingApprovalStep(spec, stepIndex, turn, when, approval),
+		Step:     buildAwaitingApprovalStep(spec, stepIndex, modelCall, when, approval),
 	}, true
 }
 
-func (g agentLoopApprovalGate) gatedToolsInTurn(calls []types.ToolCall, task types.Task) []string {
+func (g agentLoopApprovalGate) gatedToolsInModelCall(calls []types.ToolCall, task types.Task) []string {
 	seen := make(map[string]struct{}, len(calls))
 	out := make([]string, 0, len(calls))
 	for _, c := range calls {

@@ -100,13 +100,13 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("dedupes earlier terminal rows when a later terminal row exists", () => {
-    // The Hecate Chat run path emits two terminal-shaped rows on a
+    // The Hecate Chat turn path emits two terminal-shaped rows on a
     // successful completion: a synced `task_run` mirror surfacing
     // as `run_result` (the fixture uses title "Run finished" so it
     // bypasses isTerminalRunSummary's `/^run (completed|failed|cancelled)$/`
     // filter, which strips the literal "run completed" titles), and
     // an explicit `Activity{Type: status, Title: finalChatActivityTitle(status)}`
-    // appended by the agent-chat handler at turn end. Without
+    // appended by the agent-chat handler at run end. Without
     // dedupe the operator sees two side-by-side terminal rows for
     // one run; the timeline should keep only one. Earlier
     // rows that match `isTerminalRunSummary` were already dropped,
@@ -124,23 +124,23 @@ describe("TranscriptActivityTimeline", () => {
 
   it("prefers a terminal=true diagnostic row over a generic terminal row when both are present", () => {
     // The synced `task_run` mirror carries `terminal: true` AND a
-    // detail like "LLM call failed on turn 3" — informative
+    // detail like "LLM call failed on model call 3" — informative
     // diagnostic the operator wants to see. The agent-chat
     // handler also appends a generic `Activity{Type: "failed",
-    // Title: "Failed"}` at turn end. When both are on the timeline,
+    // Title: "Failed"}` at run end. When both are on the timeline,
     // the diagnostic row must win — naïvely keeping "the latest
     // terminal row" would drop it in favour of the bare-bones
     // generic row that surfaces no useful detail.
     // Title chosen to avoid `isTerminalRunSummary`'s regex
     // (`/^run (completed|failed|cancelled)$/i`), which would strip
     // the row before the dedupe-pick step ran. Real diagnostic rows
-    // typically carry richer titles like "LLM call failed on turn 3"
+    // typically carry richer titles like "LLM call failed on model call 3"
     // anyway.
     const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "shell_exec", status: "failed" },
       {
         type: "run_result",
-        title: "LLM call failed on turn 3",
+        title: "LLM call failed on model call 3",
         status: "failed",
         terminal: true,
         detail: "rate limit exceeded",
@@ -148,7 +148,7 @@ describe("TranscriptActivityTimeline", () => {
       { type: "failed", title: "Failed", status: "failed" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText("LLM call failed on turn 3")).toBeInTheDocument();
+    expect(screen.getByText("LLM call failed on model call 3")).toBeInTheDocument();
     // The generic "Failed" row title must NOT appear as a timeline row
     // (the word "failed" still surfaces inside the timeline summary
     // status text, which is fine — that's not a row).
@@ -261,7 +261,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("execute · tool YLnXdDBf")).toBeInTheDocument();
     expect(screen.getByText("read · tool MGCYNWm0")).toBeInTheDocument();
     expect(screen.queryByText(/call_YLnXd/)).toBeNull();
-    expect(screen.getByText("stopped before the run finished")).toBeInTheDocument();
+    expect(screen.getByText("stopped before the Chat Turn finished")).toBeInTheDocument();
   });
 
   it("prefers adapter-provided command details over opaque tool ids", () => {
@@ -638,13 +638,13 @@ describe("TranscriptActivityTimeline", () => {
       },
       {
         type: "thinking",
-        title: "Agent turn 1",
+        title: "Model call 1",
         status: "completed",
         detail: "builtin.agent_loop_llm - completed",
       },
       {
         type: "thinking",
-        title: "Agent turn 2",
+        title: "Model call 2",
         status: "completed",
         detail: "builtin.agent_loop_llm - completed",
       },
@@ -656,9 +656,9 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("Ran git")).toBeInTheDocument();
     expect(screen.getByText("Backing task")).toBeInTheDocument();
     expect(screen.getByText("Thinking")).toBeInTheDocument();
-    expect(screen.getByText("2 model turns completed")).toBeInTheDocument();
-    expect(screen.queryByText("Agent turn 1")).toBeNull();
-    expect(screen.queryByText("Agent turn 2")).toBeNull();
+    expect(screen.getByText("2 model calls completed")).toBeInTheDocument();
+    expect(screen.queryByText("Model call 1")).toBeNull();
+    expect(screen.queryByText("Model call 2")).toBeNull();
     expect(screen.queryByText("Run completed")).toBeNull();
     expect(screen.queryByText("git_exec - completed")).toBeNull();
   });
@@ -674,7 +674,7 @@ describe("TranscriptActivityTimeline", () => {
       },
       {
         type: "thinking",
-        title: "Agent turn 1",
+        title: "Model call 1",
         status: "completed",
         detail: "builtin.agent_loop_llm - completed",
       },
@@ -707,7 +707,7 @@ describe("TranscriptActivityTimeline", () => {
       },
       {
         type: "thinking",
-        title: "Agent turn 1",
+        title: "Model call 1",
         status: "completed",
         detail: "builtin.agent_loop_llm - completed",
         created_at: at,
@@ -721,7 +721,7 @@ describe("TranscriptActivityTimeline", () => {
       },
       {
         type: "failed",
-        title: "LLM call failed on turn 2: timeout",
+        title: "LLM call failed on model call 2: timeout",
         status: "failed",
         terminal: true,
         created_at: at,
@@ -730,13 +730,13 @@ describe("TranscriptActivityTimeline", () => {
     render(<TranscriptActivityTimeline activities={activities} />);
 
     const labels = screen
-      .getAllByText(/Backing task|Thinking|Ran git|LLM call failed on turn 2/)
+      .getAllByText(/Backing task|Thinking|Ran git|LLM call failed on model call 2/)
       .map((node) => node.textContent);
     expect(labels).toEqual([
       "Backing task",
       "Thinking",
       "Ran git",
-      "LLM call failed on turn 2: timeout",
+      "LLM call failed on model call 2: timeout",
     ]);
   });
 
@@ -746,7 +746,7 @@ describe("TranscriptActivityTimeline", () => {
       { type: "failed", title: "Run failed", status: "failed", terminal: true },
       {
         type: "run_result",
-        title: "LLM call failed on turn 2: timeout",
+        title: "LLM call failed on model call 2: timeout",
         status: "failed",
         terminal: true,
       },
@@ -754,7 +754,7 @@ describe("TranscriptActivityTimeline", () => {
     render(<TranscriptActivityTimeline activities={activities} />);
 
     expect(screen.queryByText("Run failed")).toBeNull();
-    expect(screen.getByText("LLM call failed on turn 2: timeout")).toBeInTheDocument();
+    expect(screen.getByText("LLM call failed on model call 2: timeout")).toBeInTheDocument();
   });
 
   it("keeps external-agent activity rows chronological too", () => {

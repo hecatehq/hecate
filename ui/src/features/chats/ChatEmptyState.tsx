@@ -90,7 +90,7 @@ export function ChatEmptyState({
     ? `Ready for ${selectedAgent?.name || "the agent"}`
     : "Ready when you are";
   const readyDetail = isExternalAgentChat
-    ? "Describe the task and Hecate will start the selected agent in this workspace."
+    ? "Describe what you want done and Hecate will start the selected agent in this workspace."
     : "Ask a question, inspect the workspace, or describe the change you want to make.";
   const title =
     isAgentChat && selectedAgentUnavailable

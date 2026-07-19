@@ -268,12 +268,16 @@ function projectProposalArtifactMessages() {
   return [
     {
       id: "m_user",
+      turn_id: "turn_proposal_1",
+      turn_kind: "hecate_task",
       role: "user",
       content: "Plan next project work",
       created_at: "2026-05-29T10:00:00Z",
     },
     {
       id: "m_assistant",
+      turn_id: "turn_proposal_1",
+      turn_kind: "hecate_task",
       role: "assistant",
       content: "I drafted a proposal for review in Projects.",
       created_at: "2026-05-29T10:00:02Z",
@@ -872,7 +876,7 @@ describe("ChatView input", () => {
 
     expect(screen.getByText("Chat settings")).toBeTruthy();
     expect(screen.getByText("Compact command output")).toBeTruthy();
-    expect(screen.getByText("Session context")).toBeTruthy();
+    expect(screen.getByText("Chat details")).toBeTruthy();
     expect(screen.queryByText("Runtime debug")).toBeNull();
     expect(screen.getByText("Provider")).toBeTruthy();
     expect(screen.queryByText("All providers")).toBeNull();
@@ -882,6 +886,7 @@ describe("ChatView input", () => {
     expect(screen.getByText("completed")).toBeTruthy();
     expect(screen.getByText("Messages")).toBeTruthy();
     expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getByText("Linked Task")).toBeTruthy();
     expect(screen.getAllByText(/rtk sh -lc/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/usr\/local\/bin\/rtk/i)).toBeTruthy();
 
@@ -1292,7 +1297,7 @@ describe("ChatView input", () => {
     );
     expect(screen.queryByRole("button", { name: "Queue message" })).toBeNull();
     expect(screen.queryByText(/New messages will queue/)).toBeNull();
-    expect(screen.getByLabelText("Active run status")).toHaveTextContent(
+    expect(screen.getByLabelText("Current work status")).toHaveTextContent(
       "New text stays in the composer until the response finishes.",
     );
     fireEvent.click(waitButton);
@@ -2506,7 +2511,7 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("button", { name: /settings/i }));
     expect(screen.getByRole("button", { name: "Tools on" })).toBeTruthy();
     expect(
-      screen.getByText(/task runtime, approvals, artifacts, and sandboxed tool calls/),
+      screen.getByText(/Create or continue a linked Task with tools, approvals, artifacts/),
     ).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
@@ -2912,9 +2917,9 @@ describe("ChatView input", () => {
     expect(screen.queryByText(/Tools are unavailable for this model/)).toBeNull();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    const activeRunStatus = screen.getByLabelText("Active run status");
-    expect(activeRunStatus).toHaveTextContent(/Hecate Chat is working/);
-    expectBefore(screen.getByLabelText("Message"), activeRunStatus);
+    const currentWorkStatus = screen.getByLabelText("Current work status");
+    expect(currentWorkStatus).toHaveTextContent(/Hecate Chat is working/);
+    expectBefore(screen.getByLabelText("Message"), currentWorkStatus);
 
     rerender(
       withRuntimeConsole(<ChatView />, {
@@ -3294,10 +3299,11 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(false);
   });
 
-  it("opens the backing task from the Hecate Chat assistant turn, not the header", async () => {
+  it("keeps a historical task link available while the current tools toggle is off", async () => {
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
+      defaultChatToolsEnabled: false,
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
@@ -3312,6 +3318,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
+            turn_id: "turn_task_1",
             turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             segment_id: "task:task_hecate_123456",
@@ -3322,6 +3329,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
+            turn_id: "turn_task_1",
             turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             segment_id: "task:task_hecate_123456",
@@ -3338,10 +3346,15 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
     const user = userEvent.setup();
-    expect(screen.queryByRole("button", { name: /^Task task_hecate_/i })).toBeNull();
-    expect(screen.getByText("Run hecate_abcde")).toBeTruthy();
+    const executionLink = screen.getByRole("button", { name: /Open Run hecate_abcde/i });
+    expect(screen.queryByText("Turn task_1")).toBeNull();
+    expect(screen.queryByTitle("Turn ID turn_task_1")).toBeNull();
+    expect(executionLink).toHaveAttribute(
+      "title",
+      "View execution · Open run run_hecate_abcdef for linked Task task_hecate_123456",
+    );
 
-    await user.click(screen.getByRole("button", { name: /Open Task hecate_/i }));
+    await user.click(executionLink);
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
 
@@ -3364,6 +3377,8 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
+            turn_id: "turn_direct_1",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             segment_id: "model:direct",
@@ -3373,10 +3388,11 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
+            turn_id: "turn_direct_1",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             segment_id: "model:direct",
-            run_id: "model_run_1",
             trace_id: "trace_1",
             role: "assistant",
             content: "Direct answer.",
@@ -3390,6 +3406,8 @@ describe("ChatView input", () => {
     render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
 
     expect(screen.getByText("Direct answer.")).toBeTruthy();
+    expect(screen.getByText("Turn direct_1")).toBeTruthy();
+    expect(screen.getByTitle("Turn ID turn_direct_1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Open Task latest/i })).toBeNull();
     expect(onOpenTask).not.toHaveBeenCalled();
   });
@@ -3516,9 +3534,9 @@ describe("ChatView input", () => {
 
     expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
-    expect(screen.getByText("Task first")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open Task second/i })).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Open Task first/i })).toHaveLength(1);
+    expect(screen.getByText(/Task first · completed/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open Run second/i })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Open Run first/i })).toHaveLength(1);
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder").children[1]).toHaveStyle({
       background: "var(--bg2)",
@@ -3574,7 +3592,7 @@ describe("ChatView input", () => {
                 type: "thinking",
                 status: "completed",
                 kind: "model",
-                title: "Agent turn 1",
+                title: "Model call 1",
                 detail: "completed",
               },
               {
@@ -3603,7 +3621,7 @@ describe("ChatView input", () => {
     expect(screen.getByText("Thinking")).toBeTruthy();
     expect(screen.getByText("Ran shell")).toBeTruthy();
     expect(screen.getByText("Backing task")).toBeTruthy();
-    expect(screen.queryByText("Agent turn 1")).toBeNull();
+    expect(screen.queryByText("Model call 1")).toBeNull();
     expect(screen.getByText("shell_exec")).toBeTruthy();
     expect(screen.queryByText("Task run running")).toBeNull();
     expect(screen.queryByText("Run completed")).toBeNull();
@@ -3647,7 +3665,7 @@ describe("ChatView input", () => {
                   type: "approval",
                   status: "awaiting_approval",
                   kind: "approval",
-                  title: "Awaiting approval — turn 1",
+                  title: "Awaiting approval — model call 1",
                   detail:
                     "Agent requested tools that require approval: shell_exec - awaiting_approval",
                   approval_id: "appr_123",
@@ -3757,7 +3775,7 @@ describe("ChatView input", () => {
                 type: "approval",
                 status: "approved",
                 kind: "agent_loop_tool_call",
-                title: "Awaiting approval — turn 1",
+                title: "Awaiting approval — model call 1",
                 detail: "Agent requested tools that require approval: shell_exec - approved",
                 approval_id: "appr_123",
                 needs_action: true,
@@ -4833,6 +4851,7 @@ describe("ChatView chats sidebar", () => {
 
   it("calls selectChatSession when clicking a chat row", async () => {
     const selectChatSession = vi.fn(async () => true);
+    const onSelectChat = vi.fn();
     const { state, actions } = setup(
       {
         chatTarget: "agent",
@@ -4843,10 +4862,11 @@ describe("ChatView chats sidebar", () => {
       },
       { selectChatSession },
     );
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
+    render(withRuntimeConsole(<ChatView onSelectChat={onSelectChat} />, { state, actions }));
     const user = userEvent.setup();
     await user.click(screen.getByText("Pick me"));
     expect(selectChatSession).toHaveBeenCalledWith("s1");
+    expect(onSelectChat).toHaveBeenCalledWith("s1");
   });
 
   it("calls selectChatSession when pressing Enter or Space on a focused chat row", async () => {
@@ -4982,10 +5002,18 @@ describe("ChatView external-agent target", () => {
             },
           ],
           messages: [
-            { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
+            {
+              id: "m1",
+              turn_id: "turn_codex_c4",
+              turn_kind: "external_agent",
+              role: "user",
+              content: "review this",
+              created_at: "2026-05-03T10:00:00Z",
+            },
             {
               id: "m2",
-              run_id: "agent_run_c4",
+              turn_id: "turn_codex_c4",
+              turn_kind: "external_agent",
               request_id: "req_codex_123456",
               trace_id: "0123456789abcdef0123456789abcdef",
               role: "assistant",
@@ -5049,7 +5077,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
     expect(screen.getByRole("button", { name: "Workspace: /tmp/hecate" })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
-    expect(screen.getByText("Codex session · Completed · /tmp/hecate")).toBeTruthy();
+    expect(screen.getByText("Codex · Completed · /tmp/hecate")).toBeTruthy();
     expect(screen.getByLabelText("External agent message controls")).toBeTruthy();
     const modelPicker = screen.getByRole("button", { name: "Model" });
     expect(modelPicker).toHaveTextContent("Fast");
@@ -5061,7 +5089,9 @@ describe("ChatView external-agent target", () => {
     expect(actions.setChatConfigOption).toHaveBeenCalledWith("a1", "auto_approve", true);
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.queryByText(/ACP native_codex/)).toBeNull();
-    expect(screen.getByTitle(/Native session native_codex_1/)).toBeTruthy();
+    expect(screen.queryByText("Run turn_codex_c4")).toBeNull();
+    expect(screen.getByText("Turn codex_c4")).toBeTruthy();
+    expect(screen.getByTitle(/Turn ID turn_codex_c4 · Native session native_codex_1/)).toBeTruthy();
     const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });
     expect(traceButton).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
@@ -5403,7 +5433,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.getAllByText("running").length).toBeGreaterThan(0);
   });
 
-  it("shows transient agent narration as live assistant text while a run is active", () => {
+  it("shows transient agent narration as live assistant text while a turn is active", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
@@ -6633,6 +6663,36 @@ describe("ChatView external-agent target", () => {
     expect(deleteChatSession).not.toHaveBeenCalled();
   });
 
+  it("clears the addressed Chat after deleting the active session", async () => {
+    const deleteChatSession = vi.fn(async () => true);
+    const selectChatSession = vi.fn(async () => true);
+    const onSelectChat = vi.fn();
+    const session = {
+      id: "chat_delete",
+      title: "Delete me",
+      agent_id: "hecate",
+      status: "idle",
+      messages: [],
+    } as any;
+    const { state, actions } = setup(
+      {
+        activeChatSessionID: session.id,
+        activeChatSession: session,
+        chatSessions: [{ ...session, message_count: 0 }],
+      },
+      { deleteChatSession, selectChatSession },
+    );
+    render(withRuntimeConsole(<ChatView onSelectChat={onSelectChat} />, { state, actions }));
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Delete chat Delete me" }));
+    await user.click(screen.getByRole("button", { name: "Delete chat" }));
+
+    await waitFor(() => expect(deleteChatSession).toHaveBeenCalledWith("chat_delete"));
+    expect(selectChatSession).toHaveBeenCalledWith("");
+    expect(onSelectChat).toHaveBeenCalledWith("", "replace");
+  });
+
   it("labels direct-model cancellation as stopping the model response", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -6842,7 +6902,7 @@ describe("ChatView external-agent target", () => {
     expect(cancelAgentChat).toHaveBeenCalledTimes(1);
   });
 
-  it("renders failed agent runs as an error notice with raw diagnostics separate", () => {
+  it("renders failed agent turns as an error notice with raw diagnostics separate", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
@@ -6891,7 +6951,7 @@ describe("ChatView external-agent target", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText("agent run failed")).toBeTruthy();
+    expect(screen.getByText("agent turn failed")).toBeTruthy();
     expect(
       screen.getAllByText("Claude Code usage limit: credit balance is too low").length,
     ).toBeGreaterThan(0);
@@ -8061,12 +8121,16 @@ describe("ChatView session title", () => {
           messages: [
             {
               id: "m_user",
+              turn_id: "turn_proposal_1",
+              turn_kind: "hecate_task",
               role: "user",
               content: "Plan next project work",
               created_at: "2026-05-29T10:00:00Z",
             },
             {
               id: "m_assistant",
+              turn_id: "turn_proposal_1",
+              turn_kind: "hecate_task",
               role: "assistant",
               content: "I drafted a proposal for review in Projects.",
               created_at: "2026-05-29T10:00:02Z",
@@ -8269,8 +8333,11 @@ describe("ChatView New chat button", () => {
       { activeChatSessionID: "", activeChatSession: null },
       { createChatSession },
     );
+    const onSelectChat = vi.fn();
     const user = userEvent.setup();
-    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const { rerender } = render(
+      withRuntimeConsole(<ChatView onSelectChat={onSelectChat} />, { state, actions }),
+    );
     await user.click(screen.getByRole("button", { name: /new .* chat/i }));
     expect(createChatSession).toHaveBeenCalled();
     const nextState = setup({
@@ -8289,9 +8356,15 @@ describe("ChatView New chat button", () => {
         messages: [],
       } as any,
     }).state;
-    rerender(withRuntimeConsole(<ChatView />, { state: nextState, actions }));
+    rerender(
+      withRuntimeConsole(<ChatView onSelectChat={onSelectChat} />, {
+        state: nextState,
+        actions,
+      }),
+    );
     const textarea = await screen.findByPlaceholderText(/^Message…/i);
     await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(onSelectChat).toHaveBeenCalledWith("chat_new", "replace");
   });
 
   it("does not create a new chat while image drafts belong to the active session", async () => {
@@ -8379,6 +8452,30 @@ describe("ChatView New chat button", () => {
 });
 
 describe("ChatView session focus", () => {
+  it("reports a stale message focus after the routed chat has loaded", async () => {
+    const onMessageFocusUnavailable = vi.fn();
+    const { state, actions } = setup({
+      activeChatSessionID: "s1",
+      activeChatSession: linkedHecateChatFixture([
+        { id: "message-present", role: "user", content: "Hello" },
+      ]),
+    });
+
+    render(
+      withRuntimeConsole(
+        <ChatView
+          focusMessageID="message-missing"
+          onMessageFocusUnavailable={onMessageFocusUnavailable}
+        />,
+        { state, actions },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(onMessageFocusUnavailable).toHaveBeenCalledWith("s1", "message-missing"),
+    );
+  });
+
   it("focuses the message textarea when a sidebar chat row is clicked", async () => {
     // Focus is applied on EXPLICIT user actions only — the New-chat
     // button onClick and chat-row onClick. The activeChatSessionID

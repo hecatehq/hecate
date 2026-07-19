@@ -816,8 +816,15 @@ export async function mockGatewayAPIs(
       const toolsEnabled =
         executionMode === "external_agent" ? undefined : body.tools_enabled !== false;
       const sequence = chatSequence;
+      const turnID = `turn_${sequence}`;
       const segmentID = `segment-${sequence}`;
       const isExternal = executionMode === "external_agent";
+      const isTaskBacked = executionMode === "hecate_task" && toolsEnabled !== false;
+      const turnKind = isExternal
+        ? "external_agent"
+        : isTaskBacked
+          ? "hecate_task"
+          : "direct_model";
       const keepRunning = isExternal && content.includes("[[keep-running]]");
       const messageAttachments = Array.isArray(body.attachment_ids)
         ? body.attachment_ids
@@ -836,6 +843,7 @@ export async function mockGatewayAPIs(
           ...(session.segments ?? []),
           {
             id: segmentID,
+            turn_kind: turnKind,
             execution_mode: executionMode,
             workspace: session.workspace,
             status: keepRunning ? "running" : "completed",
@@ -848,6 +856,8 @@ export async function mockGatewayAPIs(
       session.messages.push(
         {
           id: `agent-msg-user-${sequence}`,
+          turn_id: turnID,
+          turn_kind: turnKind,
           execution_mode: executionMode,
           segment_id: isExternal ? segmentID : undefined,
           role: "user",
@@ -858,6 +868,8 @@ export async function mockGatewayAPIs(
         },
         {
           id: `agent-msg-assistant-${sequence}`,
+          turn_id: turnID,
+          turn_kind: turnKind,
           execution_mode: executionMode,
           segment_id: isExternal ? segmentID : undefined,
           role: "assistant",
@@ -908,7 +920,7 @@ export async function mockGatewayAPIs(
                       {
                         id: `completed-${sequence}`,
                         type: "completed",
-                        title: "Run completed",
+                        title: "Turn completed",
                         status: "completed",
                         terminal: true,
                         created_at: now(),
@@ -920,10 +932,7 @@ export async function mockGatewayAPIs(
           model: body.model || session.model,
           workspace: session.workspace,
           tools_enabled: toolsEnabled,
-          run_id:
-            executionMode === "hecate_task" && toolsEnabled === false
-              ? `model_run_${sequence}`
-              : `run_${sequence}`,
+          run_id: isTaskBacked ? `run_${sequence}` : undefined,
           request_id: `req_${sequence}`,
           trace_id: `trace_${sequence}`,
           cost_mode: executionMode === "external_agent" ? "external" : "hecate",

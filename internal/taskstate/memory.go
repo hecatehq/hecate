@@ -824,7 +824,7 @@ func (s *MemoryStore) ListEvents(_ context.Context, filter EventFilter) ([]types
 	return result, nil
 }
 
-// Prune removes `turn.completed` rows older than
+// Prune removes `model.call.completed` rows older than
 // maxAge or, if maxCount > 0, beyond the most recent maxCount rows
 // (counted globally across all runs). Returns the number of rows
 // removed. Other event types are preserved.
@@ -841,25 +841,25 @@ func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount in
 		cutoff = time.Now().UTC().Add(-maxAge)
 	}
 
-	// Pass 1: drop rows older than cutoff. Track surviving turn rows so
+	// Pass 1: drop rows older than cutoff. Track surviving model-call rows so
 	// pass 2 can apply a global most-recent-N cap by sequence.
-	type turnRef struct {
+	type modelCallRef struct {
 		runID    string
 		idx      int
 		sequence int64
 	}
-	survivingTurns := make([]turnRef, 0)
+	survivingModelCalls := make([]modelCallRef, 0)
 	deleted := 0
 	for runID, list := range s.events {
 		kept := list[:0]
 		for _, evt := range list {
-			if evt.EventType == runtimeevents.EventTurnCompleted.String() && maxAge > 0 && evt.CreatedAt.Before(cutoff) {
+			if evt.EventType == runtimeevents.EventModelCallCompleted.String() && maxAge > 0 && evt.CreatedAt.Before(cutoff) {
 				deleted++
 				continue
 			}
 			kept = append(kept, evt)
-			if evt.EventType == runtimeevents.EventTurnCompleted.String() {
-				survivingTurns = append(survivingTurns, turnRef{
+			if evt.EventType == runtimeevents.EventModelCallCompleted.String() {
+				survivingModelCalls = append(survivingModelCalls, modelCallRef{
 					runID:    runID,
 					idx:      len(kept) - 1,
 					sequence: evt.Sequence,
@@ -873,13 +873,13 @@ func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount in
 		s.events[runID] = kept
 	}
 
-	if maxCount > 0 && len(survivingTurns) > maxCount {
-		sort.Slice(survivingTurns, func(i, j int) bool {
+	if maxCount > 0 && len(survivingModelCalls) > maxCount {
+		sort.Slice(survivingModelCalls, func(i, j int) bool {
 			// Newest first so we can drop the tail.
-			return survivingTurns[i].sequence > survivingTurns[j].sequence
+			return survivingModelCalls[i].sequence > survivingModelCalls[j].sequence
 		})
 		// Mark old ones for deletion.
-		toDrop := survivingTurns[maxCount:]
+		toDrop := survivingModelCalls[maxCount:]
 		dropSet := make(map[string]map[int64]struct{}, len(toDrop))
 		for _, ref := range toDrop {
 			if _, ok := dropSet[ref.runID]; !ok {
@@ -891,7 +891,7 @@ func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount in
 			list := s.events[runID]
 			kept := list[:0]
 			for _, evt := range list {
-				if evt.EventType == runtimeevents.EventTurnCompleted.String() {
+				if evt.EventType == runtimeevents.EventModelCallCompleted.String() {
 					if _, ok := seqs[evt.Sequence]; ok {
 						deleted++
 						continue

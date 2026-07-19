@@ -242,7 +242,7 @@ function ambiguousAttachmentUploadError(submitError: unknown, failedCleanupCount
 }
 
 // The backend bounds agent-chat turns at 30 minutes. Keep the live replay
-// observer slightly longer so a valid run is never declared uncertain first.
+// observer slightly longer so a valid turn is never declared uncertain first.
 const queuedReplayFollowTimeoutMS = 31 * 60 * 1000;
 const queuedReplayPollIntervalMS = 750;
 
@@ -287,11 +287,12 @@ export function queuedCommittedTurnIsTerminal(
   if (committedIndex < 0) return false;
   const committed = messages[committedIndex];
   if (committed.role !== "user") return false;
+  const committedTurnID = committed.turn_id?.trim();
+  if (!committedTurnID) return false;
   const nextTurnOffset = messages
     .slice(committedIndex + 1)
     .findIndex((message) => message.role === "user");
   const turnEnd = nextTurnOffset < 0 ? messages.length : committedIndex + 1 + nextTurnOffset;
-  const identityFields = ["segment_id", "run_id", "task_id"] as const;
   return messages.slice(committedIndex + 1, turnEnd).some((message) => {
     if (
       message.role !== "assistant" ||
@@ -299,9 +300,7 @@ export function queuedCommittedTurnIsTerminal(
     ) {
       return false;
     }
-    return identityFields.every(
-      (field) => !committed[field] || !message[field] || committed[field] === message[field],
-    );
+    return message.turn_id?.trim() === committedTurnID;
   });
 }
 
@@ -2546,7 +2545,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
               if (!responseConfirmed) {
                 setQueuedChatErrorStateIfSelected(
                   new Error(
-                    "The queued message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the model run.",
+                    "The queued message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the Chat Turn.",
                   ),
                 );
               }
@@ -2614,7 +2613,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
             if (!responseConfirmed) {
               setChatErrorState(
                 new Error(
-                  "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the model run.",
+                  "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the Chat Turn.",
                 ),
               );
             }
@@ -2727,7 +2726,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         }
         setChatErrorState(
           new Error(
-            "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+            "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate Chat Turn.",
           ),
         );
       }

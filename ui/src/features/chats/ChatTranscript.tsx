@@ -30,6 +30,7 @@ import { toChatMessageViewModel, toChatSegmentViewModel } from "./chatTurnViewMo
 
 export type VisibleChatMessage = {
   id: string;
+  turn_id?: string;
   turn_kind?: string;
   execution_mode?: string;
   tools_enabled?: boolean;
@@ -69,6 +70,7 @@ type Props = {
   // Active chat shape (derived in ChatView and threaded through here).
   isHecateAgentChat: boolean;
   activeSessionID: string;
+  focusMessageID?: string | null;
 
   // Transcript content.
   transcriptItems: TranscriptItem[];
@@ -82,7 +84,7 @@ type Props = {
 
   // Cross-region navigation. onOpenTask / onOpenTrace fall back to
   // onNavigate when the parent doesn't wire them.
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
+  onNavigate?: (workspace: "connections" | "tasks" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
   onOpenWorkspaceChanges?: () => void;
@@ -151,6 +153,7 @@ function isProjectAssistantProposal(value: unknown): value is ProjectAssistantPr
 export function ChatTranscript({
   isHecateAgentChat,
   activeSessionID,
+  focusMessageID,
   transcriptItems,
   visibleMessageCount,
   streaming,
@@ -207,6 +210,14 @@ export function ChatTranscript({
     bottomRef.current?.scrollIntoView({ behavior: "instant" });
   }, [activeSessionID]);
 
+  useEffect(() => {
+    if (!focusMessageID) return;
+    const target = document.getElementById(focusMessageID);
+    if (!target || !scrollRef.current?.contains(target)) return;
+    userScrolledRef.current = true;
+    target.scrollIntoView({ behavior: "instant", block: "center" });
+  }, [activeSessionID, focusMessageID, visibleMessageCount]);
+
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
@@ -240,7 +251,7 @@ export function ChatTranscript({
   const handleCopy = useStableCallback(copyMsg);
   const handleOpenTask = useStableCallback((taskID: string, runID?: string) => {
     if (onOpenTask) onOpenTask(taskID, runID);
-    else onNavigate?.("runs");
+    else onNavigate?.("tasks");
   });
   const handleOpenTrace = useStableCallback((requestID: string) => {
     if (onOpenTrace) onOpenTrace(requestID);
@@ -251,8 +262,9 @@ export function ChatTranscript({
   });
   const handleOpenProjectProposal = useStableCallback(
     async (message: VisibleChatMessage, activity: ChatActivityRecord) => {
-      const taskID = (message.task_id ?? "").trim();
-      const runID = (message.run_id ?? "").trim();
+      const turn = toChatMessageViewModel(message);
+      const taskID = turn.taskID.trim();
+      const runID = turn.runID.trim();
       const artifactID = (activity.artifact_id ?? "").trim();
       if (!taskID || !runID || !artifactID) {
         settingsActions.setNoticeMessage(
@@ -500,14 +512,15 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
   const agentModel = isHecateAgentChat
     ? m.model || activeModel || "Hecate Chat"
     : m.agent_name || m.agent_id;
-  const agentRuntime = role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms) : "";
-  const agentRuntimeTitle =
-    role === "assistant"
-      ? formatAgentRuntimeMetaTitle(m.run_id, m.duration_ms, m.native_session_id)
-      : "";
   const turn = toChatMessageViewModel(m);
   const taskID = turn.isTaskBacked ? turn.taskID : "";
-  const taskRunID = taskID ? m.run_id : "";
+  const taskRunID = taskID ? turn.runID : "";
+  const agentRuntime =
+    role === "assistant" ? formatChatTurnMeta(taskID ? "" : turn.turnID, m.duration_ms) : "";
+  const agentRuntimeTitle =
+    role === "assistant"
+      ? formatChatTurnMetaTitle(taskID ? "" : turn.turnID, m.duration_ms, m.native_session_id)
+      : "";
   const traceRequestID = m.request_id;
   const traceID = m.trace_id;
   const changedFilesSummary =
@@ -535,9 +548,9 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
       runtimeMeta={agentRuntime}
       runtimeMetaTitle={agentRuntimeTitle}
       taskLink={
-        isHecateAgentChat && role === "assistant" && taskID
+        role === "assistant" && taskID
           ? {
-              label: formatTaskLinkLabel(taskID),
+              label: formatTaskLinkLabel(taskID, taskRunID),
               title: formatTaskLinkTitle(taskID, taskRunID),
               onClick: () => onOpenTask(taskID, taskRunID),
             }
@@ -637,6 +650,7 @@ export function projectVisibleMessage(
 function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessage {
   return {
     id,
+    turn_id: m.turn_id,
     turn_kind: m.turn_kind,
     execution_mode: m.execution_mode,
     tools_enabled: m.tools_enabled,
@@ -669,12 +683,16 @@ function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessa
 }
 
 function fallbackSegmentID(message: VisibleChatMessage): string {
-  if (message.task_id) return `task:${message.task_id}`;
-  if (message.native_session_id) return `external:${message.native_session_id}`;
+  const turn = toChatMessageViewModel(message);
+  if (turn.isTaskBacked) return `task:${turn.taskID}`;
+  if (turn.isExternalAgent && message.native_session_id) {
+    return `external:${message.native_session_id}`;
+  }
   return "";
 }
 
 function segmentFromMessage(message: VisibleChatMessage, segmentID: string): ChatSegmentRecord {
+  const turn = toChatMessageViewModel(message);
   return {
     id: segmentID,
     turn_kind: message.turn_kind,
@@ -682,8 +700,8 @@ function segmentFromMessage(message: VisibleChatMessage, segmentID: string): Cha
     tools_enabled: message.tools_enabled,
     provider: message.provider,
     model: message.model,
-    task_id: message.task_id,
-    latest_run_id: message.run_id,
+    task_id: turn.taskID || undefined,
+    latest_run_id: turn.runID || undefined,
     status: message.agent_status,
     message_count: 0,
     started_at: message.created_at,
@@ -885,12 +903,15 @@ function externalAgentDisplayName(agentID: string): string {
   }
 }
 
-function formatTaskLinkLabel(taskID: string): string {
+function formatTaskLinkLabel(taskID: string, runID?: string): string {
+  if (runID) return `Run ${compactID(runID, ["run_"], 12)}`;
   return `Task ${compactID(taskID, ["task_"], 12)}`;
 }
 
 function formatTaskLinkTitle(taskID: string, runID?: string): string {
-  return [`Open backing task ${taskID}`, runID ? `run ${runID}` : ""].filter(Boolean).join(" · ");
+  return runID
+    ? `View execution · Open run ${runID} for linked Task ${taskID}`
+    : `View linked Task ${taskID}`;
 }
 
 function formatTraceLinkLabel(requestID: string): string {
@@ -903,10 +924,10 @@ function formatTraceLinkTitle(requestID: string, traceID?: string): string {
     .join(" · ");
 }
 
-function formatAgentRuntimeMeta(runID?: string, durationMS?: number): string {
+function formatChatTurnMeta(turnID?: string, durationMS?: number): string {
   const parts: string[] = [];
-  if (runID) {
-    parts.push(`Run ${compactID(runID, ["run_"], 12)}`);
+  if (turnID) {
+    parts.push(`Turn ${compactID(turnID, ["turn_"], 12)}`);
   }
   if (durationMS && durationMS > 0) {
     parts.push(formatDurationMs(durationMS));
@@ -914,13 +935,13 @@ function formatAgentRuntimeMeta(runID?: string, durationMS?: number): string {
   return parts.join(" · ");
 }
 
-function formatAgentRuntimeMetaTitle(
-  runID?: string,
+function formatChatTurnMetaTitle(
+  turnID?: string,
   durationMS?: number,
   nativeSessionID?: string,
 ): string {
   const parts = [
-    runID ? `Run ${runID}` : "",
+    turnID ? `Turn ID ${turnID}` : "",
     nativeSessionID ? `Native session ${nativeSessionID}` : "",
     durationMS && durationMS > 0 ? `Duration ${formatDurationMs(durationMS)}` : "",
   ].filter(Boolean);

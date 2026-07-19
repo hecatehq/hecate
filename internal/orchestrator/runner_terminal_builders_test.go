@@ -88,6 +88,7 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 		ProviderKind:          "fallback-kind",
 		Model:                 "fallback-model",
 		TotalCostMicrosUSD:    99,
+		ModelCallCount:        1,
 		OtelStatusCode:        "old",
 		OtelStatusMessage:     "old message",
 		PriorCostMicrosUSD:    10,
@@ -103,6 +104,8 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 		CostMicrosUSD:     250,
 		OtelStatusCode:    "ok",
 		OtelStatusMessage: "fine",
+		ModelCallCosts:    []ModelCallCostRecord{{ModelCall: 2}, {ModelCall: 3}},
+		ModelCallCount:    3,
 	}
 	steps := []types.TaskStep{{ID: "step-1"}, {ID: "step-2"}}
 	artifacts := []types.TaskArtifact{{ID: "artifact-1"}}
@@ -145,8 +148,8 @@ func TestTerminalRunTransitionBuilders_ExecutionResult(t *testing.T) {
 	if transition.Run.InputProviderInstance != inputProviderInstance || !transition.Run.InputProviderDispatchRecorded || transition.Run.InputProviderDisclosedInstance != inputProviderInstance {
 		t.Fatalf("input provider route = admitted %+v dispatched=%t disclosed %+v, want %+v/true/%+v", transition.Run.InputProviderInstance, transition.Run.InputProviderDispatchRecorded, transition.Run.InputProviderDisclosedInstance, inputProviderInstance, inputProviderInstance)
 	}
-	if transition.Run.StepCount != 2 || transition.Run.ArtifactCount != 1 || transition.Run.TotalCostMicrosUSD != 250 {
-		t.Fatalf("counts/cost = steps:%d artifacts:%d cost:%d, want 2/1/250", transition.Run.StepCount, transition.Run.ArtifactCount, transition.Run.TotalCostMicrosUSD)
+	if transition.Run.StepCount != 2 || transition.Run.ModelCallCount != 3 || transition.Run.ArtifactCount != 1 || transition.Run.TotalCostMicrosUSD != 250 {
+		t.Fatalf("counts/cost = steps:%d model_calls:%d artifacts:%d cost:%d, want 2/3/1/250", transition.Run.StepCount, transition.Run.ModelCallCount, transition.Run.ArtifactCount, transition.Run.TotalCostMicrosUSD)
 	}
 	if !transition.Run.FinishedAt.Equal(now) || transition.Run.OtelStatusCode != "ok" || transition.Run.OtelStatusMessage != "fine" {
 		t.Fatalf("terminal fields = finished:%s code:%q message:%q", transition.Run.FinishedAt, transition.Run.OtelStatusCode, transition.Run.OtelStatusMessage)

@@ -18,8 +18,8 @@ type AgentConversationMessage = {
   }>;
 };
 
-// AgentConversationView renders the agent_loop conversation as a
-// chat-bubble timeline. User prompts on the right, assistant turns on
+// AgentConversationView renders the agent_loop checkpoint context as an
+// execution timeline. User inputs appear on the right, model responses on
 // the left (with their tool calls expanded), tool results in muted
 // frames. The conversation is the agent's reasoning trail — operators
 // scan it to understand WHY the agent did what it did, not just WHAT
@@ -31,27 +31,36 @@ type AgentConversationMessage = {
 // better than crashing the whole page.
 export function AgentConversationView({
   raw,
-  canRetryFromTurn = false,
+  canRetryFromModelCall = false,
   busy = false,
-  onRetryFromTurn,
+  onRetryFromModelCall,
   steps = [],
-  streamTurnCosts,
+  streamModelCallCosts,
+  runModelCallCount,
+  runActive = false,
 }: {
   raw: string;
-  canRetryFromTurn?: boolean;
+  canRetryFromModelCall?: boolean;
   busy?: boolean;
   // reason is collected via the inline modal before the call is made.
-  onRetryFromTurn?: (turn: number, reason: string) => void;
+  onRetryFromModelCall?: (modelCall: number, reason: string) => void;
   steps?: TaskStepRecord[];
-  // streamTurnCosts is a turn → µUSD map pushed by the SSE stream.
+  // streamModelCallCosts is a model call → µUSD map pushed by the SSE stream.
   // Used to fill in costs missing from the model-step output_summary
   // path. Optional — the steps path is the primary source.
-  streamTurnCosts?: Map<number, number>;
+  streamModelCallCosts?: Map<number, number>;
+  // model-call indices are scoped to the selected Run. The conversation
+  // artifact may begin with inherited responses from earlier Runs.
+  runModelCallCount: number;
+  // Active Runs can contain a transient partial assistant response that has
+  // not completed a model call. Until settlement, keep bubble ownership
+  // deliberately neutral instead of assigning costs or retry indices.
+  runActive?: boolean;
 }) {
-  // pendingRetryTurn is set when the operator clicks "↻ retry from here"
+  // pendingRetryModelCall is set when the operator clicks the retry control
   // on a bubble. The inline modal collects an optional reason, then
-  // fires onRetryFromTurn(turn, reason) on confirm.
-  const [pendingRetryTurn, setPendingRetryTurn] = useState<number | null>(null);
+  // fires onRetryFromModelCall(modelCall, reason) on confirm.
+  const [pendingRetryModelCall, setPendingRetryModelCall] = useState<number | null>(null);
 
   let messages: AgentConversationMessage[] = [];
   try {
@@ -68,7 +77,7 @@ export function AgentConversationView({
           fontFamily: "var(--font-mono)",
         }}
       >
-        Could not parse agent conversation artifact (invalid JSON).
+        Could not parse Run model context artifact (invalid JSON).
       </div>
     );
   }
@@ -76,33 +85,34 @@ export function AgentConversationView({
   const visibleMessages = messages.filter(isVisibleConversationMessage);
   if (visibleMessages.length === 0) return null;
 
-  // Compute per-message turn numbers up-front so each bubble can render
-  // its own "↻ retry from turn N" affordance. Only assistant messages
-  // get a turn number — user/tool/system messages get 0 and won't show
-  // the button. Counting in a single pass here keeps the bubble itself
-  // O(1) at render time.
+  // The source Run owns only the assistant-message suffix identified by its
+  // authoritative count. Earlier assistant messages are prior-Run context:
+  // they stay visible, but they have no local model-call number, cost, or
+  // retry action on this Run.
   let assistantSeen = 0;
-  const turnByIndex: number[] = visibleMessages.map((m) => {
-    if (m.role === "assistant") {
-      assistantSeen++;
-      return assistantSeen;
-    }
-    return 0;
+  for (const message of visibleMessages) {
+    if (message.role === "assistant") assistantSeen++;
+  }
+  const validRunCount =
+    Number.isInteger(runModelCallCount) &&
+    runModelCallCount >= 0 &&
+    runModelCallCount <= assistantSeen;
+  const inheritedAssistantCount = validRunCount ? assistantSeen - runModelCallCount : assistantSeen;
+  let assistantOrdinal = 0;
+  const modelCallByIndex: number[] = visibleMessages.map((message) => {
+    if (message.role !== "assistant") return 0;
+    assistantOrdinal++;
+    if (runActive) return 0;
+    return assistantOrdinal > inheritedAssistantCount
+      ? assistantOrdinal - inheritedAssistantCount
+      : 0;
   });
 
-  // Build turn → cost map by walking model-kind steps in step.index
-  // order. The Nth model step corresponds to the Nth assistant turn,
-  // so we just zip them. Steps whose OutputSummary lacks the cost
-  // field (older runs, or resumed-after-approval steps that didn't
-  // re-call the LLM) map to undefined; we fall back to the SSE-
-  // streamed per-turn cost (when available) so the figure still
-  // shows up; otherwise the bubble renders nothing rather than a
-  // misleading "$0.000".
-  const costByTurn = buildTurnCostMap(steps);
-  if (streamTurnCosts) {
-    for (const [turn, micros] of streamTurnCosts) {
-      if (!costByTurn.has(turn) && micros > 0) {
-        costByTurn.set(turn, micros);
+  const costByModelCall = buildModelCallCostMap(steps);
+  if (streamModelCallCosts) {
+    for (const [modelCall, micros] of streamModelCallCosts) {
+      if (!costByModelCall.has(modelCall) && micros > 0) {
+        costByModelCall.set(modelCall, micros);
       }
     }
   }
@@ -119,30 +129,36 @@ export function AgentConversationView({
         }}
       >
         <div className="kicker" style={{ marginBottom: 4 }}>
-          Agent conversation · {visibleMessages.length} message
-          {visibleMessages.length === 1 ? "" : "s"}
+          Run model context · {visibleMessages.length}{" "}
+          {visibleMessages.length === 1 ? "entry" : "entries"}
         </div>
         {visibleMessages.map((m, i) => (
           <ConversationBubble
             key={i}
             message={m}
-            turn={turnByIndex[i]}
-            turnCostMicros={turnByIndex[i] > 0 ? costByTurn.get(turnByIndex[i]) : undefined}
-            canRetryFromTurn={canRetryFromTurn}
-            busy={busy || pendingRetryTurn !== null}
-            onRetryFromTurn={canRetryFromTurn ? (turn) => setPendingRetryTurn(turn) : undefined}
+            modelCall={modelCallByIndex[i]}
+            live={m.role === "assistant" && runActive}
+            inherited={m.role === "assistant" && !runActive && modelCallByIndex[i] === 0}
+            modelCallCostMicros={
+              modelCallByIndex[i] > 0 ? costByModelCall.get(modelCallByIndex[i]) : undefined
+            }
+            canRetryFromModelCall={canRetryFromModelCall}
+            busy={busy || pendingRetryModelCall !== null}
+            onRetryFromModelCall={
+              canRetryFromModelCall ? (modelCall) => setPendingRetryModelCall(modelCall) : undefined
+            }
           />
         ))}
       </div>
-      {pendingRetryTurn !== null && (
-        <RetryFromTurnModal
-          turn={pendingRetryTurn}
+      {pendingRetryModelCall !== null && (
+        <RetryFromModelCallModal
+          modelCall={pendingRetryModelCall}
           busy={busy}
           onConfirm={(reason) => {
-            onRetryFromTurn?.(pendingRetryTurn, reason);
-            setPendingRetryTurn(null);
+            onRetryFromModelCall?.(pendingRetryModelCall, reason);
+            setPendingRetryModelCall(null);
           }}
-          onClose={() => setPendingRetryTurn(null)}
+          onClose={() => setPendingRetryModelCall(null)}
         />
       )}
     </>
@@ -153,17 +169,17 @@ export function isVisibleConversationMessage(message: AgentConversationMessage):
   return message.role === "user" || message.role === "assistant" || message.role === "tool";
 }
 
-// RetryFromTurnModal collects an optional reason before submitting the
-// retry-from-turn request. The reason is stored in the run.resumed_from_event event
+// RetryFromModelCallModal collects an optional reason before submitting the
+// retry-from-model-call request. The reason is stored in the run.resumed_from_event event
 // and shown in the run timeline so operators can annotate why they
-// branched from a particular turn.
-function RetryFromTurnModal({
-  turn,
+// branched from a particular model call.
+function RetryFromModelCallModal({
+  modelCall,
   busy,
   onConfirm,
   onClose,
 }: {
-  turn: number;
+  modelCall: number;
   busy: boolean;
   onConfirm: (reason: string) => void;
   onClose: () => void;
@@ -171,7 +187,7 @@ function RetryFromTurnModal({
   const [reason, setReason] = useState("");
   return (
     <Modal
-      title={`Retry from turn ${turn}`}
+      title={`Retry from model call ${modelCall}`}
       onClose={onClose}
       width={440}
       footer={
@@ -184,15 +200,16 @@ function RetryFromTurnModal({
             disabled={busy}
             onClick={() => onConfirm(reason.trim())}
           >
-            {busy ? "Working…" : "Retry"}
+            {busy ? "Creating Run…" : "Retry in new Run"}
           </button>
         </div>
       }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <p style={{ margin: 0, fontSize: 13, color: "var(--t1)", lineHeight: 1.5 }}>
-          A new run will be created with the conversation truncated to just before turn {turn}'s
-          assistant message. The prior steps and file state are preserved.
+          A new Run will branch just before model call {modelCall} of this Run. Earlier conversation
+          context and workspace state are preserved. To branch from an older call, select the Run
+          that made it.
         </p>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span
@@ -211,7 +228,7 @@ function RetryFromTurnModal({
             rows={2}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Why are you branching from this turn?"
+            placeholder="Why are you branching from this model call?"
             style={{
               resize: "vertical",
               fontFamily: "var(--font-sans)",
@@ -232,44 +249,49 @@ function RetryFromTurnModal({
   );
 }
 
-// buildTurnCostMap walks `steps` in step.index order, picks out the
-// model-kind ones, and pairs them with their turn ordinal. The agent
-// loop emits exactly one model step per turn (resumed-after-approval
-// turns use a different ToolName but still count as model steps), so
-// "first model step" = turn 1, "second" = turn 2, etc. Returns a map
-// keyed by turn number with the cost in µUSD; turns whose step has no
-// cost in OutputSummary are simply absent from the map.
-export function buildTurnCostMap(steps: TaskStepRecord[]): Map<number, number> {
+// buildModelCallCostMap reads the authoritative model_call_index recorded on
+// actual provider-call steps. `builtin.agent_loop_resume` is deliberately
+// excluded: it marks approval continuation without making another model call.
+export function buildModelCallCostMap(steps: TaskStepRecord[]): Map<number, number> {
   const sorted = [...steps].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
   const out = new Map<number, number>();
-  let turn = 0;
   for (const step of sorted) {
-    if (step.kind !== "model") continue;
-    turn++;
+    if (step.kind !== "model" || step.tool_name !== "builtin.agent_loop_llm") continue;
+    const runModelCall = stepModelCallIndex(step);
+    if (runModelCall === null) continue;
     const summary = step.output_summary as Record<string, unknown> | undefined;
     if (!summary) continue;
     const raw = summary["cost_micros_usd"];
     if (typeof raw === "number" && raw > 0) {
-      out.set(turn, raw);
+      out.set(runModelCall, raw);
     }
   }
   return out;
 }
 
+function stepModelCallIndex(step: TaskStepRecord): number | null {
+  const raw = step.input?.["model_call_index"];
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 ? raw : null;
+}
+
 function ConversationBubble({
   message,
-  turn,
-  turnCostMicros,
-  canRetryFromTurn = false,
+  modelCall,
+  inherited = false,
+  live = false,
+  modelCallCostMicros,
+  canRetryFromModelCall = false,
   busy = false,
-  onRetryFromTurn,
+  onRetryFromModelCall,
 }: {
   message: AgentConversationMessage;
-  turn?: number;
-  turnCostMicros?: number;
-  canRetryFromTurn?: boolean;
+  modelCall?: number;
+  inherited?: boolean;
+  live?: boolean;
+  modelCallCostMicros?: number;
+  canRetryFromModelCall?: boolean;
   busy?: boolean;
-  onRetryFromTurn?: (turn: number) => void;
+  onRetryFromModelCall?: (modelCall: number) => void;
 }) {
   if (message.role === "user") {
     return (
@@ -331,8 +353,9 @@ function ConversationBubble({
     );
   }
   // assistant — content + any tool calls
-  const showRetry = canRetryFromTurn && !!turn && turn > 0 && !!onRetryFromTurn;
-  const showCost = typeof turnCostMicros === "number" && turnCostMicros > 0;
+  const showRetry =
+    !inherited && canRetryFromModelCall && !!modelCall && modelCall > 0 && !!onRetryFromModelCall;
+  const showCost = typeof modelCallCostMicros === "number" && modelCallCostMicros > 0;
   return (
     <div
       style={{
@@ -344,13 +367,15 @@ function ConversationBubble({
       }}
     >
       <div className="kicker" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span>turn {turn || "?"}</span>
+        <span>
+          {live ? "Live Run context" : inherited ? "Prior Run context" : `model call ${modelCall}`}
+        </span>
         {showCost && (
           <span
-            title={`LLM cost for turn ${turn}: ${formatMicrosUSD(turnCostMicros!)}`}
+            title={`LLM cost for model call ${modelCall}: ${formatMicrosUSD(modelCallCostMicros!)}`}
             style={{ color: "var(--t3)", fontFamily: "var(--font-mono)" }}
           >
-            · {formatMicrosUSD(turnCostMicros!)}
+            · {formatMicrosUSD(modelCallCostMicros!)}
           </span>
         )}
         {showRetry && (
@@ -358,11 +383,12 @@ function ConversationBubble({
             type="button"
             className="btn btn-ghost btn-sm"
             disabled={busy}
-            onClick={() => onRetryFromTurn?.(turn!)}
-            title={`Re-run from turn ${turn} with the prior conversation preserved`}
+            onClick={() => onRetryFromModelCall?.(modelCall!)}
+            aria-label={`Retry from model call ${modelCall} of this Run`}
+            title={`Create a new Run from model call ${modelCall} with the prior conversation preserved`}
             style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px" }}
           >
-            ↻ retry from here
+            ↻ retry this Run call
           </button>
         )}
       </div>

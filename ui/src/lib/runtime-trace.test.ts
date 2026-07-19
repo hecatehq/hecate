@@ -540,7 +540,7 @@ describe("buildTraceTimeline", () => {
           start_time: "2026-05-11T06:14:05.428427Z",
           events: [
             {
-              name: "chat.run.started",
+              name: "chat.turn.started",
               timestamp: "2026-05-11T06:14:05.428427Z",
               attributes: {
                 "hecate.agent_adapter.id": "grok_build",
@@ -552,10 +552,10 @@ describe("buildTraceTimeline", () => {
         span({
           span_id: "chat",
           parent_span_id: "root",
-          name: "agent_chat.run",
+          name: "chat.turn",
           events: [
             {
-              name: "chat.run.started",
+              name: "chat.turn.started",
               timestamp: "2026-05-11T06:14:05.428427Z",
               attributes: {
                 "hecate.agent_adapter.name": "Grok Build",
@@ -570,8 +570,8 @@ describe("buildTraceTimeline", () => {
 
     expect(timeline).toHaveLength(1);
     expect(timeline[0]).toMatchObject({
-      name: "chat.run.started",
-      spanName: "agent_chat.run",
+      name: "chat.turn.started",
+      spanName: "chat.turn",
       phase: "chat",
     });
   });

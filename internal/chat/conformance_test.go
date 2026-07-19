@@ -25,9 +25,9 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreLifecycle(t, factory(t))
 	})
-	t.Run(name+"/ReconcileInterruptedRuns", func(t *testing.T) {
+	t.Run(name+"/ReconcileInterruptedTurns", func(t *testing.T) {
 		t.Parallel()
-		runStoreReconcileInterruptedRuns(t, factory(t))
+		runStoreReconcileInterruptedTurns(t, factory(t))
 	})
 	t.Run(name+"/DoesNotHydrateTaskIDForAnonymousAgentSegment", func(t *testing.T) {
 		t.Parallel()

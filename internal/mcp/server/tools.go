@@ -52,7 +52,7 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 	s.RegisterTool(mcp.Tool{
 		Name:        "get_task_status",
 		Title:       "Get task status",
-		Description: "Get the current status of a specific Hecate task by id, including its latest run and step count.",
+		Description: "Get the current status of a specific Hecate Task by id, including its latest Run and that Run's Step count.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -166,14 +166,14 @@ type listTasksArgs struct {
 
 type listTasksResponse struct {
 	Data []struct {
-		ID            string `json:"id"`
-		Title         string `json:"title"`
-		Prompt        string `json:"prompt"`
-		Status        string `json:"status"`
-		ExecutionKind string `json:"execution_kind"`
-		StepCount     int    `json:"step_count"`
-		LatestRunID   string `json:"latest_run_id"`
-		CreatedAt     string `json:"created_at"`
+		ID                 string `json:"id"`
+		Title              string `json:"title"`
+		Prompt             string `json:"prompt"`
+		Status             string `json:"status"`
+		ExecutionKind      string `json:"execution_kind"`
+		LatestRunStepCount int    `json:"latest_run_step_count"`
+		LatestRunID        string `json:"latest_run_id"`
+		CreatedAt          string `json:"created_at"`
 	} `json:"data"`
 }
 
@@ -203,8 +203,8 @@ func listTasksHandler(client *GatewayClient) ToolHandler {
 			if title == "" {
 				title = t.Prompt
 			}
-			fmt.Fprintf(&b, "- %s [%s] %s — %s (%d steps)",
-				shortID(t.ID), t.ExecutionKind, t.Status, title, t.StepCount)
+			fmt.Fprintf(&b, "- %s [%s] %s — %s (latest Run: %d steps)",
+				shortID(t.ID), t.ExecutionKind, t.Status, title, t.LatestRunStepCount)
 			if t.LatestRunID != "" {
 				fmt.Fprintf(&b, " · run %s", shortID(t.LatestRunID))
 			}
@@ -222,18 +222,18 @@ type getTaskStatusArgs struct {
 
 type getTaskStatusResponse struct {
 	Data struct {
-		ID            string `json:"id"`
-		Title         string `json:"title"`
-		Prompt        string `json:"prompt"`
-		Status        string `json:"status"`
-		ExecutionKind string `json:"execution_kind"`
-		ShellCommand  string `json:"shell_command,omitempty"`
-		GitCommand    string `json:"git_command,omitempty"`
-		FilePath      string `json:"file_path,omitempty"`
-		StepCount     int    `json:"step_count"`
-		LatestRunID   string `json:"latest_run_id"`
-		CreatedAt     string `json:"created_at"`
-		UpdatedAt     string `json:"updated_at"`
+		ID                 string `json:"id"`
+		Title              string `json:"title"`
+		Prompt             string `json:"prompt"`
+		Status             string `json:"status"`
+		ExecutionKind      string `json:"execution_kind"`
+		ShellCommand       string `json:"shell_command,omitempty"`
+		GitCommand         string `json:"git_command,omitempty"`
+		FilePath           string `json:"file_path,omitempty"`
+		LatestRunStepCount int    `json:"latest_run_step_count"`
+		LatestRunID        string `json:"latest_run_id"`
+		CreatedAt          string `json:"created_at"`
+		UpdatedAt          string `json:"updated_at"`
 	} `json:"data"`
 }
 
@@ -272,7 +272,7 @@ func getTaskStatusHandler(client *GatewayClient) ToolHandler {
 				fmt.Fprintf(&b, "File: %s\n", t.FilePath)
 			}
 		}
-		fmt.Fprintf(&b, "Steps: %d\n", t.StepCount)
+		fmt.Fprintf(&b, "Latest Run steps: %d\n", t.LatestRunStepCount)
 		if t.LatestRunID != "" {
 			fmt.Fprintf(&b, "Latest run: %s\n", t.LatestRunID)
 		}

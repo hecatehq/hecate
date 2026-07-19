@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { TaskRecord } from "../../types/task";
 import { Badge, Icon, Icons } from "../shared/ui";
 
-import { taskBadgeProps } from "./taskDetailHelpers";
+import { taskBadgeProps, taskSource } from "./taskDetailHelpers";
 
 type Props = {
   tasks: TaskRecord[];
@@ -99,11 +99,12 @@ export function TaskList({
           <div
             style={{ padding: "24px 12px", textAlign: "center", fontSize: 12, color: "var(--t3)" }}
           >
-            No tasks yet. Create one above.
+            No Tasks yet. Create one above to start its first Run.
           </div>
         )}
         {tasks.map((t) => {
           const showActions = actionTaskID === t.id;
+          const source = taskSource(t);
           return (
             <div
               key={t.id}
@@ -156,22 +157,18 @@ export function TaskList({
                     {t.execution_kind}
                   </span>
                 )}
-                {t.origin_kind === "chat" && (
-                  <span
-                    className="badge badge-muted"
-                    title={
-                      t.origin_id ? `Created from chat ${t.origin_id}` : "Created from Hecate Chat"
-                    }
-                    style={{
-                      fontSize: 9,
-                      fontFamily: "var(--font-mono)",
-                      padding: "1px 5px",
-                      flexShrink: 0,
-                    }}
-                  >
-                    from chat
-                  </span>
-                )}
+                <span
+                  className="badge badge-muted"
+                  title={source.title}
+                  style={{
+                    fontSize: 9,
+                    fontFamily: "var(--font-mono)",
+                    padding: "1px 5px",
+                    flexShrink: 0,
+                  }}
+                >
+                  {source.label}
+                </span>
                 {/* MCP-config chip — surfaced when the task configures
                   one or more external MCP servers, so operators can
                   see at-a-glance which agent_loop tasks bring up
@@ -201,7 +198,8 @@ export function TaskList({
                     marginLeft: "auto",
                   }}
                 >
-                  {t.step_count ?? 0} steps
+                  Latest run · {t.latest_run_step_count ?? 0}{" "}
+                  {(t.latest_run_step_count ?? 0) === 1 ? "step" : "steps"}
                 </span>
                 {t.status !== "running" && (
                   <button

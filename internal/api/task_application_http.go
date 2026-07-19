@@ -15,7 +15,7 @@ var taskAppErrorMappings = []appErrorMapping{
 		taskapp.ErrProjectStoreNotConfigured,
 		taskapp.ErrProjectNotFound,
 		taskapp.ErrPromptRequired,
-		taskapp.ErrRunNotTurnRetryable,
+		taskapp.ErrRunNotModelCallRetryable,
 		taskapp.ErrBudgetLower,
 	),
 	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound,

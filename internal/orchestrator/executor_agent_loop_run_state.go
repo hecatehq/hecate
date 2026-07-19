@@ -17,18 +17,20 @@ type agentLoopRunState struct {
 	providerInstance types.ProviderInstanceIdentity
 	model            string
 
-	costCeiling int64
-	priorCost   int64
-	costSpent   int64
-	turnCosts   []TurnCostRecord
+	costCeiling    int64
+	priorCost      int64
+	costSpent      int64
+	modelCallCount int
+	modelCallCosts []ModelCallCostRecord
 }
 
-func newAgentLoopRunState(spec ExecutionSpec, maxTurns int) *agentLoopRunState {
+func newAgentLoopRunState(spec ExecutionSpec, maxModelCalls int) *agentLoopRunState {
 	baseIndex := 0
 	costSpent := int64(0)
 	priorCost := int64(0)
+	modelCallCount := 0
 	if spec.ResumeCheckpoint != nil {
-		if spec.ResumeCheckpoint.LastStepIndex > 0 {
+		if spec.ResumeCheckpoint.SameRun && spec.ResumeCheckpoint.LastStepIndex > 0 {
 			baseIndex = spec.ResumeCheckpoint.LastStepIndex
 		}
 		priorCost = spec.ResumeCheckpoint.PriorCostMicrosUSD
@@ -37,15 +39,17 @@ func newAgentLoopRunState(spec ExecutionSpec, maxTurns int) *agentLoopRunState {
 		// account for it. Cross-run resumes see zero here (new run
 		// hasn't spent anything yet).
 		costSpent = spec.ResumeCheckpoint.ThisRunCostMicrosUSD
+		modelCallCount = spec.ResumeCheckpoint.ThisRunModelCallCount
 	}
 	return &agentLoopRunState{
-		nextIndex:   baseIndex + 1,
-		steps:       make([]types.TaskStep, 0, maxTurns*2),
-		artifacts:   make([]types.TaskArtifact, 0, maxTurns),
-		costCeiling: spec.Task.BudgetMicrosUSD,
-		priorCost:   priorCost,
-		costSpent:   costSpent,
-		turnCosts:   make([]TurnCostRecord, 0, maxTurns),
+		nextIndex:      baseIndex + 1,
+		steps:          make([]types.TaskStep, 0, maxModelCalls*2),
+		artifacts:      make([]types.TaskArtifact, 0, maxModelCalls),
+		costCeiling:    spec.Task.BudgetMicrosUSD,
+		priorCost:      priorCost,
+		costSpent:      costSpent,
+		modelCallCount: modelCallCount,
+		modelCallCosts: make([]ModelCallCostRecord, 0, maxModelCalls),
 	}
 }
 
@@ -114,22 +118,35 @@ func (s *agentLoopRunState) RecordRoute(resp *types.ChatResponse) {
 }
 
 func (s *agentLoopRunState) AccumulateCost(resp *types.ChatResponse) int64 {
-	turnCost := int64(0)
+	modelCallCost := int64(0)
 	if resp != nil {
-		turnCost = resp.Cost.TotalMicrosUSD
+		modelCallCost = resp.Cost.TotalMicrosUSD
 	}
-	s.costSpent += turnCost
-	return turnCost
+	s.costSpent += modelCallCost
+	return modelCallCost
 }
 
-func (s *agentLoopRunState) AddTurnCost(turn int, stepID string, turnCost int64, toolCallCount int) {
-	s.turnCosts = append(s.turnCosts, TurnCostRecord{
-		Turn:                turn,
+func (s *agentLoopRunState) AddModelCallCost(modelCall int, stepID string, modelCallCost int64, toolCallCount int) {
+	s.modelCallCosts = append(s.modelCallCosts, ModelCallCostRecord{
+		ModelCall:           modelCall,
 		StepID:              stepID,
-		CostMicrosUSD:       turnCost,
+		CostMicrosUSD:       modelCallCost,
 		CumulativeMicrosUSD: s.costSpent,
 		ToolCallCount:       toolCallCount,
 	})
+	if modelCall > s.modelCallCount {
+		s.modelCallCount = modelCall
+	}
+}
+
+func (s *agentLoopRunState) ModelCallCount() int {
+	return s.modelCallCount
+}
+
+func (s *agentLoopRunState) EnsureModelCallCount(modelCallCount int) {
+	if modelCallCount > s.modelCallCount {
+		s.modelCallCount = modelCallCount
+	}
 }
 
 func (s *agentLoopRunState) CostSpent() int64 {
@@ -163,7 +180,8 @@ func (s *agentLoopRunState) attachAccounting(res *ExecutionResult) *ExecutionRes
 	}
 	res.Model = firstNonEmpty(res.Model, s.model)
 	res.CostMicrosUSD = s.costSpent
-	res.TurnCosts = s.turnCosts
+	res.ModelCallCosts = s.modelCallCosts
+	res.ModelCallCount = s.modelCallCount
 	return res
 }
 

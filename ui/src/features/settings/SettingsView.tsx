@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
+import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import {
   canUseDesktopCloudConnection,
@@ -9,7 +10,8 @@ import {
   stopDesktopCloudConnection,
   type DesktopCloudConnectionStatus,
 } from "../../lib/cloud-connection";
-import { getPlugins } from "../../lib/api";
+import { ApiError, getPlugins } from "../../lib/api";
+import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { PluginRecord } from "../../types/plugin";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
@@ -19,12 +21,15 @@ export function SettingsView() {
   // useRetentionActions takes setNotice — the same setter the
   // shim used to wire success/failure banner toggles through.
   const settings = useSettings();
+  const runtime = useRuntime();
   const { runRetention } = useRetentionActions({ setNotice: settings.actions.setNotice });
   const loadRetentionRuns = retention.actions.loadRuns;
   const storageBackend = settings.state.config?.backend ?? "memory";
+  const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
   const [plugins, setPlugins] = useState<PluginRecord[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
+  const [pluginsLocalOnly, setPluginsLocalOnly] = useState(false);
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `loadRuns` is a stable useCallback, so
@@ -38,16 +43,30 @@ export function SettingsView() {
   }, [loadRetentionRuns]);
 
   useEffect(() => {
+    if (remoteRuntime) {
+      setPlugins([]);
+      setPluginsError("");
+      setPluginsLoading(false);
+      setPluginsLocalOnly(false);
+      return;
+    }
     void loadPlugins();
-  }, []);
+  }, [remoteRuntime]);
 
   async function loadPlugins() {
     setPluginsLoading(true);
     setPluginsError("");
+    setPluginsLocalOnly(false);
     try {
       const response = await getPlugins();
       setPlugins(response.data ?? []);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setPlugins([]);
+        setPluginsLocalOnly(true);
+        setPluginsError("");
+        return;
+      }
       const message = err instanceof Error ? err.message : "Failed to load plugins.";
       setPluginsError(message);
     } finally {
@@ -63,6 +82,7 @@ export function SettingsView() {
           error={pluginsError}
           loading={pluginsLoading}
           plugins={plugins}
+          localOnly={remoteRuntime || pluginsLocalOnly}
           onRefresh={() => void loadPlugins()}
         />
         <RetentionSettings
@@ -364,9 +384,9 @@ const RETENTION_SUBSYSTEMS = [
     description: "Provider health and readiness history.",
   },
   {
-    id: "turn_events",
-    label: "Task turn events",
-    description: "Verbose per-turn task-runtime events.",
+    id: "model_call_events",
+    label: "Task model-call events",
+    description: "Verbose per-model-call task-runtime events.",
   },
   {
     id: "chat_approvals",
@@ -380,11 +400,13 @@ function PluginRegistrySettings({
   loading,
   onRefresh,
   plugins,
+  localOnly,
 }: {
   error: string;
   loading: boolean;
   onRefresh: () => void;
   plugins: PluginRecord[];
+  localOnly: boolean;
 }) {
   const capabilityCount = plugins.reduce(
     (sum, plugin) => sum + (plugin.capabilities?.length ?? 0),
@@ -395,15 +417,26 @@ function PluginRegistrySettings({
       <SectionHeader
         title="Plugins"
         description="Installed plugin manifests and requested capabilities. Registry entries do not run code or mount tools yet."
-        meta={`${plugins.length} plugin${plugins.length === 1 ? "" : "s"} · ${capabilityCount} cap${capabilityCount === 1 ? "" : "s"}`}
+        meta={
+          localOnly
+            ? "local-only"
+            : `${plugins.length} plugin${plugins.length === 1 ? "" : "s"} · ${capabilityCount} cap${capabilityCount === 1 ? "" : "s"}`
+        }
         actions={
-          <button className="btn btn-ghost btn-sm" disabled={loading} onClick={onRefresh}>
-            <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
-          </button>
+          localOnly ? null : (
+            <button className="btn btn-ghost btn-sm" disabled={loading} onClick={onRefresh}>
+              <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
+            </button>
+          )
         }
       />
+      {localOnly && (
+        <div className="card" style={{ padding: "14px 16px", color: "var(--t3)", fontSize: 12 }}>
+          Plugin registry inspection is available only from a local Hecate runtime.
+        </div>
+      )}
       {error && <InlineError message={error} />}
-      {!error && plugins.length === 0 && !loading && (
+      {!localOnly && !error && plugins.length === 0 && !loading && (
         <div className="card" style={{ padding: "14px 16px", color: "var(--t3)", fontSize: 12 }}>
           No plugins installed.
         </div>

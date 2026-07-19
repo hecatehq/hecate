@@ -18,6 +18,43 @@ describe("chatTurnViewModels", () => {
     ).toBe("direct_model");
   });
 
+  it("keeps Chat Turn identity separate from Task Run identity", () => {
+    const direct = toChatMessageViewModel({
+      id: "msg_direct",
+      turn_id: "turn_direct",
+      turn_kind: "direct_model",
+      role: "assistant",
+      content: "hello",
+    });
+    const taskBacked = toChatMessageViewModel({
+      id: "msg_task",
+      turn_id: "turn_task",
+      turn_kind: "hecate_task",
+      task_id: "task_1",
+      run_id: "run_1",
+      role: "assistant",
+      content: "done",
+    });
+
+    expect(direct.turnID).toBe("turn_direct");
+    expect(direct.runID).toBe("");
+    expect(taskBacked.turnID).toBe("turn_task");
+    expect(taskBacked.runID).toBe("run_1");
+  });
+
+  it("does not treat a non-task run_id as a Chat Turn identity", () => {
+    const turn = toChatMessageViewModel({
+      id: "msg_1",
+      turn_kind: "external_agent",
+      run_id: "removed_non_task_run_identity",
+      role: "assistant",
+      content: "hello",
+    });
+
+    expect(turn.turnID).toBe("");
+    expect(turn.runID).toBe("");
+  });
+
   it("treats missing turn_kind as unknown instead of inferring from legacy fields", () => {
     const turn = toChatMessageViewModel({
       id: "msg_1",

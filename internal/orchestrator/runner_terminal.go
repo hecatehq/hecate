@@ -114,10 +114,7 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 
 	var terminalEvent *taskstate.RunEventSpec
 	if emitTerminalEvent && tr.ApprovalResolution == nil {
-		data := tr.EventData
-		if data == nil {
-			data = map[string]any{"error": tr.Message, "status": tr.Status}
-		}
+		data := terminalRunEventData(tr.EventData, run, tr.Status, tr.Message)
 		terminalEvent = &taskstate.RunEventSpec{
 			EventType: terminalRunEventType(run.Status),
 			Data:      data,
@@ -171,4 +168,21 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 		Run:      result.Run,
 		Approval: result.Approval,
 	}, nil
+}
+
+func terminalRunEventData(data map[string]any, run types.TaskRun, status, message string) map[string]any {
+	out := make(map[string]any, len(data)+3)
+	for key, value := range data {
+		out[key] = value
+	}
+	if _, ok := out["status"]; !ok {
+		out["status"] = status
+	}
+	if _, ok := out["error"]; !ok && message != "" {
+		out["error"] = message
+	}
+	// ModelCallCount counts completed provider round-trips. Keep an explicit
+	// zero when the first model request fails before producing a response.
+	out["model_call_count"] = run.ModelCallCount
+	return out
 }

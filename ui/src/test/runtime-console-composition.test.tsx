@@ -1802,15 +1802,17 @@ describe("useRuntimeConsole", () => {
     };
     const completedSession = (content: string) => {
       const committedMessageID = `sent_${messageBodies.length}`;
+      const turnID = `turn_${messageBodies.length}`;
       return {
         object: "chat_session",
         data: {
           ...createdSession,
           status: "completed",
           messages: [
-            { id: committedMessageID, role: "user", content },
+            { id: committedMessageID, turn_id: turnID, role: "user", content },
             {
               id: `assistant_${messageBodies.length}`,
+              turn_id: turnID,
               role: "assistant",
               content: "Done.",
               status: "completed",
@@ -2400,9 +2402,15 @@ describe("useRuntimeConsole", () => {
               status: "completed",
               message_count: 1,
               messages: [
-                { id: "queued_retry_sent", role: "user", content: "Retry saved A" },
+                {
+                  id: "queued_retry_sent",
+                  turn_id: "turn_queued_retry",
+                  role: "user",
+                  content: "Retry saved A",
+                },
                 {
                   id: "queued_retry_answer",
+                  turn_id: "turn_queued_retry",
                   role: "assistant",
                   content: "Done.",
                   status: "completed",
@@ -4830,6 +4838,17 @@ describe("useRuntimeConsole", () => {
     }
 
     function queuedPromptSession(messages: Array<Record<string, unknown>> = []) {
+      let currentTurnID = "";
+      const canonicalMessages = messages.map((message, index) => {
+        if (message.turn_id) {
+          currentTurnID = String(message.turn_id);
+          return message;
+        }
+        if (message.role === "user" || !currentTurnID) {
+          currentTurnID = `turn_${String(message.id || index)}`;
+        }
+        return { ...message, turn_id: currentTurnID };
+      });
       return {
         object: "chat_session",
         data: {
@@ -4841,7 +4860,7 @@ describe("useRuntimeConsole", () => {
           provider: "openai",
           model: "gpt-4o-mini",
           capabilities: { tool_calling: "basic", image_input: "supported" },
-          messages,
+          messages: canonicalMessages,
           created_at: "2026-04-20T00:00:00Z",
           updated_at: "2026-04-20T00:00:02Z",
         },
@@ -8221,7 +8240,7 @@ describe("useRuntimeConsole", () => {
       },
     );
 
-    it("sends Hecate Chat instructions to task-backed turns", async () => {
+    it("sends Hecate Chat instructions to task-backed Chat turns", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
@@ -9694,7 +9713,7 @@ describe("useRuntimeConsole", () => {
         }),
       ]);
       expect(result.current.state.chatError).toBe(
-        "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the model run.",
+        "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the Chat Turn.",
       );
     });
 
@@ -9855,7 +9874,7 @@ describe("useRuntimeConsole", () => {
         expect.objectContaining({ id: "assistant-reconciled", status: "running" }),
       ]);
       expect(result.current.state.chatError).toBe(
-        "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the model run.",
+        "The message was accepted, but its model response could not be confirmed. Do not send it again. Refresh this chat to check the Chat Turn.",
       );
     });
 
@@ -9879,7 +9898,7 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.message).toBe("");
       expect(result.current.state.activeChatSession?.messages).toEqual([]);
       expect(result.current.state.chatError).toBe(
-        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate Chat Turn.",
       );
     });
 
@@ -10027,7 +10046,7 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.pendingChatAttachments).toEqual([]);
       expect(result.current.state.message).toBe("");
       expect(result.current.state.chatError).toBe(
-        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate Chat Turn.",
       );
       expect(result.current.state.chatErrorStatus).toBeNull();
     });
@@ -10055,7 +10074,7 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.pendingChatAttachments).toEqual([]);
       expect(result.current.state.message).toBe("");
       expect(result.current.state.chatError).toBe(
-        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate model run.",
+        "The message submission could not be confirmed. Refresh this chat before sending again to avoid a duplicate Chat Turn.",
       );
       expect(result.current.state.chatErrorStatus).toBeNull();
     });
@@ -10064,7 +10083,7 @@ describe("useRuntimeConsole", () => {
       ["project-owned", "project_1"],
       ["project-free", ""],
     ])(
-      "queues a %s prompt while the active agent run is busy and sends it after completion",
+      "queues a %s prompt while the active agent turn is busy and sends it after completion",
       async (_label, projectID) => {
         window.localStorage.setItem("hecate.chatTarget", "agent");
         window.localStorage.setItem("hecate.chatSessionID", "a1");
@@ -10134,6 +10153,7 @@ describe("useRuntimeConsole", () => {
                 messages: [
                   {
                     id: "u1",
+                    turn_id: "turn_queued_1",
                     agent_id: "hecate",
                     role: "user",
                     content: "after this",
@@ -10141,6 +10161,7 @@ describe("useRuntimeConsole", () => {
                   },
                   {
                     id: "a1",
+                    turn_id: "turn_queued_1",
                     agent_id: "hecate",
                     role: "assistant",
                     content: "Done.",
@@ -12240,12 +12261,14 @@ describe("useRuntimeConsole", () => {
               messages: [
                 {
                   id: "u-a2",
+                  turn_id: "turn_a2",
                   role: "user",
                   content: "drain only after a2 loads",
                   created_at: "2026-04-20T00:00:01Z",
                 },
                 {
                   id: "a-a2",
+                  turn_id: "turn_a2",
                   role: "assistant",
                   content: "Done.",
                   status: "completed",
@@ -14006,7 +14029,7 @@ describe("humanizeChatError", () => {
       "Choose a workspace before using Hecate Chat tools or External Agent.",
     );
     expect(humanizeChatError("tool calling support is unknown")).toBe(
-      "This model is not marked as tool-capable. Hecate will send directly; choose a tool-capable model for task-backed turns.",
+      "This model is not marked as tool-capable. Hecate will send directly; choose a tool-capable model for task-backed Chat turns.",
     );
     expect(
       humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),

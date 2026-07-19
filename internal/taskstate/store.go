@@ -162,6 +162,7 @@ type TerminalRunSupplementalMetadata struct {
 	InputProviderDisclosedInstance types.ProviderInstanceIdentity
 	Model                          string
 	StepCount                      int
+	ModelCallCount                 int
 	ArtifactCount                  int
 	TotalCostMicrosUSD             int64
 }
@@ -259,7 +260,7 @@ type Store interface {
 	// — passing an empty slice means "no task constraint" (admin).
 	ListEvents(ctx context.Context, filter EventFilter) ([]types.TaskRunEvent, error)
 
-	// Prune deletes `turn.completed` rows that are
+	// Prune deletes `model.call.completed` rows that are
 	// older than maxAge or, if maxCount > 0, beyond the most recent
 	// maxCount rows (ordered by sequence DESC). Run-level events
 	// (run.started, run.finished, approval.*) are never touched. The

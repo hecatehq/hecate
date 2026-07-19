@@ -31,7 +31,6 @@ func hecateAgentTimingFromRunState(run types.TaskRun, steps []types.TaskStep, ap
 
 	var modelMS int64
 	var toolMS int64
-	var turnCount int
 	var toolCount int
 	for _, step := range steps {
 		if step.RunID != "" && step.RunID != run.ID {
@@ -41,7 +40,6 @@ func hecateAgentTimingFromRunState(run types.TaskRun, steps []types.TaskStep, ap
 		switch {
 		case isModelTimingStep(step):
 			modelMS += durationMS
-			turnCount++
 		case isToolTimingStep(step):
 			toolMS += durationMS
 			toolCount++
@@ -67,7 +65,7 @@ func hecateAgentTimingFromRunState(run types.TaskRun, steps []types.TaskStep, ap
 		ToolMS:         toolMS,
 		ApprovalWaitMS: approvalWaitMS,
 		OverheadMS:     overheadMS,
-		TurnCount:      turnCount,
+		ModelCallCount: run.ModelCallCount,
 		ToolCount:      toolCount,
 	}
 	timing.Bottleneck, timing.BottleneckMS = timingBottleneck(timing)
@@ -115,7 +113,7 @@ func durationBetween(start, end time.Time) int64 {
 }
 
 func isModelTimingStep(step types.TaskStep) bool {
-	return step.Kind == "model" || strings.Contains(step.ToolName, "agent_loop_llm")
+	return step.Kind == "model" && step.ToolName == "builtin.agent_loop_llm"
 }
 
 func isToolTimingStep(step types.TaskStep) bool {
@@ -147,11 +145,11 @@ func timingBottleneck(timing chat.Timing) (string, int64) {
 	return label, value
 }
 
-func agentChatRunTimingMetrics(timing chat.Timing) telemetry.AgentChatRunTimingRecord {
+func agentChatTurnTimingMetrics(timing chat.Timing) telemetry.AgentChatTurnTimingRecord {
 	if timing.Empty() {
-		return telemetry.AgentChatRunTimingRecord{}
+		return telemetry.AgentChatTurnTimingRecord{}
 	}
-	return telemetry.AgentChatRunTimingRecord{
+	return telemetry.AgentChatTurnTimingRecord{
 		QueueMS:        timing.QueueMS,
 		ModelMS:        timing.ModelMS,
 		ToolMS:         timing.ToolMS,

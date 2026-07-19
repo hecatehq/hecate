@@ -24,17 +24,50 @@ func (p taskRunStreamProjector) projectEvent(ctx context.Context, taskID, runID 
 		return TaskRunStreamEventData{}, err
 	}
 	if !ok {
-		overlayTurn := state.Turn
+		overlayModelCall := state.ModelCall
 		state, err = p.liveState(ctx, taskID, runID)
 		if err != nil {
 			return TaskRunStreamEventData{}, err
 		}
-		state.Turn = overlayTurn
+		state.ModelCall = overlayModelCall
 	}
+	projectCompletedModelCallCount(&state)
 	state.Sequence = int(event.Sequence)
 	state.EventType = event.EventType
 	state.Terminal = types.IsTerminalTaskRunStatus(state.Run.Status)
 	return state, nil
+}
+
+func projectCompletedModelCallCount(state *TaskRunStreamEventData) {
+	if state == nil {
+		return
+	}
+	completed := state.Run.ModelCallCount
+	if state.ModelCall != nil && state.ModelCall.ModelCall > completed {
+		completed = state.ModelCall.ModelCall
+	}
+	for _, step := range state.Steps {
+		if step.Status != "completed" || step.Kind != "model" || step.ToolName != "builtin.agent_loop_llm" {
+			continue
+		}
+		index := taskStreamInt(step.Input["model_call_index"])
+		if index > completed {
+			completed = index
+		}
+	}
+	state.Run.ModelCallCount = completed
+}
+
+func taskStreamInt(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	}
+	return 0
 }
 
 func (p taskRunStreamProjector) terminalLiveState(ctx context.Context, taskID, runID string, sequence int64, eventType string) (TaskRunStreamEventData, bool) {
@@ -122,12 +155,12 @@ func (p taskRunStreamProjector) decodeEventData(event types.TaskRunEvent) (TaskR
 	if event.Data == nil {
 		return TaskRunStreamEventData{}, false, nil
 	}
-	// `turn.completed` is a flat per-turn cost payload. It is not a
-	// full stream snapshot, but the Turn overlay must survive the
-	// live-state rebuild so the UI can render the latest turn cost.
-	if event.EventType == runtimeevents.EventTurnCompleted.String() {
-		turn := decodeTurnCostFromEventData(event.Data)
-		return TaskRunStreamEventData{Turn: turn}, false, nil
+	// `model.call.completed` is a flat per-model-call cost payload. It is not a
+	// full stream snapshot, but the ModelCall overlay must survive the
+	// live-state rebuild so the UI can render the latest model-call cost.
+	if event.EventType == runtimeevents.EventModelCallCompleted.String() {
+		modelCall := decodeModelCallCostFromEventData(event.Data)
+		return TaskRunStreamEventData{ModelCall: modelCall}, false, nil
 	}
 	snapshot, ok := event.Data["snapshot"]
 	if ok {
@@ -175,10 +208,10 @@ func (p taskRunStreamProjector) decodeEventData(event types.TaskRunEvent) (TaskR
 	return decoded, true, nil
 }
 
-// decodeTurnCostFromEventData lifts per-turn cost figures out of the
-// turn.completed event payload. Numerics are tolerant of both in-process
+// decodeModelCallCostFromEventData lifts per-model-call cost figures out of the
+// model.call.completed event payload. Numerics are tolerant of both in-process
 // integers and JSON-roundtripped float64 values.
-func decodeTurnCostFromEventData(data map[string]any) *TaskRunStreamTurnCost {
+func decodeModelCallCostFromEventData(data map[string]any) *TaskRunStreamModelCallCost {
 	if data == nil {
 		return nil
 	}
@@ -210,8 +243,8 @@ func decodeTurnCostFromEventData(data map[string]any) *TaskRunStreamTurnCost {
 		}
 		return ""
 	}
-	return &TaskRunStreamTurnCost{
-		Turn:                    asInt(data["turn_index"]),
+	return &TaskRunStreamModelCallCost{
+		ModelCall:               asInt(data["model_call_index"]),
 		StepID:                  asString(data["step_id"]),
 		CostMicrosUSD:           asInt64(data["cost_micros_usd"]),
 		RunCumulativeMicrosUSD:  asInt64(data["run_cumulative_cost_micros_usd"]),

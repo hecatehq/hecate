@@ -70,11 +70,11 @@ func TestWriteTaskAppError(t *testing.T) {
 			message: "task origin validation failed",
 		},
 		{
-			name:    "turn_retry_nonterminal",
-			err:     taskapp.ErrRunNotTurnRetryable,
+			name:    "model_call_retry_nonterminal",
+			err:     taskapp.ErrRunNotModelCallRetryable,
 			status:  http.StatusBadRequest,
 			code:    errCodeInvalidRequest,
-			message: "run is not retryable from a turn (must be terminal)",
+			message: "run is not retryable from a model call (must be terminal)",
 		},
 	}
 	for _, tc := range cases {

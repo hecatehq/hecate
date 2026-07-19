@@ -156,6 +156,7 @@ describe("resolveChatSetupRepairState", () => {
       actionLabel: "Open setup",
     });
     expect(repair?.message).toContain("cursor-agent login");
+    expect(repair?.message).toContain("start an External Agent chat");
   });
 
   it("uses shared readiness sign-in copy for external-agent setup repairs", () => {

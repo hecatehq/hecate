@@ -27,11 +27,11 @@ run-like execution id or use a separate chat-event protocol.
 
 The frontend-safe v1 candidate is deliberately smaller than the full design:
 
-| Status                            | Event groups                                                                                                                                              |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Candidate core                    | `run.*`, `turn.*`, `assistant.text_*`, `assistant.final_answer`, generic `tool.*`, `tool.shell.*`, `approval.*`, `cost.*`, `policy.*`, `error.*`, `gap.*` |
-| Depends on artifact design record | `artifact.*`, `tool.edit.*`, `tool.multi_edit.*`, artifact ids on terminal tool events                                                                    |
-| Experimental / not v1 core        | `assistant.thinking_*`, streamed tool-input deltas, sub-agent fan-out, multi-modal output, conversation branching                                         |
+| Status                            | Event groups                                                                                                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate core                    | `run.*`, `model.call.*`, `assistant.text_*`, `assistant.final_answer`, generic `tool.*`, `tool.shell.*`, `approval.*`, `cost.*`, `policy.*`, `error.*`, `gap.*` |
+| Depends on artifact design record | `artifact.*`, `tool.edit.*`, `tool.multi_edit.*`, artifact ids on terminal tool events                                                                          |
+| Experimental / not v1 core        | `assistant.thinking_*`, streamed tool-input deltas, sub-agent fan-out, multi-modal output, conversation branching                                               |
 
 Frontend work should only depend on the **candidate core** until the
 implementation ships golden fixtures and contract tests. Experimental events may
@@ -48,7 +48,7 @@ Payload-specific schemas are intentionally deferred until runtime emitters are
 implemented.
 
 Implementation note: Hecate maps persisted task run events to this envelope at
-the API boundary. The agent loop emits `turn.started`,
+the API boundary. The agent loop emits `model.call.started`,
 `assistant.text_complete`, `assistant.tool_call_proposed`, and
 `assistant.final_answer`; the shell executor emits the first typed tool slice
 (`tool.invoked`, `tool.started`, `tool.shell.*`, and terminal `tool.*` events).
@@ -144,7 +144,7 @@ Top-level groups, by category:
 | Group                                    | Purpose                                                                                        |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | [`run.*`](#run-lifecycle)                | Run-level lifecycle: queued, started, finished.                                                |
-| [`turn.*`](#turn-lifecycle)              | Per-turn boundaries inside an `agent_loop` run.                                                |
+| [`model.call.*`](#model-call-lifecycle)  | Model-call boundaries inside an `agent_loop` run.                                              |
 | [`assistant.*`](#assistant-output)       | Streaming model output: text, thinking, tool-call proposals, final answer.                     |
 | [`user.*`](#user-input)                  | Operator/user input into the conversation.                                                     |
 | [`tool.*`](#tool-calls)                  | Tool invocation lifecycle. Subgroups per tool kind.                                            |
@@ -153,7 +153,7 @@ Top-level groups, by category:
 | [`cost.*`](#usage-and-task-cost-ceiling) | Token + USD totals as they accrue.                                                             |
 | [`policy.*`](#policy)                    | Policy gate decisions.                                                                         |
 | [`error.*`](#errors)                     | Recoverable + unrecoverable errors not tied to a tool.                                         |
-| [`gap.*`](#gaps)                         | Stream-integrity markers (pruned events, missing turns).                                       |
+| [`gap.*`](#gaps)                         | Stream-integrity markers (pruned events, missing model calls).                                 |
 
 The remainder of the doc gives `data` shapes for each.
 
@@ -194,7 +194,7 @@ The remainder of the doc gives `data` shapes for each.
   "type": "run.finished",
   "data": {
     "final_status": "completed",
-    "turns": 7,
+    "model_call_count": 7,
     "cost_micros_usd": 12_400,
     "duration_ms": 48_310
   }
@@ -210,7 +210,7 @@ The remainder of the doc gives `data` shapes for each.
     "code": "model_unreachable",
     "message": "anthropic.com returned 529 after 3 retries",
     "retriable": true,
-    "turns": 2
+    "model_call_count": 2
   }
 }
 ```
@@ -246,15 +246,15 @@ The remainder of the doc gives `data` shapes for each.
 }
 ```
 
-## Turn lifecycle
+## Model-call lifecycle
 
-`turn.started` — a new turn begins (model call about to fire).
+`model.call.started` — a new model call begins.
 
 ```json
 {
-  "type": "turn.started",
+  "type": "model.call.started",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "model": "claude-sonnet-4-5",
     "provider": "anthropic",
     "input_tokens_estimate": 4_217
@@ -262,13 +262,13 @@ The remainder of the doc gives `data` shapes for each.
 }
 ```
 
-`turn.completed` — turn finished. Costs are authoritative here; the per-`assistant.*` events don't carry final totals.
+`model.call.completed` — a model call finished. Costs are authoritative here; the per-`assistant.*` events don't carry final totals.
 
 ```json
 {
-  "type": "turn.completed",
+  "type": "model.call.completed",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "input_tokens": 4_201,
     "output_tokens": 312,
     "cached_input_tokens": 0,
@@ -280,13 +280,13 @@ The remainder of the doc gives `data` shapes for each.
 }
 ```
 
-`turn.failed` — turn-scoped failure (model timeout, parse error). The run may continue (retry) or fail.
+`model.call.failed` — model-call-scoped failure (model timeout, parse error). The run may continue (retry) or fail.
 
 ```json
 {
-  "type": "turn.failed",
+  "type": "model.call.failed",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "code": "model_timeout",
     "message": "no response in 60s",
     "will_retry": true
@@ -304,7 +304,7 @@ Streaming model output. Frontends render these incrementally.
 {
   "type": "assistant.text_delta",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "block_index": 0,
     "delta": "I'll start by reading the usage store."
   }
@@ -317,7 +317,7 @@ Streaming model output. Frontends render these incrementally.
 {
   "type": "assistant.text_complete",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "block_index": 0,
     "text": "I'll start by reading the usage store."
   }
@@ -336,7 +336,7 @@ these events must gate them behind config and keep them hidden by default.
 {
   "type": "assistant.tool_call_proposed",
   "data": {
-    "turn_index": 3,
+    "model_call_index": 3,
     "tool_call_id": "call_01JXMZ...",
     "tool_name": "edit_file",
     "input": {
@@ -354,7 +354,7 @@ these events must gate them behind config and keep them hidden by default.
 {
   "type": "assistant.final_answer",
   "data": {
-    "turn_index": 7,
+    "model_call_index": 7,
     "summary": "Refactored usage keying to include the request scope. 3 files changed, tests pass."
   }
 }
@@ -367,20 +367,16 @@ these events must gate them behind config and keep them hidden by default.
 ```json
 {
   "type": "user.message",
-  "data": {
-    "turn_index": 0,
-    "text": "Refactor the usage store to share key helpers."
-  }
+  "data": { "text": "Refactor the usage store to share key helpers." }
 }
 ```
 
-`user.attachment` — file/image attached to a turn.
+`user.attachment` — file/image attached to a user message.
 
 ```json
 {
   "type": "user.attachment",
   "data": {
-    "turn_index": 0,
     "kind": "image",
     "mime": "image/png",
     "artifact_id": "art_01JXMZ..."
@@ -415,7 +411,7 @@ Every tool event carries a `tool_call_id` (matches the model's request id) and a
     "tool_call_id": "call_01JXMZ...",
     "tool_name": "shell_exec",
     "kind": "shell",
-    "turn_index": 3
+    "model_call_index": 3
   }
 }
 ```
@@ -744,7 +740,7 @@ Once edits are artifacts:
 
 ## Usage And Task Cost Ceiling
 
-Usage events come on every turn boundary. Task cost-ceiling events fire only
+Usage events come on every model-call boundary. Task cost-ceiling events fire only
 when a task has an explicit per-task ceiling; Hecate does not enforce a global
 spend budget.
 
@@ -867,7 +863,7 @@ event endpoints and the cross-run feed. The implemented typed event slice is:
 
 - `run.started`, `run.finished`, `run.failed`, `run.cancelled`,
   `run.resumed_from_event`
-- `turn.started`, `turn.completed`
+- `model.call.started`, `model.call.completed`
 - `assistant.text_complete`, `assistant.tool_call_proposed`,
   `assistant.final_answer`
 - `tool.invoked`, `tool.started`, `tool.shell.command`,

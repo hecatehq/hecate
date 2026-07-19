@@ -1009,7 +1009,7 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, filter EventFilter) ([]typ
 	return items, rows.Err()
 }
 
-// Prune drops `turn.completed` rows older than maxAge
+// Prune drops `model.call.completed` rows older than maxAge
 // or, when maxCount > 0, beyond the most recent maxCount rows
 // (ordered by sequence DESC). Other event types are preserved.
 func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
@@ -1022,10 +1022,10 @@ func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount 
 		// timezone (we always write UTC).
 		result, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 			DELETE FROM %s
-			WHERE event_type = 'turn.completed' AND created_at < ?
+			WHERE event_type = 'model.call.completed' AND created_at < ?
 		`, s.eventsTable), cutoff)
 		if err != nil {
-			return 0, fmt.Errorf("delete aged sqlite turn events: %w", err)
+			return 0, fmt.Errorf("delete aged sqlite model-call events: %w", err)
 		}
 		count, _ := result.RowsAffected()
 		deleted += count
@@ -1041,17 +1041,17 @@ func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount 
 		}
 		result, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 			DELETE FROM %s
-			WHERE event_type = 'turn.completed'
+			WHERE event_type = 'model.call.completed'
 			  AND sequence IN (
 			    SELECT sequence
 			    FROM %s
-			    WHERE event_type = 'turn.completed'
+			    WHERE event_type = 'model.call.completed'
 			    ORDER BY sequence DESC
 			    `+limitOffset+`
 			  )
 		`, s.eventsTable, s.eventsTable), maxCount)
 		if err != nil {
-			return 0, fmt.Errorf("enforce %s turn-event max count: %w", s.backend, err)
+			return 0, fmt.Errorf("enforce %s model-call-event max count: %w", s.backend, err)
 		}
 		count, _ := result.RowsAffected()
 		deleted += count

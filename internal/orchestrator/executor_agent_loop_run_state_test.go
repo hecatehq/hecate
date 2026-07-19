@@ -9,7 +9,7 @@ import (
 
 func TestAgentLoopRunState_AddStepAndArtifacts(t *testing.T) {
 	spec := newAgentLoopSpec(t)
-	spec.ResumeCheckpoint = &ResumeCheckpoint{LastStepIndex: 4}
+	spec.ResumeCheckpoint = &ResumeCheckpoint{SameRun: true, LastStepIndex: 4}
 	var upsertedSteps []types.TaskStep
 	var upsertedArtifacts []types.TaskArtifact
 	spec.UpsertStep = func(step types.TaskStep) error {
@@ -52,6 +52,17 @@ func TestAgentLoopRunState_AddStepAndArtifacts(t *testing.T) {
 	}
 }
 
+func TestAgentLoopRunState_NewRunRestartsStepIndex(t *testing.T) {
+	spec := newAgentLoopSpec(t)
+	spec.ResumeCheckpoint = &ResumeCheckpoint{LastStepIndex: 4}
+
+	state := newAgentLoopRunState(spec, 4)
+
+	if got := state.NextStepIndex(); got != 1 {
+		t.Fatalf("NextStepIndex() = %d, want 1 for a new run", got)
+	}
+}
+
 func TestAgentLoopRunState_TrackInitialConversationArtifactOnce(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	state := newAgentLoopRunState(spec, 4)
@@ -84,8 +95,8 @@ func TestAgentLoopRunState_RecordRouteAndAttachAccounting(t *testing.T) {
 		Cost: types.CostBreakdown{TotalMicrosUSD: 125},
 	}
 	state.RecordRoute(resp)
-	turnCost := state.AccumulateCost(resp)
-	state.AddTurnCost(2, "step-1", turnCost, 3)
+	modelCallCost := state.AccumulateCost(resp)
+	state.AddModelCallCost(2, "step-1", modelCallCost, 3)
 
 	res := state.Result("completed")
 	if res.Provider != "ollama" || res.ProviderKind != "local" || res.ProviderInstance != providerInstance || res.Model != "resolved-model" {
@@ -94,12 +105,12 @@ func TestAgentLoopRunState_RecordRouteAndAttachAccounting(t *testing.T) {
 	if res.CostMicrosUSD != 125 {
 		t.Fatalf("CostMicrosUSD = %d, want 125", res.CostMicrosUSD)
 	}
-	if len(res.TurnCosts) != 1 {
-		t.Fatalf("TurnCosts = %+v, want one entry", res.TurnCosts)
+	if len(res.ModelCallCosts) != 1 {
+		t.Fatalf("ModelCallCosts = %+v, want one entry", res.ModelCallCosts)
 	}
-	record := res.TurnCosts[0]
-	if record.Turn != 2 || record.StepID != "step-1" || record.CostMicrosUSD != 125 || record.CumulativeMicrosUSD != 125 || record.ToolCallCount != 3 {
-		t.Fatalf("TurnCosts[0] = %+v, want turn 2 step-1 cost/cumulative 125 tool calls 3", record)
+	record := res.ModelCallCosts[0]
+	if record.ModelCall != 2 || record.StepID != "step-1" || record.CostMicrosUSD != 125 || record.CumulativeMicrosUSD != 125 || record.ToolCallCount != 3 {
+		t.Fatalf("ModelCallCosts[0] = %+v, want model call 2 step-1 cost/cumulative 125 tool calls 3", record)
 	}
 }
 
@@ -125,7 +136,7 @@ func TestAgentLoopRunState_CostCeilingUsesPriorAndCurrentRun(t *testing.T) {
 	state := newAgentLoopRunState(spec, 4)
 
 	if _, exceeded := state.CostCeilingExceededMessage(); exceeded {
-		t.Fatalf("CostCeilingExceededMessage() exceeded before current turn, want false")
+		t.Fatalf("CostCeilingExceededMessage() exceeded before current model call, want false")
 	}
 	state.AccumulateCost(&types.ChatResponse{Cost: types.CostBreakdown{TotalMicrosUSD: 60}})
 

@@ -13,11 +13,16 @@ function message(
 
 describe("projectVisibleMessage", () => {
   it("maps persisted fields onto the visible shape", () => {
-    const m = message("m1", "hello", { status: "running", agent_name: "claude" });
+    const m = message("m1", "hello", {
+      turn_id: "turn_1",
+      status: "running",
+      agent_name: "claude",
+    });
     const visible = projectVisibleMessage(m, 0);
 
     expect(visible.id).toBe("m1");
     expect(visible.content).toBe("hello");
+    expect(visible.turn_id).toBe("turn_1");
     expect(visible.agent_name).toBe("claude");
     // agent_status is sourced from the record's status field.
     expect(visible.agent_status).toBe("running");
@@ -56,7 +61,12 @@ describe("projectVisibleMessage", () => {
 
   it("projects timing and context_packet for the inspector", () => {
     const timing = { total_ms: 1200, bottleneck: "model" };
-    const context_packet = { provider: "anthropic", model: "claude", message_count: 3 };
+    const context_packet = {
+      provider: "anthropic",
+      model: "claude",
+      message_count: 3,
+      refs: { turn_id: "turn_1" },
+    };
     const m = message("m1", "hello", { timing, context_packet });
 
     const visible = projectVisibleMessage(m, 0);
@@ -66,6 +76,7 @@ describe("projectVisibleMessage", () => {
     // dropped that data from reconciled snapshots.
     expect(visible.timing).toBe(timing);
     expect(visible.context_packet).toBe(context_packet);
+    expect(visible.context_packet?.refs?.turn_id).toBe("turn_1");
   });
 
   it("projects persisted attachment metadata for transcript reloads", () => {

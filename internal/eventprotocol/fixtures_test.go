@@ -33,9 +33,9 @@ var (
 		"run.cancelled":                  {},
 		"run.resumed_from_event":         {},
 		"run.checkpoint_saved":           {},
-		"turn.started":                   {},
-		"turn.completed":                 {},
-		"turn.failed":                    {},
+		"model.call.started":             {},
+		"model.call.completed":           {},
+		"model.call.failed":              {},
 		"assistant.text_delta":           {},
 		"assistant.text_complete":        {},
 		"assistant.tool_call_proposed":   {},
@@ -89,7 +89,7 @@ var (
 
 	candidateCoreGroups = map[string]func(string) bool{
 		"run":             func(eventType string) bool { return strings.HasPrefix(eventType, "run.") },
-		"turn":            func(eventType string) bool { return strings.HasPrefix(eventType, "turn.") },
+		"model_call":      func(eventType string) bool { return strings.HasPrefix(eventType, "model.call.") },
 		"assistant_text":  func(eventType string) bool { return strings.HasPrefix(eventType, "assistant.text_") },
 		"assistant_final": func(eventType string) bool { return eventType == "assistant.final_answer" },
 		"tool":            func(eventType string) bool { return strings.HasPrefix(eventType, "tool.") },

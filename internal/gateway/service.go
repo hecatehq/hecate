@@ -218,11 +218,26 @@ func (s *Service) Tracer() profiler.Tracer {
 }
 
 func (s *Service) HandleChat(ctx context.Context, req types.ChatRequest) (result *ChatResult, err error) {
+	trace := s.tracer.Start(req.RequestID)
+	defer trace.Finalize()
+	return s.handleChatWithTrace(ctx, req, trace)
+}
+
+// HandleChatWithTrace executes a gateway request on a caller-owned trace. The
+// caller is responsible for finalizing trace. This lets higher-level runtimes
+// keep their lifecycle span and the provider-routing spans in one trace rather
+// than creating two unrelated traces for the same request.
+func (s *Service) HandleChatWithTrace(ctx context.Context, req types.ChatRequest, trace *profiler.Trace) (result *ChatResult, err error) {
+	if trace == nil {
+		return nil, errors.New("gateway trace is required")
+	}
+	return s.handleChatWithTrace(ctx, req, trace)
+}
+
+func (s *Service) handleChatWithTrace(ctx context.Context, req types.ChatRequest, trace *profiler.Trace) (result *ChatResult, err error) {
 	startedAt := time.Now()
 	defer func() { s.recordRequestOutcome(ctx, err, time.Since(startedAt)) }()
 
-	trace := s.tracer.Start(req.RequestID)
-	defer trace.Finalize()
 	ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
 
 	plan, err := s.buildExecutionPlan(ctx, trace, req)
@@ -420,7 +435,8 @@ type StreamedContent struct {
 }
 
 // ExecuteAndCapture writes the SSE stream to w and simultaneously captures
-// content deltas so the caller can record the turn after streaming completes.
+// content deltas so the caller can record the model-call result after streaming
+// completes.
 func (h *StreamHandle) ExecuteAndCapture(w io.Writer) (StreamedContent, error) {
 	return h.ExecuteAndCaptureDeltas(w, nil)
 }
