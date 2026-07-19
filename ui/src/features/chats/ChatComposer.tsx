@@ -534,6 +534,16 @@ export function ChatComposer(props: ChatComposerProps) {
     });
   }
 
+  function openDictationSetup() {
+    try {
+      sessionStorage.setItem("hecate.connectionsFocus", "connections-dictation");
+    } catch {
+      // sessionStorage unavailable — navigation still works, just without
+      // automatically bringing the transcription readiness card into view.
+    }
+    onNavigate?.("connections");
+  }
+
   function addPendingFiles(files: File[]) {
     if (chat.actions.isChatOwnershipMutationInFlight()) {
       setAttachmentSelectionError(
@@ -1296,7 +1306,7 @@ export function ChatComposer(props: ChatComposerProps) {
               <ChatDictationControl
                 key={activeSessionID || "new-chat"}
                 disabled={composerInputDisabled}
-                onOpenConnections={onNavigate ? () => onNavigate("connections") : undefined}
+                onOpenConnections={onNavigate ? openDictationSetup : undefined}
                 onTranscript={insertDictationTranscript}
               />
               <span aria-hidden="true" style={{ flex: 1 }} />

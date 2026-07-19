@@ -613,6 +613,10 @@ these boundaries when changing dictation:
   model or External Agent. A Claude-only setup still needs a transcription
   route. Permission-denied copy must point browser users to site controls and
   desktop users to the operating-system microphone privacy settings;
+- keep **Connections → Speech-to-text route readiness** aligned with the same typed
+  options snapshot: it must show each explicit route, its local/cloud boundary,
+  default model, and bounded repair reason. Do not treat a Claude Code, Codex,
+  or other External Agent sign-in as a transcription credential;
 - show the exact provider and local/cloud kind before recording, and never
   silently select a different route after a failure;
 - cap recording duration and client-side bytes, stop every `MediaStreamTrack`

@@ -241,9 +241,11 @@ Settings → Privacy & Security → Microphone**; on Windows it is **Settings �
 Privacy & security → Microphone**, including desktop-app access.
 
 The transcription route is independent of the selected chat model or External
-Agent. A Claude/Anthropic chat therefore still needs one configured
-speech-to-text route; the returned text is then an ordinary draft that Claude
-can receive. The built-in routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
+Agent. A Claude Code, Codex, or Anthropic chat therefore still needs one
+configured speech-to-text route; the returned text is then an ordinary draft
+that the target can receive. **Connections → Speech-to-text route readiness** shows the
+ready and unavailable routes, their local/cloud boundary, and repair reasons.
+The built-in routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
 (`whisper-large-v3-turbo`), and LocalAI (`whisper-1`). Operators can also opt an
 env-configured OpenAI-compatible provider into the same typed contract. See
 [Providers](../operator/providers.md#dictation-providers) and the

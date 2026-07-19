@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, getPlugins } from "../../lib/api";
+import { ApiError, getDictationOptions, getPlugins } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -20,6 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
+  getDictationOptions: vi.fn(),
   getPlugins: vi.fn(),
 }));
 
@@ -43,6 +44,8 @@ beforeEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   Reflect.deleteProperty(window, "__TAURI__");
   tauriInvokeMock.mockReset();
+  vi.mocked(getDictationOptions).mockReset();
+  vi.mocked(getDictationOptions).mockResolvedValue({ object: "dictation_options", data: [] });
   vi.mocked(getPlugins).mockReset();
   vi.mocked(getPlugins).mockResolvedValue({ object: "plugins", data: [] });
   sessionStorage.removeItem("hecate.settingsFocus");
@@ -788,6 +791,122 @@ describe("Connections external-agent panel", () => {
     );
 
     expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
+  });
+
+  it("refreshes speech-to-text route readiness after a credential refresh", async () => {
+    vi.mocked(getDictationOptions)
+      .mockResolvedValueOnce({
+        object: "dictation_options",
+        data: [
+          {
+            provider: "openai",
+            provider_kind: "cloud",
+            default_model: "gpt-4o-mini-transcribe",
+            available: false,
+            unavailable_reason: "transcription probe failed",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        object: "dictation_options",
+        data: [
+          {
+            provider: "openai",
+            provider_kind: "cloud",
+            default_model: "gpt-4o-mini-transcribe",
+            available: true,
+          },
+        ],
+      });
+    const { state, actions } = setup({
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            preset_id: "openai",
+            kind: "cloud",
+            protocol: "openai",
+            base_url: "https://api.openai.com/v1",
+            credential_configured: true,
+          },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+    });
+    const { rerender } = render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+    expect(await screen.findByTestId("connections-dictation-unavailable")).toHaveTextContent(
+      "No configured speech-to-text route is ready.",
+    );
+
+    rerender(
+      withRuntimeConsole(<ConnectionsPanel />, {
+        state: {
+          ...state,
+          settingsConfig: {
+            ...state.settingsConfig!,
+            providers: [...state.settingsConfig!.providers],
+          },
+        },
+        actions,
+      }),
+    );
+
+    await waitFor(() => expect(getDictationOptions).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId("connections-dictation-ready")).toHaveTextContent(
+      "1 speech-to-text route is ready for every chat target.",
+    );
+  });
+
+  it("focuses speech-to-text route readiness after a chat setup handoff", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    sessionStorage.setItem("hecate.connectionsFocus", "connections-dictation");
+    const { state, actions } = setup();
+
+    try {
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const card = await screen.findByTestId("connections-dictation");
+      await waitFor(() => expect(card).toHaveFocus());
+      expect(card).toHaveAttribute("tabindex", "-1");
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+      expect(sessionStorage.getItem("hecate.connectionsFocus")).toBeNull();
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
+  it("avoids animated route handoff for reduced-motion users", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(
+        () =>
+          ({
+            matches: true,
+            media: "(prefers-reduced-motion: reduce)",
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+          }) as unknown as MediaQueryList,
+      ),
+    );
+    sessionStorage.setItem("hecate.connectionsFocus", "connections-dictation");
+    const { state, actions } = setup();
+
+    try {
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const card = await screen.findByTestId("connections-dictation");
+      await waitFor(() => expect(card).toHaveFocus());
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "center" });
+      expect(card).not.toHaveClass("settings-focus-flash");
+    } finally {
+      scrollIntoView.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("saves and clears the Anthropic provider key from Connections settings", async () => {

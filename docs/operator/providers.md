@@ -137,11 +137,19 @@ path and default transcription model are configured. Missing credentials,
 disabled providers, and invalid provider configuration remain visible as
 unavailable choices so the operator can repair the intended route.
 
-The dictation choice is independent of the chat target. Claude and other
-External Agents receive the returned text normally, but an Anthropic-only
-connection does not provide speech-to-text; configure OpenAI, Groq, LocalAI, or
-an explicitly compatible transcription endpoint as the separate dictation
+**Connections → Speech-to-text route readiness** lists the ready and unavailable routes,
+their local/cloud boundary, default transcription model, and a bounded repair
+reason. If the composer says that dictation needs setup, use that card to add or
+repair a route; it is intentionally separate from External Agent setup. The
+card reports provider-route readiness only; the composer separately reports
+browser or desktop microphone-permission problems. On a hosted runtime it
+offers cloud transcription setup and does not suggest the machine-local LocalAI
 route.
+
+The dictation choice is independent of the chat target. Claude Code, Codex, and
+other External Agents receive the returned text normally, but their local
+sign-ins do not provide speech-to-text. Configure OpenAI, Groq, LocalAI, or an
+explicitly compatible transcription endpoint as the separate dictation route.
 
 Hecate sends each recording to the explicitly selected provider only. It does
 not use Auto routing or fail over dictation audio to another provider. The
