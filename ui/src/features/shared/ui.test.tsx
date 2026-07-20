@@ -460,6 +460,49 @@ describe("Modal", () => {
       expect(screen.getByRole("button", { name: "Stable fallback" })).toHaveFocus(),
     );
   });
+
+  it("restores focus to a stable fallback when the opener becomes hidden", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const [openerHidden, setOpenerHidden] = useState(false);
+      const fallbackRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <div style={{ visibility: openerHidden ? "hidden" : "visible" }}>
+            <button
+              onClick={() => {
+                setOpenerHidden(true);
+                setOpen(true);
+              }}
+            >
+              Open row action
+            </button>
+          </div>
+          <button ref={fallbackRef}>Stable row fallback</button>
+          {open && (
+            <Modal
+              title="Row action modal"
+              footer={<button>Confirm</button>}
+              onClose={() => setOpen(false)}
+              returnFocusRef={fallbackRef}
+            >
+              Modal content
+            </Modal>
+          )}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Open row action" }));
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Stable row fallback" })).toHaveFocus(),
+    );
+  });
 });
 
 describe("SlideOver", () => {

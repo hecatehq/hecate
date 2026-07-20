@@ -1049,6 +1049,29 @@ describe("TasksView selected task", () => {
     await waitFor(() => expect(document.activeElement).toBe(taskIndexHeading));
   });
 
+  it("returns delete focus to the Tasks index when confirmation hides the row action", async () => {
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [task] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [run] });
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const taskIndexHeading = screen.getByRole("heading", { name: /^Tasks/ });
+    const row = await screen.findByRole("link", { name: `Task ${task.title}` });
+    fireEvent.focus(row);
+    const deleteButton = screen.getByRole("button", { name: `Delete task ${task.title}` });
+    fireEvent.focus(deleteButton);
+    fireEvent.click(deleteButton);
+
+    const dialog = screen.getByRole("dialog", { name: "Delete task" });
+    fireEvent.blur(deleteButton, { relatedTarget: dialog });
+    expect(deleteButton.parentElement).toHaveStyle({ visibility: "hidden" });
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete task" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(taskIndexHeading));
+    expect(deleteTask).not.toHaveBeenCalled();
+  });
+
   it("keeps Task deletion modal while the destructive request is pending", async () => {
     const pendingDelete = deferred<void>();
     vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [task] });
