@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -471,9 +472,19 @@ func resolveTerminalExecutable(cmd *exec.Cmd, workingDirectory string) error {
 		return fmt.Errorf("resolve terminal executable: command path is empty")
 	}
 	if !filepath.IsAbs(executable) && strings.ContainsAny(executable, `/\`) {
-		base, err := filepath.Abs(workingDirectory)
-		if err != nil {
-			return fmt.Errorf("resolve terminal working directory: %w", err)
+		base := workingDirectory
+		if base == "" {
+			var err error
+			base, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("resolve terminal process working directory: %w", err)
+			}
+		} else {
+			var err error
+			base, err = filepath.Abs(base)
+			if err != nil {
+				return fmt.Errorf("resolve terminal working directory: %w", err)
+			}
 		}
 		executable = filepath.Join(base, executable)
 	}
