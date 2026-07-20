@@ -35,6 +35,10 @@ func newAgentLoopApprovalGate(gatedTools []string) agentLoopApprovalGate {
 }
 
 func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
+	return g.EvaluateForModelCallRef(spec, currentAgentLoopModelCallRef(spec, modelCall), stepIndex, when, calls)
+}
+
+func (g agentLoopApprovalGate) EvaluateForModelCallRef(spec ExecutionSpec, modelCallRef agentLoopModelCallRef, stepIndex int, when time.Time, calls []types.ToolCall) (agentLoopApprovalPause, bool) {
 	gatedNames := g.gatedToolsInModelCall(calls, spec)
 	if len(gatedNames) == 0 {
 		return agentLoopApprovalPause{}, false
@@ -44,7 +48,7 @@ func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex
 	if detail := browserApprovalDetail(calls, spec.Task); detail != "" {
 		approval.Reason += ". " + detail
 	}
-	step := buildAwaitingApprovalStep(spec, stepIndex, modelCall, when, approval)
+	step := buildAwaitingApprovalStepForModelCallRef(spec, stepIndex, modelCallRef, when, approval)
 	step.Input[toolCallBundleDigestKey] = agentToolCallBundleDigest(calls)
 	approval.StepID = step.ID
 	return agentLoopApprovalPause{

@@ -190,11 +190,9 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		return nil, err
 	}
 	sourceDispatchSteps := durableToolDispatchSteps(steps)
-	sourceDispatchModelCall := sourceRun.ModelCallCount
-	for _, step := range sourceDispatchSteps {
-		if modelCall := intField(step.Input[toolDispatchModelCallKey]); modelCall > sourceDispatchModelCall {
-			sourceDispatchModelCall = modelCall
-		}
+	sourceDispatchModelCall, err := agentLoopModelCallBoundary(sourceRun, steps)
+	if err != nil {
+		return nil, fmt.Errorf("recover source Run model-call boundary: %w", err)
 	}
 	artifacts, err := r.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: taskID, RunID: sourceRunID})
 	if err != nil {
@@ -229,6 +227,7 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 	// can hydrate state on resume. We use a stable kind + ID
 	// convention so the lookup is a single linear scan rather than a
 	// new store method. Non-agent_loop runs simply won't have one.
+	var sourceConversationMessages []types.Message
 	for _, art := range artifacts {
 		if art.Kind == "agent_conversation" && len(art.ContentText) > 0 {
 			messages, _, decodeErr := completedConversationMessages(art)
@@ -240,8 +239,17 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 				return nil, fmt.Errorf("encode source conversation: %w", encodeErr)
 			}
 			checkpoint.AgentConversation = payload
+			sourceConversationMessages = messages
 			break
 		}
+	}
+	if len(pendingToolCallsForResume(sourceConversationMessages)) > 0 {
+		origin, originErr := r.pendingToolCallOriginFromRun(ctx, taskID, sourceRun, steps)
+		if originErr != nil {
+			return nil, fmt.Errorf("recover source pending tool-call provenance: %w", originErr)
+		}
+		checkpoint.PendingToolCallsOriginRunID = origin.RunID
+		checkpoint.PendingToolCallsOriginModelCallIndex = origin.Index
 	}
 	var lastSequence int64
 	maxCompletedIndex := 0
@@ -289,6 +297,8 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		checkpoint.CompletedStepCount = 0
 		checkpoint.ToolDispatchSteps = nil
 		checkpoint.ToolDispatchModelCallIndex = 0
+		checkpoint.PendingToolCallsOriginRunID = ""
+		checkpoint.PendingToolCallsOriginModelCallIndex = 0
 	}
 	return checkpoint, nil
 }
@@ -384,6 +394,22 @@ func (r *Runner) ownRunResumeCheckpoint(ctx context.Context, taskID, runID strin
 		}
 	}
 	if pendingToolCalls := pendingToolCallsForResume(messages); len(pendingToolCalls) > 0 {
+		origin, found, originErr := latestAgentLoopModelCallRef(runID, steps)
+		if originErr != nil {
+			return nil, false, fmt.Errorf("recover current Run pending tool-call provenance: %w", originErr)
+		}
+		if !found && modelCallCount > 0 {
+			origin = agentLoopModelCallRef{RunID: runID, Index: modelCallCount}
+			found = true
+		}
+		if !found {
+			origin, originErr = r.inheritedPendingToolCallOrigin(ctx, taskID, events)
+			if originErr != nil {
+				return nil, false, fmt.Errorf("recover inherited pending tool-call provenance: %w", originErr)
+			}
+		}
+		checkpoint.PendingToolCallsOriginRunID = origin.RunID
+		checkpoint.PendingToolCallsOriginModelCallIndex = origin.Index
 		approved, err := r.sameRunPendingToolCallsApproved(ctx, taskID, runID, steps, pendingToolCalls)
 		if err != nil {
 			return nil, false, err
@@ -391,6 +417,118 @@ func (r *Runner) ownRunResumeCheckpoint(ctx context.Context, taskID, runID strin
 		checkpoint.PendingToolCallsApproved = approved
 	}
 	return checkpoint, true, nil
+}
+
+func agentLoopModelCallBoundary(run types.TaskRun, steps []types.TaskStep) (int, error) {
+	boundary := run.ModelCallCount
+	durableModelCalls, err := completedModelCallCountFromSteps(steps)
+	if err != nil {
+		return 0, err
+	}
+	if durableModelCalls > boundary {
+		boundary = durableModelCalls
+	}
+	for _, step := range durableToolDispatchSteps(steps) {
+		ref, found, err := agentLoopModelCallRefFromStep(run.ID, step)
+		if err != nil {
+			return 0, err
+		}
+		if found && ref.RunID == run.ID && ref.Index > boundary {
+			boundary = ref.Index
+		}
+	}
+	return boundary, nil
+}
+
+func directPendingToolCallOriginFromRun(run types.TaskRun, steps []types.TaskStep) (agentLoopModelCallRef, bool, error) {
+	if ref, found, err := latestAgentLoopModelCallRef(run.ID, steps); err != nil {
+		return agentLoopModelCallRef{}, false, err
+	} else if found {
+		return ref, true, nil
+	}
+	boundary, err := agentLoopModelCallBoundary(run, steps)
+	if err != nil {
+		return agentLoopModelCallRef{}, false, err
+	}
+	if boundary == 0 {
+		return agentLoopModelCallRef{}, false, nil
+	}
+	ref := agentLoopModelCallRef{RunID: run.ID, Index: boundary}
+	if err := ref.validate(); err != nil {
+		return agentLoopModelCallRef{}, false, err
+	}
+	return ref, true, nil
+}
+
+func (r *Runner) pendingToolCallOriginFromRun(ctx context.Context, taskID string, run types.TaskRun, steps []types.TaskStep) (agentLoopModelCallRef, error) {
+	seen := make(map[string]struct{})
+	for {
+		if _, duplicate := seen[run.ID]; duplicate {
+			return agentLoopModelCallRef{}, fmt.Errorf("pending tool-call lineage contains a cycle at Run %q", run.ID)
+		}
+		seen[run.ID] = struct{}{}
+
+		ref, found, err := directPendingToolCallOriginFromRun(run, steps)
+		if err != nil {
+			return agentLoopModelCallRef{}, err
+		}
+		if found {
+			return ref, nil
+		}
+
+		events, err := r.store.ListRunEvents(ctx, taskID, run.ID, 0, 5000)
+		if err != nil {
+			return agentLoopModelCallRef{}, err
+		}
+		sourceRunID := resumedFromRunID(events)
+		if sourceRunID == "" {
+			return agentLoopModelCallRef{}, fmt.Errorf("pending tool calls in Run %q have no model-call provenance or source Run", run.ID)
+		}
+		sourceRun, found, err := r.store.GetRun(ctx, taskID, sourceRunID)
+		if err != nil {
+			return agentLoopModelCallRef{}, err
+		}
+		if !found {
+			return agentLoopModelCallRef{}, fmt.Errorf("originating Run %q not found", sourceRunID)
+		}
+		steps, err = r.store.ListSteps(ctx, sourceRunID)
+		if err != nil {
+			return agentLoopModelCallRef{}, err
+		}
+		run = sourceRun
+	}
+}
+
+func (r *Runner) inheritedPendingToolCallOrigin(ctx context.Context, taskID string, events []types.TaskRunEvent) (agentLoopModelCallRef, error) {
+	sourceRunID := resumedFromRunID(events)
+	if sourceRunID == "" {
+		return agentLoopModelCallRef{}, fmt.Errorf("pending tool calls have no originating Run")
+	}
+	sourceRun, found, err := r.store.GetRun(ctx, taskID, sourceRunID)
+	if err != nil {
+		return agentLoopModelCallRef{}, err
+	}
+	if !found {
+		return agentLoopModelCallRef{}, fmt.Errorf("originating Run %q not found", sourceRunID)
+	}
+	steps, err := r.store.ListSteps(ctx, sourceRunID)
+	if err != nil {
+		return agentLoopModelCallRef{}, err
+	}
+	return r.pendingToolCallOriginFromRun(ctx, taskID, sourceRun, steps)
+}
+
+func resumedFromRunID(events []types.TaskRunEvent) string {
+	for index := len(events) - 1; index >= 0; index-- {
+		if events[index].EventType != runtimeevents.EventRunResumedFromEvent.String() {
+			continue
+		}
+		sourceRunID, _ := events[index].Data["from_run_id"].(string)
+		if sourceRunID = strings.TrimSpace(sourceRunID); sourceRunID != "" {
+			return sourceRunID
+		}
+	}
+	return ""
 }
 
 func (r *Runner) sameRunPendingToolCallsApproved(ctx context.Context, taskID, runID string, steps []types.TaskStep, pendingToolCalls []types.ToolCall) (bool, error) {

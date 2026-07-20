@@ -317,6 +317,21 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		}
 		runState.TrackConversationArtifact(conversationArtifact)
 	}
+	var pendingToolCallsModelRef agentLoopModelCallRef
+	if len(pendingToolCalls) > 0 {
+		pendingToolCallsModelRef, err = pendingAgentLoopModelCallRef(spec, runState.ModelCallCount())
+		if err != nil {
+			failed, failureErr := e.failedFromError(
+				spec,
+				runState.Steps(),
+				runState.Artifacts(),
+				runState.NextStepIndex(),
+				time.Now().UTC(),
+				err.Error(),
+			)
+			return runState.attachAccounting(failed), failureErr
+		}
+	}
 
 	// A resumed Run can already be at its task-cumulative ceiling before this
 	// worker starts. Preserve the normalized conversation, but do not recover a
@@ -408,6 +423,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 
 		var assistantMsg types.Message
 		modelCall := runState.ModelCallCount()
+		modelCallRef := pendingToolCallsModelRef
 		modelCallStartedAt := time.Now().UTC()
 
 		if len(pendingToolCalls) > 0 {
@@ -417,7 +433,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// recovery may have checkpointed an assistant response before its
 			// approval record existed.
 			if !pendingToolCallsApproved {
-				pause, approvalRequired := e.approvalGate.Evaluate(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls)
+				pause, approvalRequired := e.approvalGate.EvaluateForModelCallRef(spec, modelCallRef, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls)
 				if approvalRequired {
 					conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, modelCall, modelCallStartedAt)
 					if artifactErr != nil {
@@ -445,7 +461,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			}
 			resumeStepMessage := assistantMsg
 			resumeStepMessage.ToolCalls = append([]types.ToolCall(nil), pendingToolCalls...)
-			resumeStep := buildApprovalResumeStep(spec, runState.NextStepIndex(), modelCall, modelCallStartedAt, resumeStepMessage, pendingToolCallsApproved)
+			resumeStep := buildApprovalResumeStepForModelCallRef(spec, runState.NextStepIndex(), modelCallRef, modelCallStartedAt, resumeStepMessage, pendingToolCallsApproved)
 			if err := runState.AddStep(spec, resumeStep); err != nil {
 				return nil, err
 			}
@@ -458,6 +474,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 				return res, nil
 			}
 			modelCall = runState.ModelCallCount() + 1
+			modelCallRef = currentAgentLoopModelCallRef(spec, modelCall)
 			modelCallResult, failed, err := e.runModelCall(ctx, spec, &conversation, runState, tools, modelCall, modelCallStartedAt)
 			if failed != nil || err != nil {
 				return failed, err
@@ -529,7 +546,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			// Persist a stable, tool-call-bound intent before entering the
 			// dispatcher. The dispatcher may perform non-idempotent work, so a
 			// worker crash after this point must fail closed rather than replay.
-			intent := buildAgentToolDispatchIntent(spec, toolCall, runState.NextStepIndex(), modelCall, time.Now().UTC())
+			intent := buildAgentToolDispatchIntentForModelCallRef(spec, toolCall, runState.NextStepIndex(), modelCallRef, time.Now().UTC())
 			if err := runState.AddStep(spec, intent); err != nil {
 				return nil, err
 			}
@@ -3305,22 +3322,27 @@ func buildApprovalForModelCall(spec ExecutionSpec, gatedNames []string, when tim
 // while paused. Carries the approval id so the operator UI can link
 // the step to the approval action.
 func buildAwaitingApprovalStep(spec ExecutionSpec, index, modelCall int, when time.Time, approval types.TaskApproval) types.TaskStep {
+	return buildAwaitingApprovalStepForModelCallRef(spec, index, currentAgentLoopModelCallRef(spec, modelCall), when, approval)
+}
+
+func buildAwaitingApprovalStepForModelCallRef(spec ExecutionSpec, index int, modelCallRef agentLoopModelCallRef, when time.Time, approval types.TaskApproval) types.TaskStep {
+	input := map[string]any{
+		"reason": approval.Reason,
+	}
+	modelCallRef.addStepInput(spec.Run.ID, input)
 	return types.TaskStep{
 		ID:         spec.NewID("step"),
 		TaskID:     spec.Task.ID,
 		RunID:      spec.Run.ID,
 		Index:      index,
 		Kind:       "approval",
-		Title:      fmt.Sprintf("Awaiting approval — model call %d", modelCall),
+		Title:      modelCallRef.title(spec.Run.ID, "Awaiting approval — model call %d", "Awaiting approval — source Run model call %d"),
 		Status:     "awaiting_approval",
 		Phase:      "approval",
 		Result:     telemetry.ResultSuccess,
 		ToolName:   "builtin.agent_loop_approval",
 		ApprovalID: approval.ID,
-		Input: map[string]any{
-			"model_call_index": modelCall,
-			"reason":           approval.Reason,
-		},
+		Input:      input,
 		StartedAt:  when,
 		FinishedAt: when,
 		RequestID:  spec.RequestID,
@@ -3332,6 +3354,10 @@ func buildAwaitingApprovalStep(spec ExecutionSpec, index, modelCall int, when ti
 // calls from an already-completed model call. It is a control Step, not another
 // model call: recovery does not contact the provider again.
 func buildApprovalResumeStep(spec ExecutionSpec, index, modelCall int, when time.Time, msg types.Message, approved bool) types.TaskStep {
+	return buildApprovalResumeStepForModelCallRef(spec, index, currentAgentLoopModelCallRef(spec, modelCall), when, msg, approved)
+}
+
+func buildApprovalResumeStepForModelCallRef(spec ExecutionSpec, index int, modelCallRef agentLoopModelCallRef, when time.Time, msg types.Message, approved bool) types.TaskStep {
 	toolNames := make([]string, 0, len(msg.ToolCalls))
 	for _, tc := range msg.ToolCalls {
 		toolNames = append(toolNames, tc.Function.Name)
@@ -3347,14 +3373,12 @@ func buildApprovalResumeStep(spec ExecutionSpec, index, modelCall int, when time
 		delete(input, "recovered_tools")
 		input["approved_tools"] = toolNames
 	}
-	if modelCall > 0 {
-		if approved {
-			title = fmt.Sprintf("Dispatch approved tools from model call %d", modelCall)
-		} else {
-			title = fmt.Sprintf("Recover pending tools from model call %d", modelCall)
-		}
-		input["model_call_index"] = modelCall
+	if approved {
+		title = modelCallRef.title(spec.Run.ID, "Dispatch approved tools from model call %d", "Dispatch approved tools from source Run model call %d")
+	} else {
+		title = modelCallRef.title(spec.Run.ID, "Recover pending tools from model call %d", "Recover pending tools from source Run model call %d")
 	}
+	modelCallRef.addStepInput(spec.Run.ID, input)
 	return types.TaskStep{
 		ID:         spec.NewID("step"),
 		TaskID:     spec.Task.ID,
