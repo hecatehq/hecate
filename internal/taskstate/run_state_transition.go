@@ -79,7 +79,7 @@ func (s *MemoryStore) ApplyRunStateTransition(_ context.Context, tr RunStateTran
 	}
 	if !runStatusExpected(storedRun.Status, tr.ExpectedRunStatuses) ||
 		(tr.ApprovalResolution != nil && (storedRun.Status != "awaiting_approval" || storedApproval.Status != "pending")) {
-		return RunStateTransitionResult{Task: cloneTask(storedTask), Run: storedRun, Approval: storedApproval}, nil
+		return RunStateTransitionResult{Task: cloneTask(storedTask), Run: storedRun, Approval: cloneApproval(storedApproval)}, nil
 	}
 	resolvedApproval := storedApproval
 	if tr.ApprovalResolution != nil {
@@ -95,7 +95,7 @@ func (s *MemoryStore) ApplyRunStateTransition(_ context.Context, tr RunStateTran
 	s.tasks[task.ID] = task
 	s.runs[run.ID] = run
 	if tr.ApprovalResolution != nil {
-		s.approvals[resolvedApproval.ID] = resolvedApproval
+		s.approvals[resolvedApproval.ID] = cloneApproval(resolvedApproval)
 	}
 	var steps []types.TaskStep
 	var artifacts []types.TaskArtifact
@@ -114,7 +114,7 @@ func (s *MemoryStore) ApplyRunStateTransition(_ context.Context, tr RunStateTran
 		events = append(events, s.appendRunEventLocked(event))
 	}
 	s.signalRun(run.ID)
-	return RunStateTransitionResult{Task: cloneTask(task), Run: run, Approval: resolvedApproval, Events: events, Applied: true}, nil
+	return RunStateTransitionResult{Task: cloneTask(task), Run: run, Approval: cloneApproval(resolvedApproval), Events: events, Applied: true}, nil
 }
 
 func (s *SQLiteStore) ApplyRunStateTransition(ctx context.Context, tr RunStateTransition) (RunStateTransitionResult, error) {

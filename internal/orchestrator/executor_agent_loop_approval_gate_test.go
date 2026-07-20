@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,11 +18,12 @@ func TestAgentLoopApprovalGate_EvaluateConfiguredToolsDedupesAndBuildsPause(t *t
 	when := time.Date(2026, 5, 29, 10, 30, 0, 0, time.UTC)
 
 	gate := newAgentLoopApprovalGate([]string{" shell_exec ", "", "shell_exec"})
-	pause, ok := gate.Evaluate(spec, 2, 7, when, []types.ToolCall{
+	calls := []types.ToolCall{
 		agentLoopToolCall("call-shell-1", "shell_exec", `{"command":"ls"}`),
 		agentLoopToolCall("call-file-1", "file_write", `{"path":"out.txt","content":"hi"}`),
 		agentLoopToolCall("call-shell-2", "shell_exec", `{"command":"pwd"}`),
-	})
+	}
+	pause, ok := gate.Evaluate(spec, 2, 7, when, calls)
 	if !ok {
 		t.Fatalf("Evaluate() ok = false, want true")
 	}
@@ -44,6 +47,18 @@ func TestAgentLoopApprovalGate_EvaluateConfiguredToolsDedupesAndBuildsPause(t *t
 	if strings.Contains(approval.Reason, "file_write") {
 		t.Fatalf("approval reason should not mention non-gated file_write: %q", approval.Reason)
 	}
+	if len(approval.ActionSummary) != 3 {
+		t.Fatalf("approval action summary = %#v, want all three pending calls", approval.ActionSummary)
+	}
+	if !strings.Contains(approval.ActionSummary[1], "file_write") || !strings.Contains(approval.ActionSummary[1], "content_bytes=2") {
+		t.Fatalf("approval action summary omitted non-gated file write shape: %#v", approval.ActionSummary)
+	}
+	if strings.Contains(strings.Join(approval.ActionSummary, "\n"), "hi") {
+		t.Fatalf("approval action summary exposed file content: %#v", approval.ActionSummary)
+	}
+	if !approval.ActionSummaryIncomplete {
+		t.Fatal("approval action summary incomplete = false, want withheld command/content marker")
+	}
 
 	step := pause.Step
 	if step.Kind != "approval" || step.Status != "awaiting_approval" || step.Phase != "approval" {
@@ -51,6 +66,9 @@ func TestAgentLoopApprovalGate_EvaluateConfiguredToolsDedupesAndBuildsPause(t *t
 	}
 	if step.Index != 7 || step.ApprovalID != approval.ID || step.ToolName != "builtin.agent_loop_approval" {
 		t.Fatalf("approval step linkage = %+v, approval id %q", step, approval.ID)
+	}
+	if approval.StepID != step.ID {
+		t.Fatalf("approval StepID = %q, want linked Step %q", approval.StepID, step.ID)
 	}
 	if got := step.Input["model_call_index"]; got != 2 {
 		t.Fatalf("approval step model-call input = %v, want 2", got)
@@ -61,8 +79,35 @@ func TestAgentLoopApprovalGate_EvaluateConfiguredToolsDedupesAndBuildsPause(t *t
 	if got := step.Input["reason"]; got != approval.Reason {
 		t.Fatalf("approval step reason input = %v, want %q", got, approval.Reason)
 	}
+	if got := step.Input[toolCallBundleDigestKey]; got != agentToolCallBundleDigest(calls) {
+		t.Fatalf("approval step bundle digest = %v, want ordered call digest", got)
+	}
+	if encoded, err := json.Marshal(step.Input); err != nil {
+		t.Fatalf("marshal approval Step input: %v", err)
+	} else if strings.Contains(string(encoded), `"content":"hi"`) || strings.Contains(string(encoded), `"command":"ls"`) {
+		t.Fatalf("approval Step input exposed raw tool arguments: %s", encoded)
+	}
 	if !step.StartedAt.Equal(when) || !step.FinishedAt.Equal(when) {
 		t.Fatalf("approval step timestamps = %s/%s, want %s", step.StartedAt, step.FinishedAt, when)
+	}
+}
+
+func TestAgentLoopApprovalGate_ActionSummaryShowsAllowlistedReadOnlyGitArgv(t *testing.T) {
+	spec := newAgentLoopSpec(t)
+	gate := newAgentLoopApprovalGate([]string{"git_exec"})
+
+	pause, ok := gate.Evaluate(spec, 1, 2, time.Now().UTC(), []types.ToolCall{
+		agentLoopToolCall("call-git", "git_exec", `{"command":"branch -vv"}`),
+		agentLoopToolCall("call-read", "read_file", `{"path":"README.md"}`),
+	})
+	if !ok {
+		t.Fatal("Evaluate() ok = false, want approval")
+	}
+	if got, want := pause.Approval.ActionSummary, []string{"git branch -vv", "read_file path=README.md max_bytes=0 lines=0-0"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("action summary = %#v, want %#v", got, want)
+	}
+	if pause.Approval.ActionSummaryIncomplete {
+		t.Fatal("allowlisted Git/read summary unexpectedly incomplete")
 	}
 }
 

@@ -143,8 +143,15 @@ func TestAgentLoopConversation_ContinuationAppendsRichInputMessage(t *testing.T)
 
 	conversation := newAgentLoopConversation(spec)
 	messages := conversation.Messages()
+	if len(messages) != 2 || !conversation.HasDeferredContinuation() {
+		t.Fatalf("messages = %d deferred=%t, want saved history with deferred rich input: %+v", len(messages), conversation.HasDeferredContinuation(), messages)
+	}
+	if !conversation.AppendDeferredContinuation() || conversation.HasDeferredContinuation() {
+		t.Fatal("AppendDeferredContinuation() did not append exactly once")
+	}
+	messages = conversation.Messages()
 	if len(messages) != 3 {
-		t.Fatalf("messages = %d, want saved history plus rich input: %+v", len(messages), messages)
+		t.Fatalf("messages after continuation = %d, want saved history plus rich input: %+v", len(messages), messages)
 	}
 	got := messages[2]
 	if got.Role != "user" || got.Content != richInput.Content || len(got.ContentBlocks) != 2 || got.ContentBlocks[1].Image == nil {

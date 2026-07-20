@@ -374,21 +374,23 @@ type TaskStepItem struct {
 }
 
 type TaskApprovalItem struct {
-	ID             string `json:"id"`
-	TaskID         string `json:"task_id"`
-	RunID          string `json:"run_id"`
-	StepID         string `json:"step_id,omitempty"`
-	Kind           string `json:"kind"`
-	Status         string `json:"status"`
-	Reason         string `json:"reason,omitempty"`
-	RequestedBy    string `json:"requested_by,omitempty"`
-	ResolvedBy     string `json:"resolved_by,omitempty"`
-	ResolutionNote string `json:"resolution_note,omitempty"`
-	CreatedAt      string `json:"created_at,omitempty"`
-	ResolvedAt     string `json:"resolved_at,omitempty"`
-	RequestID      string `json:"request_id,omitempty"`
-	TraceID        string `json:"trace_id,omitempty"`
-	SpanID         string `json:"span_id,omitempty"`
+	ID                      string   `json:"id"`
+	TaskID                  string   `json:"task_id"`
+	RunID                   string   `json:"run_id"`
+	StepID                  string   `json:"step_id,omitempty"`
+	Kind                    string   `json:"kind"`
+	Status                  string   `json:"status"`
+	Reason                  string   `json:"reason,omitempty"`
+	ActionSummary           []string `json:"action_summary,omitempty"`
+	ActionSummaryIncomplete bool     `json:"action_summary_incomplete,omitempty"`
+	RequestedBy             string   `json:"requested_by,omitempty"`
+	ResolvedBy              string   `json:"resolved_by,omitempty"`
+	ResolutionNote          string   `json:"resolution_note,omitempty"`
+	CreatedAt               string   `json:"created_at,omitempty"`
+	ResolvedAt              string   `json:"resolved_at,omitempty"`
+	RequestID               string   `json:"request_id,omitempty"`
+	TraceID                 string   `json:"trace_id,omitempty"`
+	SpanID                  string   `json:"span_id,omitempty"`
 }
 
 type TaskArtifactItem struct {

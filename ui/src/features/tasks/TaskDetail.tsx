@@ -453,21 +453,65 @@ function TaskApprovalCallout({
                 {approval.reason}
               </div>
             )}
-            {approvalCommandPreview(task) && (
-              <div
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--t1)",
-                  marginTop: 8,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {approvalCommandPreview(task)}
+            {approval.action_summary && approval.action_summary.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div
+                  style={{
+                    color: "var(--t2)",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Pending actions
+                </div>
+                <ol
+                  aria-label="Pending actions"
+                  style={{
+                    color: "var(--t1)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                    margin: "5px 0 0",
+                    paddingLeft: 20,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {approval.action_summary.map((line, index) => (
+                    <li key={`${approval.id}-action-${index}`}>{line}</li>
+                  ))}
+                </ol>
               </div>
             )}
+            {approval.action_summary_incomplete && (
+              <div
+                style={{
+                  color: "var(--amber-lo)",
+                  fontSize: 10,
+                  lineHeight: 1.4,
+                  marginTop: 5,
+                }}
+              >
+                Some call details were withheld or could not be summarized safely.
+              </div>
+            )}
+            {(!approval.action_summary || approval.action_summary.length === 0) &&
+              approvalCommandPreview(task) && (
+                <div
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--t1)",
+                    marginTop: 8,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {approvalCommandPreview(task)}
+                </div>
+              )}
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button

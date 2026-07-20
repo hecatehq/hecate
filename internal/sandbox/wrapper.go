@@ -41,6 +41,10 @@ const bwrapPath = "/usr/bin/bwrap"
 // wrapper. Present on every supported macOS version.
 const sandboxExecBinary = "/usr/bin/sandbox-exec"
 
+// sandboxExecProbeExecutable is a stable no-op executable on macOS. Keep this
+// absolute because the probe intentionally does not depend on the gateway PATH.
+const sandboxExecProbeExecutable = "/usr/bin/true"
+
 // detectedWrapper caches the result of probing for an available
 // wrapper at startup. Computed once via sync.Once. Tests can override
 // via SetWrapperForTesting.
@@ -48,9 +52,14 @@ var (
 	detectedWrapperOnce sync.Once
 	detectedWrapper     WrapperKind
 	detectedWrapperPath string
-	wrapperOverride     *WrapperKind // test-only override
+	wrapperOverride     *wrapperSelection // test-only override
 	wrapperOverrideMu   sync.Mutex
 )
+
+type wrapperSelection struct {
+	kind WrapperKind
+	path string
+}
 
 // DetectWrapper returns the OS-level isolation wrapper the gateway
 // will use for shell tool calls. The result is cached after the first
@@ -67,6 +76,10 @@ var (
 //
 // Test environments can short-circuit detection via SetWrapperForTesting.
 func DetectWrapper(ctx context.Context) WrapperKind {
+	return detectWrapperSelection(ctx).kind
+}
+
+func detectWrapperSelection(ctx context.Context) wrapperSelection {
 	wrapperOverrideMu.Lock()
 	override := wrapperOverride
 	wrapperOverrideMu.Unlock()
@@ -76,15 +89,13 @@ func DetectWrapper(ctx context.Context) WrapperKind {
 	detectedWrapperOnce.Do(func() {
 		detectedWrapper, detectedWrapperPath = probeWrapper(ctx)
 	})
-	return detectedWrapper
+	return wrapperSelection{kind: detectedWrapper, path: detectedWrapperPath}
 }
 
 // WrapperPath returns the absolute path to the detected wrapper
 // binary, or "" if no wrapper is active.
 func WrapperPath() string {
-	wrapperOverrideMu.Lock()
-	defer wrapperOverrideMu.Unlock()
-	return detectedWrapperPath
+	return detectWrapperSelection(context.Background()).path
 }
 
 // SetWrapperForTesting forces DetectWrapper to return the given kind
@@ -92,9 +103,16 @@ func WrapperPath() string {
 // must restore the prior state via the returned reset function. Test
 // helper only — do not call from production code.
 func SetWrapperForTesting(kind WrapperKind) (reset func()) {
+	path := ""
+	switch kind {
+	case WrapperBwrap:
+		path = bwrapPath
+	case WrapperSandboxExec:
+		path = sandboxExecBinary
+	}
 	wrapperOverrideMu.Lock()
 	prev := wrapperOverride
-	wrapperOverride = &kind
+	wrapperOverride = &wrapperSelection{kind: kind, path: path}
 	wrapperOverrideMu.Unlock()
 	return func() {
 		wrapperOverrideMu.Lock()
@@ -113,7 +131,7 @@ func probeWrapper(ctx context.Context) (WrapperKind, string) {
 		if _, err := os.Stat(sandboxExecBinary); err == nil {
 			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			probe := exec.CommandContext(probeCtx, sandboxExecBinary, "-p", `(version 1)(allow default)`, "/bin/true")
+			probe := sandboxExecProbeCommand(probeCtx)
 			if err := probe.Run(); err == nil {
 				return WrapperSandboxExec, sandboxExecBinary
 			}
@@ -150,6 +168,10 @@ func probeWrapper(ctx context.Context) (WrapperKind, string) {
 	default:
 		return WrapperNone, ""
 	}
+}
+
+func sandboxExecProbeCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, sandboxExecBinary, "-p", `(version 1)(allow default)`, sandboxExecProbeExecutable)
 }
 
 // applyWrapper rewrites cmd in place to wrap the original argv with
@@ -199,9 +221,10 @@ func equalStringSlices(a, b []string) bool {
 }
 
 func wrappedArgv(argv []string, workspace string, network bool) []string {
-	switch DetectWrapper(context.Background()) {
+	selection := detectWrapperSelection(context.Background())
+	switch selection.kind {
 	case WrapperBwrap:
-		return bwrapArgv(argv, workspace, network)
+		return bwrapArgvWithWrapperPath(argv, workspace, network, false, selection.path)
 	case WrapperSandboxExec:
 		return sandboxExecArgv(argv, network)
 	default:
@@ -216,9 +239,10 @@ func wrappedArgv(argv []string, workspace string, network bool) []string {
 // wrapper supports it. Fixed-command process surfaces use this to preserve
 // argument boundaries while sharing the shell sandbox's isolation layer.
 func WrapReadOnlyArgv(argv []string, workspace string, network bool, extraReadOnlyPaths ...string) []string {
-	switch DetectWrapper(context.Background()) {
+	selection := detectWrapperSelection(context.Background())
+	switch selection.kind {
 	case WrapperBwrap:
-		return bwrapArgvWithWorkspaceMode(argv, workspace, network, true, extraReadOnlyPaths...)
+		return bwrapArgvWithWrapperPath(argv, workspace, network, true, selection.path, extraReadOnlyPaths...)
 	case WrapperSandboxExec:
 		return sandboxExecArgv(argv, network)
 	default:
@@ -240,6 +264,10 @@ func bwrapArgv(argv []string, workspace string, network bool) []string {
 }
 
 func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOnly bool, extraReadOnlyPaths ...string) []string {
+	return bwrapArgvWithWrapperPath(argv, workspace, network, readOnly, detectWrapperSelection(context.Background()).path, extraReadOnlyPaths...)
+}
+
+func bwrapArgvWithWrapperPath(argv []string, workspace string, network, readOnly bool, wrapperPath string, extraReadOnlyPaths ...string) []string {
 	args := []string{
 		"--ro-bind", "/", "/",
 		// Procfs and devfs need explicit mounts; bwrap does NOT bind
@@ -275,11 +303,10 @@ func bwrapArgvWithWorkspaceMode(argv []string, workspace string, network, readOn
 	// Append the original argv (sh -lc <command>).
 	args = append(args, argv...)
 
-	path := WrapperPath()
-	if path == "" {
-		path = bwrapPath
+	if wrapperPath == "" {
+		wrapperPath = bwrapPath
 	}
-	return append([]string{path}, args...)
+	return append([]string{wrapperPath}, args...)
 }
 
 func applySandboxExec(cmd *exec.Cmd, network bool) {
@@ -320,8 +347,9 @@ type WrapperHealthInfo struct {
 // The reason field explains WrapperNone outcomes (probe failed, not
 // installed, unsupported platform).
 func HealthInfo() WrapperHealthInfo {
-	kind := DetectWrapper(context.Background())
-	info := WrapperHealthInfo{Kind: kind, Path: WrapperPath()}
+	selection := detectWrapperSelection(context.Background())
+	kind := selection.kind
+	info := WrapperHealthInfo{Kind: kind, Path: selection.path}
 	if kind == WrapperNone {
 		switch runtime.GOOS {
 		case "windows":

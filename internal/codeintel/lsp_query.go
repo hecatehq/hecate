@@ -117,7 +117,7 @@ func (s *Service) queryLSP(ctx context.Context, fsys *workspacefs.FS, request Re
 	if len(argv) == 0 {
 		return Result{}, fmt.Errorf("language server command is empty")
 	}
-	session, err := s.startLSPSession(ctx, fsys.Root(), argv)
+	session, err := s.startLSPSession(ctx, fsys.Root(), providerProcessEnv(ctx, spec.provider), argv)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to start %s language server", filepath.Base(spec.command))
 	}
@@ -187,7 +187,7 @@ func (s *Service) queryLSP(ctx context.Context, fsys *workspacefs.FS, request Re
 	return result, nil
 }
 
-func (s *Service) startLSPSession(ctx context.Context, workspace string, argv []string) (*lspSession, error) {
+func (s *Service) startLSPSession(ctx context.Context, workspace string, env, argv []string) (*lspSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (s *Service) startLSPSession(ctx context.Context, workspace string, argv []
 	// Cancel callback kills the owned tree but does not reap the leader.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workspace
-	cmd.Env = providerProcessEnv(ctx)
+	cmd.Env = env
 	cmd.WaitDelay = time.Second
 	tree, err := prepareLSPProcess(cmd)
 	if err != nil {

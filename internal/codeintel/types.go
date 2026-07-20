@@ -24,6 +24,7 @@ type Request struct {
 	Path       string
 	Language   string
 	Query      string
+	Selector   string
 	Line       int
 	Column     int
 	MaxResults int

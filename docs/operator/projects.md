@@ -511,7 +511,8 @@ network-enabled task. Normal write and shell approval policies still apply.
 Run `just doctor` on the runtime host before the first assignment. The agent can
 then call `code_intelligence` with `operation=capabilities`, use LSP for
 definitions/references/symbols/diagnostics, use optional `ast-grep` for
-structural patterns, and fall back to bounded `grep` when a provider is absent.
+structural patterns (including a node-kind selector for contextual patterns),
+and fall back to bounded `grep` when a provider is absent.
 Install code-intelligence providers globally or pin an operator-owned exact
 path rather than trusting the worktree's `node_modules`; hydrate ordinary
 project dependencies inside the isolated workspace when its compiler needs

@@ -271,15 +271,110 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		}
 	}()
 
-	// Bring up external MCP servers if the task configured any. Their
-	// tools are appended to the built-in catalog under names of the
-	// form `mcp__<server>__<tool>`. The host owns the subprocesses and
-	// dies when this run finishes — long-lived per-task pooling is a
-	// follow-up. We fail fast rather than silently running without
-	// the configured tools: the operator asked for those tools to be
-	// available, so a half-configured run is the wrong default. An explicit
-	// tools-disabled preset is different: its master policy intentionally skips
-	// every MCP host even if the stored task also carries server config.
+	if resumeAssistant, _, ok := resumableToolBatch(conversation.Messages()); ok {
+		if validationErr := validateAgentToolCallBatch(resumeAssistant.ToolCalls); validationErr != nil {
+			failed, failureErr := e.failedFromError(
+				spec,
+				runState.Steps(),
+				runState.Artifacts(),
+				runState.NextStepIndex(),
+				time.Now().UTC(),
+				fmt.Sprintf("resume checkpoint has an invalid tool-call bundle: %v", validationErr),
+			)
+			return runState.attachAccounting(failed), failureErr
+		}
+	}
+	pendingToolCalls := conversation.PendingToolCallsForResume()
+	pendingToolCallsApproved := spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.SameRun && spec.ResumeCheckpoint.PendingToolCallsApproved
+	if len(pendingToolCalls) > 0 {
+		beforeRecovery := len(pendingToolCalls)
+		pendingToolCalls, err = e.recoverDurableToolDispatches(spec, &conversation, runState, pendingToolCalls)
+		if err != nil {
+			return nil, err
+		}
+		// A recovered dispatch record proves this is no longer the exact batch
+		// covered by an earlier approval. Any calls that have never started must
+		// pass the current policy and approval gate again.
+		if len(pendingToolCalls) != beforeRecovery {
+			pendingToolCallsApproved = false
+		}
+	}
+	if conversation.HasDeferredContinuation() {
+		// A new user prompt supersedes source-Run calls that never reached a
+		// durable dispatch intent. Close every unresolved protocol call with an
+		// explicit tool error before appending the user message; providers reject
+		// assistant tool_calls followed directly by user content. Durable source
+		// effects were already converted to outcome-unknown results above.
+		for _, toolCall := range pendingToolCalls {
+			conversation.AppendToolResult(toolCall.ID, toolDispatchSupersededByContinuationResult(toolCall), true)
+		}
+		pendingToolCalls = nil
+		pendingToolCallsApproved = false
+		conversation.AppendDeferredContinuation()
+		conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, runState.ModelCallCount(), time.Now().UTC())
+		if artifactErr != nil {
+			return nil, artifactErr
+		}
+		runState.TrackConversationArtifact(conversationArtifact)
+	}
+
+	// A resumed Run can already be at its task-cumulative ceiling before this
+	// worker starts. Preserve the normalized conversation, but do not recover a
+	// terminal answer, start MCP servers, request approval, dispatch tools, or
+	// make another paid model call until the operator raises the ceiling.
+	if msg, exceeded := runState.CostCeilingExceededMessage(); exceeded {
+		conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, runState.ModelCallCount(), time.Now().UTC())
+		if artifactErr != nil {
+			return nil, artifactErr
+		}
+		runState.TrackConversationArtifact(conversationArtifact)
+		return agentLoopCostCeilingFailure(runState, msg), nil
+	}
+
+	// Same-Run recovery may find a completed assistant response that was
+	// durably checkpointed before its terminal artifact was written.
+	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.SameRun &&
+		spec.ResumeCheckpoint.ThisRunModelCallCount > 0 && spec.ResumeCheckpoint.LastCompletedStepID != "" {
+		if finalAssistant, ok := conversation.TailCompletedAssistant(); ok {
+			when := time.Now().UTC()
+			if artifact, upsertErr := conversation.UpsertArtifact(spec, runState.ModelCallCount(), when); upsertErr != nil {
+				return nil, upsertErr
+			} else {
+				runState.TrackConversationArtifact(artifact)
+			}
+			if strings.TrimSpace(finalAssistant.Content) == "" {
+				failed, failureErr := e.failedFromError(
+					spec,
+					runState.Steps(),
+					runState.Artifacts(),
+					runState.NextStepIndex(),
+					when,
+					emptyAssistantFinalAnswerMessage(runState.ModelCallCount()),
+				)
+				return runState.attachAccounting(failed), failureErr
+			}
+			finalArtifact, artifactErr := buildTerminalArtifact(spec, spec.ResumeCheckpoint.LastCompletedStepID, when, finalAssistant.Content)
+			if artifactErr != nil {
+				return nil, artifactErr
+			}
+			if preserveErr := preserveExistingTerminalArtifactCreatedAt(spec, &finalArtifact); preserveErr != nil {
+				return nil, preserveErr
+			}
+			if addErr := runState.AddArtifact(spec, finalArtifact); addErr != nil {
+				return nil, addErr
+			}
+			res := runState.Result("completed")
+			res.OtelStatusCode = "ok"
+			return res, nil
+		}
+	}
+
+	// Bring up external MCP servers only after resume normalization and budget
+	// enforcement. Their tools are appended to the built-in catalog under names
+	// of the form `mcp__<server>__<tool>`. The host owns the subprocesses and
+	// dies when this run finishes — long-lived per-task pooling is a follow-up.
+	// We fail fast rather than silently running without configured tools. An
+	// explicit tools-disabled preset intentionally skips every MCP host.
 	var mcpHost AgentMCPHost
 	if taskworkflow.IsQAExecution(spec.Task, spec.Run) && len(spec.Task.MCPServers) > 0 {
 		return e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), time.Now().UTC(),
@@ -302,36 +397,6 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		}
 	}
 
-	// Resume detection: if the conversation tail is an assistant
-	// message with tool_calls and no following tool messages, we're
-	// resuming after operator approval. Dispatch the pending tool
-	// calls before doing the next model call — they were just approved.
-	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.SameRun &&
-		spec.ResumeCheckpoint.ThisRunModelCallCount > 0 && spec.ResumeCheckpoint.LastCompletedStepID != "" {
-		if finalAssistant, ok := conversation.TailCompletedAssistant(); ok {
-			when := time.Now().UTC()
-			if artifact, upsertErr := conversation.UpsertArtifact(spec, runState.ModelCallCount(), when); upsertErr != nil {
-				return nil, upsertErr
-			} else {
-				runState.TrackInitialConversationArtifact(artifact)
-			}
-			finalArtifact, artifactErr := buildTerminalArtifact(spec, spec.ResumeCheckpoint.LastCompletedStepID, when, finalAssistant.Content)
-			if artifactErr != nil {
-				return nil, artifactErr
-			}
-			if preserveErr := preserveExistingTerminalArtifactCreatedAt(spec, &finalArtifact); preserveErr != nil {
-				return nil, preserveErr
-			}
-			if addErr := runState.AddArtifact(spec, finalArtifact); addErr != nil {
-				return nil, addErr
-			}
-			res := runState.Result("completed")
-			res.OtelStatusCode = "ok"
-			return res, nil
-		}
-	}
-	pendingToolCalls := conversation.PendingToolCallsForResume()
-
 	for {
 		if err := ctx.Err(); err != nil {
 			res := runState.Result("cancelled")
@@ -346,10 +411,31 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 		modelCallStartedAt := time.Now().UTC()
 
 		if len(pendingToolCalls) > 0 {
+			// Only a durable approval on this exact Run authorizes dispatch
+			// without another gate. Cross-Run resume cannot inherit approval
+			// authority from a rejected or cancelled source Run, and crash
+			// recovery may have checkpointed an assistant response before its
+			// approval record existed.
+			if !pendingToolCallsApproved {
+				pause, approvalRequired := e.approvalGate.Evaluate(spec, modelCall, runState.NextStepIndex(), modelCallStartedAt, pendingToolCalls)
+				if approvalRequired {
+					conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, modelCall, modelCallStartedAt)
+					if artifactErr != nil {
+						return nil, artifactErr
+					}
+					runState.TrackConversationArtifact(conversationArtifact)
+					if stepErr := runState.AddStep(spec, pause.Step); stepErr != nil {
+						return nil, stepErr
+					}
+					res := runState.Result("awaiting_approval")
+					res.PendingApprovals = []types.TaskApproval{pause.Approval}
+					res.OtelStatusCode = "ok"
+					return res, nil
+				}
+			}
 			// Skip the LLM call — the assistant message is
-			// already at the tail of `messages` (saved by the previous
-			// execution). Dispatch the approved tool calls and let the next
-			// model call reason over the results.
+			// already at the tail of `messages`. Calls either carry exact
+			// same-Run approval authority or passed the current gate above.
 			var ok bool
 			assistantMsg, ok = conversation.TailAssistantForResume()
 			if !ok {
@@ -357,7 +443,9 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 					"resume checkpoint had pending tool calls but no assistant tail")
 				return runState.attachAccounting(failed), ferr
 			}
-			resumeStep := buildApprovalResumeStep(spec, runState.NextStepIndex(), modelCall, modelCallStartedAt, assistantMsg)
+			resumeStepMessage := assistantMsg
+			resumeStepMessage.ToolCalls = append([]types.ToolCall(nil), pendingToolCalls...)
+			resumeStep := buildApprovalResumeStep(spec, runState.NextStepIndex(), modelCall, modelCallStartedAt, resumeStepMessage, pendingToolCallsApproved)
 			if err := runState.AddStep(spec, resumeStep); err != nil {
 				return nil, err
 			}
@@ -375,9 +463,26 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 				return failed, err
 			}
 			assistantMsg = modelCallResult.Assistant
+			// The model response and its accounting are durable at this point.
+			// Enforce the ceiling before interpreting that response as a final
+			// answer, approval request, or executable tool bundle.
+			if msg, exceeded := runState.CostCeilingExceededMessage(); exceeded {
+				return agentLoopCostCeilingFailure(runState, msg), nil
+			}
 
 			// If no tool calls, assistant gave a final answer.
 			if len(assistantMsg.ToolCalls) == 0 {
+				if strings.TrimSpace(assistantMsg.Content) == "" {
+					failed, failureErr := e.failedFromError(
+						spec,
+						runState.Steps(),
+						runState.Artifacts(),
+						runState.NextStepIndex(),
+						time.Now().UTC(),
+						emptyAssistantFinalAnswerMessage(modelCall),
+					)
+					return runState.attachAccounting(failed), failureErr
+				}
 				emitAssistantFinalAnswer(spec, modelCall, assistantMsg)
 				finalArtifact, artifactErr := buildTerminalArtifact(spec, modelCallResult.ThinkingStep.ID, modelCallStartedAt, assistantMsg.Content)
 				if artifactErr != nil {
@@ -413,14 +518,27 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 
 		// 5. Dispatch each tool call in order.
 		callsToRun := assistantMsg.ToolCalls
+		if len(pendingToolCalls) > 0 {
+			// A partially checkpointed batch contains tool results for earlier
+			// calls after the assistant message. Dispatch only the unresolved
+			// suffix selected by call ID; replaying the full assistant batch could
+			// repeat externally visible side effects.
+			callsToRun = pendingToolCalls
+		}
 		for _, toolCall := range callsToRun {
-			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, runState.NextStepIndex(), mcpHost, terminals)
-			if dispatch.Step != nil {
-				if err := runState.AddStep(spec, *dispatch.Step); err != nil {
-					return nil, err
-				}
+			// Persist a stable, tool-call-bound intent before entering the
+			// dispatcher. The dispatcher may perform non-idempotent work, so a
+			// worker crash after this point must fail closed rather than replay.
+			intent := buildAgentToolDispatchIntent(spec, toolCall, runState.NextStepIndex(), modelCall, time.Now().UTC())
+			if err := runState.AddStep(spec, intent); err != nil {
+				return nil, err
 			}
-			if err := runState.AddArtifacts(spec, dispatch.Artifacts); err != nil {
+			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, intent.Index, mcpHost, terminals)
+			finalStep, artifacts := finalizeAgentToolDispatch(intent, toolCall, dispatch, dispatchErr, time.Now().UTC())
+			if err := runState.FinalizeStep(spec, finalStep); err != nil {
+				return nil, err
+			}
+			if err := runState.AddArtifacts(spec, artifacts); err != nil {
 				return nil, err
 			}
 			// Mark the tool message as errored on any failure
@@ -443,34 +561,30 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (re
 			//     non-zero exit, file system error, HTTP non-2xx).
 			isToolError := dispatch.ToolError ||
 				dispatchErr != nil ||
-				dispatch.Step == nil ||
-				(dispatch.Step != nil && dispatch.Step.Status == "failed")
+				finalStep.Status == "failed"
 			conversation.AppendToolResult(toolCall.ID, dispatch.Text, isToolError)
-			_ = dispatchErr
-		}
-		// Snapshot after tool results.
-		if _, err := conversation.UpsertArtifact(spec, modelCall, modelCallStartedAt); err != nil {
-			return nil, err
+			// Checkpoint each result independently. A crash between calls in a
+			// multi-tool batch then leaves an exact durable prefix and only the
+			// unresolved calls are eligible for future dispatch.
+			conversationArtifact, artifactErr := conversation.UpsertArtifact(spec, modelCall, time.Now().UTC())
+			if artifactErr != nil {
+				return nil, artifactErr
+			}
+			runState.TrackConversationArtifact(conversationArtifact)
 		}
 		// Resume mode is a one-shot — clear so subsequent iterations hit
 		// the LLM normally.
 		pendingToolCalls = nil
 
-		// Per-task cost ceiling check. We do this AFTER the model call is
-		// fully recorded (assistant message + tool results in the
-		// conversation snapshot) so the operator sees what was paid
-		// for. The ceiling is task-cumulative — prior resume-chain
-		// spend plus this run's spend. Crossing the ceiling marks
-		// the run failed with an actionable error; future model calls don't
-		// fire. Operators can raise the ceiling and resume to continue.
-		if msg, exceeded := runState.CostCeilingExceededMessage(); exceeded {
-			res := runState.Result("failed")
-			res.LastError = msg
-			res.OtelStatusCode = "error"
-			res.OtelStatusMessage = "cost_ceiling_exceeded"
-			return res, nil
-		}
 	}
+}
+
+func agentLoopCostCeilingFailure(runState *agentLoopRunState, message string) *ExecutionResult {
+	res := runState.Result("failed")
+	res.LastError = message
+	res.OtelStatusCode = "error"
+	res.OtelStatusMessage = "cost_ceiling_exceeded"
+	return res
 }
 
 func emitAgentModelCallStarted(spec ExecutionSpec, modelCall int, req types.ChatRequest) {
@@ -1223,10 +1337,17 @@ func preserveExistingTerminalArtifactCreatedAt(spec ExecutionSpec, artifact *typ
 }
 
 func buildTerminalArtifact(spec ExecutionSpec, stepID string, startedAt time.Time, content string) (types.TaskArtifact, error) {
+	if strings.TrimSpace(content) == "" {
+		return types.TaskArtifact{}, fmt.Errorf("terminal artifact content is required")
+	}
 	if taskworkflow.IsQAExecution(spec.Task, spec.Run) {
 		return taskworkflow.ReportArtifact(spec.Task, spec.Run, stepID, startedAt, content)
 	}
 	return buildFinalAnswerArtifact(spec, stepID, startedAt, content), nil
+}
+
+func emptyAssistantFinalAnswerMessage(modelCall int) string {
+	return fmt.Sprintf("model call %d returned no assistant content or tool calls; no final answer was produced", modelCall)
 }
 
 func agentLoopFinalAnswerArtifactID(runID string) string {
@@ -3207,22 +3328,31 @@ func buildAwaitingApprovalStep(spec ExecutionSpec, index, modelCall int, when ti
 	}
 }
 
-// buildApprovalResumeStep records that a Run continued by dispatching tool
+// buildApprovalResumeStep records that a Run continued by dispatching pending
 // calls from an already-completed model call. It is a control Step, not another
-// model call: approval continuation does not contact the provider again.
-func buildApprovalResumeStep(spec ExecutionSpec, index, modelCall int, when time.Time, msg types.Message) types.TaskStep {
+// model call: recovery does not contact the provider again.
+func buildApprovalResumeStep(spec ExecutionSpec, index, modelCall int, when time.Time, msg types.Message, approved bool) types.TaskStep {
 	toolNames := make([]string, 0, len(msg.ToolCalls))
 	for _, tc := range msg.ToolCalls {
 		toolNames = append(toolNames, tc.Function.Name)
 	}
-	title := "Dispatch approved tools from source Run"
+	title := "Recover pending tools from source Run"
 	input := map[string]any{
-		"resumed":        true,
-		"tool_calls":     toolNames,
-		"approved_tools": toolNames,
+		"resumed":         true,
+		"tool_calls":      toolNames,
+		"recovered_tools": toolNames,
+	}
+	if approved {
+		title = "Dispatch approved tools from source Run"
+		delete(input, "recovered_tools")
+		input["approved_tools"] = toolNames
 	}
 	if modelCall > 0 {
-		title = fmt.Sprintf("Dispatch approved tools from model call %d", modelCall)
+		if approved {
+			title = fmt.Sprintf("Dispatch approved tools from model call %d", modelCall)
+		} else {
+			title = fmt.Sprintf("Recover pending tools from model call %d", modelCall)
+		}
 		input["model_call_index"] = modelCall
 	}
 	return types.TaskStep{

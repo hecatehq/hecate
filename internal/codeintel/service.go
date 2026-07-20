@@ -24,6 +24,7 @@ const (
 	maxRequestPathBytes          = 4 * 1024
 	maxLanguageBytes             = 64
 	maxQueryBytes                = 16 * 1024
+	maxSelectorBytes             = 128
 )
 
 var providerExecutableEnv = map[string]string{
@@ -95,6 +96,9 @@ func (s *Service) Query(ctx context.Context, workspaceRoot string, request Reque
 	if len(request.Query) > maxQueryBytes {
 		return Result{}, fmt.Errorf("code intelligence query exceeds the %d-byte limit", maxQueryBytes)
 	}
+	if len(request.Selector) > maxSelectorBytes {
+		return Result{}, fmt.Errorf("code intelligence selector exceeds the %d-byte limit", maxSelectorBytes)
+	}
 	request.Operation = Operation(strings.TrimSpace(string(request.Operation)))
 	rawPath := strings.TrimSpace(request.Path)
 	if rawPath == "" {
@@ -108,12 +112,19 @@ func (s *Service) Query(ctx context.Context, workspaceRoot string, request Reque
 		request.Language = normalizeLanguage(request.Language)
 	}
 	request.Query = strings.TrimSpace(request.Query)
+	request.Selector = strings.TrimSpace(request.Selector)
 	request.MaxResults = normalizeMaxResults(request.MaxResults)
 	if !knownOperation(request.Operation) {
 		return Result{}, fmt.Errorf("unsupported code intelligence operation %q", request.Operation)
 	}
+	if request.Selector != "" && request.Operation != OpStructuralSearch {
+		return Result{}, fmt.Errorf("selector is only supported for structural_search")
+	}
+	if request.Selector != "" && !isStructuralSelector(request.Selector) {
+		return Result{}, fmt.Errorf("structural selector must be a single ASCII tree-sitter node-kind token")
+	}
 
-	providerCtx, cleanupProviderRuntime, err := prepareProviderRuntime(ctx)
+	providerCtx, cleanupProviderRuntime, err := prepareProviderRuntime(ctx, fsys.Root(), s.trustedConfiguredProviderPaths(fsys))
 	if err != nil {
 		return Result{}, fmt.Errorf("prepare code intelligence provider runtime")
 	}

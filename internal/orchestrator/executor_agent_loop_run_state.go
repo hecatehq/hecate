@@ -74,6 +74,36 @@ func (s *agentLoopRunState) AddStep(spec ExecutionSpec, step types.TaskStep) err
 	return nil
 }
 
+func (s *agentLoopRunState) FinalizeStep(spec ExecutionSpec, step types.TaskStep) error {
+	if err := upsertTaskStep(spec, step); err != nil {
+		return err
+	}
+	for index := range s.steps {
+		if s.steps[index].ID == step.ID {
+			s.steps[index] = step
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot finalize untracked step %q", step.ID)
+}
+
+func (s *agentLoopRunState) UpdateRecoveredStep(spec ExecutionSpec, step types.TaskStep) error {
+	if err := upsertTaskStep(spec, step); err != nil {
+		return err
+	}
+	for index := range s.steps {
+		if s.steps[index].ID == step.ID {
+			s.steps[index] = step
+			return nil
+		}
+	}
+	// Same-run checkpoints do not hydrate historical Steps into runState, but
+	// returning the settled record lets terminal result handling observe the
+	// fail-closed recovery update without consuming another Step index.
+	s.steps = append(s.steps, step)
+	return nil
+}
+
 func (s *agentLoopRunState) AddArtifact(spec ExecutionSpec, artifact types.TaskArtifact) error {
 	if err := upsertTaskArtifact(spec, artifact); err != nil {
 		return err
@@ -91,7 +121,7 @@ func (s *agentLoopRunState) AddArtifacts(spec ExecutionSpec, artifacts []types.T
 	return nil
 }
 
-func (s *agentLoopRunState) TrackInitialConversationArtifact(artifact *types.TaskArtifact) {
+func (s *agentLoopRunState) TrackConversationArtifact(artifact *types.TaskArtifact) {
 	if artifact == nil {
 		return
 	}
@@ -107,7 +137,7 @@ func (s *agentLoopRunState) TrackInitialConversationArtifact(artifact *types.Tas
 		if s.artifacts[i].ID == artifact.ID {
 			s.artifacts[i] = *artifact
 		}
-		// The initial conversation has one stable logical slot. Retain the
+		// The conversation has one stable logical slot. Retain the
 		// existing record if a malformed caller supplies a second ID.
 		return
 	}

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -291,6 +294,62 @@ func TestBuildTerminalCommandAppliesSandboxWrapper(t *testing.T) {
 	}
 	if !containsString(cmd.Args, "--unshare-net") {
 		t.Fatalf("terminal argv = %#v, want network isolation by default", cmd.Args)
+	}
+}
+
+func TestBuildTerminalCommandRejectsMissingExecutableBeforeWrapper(t *testing.T) {
+	for _, kind := range []sandbox.WrapperKind{sandbox.WrapperBwrap, sandbox.WrapperSandboxExec} {
+		t.Run(string(kind), func(t *testing.T) {
+			reset := sandbox.SetWrapperForTesting(kind)
+			defer reset()
+
+			dir := t.TempDir()
+			missing := filepath.Join(t.TempDir(), "missing-terminal-command")
+			_, err := buildTerminalCommand(TerminalOptions{
+				Command:          missing,
+				WorkingDirectory: dir,
+				Policy:           Policy{AllowedRoot: dir},
+			})
+			if err == nil || !strings.Contains(err.Error(), "resolve terminal executable") {
+				t.Fatalf("buildTerminalCommand error = %v, want pre-wrapper executable rejection", err)
+			}
+		})
+	}
+}
+
+func TestResolveTerminalExecutableDoesNotSearchPATHForDotSlash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix relative executable spelling")
+	}
+	bin := t.TempDir()
+	name := "hecate-terminal-relative-path-fixture"
+	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write PATH fixture: %v", err)
+	}
+	t.Setenv("PATH", bin)
+
+	cmd := exec.Command("./" + name)
+	err := resolveTerminalExecutable(cmd, "")
+	if err == nil {
+		t.Fatalf("resolveTerminalExecutable selected PATH entry %q for ./ spelling", cmd.Path)
+	}
+}
+
+func TestResolveTerminalExecutablePreservesTrailingWhitespace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows strips trailing path whitespace")
+	}
+	path := filepath.Join(t.TempDir(), "tool ")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+
+	cmd := exec.Command(path)
+	if err := resolveTerminalExecutable(cmd, ""); err != nil {
+		t.Fatalf("resolveTerminalExecutable: %v", err)
+	}
+	if cmd.Path != path || len(cmd.Args) == 0 || cmd.Args[0] != path {
+		t.Fatalf("resolved command = path %q args %#v, want exact whitespace-preserving %q", cmd.Path, cmd.Args, path)
 	}
 }
 

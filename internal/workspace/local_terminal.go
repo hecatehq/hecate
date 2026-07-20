@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -439,6 +440,9 @@ func buildTerminalCommand(opts TerminalOptions) (*exec.Cmd, error) {
 	default:
 		cmd = exec.Command(opts.Command, opts.Args...)
 	}
+	if err := resolveTerminalExecutable(cmd, resolvedDir); err != nil {
+		return nil, err
+	}
 
 	cmd.Dir = resolvedDir
 	sandbox.ApplyWrapper(cmd, resolvedDir, opts.Policy.Network)
@@ -453,6 +457,38 @@ func buildTerminalCommand(opts TerminalOptions) (*exec.Cmd, error) {
 	}
 	cmd.Env = env
 	return cmd, nil
+}
+
+func resolveTerminalExecutable(cmd *exec.Cmd, workingDirectory string) error {
+	if cmd == nil {
+		return fmt.Errorf("resolve terminal executable: command is nil")
+	}
+	if cmd.Err != nil {
+		return fmt.Errorf("resolve terminal executable: %w", cmd.Err)
+	}
+	executable := cmd.Path
+	if strings.TrimSpace(executable) == "" {
+		return fmt.Errorf("resolve terminal executable: command path is empty")
+	}
+	if !filepath.IsAbs(executable) && strings.ContainsAny(executable, `/\`) {
+		base, err := filepath.Abs(workingDirectory)
+		if err != nil {
+			return fmt.Errorf("resolve terminal working directory: %w", err)
+		}
+		executable = filepath.Join(base, executable)
+	}
+	resolved, err := exec.LookPath(executable)
+	if err != nil {
+		return fmt.Errorf("resolve terminal executable %q: %w", executable, err)
+	}
+	cmd.Path = resolved
+	if len(cmd.Args) > 0 {
+		// OS wrappers become argv[0] at launch, so the original target must
+		// also be absolute in Args or a wrapper could hide a missing command
+		// until after OpenTerminal reports success.
+		cmd.Args[0] = resolved
+	}
+	return nil
 }
 
 func terminalPolicyCommand(command string, args []string) string {

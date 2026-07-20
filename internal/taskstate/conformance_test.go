@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -606,6 +607,7 @@ func runStoreApplyRunStateTransitionResolvesApprovalAtomically(t *testing.T, sto
 		ID: "approval-approve-atomic", TaskID: task.ID, RunID: run.ID, StepID: "step-approval-approve-atomic",
 		Kind: "tool_call", Status: "pending", Reason: "immutable reason", RequestedBy: "agent", CreatedAt: now,
 		RequestID: "request-approval-before", TraceID: "trace-approval-before", SpanID: "span-approval-before",
+		ActionSummary: []string{"git branch -vv"},
 	}
 	step := types.TaskStep{
 		ID: "step-approval-approve-atomic", TaskID: task.ID, RunID: run.ID,
@@ -682,8 +684,14 @@ func runStoreApplyRunStateTransitionResolvesApprovalAtomically(t *testing.T, sto
 	}
 	if result.Approval.StepID != approval.StepID || result.Approval.Kind != approval.Kind || result.Approval.Reason != approval.Reason ||
 		result.Approval.RequestedBy != approval.RequestedBy || !result.Approval.CreatedAt.Equal(approval.CreatedAt) ||
-		result.Approval.RequestID != approval.RequestID || result.Approval.TraceID != approval.TraceID || result.Approval.SpanID != approval.SpanID {
+		result.Approval.RequestID != approval.RequestID || result.Approval.TraceID != approval.TraceID || result.Approval.SpanID != approval.SpanID ||
+		!reflect.DeepEqual(result.Approval.ActionSummary, approval.ActionSummary) {
 		t.Fatalf("atomic approve changed immutable approval provenance: got %+v want %+v", result.Approval, approval)
+	}
+	result.Approval.ActionSummary[0] = "mutated transition result"
+	storedAfterTransition, found, err := store.GetApproval(ctx, task.ID, approval.ID)
+	if err != nil || !found || storedAfterTransition.ActionSummary[0] != "git branch -vv" {
+		t.Fatalf("approval after transition result mutation = %#v found=%t err=%v", storedAfterTransition.ActionSummary, found, err)
 	}
 	if len(result.Events) != 2 || result.Events[0].EventType != "approval.resolved" || result.Events[1].EventType != "run.queued" {
 		t.Fatalf("atomic approve events = %+v, want approval.resolved then run.queued", result.Events)
@@ -804,6 +812,7 @@ func runStoreApplyRunTerminalTransitionRejectsApprovalAtomically(t *testing.T, s
 	target := types.TaskApproval{
 		ID: "approval-reject-atomic", TaskID: task.ID, RunID: run.ID, StepID: step.ID,
 		Kind: "tool_call", Status: "pending", RequestedBy: "agent", CreatedAt: now,
+		ActionSummary: []string{"file_write write path=out.txt content_bytes=2"}, ActionSummaryIncomplete: true,
 	}
 	other := types.TaskApproval{
 		ID: "approval-reject-other", TaskID: task.ID, RunID: run.ID,
@@ -884,8 +893,13 @@ func runStoreApplyRunTerminalTransitionRejectsApprovalAtomically(t *testing.T, s
 		t.Fatalf("atomic reject result = task:%+v run:%+v approval:%+v", result.Task, result.Run, result.Approval)
 	}
 	if result.Approval.StepID != target.StepID || result.Approval.Kind != target.Kind || result.Approval.RequestedBy != target.RequestedBy ||
-		!result.Approval.CreatedAt.Equal(target.CreatedAt) {
+		!result.Approval.CreatedAt.Equal(target.CreatedAt) || !reflect.DeepEqual(result.Approval.ActionSummary, target.ActionSummary) || !result.Approval.ActionSummaryIncomplete {
 		t.Fatalf("atomic reject changed immutable approval provenance: got %+v want %+v", result.Approval, target)
+	}
+	result.Approval.ActionSummary[0] = "mutated terminal transition result"
+	storedAfterTransition, found, err := store.GetApproval(ctx, task.ID, target.ID)
+	if err != nil || !found || storedAfterTransition.ActionSummary[0] != target.ActionSummary[0] {
+		t.Fatalf("approval after terminal transition result mutation = %#v found=%t err=%v", storedAfterTransition.ActionSummary, found, err)
 	}
 	otherStored, found, err := store.GetApproval(ctx, task.ID, other.ID)
 	if err != nil || !found || otherStored.Status != "cancelled" {
@@ -1584,12 +1598,14 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	}
 
 	approval := types.TaskApproval{
-		ID:          "ap-1",
-		TaskID:      "task-ap",
-		RunID:       "run-ap",
-		Kind:        "shell",
-		Status:      "pending",
-		RequestedBy: "agent",
+		ID:                      "ap-1",
+		TaskID:                  "task-ap",
+		RunID:                   "run-ap",
+		Kind:                    "shell",
+		Status:                  "pending",
+		ActionSummary:           []string{"git branch -vv", "file_write path=notes.txt content_bytes=12"},
+		ActionSummaryIncomplete: true,
+		RequestedBy:             "agent",
 	}
 	created, err := store.CreateApproval(ctx, approval)
 	if err != nil {
@@ -1598,6 +1614,8 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	if created.CreatedAt.IsZero() {
 		t.Fatal("CreateApproval CreatedAt is zero, want store timestamp")
 	}
+	approval.ActionSummary[0] = "mutated create input"
+	created.ActionSummary[0] = "mutated create result"
 
 	got, ok, err := store.GetApproval(ctx, "task-ap", "ap-1")
 	if err != nil || !ok {
@@ -1606,8 +1624,16 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	if got.Status != "pending" || got.Kind != "shell" {
 		t.Fatalf("GetApproval round-trip mismatch: %+v", got)
 	}
+	if !reflect.DeepEqual(got.ActionSummary, []string{"git branch -vv", "file_write path=notes.txt content_bytes=12"}) || !got.ActionSummaryIncomplete {
+		t.Fatalf("GetApproval action summary = %#v incomplete=%v, want persisted immutable summary", got.ActionSummary, got.ActionSummaryIncomplete)
+	}
 	if got.CreatedAt.IsZero() {
 		t.Fatal("GetApproval CreatedAt is zero, want persisted store timestamp")
+	}
+	got.ActionSummary[0] = "mutated get result"
+	got, ok, err = store.GetApproval(ctx, "task-ap", "ap-1")
+	if err != nil || !ok || got.ActionSummary[0] != "git branch -vv" {
+		t.Fatalf("GetApproval after result mutation = %#v ok=%v err=%v", got.ActionSummary, ok, err)
 	}
 
 	// Resolve.
@@ -1615,9 +1641,12 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	got.ResolvedBy = "operator"
 	got.ResolvedAt = time.Now().UTC()
 	got.ResolutionNote = "looks fine"
-	if _, err := store.UpdateApproval(ctx, got); err != nil {
+	updated, err := store.UpdateApproval(ctx, got)
+	if err != nil {
 		t.Fatalf("UpdateApproval: %v", err)
 	}
+	got.ActionSummary[0] = "mutated update input"
+	updated.ActionSummary[0] = "mutated update result"
 
 	resolved, ok, err := store.GetApproval(ctx, "task-ap", "ap-1")
 	if err != nil || !ok {
@@ -1626,6 +1655,9 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	if resolved.Status != "approved" || resolved.ResolvedBy != "operator" || resolved.ResolutionNote != "looks fine" {
 		t.Fatalf("resolution not persisted: %+v", resolved)
 	}
+	if resolved.ActionSummary[0] != "git branch -vv" || !resolved.ActionSummaryIncomplete {
+		t.Fatalf("resolved action summary = %#v incomplete=%v, want original", resolved.ActionSummary, resolved.ActionSummaryIncomplete)
+	}
 
 	approvals, err := store.ListApprovals(ctx, "task-ap")
 	if err != nil {
@@ -1633,6 +1665,11 @@ func runStoreApprovalRoundTrip(t *testing.T, store Store) {
 	}
 	if len(approvals) != 1 || approvals[0].Status != "approved" {
 		t.Fatalf("ListApprovals: %+v", approvals)
+	}
+	approvals[0].ActionSummary[0] = "mutated list result"
+	reread, ok, err := store.GetApproval(ctx, "task-ap", "ap-1")
+	if err != nil || !ok || reread.ActionSummary[0] != "git branch -vv" {
+		t.Fatalf("GetApproval after list mutation = %#v ok=%v err=%v", reread.ActionSummary, ok, err)
 	}
 }
 

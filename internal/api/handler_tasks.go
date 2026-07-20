@@ -847,19 +847,21 @@ func renderTaskStep(step types.TaskStep) TaskStepItem {
 
 func renderTaskApproval(approval types.TaskApproval) TaskApprovalItem {
 	item := TaskApprovalItem{
-		ID:             approval.ID,
-		TaskID:         approval.TaskID,
-		RunID:          approval.RunID,
-		StepID:         approval.StepID,
-		Kind:           approval.Kind,
-		Status:         approval.Status,
-		Reason:         approval.Reason,
-		RequestedBy:    approval.RequestedBy,
-		ResolvedBy:     approval.ResolvedBy,
-		ResolutionNote: approval.ResolutionNote,
-		RequestID:      approval.RequestID,
-		TraceID:        approval.TraceID,
-		SpanID:         approval.SpanID,
+		ID:                      approval.ID,
+		TaskID:                  approval.TaskID,
+		RunID:                   approval.RunID,
+		StepID:                  approval.StepID,
+		Kind:                    approval.Kind,
+		Status:                  approval.Status,
+		Reason:                  approval.Reason,
+		ActionSummary:           append([]string(nil), approval.ActionSummary...),
+		ActionSummaryIncomplete: approval.ActionSummaryIncomplete,
+		RequestedBy:             approval.RequestedBy,
+		ResolvedBy:              approval.ResolvedBy,
+		ResolutionNote:          approval.ResolutionNote,
+		RequestID:               approval.RequestID,
+		TraceID:                 approval.TraceID,
+		SpanID:                  approval.SpanID,
 	}
 	if !approval.CreatedAt.IsZero() {
 		item.CreatedAt = approval.CreatedAt.UTC().Format(time.RFC3339Nano)

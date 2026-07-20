@@ -189,6 +189,13 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 	if err != nil {
 		return nil, err
 	}
+	sourceDispatchSteps := durableToolDispatchSteps(steps)
+	sourceDispatchModelCall := sourceRun.ModelCallCount
+	for _, step := range sourceDispatchSteps {
+		if modelCall := intField(step.Input[toolDispatchModelCallKey]); modelCall > sourceDispatchModelCall {
+			sourceDispatchModelCall = modelCall
+		}
+	}
 	artifacts, err := r.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: taskID, RunID: sourceRunID})
 	if err != nil {
 		return nil, err
@@ -198,11 +205,13 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		return nil, err
 	}
 	checkpoint := &ResumeCheckpoint{
-		SourceRunID:      sourceRunID,
-		Reason:           strings.TrimSpace(reason),
-		AppendUserPrompt: strings.TrimSpace(appendUserPrompt),
-		LastStepIndex:    0,
-		ArtifactCount:    len(artifacts),
+		SourceRunID:                sourceRunID,
+		Reason:                     strings.TrimSpace(reason),
+		AppendUserPrompt:           strings.TrimSpace(appendUserPrompt),
+		LastStepIndex:              0,
+		ArtifactCount:              len(artifacts),
+		ToolDispatchSteps:          sourceDispatchSteps,
+		ToolDispatchModelCallIndex: sourceDispatchModelCall,
 	}
 	// Surface the new run's PriorCostMicrosUSD so the agent loop can
 	// apply the per-task cost ceiling against the cumulative spend
@@ -278,6 +287,8 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		checkpoint.LastStepIndex = 0
 		checkpoint.LastCompletedStepID = ""
 		checkpoint.CompletedStepCount = 0
+		checkpoint.ToolDispatchSteps = nil
+		checkpoint.ToolDispatchModelCallIndex = 0
 	}
 	return checkpoint, nil
 }
@@ -340,14 +351,16 @@ func (r *Runner) ownRunResumeCheckpoint(ctx context.Context, taskID, runID strin
 	}
 
 	checkpoint := &ResumeCheckpoint{
-		SourceRunID:           runID,
-		SameRun:               true,
-		Reason:                "same_run_progress",
-		ArtifactCount:         len(artifacts),
-		AgentConversation:     payload,
-		PriorCostMicrosUSD:    currentRun.PriorCostMicrosUSD,
-		ThisRunCostMicrosUSD:  currentRun.TotalCostMicrosUSD,
-		ThisRunModelCallCount: modelCallCount,
+		SourceRunID:                runID,
+		SameRun:                    true,
+		Reason:                     "same_run_progress",
+		ArtifactCount:              len(artifacts),
+		AgentConversation:          payload,
+		PriorCostMicrosUSD:         currentRun.PriorCostMicrosUSD,
+		ThisRunCostMicrosUSD:       currentRun.TotalCostMicrosUSD,
+		ThisRunModelCallCount:      modelCallCount,
+		ToolDispatchSteps:          durableToolDispatchSteps(steps),
+		ToolDispatchModelCallIndex: modelCallCount,
 	}
 	maxCompletedIndex := 0
 	for _, event := range events {
@@ -370,7 +383,42 @@ func (r *Runner) ownRunResumeCheckpoint(ctx context.Context, taskID, runID strin
 			checkpoint.ThisRunCostMicrosUSD = cost
 		}
 	}
+	if pendingToolCalls := pendingToolCallsForResume(messages); len(pendingToolCalls) > 0 {
+		approved, err := r.sameRunPendingToolCallsApproved(ctx, taskID, runID, steps, pendingToolCalls)
+		if err != nil {
+			return nil, false, err
+		}
+		checkpoint.PendingToolCallsApproved = approved
+	}
 	return checkpoint, true, nil
+}
+
+func (r *Runner) sameRunPendingToolCallsApproved(ctx context.Context, taskID, runID string, steps []types.TaskStep, pendingToolCalls []types.ToolCall) (bool, error) {
+	var latest types.TaskStep
+	for _, step := range steps {
+		if step.Index > latest.Index {
+			latest = step
+		}
+	}
+	if latest.Kind != "approval" || latest.ApprovalID == "" {
+		return false, nil
+	}
+	approvedDigest, _ := latest.Input[toolCallBundleDigestKey].(string)
+	if approvedDigest == "" || approvedDigest != agentToolCallBundleDigest(pendingToolCalls) {
+		return false, nil
+	}
+	approvals, err := r.store.ListApprovals(ctx, taskID)
+	if err != nil {
+		return false, fmt.Errorf("list approvals for current Run checkpoint: %w", err)
+	}
+	for _, approval := range approvals {
+		if approval.ID == latest.ApprovalID && approval.RunID == runID &&
+			approval.StepID == latest.ID &&
+			approval.Kind == "agent_loop_tool_call" && approval.Status == "approved" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func completedConversationMessages(artifact types.TaskArtifact) ([]types.Message, bool, error) {

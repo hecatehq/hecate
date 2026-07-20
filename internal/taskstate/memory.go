@@ -292,9 +292,10 @@ func (s *MemoryStore) CreateApproval(_ context.Context, approval types.TaskAppro
 	if approval.CreatedAt.IsZero() {
 		approval.CreatedAt = time.Now().UTC()
 	}
+	approval = cloneApproval(approval)
 	s.approvals[approval.ID] = approval
 	s.signalRun(approval.RunID)
-	return approval, nil
+	return cloneApproval(approval), nil
 }
 
 func (s *MemoryStore) GetApproval(_ context.Context, taskID, approvalID string) (types.TaskApproval, bool, error) {
@@ -304,7 +305,7 @@ func (s *MemoryStore) GetApproval(_ context.Context, taskID, approvalID string) 
 	if !ok || (taskID != "" && approval.TaskID != taskID) {
 		return types.TaskApproval{}, false, nil
 	}
-	return approval, true, nil
+	return cloneApproval(approval), true, nil
 }
 
 func (s *MemoryStore) ListApprovals(_ context.Context, taskID string) ([]types.TaskApproval, error) {
@@ -315,7 +316,7 @@ func (s *MemoryStore) ListApprovals(_ context.Context, taskID string) ([]types.T
 		if taskID != "" && approval.TaskID != taskID {
 			continue
 		}
-		items = append(items, approval)
+		items = append(items, cloneApproval(approval))
 	}
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].CreatedAt.After(items[j].CreatedAt)
@@ -329,9 +330,10 @@ func (s *MemoryStore) UpdateApproval(_ context.Context, approval types.TaskAppro
 	if _, ok := s.approvals[approval.ID]; !ok {
 		return types.TaskApproval{}, fmt.Errorf("approval %q not found", approval.ID)
 	}
+	approval = cloneApproval(approval)
 	s.approvals[approval.ID] = approval
 	s.signalRun(approval.RunID)
-	return approval, nil
+	return cloneApproval(approval), nil
 }
 
 func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
@@ -347,9 +349,10 @@ func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.Ta
 	if !ok || current.Status != "pending" || (approval.TaskID != "" && current.TaskID != approval.TaskID) {
 		return types.TaskApproval{}, false, nil
 	}
+	approval = cloneApproval(approval)
 	s.approvals[approval.ID] = approval
 	s.signalRun(approval.RunID)
-	return approval, true, nil
+	return cloneApproval(approval), true, nil
 }
 
 func (s *MemoryStore) CreateArtifact(_ context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
@@ -459,7 +462,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			return TerminalRunTransitionResult{
 				Task:      cloneTask(storedTask),
 				Run:       storedRun,
-				Approval:  storedResolutionApproval,
+				Approval:  cloneApproval(storedResolutionApproval),
 				Steps:     s.listStepsLocked(storedRun.ID),
 				Artifacts: s.listArtifactsLocked(ArtifactFilter{TaskID: tr.Task.ID, RunID: storedRun.ID}),
 			}, nil
@@ -553,7 +556,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 		s.runs[run.ID] = run
 	}
 	if tr.ApprovalResolution != nil {
-		s.approvals[resolvedApproval.ID] = resolvedApproval
+		s.approvals[resolvedApproval.ID] = cloneApproval(resolvedApproval)
 	}
 
 	cancelledApprovals := make([]types.TaskApproval, 0)
@@ -570,7 +573,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			approval.ResolutionNote = note
 			approval.ResolvedAt = terminalChildSettlementTime(finishedAt, approval.CreatedAt)
 			s.approvals[id] = approval
-			cancelledApprovals = append(cancelledApprovals, approval)
+			cancelledApprovals = append(cancelledApprovals, cloneApproval(approval))
 		}
 		sort.Slice(cancelledApprovals, func(i, j int) bool {
 			return cancelledApprovals[i].CreatedAt.Before(cancelledApprovals[j].CreatedAt)
@@ -646,13 +649,18 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	return TerminalRunTransitionResult{
 		Task:               cloneTask(task),
 		Run:                run,
-		Approval:           resolvedApproval,
+		Approval:           cloneApproval(resolvedApproval),
 		Steps:              steps,
 		Artifacts:          artifacts,
 		CancelledApprovals: cancelledApprovals,
 		Events:             events,
 		Applied:            true,
 	}, nil
+}
+
+func cloneApproval(approval types.TaskApproval) types.TaskApproval {
+	approval.ActionSummary = append([]string(nil), approval.ActionSummary...)
+	return approval
 }
 
 func cloneTask(task types.Task) types.Task {

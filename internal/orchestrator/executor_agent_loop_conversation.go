@@ -11,14 +11,17 @@ import (
 )
 
 type agentLoopConversation struct {
-	artifactID string
-	messages   []types.Message
+	artifactID           string
+	messages             []types.Message
+	deferredContinuation *types.Message
 }
 
 func newAgentLoopConversation(spec ExecutionSpec) agentLoopConversation {
+	messages, continuation := hydrateConversation(spec)
 	return agentLoopConversation{
-		artifactID: "convo-" + spec.Run.ID,
-		messages:   hydrateConversation(spec),
+		artifactID:           "convo-" + spec.Run.ID,
+		messages:             messages,
+		deferredContinuation: continuation,
 	}
 }
 
@@ -43,19 +46,26 @@ func (c *agentLoopConversation) AppendToolResult(toolCallID, text string, toolEr
 	})
 }
 
+func (c *agentLoopConversation) HasDeferredContinuation() bool {
+	return c.deferredContinuation != nil
+}
+
+func (c *agentLoopConversation) AppendDeferredContinuation() bool {
+	if c.deferredContinuation == nil {
+		return false
+	}
+	c.messages = append(c.messages, *c.deferredContinuation)
+	c.deferredContinuation = nil
+	return true
+}
+
 func (c *agentLoopConversation) PendingToolCallsForResume() []types.ToolCall {
 	return pendingToolCallsForResume(c.messages)
 }
 
 func (c *agentLoopConversation) TailAssistantForResume() (types.Message, bool) {
-	if len(c.messages) == 0 {
-		return types.Message{}, false
-	}
-	last := c.messages[len(c.messages)-1]
-	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
-		return types.Message{}, false
-	}
-	return last, true
+	assistant, _, ok := resumableToolBatch(c.messages)
+	return assistant, ok
 }
 
 func (c *agentLoopConversation) TailCompletedAssistant() (types.Message, bool) {
@@ -73,24 +83,49 @@ func (c *agentLoopConversation) UpsertArtifact(spec ExecutionSpec, modelCall int
 	return upsertConversationArtifact(spec, c.artifactID, c.messages, modelCall, "ready", when)
 }
 
-// pendingToolCallsForResume detects the resume-after-approval state:
-// the conversation tail is an assistant message with tool_calls and
-// no subsequent tool-role results. Returns the list of tool calls
-// that need dispatching. Empty slice means a fresh model call is needed.
+// pendingToolCallsForResume detects both resume-after-approval and a
+// partially checkpointed multi-tool batch. Tool results are matched to the
+// latest assistant batch by call ID so completed calls are never replayed.
+// Empty means a fresh model call is needed.
 func pendingToolCallsForResume(messages []types.Message) []types.ToolCall {
-	if len(messages) == 0 {
+	assistant, resolved, ok := resumableToolBatch(messages)
+	if !ok {
 		return nil
 	}
-	last := messages[len(messages)-1]
-	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
-		return nil
+	pending := make([]types.ToolCall, 0, len(assistant.ToolCalls))
+	for _, call := range assistant.ToolCalls {
+		if _, found := resolved[call.ID]; !found {
+			pending = append(pending, call)
+		}
 	}
-	// Tool calls in the trailing assistant message exist; check that
-	// none of them have already been resolved by a later tool message.
-	// Since we just confirmed `last` is the tail, if tool messages
-	// for these calls existed they'd be after `last` — they don't,
-	// so all calls are pending.
-	return last.ToolCalls
+	return pending
+}
+
+func resumableToolBatch(messages []types.Message) (types.Message, map[string]struct{}, bool) {
+	assistantIndex := -1
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == "assistant" {
+			assistantIndex = index
+			break
+		}
+	}
+	if assistantIndex < 0 || len(messages[assistantIndex].ToolCalls) == 0 {
+		return types.Message{}, nil, false
+	}
+	callIDs := make(map[string]struct{}, len(messages[assistantIndex].ToolCalls))
+	for _, call := range messages[assistantIndex].ToolCalls {
+		callIDs[call.ID] = struct{}{}
+	}
+	resolved := make(map[string]struct{}, len(callIDs))
+	for _, message := range messages[assistantIndex+1:] {
+		if message.Role != "tool" {
+			return types.Message{}, nil, false
+		}
+		if _, found := callIDs[message.ToolCallID]; found {
+			resolved[message.ToolCallID] = struct{}{}
+		}
+	}
+	return messages[assistantIndex], resolved, true
 }
 
 // countAssistantMessages counts assistant responses in the complete saved
@@ -160,20 +195,21 @@ func truncateConversationToRunModelCall(messages []types.Message, runModelCallCo
 // If the resume artifact is missing or malformed (corrupt JSON, edited
 // out of band) we fall back to the fresh-start state. That degrades
 // gracefully: the agent re-plans rather than crashing.
-func hydrateConversation(spec ExecutionSpec) []types.Message {
+func hydrateConversation(spec ExecutionSpec) ([]types.Message, *types.Message) {
 	if spec.ResumeCheckpoint != nil && len(spec.ResumeCheckpoint.AgentConversation) > 0 {
 		var saved []types.Message
 		if err := json.Unmarshal(spec.ResumeCheckpoint.AgentConversation, &saved); err == nil && len(saved) > 0 {
 			if prompt := strings.TrimSpace(spec.ResumeCheckpoint.AppendUserPrompt); prompt != "" {
 				if spec.InputMessage != nil {
-					saved = append(saved, *spec.InputMessage)
-				} else {
-					saved = append(saved, types.Message{Role: "user", Content: prompt})
+					continuation := *spec.InputMessage
+					return saved, &continuation
 				}
+				continuation := types.Message{Role: "user", Content: prompt}
+				return saved, &continuation
 			} else if spec.InputMessage != nil {
 				restoreArtifactInputMessage(saved, *spec.InputMessage)
 			}
-			return saved
+			return saved, nil
 		}
 	}
 	// Fresh run: build the prelude as
@@ -200,7 +236,7 @@ func hydrateConversation(spec ExecutionSpec) []types.Message {
 	} else {
 		messages = append(messages, types.Message{Role: "user", Content: spec.Task.Prompt})
 	}
-	return messages
+	return messages, nil
 }
 
 // environmentSystemMessage produces the machine-generated system

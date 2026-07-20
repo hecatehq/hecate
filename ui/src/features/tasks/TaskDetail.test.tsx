@@ -1321,6 +1321,55 @@ describe("TaskDetail runtime debugging", () => {
     expect(onResolveApproval).toHaveBeenCalledWith(approval, "approve");
   });
 
+  it("shows the complete pending-call bundle and its safe-summary warning", () => {
+    const approval = {
+      id: "approval-bundle",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "agent_loop_tool_call",
+      status: "pending",
+      reason: "Agent requested tools that require approval: shell_exec",
+      action_summary: [
+        "shell_exec command details withheld (command_bytes=9)",
+        "file_write write path=out.txt content_bytes=2",
+      ],
+      action_summary_incomplete: true,
+    } as any;
+    const { render } = setup({
+      approvals: [approval],
+      run: makeRun({ status: "awaiting_approval" }),
+    });
+
+    render();
+
+    const actions = screen.getByRole("list", { name: "Pending actions" });
+    expect(within(actions).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(actions).getByText("file_write write path=out.txt content_bytes=2")).toBeTruthy();
+    expect(
+      screen.getByText(/details were withheld or could not be summarized safely/i),
+    ).toBeTruthy();
+    expect(screen.queryByText("ls -la")).toBeNull();
+  });
+
+  it("keeps the direct-task command preview when no action summary exists", () => {
+    const approval = {
+      id: "approval-direct",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "shell_command",
+      status: "pending",
+      reason: "Needs explicit shell approval",
+    } as any;
+    const { render } = setup({
+      approvals: [approval],
+      run: makeRun({ status: "awaiting_approval" }),
+    });
+
+    render();
+
+    expect(screen.getByText("ls -la")).toBeTruthy();
+  });
+
   it("renders multiple pending approvals as one visible approval queue", () => {
     const { render } = setup({
       approvals: [

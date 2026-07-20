@@ -19,6 +19,7 @@ type codeIntelligenceArgs struct {
 	Path       string `json:"path,omitempty"`
 	Language   string `json:"language,omitempty"`
 	Query      string `json:"query,omitempty"`
+	Selector   string `json:"selector,omitempty"`
 	Line       int    `json:"line,omitempty"`
 	Column     int    `json:"column,omitempty"`
 	MaxResults int    `json:"max_results,omitempty"`
@@ -69,7 +70,7 @@ func codeIntelligenceToolDefinition() types.Tool {
 		Type: "function",
 		Function: types.ToolFunction{
 			Name:        AgentToolCodeIntelligence,
-			Description: "Use read-only semantic or structural code intelligence inside the task workspace. LSP operations provide definitions, references, hover, symbols, and diagnostics when an allowlisted language server is installed. structural_search uses optional ast-grep. Call capabilities to inspect availability; fall back to grep when a provider is missing. Returned paths are workspace-confined.",
+			Description: "Use read-only semantic or structural code intelligence inside the task workspace. LSP operations provide definitions, references, hover, symbols, and diagnostics when an allowlisted language server is installed. structural_search uses optional ast-grep and accepts a safe tree-sitter node-kind selector for contextual patterns. Call capabilities to inspect availability; fall back to grep when a provider is missing. Returned paths are workspace-confined.",
 			Parameters: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -77,6 +78,7 @@ func codeIntelligenceToolDefinition() types.Tool {
 					"path": {"type": "string", "maxLength": 4096, "description": "Workspace-relative source file, capped at 4096 UTF-8 bytes. Required for document-scoped LSP operations and TypeScript workspace_symbols; optional for Go workspace_symbols when language is supplied; optional structural_search scope defaults to '.'."},
 					"language": {"type": "string", "maxLength": 64, "description": "Optional language id capped at 64 UTF-8 bytes, usually inferred from path. Required for workspace_symbols without path and for directory-scoped structural_search."},
 					"query": {"type": "string", "maxLength": 16384, "description": "Required workspace-symbol query or ast-grep pattern for structural_search, capped at 16384 UTF-8 bytes."},
+					"selector": {"type": "string", "maxLength": 128, "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Optional structural_search-only tree-sitter node kind used to select the match within a contextual pattern, for example call_expression. Must be one ASCII identifier token."},
 					"line": {"type": "integer", "minimum": 1, "description": "1-based source line. Required for definition, references, and hover."},
 					"column": {"type": "integer", "minimum": 1, "description": "1-based UTF-8 byte column. Required for definition, references, and hover."},
 					"max_results": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}
@@ -106,6 +108,7 @@ func (d *agentLoopToolDispatcher) codeIntelligenceTool(ctx context.Context, spec
 		Path:       args.Path,
 		Language:   args.Language,
 		Query:      args.Query,
+		Selector:   args.Selector,
 		Line:       args.Line,
 		Column:     args.Column,
 		MaxResults: maxResults,
@@ -127,6 +130,7 @@ func (d *agentLoopToolDispatcher) codeIntelligenceTool(ctx context.Context, spec
 		"operation":   operation,
 		"path":        args.Path,
 		"language":    args.Language,
+		"selector":    strings.TrimSpace(args.Selector),
 		"line":        args.Line,
 		"column":      args.Column,
 		"max_results": maxResults,
@@ -160,6 +164,7 @@ func codeIntelligenceFailureStep(spec ExecutionSpec, args codeIntelligenceArgs, 
 		Input: map[string]any{
 			"operation":   truncateUTF8(strings.TrimSpace(args.Operation), codeIntelligenceStepStringBytes),
 			"language":    truncateUTF8(strings.TrimSpace(args.Language), codeIntelligenceStepStringBytes),
+			"selector":    truncateUTF8(strings.TrimSpace(args.Selector), codeIntelligenceStepStringBytes),
 			"line":        args.Line,
 			"column":      args.Column,
 			"max_results": effectiveCodeIntelligenceMaxResults(args.MaxResults),
@@ -223,8 +228,11 @@ func isCodeIntelligenceInvalidRequestMessage(message string) bool {
 		"code intelligence path exceeds ",
 		"code intelligence language exceeds ",
 		"code intelligence query exceeds ",
+		"code intelligence selector exceeds ",
 		"unsupported code intelligence operation ",
 		"query is required ",
+		"selector is only supported ",
+		"structural selector ",
 		"path is required ",
 		"line and column are required ",
 		"line and column must be ",

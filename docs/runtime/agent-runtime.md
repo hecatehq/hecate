@@ -89,12 +89,32 @@ A run with `execution_kind=agent_loop` walks model calls:
 
 1. The runtime calls the LLM with the running conversation, available tool schemas, and the operator-composed system prompt. If the gateway route supports streaming, assistant text deltas are captured and persisted as a partial conversation snapshot while the model call is still running.
 2. The model responds with either tool calls or a final answer.
-3. If tool calls: each is dispatched, the result is appended as a `tool` message, and the loop makes another model call.
+3. If tool calls: each call receives a durable running dispatch intent before
+   the tool can produce side effects. The runtime finalizes that same Step,
+   appends the result as a `tool` message, checkpoints the conversation, and
+   then advances to the next call. After the batch, the loop makes another
+   model call.
 4. If a final answer: the loop ends. Ordinary agent-loop tasks persist the
    answer as a `summary` artifact; report-only QA tasks persist a versioned
    `workflow_report` that labels the answer as agent-reported.
 
-The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) after every model call. During a streaming model call, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-model-call therefore all start from a known state.
+A tool-free assistant response qualifies as a final answer only when its
+content is nonblank after trimming whitespace. An empty response is still
+checkpointed with its model Step, route, usage, and cost evidence, but the Run
+fails without an `assistant.final_answer` event or terminal artifact. Hecate
+does not retry that model call automatically; retry and model selection remain
+explicit operator actions. Same-Run crash recovery enforces the same invariant
+instead of turning a saved empty assistant response into a successful Run.
+
+The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) after every model call and after every individual tool result. During a streaming model call, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-model-call therefore all start from a known state. One assistant response may contain at most 16 tool calls, and their IDs must be non-empty, unique, and at most 256 bytes; an invalid bundle fails before approval or dispatch because it cannot be recovered safely by identity or bounded operator review.
+
+Same-run crash recovery compares each unresolved call with its durable dispatch
+Step. A call whose intent is still running, or whose terminal Step exists but
+whose exact result missed the conversation checkpoint, is never replayed
+automatically: Hecate settles an ambiguous running intent as failed and inserts
+a bounded tool-error result explaining that the side effect may already have
+happened. Calls in the same batch with no durable intent remain eligible, but
+must pass current policy and approval checks before dispatch.
 
 Each fresh model call records the same runtime accounting regardless of whether
 the provider streamed or returned one response body: resolved route metadata
@@ -132,9 +152,12 @@ sequenceDiagram
                 Agent->>Store: persist approval as pending
                 Agent-->>Runner: pause as awaiting_approval
             end
-            Agent->>Tools: dispatch each tool_call
-            Tools-->>Agent: tool result text
-            Agent->>Store: persist updated conversation
+            loop each unresolved tool_call
+                Agent->>Store: persist running dispatch intent
+                Agent->>Tools: dispatch tool_call
+                Tools-->>Agent: tool result text
+                Agent->>Store: finalize same Step and persist updated conversation
+            end
         else assistant emitted final answer
             Agent->>Store: persist final-answer artifact
             Agent-->>Runner: status completed
@@ -145,7 +168,7 @@ sequenceDiagram
 Three things bound the loop:
 
 - **`HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS`** (default `8`) — hard ceiling on LLM round-trips per run. Runaway-cost safety net.
-- **`Task.BudgetMicrosUSD`** — per-task cost ceiling. Checked after each model call against `priorCost + costSpent`; failing the run preserves the assistant's last message.
+- **`Task.BudgetMicrosUSD`** — per-task cost ceiling. Checked against `priorCost + costSpent` before resumed work and immediately after each model call; failing the run preserves the assistant's last message without finalizing it, requesting approval, or dispatching its tools.
 - **Approval gates** — when the model requests a gated tool, the loop pauses with `status=awaiting_approval` and emits an approval record. See below.
 
 ## Report-only QA workflow
@@ -258,11 +281,11 @@ inspects the executable. The other operations are available when the matching ex
 on the gateway's trusted global `PATH` or bound to an exact operator-owned
 path:
 
-| Language / mode | Preferred provider                | Operations                                                         |
-| --------------- | --------------------------------- | ------------------------------------------------------------------ |
-| Go              | `gopls serve`                     | definition, references, hover, symbols, diagnostics                |
-| TypeScript / JS | TypeScript 7+ `tsc --lsp --stdio` | definition, references, hover, symbols, diagnostics                |
-| Structural      | `ast-grep run ... --json=stream`  | read-only structural search; rewrites are deliberately not exposed |
+| Language / mode | Preferred provider                | Operations                                                                                                                      |
+| --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Go              | `gopls serve`                     | definition, references, hover, symbols, diagnostics                                                                             |
+| TypeScript / JS | TypeScript 7+ `tsc --lsp --stdio` | definition, references, hover, symbols, diagnostics                                                                             |
+| Structural      | `ast-grep run ... --json=stream`  | read-only structural search, including an optional contextual-pattern node-kind selector; rewrites are deliberately not exposed |
 
 `just doctor` reports the local discovery state. Typical operator-managed
 installs are `go install golang.org/x/tools/gopls@latest`, a global TypeScript
@@ -298,7 +321,8 @@ overlays and leaked daemons; per-run pooling can follow measured dogfooding
 data.
 
 Successful and failed provider calls both persist bounded Task steps. Failure
-steps contain operation shape, query byte length, duration, and one fixed error
+steps contain operation shape, an optional bounded structural selector, query
+byte length, duration, and one fixed error
 category: `not_configured`, `invalid_workspace`, `cancelled`, `timeout`,
 `diagnostics_incomplete`, `provider_unavailable`, `provider_protocol`,
 `invalid_request`, or `provider_error`. They omit the source path, query text,
@@ -318,9 +342,14 @@ resolved preset already authorizes those effects.
 LSP line/column arguments and results are 1-based, with columns expressed as
 UTF-8 byte offsets. Hecate converts those offsets to the server's negotiated
 position encoding. Native request validation caps encoded UTF-8 values at
-4 KiB for a path, 64 bytes for a language identifier, and 16 KiB for a symbol
-query or structural pattern; JSON Schema `maxLength` remains an additional
-model-facing hint rather than the enforcement boundary. Returned non-`file:`
+4 KiB for a path, 64 bytes for a language identifier, 16 KiB for a symbol
+query or structural pattern, and 128 bytes for an optional structural selector.
+The selector is accepted only by `structural_search` and must be one ASCII
+tree-sitter node-kind token matching `[A-Za-z_][A-Za-z0-9_]*`; use it to select
+the relevant node from a syntactically valid contextual pattern, such as
+`selector=call_expression` with `func _() { fmt.Errorf($A) }` in Go. A bare Go
+expression at file scope is not a valid context. JSON Schema `maxLength` remains
+an additional model-facing hint rather than the enforcement boundary. Returned non-`file:`
 URIs, symlink escapes, and locations
 outside the task workspace are omitted and counted. That output filtering is a
 disclosure boundary for tool results, not a claim that an operator-installed
@@ -329,7 +358,9 @@ macOS where the current wrapper confines network but not reads, the executable
 can still read whatever its OS account can read.
 
 Structural search invokes `ast-grep` from a neutral temporary directory and
-passes the validated workspace path explicitly. This prevents repository
+passes the validated workspace path explicitly. When present, the validated
+selector is passed as one fixed `--selector` argument; models cannot choose
+other flags. This prevents repository
 `sgconfig.yml` discovery from loading project-supplied custom-language shared
 libraries. Regular `grep` remains the universal fallback. It now also enforces
 workspace-entry, aggregate-byte, per-file, per-line, match, and rendered-output
@@ -655,7 +686,9 @@ particular, unexpected calls on a task whose Agent Preset snapshot sets
 `tools_enabled=false` are hard-denied with `policy=agent_preset_tools` before
 the approval gate and cannot pause for operator approval.
 
-The runtime emits an approval record of kind `agent_loop_tool_call`, persists the conversation snapshot, and returns `status=awaiting_approval` for the run. The UI banner shows which tools the agent wants to use. On approve, the same run is re-queued; on resume, the loop detects the trailing assistant tool_calls without resolved results, dispatches them (no second LLM call), and continues. On reject, the run and task terminate `cancelled` with `last_error="approval rejected"`. On cancel, the run terminates `cancelled`, any awaiting approval step is marked `cancelled`, and the pending approval is resolved as `cancelled`.
+The runtime emits an approval record of kind `agent_loop_tool_call`, persists the conversation snapshot, and returns `status=awaiting_approval` for the run. The UI banner shows an ordered, sanitized summary of the entire pending tool-call bundle, including calls that are not independently gated: approving the record authorizes dispatch of that whole model response. The linked approval Step stores a SHA-256 digest of the ordered bundle, not its raw arguments; same-run resume requires both bidirectional approval/Step linkage and an exact digest match, so a changed conversation is re-gated. Summaries are capped at 16 calls, 512 UTF-8 bytes per line, and 4 KiB total. An incomplete marker tells the operator when details were omitted, truncated, unrecognized, or withheld. Arbitrary command arguments, file/patch contents, HTTP headers and bodies, web queries, and MCP arguments are never copied into the summary; only narrow safe fields and byte/count shapes are shown. Exact shell/Git argv is shown only for a tiny parsed allowlist of static read-only Git commands.
+
+On approve, the same run is re-queued; on resume, the loop detects unresolved trailing assistant `tool_calls` (no second LLM call) and compares them with durable dispatch intents. Calls that never started may dispatch after current policy checks. A call that may already have produced a side effect is not replayed when its exact result is missing; it receives the fail-closed recovery result described above. The resume control step says `Dispatch approved tools` only when a durable approval for that exact run authorizes the remaining bundle. Crash recovery of an entirely ungated pending bundle is instead recorded as `Recover pending tools`, so ordinary replay is not mislabeled as operator consent. On reject, the run and task terminate `cancelled` with `last_error="approval rejected"`. On cancel, the run terminates `cancelled`, any awaiting approval step is marked `cancelled`, and the pending approval is resolved as `cancelled`.
 
 The approval banner stays in sync with the run state because approvals ride along in every SSE snapshot (`TaskRunStreamEventData.Approvals`). No separate refetch needed.
 
@@ -670,7 +703,7 @@ Per-model-call LLM cost is captured at three granularities:
 - **Model-step `OutputSummary`** — each thinking step's `OutputSummary.cost_micros_usd` carries the same model-call figure, so the run-replay UI surfaces it next to "Model call N" without a separate event subscription.
 - **`TaskRun.TotalCostMicrosUSD` + `PriorCostMicrosUSD`** — finalized totals on the run record. Cumulative across the resume chain = `Prior + Total`.
 
-The per-task ceiling (`Task.BudgetMicrosUSD`) is checked against `priorCost + costSpent` after each model call — so a chain of resumes can't escape the ceiling by repeatedly resuming a maxed-out run.
+The per-task ceiling (`Task.BudgetMicrosUSD`) is checked against `priorCost + costSpent` before resumed work and immediately after each model call. A response that reaches the ceiling is durably visible in the conversation, but Hecate fails the run before treating it as a final answer, approval request, or executable tool bundle. A chain of resumes therefore cannot escape the ceiling by repeatedly resuming a maxed-out run; the operator must raise the task ceiling first.
 
 Same-run mid-approval resumes seed `costSpent` from the run's pre-pause `TotalCostMicrosUSD`, so post-resume model calls add to (rather than overwrite) the pre-pause spend.
 
@@ -774,5 +807,5 @@ not allowed`** — use an absolute HTTP(S) URL without credentials, a query
   full in the approval. Do not use this capability for a private/local origin
   unless the operator deliberately enabled
   `HECATE_TASK_BROWSER_ALLOW_PRIVATE_IPS`.
-- **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was exceeded across the run + prior chain. Raise the ceiling and resume to continue.
+- **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was reached across the run + prior chain. Raise the ceiling and resume to continue.
 - **`agent loop reached the maximum of N model calls without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_MODEL_CALLS`, narrow the prompt, or resume to give it more model calls.

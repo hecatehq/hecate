@@ -44,6 +44,7 @@ func TestService_RealProviderDogfood(t *testing.T) {
 		Path:       path,
 		Language:   os.Getenv("HECATE_CODEINTEL_LANGUAGE"),
 		Query:      os.Getenv("HECATE_CODEINTEL_QUERY"),
+		Selector:   os.Getenv("HECATE_CODEINTEL_SELECTOR"),
 		Line:       dogfoodEnvInt(t, "HECATE_CODEINTEL_LINE"),
 		Column:     dogfoodEnvInt(t, "HECATE_CODEINTEL_COLUMN"),
 		MaxResults: absoluteMaxResults,
@@ -54,6 +55,9 @@ func TestService_RealProviderDogfood(t *testing.T) {
 		t.Fatalf("real-provider query: %v", err)
 	}
 	t.Logf("provider=%s operation=%s results=%d elapsed=%s", result.Provider, result.Operation, len(result.Items), time.Since(started))
+	for _, capability := range result.Capabilities {
+		t.Logf("capability language=%s provider=%s available=%t status=%s detail=%s", capability.Language, capability.Provider, capability.Available, capability.Status, capability.Detail)
+	}
 }
 
 func dogfoodEnvInt(t *testing.T, name string) int {
