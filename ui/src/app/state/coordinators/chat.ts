@@ -591,7 +591,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     chatSessions,
     activeChatSessionID,
     activeChatSession,
-    composerDraftsBySessionID,
     savedComposerDraftsBySessionID,
     recoverableComposerDraft,
     activeRecoverableComposerDraftID,
@@ -637,6 +636,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     isCurrentWorkspaceModeMutation,
     finishWorkspaceModeMutation,
     setComposerDraftsBySessionID,
+    currentComposerDraft,
     setSavedComposerDraftsBySessionID,
     saveRecoverableComposerDraft,
     setRecoverableComposerDraft,
@@ -3306,32 +3306,26 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const cancellationEpoch = currentChatCancellationEpoch(id);
     const stopReadToken = stopReadTokenAtRequestStart(id);
     const sourceSession = activeChatSession?.id === sourceSessionID ? activeChatSession : null;
-    const liveSourceComposerSnapshot = getMessageSnapshot();
-    const sourceComposerSnapshot =
-      activeChatSessionID !== currentSessionID
-        ? { ...liveSourceComposerSnapshot, content: message }
-        : liveSourceComposerSnapshot;
-    const sourceComposerOwnerSessionID =
-      activeChatSessionID !== currentSessionID && id === activeChatSessionID
-        ? activeChatSessionID
-        : sourceSessionID;
+    const sourceComposerSnapshot = getMessageSnapshot();
+    const storedTargetComposerDraft = currentComposerDraft(id);
+    const activeDraftIsOwned =
+      storedTargetComposerDraft !== undefined ||
+      (id === sourceSessionID && Boolean(sourceComposerSnapshot.content));
     const sourceWorkspace = agentWorkspace;
     const sourceWorkspaceBranch = agentWorkspaceBranch;
     releaseDetachedComposerDraft();
     const selectionGeneration = beginActiveChatTransition();
-    rememberChatComposerDraft(sourceComposerOwnerSessionID, sourceComposerSnapshot.content);
-    const activeDraftIsOwned =
-      composerDraftsBySessionID.has(id) || Boolean(sourceComposerSnapshot.content);
+    rememberChatComposerDraft(sourceSessionID, sourceComposerSnapshot.content);
     const storedTargetDraft =
-      id === activeChatSessionID && activeDraftIsOwned
+      id === sourceSessionID && activeDraftIsOwned
         ? sourceComposerSnapshot.content
-        : (composerDraftsBySessionID.get(id) ?? options.draft ?? "");
+        : (storedTargetComposerDraft ?? options.draft ?? "");
     const savedTargetDraft =
       options.draft === undefined && !storedTargetDraft.trim()
         ? savedComposerDraftsBySessionID.get(id)?.[0]
         : undefined;
     const targetDraft = savedTargetDraft ?? storedTargetDraft;
-    if (id && options.draft !== undefined && !composerDraftsBySessionID.has(id)) {
+    if (id && options.draft !== undefined && storedTargetComposerDraft === undefined) {
       rememberChatComposerDraft(id, options.draft);
     }
     setActiveChatSessionID(id);

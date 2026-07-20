@@ -480,7 +480,12 @@ function AuthenticatedShell({
 
   useEffect(() => {
     const chatID = chatNavigation?.chatID;
-    if (activeWorkspace !== "chats" || !chatID || chat.state.activeChatSession?.id === chatID) {
+    const currentSessionID = chat.actions.currentActiveChatSessionID();
+    if (
+      activeWorkspace !== "chats" ||
+      !chatID ||
+      (currentSessionID === chatID && chat.state.activeChatSession?.id === chatID)
+    ) {
       routedChatSelectionRef.current = null;
       return;
     }

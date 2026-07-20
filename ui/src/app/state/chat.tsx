@@ -284,6 +284,7 @@ export type ChatActions = {
   isCurrentWorkspaceModeMutation: (sessionID: string, token: number) => boolean;
   finishWorkspaceModeMutation: (sessionID: string, token: number) => boolean;
   setComposerDraftsBySessionID: Setter<Map<string, string>>;
+  currentComposerDraft: (sessionID: string) => string | undefined;
   setSavedComposerDraftsBySessionID: Setter<Map<string, string[]>>;
   saveRecoverableComposerDraft: (draft: {
     id?: number;
@@ -524,8 +525,28 @@ export function ChatProvider({
     setWorkspaceModeMutationsBySessionID(next);
     return true;
   }, []);
-  const [composerDraftsBySessionID, setComposerDraftsBySessionID] = useState(
-    initialState?.composerDraftsBySessionID ?? new Map<string, string>(),
+  const initialComposerDraftsBySessionID =
+    initialState?.composerDraftsBySessionID ?? new Map<string, string>();
+  const [composerDraftsBySessionID, setComposerDraftsBySessionIDState] = useState(
+    initialComposerDraftsBySessionID,
+  );
+  const composerDraftsBySessionIDRef = useRef(initialComposerDraftsBySessionID);
+  useLayoutEffect(() => {
+    composerDraftsBySessionIDRef.current = composerDraftsBySessionID;
+  }, [composerDraftsBySessionID]);
+  const setComposerDraftsBySessionID = useCallback<Setter<Map<string, string>>>((next) => {
+    const resolved =
+      typeof next === "function"
+        ? (next as (prev: Map<string, string>) => Map<string, string>)(
+            composerDraftsBySessionIDRef.current,
+          )
+        : next;
+    composerDraftsBySessionIDRef.current = resolved;
+    setComposerDraftsBySessionIDState(resolved);
+  }, []);
+  const currentComposerDraft = useCallback(
+    (sessionID: string) => composerDraftsBySessionIDRef.current.get(sessionID),
+    [],
   );
   const [savedComposerDraftsBySessionID, setSavedComposerDraftsBySessionID] = useState(
     initialState?.savedComposerDraftsBySessionID ?? new Map<string, string[]>(),
@@ -1788,6 +1809,7 @@ export function ChatProvider({
       isCurrentWorkspaceModeMutation,
       finishWorkspaceModeMutation,
       setComposerDraftsBySessionID,
+      currentComposerDraft,
       setSavedComposerDraftsBySessionID,
       saveRecoverableComposerDraft,
       setRecoverableComposerDraft,
@@ -1914,6 +1936,7 @@ export function ChatProvider({
       currentWorkspaceModeMutation,
       isCurrentWorkspaceModeMutation,
       finishWorkspaceModeMutation,
+      currentComposerDraft,
       setPendingChatAttachments,
       setQueuedChatMessages,
       deleteQueuedChatMessagesForSession,

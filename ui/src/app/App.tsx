@@ -40,6 +40,25 @@ const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(WORKSPACE_IDS);
 const parseWorkspaceID = (raw: string): WorkspaceID | null =>
   VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
 
+type NavigationState = {
+  url: string;
+  revision: number;
+};
+
+export function advanceNavigationState(current: NavigationState, url: string): NavigationState {
+  return { url, revision: current.revision + 1 };
+}
+
+export function navigationStateUpdateMode(
+  currentURL: string,
+  nextURL: string,
+  preferredWorkspace: WorkspaceID,
+): "urgent" | "transition" {
+  const currentWorkspace = parseNavigationURL(currentURL).workspace ?? preferredWorkspace;
+  const nextWorkspace = parseNavigationURL(nextURL).workspace ?? preferredWorkspace;
+  return currentWorkspace === nextWorkspace ? "urgent" : "transition";
+}
+
 // Slice providers wrap RootEffects + AppConsole directly. The
 // retired useRuntimeConsole facade is gone: views read slice state
 // through useRuntime / useChat / etc. and dispatch coordinator
@@ -78,7 +97,12 @@ function AppConsole() {
   );
   const preferredWorkspaceRef = useRef(preferredWorkspace);
   preferredWorkspaceRef.current = preferredWorkspace;
-  const [navigationURL, setNavigationURL] = useState(readBrowserNavigationURL);
+  const [navigationState, setNavigationState] = useState<NavigationState>(() => ({
+    url: readBrowserNavigationURL(),
+    revision: 0,
+  }));
+  const navigationURL = navigationState.url;
+  const navigationURLRef = useRef(navigationURL);
   const parsedNavigation = useMemo(() => parseNavigationURL(navigationURL), [navigationURL]);
 
   const workspaces = getAvailableWorkspaces();
@@ -87,20 +111,34 @@ function AppConsole() {
     ? requestedWorkspace
     : "overview";
 
+  const applyNavigationURL = useCallback((nextURL: string) => {
+    if (navigationURLsEqual(navigationURLRef.current, nextURL)) return;
+    const updateMode = navigationStateUpdateMode(
+      navigationURLRef.current,
+      nextURL,
+      preferredWorkspaceRef.current,
+    );
+    navigationURLRef.current = nextURL;
+    const update = () => setNavigationState((current) => advanceNavigationState(current, nextURL));
+    if (updateMode === "urgent") update();
+    else startTransition(update);
+  }, []);
+
   const commitNavigation = useCallback(
     (nextURL: string, mode: "push" | "replace" = "push") => {
       const currentURL = readBrowserNavigationURL();
-      if (navigationURLsEqual(currentURL, nextURL)) return;
-      if (mode === "replace") {
-        window.history.replaceState(null, "", nextURL);
-      } else {
-        window.history.pushState(null, "", nextURL);
+      if (!navigationURLsEqual(currentURL, nextURL)) {
+        if (mode === "replace") {
+          window.history.replaceState(null, "", nextURL);
+        } else {
+          window.history.pushState(null, "", nextURL);
+        }
       }
       const parsed = parseNavigationURL(nextURL);
       if (parsed.workspace) setPreferredWorkspace(parsed.workspace);
-      startTransition(() => setNavigationURL(readBrowserNavigationURL()));
+      applyNavigationURL(readBrowserNavigationURL());
     },
-    [setPreferredWorkspace],
+    [applyNavigationURL, setPreferredWorkspace],
   );
 
   function handleSelectWorkspace(id: WorkspaceID) {
@@ -144,13 +182,13 @@ function AppConsole() {
         window.history.replaceState(null, "", canonicalURL);
       }
       setPreferredWorkspace(workspace);
-      startTransition(() => setNavigationURL(readBrowserNavigationURL()));
+      applyNavigationURL(readBrowserNavigationURL());
     };
 
     syncFromBrowser();
     window.addEventListener("popstate", syncFromBrowser);
     return () => window.removeEventListener("popstate", syncFromBrowser);
-  }, [setPreferredWorkspace]);
+  }, [applyNavigationURL, setPreferredWorkspace]);
 
   useEffect(() => {
     return installTauriEditShortcutFallback();

@@ -4254,6 +4254,72 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.message).toBe("Unrelated draft B");
     });
 
+    it("keeps draft ownership stable when chat and composer contexts render out of step", async () => {
+      const chatSession = (id: string) => ({
+        object: "chat_session",
+        data: {
+          id,
+          title: id,
+          agent_id: "hecate",
+          status: "completed",
+          messages: [],
+          provider: "openai",
+          model: "gpt-4o-mini",
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "Assignment chat" },
+            { id: "chat_b", title: "Other chat" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => jsonResponse(chatSession("chat_a")),
+            "/hecate/v1/chat/sessions/chat_b": () => jsonResponse(chatSession("chat_b")),
+          },
+        ),
+      );
+
+      const { result } = renderRuntimeConsoleWithChatHook();
+      await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+      await act(async () => {
+        await result.current.runtimeConsole.actions.selectChatSession("chat_a", {
+          draft: "Edited assignment draft A",
+        });
+      });
+      expect(result.current.chat.state.composerDraftsBySessionID.get("chat_a")).toBe(
+        "Edited assignment draft A",
+      );
+
+      // Runtime and Chat are separate contexts. A route transition can render
+      // the newer composer before the selected-session state commits. Move the
+      // authoritative session ref in that window, then invoke the coordinator
+      // captured by the torn render just as AppShell's route effect does.
+      act(() => {
+        result.current.runtimeConsole.actions.setMessage("Unrelated draft B");
+      });
+      const selectFromTornRender = result.current.runtimeConsole.actions.selectChatSession;
+      let selected!: Promise<boolean>;
+      act(() => {
+        result.current.chat.actions.setActiveChatSessionID("chat_b");
+        selected = selectFromTornRender("chat_a");
+      });
+      await act(async () => {
+        expect(await selected).toBe(true);
+      });
+
+      expect(result.current.runtimeConsole.state.activeChatSessionID).toBe("chat_a");
+      expect(result.current.runtimeConsole.state.message).toBe("Edited assignment draft A");
+      expect(result.current.chat.state.composerDraftsBySessionID.get("chat_a")).toBe(
+        "Edited assignment draft A",
+      );
+      expect(result.current.chat.state.composerDraftsBySessionID.get("chat_b")).toBe(
+        "Unrelated draft B",
+      );
+    });
+
     it("keeps the current composer authoritative when reselecting the same chat", async () => {
       fetchMock.mockImplementation(
         withSessions([{ id: "chat_same", title: "Assignment chat" }], {
