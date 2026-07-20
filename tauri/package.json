@@ -1,7 +1,7 @@
 {
   "name": "hecate-app",
   "private": true,
-  "version": "0.5.0-alpha.1",
+  "version": "0.5.0-alpha.2",
   "homepage": "https://hecate.sh",
   "scripts": {
     "tauri": "tauri"
