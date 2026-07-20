@@ -106,7 +106,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		ProjectID:          cmd.Session.ProjectID,
 		SystemPrompt:       strings.TrimSpace(cmd.SystemPrompt),
 		ExecutionKind:      "agent_loop",
-		ExecutionProfile:   "chat_agent",
+		ExecutionProfile:   hecateChatExecutionProfile(cmd.Session),
 		OriginKind:         "chat",
 		OriginID:           cmd.Session.ID,
 		WorkspaceMode:      workspaceMode,
@@ -121,6 +121,13 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		MCPServers:         append([]types.MCPServerConfig(nil), cmd.MCPServers...),
 		CreatedAt:          now,
 		UpdatedAt:          now,
+	}
+	if preset := cmd.Session.AgentPreset; !preset.Empty() {
+		toolsEnabled := preset.ToolsEnabled
+		task.AgentPresetID = preset.ID
+		task.AgentPresetToolsEnabled = &toolsEnabled
+		task.SandboxReadOnly = !preset.WritesAllowed
+		task.SandboxNetwork = preset.NetworkAllowed
 	}
 	task, err := o.store.CreateTask(ctx, task)
 	if err != nil {
@@ -143,6 +150,13 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, err
 	}
 	return result.Task, result.Run, nil
+}
+
+func hecateChatExecutionProfile(session chat.Session) string {
+	if !session.AgentPreset.Empty() && strings.TrimSpace(session.AgentPreset.ExecutionProfile) != "" {
+		return strings.TrimSpace(session.AgentPreset.ExecutionProfile)
+	}
+	return "chat_agent"
 }
 
 func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecateAgentTaskRunCommand) (types.Task, types.TaskRun, error) {

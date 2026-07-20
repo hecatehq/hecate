@@ -54,14 +54,29 @@ type projectChatPromptBuilder struct {
 func (h *Handler) hecateChatEffectiveSystemPrompt(ctx context.Context, session chat.Session, operatorPrompt string) string {
 	operatorPrompt = strings.TrimSpace(operatorPrompt)
 	projectPrompt := h.projectChatWorkflowSystemPrompt(ctx, session)
-	switch {
-	case projectPrompt == "":
-		return operatorPrompt
-	case operatorPrompt == "":
-		return projectPrompt
-	default:
-		return projectPrompt + "\n\nOperator system prompt:\n" + operatorPrompt
+	presetPrompt := hecateChatPresetInstructions(session)
+	sections := make([]string, 0, 3)
+	if projectPrompt != "" {
+		sections = append(sections, projectPrompt)
 	}
+	if presetPrompt != "" {
+		sections = append(sections, presetPrompt)
+	}
+	if operatorPrompt != "" {
+		if len(sections) == 0 {
+			sections = append(sections, operatorPrompt)
+		} else {
+			sections = append(sections, "Operator system prompt:\n"+operatorPrompt)
+		}
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func hecateChatPresetInstructions(session chat.Session) string {
+	if session.AgentPreset.Empty() || strings.TrimSpace(session.AgentPreset.Instructions) == "" {
+		return ""
+	}
+	return "Agent preset instructions:\n" + strings.TrimSpace(session.AgentPreset.Instructions)
 }
 
 func (h *Handler) hecateChatTaskSystemPrompt(ctx context.Context, session chat.Session, operatorPrompt string, forceNewTask bool) string {

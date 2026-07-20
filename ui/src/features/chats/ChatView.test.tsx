@@ -375,7 +375,7 @@ describe("ChatView input", () => {
 
     const user = userEvent.setup();
     await user.click(picker);
-    const options = screen.getAllByRole("option");
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
     expect(options.map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "Hecatelocal",
       "Codexsetup",
@@ -5310,7 +5310,9 @@ describe("ChatView external-agent target", () => {
     expect(setAgentAdapterID).not.toHaveBeenCalled();
 
     await user.click(agentPicker);
-    const hecateOption = screen.getByRole("option", { name: /Hecate/ });
+    const hecateOption = within(screen.getByRole("listbox")).getByRole("option", {
+      name: /Hecate/,
+    });
     expect(hecateOption).not.toHaveAttribute("aria-disabled", "true");
     await user.click(hecateOption);
     expect(setNewChatAgent).toHaveBeenCalledWith("hecate");

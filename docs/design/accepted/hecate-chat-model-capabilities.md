@@ -3,8 +3,9 @@
 > **Status:** accepted; partially implemented alpha direction.
 > **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md),
 > [Agent runtime](../../runtime/agent-runtime.md), and [Runtime API](../../runtime/runtime-api.md).
-> **Next action:** wire named Agent Presets into Hecate Chat setup, implement
-> automatic capability probes, and broaden e2e hardening.
+> **Next action:** implement automatic capability probes and broaden e2e/product
+> hardening. Named Agent Presets are now wired into Hecate Chat as a deliberately
+> narrow immutable runtime snapshot.
 >
 > **Terminology note:** this design record was written while "Hecate Agent" was the
 > proposed product label for Hecate-owned tools-on chat. Current UI and
@@ -42,7 +43,8 @@ requirements after the baseline bridge are:
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - local composer queueing while a backing task is busy _(implemented)_
 - task workspace modes exposed in Hecate Chat setup _(implemented)_
-- named Agent Presets consumed by Hecate Chat setup
+- named Agent Presets consumed by Hecate Chat setup _(implemented as a narrow
+  immutable snapshot)_
 - richer automatic capability detection with visible status
 
 ## Why
@@ -189,7 +191,7 @@ type ChatExecutionMode = "hecate_task" | "external_agent";
 
 Hecate Chat sessions also store:
 
-- `agent_profile_id`
+- an optional immutable `agent_preset` snapshot
 - `task_id`
 - `latest_run_id`
 - `provider`
@@ -209,29 +211,37 @@ sessions use `agent_id="hecate"`.
 
 ### Agent Presets
 
-Agent Presets are saved runtime configurations for Hecate Chat or an external
-agent. They are Hecate-owned behavior and safety posture, while External Agent
-integrations are supervised subprocesses.
+Agent Presets are Hecate-owned runtime posture. The implemented Chat slice is
+not a second profile resolver and does not make an External Agent's native
+configuration portable through Hecate.
 
-A preset defines:
+At Hecate Chat creation, an operator may select a preset with
+`surface=hecate_chat` or `surface=any`. Hecate freezes this Chat-safe subset on
+the session:
 
-- display name and description
-- default provider/model or provider/model policy
-- default workspace mode
-- optional system prompt layer
-- allowed tools and MCP servers
-- approval policy defaults
-- cost, turn, timeout, and network guardrails
-- optional model capability requirements
+- id and display name
+- provider/model hints
+- instructions
+- execution profile
+- tools, writes, and network posture
 
-The initial built-in preset is the current default Hecate Chat tools-on behavior:
-selected provider/model, selected workspace, `agent_loop`, task approvals,
-artifacts, sandboxed tool calls, and OTel. Operators can later create named
-presets such as "Reviewer", "Builder", or "SRE" without changing the chat
-session model.
+An omitted selection preserves the existing Chat defaults. Provider/model hints
+fill only omitted create-time values; an explicit operator choice wins. The
+snapshot is returned on the session and never re-resolved, so later preset
+edits or deletion do not rewrite a transcript or a backing Task.
 
-Sessions snapshot the selected preset id and effective preset settings at
-creation time. Preset edits should not silently rewrite historical sessions.
+Preset instructions are composed after the project prelude when present and
+before the per-chat operator instructions. A tools-disabled snapshot locks the
+Chat to direct model turns. For a permitted tools-on turn, the task captures the
+snapshot id and tools setting, uses the non-empty execution profile, maps
+`writes_allowed=false` to a read-only sandbox, and maps `network_allowed` to
+the Task network setting.
+
+This alpha slice deliberately excludes workspace-mode defaults, project-memory
+and context-source policy, project skills, browser evidence, MCP servers,
+approval-policy defaults, cost/turn/timeout guardrails, and External Agent
+options. It also does not create or change Cairnline project, role, assignment,
+or handoff records. Those remain separate Hecate or Cairnline contracts.
 
 ### First prompt
 
@@ -239,7 +249,7 @@ For `execution_mode="hecate_task"` the first user message:
 
 1. Validates that the selected model is known tool-capable
    (`tool_calling="basic"` or `parallel`).
-2. Applies the selected Hecate Agent Preset.
+2. Uses the session's frozen Hecate Chat preset snapshot when one was selected.
 3. Creates a visible task with `execution_kind="agent_loop"`.
 4. Marks the task origin as `origin_kind="chat"` and
    `origin_id=<chat_session_id>`.
@@ -429,10 +439,10 @@ and exposes external-agent approvals.
 
 ## Storage
 
-Memory and SQLite must persist:
+Memory, SQLite, and Postgres must persist:
 
 - agent presets
-- selected `agent_profile_id`
+- the selected Hecate Chat preset snapshot
 - `agent_id`
 - task-backed Hecate Chat task/run linkage fields on chat sessions
 - per-message `execution_mode`, `segment_id`, provider/model, capability
@@ -469,8 +479,8 @@ Minimum coverage:
   link to the backing Task.
 - Busy-state UX and local queued-prompt behavior in Chats.
 - Workspace mode selection and task creation parity.
-- Agent Preset CRUD, preset selection, session snapshotting, and built-in
-  default preset behavior.
+- Agent Preset CRUD, Hecate Chat surface validation, selection, immutable
+  session snapshotting, tools-disabled locking, and task posture mapping.
 - Richer provider-native capability detection, cooldown, and failure behavior.
 
 ## Implementation Status
@@ -511,11 +521,13 @@ Done in the core bridge:
   posture, exposes Managed workspace versus Current folder in chat settings,
   snapshots it onto backing tasks, and locks posture after task-backed work
   exists; External Agent sessions remain in-place ACP workspaces
+- Hecate Chat setup selects `hecate_chat` / `any` Agent Presets and freezes a
+  Chat-safe runtime snapshot; preset instructions, provider/model hints, and
+  task posture are applied without importing project, browser, MCP, or
+  External Agent behavior
 
 Still required for a complete Hecate Chat tools-on experience:
 
-- named Agent Presets in the chat setup; preset Core/API exists, but Chat does
-  not yet select or snapshot a named chat preset
 - automatic capability probing
 - broader e2e/product hardening around workspace modes, profiles, automatic
   capability detection, and mixed long-running sessions
@@ -524,16 +536,16 @@ Still required for a complete Hecate Chat tools-on experience:
 
 The missing stable-scope pieces should land in this order:
 
-1. **Agent Presets.** Add named presets for model policy,
-   workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
-   snapshot on each session so history remains explainable.
-2. **Automatic probing.** Add bounded, visible capability probes for configured
+1. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
    Probes must not execute tools or mutate workspaces, and provider-native
    capability metadata remains the stronger source when it is available.
-3. **E2E hardening.** Extend the existing browser paths to cover workspace
+2. **E2E hardening.** Extend the existing browser paths to cover workspace
    modes, profiles, automatic capability detection, refresh/reconnect edges,
    and long mixed chats with queued prompts.
+3. **Broader Chat preset scope.** Design and implement any additional preset
+   fields explicitly instead of inheriting project-assignment or External Agent
+   behavior into Chat by default.
 
 ## Future Work
 

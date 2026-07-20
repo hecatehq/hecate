@@ -8,6 +8,20 @@ import type {
 
 export type ChatWorkspaceMode = "persistent" | "ephemeral" | "in_place";
 
+// AgentPresetSnapshotRecord is frozen with a Hecate Chat session at creation.
+// It is not a live reference to an editable Project or External Agent profile.
+export type ChatAgentPresetSnapshotRecord = {
+  id: string;
+  name: string;
+  provider_hint?: string;
+  model_hint?: string;
+  instructions?: string;
+  execution_profile?: string;
+  tools_enabled: boolean;
+  writes_allowed: boolean;
+  network_allowed: boolean;
+};
+
 // PersistedContentBlock mirrors the Hecate-extension wire shape used to
 // persist Anthropic-aware content (thinking, tool_use, image with
 // cache_control). Replay paths emit it; SDK clients hitting the OpenAI
@@ -39,6 +53,7 @@ export type ChatSessionSummaryRecord = {
   provider?: string;
   model?: string;
   capabilities?: ModelCapabilitiesRecord;
+  agent_preset?: ChatAgentPresetSnapshotRecord;
   rtk_enabled?: boolean;
   workspace: string;
   workspace_mode?: ChatWorkspaceMode;
@@ -244,6 +259,7 @@ export type ChatSessionRecord = {
   provider?: string;
   model?: string;
   capabilities?: ModelCapabilitiesRecord;
+  agent_preset?: ChatAgentPresetSnapshotRecord;
   rtk_enabled?: boolean;
   workspace: string;
   workspace_mode?: ChatWorkspaceMode;

@@ -133,6 +133,32 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
     ).toBeTruthy();
   });
 
+  it("shows the frozen preset and prevents tools from being re-enabled when it is direct-chat only", () => {
+    render(
+      <ChatSettingsPanel
+        {...baseProps}
+        showHecateControls
+        toolsEnabled={false}
+        usageSource="hecate"
+        externalSession={null}
+        agentPreset={{
+          id: "chat_review",
+          name: "Chat review",
+          execution_profile: "review",
+          tools_enabled: false,
+          writes_allowed: false,
+          network_allowed: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Agent preset")).toBeTruthy();
+    expect(screen.getByText("Chat review")).toBeTruthy();
+    expect(screen.getByText(/Frozen when this chat was created/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tools off" })).toBeDisabled();
+    expect(screen.getByText(/frozen Agent Preset disables local tools/i)).toBeTruthy();
+  });
+
   it("explains isolated execution and changes the workspace mode", () => {
     const onWorkspaceModeChange = vi.fn();
     render(

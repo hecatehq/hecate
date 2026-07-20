@@ -60,6 +60,19 @@ project-assignment starts record project metadata for inspection, but Hecate
 does not inject project memory bodies, source bodies, or skill bodies into
 adapter prompts; the adapter owns private prompt packing inside its native
 session.
+When a Hecate Chat is created with a named Agent Preset, accept only a
+`hecate_chat` or `any` surface and persist a narrow immutable snapshot: id,
+name, provider/model hints, instructions, execution profile, and
+tool/write/network posture. Fill only omitted provider/model selections from
+the hints. Compose the frozen instructions after the bounded project prelude
+and before the operator's per-chat instructions; a tools-disabled snapshot
+must keep the chat on the direct-model path. A permitted tools-on turn maps the
+same frozen posture to the backing native Task. Do not re-resolve the preset
+later or borrow project-assignment behavior: Chat presets do not activate
+project-memory/context-source policy, skills, browser evidence, MCP servers,
+approval-policy defaults, or External Agent options. This is Hecate execution
+state, not Cairnline coordination; it must not create or mutate portable
+Projects, roles, assignments, or handoffs.
 Cairnline is the sole production authority for portable Projects coordination.
 The embedded Cairnline service stores project identity, roots, context-source
 and skill metadata, roles, work items, assignments, collaboration artifacts,

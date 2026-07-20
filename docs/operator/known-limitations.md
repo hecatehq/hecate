@@ -222,14 +222,20 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   files again, or remove them and wait until after 24 hours before a later
   upload triggers reclamation.
 - Workspace modes are available for task/project starts, and named Agent
-  Presets now have a core API, preset-management UI, project/role default
-  selection, project-skill pickers, and preset-driven assignment context-packet
-  memory/source activation. Native project assignments can include bounded
-  project memory and portable `AGENTS.md` workspace-instruction bodies when the
-  resolved Agent Preset explicitly asks for inclusion. Broader prompt-content policy
-  for chats, external-agent starts, host-specific guidance files, and arbitrary
-  project source documents is still beta-hardening work. Tools-on chat still
-  uses the selected workspace with the current chat runtime posture.
+  Presets have a core API, preset-management UI, project/role default selection,
+  project-skill pickers, and preset-driven assignment context-packet
+  memory/source activation. Hecate Chat can now select a `hecate_chat` or `any`
+  preset when the session is created and freezes its narrow runtime snapshot.
+  That Chat slice applies provider/model hints, instructions, execution profile,
+  and tool/write/network posture, but deliberately does not inherit project
+  memory/source policy, skills, browser evidence, MCP selection, approval
+  defaults, or External Agent options. Native project assignments can include
+  bounded project memory and portable `AGENTS.md` workspace-instruction bodies
+  when the resolved Agent Preset explicitly asks for inclusion. Broader
+  prompt-content policy for chats, external-agent starts, host-specific guidance
+  files, and arbitrary project source documents is still beta-hardening work.
+  Tools-on chat still uses the selected workspace with the current chat runtime
+  posture.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and
   patch review. Chats projects the high-signal run activity and approval
   controls, but it is not a replacement for every Task Detail inspection flow.

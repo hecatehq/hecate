@@ -918,9 +918,13 @@ type AgentAdapterSetupCommandStatusItem struct {
 }
 
 type CreateChatSessionRequest struct {
-	Title         string                       `json:"title,omitempty"`
-	ProjectID     string                       `json:"project_id,omitempty"`
-	AgentID       string                       `json:"agent_id,omitempty"`
+	Title     string `json:"title,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	// AgentPresetID selects a Hecate-owned preset only when creating a
+	// Hecate Chat session. The handler stores an immutable, narrow runtime
+	// snapshot rather than a live profile reference.
+	AgentPresetID string                       `json:"agent_preset_id,omitempty"`
 	Provider      string                       `json:"provider,omitempty"`
 	Model         string                       `json:"model,omitempty"`
 	Workspace     string                       `json:"workspace"`
@@ -985,6 +989,7 @@ type ChatSessionSummaryItem struct {
 	Provider        string                            `json:"provider,omitempty"`
 	Model           string                            `json:"model,omitempty"`
 	Capabilities    types.ModelCapabilities           `json:"capabilities,omitempty"`
+	AgentPreset     *ChatAgentPresetSnapshotItem      `json:"agent_preset,omitempty"`
 	RTKEnabled      bool                              `json:"rtk_enabled,omitempty"`
 	Workspace       string                            `json:"workspace"`
 	WorkspaceMode   string                            `json:"workspace_mode"`
@@ -1009,6 +1014,7 @@ type ChatSessionItem struct {
 	Provider             string                            `json:"provider,omitempty"`
 	Model                string                            `json:"model,omitempty"`
 	Capabilities         types.ModelCapabilities           `json:"capabilities,omitempty"`
+	AgentPreset          *ChatAgentPresetSnapshotItem      `json:"agent_preset,omitempty"`
 	RTKEnabled           bool                              `json:"rtk_enabled,omitempty"`
 	Workspace            string                            `json:"workspace"`
 	WorkspaceMode        string                            `json:"workspace_mode"`
@@ -1027,6 +1033,21 @@ type ChatSessionItem struct {
 	UpdatedAt            string                            `json:"updated_at,omitempty"`
 	Segments             []ChatSegmentItem                 `json:"segments,omitempty"`
 	Messages             []ChatMessageItem                 `json:"messages"`
+}
+
+// ChatAgentPresetSnapshotItem is the safe, frozen subset of an Agent Preset
+// that shaped a Hecate Chat session. It intentionally excludes project,
+// browser, MCP, and external-agent details.
+type ChatAgentPresetSnapshotItem struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	ProviderHint     string `json:"provider_hint,omitempty"`
+	ModelHint        string `json:"model_hint,omitempty"`
+	Instructions     string `json:"instructions,omitempty"`
+	ExecutionProfile string `json:"execution_profile,omitempty"`
+	ToolsEnabled     bool   `json:"tools_enabled"`
+	WritesAllowed    bool   `json:"writes_allowed"`
+	NetworkAllowed   bool   `json:"network_allowed"`
 }
 
 type ChatContextSummaryItem struct {

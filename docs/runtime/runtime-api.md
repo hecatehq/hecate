@@ -2187,6 +2187,12 @@ Enums:
 | `project_memory_policy` | `inherit`, `include`, `visible_only`, `exclude`         |
 | `context_source_policy` | `inherit`, `include_enabled`, `visible_only`, `exclude` |
 
+Hecate Chat session creation accepts only presets whose `surface` is
+`hecate_chat` or `any`. This is a narrow Hecate-owned Chat contract, distinct
+from project-assignment launch resolution: `hecate_task` presets remain for
+native assignment Tasks, and `external_agent` presets remain for External
+Agent launch paths.
+
 Project assignment starts resolve presets in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
 snapshots the resolved preset, provider/model hints, runtime profile,
@@ -4685,6 +4691,17 @@ GET /hecate/v1/chat/sessions
         "streaming": true,
         "source": "provider"
       },
+      "agent_preset": {
+        "id": "prof_...",
+        "name": "Focused reviewer",
+        "provider_hint": "anthropic",
+        "model_hint": "claude-sonnet-4",
+        "instructions": "Explain findings with evidence.",
+        "execution_profile": "reviewer",
+        "tools_enabled": true,
+        "writes_allowed": false,
+        "network_allowed": false
+      },
       "status": "completed",
       "rtk_enabled": true,
       "workspace": "/tmp/hecate-workspaces/task_.../run_...",
@@ -4718,6 +4735,22 @@ Hecate Chat sessions may be created as empty shells before a model or workspace
 is chosen. Hecate validates the selected model when the first message is sent.
 When `provider` is omitted on a model-backed turn, Hecate routes across
 configured providers that expose the selected model.
+
+For `agent_id="hecate"`, an optional `agent_preset_id` selects a saved Agent
+Preset whose `surface` is `hecate_chat` or `any`. Hecate copies the narrow
+Chat-safe subset into the session at creation time: id, name, provider/model
+hints, instructions, execution profile, and tools/write/network posture.
+The `agent_preset` object returned on list and detail responses is that frozen
+snapshot, not a live preset lookup. Later preset edits or deletion therefore do
+not change historical chat behavior or a Task created from the chat. Explicit
+`provider` and `model` request fields take precedence; preset hints fill only
+omitted values.
+
+`agent_preset_id` is invalid for an External Agent session. Hecate does not
+translate this Chat selection into ACP configuration, project roles,
+Cairnline coordination, project memory/source policy, project skills, browser
+evidence, MCP-server selection, approval-policy defaults, or other
+adapter-specific options. Those surfaces retain their own explicit contracts.
 
 `project_id` is optional. When supplied, it must reference an embedded
 Cairnline project or Hecate returns `404 not_found`. Project-linked Hecate Chat
@@ -4753,6 +4786,17 @@ For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
 compaction preference. It is only applied when a future turn runs through the
 task-backed `hecate_task` execution mode; direct model turns never execute
 local commands.
+
+For a preset-backed Hecate Chat, frozen `instructions` are included in both
+direct-model and task-backed Hecate prompt composition. A frozen
+`tools_enabled=false` setting rejects an explicit `tools_enabled=true` message
+and makes an omitted message flag default to the direct-model path. A
+tools-enabled setting permits the normal per-turn tools choice; it does not
+force an `agent_loop` Task. When a permitted tools-on turn creates a backing
+Task, Hecate copies the frozen preset id and tools setting to the Task, uses the
+frozen execution profile when present, maps `writes_allowed=false` to
+`sandbox_read_only=true`, and maps `network_allowed` to `sandbox_network`.
+Normal Hecate policy, approvals, and model-capability checks still apply.
 
 `workspace_mode` records the execution posture for future task-backed turns:
 
@@ -4812,9 +4856,10 @@ is no separate ACP execute-command RPC.
 POST /hecate/v1/chat/sessions
 {
   "agent_id": "hecate",
+  "agent_preset_id": "prof_...",
   "project_id": "proj_...",
-  "provider": "ollama",
-  "model": "qwen2.5-coder",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4",
   "title": "Hecate Chat",
   "workspace": "/Users/alice/src/my-app",
   "workspace_mode": "persistent"
@@ -4828,12 +4873,23 @@ POST /hecate/v1/chat/sessions
     "title": "Hecate Chat",
     "project_id": "proj_...",
     "agent_id": "hecate",
-    "provider": "ollama",
-    "model": "qwen2.5-coder",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4",
     "capabilities": {
       "tool_calling": "basic",
       "streaming": true,
       "source": "provider"
+    },
+    "agent_preset": {
+      "id": "prof_...",
+      "name": "Focused reviewer",
+      "provider_hint": "anthropic",
+      "model_hint": "claude-sonnet-4",
+      "instructions": "Explain findings with evidence.",
+      "execution_profile": "reviewer",
+      "tools_enabled": true,
+      "writes_allowed": false,
+      "network_allowed": false
     },
     "status": "idle",
     "rtk_enabled": false,
@@ -4924,6 +4980,10 @@ Returns the full session transcript, including user messages and assistant
 messages produced by the backing runtime. Hecate-owned sessions include
 `provider`, `model`, and the current capability snapshot; once a tools-on turn
 creates a backing task, they also include `task_id` and `latest_run_id`.
+When one was selected at creation, Hecate-owned sessions also include the
+immutable `agent_preset` snapshot described above. Clients must render it as
+historical execution provenance rather than re-resolving its id through
+`/hecate/v1/agent-presets`.
 Individual chat messages carry the durable runtime snapshot:
 `turn_id`, `execution_mode`, derived `turn_kind`, `segment_id`, optional
 `task_id`, optional `run_id`, provider/model, and capabilities. The user and

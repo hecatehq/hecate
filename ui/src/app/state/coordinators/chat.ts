@@ -427,6 +427,7 @@ export function findReusableEmptyDraftSession(
   sessions: ChatSessionSummaryRecord[],
   {
     agentID,
+    agentPresetID,
     model,
     projectID,
     provider,
@@ -434,6 +435,7 @@ export function findReusableEmptyDraftSession(
     workspaceMode,
   }: {
     agentID: string;
+    agentPresetID?: string;
     model: string;
     projectID: string;
     provider: string;
@@ -442,6 +444,7 @@ export function findReusableEmptyDraftSession(
   },
 ): ChatSessionSummaryRecord | null {
   const expectedAgentID = agentID.trim() || "hecate";
+  const expectedAgentPresetID = expectedAgentID === "hecate" ? agentPresetID?.trim() || "" : "";
   const expectedProjectID = projectID.trim();
   const expectedProvider = provider.trim();
   const expectedModel = model.trim();
@@ -450,6 +453,7 @@ export function findReusableEmptyDraftSession(
   return (
     sessions.find((session) => {
       const sessionAgentID = (session.agent_id ?? "hecate").trim() || "hecate";
+      const sessionAgentPresetID = (session.agent_preset?.id ?? "").trim();
       const sessionProjectID = (session.project_id ?? "").trim();
       const sessionProvider = (session.provider ?? "").trim();
       const sessionModel = (session.model ?? "").trim();
@@ -458,6 +462,7 @@ export function findReusableEmptyDraftSession(
       const sessionWorkspaceMode = session.workspace_mode ?? "in_place";
       return (
         sessionAgentID === expectedAgentID &&
+        sessionAgentPresetID === expectedAgentPresetID &&
         sessionProjectID === expectedProjectID &&
         sessionProvider === expectedProvider &&
         sessionModel === expectedModel &&
@@ -472,6 +477,7 @@ export function findReusableEmptyDraftSession(
 
 export type CreateChatSessionOptions = {
   agentID?: string;
+  agentPresetID?: string;
   projectID?: string;
   provider?: string;
   model?: string;
@@ -1466,6 +1472,18 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function syncHecateSelectionFromSession(session: ChatSessionRecord | null) {
+    if (
+      session &&
+      ((session.agent_id ?? "").trim() || "hecate") === "hecate" &&
+      session.agent_preset?.tools_enabled === false
+    ) {
+      setChatToolsEnabledBySessionID((current) => {
+        if (current.get(session.id) === false) return current;
+        const next = new Map(current);
+        next.set(session.id, false);
+        return next;
+      });
+    }
     const selection = deriveHecateChatSelectionFromSession(session);
     if (selection.provider) {
       setProviderFilter(selection.provider as ProviderFilter);
@@ -3016,10 +3034,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ? true
         : !requestedAgentID && defaultChatTarget === "external_agent";
     const createAgentID = createExternalAgent ? requestedAgentID || agentAdapterID : "hecate";
+    const requestedAgentPresetID = createExternalAgent ? "" : options?.agentPresetID?.trim() || "";
     const createWorkspace = workspaceForNewChat(createProjectID);
     const createDraftScope = composerDraftScope({
       projectID: createProjectID,
       agentID: createAgentID,
+      agentPresetID: requestedAgentPresetID,
       provider: requestedProviderFilter,
       model: requestedSelectionModel,
       workspace: createWorkspace,
@@ -3194,6 +3214,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       if (requestedReuseEmptyDraft) {
         const reusable = findReusableEmptyDraftSession(chat.state.chatSessions, {
           agentID: "hecate",
+          agentPresetID: requestedAgentPresetID,
           projectID: createProjectID,
           provider: createProvider,
           model: requestedModel,
@@ -3208,7 +3229,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           });
           setChatToolsEnabledBySessionID((current) => {
             const next = new Map(current);
-            next.set(reusable.id, toolsEnabled);
+            next.set(
+              reusable.id,
+              reusable.agent_preset?.tools_enabled === false ? false : toolsEnabled,
+            );
             return next;
           });
           finishChatSessionCreate(createIntent);
@@ -3227,6 +3251,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           ...(requestedTitle ? { title: requestedTitle } : {}),
           ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: "hecate",
+          ...(requestedAgentPresetID ? { agent_preset_id: requestedAgentPresetID } : {}),
           provider: createProvider,
           model: requestedModel,
           workspace_mode: workspaceMode,
@@ -3258,7 +3283,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         });
         setChatToolsEnabledBySessionID((current) => {
           const next = new Map(current);
-          next.set(created.data.id, toolsEnabled);
+          next.set(
+            created.data.id,
+            created.data.agent_preset?.tools_enabled === false ? false : toolsEnabled,
+          );
           return next;
         });
         if (!createWon) {

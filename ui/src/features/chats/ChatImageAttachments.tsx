@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type DragEvent,
@@ -607,7 +608,7 @@ function StoredImagePreview({ attachment }: { attachment: ChatAttachmentRecord }
     };
   }, [attachment.id, attachment.session_id, loadAttempt, shouldLoad]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const source = focusTransferSourceRef.current;
     if (!source) return;
     const active = document.activeElement;

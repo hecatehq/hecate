@@ -300,6 +300,7 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
+	packet.ExecutionProfile = hecateChatExecutionProfile(session)
 	populateProjectRefs(&packet, session.ProjectID)
 	project := h.projectSummary(ctx, session.ProjectID)
 	var promptPlan projectChatWorkflowPromptPlan
@@ -329,6 +330,7 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 			InclusionReason: "Configured for this direct model turn",
 		})
 	}
+	appendHecateChatPresetContext(&packet, session)
 	if projectPromptIncluded {
 		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session), promptPlan.IncludedMemoryIDs)
 	} else {
@@ -355,11 +357,40 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 	return packet
 }
 
+func appendHecateChatPresetContext(packet *chat.ContextPacket, session chat.Session) {
+	if packet == nil || session.AgentPreset.Empty() {
+		return
+	}
+	preset := session.AgentPreset
+	label := firstNonEmptyString(strings.TrimSpace(preset.Name), strings.TrimSpace(preset.ID))
+	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
+		Kind:   "agent_preset",
+		Label:  label,
+		Detail: "Frozen when this Hecate Chat was created",
+		Trust:  "operator",
+	}, chat.ContextItem{
+		Kind:            "agent_preset",
+		TrustLevel:      contextTrustSystemInstruction,
+		Origin:          "agent_preset:" + strings.TrimSpace(preset.ID),
+		Title:           "Agent preset: " + label,
+		Body:            "This Hecate-owned preset is frozen for the chat session. Later preset edits or deletion do not change this chat or its backing Tasks.",
+		Included:        true,
+		InclusionReason: "Hecate Chat runtime preset snapshot",
+		Metadata: map[string]string{
+			"preset_id":         strings.TrimSpace(preset.ID),
+			"execution_profile": hecateChatExecutionProfile(session),
+			"tools_enabled":     fmt.Sprintf("%t", preset.ToolsEnabled),
+			"writes_allowed":    fmt.Sprintf("%t", preset.WritesAllowed),
+			"network_allowed":   fmt.Sprintf("%t", preset.NetworkAllowed),
+		},
+	})
+}
+
 func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string, forceNewTask bool) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
-	packet.ExecutionProfile = "chat_agent"
+	packet.ExecutionProfile = hecateChatExecutionProfile(session)
 	populateProjectRefs(&packet, session.ProjectID)
 	project := h.projectSummary(ctx, session.ProjectID)
 	var promptPlan projectChatWorkflowPromptPlan
@@ -389,6 +420,7 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 			InclusionReason: "Stored on the backing task for this task segment",
 		})
 	}
+	appendHecateChatPresetContext(&packet, session)
 	if projectPromptIncluded {
 		appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session), promptPlan.IncludedMemoryIDs)
 	} else {

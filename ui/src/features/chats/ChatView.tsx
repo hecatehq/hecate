@@ -1132,13 +1132,13 @@ export function ChatView({
             textareaRef.current?.focus();
             return true;
           }}
-          onCreateChat={(agentID, projectID) => {
+          onCreateChat={(agentID, projectID, agentPresetID) => {
             createdChatNavigationPendingRef.current = true;
             setApprovalModal(null);
             setChatSettingsOpen(false);
             setDraftChatStarted(true);
             focusComposerWhenReady();
-            void actions.createChatSession({ agentID, projectID });
+            void actions.createChatSession({ agentID, projectID, agentPresetID });
           }}
           onOpenAgentSetup={(adapterID) => openAgentSetup(adapterID)}
         />
@@ -1563,6 +1563,7 @@ export function ChatView({
                   showHecateControls={isHecateChat}
                   toolsEnabled={isHecateChat && hecateChatToolsEnabled}
                   toolsDisabledForModel={hecateAgentToolsDisabledForModel}
+                  agentPreset={isHecateChat ? state.activeChatSession?.agent_preset : undefined}
                   rtkEnabled={Boolean(state.hecateRTKEnabled)}
                   rtkAvailable={Boolean(state.hecateRTKAvailable)}
                   rtkPath={state.hecateRTKPath}

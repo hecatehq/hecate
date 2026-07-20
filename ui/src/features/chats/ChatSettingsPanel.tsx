@@ -2,6 +2,7 @@ import { useId, type ReactNode } from "react";
 import { formatInteger } from "../../lib/format";
 import type {
   ChatAgentInfoRecord,
+  ChatAgentPresetSnapshotRecord,
   ChatContextSummaryRecord,
   ChatMCPServerRecord,
   ChatSessionRecord,
@@ -17,6 +18,7 @@ export function ChatSettingsPanel({
   showHecateControls,
   toolsEnabled,
   toolsDisabledForModel,
+  agentPreset,
   rtkEnabled,
   rtkAvailable,
   rtkPath,
@@ -51,6 +53,7 @@ export function ChatSettingsPanel({
   showHecateControls: boolean;
   toolsEnabled: boolean;
   toolsDisabledForModel: boolean;
+  agentPreset?: ChatAgentPresetSnapshotRecord;
   rtkEnabled: boolean;
   rtkAvailable: boolean;
   rtkPath: string;
@@ -130,6 +133,7 @@ export function ChatSettingsPanel({
                 <ChatSettingsToolsRow
                   enabled={toolsEnabled}
                   disabledForModel={toolsDisabledForModel}
+                  lockedByPreset={agentPreset?.tools_enabled === false}
                   mutationsDisabled={mutationsDisabled}
                   onChange={onToolsChange}
                 />
@@ -143,6 +147,11 @@ export function ChatSettingsPanel({
                 />
               </div>
             </ChatSettingsSection>
+            {agentPreset && (
+              <ChatSettingsSection title="Agent preset">
+                <ChatSettingsAgentPreset preset={agentPreset} />
+              </ChatSettingsSection>
+            )}
             <ChatSettingsSection title="Command output">
               <ChatSettingsRTKRow
                 available={rtkAvailable}
@@ -437,11 +446,13 @@ function ChatSettingsField({
 function ChatSettingsToolsRow({
   enabled,
   disabledForModel,
+  lockedByPreset,
   mutationsDisabled,
   onChange,
 }: {
   enabled: boolean;
   disabledForModel: boolean;
+  lockedByPreset: boolean;
   mutationsDisabled: boolean;
   onChange: (enabled: boolean) => void;
 }) {
@@ -462,9 +473,11 @@ function ChatSettingsToolsRow({
       <div>
         <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Tools</div>
         <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-          {effectiveEnabled
-            ? "Create or continue a linked Task with tools, approvals, artifacts, and sandboxed tool calls."
-            : "Send the next message directly to the selected provider/model. This does not create a Task or use local tools."}
+          {lockedByPreset
+            ? "This chat's frozen Agent Preset disables local tools. Messages go directly to the selected provider/model."
+            : effectiveEnabled
+              ? "Create or continue a linked Task with tools, approvals, artifacts, and sandboxed tool calls."
+              : "Send the next message directly to the selected provider/model. This does not create a Task or use local tools."}
         </div>
         {disabledForModel && (
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
@@ -477,7 +490,7 @@ function ChatSettingsToolsRow({
         type="button"
         aria-label={`Tools ${effectiveEnabled ? "on" : "off"}`}
         aria-pressed={effectiveEnabled}
-        disabled={mutationsDisabled || (disabledForModel && !enabled)}
+        disabled={mutationsDisabled || lockedByPreset || (disabledForModel && !enabled)}
         onClick={() => onChange(!enabled)}
         style={{
           flexShrink: 0,
@@ -491,11 +504,42 @@ function ChatSettingsToolsRow({
                 : "var(--t2)",
           borderColor: effectiveEnabled ? "var(--teal-border)" : "var(--border)",
           background: effectiveEnabled ? "var(--teal-bg)" : "transparent",
-          opacity: mutationsDisabled ? 0.55 : 1,
+          opacity: mutationsDisabled || lockedByPreset ? 0.55 : 1,
         }}
       >
         {effectiveEnabled ? "on" : "off"}
       </button>
+    </div>
+  );
+}
+
+function ChatSettingsAgentPreset({ preset }: { preset: ChatAgentPresetSnapshotRecord }) {
+  const posture = [
+    preset.tools_enabled ? "tools" : "direct chat",
+    preset.writes_allowed ? "writes allowed" : "read-only",
+    preset.network_allowed ? "network allowed" : "network denied",
+  ].join(" · ");
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--bg1)",
+        padding: 12,
+        display: "grid",
+        gap: 6,
+      }}
+    >
+      <ChatSettingsField label="Preset" value={preset.name || preset.id} />
+      <ChatSettingsField label="ID" value={preset.id} mono />
+      {preset.execution_profile && (
+        <ChatSettingsField label="Profile" value={preset.execution_profile} mono />
+      )}
+      <ChatSettingsField label="Posture" value={posture} />
+      <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+        Frozen when this chat was created. Later Agent Preset edits or deletion do not change this
+        chat or its backing Tasks.
+      </div>
     </div>
   );
 }

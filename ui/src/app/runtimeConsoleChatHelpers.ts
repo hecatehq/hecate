@@ -354,6 +354,7 @@ export function renderChatSessionSummary(
     provider: session.provider,
     model: session.model,
     capabilities: session.capabilities,
+    agent_preset: session.agent_preset,
     workspace: session.workspace,
     workspace_mode: session.workspace_mode,
     workspace_branch: session.workspace_branch,
