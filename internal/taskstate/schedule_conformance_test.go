@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -770,6 +771,8 @@ func runScheduleStoreRunAdmissionPersistsInitialApprovalEffects(t *testing.T, st
 		Kind: "shell_exec", Status: "pending", Reason: "approval required",
 		RequestedBy: "operator", CreatedAt: base.Add(time.Minute),
 		RequestID: admission.Run.RequestID, TraceID: admission.Run.TraceID,
+		ActionSummary:           []string{"git status --short", "go test ./..."},
+		ActionSummaryIncomplete: true,
 	}
 
 	result, err := store.ApplyTaskScheduleRunAdmission(ctx, admission)
@@ -778,6 +781,19 @@ func runScheduleStoreRunAdmissionPersistsInitialApprovalEffects(t *testing.T, st
 	}
 	if result.Occurrence.CompletedAt.Before(occurrence.ClaimedAt) {
 		t.Fatalf("occurrence completed_at = %s, before renewed claimed_at %s", result.Occurrence.CompletedAt, occurrence.ClaimedAt)
+	}
+	admission.Approval.ActionSummary[0] = "mutated admission input"
+	storedApproval, found, err := store.GetApproval(ctx, taskID, admission.Approval.ID)
+	if err != nil || !found {
+		t.Fatalf("GetApproval = (%+v, %v, %v)", storedApproval, found, err)
+	}
+	if !reflect.DeepEqual(storedApproval.ActionSummary, []string{"git status --short", "go test ./..."}) ||
+		!storedApproval.ActionSummaryIncomplete {
+		t.Fatalf(
+			"stored scheduled approval summary = %#v incomplete=%v, want immutable complete provenance",
+			storedApproval.ActionSummary,
+			storedApproval.ActionSummaryIncomplete,
+		)
 	}
 	assertScheduledAdmissionApprovalEffects(t, store, taskID, runID)
 

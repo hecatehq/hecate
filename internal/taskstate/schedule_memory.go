@@ -440,7 +440,7 @@ func (s *MemoryStore) ApplyTaskScheduleRunAdmission(_ context.Context, admission
 	s.tasks[task.ID] = cloneTask(task)
 	s.runs[run.ID] = run
 	if admission.Approval != nil {
-		s.approvals[admission.Approval.ID] = *admission.Approval
+		s.approvals[admission.Approval.ID] = cloneApproval(*admission.Approval)
 	}
 	for _, event := range taskScheduleRunInitialEvents(admission, run) {
 		s.appendRunEventLocked(event)
@@ -483,7 +483,7 @@ func normalizeTaskScheduleRunAdmission(admission TaskScheduleRunAdmission) TaskS
 		admission.CompletedAt = admission.CompletedAt.UTC()
 	}
 	if admission.Approval != nil {
-		approval := *admission.Approval
+		approval := cloneApproval(*admission.Approval)
 		approval.ID = strings.TrimSpace(approval.ID)
 		approval.TaskID = strings.TrimSpace(approval.TaskID)
 		approval.RunID = strings.TrimSpace(approval.RunID)
