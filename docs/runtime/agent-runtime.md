@@ -153,8 +153,9 @@ Three things bound the loop:
 `workflow_mode="qa"` is Hecate's first built-in runbook contract. It is not a
 generic workflow engine, a Project/Cairnline record, or an External Agent
 command. It is available only on a native `execution_kind="agent_loop"` Task;
-ordinary model and task requirements still apply, including a requested model
-before the Task can start.
+ordinary model and task requirements still apply. A QA task can either pin both
+`requested_provider` and `requested_model`, or omit both to use Hecate
+auto-routing before the Task starts.
 
 Hecate owns the contract version. On creation it records
 `workflow_mode="qa"` and `workflow_version="v0"` on the Task and snapshots
@@ -636,13 +637,20 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - `system_prompt` — narrowest layer of the three-layer composition; optional
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (all clone) or `"in_place"` (use source directly)
-- `requested_provider` / `requested_model` — pin the LLM provider and model. For `agent_loop`, `requested_model` must be set on the task. A missing model returns 422 `model_not_configured` before a run is created.
+- `requested_provider` / `requested_model` — pin the LLM provider and model.
+  Omit both on an `agent_loop` task to use Hecate auto-routing: the router
+  selects eligible provider defaults and retains its normal failover set. An
+  explicit provider without a model returns 422 `model_not_configured` before
+  a run is created.
 - `budget_micros_usd` — per-task cost ceiling in micro-USD; `0` disables
 - `mcp_servers` — array of external MCP server configs whose tools join the catalog under `mcp__<name>__<tool>` aliases. Schema in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 
 ## Common failure modes
 
-- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no `task.RequestedModel` set. No run is created. Fix: set `requested_model` on the task.
+- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start`
+  received an incomplete explicit route, such as a provider without
+  `requested_model`. Either supply both pin fields or omit both to use Hecate
+  auto-routing. No run is created for the malformed explicit route.
 - **`escapes allowed root`** — the LLM picked a path outside the workspace. The env system message normally prevents this; if you see it, check that `task.WorkingDirectory` matches what the model is using, or switch to `workspace_mode=in_place` to align them.
 - **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`).
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent. Native Tasks require a tool-capable model when their effective catalog is non-empty; preset-backed model-only tasks send no tools.

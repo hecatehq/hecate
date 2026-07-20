@@ -3104,6 +3104,26 @@ func TestAgentLoop_PassesProviderHintFromRun(t *testing.T) {
 	}
 }
 
+func TestAgentLoopAutoRouteLeavesModelAndProviderHintEmpty(t *testing.T) {
+	t.Parallel()
+
+	llm := &scriptedLLM{responses: []*types.ChatResponse{makeChatResp(makeAssistantMsg("done"))}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Run.Model = ""
+	spec.Run.Provider = ""
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(llm.lastReqs) != 1 {
+		t.Fatalf("LLM calls = %d, want 1", len(llm.lastReqs))
+	}
+	request := llm.lastReqs[0]
+	if request.Model != "" || request.Scope.ProviderHint != "" {
+		t.Fatalf("auto route request = model %q provider hint %q, want both empty for Hecate router selection", request.Model, request.Scope.ProviderHint)
+	}
+}
+
 func TestAgentLoop_PrependsWorkspaceEnvironmentSystemMessage(t *testing.T) {
 	// The agent loop must inform the LLM where the workspace lives,
 	// otherwise the model uses paths verbatim from the user prompt

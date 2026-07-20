@@ -48,15 +48,36 @@ func TestCLI_HelpListsCommandTree(t *testing.T) {
 	}
 
 	help := stdout.String()
-	for _, want := range []string{"serve", "mcp", "version"} {
+	for _, want := range []string{"serve", "acp", "mcp", "version"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help output does not contain %q:\n%s", want, help)
 		}
 	}
-	for _, unwanted := range []string{"acp", "completion", "mcp-server"} {
+	for _, unwanted := range []string{"completion", "mcp-server"} {
 		if strings.Contains(help, unwanted) {
 			t.Fatalf("help output contains %q:\n%s", unwanted, help)
 		}
+	}
+}
+
+func TestCLI_ACPHelpListsServeOnly(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	cmd := newRootCommand()
+	cmd.SetArgs([]string{"acp", "help"})
+	cmd.SetOut(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(acp help): %v", err)
+	}
+
+	help := stdout.String()
+	if !strings.Contains(help, "serve") {
+		t.Fatalf("acp help output does not contain serve:\n%s", help)
+	}
+	if strings.Contains(help, "mcp-server") {
+		t.Fatalf("acp help output contains legacy MCP command:\n%s", help)
 	}
 }
 

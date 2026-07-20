@@ -748,6 +748,7 @@ type ProviderStatusResponseItem struct {
 	Healthy             bool                                 `json:"healthy"`
 	Status              string                               `json:"status"`
 	RoutingReady        bool                                 `json:"routing_ready"`
+	AutoRouteReady      bool                                 `json:"auto_route_ready"`
 	RoutingBlocked      string                               `json:"routing_blocked_reason,omitempty"`
 	DefaultModel        string                               `json:"default_model,omitempty"`
 	Models              []string                             `json:"models,omitempty"`

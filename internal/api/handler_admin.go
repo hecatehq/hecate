@@ -53,6 +53,7 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 			Healthy:             provider.Healthy,
 			Status:              provider.Status,
 			RoutingReady:        provider.RoutingReady,
+			AutoRouteReady:      providerAutoRouteReady(provider, h.config.Router.DefaultModel),
 			RoutingBlocked:      provider.RoutingBlocked,
 			DefaultModel:        provider.DefaultModel,
 			Models:              provider.Models,
@@ -86,6 +87,30 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 		Object: "provider_status",
 		Data:   data,
 	})
+}
+
+// providerAutoRouteReady reports whether an unpinned, model-less request can
+// select this provider through Hecate's normal router. It intentionally does
+// not choose a model: the router remains authoritative for ordering, policy,
+// and failover. This simply distinguishes a generally routable provider with
+// discovered models from one that can participate in the auto-route contract.
+func providerAutoRouteReady(provider types.ProviderStatus, globalDefaultModel string) bool {
+	if !provider.RoutingReady {
+		return false
+	}
+	if strings.TrimSpace(provider.DefaultModel) != "" {
+		return true
+	}
+	globalDefaultModel = strings.TrimSpace(globalDefaultModel)
+	if globalDefaultModel == "" {
+		return false
+	}
+	for _, model := range provider.Models {
+		if model == globalDefaultModel {
+			return true
+		}
+	}
+	return false
 }
 
 func renderReadinessSummary(summary types.ReadinessSummary) ReadinessSummaryResponseItem {

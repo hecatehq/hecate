@@ -170,6 +170,42 @@ func TestRunnerStartTaskSnapshotsProjectLinkageOnRun(t *testing.T) {
 	}
 }
 
+func TestRunnerStartTaskPreservesEmptyRouteForAutoRouting(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{DeferQueueStart: true},
+	)
+	runner.workspaces = NewWorkspaceManager(t.TempDir())
+
+	task := types.Task{
+		ID:               "task_auto_route",
+		Prompt:           "Inspect the workspace",
+		ExecutionKind:    "agent_loop",
+		WorkspaceMode:    "in_place",
+		WorkingDirectory: t.TempDir(),
+		Status:           "queued",
+		CreatedAt:        time.Now().UTC(),
+		UpdatedAt:        time.Now().UTC(),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	result, err := runner.StartTask(ctx, task, defaultResourceID)
+	if err != nil {
+		t.Fatalf("StartTask(auto route): %v", err)
+	}
+	if result.Run.Model != "" || result.Run.Provider != "" {
+		t.Fatalf("auto-routed run = provider %q model %q, want both empty before Hecate router resolves it", result.Run.Provider, result.Run.Model)
+	}
+}
+
 func TestRecordOrchestratorRunStartedIncludesWorkflowMode(t *testing.T) {
 	t.Parallel()
 

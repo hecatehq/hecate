@@ -1,7 +1,7 @@
 # CLI structure for `hecate`
 
 > **Status:** partially implemented.
-> **Current source of truth:** [`cmd/hecate/cli.go`](../../../cmd/hecate/cli.go), [`cmd/hecate/main.go`](../../../cmd/hecate/main.go), and [`docs/runtime/mcp.md`](../../runtime/mcp.md).
+> **Current source of truth:** [`cmd/hecate/cli.go`](../../../cmd/hecate/cli.go), [`cmd/hecate/main.go`](../../../cmd/hecate/main.go), [`docs/runtime/mcp.md`](../../runtime/mcp.md), and [`docs/runtime/acp.md`](../../runtime/acp.md).
 > **Next action:** grow bare `hecate` from the lightweight operator shell into
 > the terminal operator UI, then add `hecate ui`, `status`, `about`, and
 > `doctor` in focused follow-up PRs.
@@ -12,14 +12,14 @@ The first command-tree slice is implemented with Cobra:
 
 - `hecate serve` starts the runtime / HTTP API / embedded UI server.
 - `hecate mcp serve` starts the stdio MCP server.
+- `hecate acp serve` starts Hecate's local stdio ACP agent.
 - `hecate version`, `hecate --version`, and `hecate -v` print the version.
 - Bare `hecate` opens a lightweight operator shell. The shell keeps the process
   interactive until `quit` / `exit` / `q`; it does not start the runtime.
 - `hecate mcp-server` still works as a hidden compatibility alias.
 
 Not implemented yet: the full terminal operator UI for bare `hecate`, `hecate ui`,
-`status`, `about`, `doctor`, auth commands, ACP server commands, and
-`migrate`.
+`status`, `about`, `doctor`, auth commands, and `migrate`.
 
 ## Problem
 
@@ -87,7 +87,7 @@ hecate login                   # FUTURE: authenticate Hecate/operator identity
 hecate logout                  # FUTURE
 hecate whoami [flags]          # FUTURE
 hecate mcp serve               # MCP server over stdio
-hecate acp serve               # FUTURE: ACP server over stdio (reserved)
+hecate acp serve               # Hecate ACP agent over stdio
 hecate migrate <sub>           # per migration-cli.md design record
 hecate version                 # print version; --version / -v aliases
 hecate help [topic]            # usage
@@ -254,21 +254,32 @@ errors to stderr.
 Hecate is pre-1.0, so this design record does not require a compatibility shim for
 `mcp-server`.
 
-### `hecate acp serve` — reserved, not implemented
+### `hecate acp serve`
 
-Namespace placeholder for a future ACP server (Hecate as ACP-protocol agent
-backend for external clients like Zed). Today Hecate is an ACP **client**
-([`internal/agentadapters`](../../../internal/agentadapters/)); the inverse
-direction does not yet exist.
+Runs Hecate as an ACP agent over local stdio. An ACP-capable editor or client
+launches the command; Hecate maps each ACP session to its own durable
+`agent_loop` task and run lifecycle through the local runtime HTTP API.
 
-Invoking `hecate acp serve` until that design record lands prints:
+This is the inverse of the existing External Agent direction. Hecate remains an
+ACP **client** in [`internal/agentadapters`](../../../internal/agentadapters/)
+when it supervises Codex, Claude Code, Cursor Agent, or Grok Build. `acp serve`
+makes Hecate the ACP **agent** for an editor/client and does not launch or proxy
+one of those external CLIs.
 
-```text
-hecate acp serve: not implemented yet.
-See docs/design/ for proposals.
-```
+The command shares generic stdio transport behavior with the provider-neutral
+ACP adapter kit, but Hecate owns the task mapping, model routing, policy,
+approvals, artifacts, and observability. It reads `HECATE_BASE_URL` (default
+`http://127.0.0.1:8765`) and forwards `HECATE_RUNTIME_TOKEN` to the local
+runtime when configured. Its logs stay on stderr and stdout is ACP JSON-RPC
+only.
 
-Exit code 2.
+V1 accepts text prompts and opaque resource references. It requires an absolute
+client working directory and uses `workspace_mode: in_place`; it intentionally
+does not offer media/file transfer, editor filesystem/terminal callbacks,
+client-provided MCP servers, Agent Preset selection, remote runtimes, or ACP
+session list/load/resume.
+The full runtime contract and security boundary live in
+[`docs/runtime/acp.md`](../../runtime/acp.md).
 
 ### `hecate migrate <sub>`
 
@@ -310,6 +321,7 @@ through `hecate <subcommand> --help`.
 | Hecate Docker            | `CMD ["hecate"]`        | `CMD ["hecate", "serve"]`; `docker exec hecate hecate status` works.   |
 | Hecate Homebrew (future) | One binary              | One binary; `hecate` is the local terminal UI.                         |
 | MCP clients              | `hecate mcp-server`     | `hecate mcp serve`.                                                    |
+| ACP clients              | No Hecate ACP agent     | Launch `hecate acp serve` over local stdio.                            |
 
 This is intentionally breaking while Hecate is alpha. The migration is clear:
 non-interactive process launchers use `hecate serve`; humans use `hecate`.
@@ -331,10 +343,12 @@ cmd/hecate/
     ├── doctor.go
     ├── auth.go          # login/logout/whoami placeholders or future impl
     ├── mcp.go
+    ├── acp.go
     ├── migrate.go
     └── version.go
 
 internal/runtimeapp/     # current runtime startup extracted from main
+internal/acpserver/      # ACP agent/session-to-task bridge
 internal/tui/            # terminal operator UI
 internal/browseropen/    # cross-platform local browser opener if worth splitting
 ```

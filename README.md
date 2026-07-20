@@ -26,8 +26,9 @@
 <p align="center">
   <strong>AI workspace and runtime for projects, chats, providers, and supervised agents.</strong><br>
   Run Hecate on your machine as the personal control plane for agent work:
-  create projects, chat with models, supervise external agents, approve risky
-  actions, inspect diffs, and trace what happened.
+  create projects, chat with models, supervise external agents, use Hecate from
+  ACP-capable clients, approve risky actions, inspect diffs, and trace what
+  happened.
 </p>
 
 > **Status: public alpha.** Hecate is useful today as an AI workspace for
@@ -82,6 +83,8 @@ The short version:
 - **External Agent supervision:** long-lived local ACP sessions for coding-agent
   CLIs, with readiness checks, approvals, adapter diagnostics, and Git diff
   review.
+- **ACP agent:** a local stdio endpoint that lets an ACP-capable editor use
+  Hecate's native task runtime without bypassing its policy or evidence trail.
 - **Agent orchestration:** project work, roles, assignments, handoffs, review
   artifacts, activity health, context snapshots, memory candidates, and
   operator-gated follow-up.
@@ -130,6 +133,8 @@ that claims project assignments through a portable coordination server.
 flowchart LR
     Operator["Operator"] --> Console["Browser / desktop console<br/>served by Hecate"]
     APIClients["Compatible API clients<br/>SDKs · tools · local apps"]
+    ACPClients["ACP-capable editors / clients"]
+    ACPBridge["hecate acp serve<br/>local stdio bridge"]
 
     subgraph HecateProcess["Local Hecate runtime process"]
         direction LR
@@ -159,6 +164,8 @@ flowchart LR
 
     Console --> HTTP
     APIClients --> HTTP
+    ACPClients --> ACPBridge
+    ACPBridge --> HTTP
     Gateway --> Providers
     TaskRuntime --> Tools
     AgentSupervisor --> ExternalCLIs
@@ -180,6 +187,7 @@ matters.
 | **Tasks**            | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, MCP tool/App integration, MCP probe, MCP registry discovery, and a built-in report-only `qa` workflow that records its read-only contract and clearly labels agent-reported findings separately from Hecate-observed posture/evidence.                                                                                                                                                                    |
 | **Browser evidence** | Optional, local native-browser inspection for native project-assignment tasks: script-disabled, exact-origin `GET`/`HEAD` static loads in a fresh profile, explicit approval for every call, a single wall-clock timeout, cancellation after 4 MiB of observed aggregate response data (with possible buffered overshoot), and a bounded text-only evidence artifact. It requires an operator-configured executable and does not expose scripts, clicks, typing, downloads, screenshots, saved browser state, Hecate Chat, or External Agents. |
 | **External Agent**   | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including file inputs, readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.                                                                                                                                                                                                                                                                  |
+| **ACP agent**        | `hecate acp serve` exposes Hecate's native `agent_loop` to local ACP-capable editors and clients. Text prompts map to durable tasks and runs; Hecate retains provider routing, policy, approvals, artifacts, and observability. [See the ACP agent contract.](docs/runtime/acp.md)                                                                                                                                                                                                                                                             |
 | **Observability**    | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                                                                                                                                                                                                                                                                                                    |
 | **Desktop app**      | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                                                                                                                                                                                                                                                                                                       |
 | **Sandbox policy**   | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                                                                                                                                                                                                                                                                                                  |
@@ -375,6 +383,21 @@ See [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime
 and [External Agents](docs/runtime/external-agents.md)
 for the deeper contracts.
 
+### Use Hecate as an ACP agent
+
+`hecate acp serve` is the opposite direction from External Agent supervision:
+an ACP-capable editor launches Hecate over local stdio, and Hecate maps the
+session to its native durable `agent_loop` tasks. That keeps provider routing,
+task sandbox/tool policy, approvals, artifacts, and traces in Hecate rather
+than in a new editor-side runtime. ACP V1 does not expose Agent Preset
+selection.
+
+This first slice supports text prompts and safe opaque resource references. It
+does not transfer file/media bodies, attach editor terminals/filesystems, launch
+client-supplied MCP servers, reload ACP sessions, or connect an editor to a
+remote Hecate runtime. See [Hecate as an ACP agent](docs/runtime/acp.md) for
+setup, the exact capability boundary, and local security model.
+
 ## Project, Context, And Memory Flow
 
 The newer Hecate shape starts with projects. A project is the durable local
@@ -442,7 +465,8 @@ bucket that matches your job.
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Running Hecate locally             | [Desktop app](docs/operator/desktop-app.md), [Deployment](docs/operator/deployment.md), [Security](docs/operator/security.md), [Providers](docs/operator/providers.md)       |
 | Calling Hecate from a client       | [Runtime API](docs/runtime/runtime-api.md), [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md), [Events](docs/runtime/events.md) |
-| Building coding-agent integrations | [External Agents](docs/runtime/external-agents.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)                                                 |
+| Connecting an ACP client to Hecate | [ACP agent](docs/runtime/acp.md), [Agent runtime](docs/runtime/agent-runtime.md), [Events](docs/runtime/events.md)                                                           |
+| Building coding-agent integrations | [External Agents](docs/runtime/external-agents.md), [ACP agent](docs/runtime/acp.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)               |
 | Changing the codebase              | [Architecture](docs/contributor/architecture.md), [Development](docs/contributor/development.md), [Release](docs/contributor/release.md), [docs-ai](docs-ai/README.md)       |
 | Planning future runtime behavior   | [Design records](docs/design/README.md), especially the proposal/accepted/candidate bucket before implementation starts.                                                     |
 
@@ -455,6 +479,8 @@ Runtime references:
 - [Chat sessions](docs/runtime/chat-sessions.md) - transcript segments, direct
   turns, task-backed turns, queued prompts, context packets, and External Agent
   chats.
+- [ACP agent](docs/runtime/acp.md) - `hecate acp serve`, its local stdio
+  contract, task mapping, capability boundary, and security posture.
 - [Events](docs/runtime/events.md) - run-event names, payloads, and SSE replay.
 - [Telemetry](docs/runtime/telemetry.md) - OpenTelemetry spans, metrics, logs,
   trace headers, local trace view, and retention.

@@ -783,6 +783,16 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		}
 	}
 
+	requestedModel := strings.TrimSpace(task.RequestedModel)
+	requestedProvider := strings.TrimSpace(task.RequestedProvider)
+	// An empty provider/model pair is Hecate's auto-routing contract. Preserve
+	// the empty model into the first agent-loop request so RuleRouter can choose
+	// each eligible provider's default and retain its normal failover set. A
+	// bridge/client must never preselect a provider just to make this runnable.
+	initialModel := firstNonEmpty(requestedModel, r.config.DefaultModel)
+	if task.ExecutionKind == "agent_loop" && requestedModel == "" && requestedProvider == "" {
+		initialModel = ""
+	}
 	run := types.TaskRun{
 		ID:              idgen("run"),
 		TaskID:          task.ID,
@@ -794,8 +804,8 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		Orchestrator:    "builtin",
 		WorkflowMode:    task.WorkflowMode,
 		WorkflowVersion: task.WorkflowVersion,
-		Model:           firstNonEmpty(task.RequestedModel, r.config.DefaultModel),
-		Provider:        task.RequestedProvider,
+		Model:           initialModel,
+		Provider:        requestedProvider,
 		WorkspaceID:     "workspace_" + task.ID,
 		StartedAt:       now,
 		RequestID:       requestID,
@@ -865,12 +875,12 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		run.WorkspaceID = "workspace_" + task.ID
 	}
 
-	// Preflight: agent_loop needs a model before we create the run.
-	// Failing here (before the run row exists) gives the API caller a
-	// clean 422 and avoids a run that would immediately fail on its
-	// first LLM call with a confusing "no route" error.
+	// Preflight: an explicit provider without a model is ambiguous. The empty
+	// provider/model pair is intentionally different: it is Hecate auto
+	// routing, resolved by the router on the first model call so provider
+	// defaults and cross-provider failover remain available.
 	if task.ExecutionKind == "agent_loop" {
-		if strings.TrimSpace(task.RequestedModel) == "" {
+		if requestedModel == "" && requestedProvider != "" {
 			return nil, fmt.Errorf("%w: no model configured; set task.RequestedModel", ErrAgentLoopMisconfigured)
 		}
 	}

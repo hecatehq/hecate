@@ -300,7 +300,10 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (clone behavior, default) or `"in_place"` (run directly in `working_directory`); see [`agent-runtime.md`](agent-runtime.md#workspace-modes)
 - `repo` / `base_branch` — alternate source for the workspace clone
 - `sandbox_allowed_root` / `sandbox_read_only` / `sandbox_network` — sandbox policy for shell / git / file execution and native `agent_loop` workspace tools. Read-only agent loops omit broad process and direct-write tools. For preset-backed project assignments, the network snapshot also gates native HTTP/search; see [`sandbox.md`](sandbox.md) for the full policy and isolation model
-- `requested_provider` / `requested_model` — pin the LLM (`agent_loop`); empty falls back to gateway default
+- `requested_provider` / `requested_model` — pin the LLM for an `agent_loop`
+  task. Omit both to let Hecate auto-route by eligible provider defaults and
+  retain normal failover. Supplying a provider without a model is invalid at
+  start time.
 - `budget_micros_usd` — per-task cost ceiling in micro-USD; `0` disables
 - `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 - `priority` / `timeout_ms`
@@ -476,7 +479,9 @@ endpoints and are also projected through task/run detail and SSE snapshots.
 - `GET /hecate/v1/tasks` — optional `project_id` query scopes the list. Pass an empty value (`?project_id=`) for unprojected tasks only.
 - `GET /hecate/v1/tasks/{id}`
 - `DELETE /hecate/v1/tasks/{id}`
-- `POST /hecate/v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no `requested_model` set. No run is created.
+- `POST /hecate/v1/tasks/{id}/start` — returns `422 model_not_configured` for
+  an incomplete explicit route (for example, `requested_provider` without
+  `requested_model`). An empty provider/model pair is Hecate auto-routing.
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`
@@ -1118,6 +1123,7 @@ GET /hecate/v1/providers/status
       "credential_state": "not_required",
       "credential_ready": true,
       "routing_ready": true,
+      "auto_route_ready": true,
       "readiness": {
         "status": "ok",
         "reason": "ready",
@@ -1171,7 +1177,10 @@ credentials", `no_models` includes "start the provider and load at least one
 model", and `provider_rate_limited` includes "wait for cooldown or route
 elsewhere".
 
-`routing_ready=false` means the router currently skips the provider. The
+`routing_ready=false` means the router currently skips the provider.
+`auto_route_ready=true` means an unpinned, model-less Hecate request can use
+this provider through its configured provider default or a matching gateway
+default; it does not select the provider or model. The
 matching `routing_blocked_reason` and the `reason` on the
 `readiness_checks[]` item whose `name` is `routing` use the same vocabulary as
 route diagnostics: `credential_missing`, `provider_disabled`,

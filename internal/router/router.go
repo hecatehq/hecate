@@ -50,9 +50,6 @@ func (r *RuleRouter) Route(ctx context.Context, req types.ChatRequest) (types.Ro
 	if model == "" {
 		model = r.defaultModel
 	}
-	if model == "" {
-		return types.RouteDecision{}, fmt.Errorf("no model available for routing")
-	}
 
 	if scope.ProviderHint != "" {
 		return r.routeExplicitProvider(ctx, req, scope.ProviderHint, model)
@@ -112,7 +109,10 @@ func (r *RuleRouter) Fallbacks(ctx context.Context, req types.ChatRequest, curre
 		} else {
 			model = provider.DefaultModel
 			if model == "" {
-				continue
+				model = r.defaultModel
+				if model == "" || !supportsModel(provider, model) {
+					continue
+				}
 			}
 		}
 		if !supportsRequest(provider, model, req) {
