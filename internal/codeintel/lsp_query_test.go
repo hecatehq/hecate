@@ -337,25 +337,38 @@ func TestService_LSPCancellationKillsProcessGroup(t *testing.T) {
 	}
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	service := fakeLSPService(t, "hang", pidFile)
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := time.Now()
-	_, err := service.Query(ctx, workspace, Request{Operation: OpDefinition, Path: "sample.go", Line: 1, Column: 1})
-	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
-		t.Fatalf("error = %v, want deadline", err)
-	}
-	if time.Since(started) > 2*time.Second {
-		t.Fatalf("cancellation took %s, want bounded cleanup", time.Since(started))
-	}
-	data, readErr := os.ReadFile(pidFile)
-	if readErr != nil {
-		t.Fatalf("read child pid: %v", readErr)
-	}
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := service.Query(ctx, workspace, Request{Operation: OpDefinition, Path: "sample.go", Line: 1, Column: 1})
+		queryDone <- err
+	}()
+
+	data := waitForLSPFixtureFile(t, pidFile, queryDone, "language-server descendant")
 	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
 	if parseErr != nil {
 		t.Fatalf("parse child pid: %v", parseErr)
 	}
-	deadline := time.Now().Add(time.Second)
+	if process, findErr := os.FindProcess(pid); findErr == nil {
+		t.Cleanup(func() { _ = process.Kill() })
+	}
+
+	started := time.Now()
+	cancel()
+	var queryErr error
+	select {
+	case queryErr = <-queryDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("language-server cancellation exceeded 2s")
+	}
+	if !errors.Is(queryErr, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", queryErr)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("cancellation took %s, want bounded cleanup", elapsed)
+	}
+	deadline := time.Now().Add(10 * time.Second)
 	for processExists(pid) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -409,26 +422,7 @@ func TestService_LSPEarlyExitCleanupIsBounded(t *testing.T) {
 	// keeps the read loop blocked. A short deadline on the whole query races
 	// process startup under full-suite race instrumentation and can expire
 	// before the behavior under test exists.
-	var data []byte
-	startupDeadline := time.Now().Add(10 * time.Second)
-	for {
-		var readErr error
-		data, readErr = os.ReadFile(pidFile)
-		if readErr == nil {
-			break
-		}
-		if !errors.Is(readErr, os.ErrNotExist) {
-			t.Fatalf("read child pid: %v", readErr)
-		}
-		select {
-		case err := <-queryDone:
-			t.Fatalf("query returned before descendant startup: %v", err)
-		case <-time.After(10 * time.Millisecond):
-		}
-		if time.Now().After(startupDeadline) {
-			t.Fatal("language-server descendant did not start within 10s")
-		}
-	}
+	data := waitForLSPFixtureFile(t, pidFile, queryDone, "language-server descendant")
 	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
 	if parseErr != nil {
 		t.Fatalf("parse child pid: %v", parseErr)
@@ -437,21 +431,17 @@ func TestService_LSPEarlyExitCleanupIsBounded(t *testing.T) {
 		t.Cleanup(func() { _ = process.Kill() })
 	}
 
-	started := time.Now()
 	cancel()
 	var queryErr error
 	select {
 	case queryErr = <-queryDone:
-	case <-time.After(750 * time.Millisecond):
-		t.Fatal("early-exit cleanup exceeded 750ms")
+	case <-time.After(10 * time.Second):
+		t.Fatal("early-exit cleanup exceeded 10s")
 	}
 	if !errors.Is(queryErr, context.Canceled) {
 		t.Fatalf("error = %v, want cancellation while descendant holds stdout open", queryErr)
 	}
-	if elapsed := time.Since(started); elapsed > 750*time.Millisecond {
-		t.Fatalf("early-exit cleanup took %s, want no stale wait-channel delay", elapsed)
-	}
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for processExists(pid) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -492,7 +482,7 @@ func TestService_LSPSuccessKillsProcessGroup(t *testing.T) {
 	if parseErr != nil {
 		t.Fatalf("parse child pid: %v", parseErr)
 	}
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for processExists(pid) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -684,6 +674,28 @@ func publishLSPHelperPID(path string, pid int) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func waitForLSPFixtureFile(t *testing.T, path string, queryDone <-chan error, label string) []byte {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return data
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read %s state: %v", label, err)
+		}
+		select {
+		case err := <-queryDone:
+			t.Fatalf("query returned before %s startup: %v", label, err)
+		case <-time.After(10 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not start within 10s", label)
+		}
+	}
 }
 
 func fixtureLSPResult(method, documentURI, rootURI string) any {

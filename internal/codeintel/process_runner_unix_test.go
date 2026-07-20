@@ -30,7 +30,7 @@ func TestCodeIntelProcessRunner_PreservesExactExecutablePath(t *testing.T) {
 		// Full-repository race instrumentation can delay process-exit
 		// observation substantially even for this tiny fixture. Keep a hard
 		// bound without making scheduler load part of the identity assertion.
-		Timeout:        10 * time.Second,
+		Timeout:        30 * time.Second,
 		MaxStdoutBytes: 1024,
 		MaxStderrBytes: 1024,
 	})
@@ -103,7 +103,7 @@ func TestCodeIntelProcessRunner_CancellationKillsDescendants(t *testing.T) {
 
 func assertProcessExited(t *testing.T, pid int, label string) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for processExists(pid) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
