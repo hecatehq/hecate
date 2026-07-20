@@ -1,6 +1,10 @@
 # Runtime API Notes
 
-Hecate exposes a coding-runtime API surface under `/hecate/v1/tasks` for client-orchestrated agents. The runtime is durable: a run survives process restarts, can be resumed from a terminal state, and is leased to one worker at a time so two replicas can share a queue without stepping on each other.
+Hecate exposes a coding-runtime API surface under `/hecate/v1/tasks` for
+client-orchestrated agents. The runtime is durable: a Run survives process
+restarts, can be resumed from a terminal state, and is leased to one worker at
+a time so two replicas can share a queue without stepping on each other. A
+Task may also carry one durable Schedule that starts ordinary Runs.
 
 For the high-level execution flow (lease semantics, sandbox boundary, event sequence), see [`architecture.md`](../contributor/architecture.md#task-runtime-flow). For the LLM-driven `agent_loop` execution kind specifically (tools, approval gating, cost tracking, retry-from-model-call semantics), see [`agent-runtime.md`](agent-runtime.md).
 
@@ -254,6 +258,7 @@ type while preserving the status and remediation fields.
 - [Core resources](#core-resources)
   - [Task fields](#task-fields)
   - [Run fields](#run-fields)
+  - [Schedule fields and endpoints](#schedule-fields-and-endpoints)
   - [Report-only QA workflow](#report-only-qa-workflow)
 - [Lifecycle endpoints](#lifecycle-endpoints)
   - [Resume semantics](#resume-semantics)
@@ -278,6 +283,8 @@ type while preserving the status and remediation fields.
 
 - `task`
 - `task_run`
+- `task_schedule`
+- `task_schedule_occurrence`
 - `task_step`
 - `task_artifact`
 - `task_approval`
@@ -320,6 +327,14 @@ omitted means the normal workspace `CLAUDE.md` / `AGENTS.md` prompt layer is
 eligible. `exclude` means the runner skips that compatibility layer for the
 task; native project assignments set this so Agent Preset context-source policy
 controls any workspace-instruction body inclusion.
+
+`POST /hecate/v1/tasks` creates execution intent; it does not create or enqueue
+a Run. The new Task therefore has canonical `status="not_started"` and no
+`latest_run_id`. This is a breaking status contract: clients must not interpret
+Task creation as queue admission, and Hecate does not emit a legacy `queued`
+alias for a Task with no Runs. `POST /hecate/v1/tasks/{id}/start` creates the
+first Run and atomically projects its initial `queued` or `awaiting_approval`
+status and id onto the Task.
 
 When `workflow_mode="qa"`, Hecate applies a report-only contract at create
 time. It rejects `mcp_servers`, `sandbox_network=true`, a non-`agent_loop`
@@ -405,6 +420,112 @@ committed ceiling.
 - `workflow_mode` / `workflow_version` — output-only snapshot of the built-in
   runbook contract selected on the parent Task. They are absent for ordinary
   Runs and let retry/resume history retain the exact QA contract that executed.
+- `schedule_id` / `schedule_occurrence_id` / `scheduled_for` — output-only
+  provenance for a Run created by a Schedule. Manual start, retry, resume, and
+  continuation Runs omit these fields. `scheduled_for` is the trigger's
+  nominal UTC instant and may precede `started_at` after runtime downtime.
+
+### Schedule fields and endpoints
+
+A Task may have at most one `task_schedule`. The Schedule is a trigger, not a
+future Run: Hecate creates the Run only after an occurrence is durably claimed.
+Replacing a Schedule preserves its `id`, `created_at`, and occurrence history;
+removing it deletes that trigger history. Deleting the Task deletes both.
+Chat-owned Tasks (`origin_kind="chat"`) cannot have a Schedule because a
+scheduled occurrence starts without a submitted Chat Turn. Create a standalone
+Task for one-time or recurring unattended work.
+
+Schedule endpoints are:
+
+- `GET /hecate/v1/task-schedules` — lists Schedules. Optional `task_id`,
+  `enabled=true|false`, and `limit` query parameters are AND-combined. Repeat
+  `task_id` to match any one of an exact Task-id set. Blank values are ignored,
+  duplicate values are collapsed, and requests may contain at most 200 unique
+  Task ids. `limit` defaults to 100 and is capped at 200.
+- `GET /hecate/v1/tasks/{id}/schedule` — returns the Task's Schedule or
+  `404 not_found`.
+- `PUT /hecate/v1/tasks/{id}/schedule` — creates or completely replaces the
+  Task's one Schedule and returns it with `200 OK`.
+- `DELETE /hecate/v1/tasks/{id}/schedule` — removes the Schedule and its
+  occurrence history with `204 No Content`.
+- `GET /hecate/v1/tasks/{id}/schedule/occurrences` — returns newest first;
+  optional `limit` defaults to 50 and is capped at 200.
+
+Every GET uses the normal Hecate envelope. A single Schedule returns
+`{"object":"task_schedule","data":{...}}`; list and occurrence responses use
+`task_schedules` and `task_schedule_occurrences` object names with arrays in
+`data`.
+
+Malformed fields or query values return `400 invalid_request`. A missing Task
+or per-Task Schedule returns `404 not_found`. Schedule replacement is
+revision-fenced internally. If an edit repeatedly loses to another edit or to
+the scheduler, it returns `409 conflict` with a reload/retry instruction. A
+one-time Schedule that fires while its replacement is being saved also returns
+`409 conflict`; choose a new future `run_at` rather than reviving the consumed
+instant. If Task deletion wins while a Schedule is being saved, the save
+returns the same stable `404 not_found` response as any other missing Task.
+`PUT` for a Chat-owned Task returns `400 invalid_request` with
+`chat-owned tasks cannot be scheduled`, whether the submitted Schedule is
+enabled or paused.
+
+`PUT` requires `kind`, `timezone`, and the boolean `enabled` field. Supported
+kinds are:
+
+- `once` — requires a future RFC3339 `run_at`. It fires at most once, then
+  becomes disabled and omits `next_run_at`.
+- `cron` — requires a standard five-field `cron_expression` (minute, hour, day
+  of month, month, day of week). Seconds, descriptor forms, and expressions
+  with no possible future occurrence are not accepted, even while disabled.
+
+`timezone` must be an IANA name such as `Europe/Madrid` or `UTC`; the
+process-local pseudo-zone `Local` is rejected. Cron evaluation follows that
+zone, including daylight-saving transitions. A once Schedule stores `run_at`
+as an exact instant. An enabled Schedule exposes its derived UTC
+`next_run_at`; a paused Schedule keeps its authored configuration but omits
+`next_run_at`. Re-enabling a cron Schedule derives its next future occurrence
+from the current time.
+
+One-time example:
+
+```json
+{
+  "kind": "once",
+  "timezone": "Europe/Madrid",
+  "run_at": "2026-07-21T07:00:00Z",
+  "enabled": true
+}
+```
+
+Recurring example:
+
+```json
+{
+  "kind": "cron",
+  "timezone": "Europe/Madrid",
+  "cron_expression": "0 9 * * 1-5",
+  "enabled": true
+}
+```
+
+An occurrence is durable trigger history with `id`, `task_id`, `schedule_id`,
+`scheduled_for`, `status`, `claimed_at`, and optional `run_id`, `error`, and
+`completed_at`. Status is `claimed`, `started`, `skipped`, or `failed`.
+`started` links to the ordinary Run created for that occurrence. `skipped`
+means another Run for the Task was already active; Hecate does not queue a
+backlog behind it. `failed` means the trigger was claimed but Hecate could not
+start the Run.
+
+The scheduler runs inside the Hecate runtime process. The runtime host must be
+running for a trigger to start promptly; closing the desktop app or stopping
+the gateway pauses dispatch. At the next start, an overdue one-time Schedule
+produces one due occurrence, while multiple missed cron times coalesce into one
+due occurrence and the next time advances beyond the current clock. There is
+no per-interval backfill.
+
+Scheduled Runs use the same task application, atomic active-Run guard, queue,
+sandbox, approvals, model policy, workspace policy, and budget ceiling as a
+manual start. An `awaiting_approval` Run therefore counts as active and causes
+a simultaneous scheduled occurrence to be skipped.
 
 ### Report-only QA workflow
 
@@ -487,6 +608,12 @@ endpoints and are also projected through task/run detail and SSE snapshots.
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-model-call`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/cancel`
+
+Task deletion returns `409 invalid_request` while any persisted Run is
+non-terminal, even if the Task's latest-Run projection is stale. Deletion and
+manual or scheduled Run admission share one storage lock/transaction, so a
+race has one durable winner: either deletion completes and admission finds no
+Task, or admission completes and deletion reports the active-Run conflict.
 
 ### Resume semantics
 
@@ -746,6 +873,24 @@ When a run is queued, workers consume it through a claim/lease protocol:
 4. worker `ack`s on success/terminal handling or `nack`s to requeue
 5. expired leases can be reclaimed by another worker
 
+Scheduled admission happens before this queue protocol. The scheduler polls
+for due rows, atomically inserts an occurrence keyed by
+`(schedule_id, scheduled_for)`, and advances the Schedule's next time in the
+same store transaction. A claim-owner-fenced transition then atomically does
+one of three things: returns the Run already linked to that occurrence, records
+an active-Run overlap as skipped, or inserts the new Run while projecting its
+parent Task, marking the occurrence started, appending `run.created` plus the
+initial queued/approval lifecycle events, and creating any required pending
+approval. A stale claim is reclaimable after five minutes; a live dispatcher
+renews it at no more than one-third of that window while workspace provisioning
+is still in progress. Definition edits and claims also compare and advance one
+internal Schedule revision, preventing either side from applying a stale
+`next_run_at` calculation. Queue insertion is the only post-commit side effect:
+it is duplicate-safe, enters targeted reconciliation on failure, and is
+covered by boot recovery after a crash. This handoff prevents a second runtime replica
+from creating a duplicate Run, reviving a skipped occurrence, stranding an
+approval-gated Run, or wedging a consumed Schedule back in the due set.
+
 Before workers start on gateway boot, Hecate scans every durable `queued` or
 `running` run in stable id-cursor pages and re-enqueues recoverable work. The
 500-row page size bounds each read; it is not a recovery cap. A page failure is
@@ -784,7 +929,9 @@ sequenceDiagram
 
 ## Runtime backend and queue configuration
 
-- `HECATE_BACKEND=memory|sqlite|postgres` controls Hecate-owned durable state such as tasks, the task queue, chats, runtime overlays, usage events, and settings.
+- `HECATE_BACKEND=memory|sqlite|postgres` controls Hecate-owned durable state
+  such as tasks, task schedules and their occurrence ledger, the task queue,
+  chats, runtime overlays, usage events, and settings.
 - Portable Projects coordination always uses Hecate's embedded Cairnline SQLite store at `{HECATE_DATA_DIR}/cairnline/embedded/projects.db`. There is no Projects backend selector, migration switch, or standalone connector configuration in the current runtime.
 - `HECATE_POSTGRES_URL=postgres://...` or `DATABASE_URL=postgres://...` is
   required when `HECATE_BACKEND=postgres`. Optional Postgres knobs:
@@ -811,11 +958,12 @@ sequenceDiagram
   the inspection, but this is not an OS-level browser network sandbox or egress
   firewall.
 
-When `HECATE_BACKEND=sqlite` or `postgres`,
-tasks/runs/steps/approvals/artifacts/run-events are persisted and the stream
-replay cursor is durable across restarts. Workers claim queue items with
-renewable leases, so pending runs survive process restarts and can be recovered
-when a lease expires.
+When `HECATE_BACKEND=sqlite` or `postgres`, Tasks, Runs, Schedules, schedule
+occurrences, Steps, approvals, artifacts, and Run events are persisted and the
+stream replay cursor is durable across restarts. Workers claim queue items with
+renewable leases, so pending Runs survive process restarts and can be recovered
+when a lease expires. Schedule and occurrence behavior has the same memory,
+SQLite, and Postgres contract; memory remains process-lifetime state.
 
 For `agent_loop`-specific knobs (maximum model calls, system-prompt layers, HTTP policy
 for the `http_request` tool, optional native `web_search`, and optional local

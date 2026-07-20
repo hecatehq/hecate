@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestApplication_ResolveTaskAssignmentLaunchPlanAppliesProfileHintsAndPromptContext(t *testing.T) {
@@ -111,6 +112,9 @@ func TestApplication_ResolveTaskAssignmentLaunchPlanAppliesProfileHintsAndPrompt
 	}
 
 	task := NewAssignmentTask("task_1", project, launchPlanTestWorkItem(), launchPlanTestAssignment(), role, plan, time.Date(2026, 6, 12, 9, 0, 0, 0, time.UTC))
+	if task.Status != types.TaskStatusNotStarted || task.LatestRunID != "" {
+		t.Fatalf("task lifecycle = status %q latest_run_id %q, want not started with no run", task.Status, task.LatestRunID)
+	}
 	if task.RequestedProvider != "openai" || task.RequestedModel != "gpt-4o-mini" || task.ExecutionProfile != "implementation" {
 		t.Fatalf("task launch hints = provider %q model %q profile %q", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}

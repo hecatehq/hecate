@@ -67,6 +67,23 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   without operator intervention. The recovery window is three times the
   configured lease duration (`HECATE_TASK_QUEUE_LEASE_SECONDS`); the scan
   cadence is `HECATE_TASK_RECONCILE_INTERVAL` (default `30s`).
+- Task scheduling is hosted by the Hecate runtime process, not an external
+  wake-up service. The owning runtime must remain running for prompt dispatch;
+  closing the desktop app or stopping the gateway pauses it. The scheduler
+  polls on a 15-second cadence, so a scheduled time is an eligibility time, not
+  a real-time deadline. On restart, an overdue one-time Schedule produces one
+  due occurrence and missed cron times coalesce into one occurrence rather
+  than backfilling every interval.
+- Scheduling currently supports one Schedule per Task: either one future
+  RFC3339 instant or a five-field cron expression in an IANA timezone. There
+  are no seconds, calendars, holiday exclusions, multiple triggers, or
+  configurable catch-up/overlap policies. If any Run for the Task is active,
+  including one awaiting approval, the occurrence is recorded as skipped. A
+  scheduled Run otherwise uses the Task's normal sandbox and approval policy;
+  scheduling does not grant unattended permission.
+- Chat-owned Tasks (`origin_kind="chat"`) cannot be scheduled. A scheduled
+  occurrence does not create a Chat Turn, so use a standalone Task for timed or
+  recurring work instead of trying to automate a Chat-backed Task.
 - The sandbox is a per-call `sh` subprocess with env sanitisation, output cap,
   and wall-clock timeout applied inline by the gateway. It is not a container,
   chroot, or VM; the subprocess runs as the same OS user as the gateway.
@@ -273,6 +290,12 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
 - The operator UI is usable for the main alpha workflows: provider setup,
   Chats for model and external-agent sessions, request inspection, usage,
   task approvals, and task-run debugging.
+- Chats and Tasks intentionally remain separate top-level surfaces but share
+  the same master/detail, list-row, header, selection, status, and action
+  grammar. Scheduling lives in Task Detail rather than a third Scheduled
+  screen. The Tasks index filters are **All**, **Needs attention** (pending
+  approval, `awaiting_approval`, or failed), **Scheduled** (including paused),
+  and **From chats** (`origin_kind=chat`).
 - Some bulk-management flows and deeper side-by-side artifact review are still
   lighter than a mature settings/governance product.
 

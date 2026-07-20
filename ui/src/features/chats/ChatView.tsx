@@ -58,6 +58,7 @@ import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/p
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";
+import { EntityDetailPane, MasterDetailWorkspace } from "../shared/EntityWorkspace";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { ChatHeader } from "./ChatHeader";
@@ -1114,14 +1115,7 @@ export function ChatView({
   }
 
   return (
-    <div
-      className="chat-view"
-      style={{
-        display: "flex",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
+    <MasterDetailWorkspace className="chat-view">
       {sidebarOpen && (
         <ChatSidebar
           isAgentChat={isAgentChat}
@@ -1151,16 +1145,7 @@ export function ChatView({
       )}
 
       {/* Chats main */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          minWidth: 0,
-          position: "relative",
-        }}
-      >
+      <EntityDetailPane>
         {selectedChatReady && (
           <ChatHeader
             sidebarOpen={sidebarOpen}
@@ -1624,7 +1609,7 @@ export function ChatView({
             </ChatRightPanel>
           )}
         </div>
-      </div>
+      </EntityDetailPane>
 
       <style>{`
         .cursor-blink { color: var(--teal); }
@@ -1652,7 +1637,7 @@ export function ChatView({
           />
         )}
       <AddProviderModal open={addProviderOpen} onClose={() => setAddProviderOpen(false)} />
-    </div>
+    </MasterDetailWorkspace>
   );
 }
 

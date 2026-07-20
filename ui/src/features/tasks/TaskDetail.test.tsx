@@ -147,11 +147,132 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
 }
 
 describe("TaskDetail run picker", () => {
+  it("presents a Task without execution history as not started", () => {
+    const onStartRun = vi.fn();
+    const { render } = setup({
+      task: makeTask({ latest_run_id: undefined }),
+      run: null,
+      runs: [],
+      selectedRunID: "",
+      onStartRun,
+    });
+    render();
+
+    expect(screen.getByText("not started")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "No Runs yet" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start first Run" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Select run" })).toBeNull();
+  });
+
+  it("does not suggest scheduling a no-Run Chat-origin Task", () => {
+    const { render } = setup({
+      task: makeTask({
+        latest_run_id: undefined,
+        origin_kind: "chat",
+        origin_id: "chat_123",
+      }),
+      run: null,
+      runs: [],
+      selectedRunID: "",
+      onStartRun: vi.fn(),
+    });
+    render();
+
+    const guidance = screen.getByText(/This Task comes from a Chat/);
+    expect(guidance).toHaveTextContent(/Start the first Run from the header/);
+    expect(guidance).not.toHaveTextContent(/Schedule/i);
+  });
+
+  it("keeps Schedule editing disabled and retryable after a load failure", async () => {
+    const onRefresh = vi.fn();
+    const { render, user } = setup({
+      onRefresh,
+      scheduleLoadState: "error",
+      scheduleLoadError: "scheduler unavailable",
+      onSaveSchedule: vi.fn(async () => {}),
+      onDeleteSchedule: vi.fn(async () => {}),
+    });
+    render();
+
+    expect(screen.getByRole("button", { name: "Schedule unavailable" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/scheduler unavailable/i);
+    await user.click(screen.getByRole("button", { name: "Retry schedule load" }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer Schedule controls for a Chat-origin Task", () => {
+    const { render } = setup({
+      task: makeTask({ origin_kind: "chat", origin_id: "chat_123" }),
+      schedule: {
+        id: "schedule-1",
+        task_id: "task-1",
+        kind: "cron",
+        cron_expression: "0 9 * * *",
+        timezone: "Europe/Madrid",
+        enabled: true,
+        next_run_at: "2026-04-28T07:00:00Z",
+        created_at: "2026-04-20T08:00:00Z",
+        updated_at: "2026-04-20T08:00:00Z",
+      },
+      scheduleLoadState: "error",
+      scheduleLoadError: "scheduler unavailable",
+      onSaveSchedule: vi.fn(async () => {}),
+      onDeleteSchedule: vi.fn(async () => {}),
+    });
+    render();
+
+    expect(screen.queryByTitle(/Edit schedule/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Next ·/ })).toBeNull();
+    expect(screen.queryByText(/scheduler unavailable/i)).toBeNull();
+  });
+
+  it("labels Runs created by a Schedule with their nominal fire time", () => {
+    const { render } = setup({
+      run: makeRun({
+        schedule_id: "schedule-1",
+        schedule_occurrence_id: "occurrence-1",
+        scheduled_for: "2026-04-27T16:55:00Z",
+      }),
+      schedule: {
+        id: "schedule-1",
+        task_id: "task-1",
+        kind: "cron",
+        cron_expression: "0 9 * * *",
+        timezone: "Europe/Madrid",
+        enabled: true,
+        next_run_at: "2026-04-28T07:00:00Z",
+        created_at: "2026-04-20T08:00:00Z",
+        updated_at: "2026-04-20T08:00:00Z",
+      },
+    });
+    render();
+
+    expect(screen.getByText(/Scheduled ·/)).toBeTruthy();
+    expect(screen.getByText(/Scheduled · .*Europe\/Madrid/)).toBeTruthy();
+  });
+
+  it("uses a wrapping, intrinsic-height task header", () => {
+    const { render } = setup();
+    render();
+    const header = screen.getByRole("banner", { name: "Task details" });
+    expect(header).toHaveStyle({ height: "auto", flexWrap: "wrap" });
+  });
+
+  it("announces success and error notices with the matching live-region priority", () => {
+    const success = setup({ notice: { tone: "success", message: "Schedule saved." } });
+    const view = success.render();
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+
+    view.rerender(<TaskDetail {...success.props} notice={{ tone: "error", message: "Failed." }} />);
+    expect(screen.getByRole("alert")).toHaveAttribute("aria-live", "assertive");
+  });
+
   it("keeps refresh in the selected task header", async () => {
     const onRefresh = vi.fn();
     const { render, user } = setup({ onRefresh });
     render();
 
+    expect(screen.getByRole("banner", { name: "Task details" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Refresh task" }));
 
     expect(onRefresh).toHaveBeenCalled();

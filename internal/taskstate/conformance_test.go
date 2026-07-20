@@ -126,6 +126,14 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreApplyRunStartTransitionConcurrent(t, factory(t))
 	})
+	t.Run(name+"/ApplyRunStartTransitionScheduledIdempotence", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunStartTransitionScheduledIdempotence(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunStartTransitionScheduledConcurrent", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunStartTransitionScheduledConcurrent(t, factory(t))
+	})
 	t.Run(name+"/TerminalTransitionPreservesDifferentTerminalWinner", func(t *testing.T) {
 		t.Parallel()
 		runStoreTerminalTransitionPreservesDifferentTerminalWinner(t, factory(t))
@@ -137,6 +145,18 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 	t.Run(name+"/DeleteTaskCascades", func(t *testing.T) {
 		t.Parallel()
 		runStoreDeleteTaskCascades(t, factory(t))
+	})
+	t.Run(name+"/DeleteTaskRejectsActiveRun", func(t *testing.T) {
+		t.Parallel()
+		runStoreDeleteTaskRejectsActiveRun(t, factory(t))
+	})
+	t.Run(name+"/DeleteTaskMissing", func(t *testing.T) {
+		t.Parallel()
+		runStoreDeleteTaskMissing(t, factory(t))
+	})
+	t.Run(name+"/DeleteTaskConcurrentWithRunStart", func(t *testing.T) {
+		t.Parallel()
+		runStoreDeleteTaskConcurrentWithRunStart(t, factory(t))
 	})
 	t.Run(name+"/TaskMCPServersRoundTrip", func(t *testing.T) {
 		t.Parallel()
@@ -276,6 +296,140 @@ func runStoreApplyRunStartTransitionConcurrent(t *testing.T, store Store) {
 	}
 	if len(runs) != 2 || active != 1 {
 		t.Fatalf("runs = %+v, want source plus exactly one active run", runs)
+	}
+}
+
+func runStoreApplyRunStartTransitionScheduledIdempotence(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-run-start-scheduled", Status: "failed", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	scheduledFor := now.Add(time.Minute)
+	firstTask := task
+	firstTask.Status = "queued"
+	firstTask.LatestRunID = "run-start-scheduled-first"
+	first, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task: firstTask,
+		Run: types.TaskRun{
+			ID: firstTask.LatestRunID, TaskID: task.ID, Status: "queued", StartedAt: now,
+			ScheduleID: "schedule-run-start", ScheduleOccurrenceID: "occurrence-run-start",
+			ScheduledFor: scheduledFor,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunStartTransition(first): %v", err)
+	}
+	if first.ExistingRun {
+		t.Fatal("first scheduled transition reported an existing run")
+	}
+	terminal := first.Run
+	terminal.Status = "completed"
+	terminal.FinishedAt = now.Add(time.Second)
+	if _, err := store.UpdateRun(ctx, terminal); err != nil {
+		t.Fatalf("UpdateRun(terminal): %v", err)
+	}
+
+	replayTask := first.Task
+	replayTask.Status = "queued"
+	replayTask.LatestRunID = "run-start-scheduled-replay"
+	replay, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task: replayTask,
+		Run: types.TaskRun{
+			ID: replayTask.LatestRunID, TaskID: task.ID, Status: "queued", StartedAt: now.Add(2 * time.Second),
+			ScheduleID: "schedule-run-start", ScheduleOccurrenceID: "occurrence-run-start",
+			ScheduledFor: scheduledFor,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunStartTransition(replay): %v", err)
+	}
+	if !replay.ExistingRun || replay.Run.ID != terminal.ID || replay.Run.Status != "completed" {
+		t.Fatalf("replay result = %+v, want authoritative terminal run %q", replay, terminal.ID)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("ListRuns after replay = (%+v, %v), want one run", runs, err)
+	}
+
+	conflictingTask := replayTask
+	conflictingTask.LatestRunID = "run-start-scheduled-conflict"
+	if _, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task: conflictingTask,
+		Run: types.TaskRun{
+			ID: conflictingTask.LatestRunID, TaskID: task.ID, Status: "queued",
+			ScheduleID: "different-schedule", ScheduleOccurrenceID: "occurrence-run-start",
+			ScheduledFor: scheduledFor,
+		},
+	}); err == nil {
+		t.Fatal("conflicting schedule provenance unexpectedly succeeded")
+	}
+
+	partialTask := replayTask
+	partialTask.LatestRunID = "run-start-scheduled-partial"
+	if _, err := store.ApplyRunStartTransition(ctx, RunStartTransition{
+		Task: partialTask,
+		Run: types.TaskRun{
+			ID: partialTask.LatestRunID, TaskID: task.ID, Status: "queued",
+			ScheduleOccurrenceID: "occurrence-partial",
+		},
+	}); err == nil {
+		t.Fatal("partial schedule provenance unexpectedly succeeded")
+	}
+}
+
+func runStoreApplyRunStartTransitionScheduledConcurrent(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	task, err := store.CreateTask(ctx, types.Task{
+		ID: "task-run-start-scheduled-concurrent", Status: "failed", CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	start := make(chan struct{})
+	results := make([]RunStartTransitionResult, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for index := range results {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			<-start
+			candidate := task
+			candidate.Status = "queued"
+			candidate.LatestRunID = fmt.Sprintf("run-start-scheduled-concurrent-%d", index)
+			results[index], errs[index] = store.ApplyRunStartTransition(ctx, RunStartTransition{
+				Task: candidate,
+				Run: types.TaskRun{
+					ID: candidate.LatestRunID, TaskID: task.ID, Status: "queued", StartedAt: now,
+					ScheduleID: "schedule-concurrent", ScheduleOccurrenceID: "occurrence-concurrent",
+					ScheduledFor: now.Add(time.Minute),
+				},
+			})
+		}(index)
+	}
+	close(start)
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent scheduled start error = %v", err)
+		}
+	}
+	if results[0].Run.ID != results[1].Run.ID {
+		t.Fatalf("concurrent authoritative run IDs = %q/%q, want one run", results[0].Run.ID, results[1].Run.ID)
+	}
+	if results[0].ExistingRun == results[1].ExistingRun {
+		t.Fatalf("concurrent existing flags = %v/%v, want one creator and one replay", results[0].ExistingRun, results[1].ExistingRun)
+	}
+	runs, err := store.ListRuns(ctx, task.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("ListRuns after concurrent start = (%+v, %v), want one run", runs, err)
 	}
 }
 
@@ -2917,13 +3071,17 @@ func runStoreDeleteTaskCascades(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
 
-	if _, err := store.CreateTask(ctx, types.Task{ID: "task-del", Status: "queued"}); err != nil {
+	if _, err := store.CreateTask(ctx, types.Task{ID: "task-del", Status: "completed"}); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	if _, err := store.CreateRun(ctx, types.TaskRun{ID: "run-del", TaskID: "task-del", Status: "running", StartedAt: time.Now().UTC()}); err != nil {
+	finishedAt := time.Now().UTC()
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID: "run-del", TaskID: "task-del", Status: "completed",
+		StartedAt: finishedAt.Add(-time.Minute), FinishedAt: finishedAt,
+	}); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
-	if _, err := store.AppendStep(ctx, types.TaskStep{ID: "step-del", TaskID: "task-del", RunID: "run-del", Status: "running"}); err != nil {
+	if _, err := store.AppendStep(ctx, types.TaskStep{ID: "step-del", TaskID: "task-del", RunID: "run-del", Status: "completed"}); err != nil {
 		t.Fatalf("AppendStep: %v", err)
 	}
 
@@ -2943,6 +3101,115 @@ func runStoreDeleteTaskCascades(t *testing.T, store Store) {
 	}
 	if len(steps) != 0 {
 		t.Fatalf("steps still present after delete: %d", len(steps))
+	}
+}
+
+func runStoreDeleteTaskRejectsActiveRun(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	const taskID = "task-delete-active"
+	const projectedRunID = "run-delete-projected-terminal"
+	const activeRunID = "run-delete-active-unprojected"
+
+	if _, err := store.CreateTask(ctx, types.Task{
+		ID: taskID, Status: "completed", LatestRunID: projectedRunID, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID: projectedRunID, TaskID: taskID, Status: "completed",
+		StartedAt: now.Add(-time.Minute), FinishedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun(projected): %v", err)
+	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID: activeRunID, TaskID: taskID, Status: "running", StartedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun(active unprojected): %v", err)
+	}
+
+	if err := store.DeleteTask(ctx, taskID); !errors.Is(err, ErrActiveRun) {
+		t.Fatalf("DeleteTask(active) error = %v, want ErrActiveRun", err)
+	}
+	if _, found, err := store.GetTask(ctx, taskID); err != nil || !found {
+		t.Fatalf("GetTask after rejected delete = (found %v, error %v), want present", found, err)
+	}
+	if _, found, err := store.GetRun(ctx, taskID, activeRunID); err != nil || !found {
+		t.Fatalf("GetRun(active) after rejected delete = (found %v, error %v), want present", found, err)
+	}
+}
+
+func runStoreDeleteTaskMissing(t *testing.T, store Store) {
+	t.Helper()
+	if err := store.DeleteTask(t.Context(), "task-delete-missing"); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("DeleteTask(missing) error = %v, want ErrTaskNotFound", err)
+	}
+}
+
+func runStoreDeleteTaskConcurrentWithRunStart(t *testing.T, store Store) {
+	t.Helper()
+	ctx := t.Context()
+	now := time.Now().UTC()
+	const taskID = "task-delete-start-race"
+	const runID = "run-delete-start-race"
+
+	storedTask, err := store.CreateTask(ctx, types.Task{
+		ID: taskID, Status: types.TaskStatusNotStarted, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	candidateTask := storedTask
+	candidateTask.Status = "queued"
+	candidateTask.LatestRunID = runID
+	candidateTask.UpdatedAt = now.Add(time.Second)
+	candidateRun := types.TaskRun{
+		ID: runID, TaskID: taskID, Status: "queued", StartedAt: now.Add(time.Second),
+	}
+
+	start := make(chan struct{})
+	var deleteErr, startErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		deleteErr = store.DeleteTask(ctx, taskID)
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		_, startErr = store.ApplyRunStartTransition(ctx, RunStartTransition{
+			Task: candidateTask, Run: candidateRun,
+		})
+	}()
+	close(start)
+	wg.Wait()
+
+	switch {
+	case deleteErr == nil:
+		if !errors.Is(startErr, ErrTaskNotFound) {
+			t.Fatalf("delete won but Run start error = %v, want ErrTaskNotFound", startErr)
+		}
+		if _, found, err := store.GetTask(ctx, taskID); err != nil || found {
+			t.Fatalf("Task after delete winner = (found %v, error %v), want absent", found, err)
+		}
+		if _, found, err := store.GetRun(ctx, taskID, runID); err != nil || found {
+			t.Fatalf("Run after delete winner = (found %v, error %v), want absent", found, err)
+		}
+	case startErr == nil:
+		if !errors.Is(deleteErr, ErrActiveRun) {
+			t.Fatalf("Run start won but delete error = %v, want ErrActiveRun", deleteErr)
+		}
+		if _, found, err := store.GetTask(ctx, taskID); err != nil || !found {
+			t.Fatalf("Task after Run-start winner = (found %v, error %v), want present", found, err)
+		}
+		if _, found, err := store.GetRun(ctx, taskID, runID); err != nil || !found {
+			t.Fatalf("Run after Run-start winner = (found %v, error %v), want present", found, err)
+		}
+	default:
+		t.Fatalf("delete/start race = (%v, %v), want exactly one winner", deleteErr, startErr)
 	}
 }
 

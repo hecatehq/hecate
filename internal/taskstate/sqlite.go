@@ -26,15 +26,17 @@ import (
 //     lacks array params.
 type SQLiteStore struct {
 	runEventBus
-	db             storage.DB
-	client         storage.SQLClient
-	backend        string
-	tasksTable     string
-	runsTable      string
-	stepsTable     string
-	approvalsTable string
-	artifactsTable string
-	eventsTable    string
+	db               storage.DB
+	client           storage.SQLClient
+	backend          string
+	tasksTable       string
+	runsTable        string
+	stepsTable       string
+	approvalsTable   string
+	artifactsTable   string
+	eventsTable      string
+	schedulesTable   string
+	occurrencesTable string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
@@ -50,15 +52,17 @@ func newSQLStore(ctx context.Context, client storage.SQLClient) (*SQLiteStore, e
 		return nil, fmt.Errorf("sql client is required")
 	}
 	store := &SQLiteStore{
-		db:             client.DB(),
-		client:         client,
-		backend:        client.Backend(),
-		tasksTable:     client.QualifiedTable("task_state_tasks"),
-		runsTable:      client.QualifiedTable("task_state_runs"),
-		stepsTable:     client.QualifiedTable("task_state_steps"),
-		approvalsTable: client.QualifiedTable("task_state_approvals"),
-		artifactsTable: client.QualifiedTable("task_state_artifacts"),
-		eventsTable:    client.QualifiedTable("task_state_run_events"),
+		db:               client.DB(),
+		client:           client,
+		backend:          client.Backend(),
+		tasksTable:       client.QualifiedTable("task_state_tasks"),
+		runsTable:        client.QualifiedTable("task_state_runs"),
+		stepsTable:       client.QualifiedTable("task_state_steps"),
+		approvalsTable:   client.QualifiedTable("task_state_approvals"),
+		artifactsTable:   client.QualifiedTable("task_state_artifacts"),
+		eventsTable:      client.QualifiedTable("task_state_run_events"),
+		schedulesTable:   client.QualifiedTable("task_state_schedules"),
+		occurrencesTable: client.QualifiedTable("task_state_schedule_occurrences"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -178,16 +182,53 @@ func (s *SQLiteStore) UpdateTask(ctx context.Context, task types.Task) (types.Ta
 }
 
 func (s *SQLiteStore) DeleteTask(ctx context.Context, id string) error {
-	if strings.TrimSpace(id) == "" {
+	id = strings.TrimSpace(id)
+	if id == "" {
 		return fmt.Errorf("task id is required")
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := s.getTaskForRunStartTx(ctx, tx, id); err != nil {
+		return err
+	}
+	runs, err := s.listTaskRunsForStartTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if !types.IsTerminalTaskRunStatus(run.Status) {
+			return ErrActiveRun
+		}
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE schedule_id IN (SELECT id FROM %s WHERE task_id = ?)
+	`, s.occurrencesTable, s.schedulesTable), id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE task_id = ?`, s.schedulesTable), id); err != nil {
+		return err
+	}
 	for _, table := range []string{s.eventsTable, s.artifactsTable, s.approvalsTable, s.stepsTable, s.runsTable} {
-		if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE task_id = ?`, table), id); err != nil {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE task_id = ?`, table), id); err != nil {
 			return err
 		}
 	}
-	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.tasksTable), id)
-	return err
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.tasksTable), id)
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted != 1 {
+		return fmt.Errorf("%w: %q", ErrTaskNotFound, id)
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) CreateRun(ctx context.Context, run types.TaskRun) (types.TaskRun, error) {
@@ -1387,7 +1428,10 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	approvalsUnquoted := strings.Trim(s.approvalsTable, `"`)
 	artifactsUnquoted := strings.Trim(s.artifactsTable, `"`)
 	eventsUnquoted := strings.Trim(s.eventsTable, `"`)
+	schedulesUnquoted := strings.Trim(s.schedulesTable, `"`)
+	occurrencesUnquoted := strings.Trim(s.occurrencesTable, `"`)
 	timestampColumn := storage.TimestampColumnDefaultZero(s.client)
+	nullableTimestampColumn := storage.TimestampColumn(s.client)
 
 	statements := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '', updated_at %s, payload TEXT NOT NULL)`, s.tasksTable, timestampColumn),
@@ -1403,6 +1447,11 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_run_created_idx" ON %s (task_id, run_id, created_at DESC, id DESC)`, artifactsUnquoted, s.artifactsTable),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (sequence %s, task_id TEXT NOT NULL, run_id TEXT NOT NULL, event_type TEXT NOT NULL DEFAULT '', event_data TEXT NOT NULL DEFAULT '{}', request_id TEXT NOT NULL DEFAULT '', trace_id TEXT NOT NULL DEFAULT '', created_at %s)`, s.eventsTable, storage.AutoIDColumn(s.client), timestampColumn),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_run_sequence_idx" ON %s (run_id, sequence ASC)`, eventsUnquoted, s.eventsTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE REFERENCES %s(id) ON DELETE CASCADE, kind TEXT NOT NULL, cron_expression TEXT NOT NULL DEFAULT '', timezone TEXT NOT NULL DEFAULT '', run_at %s, enabled BOOLEAN NOT NULL DEFAULT FALSE, next_run_at %s, created_at %s NOT NULL, updated_at %s NOT NULL, revision BIGINT NOT NULL DEFAULT 1)`, s.schedulesTable, s.tasksTable, nullableTimestampColumn, nullableTimestampColumn, nullableTimestampColumn, nullableTimestampColumn),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_due_idx" ON %s (enabled, next_run_at ASC, id ASC)`, schedulesUnquoted, s.schedulesTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES %s(id) ON DELETE CASCADE, schedule_id TEXT NOT NULL REFERENCES %s(id) ON DELETE CASCADE, scheduled_for %s NOT NULL, status TEXT NOT NULL, claim_owner TEXT NOT NULL, claimed_at %s NOT NULL, run_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', completed_at %s, UNIQUE (schedule_id, scheduled_for))`, s.occurrencesTable, s.tasksTable, s.schedulesTable, nullableTimestampColumn, nullableTimestampColumn, nullableTimestampColumn),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_schedule_history_idx" ON %s (schedule_id, scheduled_for DESC, id ASC)`, occurrencesUnquoted, s.occurrencesTable),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_stale_claim_idx" ON %s (status, claimed_at ASC, id ASC)`, occurrencesUnquoted, s.occurrencesTable),
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {

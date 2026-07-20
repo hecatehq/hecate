@@ -22,6 +22,18 @@ type runQueueCoordinatorConfig struct {
 
 const pendingRunReconcilePageSize = 500
 
+type pendingReconcileMode uint8
+
+const (
+	pendingReconcileEnqueue pendingReconcileMode = iota + 1
+	pendingReconcileDisconnected
+)
+
+type pendingReconcile struct {
+	job  QueueJob
+	mode pendingReconcileMode
+}
+
 type runQueueCoordinator struct {
 	runner *Runner
 
@@ -36,7 +48,7 @@ type runQueueCoordinator struct {
 	jobs  map[string]map[*inFlightJob]struct{}
 
 	pendingReconcileMu sync.Mutex
-	pendingReconciles  map[QueueJob]struct{}
+	pendingReconciles  map[QueueJob]pendingReconcileMode
 	retryFullReconcile bool
 
 	// workerCtx is the lifetime context for queue-worker goroutines and
@@ -88,7 +100,7 @@ func newRunQueueCoordinator(runner *Runner, cfg runQueueCoordinatorConfig) *runQ
 		reconcileInterval: reconcileInterval,
 		workerID:          workerID,
 		jobs:              make(map[string]map[*inFlightJob]struct{}),
-		pendingReconciles: make(map[QueueJob]struct{}),
+		pendingReconciles: make(map[QueueJob]pendingReconcileMode),
 		workerCtx:         workerCtx,
 		workerCancel:      workerCancel,
 	}
@@ -143,7 +155,7 @@ func (c *runQueueCoordinator) ReconcilePendingRuns(ctx context.Context) error {
 		for _, run := range runs {
 			task, found, err := r.store.GetTask(ctx, run.TaskID)
 			if err != nil {
-				c.rememberPendingReconcile(QueueJob{TaskID: run.TaskID, RunID: run.ID})
+				c.rememberPendingDisconnectedReconcile(QueueJob{TaskID: run.TaskID, RunID: run.ID})
 				reconcileErrors = append(reconcileErrors, fmt.Errorf("load task %q for run %q: %w", run.TaskID, run.ID, err))
 				continue
 			}
@@ -154,7 +166,7 @@ func (c *runQueueCoordinator) ReconcilePendingRuns(ctx context.Context) error {
 				Reason:           "boot_reconcile",
 				RecoveryStrategy: "requeue",
 			}); err != nil {
-				c.rememberPendingReconcile(QueueJob{TaskID: task.ID, RunID: run.ID})
+				c.rememberPendingDisconnectedReconcile(QueueJob{TaskID: task.ID, RunID: run.ID})
 				reconcileErrors = append(reconcileErrors, fmt.Errorf("reconcile run %q: %w", run.ID, err))
 			} else {
 				c.forgetPendingReconcile(QueueJob{TaskID: task.ID, RunID: run.ID})
@@ -228,9 +240,17 @@ func (c *runQueueCoordinator) clearFullReconcile() {
 	c.pendingReconcileMu.Unlock()
 }
 
-func (c *runQueueCoordinator) rememberPendingReconcile(job QueueJob) {
+func (c *runQueueCoordinator) rememberPendingEnqueueReconcile(job QueueJob) {
 	c.pendingReconcileMu.Lock()
-	c.pendingReconciles[job] = struct{}{}
+	if _, exists := c.pendingReconciles[job]; !exists {
+		c.pendingReconciles[job] = pendingReconcileEnqueue
+	}
+	c.pendingReconcileMu.Unlock()
+}
+
+func (c *runQueueCoordinator) rememberPendingDisconnectedReconcile(job QueueJob) {
+	c.pendingReconcileMu.Lock()
+	c.pendingReconciles[job] = pendingReconcileDisconnected
 	c.pendingReconcileMu.Unlock()
 }
 
@@ -242,19 +262,44 @@ func (c *runQueueCoordinator) forgetPendingReconcile(job QueueJob) {
 
 func (c *runQueueCoordinator) retryPendingReconciles(ctx context.Context) error {
 	c.pendingReconcileMu.Lock()
-	jobs := make([]QueueJob, 0, len(c.pendingReconciles))
-	for job := range c.pendingReconciles {
-		jobs = append(jobs, job)
+	pending := make([]pendingReconcile, 0, len(c.pendingReconciles))
+	for job, mode := range c.pendingReconciles {
+		pending = append(pending, pendingReconcile{job: job, mode: mode})
 	}
 	c.pendingReconcileMu.Unlock()
 	var retryErrors []error
-	for _, job := range jobs {
+	for _, item := range pending {
+		job := item.job
 		run, found, err := c.runner.store.GetRun(ctx, job.TaskID, job.RunID)
 		if err != nil {
 			retryErrors = append(retryErrors, fmt.Errorf("load pending run %q: %w", job.RunID, err))
 			continue
 		}
-		if !found || (run.Status != "queued" && run.Status != "running") {
+		if !found {
+			c.forgetPendingReconcile(job)
+			continue
+		}
+		if run.Status == "running" && item.mode == pendingReconcileEnqueue {
+			// An enqueue error is ambiguous: the queue may have accepted and a
+			// worker may already have claimed the job. Never rewrite a live Run
+			// to queued here. Local in-flight work and remote work are both left
+			// to complete; genuinely abandoned Runs are handled by the existing
+			// lease/stale-running reconciler.
+			c.forgetPendingReconcile(job)
+			continue
+		}
+		if run.Status != "queued" && !(run.Status == "running" && item.mode == pendingReconcileDisconnected) {
+			c.forgetPendingReconcile(job)
+			continue
+		}
+		if item.mode == pendingReconcileEnqueue {
+			// The durable state is already queued; this retry repairs only the
+			// queue transport side effect. Do not synthesize a disconnect event
+			// or rewrite state when no worker ever disconnected.
+			if err := c.runner.enqueueRunWithReconcile(job.TaskID, job.RunID); err != nil {
+				retryErrors = append(retryErrors, fmt.Errorf("retry pending enqueue for run %q: %w", job.RunID, err))
+				continue
+			}
 			c.forgetPendingReconcile(job)
 			continue
 		}

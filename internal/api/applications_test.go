@@ -14,6 +14,9 @@ func TestHandlerApplicationHelpersAreNilSafe(t *testing.T) {
 	if handler.taskApplication() == nil {
 		t.Fatal("taskApplication() returned nil")
 	}
+	if handler.taskscheduleApplication() == nil {
+		t.Fatal("taskscheduleApplication() returned nil")
+	}
 	if handler.chatApplication() == nil {
 		t.Fatal("chatApplication() returned nil")
 	}

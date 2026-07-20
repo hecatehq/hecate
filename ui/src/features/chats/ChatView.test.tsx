@@ -4915,7 +4915,7 @@ describe("ChatView chats sidebar", () => {
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
-    const row = screen.getByRole("button", { name: /^Chat Plan next work for hecate/ });
+    const row = screen.getByRole("link", { name: /^Chat Plan next work for hecate/ });
     expect(within(row).getByText("draft")).toBeTruthy();
     expect(within(row).queryByText("0 msg")).toBeNull();
     expect(within(row).queryByText("idle")).toBeNull();
@@ -5005,6 +5005,7 @@ describe("ChatView chats sidebar", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
+    await user.hover(screen.getByRole("link", { name: /^Chat Codex refactor/ }));
     await user.click(screen.getByRole("button", { name: "Rename chat Codex refactor" }));
     const input = screen.getByDisplayValue("Codex refactor");
     await user.clear(input);
@@ -5033,6 +5034,26 @@ describe("ChatView chats sidebar", () => {
     expect(onSelectChat).toHaveBeenCalledWith("s1");
   });
 
+  it("keeps modified chat-row clicks as native navigation", () => {
+    const selectChatSession = vi.fn(async () => true);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        defaultChatToolsEnabled: false,
+        chatSessions: [
+          { id: "s1", title: "Open separately", message_count: 0, provider_call_count: 0 } as any,
+        ],
+      },
+      { selectChatSession },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const row = screen.getByRole("link", { name: /^Chat Open separately$/ });
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(row, { ctrlKey: true });
+    expect(selectChatSession).not.toHaveBeenCalled();
+  });
+
   it("calls selectChatSession when pressing Enter or Space on a focused chat row", async () => {
     const selectChatSession = vi.fn(async () => true);
     const { state, actions } = setup(
@@ -5047,8 +5068,9 @@ describe("ChatView chats sidebar", () => {
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
-    const row = screen.getByRole("button", { name: /^Chat Pick me$/ });
-    row.focus();
+    const row = screen.getByRole("link", { name: /^Chat Pick me$/ });
+    expect(row).toHaveAttribute("href", "/chats?chat=s1");
+    act(() => row.focus());
     await user.keyboard("{Enter}");
     expect(selectChatSession).toHaveBeenLastCalledWith("s1");
     await user.keyboard(" ");
@@ -6767,10 +6789,9 @@ describe("ChatView external-agent target", () => {
     expect(
       screen.getByRole("button", { name: "Check queued message 1 delivery status" }),
     ).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^Chat Stopping work/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    const stoppingChatLink = screen.getByRole("link", { name: /^Chat Stopping work/ });
+    expect(stoppingChatLink).toHaveAttribute("aria-disabled", "true");
+    fireEvent.mouseEnter(stoppingChatLink);
     expect(screen.getByRole("button", { name: "Rename chat Stopping work" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete chat Stopping work" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Auto approve: off/i })).toBeDisabled();
@@ -6812,6 +6833,7 @@ describe("ChatView external-agent target", () => {
     const { state, actions } = setup(fixture, { deleteChatSession });
     const view = render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
+    await user.hover(screen.getByRole("link", { name: /^Chat Pending deletion/ }));
     await user.click(screen.getByRole("button", { name: "Delete chat Pending deletion" }));
     expect(screen.getByRole("button", { name: "Delete chat" })).toBeEnabled();
 
@@ -6849,6 +6871,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView onSelectChat={onSelectChat} />, { state, actions }));
     const user = userEvent.setup();
 
+    await user.hover(screen.getByRole("link", { name: /^Chat Delete me/ }));
     await user.click(screen.getByRole("button", { name: "Delete chat Delete me" }));
     await user.click(screen.getByRole("button", { name: "Delete chat" }));
 

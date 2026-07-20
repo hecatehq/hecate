@@ -120,6 +120,32 @@ type failingShutdownAgentChatRunner struct {
 	err error
 }
 
+type recordingTaskScheduleRuntime struct {
+	startCalls    int
+	shutdownCalls int
+	startErr      error
+	shutdownErr   error
+}
+
+type failingBootReconcileStore struct {
+	taskstate.Store
+	err error
+}
+
+func (s *failingBootReconcileStore) ListRunsByFilter(context.Context, taskstate.RunFilter) ([]types.TaskRun, error) {
+	return nil, s.err
+}
+
+func (r *recordingTaskScheduleRuntime) Start(context.Context) error {
+	r.startCalls++
+	return r.startErr
+}
+
+func (r *recordingTaskScheduleRuntime) Shutdown(context.Context) error {
+	r.shutdownCalls++
+	return r.shutdownErr
+}
+
 func (r failingShutdownAgentChatRunner) Run(context.Context, agentadapters.RunRequest) (agentadapters.RunResult, error) {
 	return agentadapters.RunResult{}, errors.New("unexpected Run call")
 }
@@ -179,6 +205,73 @@ func TestHandler_Shutdown_ClosesBothRunnerAndCache(t *testing.T) {
 	// Runner must accept Shutdown again (also idempotent).
 	if err := runner.Shutdown(ctx); err != nil {
 		t.Errorf("second runner.Shutdown after Handler.Shutdown: %v", err)
+	}
+}
+
+func TestHandler_TaskRuntimeStartsAndStopsScheduler(t *testing.T) {
+	t.Parallel()
+	runner := newShutdownTestRunner(t)
+	scheduler := &recordingTaskScheduleRuntime{}
+	h := &Handler{taskRunner: runner, taskScheduler: scheduler}
+
+	if err := h.StartTaskRuntime(t.Context()); err != nil {
+		t.Fatalf("StartTaskRuntime() error = %v", err)
+	}
+	if scheduler.startCalls != 1 {
+		t.Fatalf("scheduler start calls = %d, want 1", scheduler.startCalls)
+	}
+	if err := h.StartTaskRuntime(t.Context()); err != nil {
+		t.Fatalf("second StartTaskRuntime() error = %v", err)
+	}
+	if scheduler.startCalls != 1 {
+		t.Fatalf("scheduler start calls after second start = %d, want idempotent 1", scheduler.startCalls)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := h.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	if scheduler.shutdownCalls != 1 {
+		t.Fatalf("scheduler shutdown calls = %d, want 1", scheduler.shutdownCalls)
+	}
+}
+
+func TestHandler_TaskRuntimeStartsSchedulerAfterNonfatalQueueReconciliationError(t *testing.T) {
+	queueErr := errors.New("boot reconciliation unavailable")
+	schedulerErr := errors.New("scheduler startup failed")
+	store := &failingBootReconcileStore{Store: taskstate.NewMemoryStore(), err: queueErr}
+	runner := orchestrator.NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		profiler.NewInMemoryTracer(nil),
+		orchestrator.Config{QueueWorkers: 1, DeferQueueStart: true},
+	)
+	scheduler := &recordingTaskScheduleRuntime{startErr: schedulerErr}
+	h := &Handler{taskRunner: runner, taskScheduler: scheduler}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = h.Shutdown(ctx)
+	})
+
+	err := h.StartTaskRuntime(t.Context())
+	if !errors.Is(err, queueErr) || !errors.Is(err, schedulerErr) {
+		t.Fatalf("StartTaskRuntime() error = %v, want joined queue and scheduler errors", err)
+	}
+	if scheduler.startCalls != 1 {
+		t.Fatalf("scheduler start calls = %d, want 1 despite queue reconciliation error", scheduler.startCalls)
+	}
+}
+
+func TestHandler_ShutdownReportsSchedulerFailure(t *testing.T) {
+	t.Parallel()
+	scheduler := &recordingTaskScheduleRuntime{shutdownErr: errors.New("scheduler stuck")}
+	h := &Handler{taskScheduler: scheduler}
+
+	err := h.Shutdown(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "task scheduler shutdown: scheduler stuck") {
+		t.Fatalf("Shutdown() error = %v, want labeled scheduler failure", err)
 	}
 }
 

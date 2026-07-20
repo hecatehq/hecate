@@ -58,6 +58,7 @@ import {
   getUsageEvents,
   getUsageSummary,
   getSession,
+  getTaskSchedules,
   getTaskRunContext,
   getTrace,
   listChatApprovals,
@@ -95,6 +96,7 @@ describe("api client", () => {
   const fetchMock = vi.fn<typeof fetch>();
 
   beforeEach(() => {
+    fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -114,6 +116,16 @@ describe("api client", () => {
     expect(options.method).toBe("POST");
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(options.body).toBe(JSON.stringify({ hello: "world" }));
+  });
+
+  it("encodes every visible Task ID in the batched schedules request", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ object: "task_schedules", data: [] }));
+
+    await getTaskSchedules(["task/one", "task two"]);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/hecate/v1/task-schedules?task_id=task%2Fone&task_id=task+two",
+    );
   });
 
   it("uploads, reads, and deletes chat attachments with encoded ids", async () => {

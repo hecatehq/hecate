@@ -125,7 +125,7 @@ func (r *Runner) resumeTaskAfterApproval(ctx context.Context, task types.Task, a
 	approval = transition.Approval
 	approvalWaitMS := approvalWaitMilliseconds(approval.CreatedAt, approval.ResolvedAt)
 	r.recordApprovalResolved(ctx, trace, task.ID, run.ID, approval, "approved", approvalWaitMS)
-	if err := r.enqueueRun(task.ID, run.ID); err != nil {
+	if err := r.enqueueRunWithReconcile(task.ID, run.ID); err != nil {
 		return nil, approval, err
 	}
 
@@ -402,9 +402,20 @@ func (r *Runner) approvalSpecForTask(task types.Task) (kind string, reason strin
 }
 
 func (r *Runner) createApprovalForTask(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, requestID string, createdAt time.Time, idgen func(prefix string) string) (types.TaskApproval, error) {
+	approval := r.prepareApprovalForTask(trace, task, run, requestID, createdAt, idgen("approval"))
+	approval, err := r.store.CreateApproval(ctx, approval)
+	if err != nil {
+		r.recordApprovalCreateFailed(trace, task, run, approval, err)
+		return types.TaskApproval{}, err
+	}
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalRequested.String(), requestID, trace.TraceID, runtimeevents.ApprovalRequested(approval))
+	return approval, nil
+}
+
+func (r *Runner) prepareApprovalForTask(trace *profiler.Trace, task types.Task, run types.TaskRun, requestID string, createdAt time.Time, approvalID string) types.TaskApproval {
 	kind, reason := r.approvalSpecForTask(task)
 	approval := types.TaskApproval{
-		ID:          idgen("approval"),
+		ID:          approvalID,
 		TaskID:      task.ID,
 		RunID:       run.ID,
 		Kind:        kind,
@@ -425,20 +436,18 @@ func (r *Runner) createApprovalForTask(ctx context.Context, trace *profiler.Trac
 		telemetry.AttrHecateShellCommand: task.ShellCommand,
 	})
 	approval.SpanID = spanIDByName(trace, "orchestrator.approval")
-	approval, err := r.store.CreateApproval(ctx, approval)
-	if err != nil {
-		trace.Record(telemetry.EventOrchestratorApprovalFailed, map[string]any{
-			telemetry.AttrHecatePhase:      "approval",
-			telemetry.AttrHecateResult:     telemetry.ResultError,
-			telemetry.AttrHecateErrorKind:  "approval_create_failed",
-			telemetry.AttrErrorType:        "approval_create_failed",
-			telemetry.AttrErrorMessage:     err.Error(),
-			telemetry.AttrHecateTaskID:     task.ID,
-			telemetry.AttrHecateRunID:      run.ID,
-			telemetry.AttrHecateApprovalID: approval.ID,
-		})
-		return types.TaskApproval{}, err
-	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalRequested.String(), requestID, trace.TraceID, runtimeevents.ApprovalRequested(approval))
-	return approval, nil
+	return approval
+}
+
+func (r *Runner) recordApprovalCreateFailed(trace *profiler.Trace, task types.Task, run types.TaskRun, approval types.TaskApproval, err error) {
+	trace.Record(telemetry.EventOrchestratorApprovalFailed, map[string]any{
+		telemetry.AttrHecatePhase:      "approval",
+		telemetry.AttrHecateResult:     telemetry.ResultError,
+		telemetry.AttrHecateErrorKind:  "approval_create_failed",
+		telemetry.AttrErrorType:        "approval_create_failed",
+		telemetry.AttrErrorMessage:     err.Error(),
+		telemetry.AttrHecateTaskID:     task.ID,
+		telemetry.AttrHecateRunID:      run.ID,
+		telemetry.AttrHecateApprovalID: approval.ID,
+	})
 }

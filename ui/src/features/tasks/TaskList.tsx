@@ -1,9 +1,23 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 
-import type { TaskRecord } from "../../types/task";
+import { taskNavigationURL } from "../../app/navigation";
+import type { TaskRecord, TaskScheduleRecord } from "../../types/task";
+import {
+  EntityIndexHeader,
+  EntityIndexHeading,
+  EntityIndexList,
+  EntityIndexPanel,
+  EntityIndexState,
+  EntityListRow,
+} from "../shared/EntityWorkspace";
 import { Badge, Icon, Icons } from "../shared/ui";
 
 import { taskBadgeProps, taskSource } from "./taskDetailHelpers";
+import {
+  type ScheduleLoadState,
+  scheduleSummary,
+  scheduleVisibleStatus,
+} from "./TaskScheduleControl";
 
 type Props = {
   tasks: TaskRecord[];
@@ -13,8 +27,27 @@ type Props = {
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onNewTask: () => void;
+  indexHeadingRef?: RefObject<HTMLHeadingElement | null>;
+  deletingTaskID?: string;
+  newTaskDisabled?: boolean;
+  newTaskDisabledReason?: string;
   projectScope?: ReactNode;
+  filter?: TaskListFilter;
+  onFilterChange?: (filter: TaskListFilter) => void;
+  schedulesByTaskID?: ReadonlyMap<string, TaskScheduleRecord>;
+  scheduleLoadState?: ScheduleLoadState;
+  scheduleLoadError?: string;
+  emptyMessage?: string;
 };
+
+export type TaskListFilter = "all" | "attention" | "scheduled" | "chat";
+
+const taskFilters: Array<{ id: TaskListFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "attention", label: "Needs attention" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "chat", label: "From chats" },
+];
 
 function taskKindLabel(task: TaskRecord): string {
   const kind = task.execution_kind;
@@ -35,114 +68,154 @@ export function TaskList({
   onSelect,
   onDelete,
   onNewTask,
+  indexHeadingRef,
+  deletingTaskID = "",
+  newTaskDisabled = false,
+  newTaskDisabledReason,
   projectScope,
+  filter = "all",
+  onFilterChange,
+  schedulesByTaskID = new Map(),
+  scheduleLoadState = "loaded",
+  scheduleLoadError = "",
+  emptyMessage = "No Tasks yet. Create one above to start its first Run.",
 }: Props) {
-  const [actionTaskID, setActionTaskID] = useState("");
-
-  function activateTask(id: string) {
-    onSelect(id);
-  }
+  const scheduleFilterUnavailable = scheduleLoadState !== "loaded";
+  const effectiveFilter = scheduleFilterUnavailable && filter === "scheduled" ? "all" : filter;
+  const scheduleFilterStatus =
+    scheduleLoadState === "loading"
+      ? "Loading Schedule data. Scheduled filtering will be available when it finishes."
+      : scheduleLoadState === "error"
+        ? `Scheduled filter unavailable: ${scheduleLoadError || "Schedule data could not be loaded"}. Refresh the Task to retry.`
+        : "";
 
   return (
-    <div
-      style={{
-        width: 220,
-        borderRight: "1px solid var(--border)",
-        display: "flex",
-        flexDirection: "column",
-        flexShrink: 0,
-        background: "var(--bg1)",
-      }}
-    >
+    <EntityIndexPanel aria-label="Tasks">
       {projectScope}
-      <div style={{ borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        <div
-          style={{
-            padding: "8px 12px 4px",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--t3)",
-          }}
-        >
+      <EntityIndexHeader>
+        <EntityIndexHeading ref={indexHeadingRef} tabIndex={-1}>
           Tasks{tasks.length > 0 ? ` · ${tasks.length}` : ""}
-        </div>
+        </EntityIndexHeading>
         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 8px" }}>
           <button
             className="btn btn-primary btn-sm"
             style={{ flex: 1, justifyContent: "center", minHeight: 30 }}
             onClick={onNewTask}
+            disabled={newTaskDisabled}
+            title={newTaskDisabled ? newTaskDisabledReason : undefined}
             type="button"
           >
             New task
           </button>
         </div>
-      </div>
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        {loading && tasks.length === 0 && (
+        {onFilterChange && (
           <div
+            role="group"
+            aria-label="Filter tasks"
+            style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "0 8px 8px" }}
+          >
+            {taskFilters.map((option) => {
+              const unavailable = option.id === "scheduled" && scheduleFilterUnavailable;
+              const pressed = effectiveFilter === option.id;
+              return (
+                <button
+                  key={option.id}
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  aria-pressed={pressed}
+                  aria-disabled={unavailable || undefined}
+                  aria-describedby={unavailable ? "task-scheduled-filter-status" : undefined}
+                  onClick={() => {
+                    if (!unavailable) onFilterChange(option.id);
+                  }}
+                  style={{
+                    minHeight: 24,
+                    padding: "2px 6px",
+                    fontSize: 9,
+                    color: pressed ? "var(--t0)" : "var(--t3)",
+                    background: pressed ? "var(--bg3)" : undefined,
+                    cursor: unavailable ? "not-allowed" : undefined,
+                    opacity: unavailable ? 0.55 : undefined,
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+            {scheduleFilterUnavailable && (
+              <span
+                id="task-scheduled-filter-status"
+                style={{ color: "var(--t3)", flexBasis: "100%", fontSize: 9, lineHeight: 1.4 }}
+              >
+                {scheduleFilterStatus}
+              </span>
+            )}
+          </div>
+        )}
+      </EntityIndexHeader>
+      <EntityIndexList>
+        {loading && tasks.length === 0 && (
+          <EntityIndexState
+            busy
             style={{
               minHeight: 120,
               display: "grid",
               placeItems: "center",
               padding: "16px 12px",
-              textAlign: "center",
-              fontSize: 12,
-              color: "var(--t3)",
             }}
           >
             Loading tasks…
-          </div>
+          </EntityIndexState>
         )}
-        {!loading && tasks.length === 0 && (
-          <div
-            style={{ padding: "24px 12px", textAlign: "center", fontSize: 12, color: "var(--t3)" }}
-          >
-            No Tasks yet. Create one above to start its first Run.
-          </div>
-        )}
+        {!loading && tasks.length === 0 && <EntityIndexState>{emptyMessage}</EntityIndexState>}
         {tasks.map((t) => {
-          const showActions = actionTaskID === t.id;
           const source = taskSource(t);
+          const schedule = schedulesByTaskID.get(t.id);
+          const scheduleStatus = schedule ? scheduleVisibleStatus(schedule) : "";
+          const hasRun = Boolean(t.latest_run_id);
           return (
-            <div
+            <EntityListRow
               key={t.id}
-              role="button"
-              tabIndex={0}
-              aria-current={selectedTaskID === t.id ? "true" : undefined}
-              aria-label={`Task ${t.title || t.prompt || "Untitled task"}`}
-              onMouseEnter={() => setActionTaskID(t.id)}
-              onMouseLeave={(e) => {
-                const nextTarget = e.relatedTarget;
-                if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
-                setActionTaskID((current) => (current === t.id ? "" : current));
-              }}
-              onFocus={() => setActionTaskID(t.id)}
-              onBlur={(e) => {
-                const nextTarget = e.relatedTarget;
-                if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
-                setActionTaskID((current) => (current === t.id ? "" : current));
-              }}
-              onClick={() => activateTask(t.id)}
-              onKeyDown={(e) => {
-                if (e.target !== e.currentTarget) return;
-                if (e.key !== "Enter" && e.key !== " ") return;
-                e.preventDefault();
-                activateTask(t.id);
-              }}
-              style={{
-                padding: "10px 12px",
-                cursor: "pointer",
-                borderBottom: "1px solid var(--border)",
-                borderLeft:
-                  selectedTaskID === t.id ? "2px solid var(--teal)" : "2px solid transparent",
-                background: selectedTaskID === t.id ? "var(--bg2)" : "transparent",
-                transition: "background 0.1s",
-              }}
+              active={selectedTaskID === t.id}
+              aria-label={`Task ${t.title || t.prompt || "Untitled task"}${
+                hasRun ? "" : ", not started"
+              }${scheduleStatus ? `, ${scheduleStatus}` : ""}`}
+              href={taskNavigationURL(window.location, {
+                taskID: t.id,
+                runID: t.latest_run_id,
+              })}
+              onActivate={() => onSelect(t.id)}
+              style={{ padding: "10px 12px" }}
+              actions={
+                t.status !== "running" ? (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: "1px 3px", color: "var(--red)" }}
+                    title="Delete"
+                    aria-label={`Delete task ${t.title || t.prompt || t.id}`}
+                    type="button"
+                    disabled={busyAction !== "" || deletingTaskID !== ""}
+                    onClick={() => onDelete(t.id)}
+                  >
+                    <Icon d={Icons.trash} size={10} />
+                  </button>
+                ) : undefined
+              }
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                <Badge {...taskBadgeProps(t.status, t.last_error)} />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginBottom: 4,
+                }}
+              >
+                <Badge
+                  {...(hasRun
+                    ? taskBadgeProps(t.status, t.last_error)
+                    : { status: "disabled", label: "not started" })}
+                />
                 {t.execution_kind && (
                   <span
                     style={{
@@ -183,6 +256,23 @@ export function TaskList({
                 >
                   {source.label}
                 </span>
+                {schedule && (
+                  <span
+                    className="badge badge-muted"
+                    title={scheduleSummary(schedule)}
+                    style={{
+                      fontSize: 9,
+                      fontFamily: "var(--font-mono)",
+                      padding: "1px 5px",
+                      flexShrink: 1,
+                      maxWidth: "100%",
+                      whiteSpace: "normal",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {scheduleStatus}
+                  </span>
+                )}
                 {/* MCP-config chip — surfaced when the task configures
                   one or more external MCP servers, so operators can
                   see at-a-glance which agent_loop tasks bring up
@@ -204,39 +294,19 @@ export function TaskList({
                     MCP × {t.mcp_servers.length}
                   </span>
                 )}
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: "var(--t3)",
-                    fontFamily: "var(--font-mono)",
-                    marginLeft: "auto",
-                  }}
-                >
-                  Latest run · {t.latest_run_step_count ?? 0}{" "}
-                  {(t.latest_run_step_count ?? 0) === 1 ? "step" : "steps"}
-                </span>
-                {t.status !== "running" && (
-                  <button
-                    className="btn btn-ghost btn-sm"
+                {hasRun && (
+                  <span
                     style={{
-                      padding: "1px 3px",
-                      color: "var(--red)",
-                      opacity: showActions ? 1 : 0,
-                      visibility: showActions ? "visible" : "hidden",
-                      transition: "opacity 0.12s",
-                    }}
-                    title="Delete"
-                    aria-label={`Delete task ${t.title || t.prompt || t.id}`}
-                    type="button"
-                    tabIndex={showActions ? 0 : -1}
-                    disabled={busyAction === "delete:" + t.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(t.id);
+                      fontSize: 10,
+                      color: "var(--t3)",
+                      fontFamily: "var(--font-mono)",
+                      flexShrink: 0,
+                      marginLeft: "auto",
                     }}
                   >
-                    <Icon d={Icons.trash} size={10} />
-                  </button>
+                    Latest Run · {t.latest_run_step_count ?? 0}{" "}
+                    {(t.latest_run_step_count ?? 0) === 1 ? "step" : "steps"}
+                  </span>
                 )}
               </div>
               <div
@@ -270,7 +340,7 @@ export function TaskList({
                   {taskKindLabel(t)}
                 </div>
               )}
-              {(t.latest_model || t.latest_provider) && (
+              {hasRun && (t.latest_model || t.latest_provider) && (
                 <div
                   style={{
                     fontSize: 10,
@@ -310,10 +380,10 @@ export function TaskList({
                   </span>
                 </div>
               )}
-            </div>
+            </EntityListRow>
           );
         })}
-      </div>
-    </div>
+      </EntityIndexList>
+    </EntityIndexPanel>
   );
 }

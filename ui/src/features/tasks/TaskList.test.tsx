@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -50,8 +50,10 @@ describe("TaskList", () => {
 
   it("uses the same sidebar width as the chat list", () => {
     const { render } = setup();
-    const { container } = render();
-    expect((container.firstElementChild as HTMLElement).style.width).toBe("220px");
+    render();
+    expect(screen.getByRole("complementary", { name: "Tasks" }).style.width).toBe(
+      "var(--entity-index-width, 220px)",
+    );
   });
 
   it("shows the empty state when not loading and no tasks", () => {
@@ -65,7 +67,7 @@ describe("TaskList", () => {
     render();
     expect(screen.getByText("List the working directory")).toBeTruthy();
     expect(screen.getByText("shell")).toBeTruthy();
-    expect(screen.getByText("Latest run · 2 steps")).toBeTruthy();
+    expect(screen.getByText("Latest Run · 2 steps")).toBeTruthy();
     expect(screen.queryByText(/run abcdef12/)).toBeNull();
   });
 
@@ -99,8 +101,9 @@ describe("TaskList", () => {
     const onSelect = vi.fn();
     const { render, user } = setup({ onSelect });
     render();
-    const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
-    row.focus();
+    const row = screen.getByRole("link", { name: /^Task List the working directory$/ });
+    expect(row).toHaveAttribute("href", "/tasks?task=task-1&run=run-abcdef12");
+    act(() => row.focus());
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenLastCalledWith("task-1");
     await user.keyboard(" ");
@@ -108,15 +111,14 @@ describe("TaskList", () => {
   });
 
   it("clicking the delete icon calls onDelete and does NOT trigger onSelect", async () => {
-    // The row's onSelect handler wraps the delete button, so the button
-    // must stop propagation. If it stops calling stopPropagation, every
-    // delete action would also re-select the deleted task — confusing
-    // and racy.
+    // Row actions stay beside the navigation anchor. Reintroducing a
+    // nested action would make deletion race task selection and produce
+    // invalid interactive markup.
     const onSelect = vi.fn();
     const onDelete = vi.fn();
     const { render, user } = setup({ onSelect, onDelete });
     render();
-    const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
+    const row = screen.getByRole("link", { name: /^Task List the working directory$/ });
     await user.hover(row);
     const deleteButton = (await screen.findByRole("button", {
       name: /delete task list the working directory/i,
@@ -129,7 +131,7 @@ describe("TaskList", () => {
   it("keeps the delete action visually hidden until the row is hovered or focused", async () => {
     const { render, user } = setup();
     render();
-    const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
+    const row = screen.getByRole("link", { name: /^Task List the working directory$/ });
     expect(
       screen.queryByRole("button", { name: /delete task list the working directory/i }),
     ).toBeNull();
@@ -158,10 +160,32 @@ describe("TaskList", () => {
     expect(screen.queryByTitle("Delete")).toBeNull();
   });
 
+  it("disables the delete button during any conflicting Task mutation", () => {
+    const { render } = setup({ busyAction: "start" });
+    render();
+    fireEvent.focus(screen.getByRole("link", { name: /^Task List the working directory$/ }));
+    expect(
+      screen.getByRole("button", {
+        name: /delete task list the working directory/i,
+      }),
+    ).toBeDisabled();
+  });
+
+  it("keeps the delete button disabled from delete-owned pending state", () => {
+    const { render } = setup({ deletingTaskID: "task-1" });
+    render();
+    fireEvent.focus(screen.getByRole("link", { name: /^Task List the working directory$/ }));
+    expect(
+      screen.getByRole("button", {
+        name: /delete task list the working directory/i,
+      }),
+    ).toBeDisabled();
+  });
+
   it("disables the delete button while that task's delete is in flight", () => {
     const { render } = setup({ busyAction: "delete:task-1" });
     render();
-    fireEvent.focus(screen.getByRole("button", { name: /^Task List the working directory$/ }));
+    fireEvent.focus(screen.getByRole("link", { name: /^Task List the working directory$/ }));
     expect(
       (
         screen.getByRole("button", {
@@ -169,6 +193,16 @@ describe("TaskList", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+
+  it("keeps modified task-row clicks as native navigation", () => {
+    const onSelect = vi.fn();
+    const { render } = setup({ onSelect });
+    render();
+    const row = screen.getByRole("link", { name: /^Task List the working directory$/ });
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(row, { metaKey: true });
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("'New task' button calls onNewTask without an inline plus label", async () => {
@@ -180,10 +214,140 @@ describe("TaskList", () => {
     expect(onNewTask).toHaveBeenCalled();
   });
 
-  it("does not show a run placeholder when the task has no latest_run_id", () => {
-    const { render } = setup({ tasks: [makeTask({ latest_run_id: undefined })] });
+  it("disables Task creation while the Task list is unavailable", () => {
+    const { render } = setup({
+      newTaskDisabled: true,
+      newTaskDisabledReason: "Retry the Task list before creating a Task.",
+    });
     render();
-    expect(screen.queryByText(/not started/i)).toBeNull();
+    const button = screen.getByRole("button", { name: "New task" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Retry the Task list before creating a Task.");
+  });
+
+  it("exposes the four task filters as pressed-state buttons", async () => {
+    const onFilterChange = vi.fn();
+    const { render, user } = setup({ filter: "scheduled", onFilterChange });
+    render();
+
+    expect(screen.getByRole("button", { name: "Scheduled" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "Needs attention" }));
+    expect(onFilterChange).toHaveBeenCalledWith("attention");
+  });
+
+  it("gates Scheduled filtering while Schedule data is unavailable", async () => {
+    const onFilterChange = vi.fn();
+    const { render, user } = setup({
+      filter: "scheduled",
+      onFilterChange,
+      scheduleLoadState: "error",
+      scheduleLoadError: "scheduler unavailable",
+    });
+    render();
+
+    const scheduled = screen.getByRole("button", { name: "Scheduled" });
+    expect(scheduled).toHaveAttribute("aria-disabled", "true");
+    expect(scheduled).toHaveAttribute("aria-describedby", "task-scheduled-filter-status");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Scheduled filter unavailable: scheduler unavailable/)).toBeTruthy();
+
+    await user.click(scheduled);
+    expect(onFilterChange).not.toHaveBeenCalled();
+    expect(screen.getByText("List the working directory")).toBeTruthy();
+  });
+
+  it("marks tasks with paused or enabled schedule configuration", () => {
+    const schedules = new Map([
+      [
+        "task-1",
+        {
+          id: "schedule-1",
+          task_id: "task-1",
+          kind: "cron" as const,
+          cron_expression: "0 9 * * *",
+          timezone: "UTC",
+          enabled: false,
+          created_at: "2026-07-20T08:00:00Z",
+          updated_at: "2026-07-20T08:00:00Z",
+        },
+      ],
+    ]);
+    const { render } = setup({ schedulesByTaskID: schedules });
+    render();
+    expect(screen.getByText("Schedule paused")).toBeTruthy();
+  });
+
+  it("shows the exact next Run and timezone in the task row", () => {
+    const schedules = new Map([
+      [
+        "task-1",
+        {
+          id: "schedule-1",
+          task_id: "task-1",
+          kind: "cron" as const,
+          cron_expression: "0 9 * * *",
+          timezone: "Europe/Madrid",
+          enabled: true,
+          next_run_at: "2026-07-21T07:00:00Z",
+          created_at: "2026-07-20T08:00:00Z",
+          updated_at: "2026-07-20T08:00:00Z",
+        },
+      ],
+    ]);
+    const { render } = setup({ schedulesByTaskID: schedules });
+    render();
+
+    expect(screen.getByText(/Next · .*Europe\/Madrid/)).toBeTruthy();
+    expect(
+      screen.getByRole("link", {
+        name: /Task List the working directory, Next · .*Europe\/Madrid/,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("labels a fired one-off as completed instead of paused", () => {
+    const schedules = new Map([
+      [
+        "task-1",
+        {
+          id: "schedule-1",
+          task_id: "task-1",
+          kind: "once" as const,
+          timezone: "UTC",
+          run_at: "2026-07-20T08:00:00Z",
+          enabled: false,
+          created_at: "2026-07-19T08:00:00Z",
+          updated_at: "2026-07-20T08:00:01Z",
+        },
+      ],
+    ]);
+    const { render } = setup({ schedulesByTaskID: schedules });
+    render();
+
+    expect(screen.getByText("Completed schedule")).toBeTruthy();
+    expect(screen.queryByText("Schedule paused")).toBeNull();
+  });
+
+  it("labels a Task without Runs as not started and omits latest Run metadata", () => {
+    const { render } = setup({
+      tasks: [
+        makeTask({
+          latest_run_id: undefined,
+          latest_model: "stale-model",
+          latest_provider: "stale-provider",
+        }),
+      ],
+    });
+    render();
+    expect(screen.getByText("not started")).toBeTruthy();
+    expect(screen.queryByText(/Latest Run/i)).toBeNull();
+    expect(screen.queryByText(/stale-model/i)).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Task List the working directory, not started" }),
+    ).toBeTruthy();
   });
 
   it("renders the file path as the kind label for file tasks", () => {

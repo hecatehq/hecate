@@ -37,6 +37,16 @@ type workspaceProvisionPlan struct {
 	requiresWrite bool
 }
 
+// managedWorkspaceProvision identifies the exact directory published by one
+// successful managed-workspace provision. The FileInfo identity prevents a
+// later cleanup from deleting a replacement that appeared at the same path.
+type managedWorkspaceProvision struct {
+	root          string
+	workspacePath string
+	relativePath  string
+	identity      fs.FileInfo
+}
+
 func NewWorkspaceManager(root string) *WorkspaceManager {
 	if strings.TrimSpace(root) == "" {
 		root = filepath.Join(os.TempDir(), "hecate-workspaces")
@@ -149,6 +159,17 @@ func (m *WorkspaceManager) planProvision(task types.Task, run types.TaskRun) (wo
 }
 
 func (m *WorkspaceManager) provisionPlanned(ctx context.Context, plan workspaceProvisionPlan) (workspacePathResult string, returnErr error) {
+	return m.provisionPlannedTracked(ctx, plan, nil)
+}
+
+// provisionPlannedTracked optionally reports when this call published a new
+// managed workspace. Existing, reused, and in-place workspaces intentionally
+// produce no receipt and therefore can never be removed by admission cleanup.
+func (m *WorkspaceManager) provisionPlannedTracked(
+	ctx context.Context,
+	plan workspaceProvisionPlan,
+	published **managedWorkspaceProvision,
+) (workspacePathResult string, returnErr error) {
 	if !plan.requiresWrite {
 		return plan.workspacePath, nil
 	}
@@ -280,7 +301,79 @@ func (m *WorkspaceManager) provisionPlanned(ctx context.Context, plan workspaceP
 		return "", fmt.Errorf("workspace destination changed during provisioning: %w", err)
 	}
 	committed = true
+	if published != nil {
+		*published = &managedWorkspaceProvision{
+			root:          plan.root,
+			workspacePath: workspacePath,
+			relativePath:  plan.relativePath,
+			identity:      stageInfo,
+		}
+	}
 	return workspacePath, nil
+}
+
+// cleanupManagedWorkspaceProvision removes only the exact directory published
+// by provisionPlannedTracked. It opens every path component through os.Root
+// and compares the final filesystem identity before recursive removal.
+func (m *WorkspaceManager) cleanupManagedWorkspaceProvision(
+	taskID string,
+	runID string,
+	published *managedWorkspaceProvision,
+) (returnErr error) {
+	if m == nil {
+		return fmt.Errorf("workspace manager is not configured")
+	}
+	if published == nil || published.identity == nil {
+		return fmt.Errorf("managed workspace provisioning receipt is required")
+	}
+	expectedRoot, expectedPath, expectedRelativePath, err := m.plannedWorkspacePath(taskID, runID)
+	if err != nil {
+		return fmt.Errorf("plan managed workspace cleanup: %w", err)
+	}
+	if expectedRoot != published.root || expectedPath != published.workspacePath || expectedRelativePath != published.relativePath {
+		return fmt.Errorf("managed workspace provisioning receipt does not match task and run")
+	}
+	segments, err := localPathSegments(published.relativePath)
+	if err != nil || len(segments) != 2 {
+		return fmt.Errorf("invalid managed workspace cleanup destination %q", published.relativePath)
+	}
+
+	root, _, err := openStableExistingRoot(published.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open managed workspace root for cleanup: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, root.Close()) }()
+
+	taskRootInfo, err := root.Lstat(segments[0])
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect managed task workspace root for cleanup: %w", err)
+	}
+	taskRoot, err := openChildRootMatching(root, segments[0], taskRootInfo)
+	if err != nil {
+		return fmt.Errorf("open managed task workspace root for cleanup: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, taskRoot.Close()) }()
+
+	workspaceInfo, err := taskRoot.Lstat(segments[1])
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect managed run workspace for cleanup: %w", err)
+	}
+	if !os.SameFile(published.identity, workspaceInfo) {
+		return fmt.Errorf("managed run workspace changed before cleanup")
+	}
+	if err := cleanupProvisionedRoot(taskRoot, segments[1], published.identity); err != nil {
+		return fmt.Errorf("remove unreferenced managed run workspace: %w", err)
+	}
+	return nil
 }
 
 func (m *WorkspaceManager) plannedWorkspacePath(taskID, runID string) (root, workspacePath, relativePath string, err error) {

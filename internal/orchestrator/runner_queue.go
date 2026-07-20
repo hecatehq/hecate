@@ -57,6 +57,21 @@ func (r *Runner) enqueueRun(taskID, runID string) error {
 	return r.requireQueueCoordinator().enqueueRun(taskID, runID)
 }
 
+// enqueueRunWithReconcile handles the queue write that follows a durable Run
+// transition. Queue errors can be ambiguous (the job may have committed), so
+// retain the Run for state-aware reconciliation instead of assuming either
+// success or failure.
+func (r *Runner) enqueueRunWithReconcile(taskID, runID string) error {
+	job := QueueJob{TaskID: taskID, RunID: runID}
+	err := r.enqueueRun(taskID, runID)
+	if err != nil {
+		r.requireQueueCoordinator().rememberPendingEnqueueReconcile(job)
+		return err
+	}
+	r.requireQueueCoordinator().forgetPendingReconcile(job)
+	return nil
+}
+
 func (r *Runner) Shutdown(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

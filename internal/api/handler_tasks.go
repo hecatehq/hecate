@@ -771,33 +771,35 @@ func loadPendingTaskApprovalCount(ctx context.Context, store taskstate.Store, ta
 
 func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 	item := TaskRunItem{
-		ID:                 run.ID,
-		TaskID:             run.TaskID,
-		ProjectID:          run.ProjectID,
-		WorkItemID:         run.WorkItemID,
-		AssignmentID:       run.AssignmentID,
-		Number:             run.Number,
-		Status:             run.Status,
-		Orchestrator:       run.Orchestrator,
-		WorkflowMode:       string(run.WorkflowMode),
-		WorkflowVersion:    run.WorkflowVersion,
-		Model:              run.Model,
-		Provider:           run.Provider,
-		ProviderKind:       run.ProviderKind,
-		WorkspaceID:        run.WorkspaceID,
-		WorkspacePath:      run.WorkspacePath,
-		StepCount:          run.StepCount,
-		ModelCallCount:     run.ModelCallCount,
-		ApprovalCount:      run.ApprovalCount,
-		ArtifactCount:      run.ArtifactCount,
-		TotalCostMicrosUSD: run.TotalCostMicrosUSD,
-		PriorCostMicrosUSD: run.PriorCostMicrosUSD,
-		LastError:          run.LastError,
-		RequestID:          run.RequestID,
-		TraceID:            run.TraceID,
-		RootSpanID:         run.RootSpanID,
-		OtelStatusCode:     run.OtelStatusCode,
-		OtelStatusMessage:  run.OtelStatusMessage,
+		ID:                   run.ID,
+		TaskID:               run.TaskID,
+		ProjectID:            run.ProjectID,
+		WorkItemID:           run.WorkItemID,
+		AssignmentID:         run.AssignmentID,
+		Number:               run.Number,
+		Status:               run.Status,
+		Orchestrator:         run.Orchestrator,
+		WorkflowMode:         string(run.WorkflowMode),
+		WorkflowVersion:      run.WorkflowVersion,
+		Model:                run.Model,
+		Provider:             run.Provider,
+		ProviderKind:         run.ProviderKind,
+		WorkspaceID:          run.WorkspaceID,
+		WorkspacePath:        run.WorkspacePath,
+		StepCount:            run.StepCount,
+		ModelCallCount:       run.ModelCallCount,
+		ApprovalCount:        run.ApprovalCount,
+		ArtifactCount:        run.ArtifactCount,
+		TotalCostMicrosUSD:   run.TotalCostMicrosUSD,
+		PriorCostMicrosUSD:   run.PriorCostMicrosUSD,
+		LastError:            run.LastError,
+		RequestID:            run.RequestID,
+		TraceID:              run.TraceID,
+		RootSpanID:           run.RootSpanID,
+		OtelStatusCode:       run.OtelStatusCode,
+		OtelStatusMessage:    run.OtelStatusMessage,
+		ScheduleID:           run.ScheduleID,
+		ScheduleOccurrenceID: run.ScheduleOccurrenceID,
 	}
 	if len(parentTasks) > 0 {
 		task := parentTasks[0]
@@ -824,6 +826,9 @@ func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 	}
 	if !run.FinishedAt.IsZero() {
 		item.FinishedAt = run.FinishedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !run.ScheduledFor.IsZero() {
+		item.ScheduledFor = run.ScheduledFor.UTC().Format(time.RFC3339Nano)
 	}
 	return item
 }

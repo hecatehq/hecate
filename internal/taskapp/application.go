@@ -23,23 +23,27 @@ const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-a
 Use read_file and list_dir before editing. Prefer file_edit for targeted changes and file_write only for new files or full rewrites. Keep changes scoped to the user's request. Explain important tradeoffs in the final answer, and mention files changed when useful.`
 
 var (
-	ErrStoreNotConfigured        = errors.New("task store is not configured")
-	ErrRunnerNotConfigured       = errors.New("task runner is not configured")
-	ErrProjectStoreNotConfigured = errors.New("project store is not configured")
-	ErrProjectNotFound           = errors.New("project not found")
-	ErrTaskNotFound              = errors.New("task not found")
-	ErrRunNotFound               = errors.New("task run not found")
-	ErrApprovalNotFound          = errors.New("task approval not found")
-	ErrTaskIDRequired            = errors.New("task id is required")
-	ErrRunIDRequired             = errors.New("run id is required")
-	ErrApprovalIDRequired        = errors.New("approval id is required")
-	ErrOriginKindRequired        = errors.New("task origin kind is required")
-	ErrOriginIDRequired          = errors.New("task origin id is required")
-	ErrOriginRunAdmissionClosed  = taskruncoord.ErrOriginRunAdmissionClosed
-	ErrOriginUnavailable         = taskruncoord.ErrOriginUnavailable
-	ErrOriginValidationFailed    = taskruncoord.ErrOriginValidationFailed
-	ErrModelCallIndexRequired    = errors.New("model_call_index must be >= 1")
-	ErrPromptRequired            = errors.New("prompt is required")
+	ErrStoreNotConfigured           = errors.New("task store is not configured")
+	ErrRunnerNotConfigured          = errors.New("task runner is not configured")
+	ErrProjectStoreNotConfigured    = errors.New("project store is not configured")
+	ErrProjectNotFound              = errors.New("project not found")
+	ErrTaskNotFound                 = errors.New("task not found")
+	ErrRunNotFound                  = errors.New("task run not found")
+	ErrApprovalNotFound             = errors.New("task approval not found")
+	ErrTaskIDRequired               = errors.New("task id is required")
+	ErrRunIDRequired                = errors.New("run id is required")
+	ErrApprovalIDRequired           = errors.New("approval id is required")
+	ErrScheduleIDRequired           = errors.New("task schedule id is required")
+	ErrScheduleOccurrenceIDRequired = errors.New("task schedule occurrence id is required")
+	ErrScheduleClaimOwnerRequired   = errors.New("task schedule claim owner is required")
+	ErrScheduledForRequired         = errors.New("scheduled_for is required")
+	ErrOriginKindRequired           = errors.New("task origin kind is required")
+	ErrOriginIDRequired             = errors.New("task origin id is required")
+	ErrOriginRunAdmissionClosed     = taskruncoord.ErrOriginRunAdmissionClosed
+	ErrOriginUnavailable            = taskruncoord.ErrOriginUnavailable
+	ErrOriginValidationFailed       = taskruncoord.ErrOriginValidationFailed
+	ErrModelCallIndexRequired       = errors.New("model_call_index must be >= 1")
+	ErrPromptRequired               = errors.New("prompt is required")
 	// Keep application-facing error names for API callers while making the
 	// runtime and create boundary share one fail-closed workflow contract.
 	ErrQAWorkflowRequiresAgentLoop = taskworkflow.ErrQARequiresAgentLoop
@@ -73,6 +77,10 @@ type Runner interface {
 	RetryTaskFromModelCall(context.Context, types.Task, types.TaskRun, int, string, func(string) string) (*orchestrator.StartTaskResult, error)
 	CancelRun(context.Context, types.Task, string, string) (types.TaskRun, error)
 	ResolveTaskApproval(context.Context, orchestrator.ResolveApprovalRequest) (*orchestrator.ResolveApprovalResult, error)
+}
+
+type scheduledRunner interface {
+	StartScheduledTask(context.Context, types.Task, func(string) string, orchestrator.ScheduledTaskStart) (*orchestrator.StartTaskResult, error)
 }
 
 type ProjectStore interface {
@@ -142,6 +150,13 @@ type MCPServerCommand struct {
 type ResumeCommand struct {
 	Reason          string
 	BudgetMicrosUSD int64
+}
+
+type ScheduledStartCommand struct {
+	ScheduleID           string
+	ScheduleOccurrenceID string
+	ScheduledFor         time.Time
+	ClaimOwner           string
 }
 
 type RetryFromModelCallCommand struct {
@@ -324,7 +339,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		SandboxReadOnly:             cmd.SandboxReadOnly,
 		SandboxNetwork:              cmd.SandboxNetwork,
 		TimeoutMS:                   cmd.TimeoutMS,
-		Status:                      "queued",
+		Status:                      types.TaskStatusNotStarted,
 		Priority:                    priority,
 		RequestedModel:              strings.TrimSpace(cmd.RequestedModel),
 		RequestedProvider:           strings.TrimSpace(cmd.RequestedProvider),
@@ -415,18 +430,18 @@ func (app *Application) DeleteTask(ctx context.Context, id string) error {
 	if app == nil || app.store == nil {
 		return ErrStoreNotConfigured
 	}
-	task, err := app.LoadTask(ctx, id)
-	if err != nil {
-		return err
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Validation(ErrTaskIDRequired)
 	}
-	active, err := HasActiveRun(ctx, app.store, task)
-	if err != nil {
-		return err
-	}
-	if active {
+	err := app.store.DeleteTask(ctx, id)
+	if errors.Is(err, taskstate.ErrActiveRun) {
 		return ErrDeleteActiveRun
 	}
-	return app.store.DeleteTask(ctx, strings.TrimSpace(id))
+	if errors.Is(err, taskstate.ErrTaskNotFound) {
+		return ErrTaskNotFound
+	}
+	return err
 }
 
 func (app *Application) LoadTaskRun(ctx context.Context, task types.Task, runID string) (types.TaskRun, error) {
@@ -461,7 +476,45 @@ func (app *Application) StartTask(ctx context.Context, task types.Task) (*orches
 	if active {
 		return nil, ErrActiveRun
 	}
-	return app.runner.StartTask(ctx, task, app.idgen)
+	result, err := app.runner.StartTask(ctx, task, app.idgen)
+	return result, mapTaskNotFoundError(err)
+}
+
+// StartScheduledTask creates an ordinary task run while recording the durable
+// schedule occurrence that triggered it. The runner admits the claimed
+// occurrence, Run, and parent task projection through one storage transition.
+func (app *Application) StartScheduledTask(ctx context.Context, task types.Task, cmd ScheduledStartCommand) (*orchestrator.StartTaskResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	if app.runner == nil {
+		return nil, ErrRunnerNotConfigured
+	}
+	scheduleID := strings.TrimSpace(cmd.ScheduleID)
+	if scheduleID == "" {
+		return nil, Validation(ErrScheduleIDRequired)
+	}
+	occurrenceID := strings.TrimSpace(cmd.ScheduleOccurrenceID)
+	if occurrenceID == "" {
+		return nil, Validation(ErrScheduleOccurrenceIDRequired)
+	}
+	if cmd.ScheduledFor.IsZero() {
+		return nil, Validation(ErrScheduledForRequired)
+	}
+	claimOwner := strings.TrimSpace(cmd.ClaimOwner)
+	if claimOwner == "" {
+		return nil, Validation(ErrScheduleClaimOwnerRequired)
+	}
+	runner, ok := app.runner.(scheduledRunner)
+	if !ok {
+		return nil, ErrRunnerNotConfigured
+	}
+	scheduledFor := cmd.ScheduledFor.UTC()
+	result, err := runner.StartScheduledTask(ctx, task, app.idgen, orchestrator.ScheduledTaskStart{
+		ScheduleID: scheduleID, ScheduleOccurrenceID: occurrenceID,
+		ScheduledFor: scheduledFor, ClaimOwner: claimOwner,
+	})
+	return result, mapTaskNotFoundError(err)
 }
 
 func (app *Application) CancelTaskRun(ctx context.Context, task types.Task, run types.TaskRun, reason string) (types.TaskRun, error) {
@@ -633,6 +686,13 @@ func (app *Application) RetryTaskRunFromModelCall(ctx context.Context, task type
 func mapOtherActiveRunError(err error) error {
 	if errors.Is(err, orchestrator.ErrActiveRun) {
 		return ErrOtherActiveRun
+	}
+	return mapTaskNotFoundError(err)
+}
+
+func mapTaskNotFoundError(err error) error {
+	if errors.Is(err, taskstate.ErrTaskNotFound) {
+		return ErrTaskNotFound
 	}
 	return err
 }

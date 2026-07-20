@@ -145,8 +145,13 @@ var remoteRuntimeAllowedRoutes = []remoteRuntimeRoutePattern{
 
 	{method: http.MethodGet, path: "/hecate/v1/tasks"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks"},
+	{method: http.MethodGet, path: "/hecate/v1/task-schedules"},
 	{method: http.MethodGet, path: "/hecate/v1/tasks/{id}"},
 	{method: http.MethodDelete, path: "/hecate/v1/tasks/{id}"},
+	{method: http.MethodGet, path: "/hecate/v1/tasks/{id}/schedule"},
+	{method: http.MethodPut, path: "/hecate/v1/tasks/{id}/schedule"},
+	{method: http.MethodDelete, path: "/hecate/v1/tasks/{id}/schedule"},
+	{method: http.MethodGet, path: "/hecate/v1/tasks/{id}/schedule/occurrences"},
 	{method: http.MethodPost, path: "/hecate/v1/tasks/{id}/start"},
 	{method: http.MethodGet, path: "/hecate/v1/tasks/{id}/approvals"},
 	{method: http.MethodGet, path: "/hecate/v1/tasks/{id}/approvals/{approval_id}"},

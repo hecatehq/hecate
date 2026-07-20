@@ -74,7 +74,7 @@ discovery.
 
 | Record                                                                                 | Bucket      | Notes                                                                                                       |
 | -------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| [Interaction and execution terminology](accepted/interaction-execution-terminology.md) | Accepted    | Canonical Chat, Turn, Task, Run, model-call, and cross-surface naming rules.                                |
+| [Interaction and execution terminology](accepted/interaction-execution-terminology.md) | Accepted    | Canonical Chat, Turn, Task, Run, Schedule, and shared cross-surface UI/naming rules.                        |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)       | Accepted    | Hecate Chat, tools on/off segments, observed capability metadata, profiles, future detection.               |
 | [External Agent integrations](accepted/external-agent-integrations.md)                 | Accepted    | Codex, Claude Code, Cursor Agent, Grok Build, ACP controls, approvals, readiness, diagnostics, diff review. |
 | [ADK and A2A alignment](proposals/adk-a2a-alignment.md)                                | Proposal    | ADK concepts as design input, A2A as a future protocol adapter for Hecate and remote agents.                |

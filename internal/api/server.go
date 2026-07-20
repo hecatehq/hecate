@@ -190,8 +190,13 @@ func registerHecateTaskRoutes(mux *http.ServeMux, handler *Handler) {
 	// artifacts. This is the canonical execution surface for task-backed Hecate Chat.
 	mux.HandleFunc("GET /hecate/v1/tasks", handler.HandleTasks)
 	mux.HandleFunc("POST /hecate/v1/tasks", handler.HandleCreateTask)
+	mux.HandleFunc("GET /hecate/v1/task-schedules", handler.HandleTaskSchedules)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}", handler.HandleTask)
 	mux.HandleFunc("DELETE /hecate/v1/tasks/{id}", handler.HandleDeleteTask)
+	mux.HandleFunc("GET /hecate/v1/tasks/{id}/schedule", handler.HandleTaskSchedule)
+	mux.HandleFunc("PUT /hecate/v1/tasks/{id}/schedule", handler.HandlePutTaskSchedule)
+	mux.HandleFunc("DELETE /hecate/v1/tasks/{id}/schedule", handler.HandleDeleteTaskSchedule)
+	mux.HandleFunc("GET /hecate/v1/tasks/{id}/schedule/occurrences", handler.HandleTaskScheduleOccurrences)
 	mux.HandleFunc("POST /hecate/v1/tasks/{id}/start", handler.HandleStartTask)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}/approvals", handler.HandleTaskApprovals)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}/approvals/{approval_id}", handler.HandleTaskApproval)

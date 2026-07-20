@@ -57,8 +57,8 @@ func TestTaskApplicationLayerDirectShellLifecycleE2E(t *testing.T) {
 		"timeout_ms": 10000
 	}`, workDir, workDir)
 	created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", body)
-	if created.Data.Status != "queued" {
-		t.Fatalf("created status = %q, want queued", created.Data.Status)
+	if created.Data.Status != "not_started" {
+		t.Fatalf("created status = %q, want not_started", created.Data.Status)
 	}
 
 	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)

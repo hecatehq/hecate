@@ -38,6 +38,7 @@ import (
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
+	"github.com/hecatehq/hecate/internal/taskschedule"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/terminalapp"
@@ -60,6 +61,7 @@ type Handler struct {
 	dictationTranscriptionTimeout     time.Duration
 	taskStore                         taskstate.Store
 	taskRunner                        *orchestrator.Runner
+	taskScheduler                     taskScheduleRuntime
 	taskOriginRunGateMu               sync.Mutex
 	taskOriginRunGate                 *taskruncoord.Gate
 	workspaceCoordinator              *workspacecoord.Registry
@@ -138,6 +140,11 @@ type Handler struct {
 	// SIGINT/SIGTERM, so the same drain path (retention cancel, runner
 	// shutdown, http server shutdown) runs regardless of trigger.
 	quitFunc func()
+}
+
+type taskScheduleRuntime interface {
+	Start(context.Context) error
+	Shutdown(context.Context) error
 }
 
 // approvalConfig bundles everything the coordinator needs apart from
@@ -420,6 +427,16 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
 	}
+	if scheduleStore, ok := taskStore.(taskstate.ScheduleStore); ok {
+		h.taskScheduler = taskschedule.NewManager(taskschedule.ManagerOptions{
+			Store:       scheduleStore,
+			Tasks:       taskStore,
+			Starter:     h.taskApplication(),
+			Logger:      logger,
+			OwnerID:     runtimeHost.ID + ":" + newOpaqueTaskResourceID("scheduler"),
+			IDGenerator: newOpaqueTaskResourceID,
+		})
+	}
 	taskOriginRunGate.SetValidator("chat", h.validateTaskRunOrigin)
 	h.wireAgentChatRunnerHooks(agentChatRunner)
 	runner.SetProjectAssistantDraftTool(h)
@@ -437,7 +454,12 @@ func (h *Handler) StartTaskRuntime(ctx context.Context) error {
 		return nil
 	}
 	h.taskRuntimeStartOnce.Do(func() {
-		h.taskRuntimeStartErr = h.taskRunner.StartQueueRuntime(ctx)
+		queueErr := h.taskRunner.StartQueueRuntime(ctx)
+		var schedulerErr error
+		if h.taskScheduler != nil {
+			schedulerErr = h.taskScheduler.Start(ctx)
+		}
+		h.taskRuntimeStartErr = errors.Join(queueErr, schedulerErr)
 	})
 	return h.taskRuntimeStartErr
 }
@@ -705,10 +727,10 @@ func (h *Handler) rebuildMCPHostFactory() {
 // SIGTERM so in-flight agent loops cancel cleanly and any spawned MCP
 // subprocesses don't orphan when the gateway exits.
 //
-// Independent process owners begin draining together so one cannot consume
-// the shared shutdown budget before the others are signalled. Order still
-// matters between the runner and MCP cache: the runner must finish first so
-// in-flight runs release cached clients before the cache tears them down.
+// Independent chat and terminal owners begin draining immediately. The task
+// scheduler must stop and join before the runner begins draining so a trigger
+// cannot enqueue a new Run after queue shutdown starts. The runner then
+// finishes before the MCP cache closes so in-flight runs can release clients.
 //
 // If the runner shutdown fails (deadline exceeded, etc.), the cache
 // is still closed — orphaning subprocesses on top of a wedged runner
@@ -722,14 +744,6 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 		h.agentChatIdleSweepCancel()
 	}
 
-	var runnerDone <-chan error
-	if h.taskRunner != nil {
-		done := make(chan error, 1)
-		runnerDone = done
-		go func() {
-			done <- h.taskRunner.Shutdown(ctx)
-		}()
-	}
 	var agentChatDone <-chan error
 	if h.agentChatRunner != nil {
 		done := make(chan error, 1)
@@ -747,9 +761,13 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 		}()
 	}
 
+	var schedulerErr error
+	if h.taskScheduler != nil {
+		schedulerErr = h.taskScheduler.Shutdown(ctx)
+	}
 	var runnerErr error
-	if runnerDone != nil {
-		runnerErr = <-runnerDone
+	if h.taskRunner != nil {
+		runnerErr = h.taskRunner.Shutdown(ctx)
 	}
 	var cacheErr error
 	if h.mcpClientCache != nil {
@@ -765,6 +783,9 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 		terminalErr = <-terminalDone
 	}
 	var shutdownErrs []error
+	if schedulerErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("task scheduler shutdown: %w", schedulerErr))
+	}
 	if runnerErr != nil {
 		shutdownErrs = append(shutdownErrs, fmt.Errorf("runner shutdown: %w", runnerErr))
 	}

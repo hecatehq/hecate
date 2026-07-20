@@ -59,6 +59,9 @@ function KindTab({
 }
 
 export type CreateTaskPayload = {
+  // UI-only creation intent. TasksView removes this before calling the
+  // create endpoint, then decides whether to start the first Run.
+  start_immediately: boolean;
   prompt: string;
   execution_kind: ExecutionKind;
   workflow_mode?: "qa";
@@ -109,7 +112,7 @@ type Props = {
   busyAction: string;
   errorMessage?: string;
   onClose: () => void;
-  onCreate: (payload: CreateTaskPayload) => void;
+  onCreate: (payload: CreateTaskPayload) => boolean | void | Promise<boolean | void>;
 };
 
 export function NewTaskSlideOver({
@@ -146,6 +149,7 @@ export function NewTaskSlideOver({
   // working_directory as the sandbox root, so writes hit the real
   // repo. Off (default) gives the safer isolated-clone behavior.
   const [taskInPlace, setTaskInPlace] = useState(false);
+  const [startImmediately, setStartImmediately] = useState(true);
 
   // Provider options for the picker — mirrors the chat header's
   // provider list: filter to healthy providers, attach kind +
@@ -255,7 +259,7 @@ export function NewTaskSlideOver({
     return false;
   }
 
-  function submit() {
+  async function submit() {
     const command =
       taskKind === "shell" ? taskCommand.trim() : taskKind === "git" ? taskGitCommand.trim() : "";
     const filePath = taskKind === "file" ? taskFilePath.trim() : "";
@@ -277,29 +281,40 @@ export function NewTaskSlideOver({
     const mcpPayload =
       taskKind === "agent_loop" && !isReportOnlyQA ? mcpServerFormEntriesToPayload(mcpServers) : [];
 
-    onCreate({
-      prompt:
-        taskPrompt.trim() ||
-        (taskKind === "shell" ? command : taskKind === "git" ? `git ${command}` : filePath),
-      execution_kind: taskKind,
-      ...(taskKind === "shell" ? { shell_command: command } : {}),
-      ...(taskKind === "git" ? { git_command: command } : {}),
-      ...(taskKind === "file"
-        ? { file_path: filePath, file_content: taskFileContent, file_operation: taskFileOp }
-        : {}),
-      ...(taskWorkingDir.trim() ? { working_directory: taskWorkingDir.trim() } : {}),
-      ...(effectiveTaskModel ? { requested_model: effectiveTaskModel } : {}),
-      ...(taskProvider !== "auto" ? { requested_provider: taskProvider } : {}),
-      ...(isReportOnlyQA ? { workflow_mode: "qa" as const } : {}),
-      ...(taskInPlace && !isReportOnlyQA ? { workspace_mode: "in_place" } : {}),
-      ...(taskKind === "agent_loop" && !isReportOnlyQA && taskSystemPrompt.trim()
-        ? { system_prompt: taskSystemPrompt.trim() }
-        : {}),
-      ...(taskKind === "agent_loop" && parseFloat(taskBudgetUSD) > 0
-        ? { budget_micros_usd: Math.round(parseFloat(taskBudgetUSD) * 1_000_000) }
-        : {}),
-      ...(mcpPayload.length > 0 ? { mcp_servers: mcpPayload } : {}),
-    });
+    try {
+      const created = await onCreate({
+        start_immediately: startImmediately,
+        prompt:
+          taskPrompt.trim() ||
+          (taskKind === "shell" ? command : taskKind === "git" ? `git ${command}` : filePath),
+        execution_kind: taskKind,
+        ...(taskKind === "shell" ? { shell_command: command } : {}),
+        ...(taskKind === "git" ? { git_command: command } : {}),
+        ...(taskKind === "file"
+          ? { file_path: filePath, file_content: taskFileContent, file_operation: taskFileOp }
+          : {}),
+        ...(taskWorkingDir.trim() ? { working_directory: taskWorkingDir.trim() } : {}),
+        ...(effectiveTaskModel ? { requested_model: effectiveTaskModel } : {}),
+        ...(taskProvider !== "auto" ? { requested_provider: taskProvider } : {}),
+        ...(isReportOnlyQA ? { workflow_mode: "qa" as const } : {}),
+        ...(taskInPlace && !isReportOnlyQA ? { workspace_mode: "in_place" } : {}),
+        ...(taskKind === "agent_loop" && !isReportOnlyQA && taskSystemPrompt.trim()
+          ? { system_prompt: taskSystemPrompt.trim() }
+          : {}),
+        ...(taskKind === "agent_loop" && parseFloat(taskBudgetUSD) > 0
+          ? { budget_micros_usd: Math.round(parseFloat(taskBudgetUSD) * 1_000_000) }
+          : {}),
+        ...(mcpPayload.length > 0 ? { mcp_servers: mcpPayload } : {}),
+      });
+      // The parent returns false only when durable Task creation failed. A
+      // partial outcome where the Task exists but its first Run did not start
+      // is still a successful create and should clear this one-shot form.
+      if (created === false) return;
+    } catch {
+      // The parent owns actionable error copy. Retain every field so the
+      // operator can correct or retry the same Task without reconstructing it.
+      return;
+    }
     setTaskPrompt("");
     setTaskWorkflowMode("standard");
     setTaskCommand("");
@@ -313,6 +328,7 @@ export function NewTaskSlideOver({
     setTaskProvider("auto");
     setTaskModel("");
     setTaskInPlace(false);
+    setStartImmediately(true);
     setMcpServers([]);
   }
 
@@ -329,11 +345,17 @@ export function NewTaskSlideOver({
             className="btn btn-primary"
             style={{ flex: 1, justifyContent: "center" }}
             disabled={!formIsValid() || busyAction === "create"}
-            onClick={submit}
-            type="button"
+            form="new-task-form"
+            type="submit"
           >
             <Icon d={Icons.send} size={14} />{" "}
-            {busyAction === "create" ? "Creating task & starting run…" : "Create task & start run"}
+            {busyAction === "create"
+              ? startImmediately
+                ? "Creating task & starting Run…"
+                : "Creating task…"
+              : startImmediately
+                ? "Create task & start Run"
+                : "Create task"}
           </button>
           <button className="btn" onClick={onClose} type="button">
             Cancel
@@ -341,7 +363,28 @@ export function NewTaskSlideOver({
         </div>
       }
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <form
+        id="new-task-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (formIsValid() && busyAction !== "create") void submit();
+        }}
+        style={{ display: "flex", flexDirection: "column", gap: 14 }}
+      >
+        <button
+          type="submit"
+          tabIndex={-1}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            padding: 0,
+            border: 0,
+            clipPath: "inset(50%)",
+            overflow: "hidden",
+          }}
+        />
         <div>
           <label
             style={{
@@ -410,7 +453,6 @@ export function NewTaskSlideOver({
                 placeholder="ls -la / echo hello"
                 value={taskCommand}
                 onChange={(e) => setTaskCommand(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && formIsValid() && submit()}
               />
             </div>
             <div
@@ -466,7 +508,6 @@ export function NewTaskSlideOver({
                 placeholder="status / log --oneline -5"
                 value={taskGitCommand}
                 onChange={(e) => setTaskGitCommand(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && formIsValid() && submit()}
               />
             </div>
           </div>
@@ -800,12 +841,63 @@ export function NewTaskSlideOver({
           </div>
         </div>
 
+        <fieldset disabled={busyAction === "create"} style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend
+            style={{
+              fontSize: 11,
+              color: "var(--t2)",
+              marginBottom: 6,
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            FIRST RUN
+          </legend>
+          <div style={{ display: "grid", gap: 7 }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <input
+                type="radio"
+                name="new-task-start"
+                checked={startImmediately}
+                onChange={() => setStartImmediately(true)}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <span style={{ display: "block", color: "var(--t0)", fontSize: 12 }}>
+                  Start a Run now
+                </span>
+                <span className="field-hint">Create the Task and immediately begin Run #1.</span>
+              </span>
+            </label>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <input
+                type="radio"
+                name="new-task-start"
+                checked={!startImmediately}
+                onChange={() => setStartImmediately(false)}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <span style={{ display: "block", color: "var(--t0)", fontSize: 12 }}>
+                  Create without starting
+                </span>
+                <span className="field-hint">
+                  Add a schedule or start the first Run when you are ready.
+                </span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
         {errorMessage && (
-          <div style={{ fontSize: 12, color: "var(--red)", fontFamily: "var(--font-mono)" }}>
+          <div
+            role="alert"
+            aria-live="assertive"
+            style={{ fontSize: 12, color: "var(--red)", fontFamily: "var(--font-mono)" }}
+          >
             {errorMessage}
           </div>
         )}
-      </div>
+      </form>
     </SlideOver>
   );
 }

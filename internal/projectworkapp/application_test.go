@@ -539,7 +539,7 @@ func TestApplication_StartTaskAssignmentCreatesTaskAndLinksRun(t *testing.T) {
 		Assignment:        assignment,
 		ContextSnapshotID: "ctx_1",
 		BuildTask: func(taskID string) (types.Task, error) {
-			return types.Task{ID: taskID, Title: "Build", Status: "queued"}, nil
+			return types.Task{ID: taskID, Title: "Build", Status: types.TaskStatusNotStarted}, nil
 		},
 		InitializeRun: func(_ types.Task, run *types.TaskRun) {
 			initializedRunID = run.ID
@@ -715,7 +715,7 @@ func TestApplication_StartTaskAssignmentRunnerFailureMarksFailed(t *testing.T) {
 		WorkItemID: "work_1",
 		Assignment: assignment,
 		BuildTask: func(taskID string) (types.Task, error) {
-			return types.Task{ID: taskID, Title: "Build", Status: "queued"}, nil
+			return types.Task{ID: taskID, Title: "Build", Status: types.TaskStatusNotStarted}, nil
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "runner boom") {

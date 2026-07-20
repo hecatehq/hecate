@@ -30,10 +30,50 @@ func validateRunStartTransition(tr RunStartTransition) error {
 	if tr.Run.Status != "queued" && tr.Run.Status != "awaiting_approval" {
 		return fmt.Errorf("run start status %q is invalid", tr.Run.Status)
 	}
+	if err := validateRunScheduleProvenance(tr.Run); err != nil {
+		return err
+	}
 	if tr.BudgetMicrosUSD < 0 {
 		return fmt.Errorf("budget_micros_usd must be non-negative")
 	}
 	return nil
+}
+
+func validateRunScheduleProvenance(run types.TaskRun) error {
+	scheduleID := strings.TrimSpace(run.ScheduleID)
+	occurrenceID := strings.TrimSpace(run.ScheduleOccurrenceID)
+	hasScheduledFor := !run.ScheduledFor.IsZero()
+	if scheduleID == "" && occurrenceID == "" && !hasScheduledFor {
+		return nil
+	}
+	if scheduleID == "" || occurrenceID == "" || !hasScheduledFor {
+		return fmt.Errorf("run schedule id, occurrence id, and scheduled time must be provided together")
+	}
+	if scheduleID != run.ScheduleID || occurrenceID != run.ScheduleOccurrenceID {
+		return fmt.Errorf("run schedule provenance identifiers must be canonical")
+	}
+	return nil
+}
+
+func findRunByScheduleOccurrence(runs []types.TaskRun, candidate types.TaskRun) (types.TaskRun, bool, error) {
+	if candidate.ScheduleOccurrenceID == "" {
+		return types.TaskRun{}, false, nil
+	}
+	for _, existing := range runs {
+		if existing.ScheduleOccurrenceID != candidate.ScheduleOccurrenceID {
+			continue
+		}
+		if err := validateRunScheduleProvenance(existing); err != nil {
+			return types.TaskRun{}, false, fmt.Errorf("stored run %q has invalid schedule provenance: %w", existing.ID, err)
+		}
+		if existing.TaskID != candidate.TaskID ||
+			existing.ScheduleID != candidate.ScheduleID ||
+			!existing.ScheduledFor.Equal(candidate.ScheduledFor) {
+			return types.TaskRun{}, false, fmt.Errorf("schedule occurrence %q already belongs to different run provenance", candidate.ScheduleOccurrenceID)
+		}
+		return existing, true, nil
+	}
+	return types.TaskRun{}, false, nil
 }
 
 func mergeRunStartTask(stored, candidate types.Task, budgetMicrosUSD int64) (types.Task, error) {
@@ -66,18 +106,27 @@ func (s *MemoryStore) ApplyRunStartTransition(_ context.Context, tr RunStartTran
 
 	storedTask, ok := s.tasks[tr.Task.ID]
 	if !ok {
-		return RunStartTransitionResult{}, fmt.Errorf("task %q not found", tr.Task.ID)
+		return RunStartTransitionResult{}, fmt.Errorf("%w: %q", ErrTaskNotFound, tr.Task.ID)
 	}
 	nextRunNumber := 1
+	taskRuns := make([]types.TaskRun, 0)
 	for _, storedRun := range s.runs {
 		if storedRun.TaskID != tr.Task.ID {
 			continue
 		}
-		if !types.IsTerminalTaskRunStatus(storedRun.Status) {
-			return RunStartTransitionResult{}, ErrActiveRun
-		}
+		taskRuns = append(taskRuns, storedRun)
 		if storedRun.Number >= nextRunNumber {
 			nextRunNumber = storedRun.Number + 1
+		}
+	}
+	if existing, found, err := findRunByScheduleOccurrence(taskRuns, tr.Run); err != nil {
+		return RunStartTransitionResult{}, err
+	} else if found {
+		return RunStartTransitionResult{Task: cloneTask(storedTask), Run: existing, ExistingRun: true}, nil
+	}
+	for _, storedRun := range taskRuns {
+		if !types.IsTerminalTaskRunStatus(storedRun.Status) {
+			return RunStartTransitionResult{}, ErrActiveRun
 		}
 	}
 	if _, exists := s.runs[tr.Run.ID]; exists {
@@ -109,27 +158,26 @@ func (s *SQLiteStore) ApplyRunStartTransition(ctx context.Context, tr RunStartTr
 	if err != nil {
 		return RunStartTransitionResult{}, err
 	}
-	var activeRuns int
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT COUNT(1)
-		FROM %s
-		WHERE task_id = ? AND status NOT IN ('completed', 'failed', 'cancelled')
-	`, s.runsTable), tr.Task.ID).Scan(&activeRuns); err != nil {
-		return RunStartTransitionResult{}, err
-	}
-	if activeRuns > 0 {
-		return RunStartTransitionResult{}, ErrActiveRun
-	}
-	task, err := mergeRunStartTask(storedTask, tr.Task, tr.BudgetMicrosUSD)
+	taskRuns, err := s.listTaskRunsForStartTx(ctx, tx, tr.Task.ID)
 	if err != nil {
 		return RunStartTransitionResult{}, err
 	}
-	var maxRunNumber int
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT COALESCE(MAX(number), 0)
-		FROM %s
-		WHERE task_id = ?
-	`, s.runsTable), tr.Task.ID).Scan(&maxRunNumber); err != nil {
+	if existing, found, err := findRunByScheduleOccurrence(taskRuns, tr.Run); err != nil {
+		return RunStartTransitionResult{}, err
+	} else if found {
+		return RunStartTransitionResult{Task: storedTask, Run: existing, ExistingRun: true}, nil
+	}
+	maxRunNumber := 0
+	for _, storedRun := range taskRuns {
+		if !types.IsTerminalTaskRunStatus(storedRun.Status) {
+			return RunStartTransitionResult{}, ErrActiveRun
+		}
+		if storedRun.Number > maxRunNumber {
+			maxRunNumber = storedRun.Number
+		}
+	}
+	task, err := mergeRunStartTask(storedTask, tr.Task, tr.BudgetMicrosUSD)
+	if err != nil {
 		return RunStartTransitionResult{}, err
 	}
 	run := tr.Run
@@ -154,6 +202,31 @@ func (s *SQLiteStore) ApplyRunStartTransition(ctx context.Context, tr RunStartTr
 	return RunStartTransitionResult{Task: task, Run: run}, nil
 }
 
+func (s *SQLiteStore) listTaskRunsForStartTx(ctx context.Context, tx storage.Tx, taskID string) ([]types.TaskRun, error) {
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
+		SELECT payload
+		FROM %s
+		WHERE task_id = ?
+	`, s.runsTable), taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := make([]types.TaskRun, 0)
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var run types.TaskRun
+		if err := json.Unmarshal([]byte(payload), &run); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 func (s *SQLiteStore) getTaskForRunStartTx(ctx context.Context, tx storage.Tx, taskID string) (types.Task, error) {
 	query := fmt.Sprintf(`SELECT payload FROM %s WHERE id = ?`, s.tasksTable)
 	if s.client != nil && s.client.Dialect() == storage.DialectPostgres {
@@ -162,7 +235,7 @@ func (s *SQLiteStore) getTaskForRunStartTx(ctx context.Context, tx storage.Tx, t
 	var payload string
 	if err := tx.QueryRowContext(ctx, query, taskID).Scan(&payload); err != nil {
 		if err == sql.ErrNoRows {
-			return types.Task{}, fmt.Errorf("task %q not found", taskID)
+			return types.Task{}, fmt.Errorf("%w: %q", ErrTaskNotFound, taskID)
 		}
 		return types.Task{}, err
 	}

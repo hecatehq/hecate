@@ -274,16 +274,19 @@ type TaskRunItem struct {
 	// PriorCostMicrosUSD is the cumulative LLM spend of every prior
 	// run in this run's resume chain (zero for fresh runs). Add it
 	// to TotalCostMicrosUSD to get the task-level cumulative spend.
-	PriorCostMicrosUSD int64                 `json:"prior_cost_micros_usd,omitempty"`
-	LastError          string                `json:"last_error,omitempty"`
-	StartedAt          string                `json:"started_at,omitempty"`
-	FinishedAt         string                `json:"finished_at,omitempty"`
-	RequestID          string                `json:"request_id,omitempty"`
-	TraceID            string                `json:"trace_id,omitempty"`
-	RootSpanID         string                `json:"root_span_id,omitempty"`
-	OtelStatusCode     string                `json:"otel_status_code,omitempty"`
-	OtelStatusMessage  string                `json:"otel_status_message,omitempty"`
-	SourceRef          *TaskRunSourceRefItem `json:"source_ref,omitempty"`
+	PriorCostMicrosUSD   int64                 `json:"prior_cost_micros_usd,omitempty"`
+	LastError            string                `json:"last_error,omitempty"`
+	StartedAt            string                `json:"started_at,omitempty"`
+	FinishedAt           string                `json:"finished_at,omitempty"`
+	RequestID            string                `json:"request_id,omitempty"`
+	TraceID              string                `json:"trace_id,omitempty"`
+	RootSpanID           string                `json:"root_span_id,omitempty"`
+	OtelStatusCode       string                `json:"otel_status_code,omitempty"`
+	OtelStatusMessage    string                `json:"otel_status_message,omitempty"`
+	SourceRef            *TaskRunSourceRefItem `json:"source_ref,omitempty"`
+	ScheduleID           string                `json:"schedule_id,omitempty"`
+	ScheduleOccurrenceID string                `json:"schedule_occurrence_id,omitempty"`
+	ScheduledFor         string                `json:"scheduled_for,omitempty"`
 }
 
 type TaskRunSourceRefItem struct {

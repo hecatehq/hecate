@@ -36,6 +36,8 @@ var (
 	ErrBudgetLower            = taskstate.ErrBudgetLower
 )
 
+const scheduledWorkspaceCleanupTimeout = 3 * time.Second
+
 var resourceIDCounter atomic.Uint64
 
 var stepTelemetryAttrKeys = []string{
@@ -211,6 +213,16 @@ type StartTaskResult struct {
 	SpanID    string
 }
 
+// ScheduledTaskStart carries the durable occurrence claim that must be
+// admitted atomically with Run creation. It is separate from RunInitializer:
+// the claim owner is a persistence fence, not caller-owned Run metadata.
+type ScheduledTaskStart struct {
+	ScheduleID           string
+	ScheduleOccurrenceID string
+	ScheduledFor         time.Time
+	ClaimOwner           string
+}
+
 type startTaskOptions struct {
 	ResumeFromRun *types.TaskRun
 	// RetryFromRun carries same-input state and any retained workflow snapshot
@@ -231,6 +243,7 @@ type startTaskOptions struct {
 	// BudgetMicrosUSD raises the durable task ceiling while the same origin
 	// lease that creates the resumed run is held.
 	BudgetMicrosUSD int64
+	Schedule        *ScheduledTaskStart
 }
 
 type RuntimeStats struct {
@@ -608,6 +621,21 @@ func (r *Runner) StartTaskWithRunInitializer(ctx context.Context, task types.Tas
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{RunInitializer: init})
 }
 
+func (r *Runner) StartScheduledTask(ctx context.Context, task types.Task, idgen func(prefix string) string, schedule ScheduledTaskStart) (*StartTaskResult, error) {
+	schedule.ScheduleID = strings.TrimSpace(schedule.ScheduleID)
+	schedule.ScheduleOccurrenceID = strings.TrimSpace(schedule.ScheduleOccurrenceID)
+	schedule.ClaimOwner = strings.TrimSpace(schedule.ClaimOwner)
+	schedule.ScheduledFor = schedule.ScheduledFor.UTC()
+	if schedule.ScheduleID == "" || schedule.ScheduleOccurrenceID == "" || schedule.ScheduledFor.IsZero() || schedule.ClaimOwner == "" {
+		return nil, fmt.Errorf("schedule id, occurrence id, scheduled time, and claim owner are required")
+	}
+	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{Schedule: &schedule})
+}
+
+func scheduledApprovalID(runID string) string {
+	return "approval_schedule_" + strings.TrimPrefix(strings.TrimSpace(runID), "run_")
+}
+
 func (r *Runner) ResumeTask(ctx context.Context, task types.Task, run types.TaskRun, reason string, idgen func(prefix string) string) (*StartTaskResult, error) {
 	return r.ResumeTaskWithBudget(ctx, task, run, reason, 0, idgen)
 }
@@ -737,7 +765,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		return nil, err
 	}
 	if !found {
-		return nil, fmt.Errorf("task %q not found", task.ID)
+		return nil, fmt.Errorf("%w: %q", taskstate.ErrTaskNotFound, task.ID)
 	}
 	task = currentTask
 	lease, err := r.beginOriginRunMutation(ctx, task)
@@ -753,12 +781,50 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	if r.workspaces == nil {
 		return nil, fmt.Errorf("workspace manager is not configured")
 	}
+	var scheduledStore taskstate.ScheduledRunStore
+	if options.Schedule != nil {
+		var ok bool
+		scheduledStore, ok = r.store.(taskstate.ScheduledRunStore)
+		if !ok {
+			return nil, fmt.Errorf("scheduled run store is not configured")
+		}
+	}
 
 	if options.BudgetMicrosUSD > 0 {
 		if options.BudgetMicrosUSD < task.BudgetMicrosUSD {
 			return nil, ErrBudgetLower
 		}
 		task.BudgetMicrosUSD = options.BudgetMicrosUSD
+	}
+	if options.Schedule != nil {
+		preflight, err := scheduledStore.PreflightTaskScheduleRunAdmission(ctx, taskstate.TaskScheduleRunPreflight{
+			TaskID:               task.ID,
+			ScheduleID:           options.Schedule.ScheduleID,
+			ScheduleOccurrenceID: options.Schedule.ScheduleOccurrenceID,
+			ScheduledFor:         options.Schedule.ScheduledFor,
+			ClaimOwner:           options.Schedule.ClaimOwner,
+			CompletedAt:          time.Now().UTC(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if preflight.ExistingRun {
+			if preflight.Run.Status == "queued" {
+				if err := r.enqueueRunWithReconcile(preflight.Task.ID, preflight.Run.ID); err != nil {
+					return nil, err
+				}
+			}
+			return &StartTaskResult{
+				Task: preflight.Task, Run: preflight.Run,
+				TraceID: preflight.Run.TraceID, SpanID: preflight.Run.RootSpanID,
+			}, nil
+		}
+		if preflight.Skipped {
+			return nil, ErrActiveRun
+		}
+		if !preflight.Ready {
+			return nil, taskstate.ErrScheduleOccurrenceClaimLost
+		}
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
@@ -777,9 +843,11 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		recordOrchestratorRunFailed(trace, task.ID, types.TaskRun{WorkflowMode: task.WorkflowMode}, "run_list_failed", err)
 		return nil, err
 	}
-	for _, existingRun := range runs {
-		if !types.IsTerminalTaskRunStatus(existingRun.Status) {
-			return nil, ErrActiveRun
+	if options.Schedule == nil {
+		for _, existingRun := range runs {
+			if !types.IsTerminalTaskRunStatus(existingRun.Status) {
+				return nil, ErrActiveRun
+			}
 		}
 	}
 
@@ -812,8 +880,17 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		TraceID:         trace.TraceID,
 		RootSpanID:      trace.RootSpanID(),
 	}
-	if r.approvalRequiredForTask(task) {
+	approvalRequired := r.approvalRequiredForTask(task)
+	if approvalRequired {
 		run.Status = "awaiting_approval"
+		if options.Schedule != nil {
+			run.ApprovalCount = 1
+		}
+	}
+	if options.Schedule != nil {
+		run.ScheduleID = options.Schedule.ScheduleID
+		run.ScheduleOccurrenceID = options.Schedule.ScheduleOccurrenceID
+		run.ScheduledFor = options.Schedule.ScheduledFor
 	}
 	if options.ResumeFromRun != nil {
 		prior := *options.ResumeFromRun
@@ -917,14 +994,42 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	if workspaceStartLease != nil {
 		defer workspaceStartLease.Release()
 	}
+	var publishedManagedWorkspace *managedWorkspaceProvision
+	managedWorkspaceTaskID := task.ID
+	managedWorkspaceRunID := run.ID
 	if provisionPlan.requiresWrite {
 		if workspaceStartLease != nil && workspaceStartLease.Workspace() != filepath.Clean(run.WorkspacePath) {
 			return nil, fmt.Errorf("workspace destination changed during provisioning admission")
 		}
-		run.WorkspacePath, err = r.workspaces.provisionPlanned(ctx, provisionPlan)
+		run.WorkspacePath, err = r.workspaces.provisionPlannedTracked(ctx, provisionPlan, &publishedManagedWorkspace)
 		if err != nil {
 			recordOrchestratorRunFailed(trace, task.ID, run, "workspace_provision_failed", err)
 			return nil, err
+		}
+		if options.Schedule != nil && publishedManagedWorkspace != nil {
+			// ApplyTaskScheduleRunAdmission is the cross-replica fence. If this
+			// candidate loses after publishing its workspace, remove that exact
+			// directory only after confirming no durable Run references it.
+			defer func() {
+				if publishedManagedWorkspace == nil {
+					return
+				}
+				if cleanupErr := r.cleanupUnreferencedScheduledWorkspace(
+					ctx,
+					managedWorkspaceTaskID,
+					managedWorkspaceRunID,
+					publishedManagedWorkspace,
+				); cleanupErr != nil && r.logger != nil {
+					telemetry.Warn(
+						r.logger,
+						context.WithoutCancel(ctx),
+						"scheduled managed workspace cleanup failed",
+						slog.String(telemetry.AttrHecateTaskID, managedWorkspaceTaskID),
+						slog.String(telemetry.AttrHecateRunID, managedWorkspaceRunID),
+						slog.Any("error", cleanupErr),
+					)
+				}
+			}()
 		}
 	}
 	if run, err = r.validateQAWorkspace(task, run); err != nil {
@@ -978,18 +1083,67 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	task.LatestTraceID = trace.TraceID
 	task.LatestRequestID = requestID
 
-	started, err := r.store.ApplyRunStartTransition(ctx, taskstate.RunStartTransition{
-		Task:            task,
-		Run:             run,
-		BudgetMicrosUSD: options.BudgetMicrosUSD,
-	})
+	var started taskstate.RunStartTransitionResult
+	var scheduledApproval *types.TaskApproval
+	if options.Schedule != nil {
+		admittedAt := time.Now().UTC()
+		if approvalRequired {
+			approval := r.prepareApprovalForTask(trace, task, run, requestID, admittedAt, scheduledApprovalID(run.ID))
+			scheduledApproval = &approval
+		}
+		admitted, admissionErr := scheduledStore.ApplyTaskScheduleRunAdmission(ctx, taskstate.TaskScheduleRunAdmission{
+			Task:            task,
+			Run:             run,
+			Approval:        scheduledApproval,
+			BudgetMicrosUSD: options.BudgetMicrosUSD,
+			ClaimOwner:      options.Schedule.ClaimOwner,
+			CompletedAt:     admittedAt,
+		})
+		err = admissionErr
+		if err == nil && admitted.Skipped {
+			err = ErrActiveRun
+		}
+		if err == nil && !admitted.Applied && !admitted.ExistingRun {
+			err = taskstate.ErrScheduleOccurrenceClaimLost
+		}
+		if err == nil {
+			started = taskstate.RunStartTransitionResult{
+				Task: admitted.Task, Run: admitted.Run, ExistingRun: admitted.ExistingRun,
+			}
+		}
+	} else {
+		started, err = r.store.ApplyRunStartTransition(ctx, taskstate.RunStartTransition{
+			Task:            task,
+			Run:             run,
+			BudgetMicrosUSD: options.BudgetMicrosUSD,
+		})
+	}
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, run, "run_create_failed", err)
 		return nil, err
 	}
 	task = started.Task
 	run = started.Run
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunCreated.String(), requestID, trace.TraceID, nil)
+	if publishedManagedWorkspace != nil {
+		if referenced, referenceErr := managedWorkspaceProvisionReferencesRun(publishedManagedWorkspace, run); referenceErr == nil && referenced {
+			// The admission result is authoritative durable state. Once that Run
+			// owns this exact workspace, later enqueue failures must retain it.
+			publishedManagedWorkspace = nil
+		}
+	}
+	if started.ExistingRun {
+		if options.Schedule != nil && run.Status == "queued" {
+			if err := r.enqueueRunWithReconcile(task.ID, run.ID); err != nil {
+				return nil, err
+			}
+		}
+		return &StartTaskResult{
+			Task: task, Run: run, TraceID: run.TraceID, SpanID: run.RootSpanID,
+		}, nil
+	}
+	if options.Schedule == nil {
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunCreated.String(), requestID, trace.TraceID, nil)
+	}
 	if options.ResumeFromRun != nil {
 		resumedData := map[string]any{
 			"from_run_id": options.ResumeFromRun.ID,
@@ -1006,16 +1160,18 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 
 	recordOrchestratorRunStarted(trace, task.ID, run)
 
-	if r.approvalRequiredForTask(task) {
-		if _, err := r.createApprovalForTask(ctx, trace, task, run, requestID, now, idgen); err != nil {
-			return nil, err
+	if approvalRequired {
+		if options.Schedule == nil {
+			if _, err := r.createApprovalForTask(ctx, trace, task, run, requestID, now, idgen); err != nil {
+				return nil, err
+			}
+			run.ApprovalCount = 1
+			run, err = r.store.UpdateRun(ctx, run)
+			if err != nil {
+				return nil, err
+			}
+			_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunAwaitingApproval.String(), requestID, trace.TraceID, nil)
 		}
-		run.ApprovalCount = 1
-		run, err = r.store.UpdateRun(ctx, run)
-		if err != nil {
-			return nil, err
-		}
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunAwaitingApproval.String(), requestID, trace.TraceID, nil)
 		task.Status = "awaiting_approval"
 	} else {
 		trace.Record(telemetry.EventQueueEnqueued, map[string]any{
@@ -1023,8 +1179,14 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			telemetry.AttrHecateRunID:        run.ID,
 			telemetry.AttrHecateQueueBackend: r.getQueue().Backend(),
 		})
-		if err := r.emitRunQueuedAndEnqueue(ctx, task.ID, run.ID, requestID, trace.TraceID, nil); err != nil {
-			return nil, err
+		var enqueueErr error
+		if options.Schedule != nil {
+			enqueueErr = r.enqueueRunWithReconcile(task.ID, run.ID)
+		} else {
+			enqueueErr = r.emitRunQueuedAndEnqueue(ctx, task.ID, run.ID, requestID, trace.TraceID, nil)
+		}
+		if enqueueErr != nil {
+			return nil, enqueueErr
 		}
 	}
 
@@ -1034,6 +1196,62 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		TraceID: trace.TraceID,
 		SpanID:  trace.RootSpanID(),
 	}, nil
+}
+
+func (r *Runner) cleanupUnreferencedScheduledWorkspace(
+	ctx context.Context,
+	taskID string,
+	runID string,
+	published *managedWorkspaceProvision,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scheduledWorkspaceCleanupTimeout)
+	defer cancel()
+
+	// Admission can commit and still return an ambiguous error. Inspect every
+	// durable Run before removing the candidate so a cross-task reference or
+	// an admitted candidate is preserved as well as the ordinary Task-local
+	// cases.
+	runs, err := r.store.ListRunsByFilter(cleanupCtx, taskstate.RunFilter{})
+	if err != nil {
+		return fmt.Errorf("list durable runs before managed workspace cleanup: %w", err)
+	}
+	for _, durableRun := range runs {
+		referenced, err := managedWorkspaceProvisionReferencesRun(published, durableRun)
+		if err != nil {
+			return fmt.Errorf("inspect durable run %q workspace before cleanup: %w", durableRun.ID, err)
+		}
+		if referenced {
+			return nil
+		}
+	}
+	return r.workspaces.cleanupManagedWorkspaceProvision(taskID, runID, published)
+}
+
+func managedWorkspaceProvisionReferencesRun(published *managedWorkspaceProvision, run types.TaskRun) (bool, error) {
+	if published == nil {
+		return false, nil
+	}
+	workspacePath := strings.TrimSpace(run.WorkspacePath)
+	if workspacePath == "" {
+		return false, nil
+	}
+	absolutePath, err := filepath.Abs(workspacePath)
+	if err != nil {
+		return false, fmt.Errorf("resolve absolute workspace path: %w", err)
+	}
+	if filepath.Clean(absolutePath) == published.workspacePath {
+		return true, nil
+	}
+	canonicalPath, err := workspacecoord.CanonicalWorkspace(workspacePath)
+	if errors.Is(err, os.ErrNotExist) {
+		// A non-existent, lexically different path cannot currently alias the
+		// published directory. This permits cleanup despite stale old Runs.
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return canonicalPath == published.workspacePath, nil
 }
 
 func cloneRunContextPacketForNewRun(raw json.RawMessage, taskID, runID, workspacePath string, idgen func(string) string) json.RawMessage {

@@ -469,7 +469,7 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		SandboxAllowedRoot:               plan.WorkingDirectory,
 		SandboxReadOnly:                  !plan.Profile.WritesAllowed,
 		SandboxNetwork:                   plan.Profile.NetworkAllowed,
-		Status:                           "queued",
+		Status:                           types.TaskStatusNotStarted,
 		Priority:                         firstNonEmpty(workItem.Priority, "normal"),
 		RequestedProvider:                plan.RequestedProvider,
 		RequestedModel:                   plan.RequestedModel,

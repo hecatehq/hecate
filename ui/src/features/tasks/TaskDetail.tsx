@@ -8,8 +8,11 @@ import type {
   TaskRecord,
   TaskRunEventRecord,
   TaskRunRecord,
+  TaskScheduleOccurrenceRecord,
+  TaskScheduleRecord,
   TaskStepRecord,
 } from "../../types/task";
+import type { UpsertTaskSchedulePayload } from "../../lib/api";
 import {
   formatDurationRange,
   formatLocaleDateTime,
@@ -23,12 +26,20 @@ import {
 } from "../../lib/agent-terminal-tools";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
+import { EntityDetailHeader, EntityDetailPane } from "../shared/EntityWorkspace";
 import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { DiffViewer } from "../shared/DiffViewer";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "../transcript/TranscriptMarkdown";
 
 import { AgentConversationView } from "./TaskAgentConversation";
+import {
+  browserTimezone,
+  formatScheduleDateTime,
+  type ScheduleHistoryState,
+  type ScheduleLoadState,
+  TaskScheduleControl,
+} from "./TaskScheduleControl";
 import {
   type OutputActivityIndex,
   approvalCommandPreview,
@@ -567,6 +578,7 @@ type Props = {
   onSelectRun: (runID: string) => void;
   onResolveApproval: (approval: TaskApprovalRecord, decision: "approve" | "reject") => void;
   onCancelRun: () => void;
+  onStartRun?: () => void;
   onRetryRun: () => void;
   onResumeRun: () => void;
   onRefresh: () => void;
@@ -596,6 +608,16 @@ type Props = {
   // present. Optional so unit tests can render TaskDetail in
   // isolation without wiring AppShell.
   onOpenTrace?: (requestID: string) => void;
+  schedule?: TaskScheduleRecord | null;
+  scheduleOccurrences?: TaskScheduleOccurrenceRecord[];
+  scheduleLoadState?: ScheduleLoadState;
+  scheduleLoadError?: string;
+  scheduleHistoryState?: ScheduleHistoryState;
+  scheduleHistoryError?: string;
+  taskListLoadError?: string;
+  taskDetailLoadError?: string;
+  onSaveSchedule?: (payload: UpsertTaskSchedulePayload) => Promise<boolean | void>;
+  onDeleteSchedule?: () => Promise<boolean | void>;
 };
 
 export function TaskDetail({
@@ -616,6 +638,7 @@ export function TaskDetail({
   onSelectRun,
   onResolveApproval,
   onCancelRun,
+  onStartRun,
   onRetryRun,
   onResumeRun,
   onRefresh,
@@ -627,6 +650,16 @@ export function TaskDetail({
   onRevertPatch,
   loadContext,
   onOpenTrace,
+  schedule = null,
+  scheduleOccurrences = [],
+  scheduleLoadState = "loaded",
+  scheduleLoadError = "",
+  scheduleHistoryState = schedule ? "loaded" : "idle",
+  scheduleHistoryError = "",
+  taskListLoadError = "",
+  taskDetailLoadError = "",
+  onSaveSchedule,
+  onDeleteSchedule,
 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -663,6 +696,7 @@ export function TaskDetail({
   );
   const previewPatch = artifacts.find((a) => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
+  const taskHasRun = Boolean(task.latest_run_id || runs.length > 0);
   const source = taskSource(task);
   const sourceChat = taskChatSourceRef(task, run);
   const requestedAutoProvider = run?.provider?.toLowerCase() === "auto";
@@ -680,6 +714,8 @@ export function TaskDetail({
   );
   const visibleEvents = events.filter(isVisibleRunEvent);
   const runOutcome = run ? taskRunOutcome(run.status, run.last_error) : null;
+  const scheduledRunTimezone =
+    run?.schedule_id && run.schedule_id === schedule?.id ? schedule.timezone : browserTimezone();
 
   useEffect(() => {
     if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight;
@@ -696,22 +732,23 @@ export function TaskDetail({
   }, [focusRequestNonce, onFocusRequestHandled]);
 
   return (
-    <div
-      style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}
-    >
-      <div
+    <EntityDetailPane>
+      <EntityDetailHeader
+        aria-label="Task details"
+        className="task-detail-header"
         style={{
-          height: "var(--topbar-h)",
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          padding: "0 16px",
+          height: "auto",
+          minHeight: "var(--topbar-h)",
+          padding: "6px 16px",
           gap: 10,
-          flexShrink: 0,
-          background: "var(--bg1)",
+          flexWrap: "wrap",
         }}
       >
-        <Badge {...taskBadgeProps(task.status, task.last_error)} />
+        <Badge
+          {...(taskHasRun
+            ? taskBadgeProps(task.status, task.last_error)
+            : { status: "disabled", label: "not started" })}
+        />
         {isQAV0Workflow && (
           <span
             className="badge badge-muted"
@@ -731,6 +768,7 @@ export function TaskDetail({
             fontSize: 13,
             color: "var(--t0)",
             flex: 1,
+            minWidth: 140,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -867,7 +905,38 @@ export function TaskDetail({
         {run && (run.total_cost_micros_usd || run.prior_cost_micros_usd) ? (
           <RunCostBadge run={run} />
         ) : null}
-        <div style={{ display: "flex", gap: 6 }}>
+        {task.origin_kind !== "chat" && onSaveSchedule && onDeleteSchedule && (
+          <TaskScheduleControl
+            key={task.id}
+            schedule={schedule}
+            occurrences={scheduleOccurrences}
+            availability={scheduleLoadState}
+            availabilityError={scheduleLoadError}
+            historyState={scheduleHistoryState}
+            historyError={scheduleHistoryError}
+            operation={
+              busyAction === "schedule-save"
+                ? "save"
+                : busyAction === "schedule-delete"
+                  ? "delete"
+                  : null
+            }
+            disabled={busyAction !== ""}
+            onSave={onSaveSchedule}
+            onDelete={onDeleteSchedule}
+          />
+        )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, minWidth: 0 }}>
+          {!taskHasRun && onStartRun && (
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={busyAction !== ""}
+              onClick={onStartRun}
+              type="button"
+            >
+              Start first Run
+            </button>
+          )}
           {showRunStopControl && (
             <button
               className="btn btn-danger btn-sm"
@@ -912,10 +981,92 @@ export function TaskDetail({
             />
           )}
         </div>
-      </div>
+      </EntityDetailHeader>
+
+      {taskListLoadError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            alignItems: "center",
+            background: "var(--red-bg)",
+            borderBottom: "1px solid var(--border)",
+            color: "var(--red)",
+            display: "flex",
+            flexWrap: "wrap",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            gap: 8,
+            padding: "6px 16px",
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 180 }}>
+            Tasks could not be refreshed: {taskListLoadError}
+          </span>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
+            Retry task load
+          </button>
+        </div>
+      )}
+
+      {taskDetailLoadError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            alignItems: "center",
+            background: "var(--red-bg)",
+            borderBottom: "1px solid var(--border)",
+            color: "var(--red)",
+            display: "flex",
+            flexWrap: "wrap",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            gap: 8,
+            padding: "6px 16px",
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 180 }}>
+            Task details could not be loaded: {taskDetailLoadError}
+          </span>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
+            Retry task details
+          </button>
+        </div>
+      )}
+
+      {task.origin_kind !== "chat" && scheduleLoadState === "error" && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            alignItems: "center",
+            background: "var(--red-bg)",
+            borderBottom: "1px solid var(--border)",
+            color: "var(--red)",
+            display: "flex",
+            flexWrap: "wrap",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            gap: 8,
+            padding: "6px 16px",
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 180 }}>
+            Schedule unavailable: {scheduleLoadError || "unknown error"}. Editing is disabled until
+            the Schedule is refreshed.
+          </span>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
+            Retry schedule load
+          </button>
+        </div>
+      )}
 
       {notice && (
         <div
+          role={notice.tone === "error" ? "alert" : "status"}
+          aria-live={notice.tone === "error" ? "assertive" : "polite"}
+          aria-atomic="true"
           style={{
             padding: "6px 16px",
             fontSize: 12,
@@ -939,6 +1090,36 @@ export function TaskDetail({
       )}
 
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        {!run && !taskHasRun && (
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              justifyContent: "center",
+              padding: 24,
+              textAlign: "center",
+            }}
+          >
+            <h2 style={{ color: "var(--t0)", fontSize: 15, margin: 0 }}>No Runs yet</h2>
+            <p
+              style={{
+                color: "var(--t3)",
+                fontSize: 12,
+                lineHeight: 1.6,
+                margin: "8px 0 0",
+                maxWidth: 460,
+              }}
+            >
+              {task.origin_kind === "chat"
+                ? "This Task comes from a Chat and has no execution history yet. Start the first Run from the header."
+                : schedule
+                  ? "This Task has a Schedule but has not started a Run yet. You can inspect the Schedule or start the first Run from the header."
+                  : "This Task is not running and has no execution history. Add a Schedule or start the first Run from the header."}
+            </p>
+          </div>
+        )}
         {run && (
           <div
             style={{
@@ -959,6 +1140,25 @@ export function TaskDetail({
                 marginBottom: 10,
               }}
             >
+              {run.schedule_id && (
+                <span
+                  className="badge badge-muted"
+                  title={
+                    run.scheduled_for
+                      ? `Scheduled for ${formatScheduleDateTime(
+                          run.scheduled_for,
+                          scheduledRunTimezone,
+                        )}`
+                      : "Started by a Task Schedule"
+                  }
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 9 }}
+                >
+                  Scheduled
+                  {run.scheduled_for
+                    ? ` · ${formatScheduleDateTime(run.scheduled_for, scheduledRunTimezone)}`
+                    : ""}
+                </span>
+              )}
               {(routeProviderLabel || run.model) && (
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
                   <BrandAvatar
@@ -1663,7 +1863,7 @@ export function TaskDetail({
           </div>
         </Modal>
       )}
-    </div>
+    </EntityDetailPane>
   );
 }
 

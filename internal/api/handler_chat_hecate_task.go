@@ -114,7 +114,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		WorkingDirectory:   cmd.Session.Workspace,
 		SandboxAllowedRoot: cmd.Session.Workspace,
 		RTKEnabled:         cmd.Session.RTKEnabled,
-		Status:             "queued",
+		Status:             types.TaskStatusNotStarted,
 		Priority:           "normal",
 		RequestedProvider:  cmd.Session.Provider,
 		RequestedModel:     cmd.Session.Model,

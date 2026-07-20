@@ -96,10 +96,10 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 	s.RegisterTool(mcp.Tool{
 		Name:  "create_task",
 		Title: "Create an agent task",
-		Description: "Queue a new agent_loop task on the Hecate gateway. " +
+		Description: "Create a new, not-started agent_loop task on the Hecate gateway. " +
 			"The task runs an LLM-driven loop with built-in tools (shell_exec, " +
 			"git_exec, file_write, file_edit, read_file, list_dir, http_request). " +
-			"Returns the new task id; use get_task_status to follow progress. " +
+			"Returns the new task id; start a Run from Hecate before using get_task_status to follow progress. " +
 			"For non-agent_loop kinds (raw shell / git / file), use the gateway HTTP API directly.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -656,7 +656,6 @@ type createTaskWireResponse struct {
 		ID            string `json:"id"`
 		Status        string `json:"status"`
 		ExecutionKind string `json:"execution_kind"`
-		LatestRunID   string `json:"latest_run_id"`
 	} `json:"data"`
 }
 
@@ -693,11 +692,8 @@ func createTaskHandler(client *GatewayClient) ToolHandler {
 		var b strings.Builder
 		fmt.Fprintf(&b, "Created task %s (%s) — status: %s",
 			resp.Data.ID, resp.Data.ExecutionKind, resp.Data.Status)
-		if resp.Data.LatestRunID != "" {
-			fmt.Fprintf(&b, "; first run: %s", resp.Data.LatestRunID)
-		}
 		b.WriteByte('\n')
-		fmt.Fprintf(&b, "\nUse get_task_status with task_id=%s to follow progress.", resp.Data.ID)
+		fmt.Fprintf(&b, "\nNo Run has started. Start the Task in Hecate, then use get_task_status with task_id=%s to follow progress.", resp.Data.ID)
 		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
 	}
 }

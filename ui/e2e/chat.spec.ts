@@ -369,9 +369,7 @@ test("New chat keeps an unsent draft on the active empty chat", async ({ page })
 
   await page.locator("textarea").fill("newer note typed while creating");
   releaseCreate?.();
-  await expect(
-    page.getByRole("button", { name: /Chat Hecate chat, Hecate/ }).first(),
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: /Chat Hecate chat, Hecate/ }).first()).toBeVisible();
   await expect(page.locator("textarea")).toHaveValue("newer note typed while creating");
   await expect(page.locator("button[type='submit']")).toBeEnabled();
   await expect(page.getByRole("button", { name: "New Hecate chat", exact: true })).toBeEnabled();
@@ -745,9 +743,7 @@ test("New external-agent chat with model setup shows controls and composer toget
   await page.getByRole("button", { name: "New Grok Build chat", exact: true }).click();
 
   await expect.poll(() => createBody?.agent_id).toBe("grok_build");
-  await expect(
-    page.getByRole("button", { name: /Chat Grok Build chat, Grok Build/i }),
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: /Chat Grok Build chat, Grok Build/i })).toBeVisible();
   await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText(
     "Pick a model",
   );
@@ -777,7 +773,7 @@ test("external-agent chat uses the shared fake lifecycle for transcript and dele
   await page.waitForSelector(".hecate-activitybar");
 
   await page.getByRole("button", { name: "New Claude Code chat", exact: true }).click();
-  const chatRow = page.getByRole("button", {
+  const chatRow = page.getByRole("link", {
     name: /Chat Claude Code chat, Claude Code/i,
   });
   await expect(chatRow).toBeVisible();
@@ -824,9 +820,7 @@ test("external-agent running turns keep controls stable and request cancel throu
   });
 
   await page.getByRole("button", { name: "New Grok Build chat", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: /Chat Grok Build chat, Grok Build/i }),
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: /Chat Grok Build chat, Grok Build/i })).toBeVisible();
 
   await page.locator("textarea").fill("Keep running while I inspect the controls [[keep-running]]");
   await page.locator("button[type='submit']").click();
@@ -1016,6 +1010,7 @@ test("sidebar rename works for agent-chat sessions", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
+  await page.getByRole("link", { name: /Chat Codex chat, Codex/i }).hover();
   await page.getByRole("button", { name: "Rename chat Codex chat" }).click();
   const input = page.locator("input").nth(1);
   await expect(input).toHaveValue("Codex chat");
