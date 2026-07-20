@@ -81,11 +81,12 @@ func DetectWrapper(ctx context.Context) WrapperKind {
 
 func detectWrapperSelection(ctx context.Context) wrapperSelection {
 	wrapperOverrideMu.Lock()
-	override := wrapperOverride
-	wrapperOverrideMu.Unlock()
-	if override != nil {
-		return *override
+	if wrapperOverride != nil {
+		selection := *wrapperOverride
+		wrapperOverrideMu.Unlock()
+		return selection
 	}
+	wrapperOverrideMu.Unlock()
 	detectedWrapperOnce.Do(func() {
 		detectedWrapper, detectedWrapperPath = probeWrapper(ctx)
 	})
@@ -226,7 +227,7 @@ func wrappedArgv(argv []string, workspace string, network bool) []string {
 	case WrapperBwrap:
 		return bwrapArgvWithWrapperPath(argv, workspace, network, false, selection.path)
 	case WrapperSandboxExec:
-		return sandboxExecArgv(argv, network)
+		return sandboxExecArgvWithWrapperPath(argv, network, selection.path)
 	default:
 		return argv
 	}
@@ -244,7 +245,7 @@ func WrapReadOnlyArgv(argv []string, workspace string, network bool, extraReadOn
 	case WrapperBwrap:
 		return bwrapArgvWithWrapperPath(argv, workspace, network, true, selection.path, extraReadOnlyPaths...)
 	case WrapperSandboxExec:
-		return sandboxExecArgv(argv, network)
+		return sandboxExecArgvWithWrapperPath(argv, network, selection.path)
 	default:
 		return argv
 	}
@@ -319,6 +320,10 @@ func applySandboxExec(cmd *exec.Cmd, network bool) {
 }
 
 func sandboxExecArgv(argv []string, network bool) []string {
+	return sandboxExecArgvWithWrapperPath(argv, network, sandboxExecBinary)
+}
+
+func sandboxExecArgvWithWrapperPath(argv []string, network bool, wrapperPath string) []string {
 	// v1: network-only profile. File-write confinement to the workspace
 	// is roadmap work — Seatbelt SBPL needs careful tuning to allow
 	// macOS frameworks (Mach IPC, sysctl reads, /private/var/folders
@@ -331,7 +336,10 @@ func sandboxExecArgv(argv []string, network bool) []string {
 		return argv
 	}
 	const profile = `(version 1)(deny network*)(allow default)`
-	return append([]string{sandboxExecBinary, "-p", profile}, argv...)
+	if wrapperPath == "" {
+		wrapperPath = sandboxExecBinary
+	}
+	return append([]string{wrapperPath, "-p", profile}, argv...)
 }
 
 // WrapperHealthInfo is the shape served on /healthz under

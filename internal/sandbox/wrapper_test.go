@@ -1,9 +1,11 @@
 package sandbox
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
 	"slices"
+	"sync"
 	"testing"
 )
 
@@ -46,6 +48,79 @@ func TestSetWrapperForTesting_UpdatesKindAndPathTogether(t *testing.T) {
 				t.Fatalf("WrapperPath() = %q, want %q", got, tc.path)
 			}
 		})
+	}
+}
+
+func TestWrapperSelectionSnapshotStaysCoherentDuringOverrideChanges(t *testing.T) {
+	selections := []wrapperSelection{
+		{kind: WrapperBwrap, path: "/test/wrappers/bwrap"},
+		{kind: WrapperSandboxExec, path: "/test/wrappers/sandbox-exec"},
+	}
+	wrapperOverrideMu.Lock()
+	previous := wrapperOverride
+	initial := selections[0]
+	wrapperOverride = &initial
+	wrapperOverrideMu.Unlock()
+	t.Cleanup(func() {
+		wrapperOverrideMu.Lock()
+		wrapperOverride = previous
+		wrapperOverrideMu.Unlock()
+	})
+
+	const iterations = 2000
+	failures := make(chan string, 1)
+	report := func(message string) {
+		select {
+		case failures <- message:
+		default:
+		}
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for index := 0; index < iterations; index++ {
+			wrapperOverrideMu.Lock()
+			wrapperOverride = &selections[index%len(selections)]
+			wrapperOverrideMu.Unlock()
+		}
+	}()
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				argv := wrappedArgv([]string{"tool", "arg"}, "/workspace", false)
+				switch argv[0] {
+				case selections[0].path:
+					if len(argv) < 2 || argv[1] != "--ro-bind" {
+						report(fmt.Sprintf("bwrap path paired with non-bwrap argv: %#v", argv))
+						return
+					}
+				case selections[1].path:
+					if len(argv) < 2 || argv[1] != "-p" {
+						report(fmt.Sprintf("sandbox-exec path paired with non-sandbox argv: %#v", argv))
+						return
+					}
+				default:
+					report(fmt.Sprintf("wrapped argv used a path outside its snapshot: %#v", argv))
+					return
+				}
+
+				info := HealthInfo()
+				if !((info.Kind == selections[0].kind && info.Path == selections[0].path) ||
+					(info.Kind == selections[1].kind && info.Path == selections[1].path)) {
+					report(fmt.Sprintf("HealthInfo mixed wrapper selection: %+v", info))
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	select {
+	case failure := <-failures:
+		t.Fatal(failure)
+	default:
 	}
 }
 

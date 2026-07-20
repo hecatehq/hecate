@@ -335,7 +335,43 @@ func TestResolveTerminalExecutableDoesNotSearchPATHForDotSlash(t *testing.T) {
 	}
 }
 
-func TestResolveTerminalExecutablePreservesTrailingWhitespace(t *testing.T) {
+func TestBuildTerminalCommandResolvesDotSlashFromProcessWorkingDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix relative executable spelling")
+	}
+	processDir := t.TempDir()
+	t.Chdir(processDir)
+	name := "hecate-terminal-local-fixture"
+	localPath := filepath.Join(processDir, name)
+	if err := os.WriteFile(localPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write process-cwd fixture: %v", err)
+	}
+	pathDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pathDir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write PATH fixture: %v", err)
+	}
+	t.Setenv("PATH", pathDir)
+
+	for _, kind := range []sandbox.WrapperKind{sandbox.WrapperNone, sandbox.WrapperBwrap, sandbox.WrapperSandboxExec} {
+		t.Run(string(kind), func(t *testing.T) {
+			reset := sandbox.SetWrapperForTesting(kind)
+			defer reset()
+
+			cmd, err := buildTerminalCommand(TerminalOptions{Command: "./" + name})
+			if err != nil {
+				t.Fatalf("buildTerminalCommand: %v", err)
+			}
+			if len(cmd.Args) == 0 || cmd.Args[len(cmd.Args)-1] != localPath {
+				t.Fatalf("terminal argv = %#v, want exact process-cwd target %q", cmd.Args, localPath)
+			}
+			if kind == sandbox.WrapperNone && cmd.Path != localPath {
+				t.Fatalf("terminal path = %q, want process-cwd target %q", cmd.Path, localPath)
+			}
+		})
+	}
+}
+
+func TestBuildTerminalCommandPreservesTrailingWhitespaceExecutable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows strips trailing path whitespace")
 	}
@@ -344,12 +380,22 @@ func TestResolveTerminalExecutablePreservesTrailingWhitespace(t *testing.T) {
 		t.Fatalf("write executable: %v", err)
 	}
 
-	cmd := exec.Command(path)
-	if err := resolveTerminalExecutable(cmd, ""); err != nil {
-		t.Fatalf("resolveTerminalExecutable: %v", err)
-	}
-	if cmd.Path != path || len(cmd.Args) == 0 || cmd.Args[0] != path {
-		t.Fatalf("resolved command = path %q args %#v, want exact whitespace-preserving %q", cmd.Path, cmd.Args, path)
+	for _, kind := range []sandbox.WrapperKind{sandbox.WrapperNone, sandbox.WrapperBwrap, sandbox.WrapperSandboxExec} {
+		t.Run(string(kind), func(t *testing.T) {
+			reset := sandbox.SetWrapperForTesting(kind)
+			defer reset()
+
+			cmd, err := buildTerminalCommand(TerminalOptions{Command: path})
+			if err != nil {
+				t.Fatalf("buildTerminalCommand: %v", err)
+			}
+			if len(cmd.Args) == 0 || cmd.Args[len(cmd.Args)-1] != path {
+				t.Fatalf("terminal argv = %#v, want exact whitespace-preserving target %q", cmd.Args, path)
+			}
+			if kind == sandbox.WrapperNone && cmd.Path != path {
+				t.Fatalf("terminal path = %q, want exact whitespace-preserving %q", cmd.Path, path)
+			}
+		})
 	}
 }
 
