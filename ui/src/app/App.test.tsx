@@ -1,6 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { installTauriDocumentMarkers, installTauriEditShortcutFallback } from "./App";
+import {
+  advanceNavigationState,
+  installTauriDocumentMarkers,
+  installTauriEditShortcutFallback,
+  navigationStateUpdateMode,
+} from "./App";
+
+describe("navigation state ownership", () => {
+  it("keeps a revision when history returns to the same URL before an intermediate render", () => {
+    const initial = { url: "/chats?chat=chat_a", revision: 0 };
+    const selected = advanceNavigationState(initial, "/chats?chat=chat_b");
+    const returned = advanceNavigationState(selected, "/chats?chat=chat_a");
+
+    expect(returned).toEqual({ url: initial.url, revision: 2 });
+    expect(returned).not.toEqual(initial);
+  });
+
+  it("updates destinations within one workspace urgently and lazy workspace changes as transitions", () => {
+    expect(navigationStateUpdateMode("/chats?chat=chat_a", "/chats?chat=chat_b", "chats")).toBe(
+      "urgent",
+    );
+    expect(
+      navigationStateUpdateMode("/projects?project=proj_a", "/chats?chat=chat_a", "projects"),
+    ).toBe("transition");
+  });
+});
 
 describe("installTauriDocumentMarkers", () => {
   const originalPlatform = navigator.platform;

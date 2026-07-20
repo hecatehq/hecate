@@ -656,6 +656,42 @@ describe("ConsoleShell navigation", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it("reloads the routed Chat when its rendered snapshot is ahead of active ownership", async () => {
+    const selectChatSession = vi.fn(async () => true);
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "chat_b",
+      activeChatSession: {
+        id: "chat_a",
+        title: "Chat A",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      chatSessions: [
+        { id: "chat_a", title: "Chat A", agent_id: "hecate", status: "idle" } as any,
+        { id: "chat_b", title: "Chat B", agent_id: "hecate", status: "idle" } as any,
+      ],
+    });
+
+    render(
+      withRuntimeConsole(
+        <ConsoleShell
+          activeWorkspace="chats"
+          chatNavigation={{ chatID: "chat_a", messageID: null }}
+          onSelectWorkspace={() => {}}
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), selectChatSession } },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(selectChatSession).toHaveBeenCalledWith(
+        "chat_a",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
   it("does not reapply the old Chat URL while a sidebar selection is completing", async () => {
     const selectChatSession = vi.fn(async () => true);
     const onChatNavigate = vi.fn();
