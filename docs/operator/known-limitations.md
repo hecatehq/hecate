@@ -5,7 +5,7 @@ operators should not assume yet.
 
 The current quality gate for leaving alpha is tracked in the
 [alpha-to-beta roadmap](../contributor/beta-roadmap.md). Until that gate closes, Hecate keeps
-shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
+shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
 
 ## API And Schema Stability
 
