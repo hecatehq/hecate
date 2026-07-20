@@ -251,19 +251,23 @@ func (s *Service) resolveTrustedBinary(fsys *workspacefs.FS, name string) (strin
 		return "", fmt.Errorf("%s resolved to a relative PATH entry, which is not trusted", name)
 	}
 	path = filepath.Clean(path)
-	trustedBoundary := projectTrustRoot(fsys.Root())
-	if pathWithinRoot(trustedBoundary, path) {
-		return "", fmt.Errorf("%s resolves inside the project workspace, which is not trusted", name)
-	}
-	if !explicitlyConfigured && pathSharesUntrustedWorkspaceAncestor(fsys.Root(), path) {
-		return "", fmt.Errorf("%s resolves below a filesystem ancestor shared with the workspace, which is not trusted", name)
-	}
+	// Windows temp paths commonly use an 8.3 alias while the workspace root
+	// uses its long spelling. Resolve the target before trust comparisons, but
+	// retain every check on the original invocation path too: the invocation
+	// location can be workspace-controlled even when a symlink target is not.
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return "", fmt.Errorf("%s executable cannot be resolved", name)
 	}
+	trustedBoundary := projectTrustRoot(fsys.Root())
+	if pathWithinRoot(trustedBoundary, path) {
+		return "", fmt.Errorf("%s resolves inside the project workspace, which is not trusted", name)
+	}
 	if pathWithinRoot(trustedBoundary, canonical) {
 		return "", fmt.Errorf("%s resolves through a symlink into the project workspace, which is not trusted", name)
+	}
+	if !explicitlyConfigured && pathSharesUntrustedWorkspaceAncestor(fsys.Root(), path) {
+		return "", fmt.Errorf("%s resolves below a filesystem ancestor shared with the workspace, which is not trusted", name)
 	}
 	if !explicitlyConfigured && pathSharesUntrustedWorkspaceAncestor(fsys.Root(), canonical) {
 		return "", fmt.Errorf("%s resolves through a symlink below a filesystem ancestor shared with the workspace, which is not trusted", name)

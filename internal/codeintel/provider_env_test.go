@@ -13,6 +13,9 @@ import (
 )
 
 func TestBuildProviderEnv_BwrapUsesPrivateWritableRuntime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix path-list and bwrap fixture")
+	}
 	goPath := canonicalFixturePath(t, t.TempDir())
 	moduleCache := filepath.Join(goPath, "pkg", "mod")
 	if err := os.MkdirAll(moduleCache, 0o755); err != nil {
@@ -45,6 +48,9 @@ func TestBuildProviderEnv_BwrapUsesPrivateWritableRuntime(t *testing.T) {
 }
 
 func TestBuildProviderEnv_WrapperlessUnixReplacesWritableHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix path-list fixture")
+	}
 	originalHome := canonicalFixturePath(t, t.TempDir())
 	goPath := filepath.Join(originalHome, "go")
 	if err := os.Mkdir(goPath, 0o755); err != nil {
