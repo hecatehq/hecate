@@ -397,19 +397,37 @@ func TestService_LSPEarlyExitCleanupIsBounded(t *testing.T) {
 	}
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	service := fakeLSPService(t, "early_exit_child_pipe", pidFile)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := time.Now()
-	_, err := service.Query(ctx, workspace, Request{Operation: OpDefinition, Path: "sample.go", Line: 1, Column: 1})
-	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
-		t.Fatalf("error = %v, want deadline while descendant holds stdout open", err)
-	}
-	if elapsed := time.Since(started); elapsed > 750*time.Millisecond {
-		t.Fatalf("early-exit cleanup took %s, want no stale wait-channel delay", elapsed)
-	}
-	data, readErr := os.ReadFile(pidFile)
-	if readErr != nil {
-		t.Fatalf("read child pid: %v", readErr)
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := service.Query(ctx, workspace, Request{Operation: OpDefinition, Path: "sample.go", Line: 1, Column: 1})
+		queryDone <- err
+	}()
+
+	// Wait until the fixture has created the descendant whose inherited stdout
+	// keeps the read loop blocked. A short deadline on the whole query races
+	// process startup under full-suite race instrumentation and can expire
+	// before the behavior under test exists.
+	var data []byte
+	startupDeadline := time.Now().Add(10 * time.Second)
+	for {
+		var readErr error
+		data, readErr = os.ReadFile(pidFile)
+		if readErr == nil {
+			break
+		}
+		if !errors.Is(readErr, os.ErrNotExist) {
+			t.Fatalf("read child pid: %v", readErr)
+		}
+		select {
+		case err := <-queryDone:
+			t.Fatalf("query returned before descendant startup: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+		if time.Now().After(startupDeadline) {
+			t.Fatal("language-server descendant did not start within 10s")
+		}
 	}
 	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
 	if parseErr != nil {
@@ -417,6 +435,21 @@ func TestService_LSPEarlyExitCleanupIsBounded(t *testing.T) {
 	}
 	if process, findErr := os.FindProcess(pid); findErr == nil {
 		t.Cleanup(func() { _ = process.Kill() })
+	}
+
+	started := time.Now()
+	cancel()
+	var queryErr error
+	select {
+	case queryErr = <-queryDone:
+	case <-time.After(750 * time.Millisecond):
+		t.Fatal("early-exit cleanup exceeded 750ms")
+	}
+	if !errors.Is(queryErr, context.Canceled) {
+		t.Fatalf("error = %v, want cancellation while descendant holds stdout open", queryErr)
+	}
+	if elapsed := time.Since(started); elapsed > 750*time.Millisecond {
+		t.Fatalf("early-exit cleanup took %s, want no stale wait-channel delay", elapsed)
 	}
 	deadline := time.Now().Add(time.Second)
 	for processExists(pid) && time.Now().Before(deadline) {
@@ -526,7 +559,7 @@ func TestCodeIntel_LSPHelperProcess(t *testing.T) {
 		child := exec.Command("sh", "-c", "sleep 60")
 		child.Stdout = os.Stdout
 		if child.Start() == nil && len(args) > 0 {
-			_ = os.WriteFile(args[0], []byte(strconv.Itoa(child.Process.Pid)), 0o600)
+			_ = publishLSPHelperPID(args[0], child.Process.Pid)
 		}
 		_ = os.Stdout.Close()
 		return
@@ -626,7 +659,7 @@ func TestCodeIntel_LSPHelperProcess(t *testing.T) {
 		if len(args) > 0 {
 			child := exec.Command("sh", "-c", "sleep 60")
 			if child.Start() == nil {
-				_ = os.WriteFile(args[0], []byte(strconv.Itoa(child.Process.Pid)), 0o600)
+				_ = publishLSPHelperPID(args[0], child.Process.Pid)
 			}
 		}
 		for {
@@ -638,11 +671,19 @@ func TestCodeIntel_LSPHelperProcess(t *testing.T) {
 	if scenario == "child_on_success" && len(args) > 0 {
 		child := exec.Command("sh", "-c", "sleep 60")
 		if child.Start() == nil {
-			_ = os.WriteFile(args[0], []byte(strconv.Itoa(child.Process.Pid)), 0o600)
+			_ = publishLSPHelperPID(args[0], child.Process.Pid)
 		}
 	}
 	_ = conn.respond(frame.ID, result)
 	serveShutdown(conn)
+}
+
+func publishLSPHelperPID(path string, pid int) error {
+	temporaryPath := path + ".tmp"
+	if err := os.WriteFile(temporaryPath, []byte(strconv.Itoa(pid)), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func fixtureLSPResult(method, documentURI, rootURI string) any {

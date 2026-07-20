@@ -182,7 +182,7 @@ jobs:
         run: go test -race -timeout 10m ./...
 
   test-go-windows-bootstrap:
-    name: Go tests (Windows bootstrap)
+    name: Go tests (Windows)
     needs: changes
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: windows-latest
@@ -199,6 +199,9 @@ jobs:
 
       - name: Test native ACP prompt staging
         run: go test ./internal/agentadapters -run 'Test(ACPPromptStage|StagedFileURI|ACPBaselineStagesPortable)'
+
+      - name: Test native code intelligence
+        run: go test ./internal/codeintel
 
   test-go-macos-bootstrap:
     name: Go tests (macOS bootstrap)

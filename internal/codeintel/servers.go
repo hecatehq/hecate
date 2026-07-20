@@ -244,8 +244,7 @@ func (s *Service) resolveTrustedBinary(fsys *workspacefs.FS, name string) (strin
 	if err != nil {
 		return "", err
 	}
-	path = strings.TrimSpace(path)
-	if path == "" {
+	if strings.TrimSpace(path) == "" {
 		return "", exec.ErrNotFound
 	}
 	if !filepath.IsAbs(path) {
@@ -282,18 +281,23 @@ func (s *Service) resolveTrustedBinary(fsys *workspacefs.FS, name string) (strin
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		return "", fmt.Errorf("%s does not resolve to an executable file", name)
 	}
-	// Validate the canonical target, but invoke the absolute PATH result. Some
-	// trusted tool managers (notably Volta) use one multi-call shim and select
-	// the requested program from argv[0]; executing the canonical target would
-	// change argv[0] to "volta-shim" and make an otherwise valid tsc unusable.
-	// The returned path and its canonical target are both outside the project
-	// boundary, so project writes cannot retarget this symlink.
-	return path, nil
+	return trustedBinaryInvocationPath(path, canonical), nil
+}
+
+func trustedBinaryInvocationPath(discovered, canonical string) string {
+	if runtime.GOOS == "windows" {
+		// A Windows shim can resolve to a native executable, but invoking the shim
+		// would execute a different path from the .exe that passed validation.
+		return canonical
+	}
+	// Unix tool managers such as Volta use multi-call shims selected by argv[0].
+	// Preserve that path after its canonical target has passed every trust check.
+	return discovered
 }
 
 func (s *Service) providerPath(name string) (string, bool, error) {
 	if s != nil {
-		if path := strings.TrimSpace(s.providerPaths[name]); path != "" {
+		if path := s.providerPaths[name]; strings.TrimSpace(path) != "" {
 			return path, true, nil
 		}
 		if s.lookPath != nil {

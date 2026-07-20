@@ -66,7 +66,7 @@ func NewService() *Service {
 func configuredProviderPaths() map[string]string {
 	paths := make(map[string]string, len(providerExecutableEnv))
 	for provider, envName := range providerExecutableEnv {
-		if path := strings.TrimSpace(os.Getenv(envName)); path != "" {
+		if path := os.Getenv(envName); strings.TrimSpace(path) != "" {
 			paths[provider] = path
 		}
 	}
@@ -100,12 +100,7 @@ func (s *Service) Query(ctx context.Context, workspaceRoot string, request Reque
 		return Result{}, fmt.Errorf("code intelligence selector exceeds the %d-byte limit", maxSelectorBytes)
 	}
 	request.Operation = Operation(strings.TrimSpace(string(request.Operation)))
-	rawPath := strings.TrimSpace(request.Path)
-	if rawPath == "" {
-		request.Path = ""
-	} else {
-		request.Path = filepath.Clean(rawPath)
-	}
+	request.Path = normalizeOptionalPath(request.Path)
 	if request.Operation == OpStructuralSearch {
 		request.Language = normalizeStructuralLanguage(request.Language)
 	} else {
@@ -161,6 +156,13 @@ func (s *Service) Query(ctx context.Context, workspaceRoot string, request Reque
 	result.Operation = request.Operation
 	result.Text = formatResult(result)
 	return result, nil
+}
+
+func normalizeOptionalPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }
 
 func knownOperation(operation Operation) bool {

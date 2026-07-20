@@ -64,6 +64,28 @@ func TestPositions_WorkspaceURIRejectsExternalAndSymlinkPaths(t *testing.T) {
 	}
 }
 
+func TestSourceCachePreservesWhitespaceInRelativePath(t *testing.T) {
+	workspace := t.TempDir()
+	name := " sample.go"
+	if runtime.GOOS != "windows" {
+		name += " "
+	}
+	if err := os.WriteFile(filepath.Join(workspace, name), []byte("package sample\n"), 0o644); err != nil {
+		t.Fatalf("write whitespace path: %v", err)
+	}
+	fsys, err := workspacefs.New(workspace)
+	if err != nil {
+		t.Fatalf("new workspace: %v", err)
+	}
+	file, err := newSourceCache(fsys).openRelative(name)
+	if err != nil {
+		t.Fatalf("open whitespace path: %v", err)
+	}
+	if file.relative != name {
+		t.Fatalf("relative path = %q, want %q", file.relative, name)
+	}
+}
+
 func TestSourceCacheBoundsRetainedFilesWithoutDroppingNormalization(t *testing.T) {
 	workspace := t.TempDir()
 	firstData := []byte("package first\n")

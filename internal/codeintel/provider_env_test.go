@@ -182,7 +182,7 @@ func TestBuildProviderEnv_ExactProviderAllowsOnlyItsTrustedSiblingDirectory(t *t
 		t.Fatalf("create project marker: %v", err)
 	}
 	voltaHome := filepath.Join(base, "operator-tools", "volta")
-	voltaBin := filepath.Join(voltaHome, "bin")
+	voltaBin := filepath.Join(voltaHome, "bin ")
 	tsc := writeExecutableFixture(t, voltaBin, "tsc")
 	systemBin := trustedSystemDirectory(t)
 	baseEnv := []string{"PATH=" + strings.Join([]string{voltaBin, systemBin}, string(os.PathListSeparator))}
