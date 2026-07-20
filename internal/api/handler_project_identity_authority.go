@@ -61,6 +61,9 @@ func (h *Handler) createProjectWithCairnlineAuthority(ctx context.Context, proje
 }
 
 func (h *Handler) deleteProjectWithCairnlineAuthority(ctx context.Context, projectID string) (projectapp.DeleteProjectResult, error) {
+	if h.projectCairnlineEmbeddedReplacementModeArmed() {
+		return h.deleteCairnlineOnlyProjectWithAuthority(ctx, projectID)
+	}
 	snapshot, err := cairnlinebridge.LoadSnapshot(ctx, h.cairnlineSnapshotSources(), projectID)
 	if errors.Is(err, projects.ErrNotFound) {
 		return h.deleteCairnlineOnlyProjectWithAuthority(ctx, projectID)

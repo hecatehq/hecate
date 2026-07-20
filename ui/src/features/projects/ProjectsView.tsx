@@ -357,6 +357,7 @@ export function ProjectsView({
   const [hoveredProjectID, setHoveredProjectID] = useState("");
   const [deleteProjectID, setDeleteProjectID] = useState("");
   const [deletePending, setDeletePending] = useState(false);
+  const [deleteProjectError, setDeleteProjectError] = useState("");
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
   const [createProjectError, setCreateProjectError] = useState("");
@@ -1820,13 +1821,14 @@ export function ProjectsView({
 
   async function confirmDeleteProject() {
     if (!pendingDeleteProject) return;
+    setDeleteProjectError("");
     const projectID = pendingDeleteProject.id;
     const ownershipMutationToken = chat.actions.beginChatOwnershipMutation();
     if (ownershipMutationToken === null) {
       const blockedReason =
         chat.actions.chatOwnershipMutationBlockReason() ||
         "Wait for the current chat ownership change to finish.";
-      settings.actions.setNotice({ kind: "error", message: blockedReason });
+      setDeleteProjectError(blockedReason);
       return;
     }
     setDeletePending(true);
@@ -1845,7 +1847,11 @@ export function ProjectsView({
         if (navigationRef.current?.projectID === projectID) {
           onNavigate?.({ projectID: null }, "replace");
         }
+      } else {
+        setDeleteProjectError("Project could not be deleted. Try again.");
       }
+    } catch (error) {
+      setDeleteProjectError(errorMessage(error, "Failed to delete project."));
     } finally {
       chat.actions.finishChatOwnershipMutation(ownershipMutationToken);
       setDeletePending(false);
@@ -3786,7 +3792,11 @@ export function ProjectsView({
               onRenameCancel={() => setRenamingProjectID("")}
               onRenameCommit={() => void commitRename(project)}
               onRenameStart={() => startRename(project)}
-              onDelete={() => setDeleteProjectID(project.id)}
+              onDelete={() => {
+                projects.actions.setError("");
+                setDeleteProjectError("");
+                setDeleteProjectID(project.id);
+              }}
               onOpen={() => tryOpenProject(project.id)}
             />
           ))}
@@ -4294,15 +4304,21 @@ export function ProjectsView({
             danger
             pending={deletePending}
             confirmLabel="Delete project record"
-            onClose={() => setDeleteProjectID("")}
+            onClose={() => {
+              setDeleteProjectID("");
+              setDeleteProjectError("");
+            }}
             onConfirm={confirmDeleteProject}
             returnFocusRef={addProjectButtonRef}
             message={
-              <>
-                Hecate will delete the project record, project roots, project-scoped chats, and
-                project work coordination state for <strong>{pendingDeleteProject.name}</strong>.
-                Workspace files and the git repository are not deleted.
-              </>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  Hecate will delete the project record, project roots, project-scoped chats, and
+                  project work coordination state for <strong>{pendingDeleteProject.name}</strong>.
+                  Workspace files and the git repository are not deleted.
+                </div>
+                <InlineError message={deleteProjectError} />
+              </div>
             }
           />
         )}

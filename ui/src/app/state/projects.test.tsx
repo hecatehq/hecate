@@ -746,7 +746,7 @@ describe("ProjectsProvider", () => {
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
 
-  it("returns null and keeps local state when project deletion fails", async () => {
+  it("preserves the deletion error and keeps local state when project deletion fails", async () => {
     window.localStorage.setItem("hecate.project", project.id);
     vi.mocked(deleteProject).mockRejectedValue(new Error("delete failed"));
     const { result } = renderHook(() => useProjects(), {
@@ -755,14 +755,14 @@ describe("ProjectsProvider", () => {
       ),
     });
 
-    let deleted: ProjectDeleteRecord | null = deleteResult.data;
     await act(async () => {
-      deleted = await result.current.actions.deleteProject(project.id);
+      await expect(result.current.actions.deleteProject(project.id)).rejects.toThrow(
+        "delete failed",
+      );
     });
 
-    expect(deleted).toBeNull();
     expect(result.current.state.projects).toEqual([project]);
     expect(result.current.activeProjectID).toBe(project.id);
-    expect(result.current.state.error).toBe("delete failed");
+    expect(result.current.state.error).toBe("");
   });
 });

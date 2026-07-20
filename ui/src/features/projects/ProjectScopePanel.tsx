@@ -12,8 +12,9 @@ import { useProjects } from "../../app/state/projects";
 import { chooseWorkspaceDirectory } from "../../lib/api";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { ProjectDeleteRecord, ProjectRecord } from "../../types/project";
-import { ConfirmModal, Icon, Icons } from "../shared/ui";
+import { ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
 import { CreateProjectModal } from "./CreateProjectModal";
+import { projectErrorMessage } from "./projectDisplay";
 import { createProjectPayloadFromForm, type CreateProjectForm } from "./projectSettings";
 
 type ProjectScopePanelProps = {
@@ -21,6 +22,7 @@ type ProjectScopePanelProps = {
   emptyHint: string;
   deleteMessage: (project: ProjectRecord) => ReactNode;
   canChangeProjectScope?: () => boolean;
+  projectScopeChangeBlockReason?: () => string;
   beginProjectDelete: () => number | null;
   finishProjectDelete: (token: number) => void;
   onProjectDeleted?: (projectID: string, result: ProjectDeleteRecord) => void;
@@ -60,6 +62,7 @@ export function ProjectScopePanel({
   emptyHint,
   deleteMessage,
   canChangeProjectScope,
+  projectScopeChangeBlockReason,
   beginProjectDelete,
   finishProjectDelete,
   onProjectDeleted,
@@ -72,6 +75,7 @@ export function ProjectScopePanel({
   const [hoveredProjectID, setHoveredProjectID] = useState<string | null>(null);
   const [deleteProjectID, setDeleteProjectID] = useState<string | null>(null);
   const [deleteProjectPending, setDeleteProjectPending] = useState(false);
+  const [deleteProjectError, setDeleteProjectError] = useState("");
   const deleteProjectPendingRef = useRef(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectPending, setCreateProjectPending] = useState(false);
@@ -105,6 +109,13 @@ export function ProjectScopePanel({
 
   function projectScopeChangeAllowed(): boolean {
     return !canChangeProjectScopeRef.current || canChangeProjectScopeRef.current();
+  }
+
+  function currentProjectScopeChangeBlockReason(): string {
+    return (
+      projectScopeChangeBlockReason?.().trim() ||
+      "Wait for the current chat ownership change to finish, then try again."
+    );
   }
 
   useEffect(
@@ -291,6 +302,8 @@ export function ProjectScopePanel({
                   void selectProjectScope(project.id);
                 }}
                 onDelete={() => {
+                  projects.actions.setError("");
+                  setDeleteProjectError("");
                   setDeleteProjectID(project.id);
                 }}
                 onInteractionChange={(active) => {
@@ -376,25 +389,50 @@ export function ProjectScopePanel({
           danger
           title="Delete project"
           confirmLabel="Delete project"
-          message={deleteMessage(pendingDeleteProject)}
+          message={
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>{deleteMessage(pendingDeleteProject)}</div>
+              <InlineError message={deleteProjectError} />
+            </div>
+          }
           pending={deleteProjectPending}
           returnFocusRef={projectsToggleButtonRef}
           onClose={() => {
-            if (!deleteProjectPendingRef.current) setDeleteProjectID(null);
+            if (!deleteProjectPendingRef.current) {
+              setDeleteProjectID(null);
+              setDeleteProjectError("");
+            }
           }}
           onConfirm={async () => {
             if (deleteProjectPendingRef.current) return;
-            if (!projectScopeChangeAllowed()) return;
+            setDeleteProjectError("");
+            const knownBlockReason = projectScopeChangeBlockReason?.().trim() || "";
+            if (knownBlockReason) {
+              setDeleteProjectError(knownBlockReason);
+              return;
+            }
+            if (!projectScopeChangeAllowed()) {
+              setDeleteProjectError(currentProjectScopeChangeBlockReason());
+              return;
+            }
             const ownershipMutationToken = beginProjectDelete();
-            if (ownershipMutationToken === null) return;
+            if (ownershipMutationToken === null) {
+              setDeleteProjectError(currentProjectScopeChangeBlockReason());
+              return;
+            }
             deleteProjectPendingRef.current = true;
             setDeleteProjectPending(true);
             const projectID = pendingDeleteProject.id;
             try {
               const deleted = await projects.actions.deleteProject(projectID);
-              if (!deleted) return;
+              if (!deleted) {
+                setDeleteProjectError("Project could not be deleted. Try again.");
+                return;
+              }
               onProjectDeleted?.(projectID, deleted);
               setDeleteProjectID(null);
+            } catch (error) {
+              setDeleteProjectError(projectErrorMessage(error, "Failed to delete project."));
             } finally {
               finishProjectDelete(ownershipMutationToken);
               deleteProjectPendingRef.current = false;

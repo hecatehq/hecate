@@ -332,11 +332,7 @@ export function ProjectsProvider({
         }
         return payload.data;
       } catch (error) {
-        dispatch({
-          type: "error/set",
-          value: error instanceof Error ? error.message : "Failed to delete project.",
-        });
-        return null;
+        throw error instanceof Error ? error : new Error("Failed to delete project.");
       }
     },
     [setActiveProjectID, setProjects],

@@ -290,6 +290,92 @@ test("Projects create keeps keyboard focus inside the pending dialog", async ({ 
     .toBe(true);
 });
 
+test("Projects delete explains a failure in the dialog and retries at narrow width", async ({
+  page,
+}) => {
+  const state = await mockProjectJourneyAPIs(page);
+  const project: ProjectRecord = {
+    id: "proj_delete_retry",
+    name: "Delete retry project",
+    description: "Verify recoverable project deletion.",
+    roots: [],
+    context_sources: [],
+    created_at: NOW,
+    updated_at: NOW,
+  };
+  state.projects = [project];
+  let deleteRequests = 0;
+  await page.route("**/hecate/v1/projects/proj_delete_retry", async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.fallback();
+      return;
+    }
+    deleteRequests += 1;
+    if (deleteRequests === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            type: "gateway_error",
+            message: "project delete failed",
+            user_message: "Project could not be deleted.",
+            operator_action: "Try again, then open Observability if the failure continues.",
+          },
+        }),
+      });
+      return;
+    }
+    state.projects = [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "project_delete",
+        data: {
+          project_id: project.id,
+          project_name: project.name,
+          chat_sessions_deleted: 0,
+          project_work_rows_deleted: 0,
+          project_skills_deleted: 0,
+          memory_entries_deleted: 0,
+          memory_candidates_deleted: 0,
+        },
+      }),
+    });
+  });
+  await page.addInitScript((projectID) => {
+    window.localStorage.setItem("hecate.workspace", "projects");
+    window.localStorage.setItem("hecate.project", projectID);
+  }, project.id);
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  const projectLink = page.getByRole("link", { name: "Open project Delete retry project" });
+  await projectLink.hover();
+  await page.getByRole("button", { name: "Delete project Delete retry project" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete project" });
+  const confirm = dialog.getByRole("button", { name: "Delete project record" });
+  await confirm.click();
+
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Project could not be deleted. Try again, then open Observability if the failure continues.",
+  );
+  await expect(projectLink).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close" })).toBeEnabled();
+  await expect(confirm).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true,
+  );
+  await confirm.click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("Add a project to begin")).toBeVisible();
+  expect(deleteRequests).toBe(2);
+});
+
 test("Projects guided start stays on Overview at desktop and narrow widths", async ({ page }) => {
   const state = await mockProjectJourneyAPIs(page);
   await page.addInitScript(() => {

@@ -2461,6 +2461,59 @@ describe("ProjectsView index", () => {
     expect(actions.deleteProject).toHaveBeenCalledWith(project.id);
   });
 
+  it("keeps a failed project delete actionable in the dialog and retries", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    const deleteResult: ProjectDeleteRecord = {
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 0,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    };
+    const deleteProject = vi
+      .fn<() => Promise<ProjectDeleteRecord | null>>()
+      .mockRejectedValueOnce(
+        new ApiError("Project could not be deleted.", 500, "gateway_error", {
+          operatorAction: "Try again, then open Observability if the failure continues.",
+        }),
+      )
+      .mockResolvedValueOnce(deleteResult);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<WorkProjects />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteProject },
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete project" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete project record" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Project could not be deleted. Try again, then open Observability if the failure continues.",
+    );
+    expect(screen.getByRole("link", { name: "Open project Hecate" })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeEnabled();
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Delete project record" })).toHaveFocus(),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete project record" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete project" })).toBeNull(),
+    );
+    expect(deleteProject).toHaveBeenCalledTimes(2);
+  });
+
   it("returns focus to Add when a deleted project row disappears", async () => {
     resetProjectWorkMocks();
     let finishDelete: ((value: ProjectDeleteRecord | null) => void) | undefined;
@@ -2635,7 +2688,11 @@ describe("ProjectsView index", () => {
     await user.click(screen.getByRole("button", { name: "Delete project record" }));
 
     expect(deleteProject).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog", { name: "Delete project" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Delete project" });
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Remove attached files before changing or deleting chat ownership.",
+    );
   });
 
   it("blocks project selection and creation while an unsent image draft exists", async () => {
