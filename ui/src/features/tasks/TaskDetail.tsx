@@ -424,10 +424,10 @@ function TaskApprovalCallout({
         <div
           key={approval.id}
           style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) auto",
+            display: "flex",
+            flexDirection: "column",
             gap: 12,
-            alignItems: "center",
+            alignItems: "stretch",
             border: "1px solid var(--amber-border)",
             borderRadius: "var(--radius)",
             background: "rgba(0,0,0,0.16)",
@@ -513,7 +513,14 @@ function TaskApprovalCallout({
                 </div>
               )}
           </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+            }}
+          >
             <button
               className="btn btn-primary btn-sm"
               disabled={busyAction !== ""}

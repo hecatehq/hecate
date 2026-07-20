@@ -178,6 +178,8 @@ export type ChatActivityRecord = {
   artifact_size_bytes?: number;
   artifact_preview?: string;
   approval_id?: string;
+  action_summary?: string[];
+  action_summary_incomplete?: boolean;
   needs_action?: boolean;
   mcp_app?: ChatMCPAppRecord;
   terminal?: boolean;

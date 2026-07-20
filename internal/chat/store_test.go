@@ -254,6 +254,58 @@ func TestMemoryStoreRoundTripsProviderInstance(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreClonesActivityActionSummary(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := NewMemoryStore()
+	created, err := store.Create(ctx, Session{
+		ID:      "chat_activity_summary_clone",
+		AgentID: DefaultAgentID,
+		Messages: []Message{{
+			ID:   "msg_approval",
+			Role: "assistant",
+			Activities: []Activity{{
+				ID:            "approval:appr_123",
+				Type:          "approval",
+				Title:         "Approval required",
+				ActionSummary: []string{"shell_exec command details withheld (command_bytes=9)"},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	created.Messages[0].Activities[0].ActionSummary[0] = "mutated create result"
+
+	got, ok, err := store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get() = found %v, error %v", ok, err)
+	}
+	got.Messages[0].Activities[0].ActionSummary[0] = "mutated get result"
+
+	listed, err := store.List(ctx)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("List() = %d sessions, error %v", len(listed), err)
+	}
+	listed[0].Messages[0].Activities[0].ActionSummary[0] = "mutated list result"
+
+	updated, err := store.UpdateMessage(ctx, created.ID, "msg_approval", func(*Message) {})
+	if err != nil {
+		t.Fatalf("UpdateMessage() error = %v", err)
+	}
+	updated.Messages[0].Activities[0].ActionSummary[0] = "mutated update result"
+
+	final, ok, err := store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("final Get() = found %v, error %v", ok, err)
+	}
+	want := "shell_exec command details withheld (command_bytes=9)"
+	if got := final.Messages[0].Activities[0].ActionSummary[0]; got != want {
+		t.Fatalf("persisted action summary = %q, want %q", got, want)
+	}
+}
+
 func TestContextPacketEmptyConsidersItems(t *testing.T) {
 	packet := ContextPacket{
 		Items: []ContextItem{{

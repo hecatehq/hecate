@@ -153,10 +153,14 @@ type Activity struct {
 	// ArtifactPreview carries a capped text preview for stdout/stderr-like
 	// artifacts so chat diagnostics can explain a failed tool without forcing
 	// the operator to leave the transcript.
-	ArtifactPreview string  `json:"artifact_preview,omitempty"`
-	ApprovalID      string  `json:"approval_id,omitempty"`
-	NeedsAction     bool    `json:"needs_action,omitempty"`
-	MCPApp          *MCPApp `json:"mcp_app,omitempty"`
+	ArtifactPreview string `json:"artifact_preview,omitempty"`
+	ApprovalID      string `json:"approval_id,omitempty"`
+	// ActionSummary is the bounded, sanitized ordered bundle covered by an
+	// approval decision. It is safe to persist with the compact Chat activity.
+	ActionSummary           []string `json:"action_summary,omitempty"`
+	ActionSummaryIncomplete bool     `json:"action_summary_incomplete,omitempty"`
+	NeedsAction             bool     `json:"needs_action,omitempty"`
+	MCPApp                  *MCPApp  `json:"mcp_app,omitempty"`
 }
 
 type MCPApp struct {
@@ -601,6 +605,7 @@ func cloneSession(session Session) Session {
 		session.Messages[i].Attachments = append([]MessageAttachment(nil), session.Messages[i].Attachments...)
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 		for j := range session.Messages[i].Activities {
+			session.Messages[i].Activities[j].ActionSummary = append([]string(nil), session.Messages[i].Activities[j].ActionSummary...)
 			session.Messages[i].Activities[j].MCPApp = cloneMCPApp(session.Messages[i].Activities[j].MCPApp)
 		}
 		session.Messages[i].Context.Sources = append([]ContextSource(nil), session.Messages[i].Context.Sources...)

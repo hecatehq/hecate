@@ -420,9 +420,9 @@ func buildTaskItem(ctx context.Context, store taskstate.Store, task types.Task) 
 
 func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, approvals []TaskApprovalItem, run types.TaskRun) []TaskActivityItem {
 	items := make([]TaskActivityItem, 0, len(steps))
-	approvalStatusByID := make(map[string]string, len(approvals))
+	approvalByID := make(map[string]TaskApprovalItem, len(approvals))
 	for _, approval := range approvals {
-		approvalStatusByID[approval.ID] = approval.Status
+		approvalByID[approval.ID] = approval
 	}
 	for _, step := range steps {
 		itemType := "step"
@@ -441,11 +441,15 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			status = telemetry.ResultDenied
 		}
 		needsAction := step.ApprovalID != "" && step.Status == "awaiting_approval"
-		if approvalStatus := approvalStatusByID[step.ApprovalID]; approvalStatus != "" {
-			status = approvalStatus
-			needsAction = approvalStatus == "pending"
+		approval, hasApproval := approvalByID[step.ApprovalID]
+		if hasApproval && approval.Status != "" {
+			status = approval.Status
+			needsAction = approval.Status == "pending"
 		}
 		summary := cloneActivitySummary(step.OutputSummary)
+		if hasApproval {
+			addTaskApprovalActivitySummary(summary, approval)
+		}
 		if step.Result == telemetry.ResultDenied {
 			if reason, _ := summary["reason"].(string); strings.TrimSpace(reason) == "" && strings.TrimSpace(step.Error) != "" {
 				summary["reason"] = strings.TrimSpace(step.Error)
@@ -504,6 +508,8 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 		})
 	}
 	for _, approval := range approvals {
+		summary := make(map[string]any, 3)
+		addTaskApprovalActivitySummary(summary, approval)
 		items = append(items, TaskActivityItem{
 			ID:          "approval:" + approval.ID,
 			Type:        "approval",
@@ -511,7 +517,7 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			Title:       approval.Kind,
 			ApprovalID:  approval.ID,
 			Kind:        approval.Kind,
-			Summary:     map[string]any{"reason": approval.Reason},
+			Summary:     summary,
 			OccurredAt:  approval.CreatedAt,
 			NeedsAction: approval.Status == "pending",
 			Terminal:    approval.Status != "pending",
@@ -529,6 +535,16 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 	}
 	sortTaskActivityItems(items)
 	return items
+}
+
+func addTaskApprovalActivitySummary(summary map[string]any, approval TaskApprovalItem) {
+	summary["reason"] = approval.Reason
+	if len(approval.ActionSummary) > 0 {
+		summary["action_summary"] = append([]string(nil), approval.ActionSummary...)
+	}
+	if approval.ActionSummaryIncomplete {
+		summary["action_summary_incomplete"] = true
+	}
 }
 
 func cloneActivitySummary(summary map[string]any) map[string]any {

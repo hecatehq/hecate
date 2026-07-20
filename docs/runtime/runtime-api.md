@@ -653,7 +653,14 @@ artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
 `changed_files`, `final_answer`, `project_assistant_proposal`, `approval`, and
 `run_result`. Approval
 activities carry `approval_id` and `needs_action` when a user decision is
-pending. Policy-denied tool steps are normalized to activity `status=denied`
+pending. Their `summary` also carries the approval resource's `action_summary`
+and `action_summary_incomplete` values; the task-backed Chat projection promotes
+those values onto its compact activity record. This lets Task Detail and Chat
+show the same ordered review bundle under the same bounded and sanitized
+contract described above. Compact clients must not accept inline approval when
+the summary is absent or `action_summary_incomplete=true`; they should send the
+operator to the backing Task for the fuller review surface.
+Policy-denied tool steps are normalized to activity `status=denied`
 and carry the operator-facing denial `reason` in their summary, even though the
 raw audit step remains `status=completed`, `phase=policy`, `result=denied`. The
 operator UI uses this same array in both Task Detail and Hecate
