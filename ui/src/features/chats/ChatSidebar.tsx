@@ -14,7 +14,9 @@ import { shouldAutoProbeExternalAgentReadiness } from "../../lib/external-agent-
 import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
+import { getAgentPresets } from "../../lib/api";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { AgentPresetRecord } from "../../types/agent-preset";
 import type { ChatSessionRecord } from "../../types/chat";
 import { ProjectScopePanel } from "../projects/ProjectScopePanel";
 import {
@@ -56,7 +58,7 @@ type Props = {
   // the canvas for the composer ref.
   onSelectSession: (sessionID: string, mode?: "push" | "replace") => Promise<boolean>;
   // New-chat creation. Gated on agent readiness inside the sidebar.
-  onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
+  onCreateChat: (agentID: ChatAgentOptionID, projectID: string, agentPresetID?: string) => void;
   onOpenAgentSetup: (adapterID: string) => void;
 };
 
@@ -96,6 +98,12 @@ export function ChatSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [deleteChatID, setDeleteChatID] = useState<string | null>(null);
   const [deleteChatPending, setDeleteChatPending] = useState(false);
+  const [hecatePresets, setHecatePresets] = useState<AgentPresetRecord[]>([]);
+  const [hecatePresetsLoaded, setHecatePresetsLoaded] = useState(false);
+  const [hecatePresetsLoading, setHecatePresetsLoading] = useState(false);
+  const [hecatePresetsError, setHecatePresetsError] = useState("");
+  const [newHecatePresetID, setNewHecatePresetID] = useState("");
+  const hecatePresetsLoadRef = useRef<Promise<void> | null>(null);
   const deleteChatPendingRef = useRef(false);
   const chatSearchInputRef = useRef<HTMLInputElement>(null);
 
@@ -152,6 +160,39 @@ export function ChatSidebar({
       : (projects.state.projects.find((project) => project.id === projects.activeProjectID) ??
         null);
   const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
+
+  const compatibleHecatePresets = hecatePresets.filter(isHecateChatPreset);
+
+  function loadHecatePresets() {
+    if (hecatePresetsLoaded || hecatePresetsLoadRef.current) return;
+    setHecatePresetsError("");
+    setHecatePresetsLoading(true);
+    const load = getAgentPresets()
+      .then((response) => {
+        setHecatePresets(response.data);
+        setHecatePresetsLoaded(true);
+      })
+      .catch(() => {
+        setHecatePresetsError(
+          "Could not load Agent Presets. You can still start a default Hecate Chat.",
+        );
+      })
+      .finally(() => {
+        hecatePresetsLoadRef.current = null;
+        setHecatePresetsLoading(false);
+      });
+    hecatePresetsLoadRef.current = load;
+  }
+
+  useEffect(() => {
+    if (
+      !newHecatePresetID ||
+      compatibleHecatePresets.some((preset) => preset.id === newHecatePresetID)
+    ) {
+      return;
+    }
+    setNewHecatePresetID("");
+  }, [compatibleHecatePresets, newHecatePresetID]);
   const selectedProjectWorkspace = projectDefaultWorkspace(activeProject);
   const workspaceForNewChat = projects.activeProjectID
     ? selectedProjectWorkspace
@@ -332,9 +373,57 @@ export function ChatSidebar({
                 }
                 if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
                 void onSelectSession("");
+                if (agentID === "hecate" && newHecatePresetID) {
+                  onCreateChat(agentID, projects.activeProjectID, newHecatePresetID);
+                  return;
+                }
                 onCreateChat(agentID, projects.activeProjectID);
               }}
             />
+            {newChatAgentID === "hecate" && (
+              <label
+                style={{
+                  display: "grid",
+                  gap: 5,
+                  marginTop: 8,
+                  fontSize: 11,
+                  color: "var(--t3)",
+                }}
+              >
+                Agent preset
+                <select
+                  className="input"
+                  aria-label="Agent preset for new Hecate chat"
+                  value={newHecatePresetID}
+                  disabled={chatCreating || chatSessionCreateInFlight}
+                  onFocus={loadHecatePresets}
+                  onPointerDown={loadHecatePresets}
+                  onChange={(event) => setNewHecatePresetID(event.target.value)}
+                >
+                  <option value="">Default Hecate Chat</option>
+                  {compatibleHecatePresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name || preset.id}
+                    </option>
+                  ))}
+                </select>
+                {hecatePresetsLoading ? (
+                  <span role="status">Loading Hecate Chat presets…</span>
+                ) : compatibleHecatePresets.length > 0 ? (
+                  <span>
+                    The selected preset is frozen with the new chat. Its model hints apply when no
+                    provider or model is chosen.
+                  </span>
+                ) : hecatePresetsLoaded ? (
+                  <span>No Hecate Chat presets are available yet.</span>
+                ) : null}
+                {hecatePresetsError && (
+                  <span role="status" style={{ color: "var(--amber)" }}>
+                    {hecatePresetsError}
+                  </span>
+                )}
+              </label>
+            )}
             {workspaceRequiredForNewChat && (
               <div
                 role="status"
@@ -699,6 +788,11 @@ export function sidebarSessionTimeLabel(value?: string): string {
   yesterday.setDate(now.getDate() - 1);
   if (d.toDateString() === yesterday.toDateString()) return "yesterday";
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export function isHecateChatPreset(preset: AgentPresetRecord): boolean {
+  const surface = preset.surface.trim();
+  return surface === "any" || surface === "hecate_chat";
 }
 
 function groupSidebarSessions(

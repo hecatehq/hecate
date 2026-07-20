@@ -77,6 +77,7 @@ export type PendingToolCall = {
 export type ComposerDraftScope = {
   projectID: string;
   agentID: string;
+  agentPresetID: string;
   provider: string;
   model: string;
   workspace: string;
@@ -91,6 +92,7 @@ export type RecoverableComposerDraft = {
 export function composerDraftScope({
   projectID = "",
   agentID = "hecate",
+  agentPresetID = "",
   provider = "",
   model = "",
   workspace = "",
@@ -100,6 +102,7 @@ export function composerDraftScope({
   return {
     projectID: projectID.trim(),
     agentID: normalizedAgentID,
+    agentPresetID: hecateOwned ? agentPresetID.trim() : "",
     provider: hecateOwned ? provider.trim() || "auto" : "",
     model: hecateOwned ? model.trim() : "",
     workspace: workspace.trim(),
@@ -113,6 +116,7 @@ export function composerDraftScopesMatch(
   return (
     left.projectID === right.projectID &&
     left.agentID === right.agentID &&
+    left.agentPresetID === right.agentPresetID &&
     left.provider === right.provider &&
     left.model === right.model &&
     left.workspace === right.workspace

@@ -117,6 +117,41 @@ describe("findReusableEmptyDraftSession", () => {
       }),
     ).toBeNull();
   });
+
+  it("does not reuse an empty default shell for a different Agent Preset", () => {
+    const sessions: ChatSessionSummaryRecord[] = [
+      {
+        id: "chat_preset",
+        title: "Plan next work - Product Manager",
+        project_id: "proj_1",
+        agent_id: "hecate",
+        agent_preset: {
+          id: "review_qa",
+          name: "Review QA",
+          tools_enabled: false,
+          writes_allowed: false,
+          network_allowed: false,
+        },
+        provider: "ollama",
+        model: "ministral-3:latest",
+        workspace: "/tmp/hecate",
+        status: "idle",
+        message_count: 0,
+      },
+    ];
+    const request = {
+      agentID: "hecate",
+      projectID: "proj_1",
+      provider: "ollama",
+      model: "ministral-3:latest",
+      title: "Plan next work - Product Manager",
+    };
+
+    expect(findReusableEmptyDraftSession(sessions, request)).toBeNull();
+    expect(
+      findReusableEmptyDraftSession(sessions, { ...request, agentPresetID: "review_qa" })?.id,
+    ).toBe("chat_preset");
+  });
 });
 
 describe("queuedCommittedTurnIsTerminal", () => {

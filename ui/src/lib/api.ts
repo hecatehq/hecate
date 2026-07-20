@@ -234,6 +234,7 @@ export type CreateChatSessionPayload = {
   title?: string;
   project_id?: string;
   agent_id?: string;
+  agent_preset_id?: string;
   provider?: string;
   model?: string;
   workspace?: string;

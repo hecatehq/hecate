@@ -20,6 +20,14 @@ tools toggle decides whether a prompt stays as a direct provider/model turn or
 enters the native agent task runtime. Codex, Claude Code, Cursor Agent, and Grok Build entries in
 the same picker create **External Agent** sessions.
 
+When creating a Hecate Chat, the operator may also choose a named Agent Preset
+whose `surface` is `hecate_chat` or `any`. Hecate stores a narrow immutable
+snapshot on that Hecate-owned session; choosing no preset keeps the existing
+chat behavior. The selected preset is not a live reference: later edits or
+deletion cannot change the session, its prompt behavior, or a backing Task
+created from it. External Agent chats deliberately do not offer this control;
+their adapter owns its native session and configuration.
+
 Chats may also belong to a **Project**. Projects are optional durable identities
 for a work area, not only a codebase; **No project** remains a valid chat scope.
 When a project is selected in the Chats sidebar, new Hecate and External Agent
@@ -117,6 +125,33 @@ External-agent context and reported cost are intentionally shown in the active
 chat, not the Usage workspace, because those values are agent-reported and
 only meaningful alongside the session that produced them.
 
+### Agent Presets in Hecate Chat
+
+The selected preset is a Hecate runtime posture, not project coordination
+state. Hecate snapshots its id, name, provider/model hints, instructions,
+execution profile, and tool/write/network settings when it creates the chat.
+Provider and model hints fill only omitted create-time selections; explicit
+operator choices win. The session response and Chat settings show this frozen
+snapshot so an operator can inspect the posture that shaped the transcript.
+
+Preset instructions join the Hecate-owned system-prompt composition after a
+project prelude (when present) and before the per-chat operator instructions.
+For tools-on turns, the same frozen snapshot supplies the backing Task's
+Agent Preset id, execution profile, tools setting, read-only sandbox setting,
+and network setting. A tools-disabled snapshot locks Tools off for the entire
+chat: an explicit tools-on message is rejected, and an older client that omits
+the flag is kept on the direct-model path. A tools-enabled snapshot permits,
+but does not force, task-backed turns; normal model capability checks still
+apply.
+
+This first Chat slice intentionally does **not** carry project-memory or
+context-source policy, project skills, browser evidence, MCP-server selection,
+approval-policy defaults, or External Agent options from a preset. In
+particular, a Chat preset neither creates nor changes Cairnline project,
+assignment, role, or handoff records. Project-linked chat continues to use its
+separate bounded project prelude and Hecate resolves task execution under its
+normal policy and approval boundaries.
+
 Assistant turns may also expose a collapsed **context** inspector. This is a
 metadata snapshot that answers "what kind of context did this turn use?" without
 storing the prompt body. The packet records execution mode, provider/model when
@@ -146,6 +181,11 @@ For project-linked Hecate Chat packets, the inspector also calls out the
 bounded project prelude explicitly so operators can distinguish project
 guidance from ordinary transcript/runtime metadata and see the metadata-only
 root / skill-body boundary.
+When a Hecate Chat uses a preset, its context packet also identifies the frozen
+Agent Preset and its execution/tool/write/network posture. The packet records
+that provenance without copying the preset instructions into the packet body;
+the durable session snapshot remains the operator-facing source for those
+instructions.
 
 Long Hecate-owned model chats compact older transcript context before a direct
 model turn once the compactable transcript reaches the automatic threshold.

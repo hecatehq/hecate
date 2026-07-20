@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChat } from "../../app/state/chat";
+import { getAgentPresets } from "../../lib/api";
 import {
   queuedChatDeletedSessionStorageKey,
   queuedChatMessageStorageKey,
@@ -16,11 +17,17 @@ import { withRuntimeConsole } from "../../test/runtime-console-render";
 import { ChatSidebar } from "./ChatSidebar";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
 
+vi.mock("../../lib/api", () => ({
+  getAgentPresets: vi.fn(),
+}));
+
+const mockedGetAgentPresets = vi.mocked(getAgentPresets);
+
 function AtomicCreationHarness({
   onCreateChat,
   onSelectSession,
 }: {
-  onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
+  onCreateChat: (agentID: ChatAgentOptionID, projectID: string, agentPresetID?: string) => void;
   onSelectSession: (sessionID: string) => Promise<boolean>;
 }) {
   const chat = useChat();
@@ -28,8 +35,12 @@ function AtomicCreationHarness({
     <ChatSidebar
       isAgentChat
       onSelectSession={onSelectSession}
-      onCreateChat={(agentID, projectID) => {
+      onCreateChat={(agentID, projectID, agentPresetID) => {
         if (chat.actions.beginChatCreation() === null) return;
+        if (agentPresetID) {
+          onCreateChat(agentID, projectID, agentPresetID);
+          return;
+        }
         onCreateChat(agentID, projectID);
       }}
       onOpenAgentSetup={() => undefined}
@@ -38,7 +49,10 @@ function AtomicCreationHarness({
 }
 
 describe("ChatSidebar new-chat creation", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    mockedGetAgentPresets.mockReset();
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     window.localStorage.clear();
@@ -76,6 +90,74 @@ describe("ChatSidebar new-chat creation", () => {
     expect(onCreateChat).toHaveBeenCalledWith("hecate", "");
   });
 
+  it("loads Hecate-compatible presets on demand and includes the chosen preset in creation", async () => {
+    mockedGetAgentPresets.mockResolvedValue({
+      object: "agent_presets",
+      data: [
+        {
+          id: "chat_review",
+          name: "Chat review",
+          surface: "hecate_chat",
+          tools_enabled: false,
+          writes_allowed: false,
+          network_allowed: false,
+          approval_policy: "inherit",
+          project_memory_policy: "inherit",
+          context_source_policy: "inherit",
+        },
+        {
+          id: "any_work",
+          name: "Any work",
+          surface: "any",
+          tools_enabled: true,
+          writes_allowed: true,
+          network_allowed: true,
+          approval_policy: "inherit",
+          project_memory_policy: "inherit",
+          context_source_policy: "inherit",
+        },
+        {
+          id: "task_only",
+          name: "Task only",
+          surface: "hecate_task",
+          tools_enabled: true,
+          writes_allowed: true,
+          network_allowed: true,
+          approval_policy: "inherit",
+          project_memory_policy: "inherit",
+          context_source_policy: "inherit",
+        },
+      ],
+    });
+    const onCreateChat = vi.fn();
+    render(
+      withRuntimeConsole(
+        <ChatSidebar
+          isAgentChat
+          onSelectSession={async () => true}
+          onCreateChat={onCreateChat}
+          onOpenAgentSetup={() => undefined}
+        />,
+        { state: createRuntimeConsoleFixture(), actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    const presetSelect = screen.getByRole("combobox", {
+      name: "Agent preset for new Hecate chat",
+    });
+    expect(mockedGetAgentPresets).not.toHaveBeenCalled();
+    fireEvent.focus(presetSelect);
+
+    await waitFor(() => expect(mockedGetAgentPresets).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("option", { name: "Chat review" })).toBeTruthy());
+    expect(screen.getByRole("option", { name: "Any work" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Task only" })).toBeNull();
+
+    fireEvent.change(presetSelect, { target: { value: "chat_review" } });
+    fireEvent.click(screen.getByRole("button", { name: "New Hecate chat" }));
+    expect(onCreateChat).toHaveBeenCalledWith("hecate", "", "chat_review");
+  });
+
   it("explains the conditions for restoring a matching unsent draft", () => {
     const state = createRuntimeConsoleFixture({
       activeChatSessionID: "",
@@ -87,6 +169,7 @@ describe("ChatSidebar new-chat creation", () => {
         scope: {
           projectID: "",
           agentID: "hecate",
+          agentPresetID: "",
           provider: "auto",
           model: "gpt-4o-mini",
           workspace: "",
@@ -124,6 +207,7 @@ describe("ChatSidebar new-chat creation", () => {
         scope: {
           projectID: "",
           agentID: "hecate",
+          agentPresetID: "",
           provider: "auto",
           model: "gpt-4o-mini",
           workspace: "",

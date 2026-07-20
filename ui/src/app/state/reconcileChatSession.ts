@@ -36,6 +36,7 @@ export function reconcileChatSession(
     messages: reconcileMessages(prev.messages, next.messages),
     segments: reuseIfEqual(prev.segments, next.segments),
     agent_info: reuseIfEqual(prev.agent_info, next.agent_info),
+    agent_preset: reuseIfEqual(prev.agent_preset, next.agent_preset),
     config_options: reuseIfEqual(prev.config_options, next.config_options),
     available_commands: reuseIfEqual(prev.available_commands, next.available_commands),
   };

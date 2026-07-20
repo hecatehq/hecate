@@ -67,6 +67,17 @@ type Profile struct {
 	UpdatedAt             time.Time
 }
 
+// SupportsSurface reports whether a saved Agent Preset can be selected by the
+// supplied Hecate-owned runtime surface. Callers must name their surface:
+// "any" is compatible, but an empty request never grants compatibility.
+func SupportsSurface(profile Profile, surface string) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	return strings.TrimSpace(profile.Surface) == SurfaceAny || strings.TrimSpace(profile.Surface) == surface
+}
+
 type Store interface {
 	Backend() string
 	Create(ctx context.Context, profile Profile) (Profile, error)

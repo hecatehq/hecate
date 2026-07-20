@@ -772,6 +772,86 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	}
 }
 
+func runStoreAgentPresetSnapshotRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	preset := &AgentPresetSnapshot{
+		ID:               "safe_review",
+		Name:             "Safe reviewer",
+		ProviderHint:     "openai",
+		ModelHint:        "gpt-4o-mini",
+		Instructions:     "Inspect before proposing changes.",
+		ExecutionProfile: "review",
+		ToolsEnabled:     false,
+		WritesAllowed:    false,
+		NetworkAllowed:   true,
+	}
+	created, err := store.Create(ctx, Session{
+		ID:          "chat_agent_preset",
+		AgentID:     DefaultAgentID,
+		AgentPreset: preset,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.AgentPreset == nil || created.AgentPreset.ID != "safe_review" || created.AgentPreset.ToolsEnabled || created.AgentPreset.WritesAllowed || !created.AgentPreset.NetworkAllowed {
+		t.Fatalf("created agent preset = %#v, want frozen safe_review posture", created.AgentPreset)
+	}
+	preset.Name = "mutated through create input"
+	preset.Instructions = "mutated through create input"
+	got, ok, err := store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after create input mutation: ok=%v err=%v", ok, err)
+	}
+	if got.AgentPreset == nil || got.AgentPreset.Name != "Safe reviewer" || got.AgentPreset.Instructions != "Inspect before proposing changes." {
+		t.Fatalf("stored agent preset mutated through create input: %#v", got.AgentPreset)
+	}
+
+	created.AgentPreset.Name = "mutated through create result"
+	created.AgentPreset.Instructions = "mutated through create result"
+	got, ok, err = store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after create mutation: ok=%v err=%v", ok, err)
+	}
+	if got.AgentPreset == nil || got.AgentPreset.Name != "Safe reviewer" || got.AgentPreset.Instructions != "Inspect before proposing changes." {
+		t.Fatalf("stored agent preset mutated through create result: %#v", got.AgentPreset)
+	}
+
+	got.AgentPreset.ProviderHint = "mutated through get result"
+	got.AgentPreset.NetworkAllowed = false
+	got, ok, err = store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after get mutation: ok=%v err=%v", ok, err)
+	}
+	if got.AgentPreset == nil || got.AgentPreset.ProviderHint != "openai" || !got.AgentPreset.NetworkAllowed {
+		t.Fatalf("stored agent preset mutated through get result: %#v", got.AgentPreset)
+	}
+
+	items, err := store.List(ctx)
+	if err != nil || len(items) != 1 || items[0].AgentPreset == nil {
+		t.Fatalf("List: items=%#v err=%v", items, err)
+	}
+	items[0].AgentPreset.ExecutionProfile = "mutated through list result"
+	got, ok, err = store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after list mutation: ok=%v err=%v", ok, err)
+	}
+	if got.AgentPreset == nil || got.AgentPreset.ExecutionProfile != "review" {
+		t.Fatalf("stored agent preset mutated through list result: %#v", got.AgentPreset)
+	}
+
+	updated, err := store.UpdateSession(ctx, created.ID, func(session *Session) {
+		session.AgentPreset.Name = "Updated safe reviewer"
+		session.AgentPreset.WritesAllowed = true
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+	if updated.AgentPreset == nil || updated.AgentPreset.Name != "Updated safe reviewer" || !updated.AgentPreset.WritesAllowed {
+		t.Fatalf("updated agent preset = %#v, want persisted update", updated.AgentPreset)
+	}
+}
+
 func runStoreMCPServersRoundTrip(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

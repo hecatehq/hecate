@@ -656,6 +656,23 @@ inspection, but Hecate does not inject project memory bodies, source bodies, or
 skill bodies into adapter prompts; the adapter owns any private prompt packing
 inside its native session.
 
+A Hecate Chat created with a named Agent Preset carries a separate, immutable
+Chat-safe snapshot. Only presets with `surface=hecate_chat` or `surface=any`
+are eligible. The snapshot's instructions are added to the Chat's effective
+per-task prompt after any project prelude and before the operator's per-chat
+instructions. When a permitted tools-on Chat turn creates an `agent_loop` Task,
+Hecate copies the snapshot id and tools setting, uses its non-empty execution
+profile, maps `writes_allowed=false` to `sandbox_read_only=true`, and maps
+`network_allowed` to `sandbox_network`. A tools-disabled Chat snapshot cannot
+create a tools-on Task; it keeps the session on the direct-model path.
+
+This Chat contract intentionally does not resolve a live preset at run time or
+carry project-memory/context-source policy, skills, browser evidence, MCP
+servers, approval-policy defaults, or External Agent options into the Task.
+Later preset edits and deletion do not change an existing Chat or its backing
+Task. The preset is Hecate runtime state, not Cairnline coordination intent;
+it never creates or changes a Project, role, assignment, or handoff.
+
 ## Approval gating
 
 Two distinct approval flows:

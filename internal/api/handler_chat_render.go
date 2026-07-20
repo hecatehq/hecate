@@ -47,6 +47,7 @@ func renderChatSessionSummary(session chat.Session) ChatSessionSummaryItem {
 		Provider:        session.Provider,
 		Model:           session.Model,
 		Capabilities:    session.Capabilities,
+		AgentPreset:     renderChatAgentPresetSnapshot(session.AgentPreset),
 		RTKEnabled:      session.RTKEnabled,
 		Workspace:       session.Workspace,
 		WorkspaceMode:   chat.EffectiveWorkspaceMode(session.WorkspaceMode),
@@ -116,6 +117,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		Provider:             session.Provider,
 		Model:                session.Model,
 		Capabilities:         session.Capabilities,
+		AgentPreset:          renderChatAgentPresetSnapshot(session.AgentPreset),
 		RTKEnabled:           session.RTKEnabled,
 		Workspace:            session.Workspace,
 		WorkspaceMode:        chat.EffectiveWorkspaceMode(session.WorkspaceMode),
@@ -134,6 +136,23 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
 		Segments:             renderChatSegments(session),
 		Messages:             messages,
+	}
+}
+
+func renderChatAgentPresetSnapshot(snapshot *chat.AgentPresetSnapshot) *ChatAgentPresetSnapshotItem {
+	if snapshot.Empty() {
+		return nil
+	}
+	return &ChatAgentPresetSnapshotItem{
+		ID:               snapshot.ID,
+		Name:             snapshot.Name,
+		ProviderHint:     snapshot.ProviderHint,
+		ModelHint:        snapshot.ModelHint,
+		Instructions:     snapshot.Instructions,
+		ExecutionProfile: snapshot.ExecutionProfile,
+		ToolsEnabled:     snapshot.ToolsEnabled,
+		WritesAllowed:    snapshot.WritesAllowed,
+		NetworkAllowed:   snapshot.NetworkAllowed,
 	}
 }
 

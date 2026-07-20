@@ -824,7 +824,7 @@ describe("stored chat image attachments", () => {
     expect(screen.getByRole("status", { name: "Loading map.png" })).toHaveFocus();
     act(() => resolveRetry?.(new Blob(["image"], { type: "image/png" })));
     expect(await screen.findByRole("img", { name: "map.png" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open map.png" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open map.png" })).toHaveFocus());
   });
 });
 

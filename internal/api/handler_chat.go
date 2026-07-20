@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/chatattachments"
@@ -82,6 +83,32 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	}
 	projectID := strings.TrimSpace(req.ProjectID)
 	isExternalAgent := agentID != chat.DefaultAgentID
+	presetID := strings.TrimSpace(req.AgentPresetID)
+	if isExternalAgent && presetID != "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "agent_preset_id is only supported for Hecate Chat sessions")
+		return
+	}
+	var agentPreset *chat.AgentPresetSnapshot
+	if presetID != "" {
+		if h.agentProfiles == nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent preset store is not configured")
+			return
+		}
+		profile, found, err := h.agentProfiles.Get(r.Context(), presetID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if !found {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "agent preset not found")
+			return
+		}
+		if !agentprofiles.SupportsSurface(profile, agentprofiles.SurfaceHecateChat) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "agent preset is not available for Hecate Chat")
+			return
+		}
+		agentPreset = chatAgentPresetSnapshot(profile)
+	}
 	workspace := strings.TrimSpace(req.Workspace)
 	workspaceMode, err := chatapp.NormalizeWorkspaceMode(req.WorkspaceMode)
 	if err != nil {
@@ -135,6 +162,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		Workspace:       workspace,
 		WorkspaceMode:   workspaceMode,
 		WorkspaceBranch: workspaceBranch,
+		AgentPreset:     agentPreset,
 		RTKEnabled:      req.RTKEnabled,
 		MCPServers:      mcpServers,
 	}
@@ -143,6 +171,14 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	case agentID == chat.DefaultAgentID:
 		provider := strings.TrimSpace(req.Provider)
 		model := strings.TrimSpace(req.Model)
+		if agentPreset != nil {
+			if provider == "" {
+				provider = agentPreset.ProviderHint
+			}
+			if model == "" {
+				model = agentPreset.ModelHint
+			}
+		}
 		var caps types.ModelCapabilities
 		if model != "" {
 			caps, err = h.resolveModelCapabilities(r.Context(), provider, model)
@@ -203,6 +239,20 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
+}
+
+func chatAgentPresetSnapshot(profile agentprofiles.Profile) *chat.AgentPresetSnapshot {
+	return &chat.AgentPresetSnapshot{
+		ID:               strings.TrimSpace(profile.ID),
+		Name:             strings.TrimSpace(profile.Name),
+		ProviderHint:     strings.TrimSpace(profile.ProviderHint),
+		ModelHint:        strings.TrimSpace(profile.ModelHint),
+		Instructions:     strings.TrimSpace(profile.Instructions),
+		ExecutionProfile: strings.TrimSpace(profile.ExecutionProfile),
+		ToolsEnabled:     profile.ToolsEnabled,
+		WritesAllowed:    profile.WritesAllowed,
+		NetworkAllowed:   profile.NetworkAllowed,
+	}
 }
 
 func (h *Handler) chatSessionProjectExists(ctx context.Context, projectID string) (bool, error) {
@@ -915,6 +965,19 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	var req CreateChatMessageRequest
 	if !decodeJSON(w, r, &req) {
 		return
+	}
+	if isHecateChatSession(session) && !session.AgentPreset.Empty() && !session.AgentPreset.ToolsEnabled {
+		if req.ToolsEnabled != nil && *req.ToolsEnabled {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "the selected agent preset disables tools for this chat")
+			return
+		}
+		// Older clients omit tools_enabled and historically default to tools
+		// on. A frozen tools-off preset is stricter, so its session contract
+		// supplies the default rather than silently starting an agent_loop.
+		if req.ToolsEnabled == nil {
+			toolsDisabled := false
+			req.ToolsEnabled = &toolsDisabled
+		}
 	}
 	requestGuard, requestResult, err := beginChatMessageRequest(r.Context(), h.chatApplication(), session.ID, req)
 	if err != nil {

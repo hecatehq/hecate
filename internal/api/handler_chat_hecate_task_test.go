@@ -131,6 +131,52 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithMCPServers(t *testing.T
 	}
 }
 
+func TestHecateAgentTaskOrchestrator_StartMapsFrozenChatPresetPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingHecateAgentTaskRunner{startRunID: "run_preset"}
+	orchestrator := hecateAgentTaskOrchestrator{
+		store:      store,
+		runner:     runner,
+		taskID:     func() string { return "task_preset" },
+		resourceID: func(prefix string) string { return prefix + "_preset" },
+		now:        func() time.Time { return time.Date(2026, 7, 20, 9, 0, 0, 0, time.UTC) },
+	}
+
+	task, _, err := orchestrator.StartOrContinue(ctx, hecateAgentTaskRunCommand{
+		Session: chat.Session{
+			ID:        "chat_preset",
+			Workspace: "/tmp/hecate-preset",
+			Provider:  "openai",
+			Model:     "gpt-4o-mini",
+			AgentPreset: &chat.AgentPresetSnapshot{
+				ID:               "safe_review",
+				ExecutionProfile: "review",
+				ToolsEnabled:     false,
+				WritesAllowed:    false,
+				NetworkAllowed:   true,
+			},
+		},
+		Prompt:        "inspect this change",
+		ForceNewTask:  true,
+		ContextPacket: chat.ContextPacket{Version: "chat_context_v1"},
+	})
+	if err != nil {
+		t.Fatalf("StartOrContinue: %v", err)
+	}
+	if task.ExecutionProfile != "review" || task.AgentPresetID != "safe_review" {
+		t.Fatalf("task profile snapshot = profile %q preset %q, want review/safe_review", task.ExecutionProfile, task.AgentPresetID)
+	}
+	if task.AgentPresetToolsEnabled == nil || *task.AgentPresetToolsEnabled {
+		t.Fatalf("task tools snapshot = %v, want explicit false", task.AgentPresetToolsEnabled)
+	}
+	if !task.SandboxReadOnly || !task.SandboxNetwork {
+		t.Fatalf("task sandbox posture = read_only %v network %v, want true/true", task.SandboxReadOnly, task.SandboxNetwork)
+	}
+}
+
 func TestHecateAgentTaskOrchestrator_NewManagedSegmentReusesPriorRunWorkspace(t *testing.T) {
 	t.Parallel()
 

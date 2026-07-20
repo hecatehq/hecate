@@ -164,6 +164,48 @@ func TestMemoryStore_Validation(t *testing.T) {
 	}
 }
 
+func TestSupportsSurface(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		profile Profile
+		surface string
+		want    bool
+	}{
+		{
+			name:    "any supports Hecate Chat",
+			profile: Profile{Surface: SurfaceAny},
+			surface: SurfaceHecateChat,
+			want:    true,
+		},
+		{
+			name:    "exact Hecate Chat surface",
+			profile: Profile{Surface: SurfaceHecateChat},
+			surface: SurfaceHecateChat,
+			want:    true,
+		},
+		{
+			name:    "task surface is not Hecate Chat",
+			profile: Profile{Surface: SurfaceHecateTask},
+			surface: SurfaceHecateChat,
+			want:    false,
+		},
+		{
+			name:    "blank requested surface fails closed",
+			profile: Profile{Surface: SurfaceAny},
+			surface: " ",
+			want:    false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := SupportsSurface(test.profile, test.surface); got != test.want {
+				t.Fatalf("SupportsSurface(%q, %q) = %v, want %v", test.profile.Surface, test.surface, got, test.want)
+			}
+		})
+	}
+}
+
 func profileIDExists(items []Profile, id string) bool {
 	return countProfileID(items, id) > 0
 }

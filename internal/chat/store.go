@@ -28,13 +28,22 @@ type Session struct {
 	WorkspaceMode string
 	// WorkspaceBranch is captured when the session is created so API
 	// snapshots don't spawn git on every streamed update.
-	WorkspaceBranch   string
-	Status            string
-	TaskID            string
-	LatestRunID       string
-	Provider          string
-	Model             string
-	Capabilities      types.ModelCapabilities
+	WorkspaceBranch string
+	Status          string
+	TaskID          string
+	LatestRunID     string
+	Provider        string
+	Model           string
+	Capabilities    types.ModelCapabilities
+	// AgentPreset is the immutable Hecate-owned runtime posture selected when
+	// this Hecate Chat session was created. It is a snapshot rather than a live
+	// profile reference, so a later preset edit or deletion cannot rewrite a
+	// historical transcript or a backing Task retry.
+	//
+	// External-agent sessions never carry this field. Browser evidence,
+	// project-role context, skills, and external-agent options are deliberately
+	// outside this small Chat contract.
+	AgentPreset       *AgentPresetSnapshot
 	ConfigOptions     []agentcontrols.ConfigOption
 	AvailableCommands []agentcontrols.Command
 	// AvailableCommandsAuthoritative records that an ACP peer has published a
@@ -53,6 +62,26 @@ type Session struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	Messages       []Message
+}
+
+// AgentPresetSnapshot is the Hecate Chat-safe subset of an Agent Preset.
+// Keep it independent from agentprofiles.Profile: Chat owns its durable
+// execution record and must not inherit project-assignment or external-agent
+// behavior by accident.
+type AgentPresetSnapshot struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	ProviderHint     string `json:"provider_hint,omitempty"`
+	ModelHint        string `json:"model_hint,omitempty"`
+	Instructions     string `json:"instructions,omitempty"`
+	ExecutionProfile string `json:"execution_profile,omitempty"`
+	ToolsEnabled     bool   `json:"tools_enabled"`
+	WritesAllowed    bool   `json:"writes_allowed"`
+	NetworkAllowed   bool   `json:"network_allowed"`
+}
+
+func (snapshot *AgentPresetSnapshot) Empty() bool {
+	return snapshot == nil || strings.TrimSpace(snapshot.ID) == ""
 }
 
 const (
@@ -433,6 +462,10 @@ func (s *MemoryStore) Create(_ context.Context, session Session) (Session, error
 	if session.AgentID == "" {
 		session.AgentID = DefaultAgentID
 	}
+	// Keep the in-memory backend's ownership boundary equivalent to the SQL
+	// backends. In particular, the frozen preset snapshot must not remain
+	// reachable through the caller's input after Create returns.
+	session = cloneSession(session)
 	s.sessions[session.ID] = session
 	return cloneSession(session), nil
 }
@@ -594,6 +627,7 @@ func (s *MemoryStore) LinkTaskRun(_ context.Context, sessionID, userMessageID, a
 }
 
 func cloneSession(session Session) Session {
+	session.AgentPreset = cloneAgentPresetSnapshot(session.AgentPreset)
 	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
 	session.AvailableCommands = cloneCommands(session.AvailableCommands)
 	session.AgentInfo = cloneImplementationInfo(session.AgentInfo)
@@ -615,6 +649,14 @@ func cloneSession(session Session) Session {
 		}
 	}
 	return session
+}
+
+func cloneAgentPresetSnapshot(snapshot *AgentPresetSnapshot) *AgentPresetSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	clone := *snapshot
+	return &clone
 }
 
 func cloneImplementationInfo(info *agentcontrols.ImplementationInfo) *agentcontrols.ImplementationInfo {
