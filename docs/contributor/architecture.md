@@ -333,7 +333,7 @@ Tasks are durable: a run survives process restarts, can be resumed from a termin
 flowchart TD
     Caller["POST /hecate/v1/tasks/{id}/start"] --> TasksApi["Tasks API"]
     TasksApi --> Runner["Orchestrator runner"]
-    Runner -->|"agent_loop, no model configured"| ErrModel["422 model_not_configured<br/>(no run created)"]
+    Runner -->|"agent_loop, incomplete explicit route"| ErrModel["422 model_not_configured<br/>(no run created)"]
     Runner --> Workspace["Workspace manager<br/>(clone source to temp dir,<br/>or use source in_place)"]
     Workspace --> Queue["Run queue<br/>(leased)"]
 

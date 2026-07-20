@@ -86,6 +86,52 @@ func TestRuleRouterRouteLocalFirst(t *testing.T) {
 	}
 }
 
+func TestRuleRouterAutoRoutingUsesProviderDefaultsWithoutGlobalModel(t *testing.T) {
+	t.Parallel()
+
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "cloud", kind: providers.KindCloud, defaultModel: "cloud-default", supportedModels: []string{"cloud-default"}},
+		&fakeProvider{name: "local", kind: providers.KindLocal, defaultModel: "local-default", supportedModels: []string{"local-default"}},
+	)
+	router := NewRuleRouter("", catalog.NewRegistryCatalog(registry, nil))
+
+	initial, err := router.Route(context.Background(), types.ChatRequest{})
+	if err != nil {
+		t.Fatalf("Route(auto) error = %v", err)
+	}
+	if initial.Model != "cloud-default" || initial.Reason != "provider_default_model" {
+		t.Fatalf("Route(auto) = %#v, want a Hecate-selected provider default", initial)
+	}
+
+	fallbacks := router.Fallbacks(context.Background(), types.ChatRequest{}, initial)
+	if len(fallbacks) != 1 || fallbacks[0].Provider != "local" || fallbacks[0].Model != "local-default" {
+		t.Fatalf("Fallbacks(auto) = %#v, want the other provider's default", fallbacks)
+	}
+}
+
+func TestRuleRouterAutoRoutingFallsBackToMatchingGatewayDefault(t *testing.T) {
+	t.Parallel()
+
+	registry := providers.NewRegistry(
+		&fakeProvider{name: "cloud", kind: providers.KindCloud, defaultModel: "cloud-default", supportedModels: []string{"cloud-default"}},
+		&fakeProvider{name: "local", kind: providers.KindLocal, supportedModels: []string{"gateway-default"}},
+	)
+	router := NewRuleRouter("gateway-default", catalog.NewRegistryCatalog(registry, nil))
+
+	initial, err := router.Route(context.Background(), types.ChatRequest{})
+	if err != nil {
+		t.Fatalf("Route(auto) error = %v", err)
+	}
+	if initial.Provider != "cloud" || initial.Model != "cloud-default" {
+		t.Fatalf("Route(auto) = %#v, want provider-default initial route", initial)
+	}
+
+	fallbacks := router.Fallbacks(context.Background(), types.ChatRequest{}, initial)
+	if len(fallbacks) != 1 || fallbacks[0].Provider != "local" || fallbacks[0].Model != "gateway-default" {
+		t.Fatalf("Fallbacks(auto) = %#v, want matching gateway-default fallback", fallbacks)
+	}
+}
+
 func TestRuleRouterOrdersProvidersAlphabetically(t *testing.T) {
 	t.Parallel()
 

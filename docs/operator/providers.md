@@ -312,6 +312,7 @@ returns:
 
 - `credential_ready` — whether credentials are configured or not required
 - `routing_ready` — whether the router can currently send traffic to it
+- `auto_route_ready` — whether an unpinned, model-less request can include it through a provider default or matching gateway default
 - `routing_blocked_reason` — stable reason when routing is blocked, such as `credential_missing`, `provider_disabled`, `provider_rate_limited`, `circuit_open`, `provider_unhealthy`, or `no_models`
 - `readiness` — compact provider-level summary for cards/tables with `status`, `reason`, operator-facing `message`, and optional `operator_action`
 - `readiness_checks` — a normalized checklist for `credentials`, `models`, `health`, and `routing`. Each check has `status` (`ok`, `warning`, `blocked`, or `unknown`), `reason`, an operator-facing `message`, and an optional `operator_action` repair step. Non-routing checks can use scoped reasons such as `default_model_only`, `discovery_failed`, `self_referential`, or `provider_slow`.

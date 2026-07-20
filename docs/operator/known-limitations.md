@@ -56,11 +56,12 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 - `agent_loop` and MCP integration are alpha. They are useful for controlled
   workflows, but the behavior surface is still expanding.
-- `agent_loop` tasks require `requested_model` on the task. A missing model
-  is caught at start time and returns a 422 `model_not_configured` error; the
-  run is never created. Tool support is still ultimately enforced by the
-  provider at call time, so stale or incomplete capability metadata can still
-  surface as a model/tool error during the first LLM call.
+- `agent_loop` tasks can omit both `requested_provider` and
+  `requested_model` to use Hecate auto-routing. Supplying a provider without a
+  model is rejected at start time with 422 `model_not_configured`; tool support
+  is still ultimately enforced by the provider at call time, so stale or
+  incomplete capability metadata can still surface as a model/tool error during
+  the first LLM call.
 - Runs that are stuck in `running` state (e.g. after a worker crash or process
   restart) are recovered automatically by the periodic reconciler and re-queued
   without operator intervention. The recovery window is three times the

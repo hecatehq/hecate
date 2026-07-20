@@ -4,9 +4,10 @@ Hecate is an open-source local AI operations console for supervised agent work
 and project orchestration. The main Go runtime runs the local HTTP service,
 embeds the React operator UI, routes OpenAI- and Anthropic-shaped client traffic
 to upstream LLM providers, runs Hecate Chat tools-on turns through visible
-`agent_loop` tasks, supervises External Agents from Chats, manages projects,
-roles, assignments, handoffs, context, memory candidates, approvals, artifacts,
-usage, and emits OpenTelemetry traces for everything it does. Hecate is
+`agent_loop` tasks, supervises External Agents from Chats, serves local
+ACP-capable clients through `hecate acp serve`, manages projects, roles,
+assignments, handoffs, context, memory candidates, approvals, artifacts, usage,
+and emits OpenTelemetry traces for everything it does. Hecate is
 local-first in the operational sense: the runtime and UI run on the operator's
 machine by default, Hecate-owned state is local in local deployments
 (`memory` / `sqlite`) and can use Postgres for hosted/cloud-runtime
@@ -191,7 +192,7 @@ so personal CLI login homes and broad local auth-token envs are not inherited.
 ## Repository layout
 
 ```
-cmd/hecate/               main runtime entry: gateway service, embedded UI, MCP subcommand
+cmd/hecate/               main runtime entry: gateway service, embedded UI, MCP/ACP subcommands
 
 pkg/types/                 public types (ChatRequest, Message, ContentBlock, ...)
                              — no internal/ imports
@@ -222,6 +223,7 @@ internal/retention/        retention worker (subsystems: traces, usage_events, a
 internal/mcp/              stdio MCP server (read tools + write tools)
 internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
                              Grok Build
+internal/acpserver/        local ACP agent bridge: ACP sessions to native tasks/runs
 internal/chat/        chat transcript persistence and runtime linkage
 internal/chatattachments/ session-scoped attachment bodies outside transcript JSON
 internal/modelcaps/        model tool/image capability merge logic and defaults
@@ -234,6 +236,15 @@ docs/                      long-form references (canonical product/runtime docs)
 CLAUDE.md                  Claude Code compatibility shim importing AGENTS.md
 docs-ai/                   canonical, provider-neutral agent instruction layer (this directory)
 ```
+
+ACP has two intentionally separate directions. `internal/agentadapters` makes
+Hecate an ACP **client** that supervises external coding-agent CLIs. The
+`internal/acpserver` package makes Hecate an ACP **agent** for a local editor or
+client, mapping that session to Hecate-native `agent_loop` tasks. Keep
+provider-specific adapter behavior in the adapters and generic protocol
+plumbing in `acp-adapter-kit`; keep Hecate task routing, policy, approvals, and
+observability in Hecate. ACP V1 does not turn editor-provided files, terminals,
+or MCP configurations into Hecate runtime authority.
 
 ## Architecture rings
 
@@ -321,6 +332,7 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | What OTel spans and metrics does the gateway emit?                            | [`docs/runtime/telemetry.md`](../../docs/runtime/telemetry.md)                                                                                                                                   |
 | How do I configure a provider? What providers are supported?                  | [`docs/operator/providers.md`](../../docs/operator/providers.md)                                                                                                                                 |
 | How do I configure MCP? What tools does the server expose?                    | [`docs/runtime/mcp.md`](../../docs/runtime/mcp.md)                                                                                                                                               |
+| How does an ACP client use Hecate's native agent runtime?                     | [`docs/runtime/acp.md`](../../docs/runtime/acp.md)                                                                                                                                               |
 | How do Hecate Chat segments and model capabilities work?                      | [`docs/runtime/chat-sessions.md`](../../docs/runtime/chat-sessions.md), [`docs/design/accepted/hecate-chat-model-capabilities.md`](../../docs/design/accepted/hecate-chat-model-capabilities.md) |
 | How do External Agents work?                                                  | [`docs/runtime/external-agents.md`](../../docs/runtime/external-agents.md)                                                                                                                       |
 | How do I deploy? What are the Compose profiles?                               | [`docs/operator/deployment.md`](../../docs/operator/deployment.md)                                                                                                                               |

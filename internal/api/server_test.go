@@ -528,6 +528,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if !item.RoutingReady {
 				t.Fatalf("openai routing_ready = false, reason = %q", item.RoutingBlocked)
 			}
+			if !item.AutoRouteReady {
+				t.Fatal("openai auto_route_ready = false, want true for provider default")
+			}
 			if item.Readiness.Status != "ok" || item.Readiness.Reason != "ready" {
 				t.Fatalf("openai readiness = %#v, want ok/ready", item.Readiness)
 			}
@@ -544,6 +547,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			}
 			if item.RoutingReady {
 				t.Fatal("ollama routing_ready = true, want false for degraded capability failure")
+			}
+			if item.AutoRouteReady {
+				t.Fatal("ollama auto_route_ready = true, want false for an unroutable provider")
 			}
 			if item.RoutingBlocked != "provider_unhealthy" {
 				t.Fatalf("ollama routing_blocked_reason = %q, want provider_unhealthy", item.RoutingBlocked)
@@ -564,6 +570,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.RoutingReady {
 				t.Fatal("anthropic routing_ready = true, want false for missing credentials")
 			}
+			if item.AutoRouteReady {
+				t.Fatal("anthropic auto_route_ready = true, want false for an unroutable provider")
+			}
 			if item.RoutingBlocked != "credential_missing" {
 				t.Fatalf("anthropic routing_blocked_reason = %q, want credential_missing", item.RoutingBlocked)
 			}
@@ -581,6 +590,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			}
 			if !item.RoutingReady {
 				t.Fatalf("openrouter routing_ready = false, reason = %q", item.RoutingBlocked)
+			}
+			if !item.AutoRouteReady {
+				t.Fatal("openrouter auto_route_ready = false, want true for provider default")
 			}
 			if item.Readiness.Status != "warning" || item.Readiness.Reason != "default_model_only" {
 				t.Fatalf("openrouter readiness = %#v, want warning/default_model_only", item.Readiness)
@@ -602,6 +614,49 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 	}
 	if !foundDefaultOnly {
 		t.Fatalf("missing default-only provider entry: %#v", response.Data)
+	}
+}
+
+func TestProviderAutoRouteReadyMatchesUnpinnedRouterContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		provider      types.ProviderStatus
+		globalDefault string
+		want          bool
+	}{
+		{
+			name:     "provider default",
+			provider: types.ProviderStatus{RoutingReady: true, DefaultModel: "provider-default"},
+			want:     true,
+		},
+		{
+			name:          "matching gateway default",
+			provider:      types.ProviderStatus{RoutingReady: true, Models: []string{"gateway-default"}},
+			globalDefault: "gateway-default",
+			want:          true,
+		},
+		{
+			name:          "discovered model without default",
+			provider:      types.ProviderStatus{RoutingReady: true, Models: []string{"other-model"}},
+			globalDefault: "gateway-default",
+			want:          false,
+		},
+		{
+			name:     "blocked provider",
+			provider: types.ProviderStatus{RoutingReady: false, DefaultModel: "provider-default"},
+			want:     false,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := providerAutoRouteReady(test.provider, test.globalDefault); got != test.want {
+				t.Fatalf("providerAutoRouteReady(%#v, %q) = %t, want %t", test.provider, test.globalDefault, got, test.want)
+			}
+		})
 	}
 }
 
@@ -7052,17 +7107,30 @@ func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
 	}
 }
 
-func TestTaskStartAgentLoopWithoutModel_FailsAtStart(t *testing.T) {
-	// When no model is configured on the task, starting an agent_loop run should return
-	// 422 immediately — no run is created, no tokens are spent.
+func TestTaskStartAgentLoopWithoutModelUsesAutoRouting(t *testing.T) {
+	// An empty provider/model pair is Hecate auto-routing. The runner creates
+	// the run and lets RuleRouter select a provider default at execution time,
+	// rather than requiring clients such as ACP to preselect one.
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	// config.Config{} has DefaultModel == "" — no default configured.
 	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Agent loop no model","prompt":"No model","execution_kind":"agent_loop"}`)
+	started := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")
+	if started.Data.ID == "" || started.Data.Status != "queued" {
+		t.Fatalf("auto-routed start = %#v, want queued run", started.Data)
+	}
+}
+
+func TestTaskStartAgentLoopWithProviderButNoModelFailsAtStart(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	tasks := newTaskTestClient(t, handler)
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Incomplete route","prompt":"No model","execution_kind":"agent_loop","requested_provider":"local"}`)
 
 	rec := tasks.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")
 	if !strings.Contains(rec.Body.String(), "model_not_configured") {

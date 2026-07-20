@@ -40,10 +40,27 @@ func newRootCommand() *cobra.Command {
 
 	root.AddCommand(newServeCommand())
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newACPCommand())
 	root.AddCommand(newMCPCommand())
 	root.AddCommand(newLegacyMCPServerCommand())
 
 	return root
+}
+
+func newACPCommand() *cobra.Command {
+	acp := &cobra.Command{
+		Use:   "acp",
+		Short: "Run Hecate as an ACP agent",
+	}
+	acp.AddCommand(&cobra.Command{
+		Use:   "serve",
+		Short: "Start the Hecate ACP agent over stdio",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runACPServer(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	})
+	return acp
 }
 
 func newServeCommand() *cobra.Command {
