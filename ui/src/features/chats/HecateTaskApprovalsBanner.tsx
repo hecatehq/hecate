@@ -10,6 +10,8 @@ export type HecateTaskApproval = {
   kind?: string;
   detail?: string;
   createdAt?: string;
+  actionSummary?: string[];
+  actionSummaryIncomplete?: boolean;
 };
 
 export function pendingHecateTaskApprovals(
@@ -39,6 +41,8 @@ export function pendingHecateTaskApprovals(
         kind: taskApprovalDisplayKind(activity),
         detail: cleanApprovalDetail(activity.detail),
         createdAt: activity.created_at,
+        actionSummary: activity.action_summary ? [...activity.action_summary] : undefined,
+        actionSummaryIncomplete: activity.action_summary_incomplete,
       });
     }
   }
@@ -145,6 +149,7 @@ export function HecateTaskApprovalsBanner({
       aria-label="Pending Hecate Chat task approvals"
       testID="hecate-task-approval-banner"
       tone="amber"
+      style={{ maxHeight: "min(42vh, 420px)", overflowY: "auto", overscrollBehavior: "contain" }}
     >
       <ChatNoticeHeader
         tone="amber"
@@ -169,15 +174,21 @@ export function HecateTaskApprovalsBanner({
         const rejectBusy = busyID === `${approval.approvalID}:reject`;
         const actionDisabled = disabled || busyID !== "";
         const label = describeTaskApprovalKind(approval.kind || approval.title);
+        const hasReviewableSummary = Boolean(approval.actionSummary?.length);
+        const inlineApprovalBlockedReason = !hasReviewableSummary
+          ? "Open the backing task to review the complete pending actions"
+          : approval.actionSummaryIncomplete
+            ? "Open the backing task because the inline action summary is incomplete"
+            : undefined;
         return (
           <ChatNoticeRow
             key={approval.approvalID}
             tone="amber"
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) auto",
+              display: "flex",
+              flexDirection: "column",
               gap: 12,
-              alignItems: "center",
+              alignItems: "stretch",
             }}
           >
             <div style={{ minWidth: 0 }}>
@@ -212,21 +223,97 @@ export function HecateTaskApprovalsBanner({
                     fontSize: 11,
                     color: "var(--amber-lo)",
                     marginTop: 3,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    lineHeight: 1.4,
+                    overflowWrap: "anywhere",
                   }}
                 >
                   {approval.detail}
                 </div>
               )}
+              {hasReviewableSummary && (
+                <div style={{ marginTop: 8 }}>
+                  <div
+                    style={{
+                      color: "var(--amber-lo)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Pending actions
+                  </div>
+                  <div
+                    role="region"
+                    aria-label={`Review pending actions for ${label}`}
+                    style={{
+                      maxHeight: 144,
+                      marginTop: 5,
+                      overflowY: "auto",
+                      overscrollBehavior: "contain",
+                    }}
+                  >
+                    <ol
+                      aria-label="Pending actions"
+                      style={{
+                        color: "var(--t1)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 11,
+                        lineHeight: 1.5,
+                        margin: 0,
+                        paddingLeft: 20,
+                        paddingRight: 4,
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {approval.actionSummary?.map((line, index) => (
+                        <li key={`${approval.approvalID}-action-${index}`}>{line}</li>
+                      ))}
+                    </ol>
+                  </div>
+                </div>
+              )}
+              {approval.actionSummaryIncomplete && (
+                <div
+                  style={{
+                    color: "var(--amber-lo)",
+                    fontSize: 10,
+                    lineHeight: 1.4,
+                    marginTop: 5,
+                  }}
+                >
+                  Some calls or details were omitted or could not be summarized safely. Open the
+                  backing task to review before approving.
+                </div>
+              )}
+              {!hasReviewableSummary && (
+                <div
+                  role="status"
+                  style={{
+                    color: "var(--amber-lo)",
+                    fontSize: 10,
+                    lineHeight: 1.4,
+                    marginTop: 5,
+                  }}
+                >
+                  Open the backing task to review the complete pending actions before approving.
+                </div>
+              )}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
+              }}
+            >
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
                 aria-label={`Approve ${label}`}
-                disabled={actionDisabled}
+                disabled={actionDisabled || Boolean(inlineApprovalBlockedReason)}
+                title={inlineApprovalBlockedReason}
                 onClick={() => onResolve(approval.approvalID, "approve")}
               >
                 {approveBusy ? "Approving..." : "Approve"}

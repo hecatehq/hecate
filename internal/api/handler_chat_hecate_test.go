@@ -2050,12 +2050,16 @@ func findChatActivityByType(message ChatMessageItem, activityType string) ChatAc
 
 func TestChatActivityFromTaskActivityCarriesApprovalMetadata(t *testing.T) {
 	item := TaskActivityItem{
-		ID:          "approval:appr_123",
-		Type:        "approval",
-		Status:      "pending",
-		Title:       "agent_loop_tool_call",
-		ApprovalID:  "appr_123",
-		Kind:        "agent_loop_tool_call",
+		ID:         "approval:appr_123",
+		Type:       "approval",
+		Status:     "pending",
+		Title:      "agent_loop_tool_call",
+		ApprovalID: "appr_123",
+		Kind:       "agent_loop_tool_call",
+		Summary: map[string]any{
+			"action_summary":            []any{"shell_exec command details withheld (command_bytes=9)", "file_write write path=out.txt content_bytes=2"},
+			"action_summary_incomplete": true,
+		},
 		NeedsAction: true,
 		OccurredAt:  "2026-05-03T10:00:00Z",
 	}
@@ -2067,6 +2071,13 @@ func TestChatActivityFromTaskActivityCarriesApprovalMetadata(t *testing.T) {
 	}
 	if rendered[0].ApprovalID != "appr_123" || !rendered[0].NeedsAction {
 		t.Fatalf("approval metadata = id %q needs_action %v, want appr_123/true", rendered[0].ApprovalID, rendered[0].NeedsAction)
+	}
+	if len(rendered[0].ActionSummary) != 2 || rendered[0].ActionSummary[1] != "file_write write path=out.txt content_bytes=2" || !rendered[0].ActionSummaryIncomplete {
+		t.Fatalf("approval action summary = %#v incomplete=%v, want complete two-call safe summary", rendered[0].ActionSummary, rendered[0].ActionSummaryIncomplete)
+	}
+	rendered[0].ActionSummary[0] = "mutated API response"
+	if activity.ActionSummary[0] != "shell_exec command details withheld (command_bytes=9)" {
+		t.Fatalf("renderAgentChatActivities() aliased source summary: %#v", activity.ActionSummary)
 	}
 }
 
@@ -2174,29 +2185,37 @@ func TestChatActivityFromTaskActivityCarriesMCPApp(t *testing.T) {
 
 func TestMergeChatActivityClearsApprovalNeedsAction(t *testing.T) {
 	items := []chat.Activity{{
-		ID:          "task:approval:appr_123",
-		Type:        "approval",
-		Status:      "pending",
-		Title:       "agent_loop_tool_call",
-		Detail:      "pending",
-		ApprovalID:  "appr_123",
-		NeedsAction: true,
+		ID:            "task:approval:appr_123",
+		Type:          "approval",
+		Status:        "pending",
+		Title:         "agent_loop_tool_call",
+		Detail:        "pending",
+		ApprovalID:    "appr_123",
+		ActionSummary: []string{"old pending action"},
+		NeedsAction:   true,
 	}}
 
-	items = mergeChatActivity(items, chat.Activity{
-		ID:          "task:approval:appr_123",
-		Type:        "approval",
-		Status:      "approved",
-		Title:       "agent_loop_tool_call",
-		Detail:      "approved",
-		ApprovalID:  "appr_123",
-		NeedsAction: false,
-	})
+	next := chat.Activity{
+		ID:                      "task:approval:appr_123",
+		Type:                    "approval",
+		Status:                  "approved",
+		Title:                   "agent_loop_tool_call",
+		Detail:                  "approved",
+		ApprovalID:              "appr_123",
+		ActionSummary:           []string{"shell_exec command details withheld (command_bytes=9)"},
+		ActionSummaryIncomplete: true,
+		NeedsAction:             false,
+	}
+	items = mergeChatActivity(items, next)
+	next.ActionSummary[0] = "mutated projection"
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want merged single item", len(items))
 	}
 	if items[0].Status != "approved" || items[0].NeedsAction {
 		t.Fatalf("merged approval = status %q needs_action %v, want approved/false", items[0].Status, items[0].NeedsAction)
+	}
+	if len(items[0].ActionSummary) != 1 || items[0].ActionSummary[0] != "shell_exec command details withheld (command_bytes=9)" || !items[0].ActionSummaryIncomplete {
+		t.Fatalf("merged approval summary = %#v incomplete=%v, want independent replacement", items[0].ActionSummary, items[0].ActionSummaryIncomplete)
 	}
 }
 
@@ -2209,12 +2228,22 @@ func TestTaskActivityItemsCarryStepApprovalMetadata(t *testing.T) {
 		ApprovalID: "appr_123",
 		StartedAt:  "2026-05-03T10:00:00Z",
 	}}, nil, []TaskApprovalItem{{
-		ID:     "appr_123",
-		Status: "pending",
+		ID:                      "appr_123",
+		Status:                  "pending",
+		Reason:                  "Review the complete bundle",
+		ActionSummary:           []string{"shell_exec command details withheld (command_bytes=9)", "file_write write path=out.txt content_bytes=2"},
+		ActionSummaryIncomplete: true,
 	}}, types.TaskRun{Status: "awaiting_approval"})
 	item := taskActivityByID(items, "step:step_1")
 	if item.Type != "approval" || item.ApprovalID != "appr_123" || !item.NeedsAction {
 		t.Fatalf("approval activity = type %q id %q needs_action %v, want approval/appr_123/true", item.Type, item.ApprovalID, item.NeedsAction)
+	}
+	if got := stringSliceFromMap(item.Summary, "action_summary"); len(got) != 2 || got[1] != "file_write write path=out.txt content_bytes=2" || !boolFromMap(item.Summary, "action_summary_incomplete") {
+		t.Fatalf("step approval summary = %#v, want complete bundle with incomplete marker", item.Summary)
+	}
+	approvalItem := taskActivityByID(items, "approval:appr_123")
+	if got := stringSliceFromMap(approvalItem.Summary, "action_summary"); len(got) != 2 || got[0] != "shell_exec command details withheld (command_bytes=9)" {
+		t.Fatalf("approval resource activity summary = %#v, want complete bundle", approvalItem.Summary)
 	}
 }
 

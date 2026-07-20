@@ -19,19 +19,21 @@ func renderAgentChatActivities(items []chat.Activity) []ChatActivityItem {
 	out := make([]ChatActivityItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, ChatActivityItem{
-			ID:                item.ID,
-			Type:              item.Type,
-			Status:            item.Status,
-			Kind:              item.Kind,
-			Title:             item.Title,
-			Detail:            item.Detail,
-			CreatedAt:         formatOptionalTime(item.CreatedAt),
-			ArtifactID:        item.ArtifactID,
-			ArtifactSizeBytes: item.ArtifactSizeBytes,
-			ArtifactPreview:   item.ArtifactPreview,
-			ApprovalID:        item.ApprovalID,
-			NeedsAction:       item.NeedsAction,
-			MCPApp:            renderChatMCPApp(item.MCPApp),
+			ID:                      item.ID,
+			Type:                    item.Type,
+			Status:                  item.Status,
+			Kind:                    item.Kind,
+			Title:                   item.Title,
+			Detail:                  item.Detail,
+			CreatedAt:               formatOptionalTime(item.CreatedAt),
+			ArtifactID:              item.ArtifactID,
+			ArtifactSizeBytes:       item.ArtifactSizeBytes,
+			ArtifactPreview:         item.ArtifactPreview,
+			ApprovalID:              item.ApprovalID,
+			ActionSummary:           append([]string(nil), item.ActionSummary...),
+			ActionSummaryIncomplete: item.ActionSummaryIncomplete,
+			NeedsAction:             item.NeedsAction,
+			MCPApp:                  renderChatMCPApp(item.MCPApp),
 		})
 	}
 	return out
@@ -112,19 +114,21 @@ func agentChatActivitiesFromTaskActivity(items []TaskActivityItem) []chat.Activi
 func agentChatActivityFromTaskActivity(item TaskActivityItem) chat.Activity {
 	title := strings.TrimSpace(firstNonEmpty(item.Title, item.ToolName, item.Path, item.Kind, item.Type))
 	return chat.Activity{
-		ID:                strings.TrimSpace("task:" + item.ID),
-		Type:              strings.TrimSpace(item.Type),
-		Status:            strings.TrimSpace(item.Status),
-		Kind:              strings.TrimSpace(firstNonEmpty(item.Kind, item.ToolName)),
-		Title:             title,
-		Detail:            agentChatTaskActivityDetail(item),
-		CreatedAt:         parseChatActivityTime(item.OccurredAt),
-		ArtifactID:        strings.TrimSpace(item.ArtifactID),
-		ArtifactSizeBytes: agentChatTaskArtifactSize(item),
-		ArtifactPreview:   agentChatTaskArtifactPreview(item),
-		ApprovalID:        strings.TrimSpace(item.ApprovalID),
-		NeedsAction:       item.NeedsAction,
-		MCPApp:            agentChatTaskMCPApp(item),
+		ID:                      strings.TrimSpace("task:" + item.ID),
+		Type:                    strings.TrimSpace(item.Type),
+		Status:                  strings.TrimSpace(item.Status),
+		Kind:                    strings.TrimSpace(firstNonEmpty(item.Kind, item.ToolName)),
+		Title:                   title,
+		Detail:                  agentChatTaskActivityDetail(item),
+		CreatedAt:               parseChatActivityTime(item.OccurredAt),
+		ArtifactID:              strings.TrimSpace(item.ArtifactID),
+		ArtifactSizeBytes:       agentChatTaskArtifactSize(item),
+		ArtifactPreview:         agentChatTaskArtifactPreview(item),
+		ApprovalID:              strings.TrimSpace(item.ApprovalID),
+		ActionSummary:           stringSliceFromMap(item.Summary, "action_summary"),
+		ActionSummaryIncomplete: boolFromMap(item.Summary, "action_summary_incomplete"),
+		NeedsAction:             item.NeedsAction,
+		MCPApp:                  agentChatTaskMCPApp(item),
 	}
 }
 
@@ -210,6 +214,33 @@ func boolFromMap(values map[string]any, key string) bool {
 		}
 	}
 	return false
+}
+
+func stringSliceFromMap(values map[string]any, key string) []string {
+	value, ok := values[key]
+	if !ok {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				return nil
+			}
+			out = append(out, text)
+		}
+		return out
+	case json.RawMessage:
+		var out []string
+		if err := json.Unmarshal(typed, &out); err == nil {
+			return out
+		}
+	}
+	return nil
 }
 
 func rawJSONFromMap(values map[string]any, key string) json.RawMessage {
@@ -397,6 +428,8 @@ func mergeChatActivity(items []chat.Activity, next chat.Activity) []chat.Activit
 				if next.ApprovalID != "" {
 					items[i].ApprovalID = next.ApprovalID
 				}
+				items[i].ActionSummary = append([]string(nil), next.ActionSummary...)
+				items[i].ActionSummaryIncomplete = next.ActionSummaryIncomplete
 				if next.ArtifactID != "" {
 					items[i].ArtifactID = next.ArtifactID
 				}

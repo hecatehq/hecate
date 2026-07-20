@@ -1245,19 +1245,21 @@ type WorkspaceOpenResponse struct {
 }
 
 type ChatActivityItem struct {
-	ID                string          `json:"id,omitempty"`
-	Type              string          `json:"type"`
-	Status            string          `json:"status,omitempty"`
-	Kind              string          `json:"kind,omitempty"`
-	Title             string          `json:"title"`
-	Detail            string          `json:"detail,omitempty"`
-	CreatedAt         string          `json:"created_at,omitempty"`
-	ArtifactID        string          `json:"artifact_id,omitempty"`
-	ArtifactSizeBytes int64           `json:"artifact_size_bytes,omitempty"`
-	ArtifactPreview   string          `json:"artifact_preview,omitempty"`
-	ApprovalID        string          `json:"approval_id,omitempty"`
-	NeedsAction       bool            `json:"needs_action,omitempty"`
-	MCPApp            *ChatMCPAppItem `json:"mcp_app,omitempty"`
+	ID                      string          `json:"id,omitempty"`
+	Type                    string          `json:"type"`
+	Status                  string          `json:"status,omitempty"`
+	Kind                    string          `json:"kind,omitempty"`
+	Title                   string          `json:"title"`
+	Detail                  string          `json:"detail,omitempty"`
+	CreatedAt               string          `json:"created_at,omitempty"`
+	ArtifactID              string          `json:"artifact_id,omitempty"`
+	ArtifactSizeBytes       int64           `json:"artifact_size_bytes,omitempty"`
+	ArtifactPreview         string          `json:"artifact_preview,omitempty"`
+	ApprovalID              string          `json:"approval_id,omitempty"`
+	ActionSummary           []string        `json:"action_summary,omitempty"`
+	ActionSummaryIncomplete bool            `json:"action_summary_incomplete,omitempty"`
+	NeedsAction             bool            `json:"needs_action,omitempty"`
+	MCPApp                  *ChatMCPAppItem `json:"mcp_app,omitempty"`
 }
 
 type ChatMCPAppItem struct {

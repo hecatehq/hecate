@@ -2011,6 +2011,8 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
         detail: "shell_exec - approved",
         approval_id: "appr-tools-1",
         needs_action: false,
+        action_summary: ["git status --short"],
+        action_summary_incomplete: false,
       },
       {
         id: "task-1",
@@ -2170,6 +2172,8 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
                 detail: "Agent requested tools that require approval: shell_exec",
                 approval_id: "appr-tools-1",
                 needs_action: true,
+                action_summary: ["git status --short"],
+                action_summary_incomplete: false,
               },
               {
                 id: `task-${turn}`,
@@ -2883,6 +2887,8 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
             detail: "Agent requested tools that require approval: git_exec",
             approval_id: "appr-refresh-e2e",
             needs_action: true,
+            action_summary: ["git status --short"],
+            action_summary_incomplete: false,
           },
           {
             id: "hecate_task_run:run-approval-refresh-e2e",
@@ -2914,6 +2920,8 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
             detail: "git_exec - approved",
             approval_id: "appr-refresh-e2e",
             needs_action: false,
+            action_summary: ["git status --short"],
+            action_summary_incomplete: false,
           },
           {
             id: "hecate_task_run:run-approval-refresh-e2e",

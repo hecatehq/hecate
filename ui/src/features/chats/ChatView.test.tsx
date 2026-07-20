@@ -3824,6 +3824,10 @@ describe("ChatView input", () => {
                   detail:
                     "Agent requested tools that require approval: shell_exec - awaiting_approval",
                   approval_id: "appr_123",
+                  action_summary: [
+                    "shell_exec command details withheld (command_bytes=15)",
+                    "file_write write path=out.txt content_bytes=2",
+                  ],
                   needs_action: true,
                   created_at: "2026-05-03T10:00:02Z",
                 },
@@ -3839,6 +3843,11 @@ describe("ChatView input", () => {
     expect(screen.getByTestId("hecate-task-approval-banner")).toBeTruthy();
     expect(screen.getByText("Approval required")).toBeTruthy();
     expect(screen.getByText("Shell execution")).toBeTruthy();
+    const pendingActions = screen.getByRole("list", { name: "Pending actions" });
+    expect(within(pendingActions).getAllByRole("listitem")).toHaveLength(2);
+    expect(
+      within(pendingActions).getByText("file_write write path=out.txt content_bytes=2"),
+    ).toBeTruthy();
     expect(screen.getAllByText("Waiting for approval").length).toBeGreaterThan(0);
 
     const user = userEvent.setup();
