@@ -1,6 +1,6 @@
 # Alpha-to-beta roadmap
 
-Hecate keeps shipping `v0.1.0-alpha.N` releases while beta work lands
+Hecate keeps shipping `v0.x.y-alpha.N` releases while beta work lands
 incrementally. Beta is not the next release by default; it is the quality gate
 after core runtime contracts, project orchestration, view-by-view UX polish,
 and cleanup/refactoring are complete.
@@ -106,7 +106,7 @@ and the current project/chat gates cover only their own ownership boundaries.
 - Do not create a long-lived beta branch unless beta stabilization later needs a
   freeze window. Until then, `master` remains the alpha release train and
   integration branch.
-- The first beta tag should be `v0.1.0-beta.1` after the beta gate passes.
+- The first beta tag should be `v0.x.y-beta.1` after the beta gate passes.
 
 ## Beta Gate
 
@@ -152,7 +152,7 @@ true:
   and merged through PRs.
 - No compatibility shims are required for alpha-only endpoint/API changes unless
   explicitly decided later.
-- Hecate remains local-first and single-operator shaped for beta; multi-node and
-  hosted deployments stay out of scope.
+- Hecate remains single-operator shaped for beta, with local and remote
+  deployments supported; multi-node coordination stays out of scope.
 - External Agent CLIs remain trusted subprocesses for beta; Hecate supervises
   and warns, but does not sandbox their internals.
