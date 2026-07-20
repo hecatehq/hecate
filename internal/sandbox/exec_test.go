@@ -61,7 +61,6 @@ func TestLocalExecutorUsesRTKWhenEnabled(t *testing.T) {
 }
 
 func TestLocalExecutorStreamsThroughProcessRunner(t *testing.T) {
-	t.Parallel()
 	reset := SetWrapperForTesting(WrapperNone)
 	defer reset()
 

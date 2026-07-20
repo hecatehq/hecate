@@ -40,12 +40,16 @@ func (g agentLoopApprovalGate) Evaluate(spec ExecutionSpec, modelCall, stepIndex
 		return agentLoopApprovalPause{}, false
 	}
 	approval := buildApprovalForModelCall(spec, gatedNames, when)
+	approval.ActionSummary, approval.ActionSummaryIncomplete = buildApprovalActionSummary(calls)
 	if detail := browserApprovalDetail(calls, spec.Task); detail != "" {
 		approval.Reason += ". " + detail
 	}
+	step := buildAwaitingApprovalStep(spec, stepIndex, modelCall, when, approval)
+	step.Input[toolCallBundleDigestKey] = agentToolCallBundleDigest(calls)
+	approval.StepID = step.ID
 	return agentLoopApprovalPause{
 		Approval: approval,
-		Step:     buildAwaitingApprovalStep(spec, stepIndex, modelCall, when, approval),
+		Step:     step,
 	}, true
 }
 

@@ -221,6 +221,8 @@ export type TaskApprovalRecord = {
   kind: string;
   status: string;
   reason?: string;
+  action_summary?: string[];
+  action_summary_incomplete?: boolean;
   requested_by?: string;
   resolved_by?: string;
   resolution_note?: string;

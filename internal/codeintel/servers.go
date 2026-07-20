@@ -20,6 +20,7 @@ import (
 
 type serverSpec struct {
 	language   string
+	provider   string
 	command    string
 	args       []string
 	extensions map[string]struct{}
@@ -92,6 +93,7 @@ func (s *Service) selectServer(ctx context.Context, fsys *workspacefs.FS, reques
 	var names []string
 	var skipped []string
 	for _, spec := range specs {
+		provider := spec.command
 		path, err := s.resolveTrustedBinary(fsys, spec.command)
 		if err != nil {
 			names = append(names, spec.command)
@@ -100,6 +102,7 @@ func (s *Service) selectServer(ctx context.Context, fsys *workspacefs.FS, reques
 			}
 			continue
 		}
+		spec.provider = provider
 		spec.command = path
 		if err := s.checkServerCompatibility(ctx, fsys, spec); err != nil {
 			skipped = append(skipped, err.Error())
@@ -137,6 +140,7 @@ func (s *Service) capabilities(ctx context.Context, fsys *workspacefs.FS, _ Requ
 		var skipped []string
 		for _, spec := range specs {
 			attempted = append(attempted, spec.command)
+			provider := spec.command
 			path, err := s.resolveTrustedBinary(fsys, spec.command)
 			if err != nil {
 				if !errors.Is(err, exec.ErrNotFound) {
@@ -144,6 +148,7 @@ func (s *Service) capabilities(ctx context.Context, fsys *workspacefs.FS, _ Requ
 				}
 				continue
 			}
+			spec.provider = provider
 			spec.command = path
 			if err := s.checkServerCompatibility(ctx, fsys, spec); err != nil {
 				skipped = append(skipped, err.Error())
@@ -197,7 +202,7 @@ func (s *Service) checkServerCompatibility(ctx context.Context, fsys *workspacef
 		Command:        argv[0],
 		Args:           argv[1:],
 		Dir:            os.TempDir(),
-		Env:            providerProcessEnv(ctx),
+		Env:            providerProcessEnv(ctx, spec.provider),
 		Timeout:        2 * time.Second,
 		MaxStdoutBytes: 1024,
 		MaxStderrBytes: 1024,

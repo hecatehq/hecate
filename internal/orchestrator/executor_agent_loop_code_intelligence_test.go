@@ -36,6 +36,9 @@ func TestAgentLoopCodeIntelligenceToolIsAdvertisedAndReadOnlySafe(t *testing.T) 
 			t.Errorf("tool schema omits operation %q", operation)
 		}
 	}
+	if !strings.Contains(string(tool.Function.Parameters), `"selector"`) || !strings.Contains(string(tool.Function.Parameters), `^[A-Za-z_][A-Za-z0-9_]*$`) {
+		t.Fatalf("tool schema omits the bounded structural selector: %s", tool.Function.Parameters)
+	}
 	toolsEnabled := true
 	readOnlyTools := agentToolDefinitionsForExecution(types.Task{
 		AgentPresetID:           "review-read-only",
@@ -131,7 +134,7 @@ func TestAgentLoopCodeIntelligenceToolFailuresRemainToolErrors(t *testing.T) {
 	bounded, err := dispatcher.Dispatch(context.Background(), spec, agentLoopToolCall(
 		"code-oversized",
 		AgentToolCodeIntelligence,
-		`{"operation":"`+oversized+`","language":"`+oversized+`"}`,
+		`{"operation":"`+oversized+`","language":"`+oversized+`","selector":"`+oversized+`"}`,
 	), 2, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch(oversized) error = %v", err)
@@ -139,7 +142,7 @@ func TestAgentLoopCodeIntelligenceToolFailuresRemainToolErrors(t *testing.T) {
 	if bounded.Step == nil {
 		t.Fatal("Dispatch(oversized) omitted failed step")
 	}
-	for _, field := range []string{"operation", "language"} {
+	for _, field := range []string{"operation", "language", "selector"} {
 		value, _ := bounded.Step.Input[field].(string)
 		if len(value) > codeIntelligenceStepStringBytes {
 			t.Fatalf("failed step %s bytes = %d, want <= %d", field, len(value), codeIntelligenceStepStringBytes)
@@ -207,13 +210,16 @@ func TestAgentLoopCodeIntelligenceSemanticQueriesFailClosedWithoutRequiredIsolat
 	structural, err := dispatcher.Dispatch(context.Background(), spec, agentLoopToolCall(
 		"code-3",
 		AgentToolCodeIntelligence,
-		`{"operation":"structural_search","path":".","language":"go","query":"$X"}`,
+		`{"operation":"structural_search","path":".","language":"go","query":"fmt.Errorf($A)","selector":"call_expression"}`,
 	), 3, nil, nil)
 	if err != nil {
 		t.Fatalf("Dispatch(structural_search) error = %v", err)
 	}
-	if structural.Step == nil || fake.request.Operation != codeintel.OpStructuralSearch {
+	if structural.Step == nil || fake.request.Operation != codeintel.OpStructuralSearch || fake.request.Selector != "call_expression" {
 		t.Fatalf("structural dispatch = %+v request=%+v, want safe query", structural, fake.request)
+	}
+	if got := structural.Step.Input["selector"]; got != "call_expression" {
+		t.Fatalf("structural step selector = %v, want call_expression", got)
 	}
 }
 
@@ -288,6 +294,8 @@ func TestCodeIntelligenceErrorCategorySeparatesInputFromProviderFailures(t *test
 		want string
 	}{
 		{name: "byte limit", err: errors.New("code intelligence query exceeds the 16384-byte limit"), want: "invalid_request"},
+		{name: "selector byte limit", err: errors.New("code intelligence selector exceeds the 128-byte limit"), want: "invalid_request"},
+		{name: "selector shape", err: errors.New("structural selector must be a single ASCII tree-sitter node-kind token"), want: "invalid_request"},
 		{name: "extension", err: errors.New(`no allowlisted language server supports ".rb"`), want: "invalid_request"},
 		{name: "structural language", err: errors.New(`structural-search language "ruby" is not allowlisted`), want: "invalid_request"},
 		{name: "position", err: errors.New("column 10 is past line 2"), want: "invalid_request"},

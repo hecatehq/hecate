@@ -33,7 +33,7 @@ func (e *AgentLoopExecutor) runModelCall(ctx context.Context, spec ExecutionSpec
 		}
 		artifact, restoreErr := conversation.UpsertArtifact(repairSpec, modelCall-1, time.Now().UTC())
 		if artifact != nil {
-			runState.TrackInitialConversationArtifact(artifact)
+			runState.TrackConversationArtifact(artifact)
 		}
 		if restoreErr != nil {
 			return errors.Join(cause, fmt.Errorf("restore completed conversation after failed model call: %w", restoreErr))
@@ -57,20 +57,55 @@ func (e *AgentLoopExecutor) runModelCall(ctx context.Context, spec ExecutionSpec
 	// any invalid raw arguments before the assistant message is emitted or
 	// checkpointed, where a query could otherwise be retained as operator data.
 	assistantMsg = sanitizeBrowserInspectionToolCalls(assistantMsg)
-	emitAssistantMessageEvents(spec, modelCall, assistantMsg)
+	toolCallValidationErr := validateAgentToolCallBatch(assistantMsg.ToolCalls)
+	if toolCallValidationErr == nil {
+		emitAssistantMessageEvents(spec, modelCall, assistantMsg)
+	}
+	thinkingMessage := assistantMsg
+	conversationMessage := assistantMsg
+	if toolCallValidationErr != nil {
+		// Invalid bundles are provider evidence, never executable conversation
+		// state. Keep persistence bounded and intentionally invalid on recovery:
+		// a worker crash before the failure Step lands must fail validation again
+		// instead of interpreting a tool-free assistant as a final answer.
+		thinkingMessage.ToolCalls = nil
+		conversationMessage.ToolCalls = []types.ToolCall{{
+			Type: "function",
+			Function: types.ToolCallFunction{
+				Name:      "builtin.invalid_tool_call_bundle",
+				Arguments: `{}`,
+			},
+		}}
+	}
 
 	modelCallCost := runState.AccumulateCost(resp)
-	thinkingStep := buildThinkingStep(spec, runState.NextStepIndex(), modelCall, startedAt, assistantMsg, resp, runState.CostSpent())
+	thinkingStep := buildThinkingStep(spec, runState.NextStepIndex(), modelCall, startedAt, thinkingMessage, resp, runState.CostSpent())
+	if toolCallValidationErr != nil {
+		delete(thinkingStep.OutputSummary, "tool_calls")
+		thinkingStep.OutputSummary["tool_call_count"] = len(assistantMsg.ToolCalls)
+		thinkingStep.OutputSummary["invalid_tool_call_bundle"] = true
+	}
 	if err := runState.AddStep(spec, thinkingStep); err != nil {
 		return agentLoopModelCall{}, nil, err
 	}
 	runState.AddModelCallCost(modelCall, thinkingStep.ID, modelCallCost, len(assistantMsg.ToolCalls))
 
-	conversation.AppendAssistant(assistantMsg)
+	conversation.AppendAssistant(conversationMessage)
 	if art, err := conversation.UpsertArtifact(spec, modelCall, startedAt); err != nil {
 		return agentLoopModelCall{}, nil, err
 	} else {
-		runState.TrackInitialConversationArtifact(art)
+		runState.TrackConversationArtifact(art)
+	}
+	if toolCallValidationErr != nil {
+		failed, failureErr := e.failedFromError(
+			spec,
+			runState.Steps(),
+			runState.Artifacts(),
+			runState.NextStepIndex(),
+			startedAt,
+			fmt.Sprintf("model call %d returned an invalid tool-call bundle: %v", modelCall, toolCallValidationErr),
+		)
+		return agentLoopModelCall{}, runState.attachAccounting(failed), failureErr
 	}
 
 	return agentLoopModelCall{

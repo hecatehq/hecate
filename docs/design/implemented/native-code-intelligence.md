@@ -42,13 +42,20 @@ under race tests before it replaces this simpler lifecycle.
 [ast-grep's run command](https://ast-grep.github.io/reference/cli/run.html)
 already provides read-only Tree-sitter-backed patterns and structured JSON for
 many languages. Hecate invokes the `ast-grep` binary with fixed argv and never
-falls back to an ambiguous `sg` executable. Rewrite flags are not exposed.
+falls back to an ambiguous `sg` executable. The model may optionally select the
+matched node within a contextual pattern through `--selector`, but only after
+Hecate validates one bounded ASCII tree-sitter node-kind token. Rewrite flags
+and arbitrary CLI options are not exposed.
 
 The process starts outside the project and receives an explicit validated path.
+Hecate also creates a minimal trusted `sgconfig.yml` in that private runtime
+directory and passes its absolute path through a fixed `--config` argument.
 This matters because [ast-grep project configuration](https://ast-grep.github.io/guide/project/project-config.html)
-can discover `sgconfig.yml` and register custom language libraries. Treating a
-repository config as trusted would quietly turn a read tool into project code
-execution.
+can otherwise discover a repository or ancestor `sgconfig.yml` and register
+custom language libraries. Treating one of those configs as trusted would
+quietly turn a read tool into project code execution. Explicit search targets
+must be regular files or directories; FIFOs, sockets, and devices fail before
+provider discovery or invocation.
 
 Direct [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) embedding is
 deferred. It would require Hecate to bundle, version, and audit grammars while
@@ -58,21 +65,28 @@ the optional structural subprocess cannot meet.
 
 ## Security contract
 
-- The model chooses an operation and query, never an executable or argv.
+- The model chooses an operation and query plus, for structural search only, an
+  optional validated node-kind selector; it never chooses an executable or
+  arbitrary argv.
 - Providers resolve from the gateway's trusted global `PATH` or an exact
   operator-configured executable path; Hecate never auto-installs. PATH
   discovery rejects marked project boundaries and shared markerless ancestors
   such as `/repo/bin`, while an exact override remains forbidden inside the
-  active project boundary.
+  active project boundary. Provider subprocesses receive a separately filtered
+  PATH with empty, relative, non-directory, project-owned, shared-ancestor, and
+  symlink-escaping entries removed; a validated exact provider may retain its
+  own containing directory.
 - Workspace input paths resolve through `WorkspaceFS`; traversal and symlink
   components fail closed.
 - The provider receives a sanitized environment with a fresh per-query
   temporary home and private analysis/build caches, then requests a read-only,
   network-denied OS wrapper. Hecate removes that runtime after the query;
-  operator-managed Go module and Volta locations remain visible so trusted
-  providers can resolve existing dependencies and shims. Semantic calls fail
-  closed when the resolved task policy needs an isolation property that the
-  active wrapper cannot enforce.
+  gopls receives only validated external `GOPATH`/`GOMODCACHE` directories and
+  TypeScript receives only a validated external `VOLTA_HOME`, so trusted
+  providers can resolve existing dependencies and shims without inheriting
+  project-controlled indirect executables. Semantic calls fail closed when the
+  resolved task policy needs an isolation property that the active wrapper
+  cannot enforce.
 - Every returned URI must be a `file:` URI that resolves back inside the same
   workspace. External SDK/module-cache results are omitted and counted.
 - Protocol frames, total bytes, stderr, result count, source preview, wall time,

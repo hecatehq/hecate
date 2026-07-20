@@ -12,12 +12,14 @@ func TestPayloads_ApprovalRequested(t *testing.T) {
 	t.Parallel()
 
 	approval := types.TaskApproval{
-		ID:          "approval-1",
-		Kind:        "agent_loop_tool_call",
-		Status:      "pending",
-		Reason:      "tool requires approval",
-		StepID:      "step-1",
-		RequestedBy: "agent",
+		ID:                      "approval-1",
+		Kind:                    "agent_loop_tool_call",
+		Status:                  "pending",
+		Reason:                  "tool requires approval",
+		ActionSummary:           []string{"git branch -vv", "file_write path=notes.txt content_bytes=12"},
+		ActionSummaryIncomplete: true,
+		StepID:                  "step-1",
+		RequestedBy:             "agent",
 	}
 
 	got := runtimeevents.ApprovalRequested(approval)
@@ -98,11 +100,13 @@ func TestPayloads_ApprovalResolved(t *testing.T) {
 	t.Parallel()
 
 	approval := types.TaskApproval{
-		ID:             "approval-1",
-		Kind:           "agent_loop_tool_call",
-		Status:         "rejected",
-		ResolvedBy:     "operator",
-		ResolutionNote: "not safe",
+		ID:                      "approval-1",
+		Kind:                    "agent_loop_tool_call",
+		Status:                  "rejected",
+		ActionSummary:           []string{"git branch -vv"},
+		ActionSummaryIncomplete: true,
+		ResolvedBy:              "operator",
+		ResolutionNote:          "not safe",
 	}
 
 	got := runtimeevents.ApprovalResolved(approval)

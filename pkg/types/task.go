@@ -303,21 +303,23 @@ type TaskStep struct {
 }
 
 type TaskApproval struct {
-	ID             string
-	TaskID         string
-	RunID          string
-	StepID         string
-	Kind           string
-	Status         string
-	Reason         string
-	RequestedBy    string
-	ResolvedBy     string
-	ResolutionNote string
-	CreatedAt      time.Time
-	ResolvedAt     time.Time
-	RequestID      string
-	TraceID        string
-	SpanID         string
+	ID                      string
+	TaskID                  string
+	RunID                   string
+	StepID                  string
+	Kind                    string
+	Status                  string
+	Reason                  string
+	ActionSummary           []string
+	ActionSummaryIncomplete bool
+	RequestedBy             string
+	ResolvedBy              string
+	ResolutionNote          string
+	CreatedAt               time.Time
+	ResolvedAt              time.Time
+	RequestID               string
+	TraceID                 string
+	SpanID                  string
 }
 
 type TaskArtifact struct {

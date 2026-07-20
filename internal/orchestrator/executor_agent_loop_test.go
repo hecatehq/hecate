@@ -481,6 +481,20 @@ func TestAgentLoop_MaxModelCallsHonored(t *testing.T) {
 	if got := llm.calls.Load(); got != 3 {
 		t.Errorf("LLM calls = %d, want 3 (capped)", got)
 	}
+	conversation := findArtifactByKind(res.Artifacts, "agent_conversation")
+	if conversation == nil {
+		t.Fatal("max-model-call result omitted the conversation artifact")
+	}
+	var messages []types.Message
+	if err := json.Unmarshal([]byte(conversation.ContentText), &messages); err != nil {
+		t.Fatalf("decode max-model-call conversation: %v", err)
+	}
+	if len(messages) == 0 || messages[len(messages)-1].Role != "tool" || messages[len(messages)-1].ToolCallID != "call-x" {
+		t.Fatalf("conversation tail = %+v, want the completed final tool result", messages)
+	}
+	if pending := pendingToolCallsForResume(messages); len(pending) != 0 {
+		t.Fatalf("completed final tool call remained replayable after max-model-call failure: %+v", pending)
+	}
 }
 
 func TestAgentLoop_LLMErrorBubbles(t *testing.T) {
@@ -2831,13 +2845,10 @@ func TestAgentLoop_ApplyPatchUpdateHandlesBlankLines(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_CrossRunResumeDispatchesPendingCallsBeforeFirstModelCall(t *testing.T) {
-	// On resume: the conversation has a trailing assistant message
-	// with tool_calls and no following tool result. The loop must
-	// detect this, skip the LLM call (which already happened in the
-	// previous run), dispatch the approved tool, and continue. Then
-	// the next model call sees the tool result and produces a
-	// final answer.
+func TestAgentLoop_CrossRunResumeRegatesPendingCallsBeforeDispatch(t *testing.T) {
+	// Approval authority belongs to one Run. A rejected or cancelled source
+	// Run can still have a trailing assistant tool call, but a new Run must not
+	// inherit permission to execute it.
 	saved := []types.Message{
 		{Role: "user", Content: "summarize the working directory"},
 		{Role: "assistant", Content: "I need to inspect.", ToolCalls: []types.ToolCall{{
@@ -2847,70 +2858,83 @@ func TestAgentLoop_CrossRunResumeDispatchesPendingCallsBeforeFirstModelCall(t *t
 	}
 	savedJSON, _ := json.Marshal(saved)
 
-	llm := &scriptedLLM{
-		responses: []*types.ChatResponse{
-			// The resumed loop only calls the LLM AFTER dispatching
-			// the pending tool call — at which point it provides a
-			// final answer over the tool result.
-			makeChatResp(makeAssistantMsg("Two files: README.md and main.go.")),
-		},
-	}
-	shell := &stubExecutor{
-		result: &ExecutionResult{
-			Status: "completed",
-			Artifacts: []types.TaskArtifact{
-				{Kind: "stdout", Name: "stdout.txt", ContentText: "README.md\nmain.go\n"},
-			},
-		},
-	}
+	llm := &scriptedLLM{}
+	shell := &stubExecutor{}
 	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
 		SourceRunID:           "run-source",
 		AgentConversation:     savedJSON,
-		Reason:                "approved_mid_loop",
+		Reason:                "resume_after_rejected_approval",
 		ThisRunModelCallCount: 0,
 	}
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Status != "completed" {
-		t.Fatalf("Status = %q, want completed; LastError=%q", res.Status, res.LastError)
+	if res.Status != "awaiting_approval" {
+		t.Fatalf("Status = %q, want awaiting_approval; LastError=%q", res.Status, res.LastError)
 	}
-	if len(shell.calls) != 1 {
-		t.Errorf("shell_exec should have run on resume; got %+v", shell.calls)
+	if len(shell.calls) != 0 {
+		t.Fatalf("cross-Run pending shell call executed without fresh approval: %+v", shell.calls)
 	}
-	// Exactly one LLM call (the post-dispatch reasoning model call). The
-	// resumed execution does NOT call the LLM since the assistant message
-	// is already in the saved conversation.
-	if got := llm.calls.Load(); got != 1 {
-		t.Errorf("LLM calls = %d, want 1 (resume skips the first LLM round-trip)", got)
+	if got := llm.calls.Load(); got != 0 {
+		t.Fatalf("LLM calls = %d, want zero before fresh approval", got)
 	}
-	if res.ModelCallCount != 1 {
-		t.Errorf("ModelCallCount = %d, want 1 Run-local provider call", res.ModelCallCount)
+	if len(res.PendingApprovals) != 1 || res.PendingApprovals[0].Kind != "agent_loop_tool_call" {
+		t.Fatalf("PendingApprovals = %+v, want one fresh tool-call approval", res.PendingApprovals)
 	}
-	if len(res.Steps) < 2 {
-		t.Fatalf("Steps = %+v, want resume control plus Run-local model Step", res.Steps)
+	if len(res.Steps) != 1 || res.Steps[0].Kind != "approval" || res.Steps[0].ApprovalID != res.PendingApprovals[0].ID {
+		t.Fatalf("Steps = %+v, want one linked approval Step", res.Steps)
 	}
-	if _, ok := res.Steps[0].Input["model_call_index"]; ok {
-		t.Fatalf("cross-Run resume Step has Run-local model_call_index: %+v", res.Steps[0].Input)
+	if res.PendingApprovals[0].StepID != res.Steps[0].ID {
+		t.Fatalf("approval StepID = %q, want %q", res.PendingApprovals[0].StepID, res.Steps[0].ID)
 	}
-	if got := res.Steps[len(res.Steps)-1].Input["model_call_index"]; got != 1 {
-		t.Fatalf("first Run-local model Step index = %v, want 1", got)
+	conversation := findArtifactByKind(res.Artifacts, "agent_conversation")
+	if conversation == nil || !strings.Contains(conversation.ContentText, `"shell_exec"`) {
+		t.Fatalf("fresh approval did not retain the pending conversation: %+v", conversation)
 	}
-	// The single LLM request must have seen the tool result.
-	if len(llm.lastReqs) != 1 {
-		t.Fatalf("LLM request count = %d, want 1", len(llm.lastReqs))
+}
+
+func TestAgentLoop_SameRunRecoveryRegatesPendingCallsWithoutDurableApproval(t *testing.T) {
+	savedJSON, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "summarize the working directory"},
+		{Role: "assistant", Content: "I need to inspect.", ToolCalls: []types.ToolCall{{
+			ID: "call-1", Type: "function",
+			Function: types.ToolCallFunction{Name: "shell_exec", Arguments: `{"command":"ls"}`},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal checkpoint: %v", err)
 	}
-	hasToolResult := false
-	for _, m := range llm.lastReqs[0].Messages {
-		if m.Role == "tool" && m.ToolCallID == "call-1" && strings.Contains(m.Content, "README.md") {
-			hasToolResult = true
-		}
+
+	llm := &scriptedLLM{}
+	shell := &stubExecutor{}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:           spec.Run.ID,
+		SameRun:               true,
+		AgentConversation:     savedJSON,
+		Reason:                "same_run_progress",
+		ThisRunModelCallCount: 1,
 	}
-	if !hasToolResult {
-		t.Errorf("post-resume LLM request missing tool result: %+v", llm.lastReqs[0].Messages)
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "awaiting_approval" {
+		t.Fatalf("Status = %q, want awaiting_approval; LastError=%q", res.Status, res.LastError)
+	}
+	if len(shell.calls) != 0 {
+		t.Fatalf("same-Run recovered shell call executed without durable approval: %+v", shell.calls)
+	}
+	if got := llm.calls.Load(); got != 0 {
+		t.Fatalf("LLM calls = %d, want zero before approval", got)
+	}
+	if len(res.PendingApprovals) != 1 || len(res.Steps) != 1 || res.PendingApprovals[0].StepID != res.Steps[0].ID {
+		t.Fatalf("approval pause = approvals %+v steps %+v, want one linked fresh approval", res.PendingApprovals, res.Steps)
 	}
 }
 
@@ -3367,7 +3391,8 @@ func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
 			respWithCost("would be the answer", 0), // never fires
 		},
 	}
-	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.Task.BudgetMicrosUSD = 500 // ceiling under the first model call's cost
 	res, err := loop.Execute(context.Background(), spec)
@@ -3387,6 +3412,9 @@ func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
 	// check fires before the second model call.
 	if got := llm.calls.Load(); got != 1 {
 		t.Errorf("LLM calls = %d, want 1 (loop bailed after first model call)", got)
+	}
+	if len(shell.calls) != 0 {
+		t.Errorf("shell dispatches = %d, want zero after the paid response reached the ceiling", len(shell.calls))
 	}
 }
 
@@ -3522,7 +3550,8 @@ func TestAgentLoop_CumulativeCeilingAppliesPriorChainCost(t *testing.T) {
 			respWithCost("would-have-answered", 0),
 		},
 	}
-	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.Task.BudgetMicrosUSD = 500
 	// Prior chain already spent 400 µUSD. This run can spend at most
@@ -3548,6 +3577,20 @@ func TestAgentLoop_CumulativeCeilingAppliesPriorChainCost(t *testing.T) {
 	// LLM call 1 happened; call 2 did not — ceiling check is between model calls.
 	if got := llm.calls.Load(); got != 1 {
 		t.Errorf("LLM calls = %d, want 1 (bail before model call 2)", got)
+	}
+	conversation := findArtifactByKind(res.Artifacts, "agent_conversation")
+	if conversation == nil {
+		t.Fatal("cost-ceiling result omitted the conversation artifact")
+	}
+	var messages []types.Message
+	if err := json.Unmarshal([]byte(conversation.ContentText), &messages); err != nil {
+		t.Fatalf("decode cost-ceiling conversation: %v", err)
+	}
+	if len(messages) == 0 || messages[len(messages)-1].Role != "assistant" || len(messages[len(messages)-1].ToolCalls) != 1 {
+		t.Fatalf("cost-ceiling conversation tail = %+v, want paid assistant tool proposal preserved without dispatch", messages)
+	}
+	if len(shell.calls) != 0 {
+		t.Fatalf("shell dispatches = %d, want zero after cumulative cost reached the ceiling", len(shell.calls))
 	}
 }
 
@@ -3576,14 +3619,17 @@ func TestAgentLoop_SameRunResumeSeedsCostSpentFromPrePauseTotal(t *testing.T) {
 			respWithCost("done", 50),
 		},
 	}
-	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
-		SourceRunID:           spec.Run.ID,
-		Reason:                "approved_mid_loop",
-		AgentConversation:     savedJSON,
-		ThisRunCostMicrosUSD:  100, // pre-pause spend on THIS run
-		ThisRunModelCallCount: 1,
+		SourceRunID:              spec.Run.ID,
+		SameRun:                  true,
+		Reason:                   "approved_mid_loop",
+		AgentConversation:        savedJSON,
+		ThisRunCostMicrosUSD:     100, // pre-pause spend on THIS run
+		ThisRunModelCallCount:    1,
+		PendingToolCallsApproved: true,
 	}
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
@@ -3597,6 +3643,9 @@ func TestAgentLoop_SameRunResumeSeedsCostSpentFromPrePauseTotal(t *testing.T) {
 	// pre-pause portion when overwriting Total.
 	if res.CostMicrosUSD != 150 {
 		t.Errorf("CostMicrosUSD = %d, want 150 (100 pre-pause + 50 post-resume)", res.CostMicrosUSD)
+	}
+	if len(shell.calls) != 1 {
+		t.Fatalf("approved pending shell dispatches = %d, want exactly 1", len(shell.calls))
 	}
 }
 

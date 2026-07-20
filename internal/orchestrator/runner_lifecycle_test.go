@@ -893,6 +893,361 @@ func TestResumeCheckpointPrefersOwnRunProgressAndRepairsStreamingPartial(t *test
 	}
 }
 
+func TestOwnRunResumeCheckpointIncludesDurableToolDispatchSteps(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+	now := time.Now().UTC()
+	task := types.Task{ID: "task-dispatch-checkpoint", ExecutionKind: "agent_loop", Status: "running", CreatedAt: now, UpdatedAt: now}
+	run := types.TaskRun{ID: "run-dispatch-checkpoint", TaskID: task.ID, Number: 1, Status: "queued", ModelCallCount: 1, StartedAt: now}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	call := agentLoopToolCall("call-1", "shell_exec", `{"command":"effect"}`)
+	steps := []types.TaskStep{
+		{
+			ID: "step-model", TaskID: task.ID, RunID: run.ID, Index: 1,
+			Kind: "model", Status: "completed", ToolName: "builtin.agent_loop_llm",
+			Input: map[string]any{"model_call_index": 1}, StartedAt: now, FinishedAt: now,
+		},
+		{
+			ID: "step-dispatch", TaskID: task.ID, RunID: run.ID, Index: 2,
+			Kind: "tool", Status: "running", ToolName: call.Function.Name,
+			Input: map[string]any{
+				toolDispatchIntentVersionKey: agentToolDispatchIntentVersion,
+				toolDispatchCallIDKey:        call.ID,
+				toolDispatchDigestKey:        agentToolCallDigest(call),
+				toolDispatchModelCallKey:     1,
+			},
+			StartedAt: now,
+		},
+		{
+			ID: "step-legacy-tool", TaskID: task.ID, RunID: run.ID, Index: 3,
+			Kind: "tool", Status: "completed", ToolName: "legacy", StartedAt: now, FinishedAt: now,
+		},
+	}
+	for _, step := range steps {
+		if _, err := store.AppendStep(ctx, step); err != nil {
+			t.Fatalf("AppendStep(%s): %v", step.ID, err)
+		}
+	}
+	messages, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "run it"},
+		makeAssistantMsg("", call),
+	})
+	if err != nil {
+		t.Fatalf("marshal conversation: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, types.TaskArtifact{
+		ID: "convo-" + run.ID, TaskID: task.ID, RunID: run.ID,
+		Kind: "agent_conversation", StorageKind: "inline", ContentText: string(messages), Status: "ready", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+
+	checkpoint, err := runner.resumeCheckpointForRun(ctx, task.ID, run.ID)
+	if err != nil {
+		t.Fatalf("resumeCheckpointForRun: %v", err)
+	}
+	if checkpoint == nil || !checkpoint.SameRun {
+		t.Fatalf("checkpoint = %+v, want same-run checkpoint", checkpoint)
+	}
+	if len(checkpoint.ToolDispatchSteps) != 1 || checkpoint.ToolDispatchSteps[0].ID != "step-dispatch" {
+		t.Fatalf("ToolDispatchSteps = %+v, want only durable dispatch intent", checkpoint.ToolDispatchSteps)
+	}
+}
+
+func TestCrossRunResumePreservesDispatchEvidenceWhileRetryFromModelCallClearsIt(t *testing.T) {
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+	now := time.Now().UTC()
+	task := types.Task{ID: "task-cross-run-dispatch", ExecutionKind: "agent_loop", Status: "failed", CreatedAt: now, UpdatedAt: now}
+	sourceRun := types.TaskRun{ID: "run-source-dispatch", TaskID: task.ID, Number: 1, Status: "failed", ModelCallCount: 1, StartedAt: now, FinishedAt: now}
+	resumeRun := types.TaskRun{ID: "run-ordinary-resume", TaskID: task.ID, Number: 2, Status: "queued", StartedAt: now}
+	retryRun := types.TaskRun{ID: "run-model-retry", TaskID: task.ID, Number: 3, Status: "queued", StartedAt: now}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	for _, run := range []types.TaskRun{sourceRun, resumeRun, retryRun} {
+		if _, err := store.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun(%s): %v", run.ID, err)
+		}
+	}
+	call := agentLoopToolCall("call-effect", "shell_exec", `{"command":"non-idempotent-effect"}`)
+	modelStep := types.TaskStep{
+		ID: "step-source-model", TaskID: task.ID, RunID: sourceRun.ID, Index: 1,
+		Kind: "model", Status: "completed", ToolName: "builtin.agent_loop_llm",
+		Input: map[string]any{"model_call_index": 1}, StartedAt: now, FinishedAt: now,
+	}
+	dispatchStep := types.TaskStep{
+		ID: "step-source-dispatch", TaskID: task.ID, RunID: sourceRun.ID, Index: 2,
+		Kind: "tool", Status: "completed", ToolName: call.Function.Name,
+		Input: map[string]any{
+			toolDispatchIntentVersionKey: agentToolDispatchIntentVersion,
+			toolDispatchCallIDKey:        call.ID,
+			toolDispatchDigestKey:        agentToolCallDigest(call),
+			toolDispatchModelCallKey:     1,
+		},
+		StartedAt: now, FinishedAt: now,
+	}
+	for _, step := range []types.TaskStep{modelStep, dispatchStep} {
+		if _, err := store.AppendStep(ctx, step); err != nil {
+			t.Fatalf("AppendStep(%s): %v", step.ID, err)
+		}
+	}
+	messages, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "run it"},
+		makeAssistantMsg("", call),
+	})
+	if err != nil {
+		t.Fatalf("marshal source conversation: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, types.TaskArtifact{
+		ID: "convo-" + sourceRun.ID, TaskID: task.ID, RunID: sourceRun.ID,
+		Kind: "agent_conversation", StorageKind: "inline", ContentText: string(messages), Status: "ready", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	for _, event := range []types.TaskRunEvent{
+		{
+			ID: "event-ordinary-resume", TaskID: task.ID, RunID: resumeRun.ID,
+			EventType: "run.resumed_from_event", Data: map[string]any{"from_run_id": sourceRun.ID}, CreatedAt: now,
+		},
+		{
+			ID: "event-model-retry", TaskID: task.ID, RunID: retryRun.ID,
+			EventType: "run.resumed_from_event", Data: map[string]any{"from_run_id": sourceRun.ID, "source_model_call_index": 1}, CreatedAt: now,
+		},
+	} {
+		if _, err := store.AppendRunEvent(ctx, event); err != nil {
+			t.Fatalf("AppendRunEvent(%s): %v", event.ID, err)
+		}
+	}
+
+	resumeCheckpoint, err := runner.resumeCheckpointForRun(ctx, task.ID, resumeRun.ID)
+	if err != nil {
+		t.Fatalf("ordinary resume checkpoint: %v", err)
+	}
+	if resumeCheckpoint == nil || resumeCheckpoint.SameRun || len(resumeCheckpoint.ToolDispatchSteps) != 1 ||
+		resumeCheckpoint.ToolDispatchSteps[0].ID != dispatchStep.ID || resumeCheckpoint.ToolDispatchModelCallIndex != 1 {
+		t.Fatalf("ordinary resume dispatch evidence = %+v, want source Step/model call", resumeCheckpoint)
+	}
+	ordinaryShell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	ordinaryLLM := &scriptedLLM{responses: []*types.ChatResponse{makeChatResp(makeAssistantMsg("recovery acknowledged"))}}
+	ordinaryLoop := NewAgentLoopExecutor(ordinaryLLM, ordinaryShell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	ordinarySpec := newAgentLoopSpec(t)
+	ordinarySpec.Task.ID = task.ID
+	ordinarySpec.Run.ID = resumeRun.ID
+	ordinarySpec.ResumeCheckpoint = resumeCheckpoint
+	ordinaryResult, err := ordinaryLoop.Execute(ctx, ordinarySpec)
+	if err != nil {
+		t.Fatalf("ordinary resume Execute: %v", err)
+	}
+	if ordinaryResult.Status != "completed" || len(ordinaryShell.calls) != 0 {
+		t.Fatalf("ordinary resume status = %q shell effects = %d, want fail-closed no replay", ordinaryResult.Status, len(ordinaryShell.calls))
+	}
+	if len(ordinaryLLM.lastReqs) != 1 {
+		t.Fatalf("ordinary resume LLM requests = %d, want one", len(ordinaryLLM.lastReqs))
+	}
+	assertRecoveryToolError(t, ordinaryLLM.lastReqs[0].Messages, call.ID)
+
+	retryCheckpoint, err := runner.resumeCheckpointForRun(ctx, task.ID, retryRun.ID)
+	if err != nil {
+		t.Fatalf("retry-from-model-call checkpoint: %v", err)
+	}
+	if retryCheckpoint == nil || len(retryCheckpoint.ToolDispatchSteps) != 0 || retryCheckpoint.ToolDispatchModelCallIndex != 0 {
+		t.Fatalf("retry dispatch evidence = %+v, want deliberately cleared", retryCheckpoint)
+	}
+	retryShell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	retryLLM := &scriptedLLM{responses: []*types.ChatResponse{
+		makeChatResp(makeAssistantMsg("", call)),
+		makeChatResp(makeAssistantMsg("explicit retry complete")),
+	}}
+	retryLoop := NewAgentLoopExecutor(retryLLM, retryShell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	retrySpec := newAgentLoopSpec(t)
+	retrySpec.Task.ID = task.ID
+	retrySpec.Run.ID = retryRun.ID
+	retrySpec.ResumeCheckpoint = retryCheckpoint
+	retryResult, err := retryLoop.Execute(ctx, retrySpec)
+	if err != nil {
+		t.Fatalf("retry-from-model-call Execute: %v", err)
+	}
+	if retryResult.Status != "completed" || len(retryShell.calls) != 1 {
+		t.Fatalf("retry status = %q shell effects = %d, want one explicit replay", retryResult.Status, len(retryShell.calls))
+	}
+}
+
+func TestSameRunPendingToolCallsApprovedRequiresLatestMatchingApproval(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+	now := time.Now().UTC()
+	task := types.Task{ID: "task-pending-approval", Status: "queued", CreatedAt: now, UpdatedAt: now}
+	run := types.TaskRun{ID: "run-pending-approval", TaskID: task.ID, Number: 1, Status: "queued", StartedAt: now}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	approved := types.TaskApproval{
+		ID: "approval-approved", TaskID: task.ID, RunID: run.ID,
+		Kind: "agent_loop_tool_call", Status: "approved", StepID: "step-approved", CreatedAt: now, ResolvedAt: now,
+	}
+	pending := types.TaskApproval{
+		ID: "approval-pending", TaskID: task.ID, RunID: run.ID,
+		Kind: "agent_loop_tool_call", Status: "pending", CreatedAt: now,
+	}
+	for _, approval := range []types.TaskApproval{approved, pending} {
+		if _, err := store.CreateApproval(ctx, approval); err != nil {
+			t.Fatalf("CreateApproval(%s): %v", approval.ID, err)
+		}
+	}
+
+	approvedCalls := []types.ToolCall{
+		agentLoopToolCall("call-approved", "shell_exec", `{"command":"original"}`),
+	}
+	approvedStep := types.TaskStep{
+		ID: "step-approved", Index: 2, Kind: "approval", ApprovalID: approved.ID,
+		Input: map[string]any{toolCallBundleDigestKey: agentToolCallBundleDigest(approvedCalls)},
+	}
+	got, err := runner.sameRunPendingToolCallsApproved(ctx, task.ID, run.ID, []types.TaskStep{approvedStep}, approvedCalls)
+	if err != nil || !got {
+		t.Fatalf("approved latest Step = %t, err=%v; want true", got, err)
+	}
+
+	got, err = runner.sameRunPendingToolCallsApproved(ctx, task.ID, run.ID, []types.TaskStep{
+		{ID: "step-unlinked", Index: 2, Kind: "approval", ApprovalID: approved.ID},
+	}, approvedCalls)
+	if err != nil || got {
+		t.Fatalf("approval linked to another Step = %t, err=%v; want false", got, err)
+	}
+
+	mutatedCalls := []types.ToolCall{
+		agentLoopToolCall("call-approved", "shell_exec", `{"command":"mutated"}`),
+	}
+	got, err = runner.sameRunPendingToolCallsApproved(ctx, task.ID, run.ID, []types.TaskStep{approvedStep}, mutatedCalls)
+	if err != nil || got {
+		t.Fatalf("approval for different call bundle = %t, err=%v; want false", got, err)
+	}
+
+	got, err = runner.sameRunPendingToolCallsApproved(ctx, task.ID, run.ID, []types.TaskStep{
+		approvedStep,
+		{ID: "step-tool", Index: 3, Kind: "tool"},
+	}, approvedCalls)
+	if err != nil || got {
+		t.Fatalf("approved non-latest Step = %t, err=%v; want false", got, err)
+	}
+
+	got, err = runner.sameRunPendingToolCallsApproved(ctx, task.ID, run.ID, []types.TaskStep{
+		{ID: "step-pending", Index: 2, Kind: "approval", ApprovalID: pending.ID},
+	}, approvedCalls)
+	if err != nil || got {
+		t.Fatalf("pending latest Step = %t, err=%v; want false", got, err)
+	}
+}
+
+func TestAgentLoop_MutatedApprovedBundleIsRegatedBeforeDispatch(t *testing.T) {
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+	now := time.Now().UTC()
+	task := types.Task{ID: "task-mutated-approval", Status: "queued", CreatedAt: now, UpdatedAt: now}
+	run := types.TaskRun{ID: "run-mutated-approval", TaskID: task.ID, Number: 1, Status: "queued", StartedAt: now}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	originalCalls := []types.ToolCall{
+		agentLoopToolCall("call-1", "shell_exec", `{"command":"original"}`),
+	}
+	mutatedCalls := []types.ToolCall{
+		agentLoopToolCall("call-1", "shell_exec", `{"command":"mutated"}`),
+	}
+	approval := types.TaskApproval{
+		ID: "approval-original", TaskID: task.ID, RunID: run.ID, StepID: "step-original",
+		Kind: "agent_loop_tool_call", Status: "approved", CreatedAt: now, ResolvedAt: now,
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+	approvalStep := types.TaskStep{
+		ID: "step-original", TaskID: task.ID, RunID: run.ID, Index: 2,
+		Kind: "approval", Status: "completed", ApprovalID: approval.ID,
+		Input: map[string]any{toolCallBundleDigestKey: agentToolCallBundleDigest(originalCalls)},
+	}
+	approved, err := runner.sameRunPendingToolCallsApproved(ctx, task.ID, run.ID, []types.TaskStep{approvalStep}, mutatedCalls)
+	if err != nil {
+		t.Fatalf("sameRunPendingToolCallsApproved: %v", err)
+	}
+	if approved {
+		t.Fatal("mutated call bundle inherited approval")
+	}
+
+	saved, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "run it"},
+		makeAssistantMsg("", mutatedCalls...),
+	})
+	if err != nil {
+		t.Fatalf("marshal conversation: %v", err)
+	}
+	spec := newAgentLoopSpec(t)
+	spec.Task.ID = task.ID
+	spec.Run.ID = run.ID
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:              run.ID,
+		SameRun:                  true,
+		LastStepIndex:            approvalStep.Index,
+		AgentConversation:        saved,
+		ThisRunModelCallCount:    1,
+		PendingToolCallsApproved: approved,
+	}
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(&scriptedLLM{}, shell, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
+	res, err := loop.Execute(ctx, spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "awaiting_approval" || len(shell.calls) != 0 {
+		t.Fatalf("result status = %q shell calls = %d, want fresh approval and no dispatch", res.Status, len(shell.calls))
+	}
+	if len(res.PendingApprovals) != 1 || len(res.Steps) != 1 {
+		t.Fatalf("fresh approval result = approvals %+v steps %+v", res.PendingApprovals, res.Steps)
+	}
+	if got := res.Steps[0].Input[toolCallBundleDigestKey]; got != agentToolCallBundleDigest(mutatedCalls) {
+		t.Fatalf("fresh approval digest = %v, want mutated bundle digest", got)
+	}
+}
+
 func assertCopiedRunContextPacket(t *testing.T, raw json.RawMessage, taskID, runID string) {
 	t.Helper()
 	if len(raw) == 0 {

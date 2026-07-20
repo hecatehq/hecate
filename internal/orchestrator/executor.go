@@ -130,6 +130,21 @@ type ResumeCheckpoint struct {
 	// resumes after an approval pause, keeping both call indices and the
 	// max-model-calls guard continuous across the pause.
 	ThisRunModelCallCount int
+	// PendingToolCallsApproved is true only when the current Run's trailing
+	// assistant tool calls are covered by a durable approved mid-loop approval
+	// whose approval Step is still the latest Step. Cross-Run checkpoints never
+	// inherit this authority.
+	PendingToolCallsApproved bool
+	// ToolDispatchSteps are durable, tool-call-ID-bound dispatch records for
+	// the assistant batch at the checkpoint boundary. Same-run recovery may
+	// settle these records in place. Ordinary cross-run Resume carries source
+	// evidence read-only so effects are not replayed when their exact result
+	// missed the conversation; retry-from-model-call deliberately clears it.
+	ToolDispatchSteps []types.TaskStep
+	// ToolDispatchModelCallIndex is the model-call index used to bind the
+	// checkpoint's ToolDispatchSteps. It is Run-local to the evidence-owning
+	// Run, which can be the source Run during ordinary cross-run Resume.
+	ToolDispatchModelCallIndex int
 	// AppendUserPrompt, when set on a cross-run continuation,
 	// appends a new user message after the hydrated conversation.
 	// Used by ACP/editor sessions where one durable Hecate task

@@ -257,7 +257,7 @@ func TestBuildApprovalResumeStepIsNotAnotherModelCall(t *testing.T) {
 			Name:      "shell_exec",
 			Arguments: `{"command":"pwd"}`,
 		},
-	}))
+	}), true)
 
 	if step.Kind != "control" || step.ToolName != "builtin.agent_loop_resume" {
 		t.Fatalf("approval-resume step = kind %q tool %q, want control marker", step.Kind, step.ToolName)
@@ -270,6 +270,28 @@ func TestBuildApprovalResumeStepIsNotAnotherModelCall(t *testing.T) {
 	}
 	if !strings.Contains(step.Title, "Dispatch approved tools") {
 		t.Fatalf("approval-resume title = %q, want approved-tool dispatch", step.Title)
+	}
+}
+
+func TestBuildApprovalResumeStepLabelsUngatedCrashRecovery(t *testing.T) {
+	spec := newAgentLoopSpec(t)
+	step := buildApprovalResumeStep(spec, 4, 2, time.Now().UTC(), makeAssistantMsg("", types.ToolCall{
+		ID:   "call-recovered",
+		Type: "function",
+		Function: types.ToolCallFunction{
+			Name:      "read_file",
+			Arguments: `{"path":"README.md"}`,
+		},
+	}), false)
+
+	if !strings.Contains(step.Title, "Recover pending tools") || strings.Contains(strings.ToLower(step.Title), "approved") {
+		t.Fatalf("recovery step title = %q, want non-approval recovery label", step.Title)
+	}
+	if _, ok := step.Input["approved_tools"]; ok {
+		t.Fatalf("ungated recovery input claims approval: %#v", step.Input)
+	}
+	if _, ok := step.Input["recovered_tools"]; !ok {
+		t.Fatalf("ungated recovery input = %#v, want recovered_tools", step.Input)
 	}
 }
 

@@ -63,15 +63,15 @@ func TestAgentLoopRunState_NewRunRestartsStepIndex(t *testing.T) {
 	}
 }
 
-func TestAgentLoopRunState_TrackInitialConversationArtifactOnce(t *testing.T) {
+func TestAgentLoopRunState_TrackConversationArtifactOnce(t *testing.T) {
 	spec := newAgentLoopSpec(t)
 	state := newAgentLoopRunState(spec, 4)
 
 	first := &types.TaskArtifact{ID: "conversation-1", TaskID: spec.Task.ID, RunID: spec.Run.ID, Kind: "agent_conversation"}
 	second := &types.TaskArtifact{ID: "conversation-2", TaskID: spec.Task.ID, RunID: spec.Run.ID, Kind: "agent_conversation"}
-	state.TrackInitialConversationArtifact(first)
-	state.TrackInitialConversationArtifact(second)
-	state.TrackInitialConversationArtifact(nil)
+	state.TrackConversationArtifact(first)
+	state.TrackConversationArtifact(second)
+	state.TrackConversationArtifact(nil)
 
 	artifacts := state.Artifacts()
 	if len(artifacts) != 1 || artifacts[0].ID != "conversation-1" {

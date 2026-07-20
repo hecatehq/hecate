@@ -20,6 +20,8 @@ import (
 const (
 	structuralStdoutBytes = 2 * 1024 * 1024
 	structuralStderrBytes = 32 * 1024
+	structuralConfigName  = "sgconfig.yml"
+	structuralConfig      = "ruleDirs: []\n"
 )
 
 var structuralLanguages = map[string]string{
@@ -96,6 +98,9 @@ func (s *Service) queryStructural(ctx context.Context, fsys *workspacefs.FS, req
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve structural search path %q: %w", target, err)
 	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return Result{}, fmt.Errorf("structural search path %q must be a regular file or directory", target)
+	}
 	language, err := selectStructuralLanguage(request.Language, request.Path, info.IsDir())
 	if err != nil {
 		return Result{}, err
@@ -104,15 +109,17 @@ func (s *Service) queryStructural(ctx context.Context, fsys *workspacefs.FS, req
 	if err != nil {
 		return Result{}, fmt.Errorf("structural_search is unavailable: install ast-grep on a trusted global PATH or set HECATE_CODEINTEL_AST_GREP_PATH")
 	}
-	neutralDir, err := createStructuralNeutralDirectory(fsys.Root(), structuralNeutralBase())
+	neutralDir, configPath, err := createStructuralRuntimeDirectory(fsys.Root(), structuralNeutralBase())
 	if err != nil {
 		return Result{}, fmt.Errorf("create trusted structural-search directory")
 	}
 	defer os.RemoveAll(neutralDir)
-	argv := []string{
-		binary, "run", "--pattern", request.Query, "--lang", language,
-		"--json=stream", "--color", "never", "--threads", "1", absoluteTarget,
+	argv := []string{binary, "run", "--config", configPath, "--pattern", request.Query}
+	if request.Selector != "" {
+		argv = append(argv, "--selector", request.Selector)
 	}
+	argv = append(argv, "--lang", language,
+		"--json=stream", "--color", "never", "--threads", "1", absoluteTarget)
 	argv = sandbox.WrapReadOnlyArgv(argv, fsys.Root(), false, neutralDir)
 	if len(argv) == 0 {
 		return Result{}, fmt.Errorf("structural search command is empty")
@@ -121,7 +128,7 @@ func (s *Service) queryStructural(ctx context.Context, fsys *workspacefs.FS, req
 		Command:        argv[0],
 		Args:           argv[1:],
 		Dir:            neutralDir,
-		Env:            providerProcessEnv(ctx),
+		Env:            providerProcessEnv(ctx, "ast-grep"),
 		Timeout:        s.timeout,
 		MaxStdoutBytes: structuralStdoutBytes,
 		MaxStderrBytes: structuralStderrBytes,
@@ -194,7 +201,7 @@ func (s *Service) queryStructural(ctx context.Context, fsys *workspacefs.FS, req
 		item, err := normalizedRange(file, lspRange{
 			Start: lspPosition{Line: match.Range.Start.Line, Character: match.Range.Start.Column},
 			End:   lspPosition{Line: match.Range.End.Line, Character: match.Range.End.Column},
-		}, positionUTF8)
+		}, positionUTF32)
 		if err != nil {
 			result.OmittedExternal++
 			continue
@@ -205,13 +212,31 @@ func (s *Service) queryStructural(ctx context.Context, fsys *workspacefs.FS, req
 	return result, nil
 }
 
+func isStructuralSelector(value string) bool {
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if index == 0 {
+			if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char == '_' {
+				continue
+			}
+			return false
+		}
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '_' {
+			continue
+		}
+		return false
+	}
+	return value != ""
+}
+
 func structuralNeutralBase() string {
 	if runtime.GOOS == "windows" {
 		return ""
 	}
 	// Ignore a gateway TMPDIR that could point into the active checkout. A
-	// neutral cwd is what prevents ast-grep from discovering project-owned
-	// sgconfig.yml while it receives the target as an explicit argument.
+	// neutral cwd keeps the private fixed config outside project control while
+	// ast-grep receives the workspace target as an explicit argument.
 	return "/tmp"
 }
 
@@ -227,6 +252,23 @@ func createStructuralNeutralDirectory(workspace, base string) (string, error) {
 		return "", fmt.Errorf("neutral directory is inside the project boundary")
 	}
 	return directory, nil
+}
+
+func createStructuralRuntimeDirectory(workspace, base string) (string, string, error) {
+	directory, err := createStructuralNeutralDirectory(workspace, base)
+	if err != nil {
+		return "", "", err
+	}
+	configPath := filepath.Join(directory, structuralConfigName)
+	if !filepath.IsAbs(configPath) {
+		_ = os.RemoveAll(directory)
+		return "", "", fmt.Errorf("structural configuration path is not absolute")
+	}
+	if err := os.WriteFile(configPath, []byte(structuralConfig), 0o600); err != nil {
+		_ = os.RemoveAll(directory)
+		return "", "", err
+	}
+	return directory, configPath, nil
 }
 
 func selectStructuralLanguage(requested, path string, directory bool) (string, error) {

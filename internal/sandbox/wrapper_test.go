@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os/exec"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -16,10 +17,52 @@ func TestSetWrapperForTesting_OverrideAndReset(t *testing.T) {
 	if got := DetectWrapper(t.Context()); got != WrapperBwrap {
 		t.Errorf("DetectWrapper after override = %q, want %q", got, WrapperBwrap)
 	}
+	if got := WrapperPath(); got != bwrapPath {
+		t.Errorf("WrapperPath after override = %q, want %q", got, bwrapPath)
+	}
 	reset()
 
 	if got := DetectWrapper(t.Context()); got != prev {
 		t.Errorf("DetectWrapper after reset = %q, want %q", got, prev)
+	}
+}
+
+func TestSetWrapperForTesting_UpdatesKindAndPathTogether(t *testing.T) {
+	for _, tc := range []struct {
+		kind WrapperKind
+		path string
+	}{
+		{kind: WrapperNone, path: ""},
+		{kind: WrapperBwrap, path: bwrapPath},
+		{kind: WrapperSandboxExec, path: sandboxExecBinary},
+	} {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			reset := SetWrapperForTesting(tc.kind)
+			defer reset()
+			if got := DetectWrapper(t.Context()); got != tc.kind {
+				t.Fatalf("DetectWrapper() = %q, want %q", got, tc.kind)
+			}
+			if got := WrapperPath(); got != tc.path {
+				t.Fatalf("WrapperPath() = %q, want %q", got, tc.path)
+			}
+		})
+	}
+}
+
+func TestSandboxExecProbeCommand_UsesDarwinExecutable(t *testing.T) {
+	cmd := sandboxExecProbeCommand(t.Context())
+	wantPath := "/usr/bin/sandbox-exec"
+	wantArgs := []string{
+		"/usr/bin/sandbox-exec",
+		"-p",
+		"(version 1)(allow default)",
+		"/usr/bin/true",
+	}
+	if cmd.Path != wantPath {
+		t.Errorf("cmd.Path = %q, want %q", cmd.Path, wantPath)
+	}
+	if !slices.Equal(cmd.Args, wantArgs) {
+		t.Errorf("cmd.Args = %q, want %q", cmd.Args, wantArgs)
 	}
 }
 

@@ -77,6 +77,57 @@ func TestService_RejectsOversizedRequestBeforeProviderDiscovery(t *testing.T) {
 	}
 }
 
+func TestService_RejectsInvalidStructuralSelectorBeforeProviderDiscovery(t *testing.T) {
+	workspace := t.TempDir()
+	service := NewService()
+	service.lookPath = func(string) (string, error) {
+		t.Fatal("provider discovery must not run for an invalid selector")
+		return "", os.ErrNotExist
+	}
+
+	for _, selector := range []string{
+		"call expression",
+		"call-expression",
+		"--json=stream",
+		"$CALL",
+		"9call_expression",
+		"café",
+		strings.Repeat("a", maxSelectorBytes+1),
+	} {
+		t.Run(selector, func(t *testing.T) {
+			_, err := service.Query(context.Background(), workspace, Request{
+				Operation: OpStructuralSearch,
+				Path:      ".",
+				Language:  "go",
+				Query:     "fmt.Errorf($A)",
+				Selector:  selector,
+			})
+			if err == nil || (!strings.Contains(err.Error(), "structural selector") && !strings.Contains(err.Error(), "selector exceeds")) {
+				t.Fatalf("selector %q error = %v, want bounded single-token rejection", selector, err)
+			}
+		})
+	}
+
+	_, err := service.Query(context.Background(), workspace, Request{
+		Operation: OpDefinition,
+		Path:      "sample.go",
+		Selector:  "call_expression",
+		Line:      1,
+		Column:    1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "only supported for structural_search") {
+		t.Fatalf("semantic selector error = %v, want operation-specific rejection", err)
+	}
+}
+
+func TestStructuralSelectorAcceptsTreeSitterNodeKindTokens(t *testing.T) {
+	for _, selector := range []string{"call_expression", "ERROR", "_expression2"} {
+		if !isStructuralSelector(selector) {
+			t.Errorf("selector %q rejected", selector)
+		}
+	}
+}
+
 func TestService_TypeScriptWorkspaceSymbolsRequireProjectFile(t *testing.T) {
 	workspace := t.TempDir()
 	service := NewService()
@@ -369,7 +420,16 @@ func TestService_StructuralSearchUsesFixedNeutralInvocationAndParsesMatches(t *t
 		`{"file":` + quoteJSON(canonicalSourcePath) + `,"text":"func target() {}","range":{"start":{"line":2,"column":0},"end":{"line":2,"column":16}}}`,
 		`{"file":` + quoteJSON(outsidePath) + `,"text":"outside","range":{"start":{"line":0,"column":0},"end":{"line":0,"column":7}}}`,
 	}, "\n")
-	runner := &recordingRunner{result: processrunner.Result{Stdout: stdout}}
+	var configContents string
+	runner := &recordingRunner{run: func(request processrunner.Request) (processrunner.Result, error) {
+		configPath := filepath.Join(request.Dir, structuralConfigName)
+		contents, readErr := os.ReadFile(configPath)
+		if readErr != nil {
+			t.Fatalf("read trusted structural config: %v", readErr)
+		}
+		configContents = string(contents)
+		return processrunner.Result{Stdout: stdout}, nil
+	}}
 	service := NewService()
 	service.runner = runner
 	setProviderPath(service, "ast-grep", binary)
@@ -379,7 +439,8 @@ func TestService_StructuralSearchUsesFixedNeutralInvocationAndParsesMatches(t *t
 	result, err := service.Query(context.Background(), workspace, Request{
 		Operation: OpStructuralSearch,
 		Path:      "sample.go",
-		Query:     "$FUNC()",
+		Query:     "func _() { fmt.Errorf($A) }",
+		Selector:  "call_expression",
 	})
 	if err != nil {
 		t.Fatalf("structural search: %v", err)
@@ -391,9 +452,16 @@ func TestService_StructuralSearchUsesFixedNeutralInvocationAndParsesMatches(t *t
 	if request.Command != binary {
 		t.Fatalf("command = %q, want %q", request.Command, binary)
 	}
-	wantArgs := []string{"run", "--pattern", "$FUNC()", "--lang", "go", "--json=stream", "--color", "never", "--threads", "1", canonicalSourcePath}
+	configPath := filepath.Join(request.Dir, structuralConfigName)
+	if !filepath.IsAbs(configPath) {
+		t.Fatalf("config path = %q, want absolute path", configPath)
+	}
+	wantArgs := []string{"run", "--config", configPath, "--pattern", "func _() { fmt.Errorf($A) }", "--selector", "call_expression", "--lang", "go", "--json=stream", "--color", "never", "--threads", "1", canonicalSourcePath}
 	if strings.Join(request.Args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Fatalf("args = %#v, want %#v", request.Args, wantArgs)
+	}
+	if configContents != structuralConfig {
+		t.Fatalf("trusted config = %q, want %q", configContents, structuralConfig)
 	}
 	if request.Dir == workspace || !strings.Contains(filepath.Base(request.Dir), "hecate-codeintel-") {
 		t.Fatalf("cwd = %q, want neutral temporary directory", request.Dir)
@@ -403,6 +471,45 @@ func TestService_StructuralSearchUsesFixedNeutralInvocationAndParsesMatches(t *t
 	}
 	if result.OmittedExternal != 1 {
 		t.Fatalf("omitted external = %d, want 1", result.OmittedExternal)
+	}
+}
+
+func TestService_StructuralSearchConvertsAstGrepCharacterColumnsToUTF8Bytes(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	workspace := t.TempDir()
+	sourcePath := filepath.Join(workspace, "sample.go")
+	if err := os.WriteFile(sourcePath, []byte("package sample\n\nconst π = foo()\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	canonicalSourcePath, err := filepath.EvalSymlinks(sourcePath)
+	if err != nil {
+		t.Fatalf("canonicalize source: %v", err)
+	}
+	binary := executableFixture(t, t.TempDir(), "ast-grep")
+	// ast-grep's JSON range columns count Unicode characters, not UTF-8
+	// bytes. On this line foo() starts at character offset 10 but byte offset
+	// 11 because the preceding π occupies two UTF-8 bytes.
+	stdout := `{"file":` + quoteJSON(canonicalSourcePath) + `,"text":"foo()","range":{"start":{"line":2,"column":10},"end":{"line":2,"column":15}}}`
+	service := NewService()
+	service.runner = &recordingRunner{result: processrunner.Result{Stdout: stdout}}
+	setProviderPath(service, "ast-grep", binary)
+	service.lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+
+	result, err := service.Query(context.Background(), workspace, Request{
+		Operation: OpStructuralSearch,
+		Path:      "sample.go",
+		Query:     "foo()",
+	})
+	if err != nil {
+		t.Fatalf("structural search: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %+v, want one structural match", result.Items)
+	}
+	item := result.Items[0]
+	if item.StartLine != 3 || item.EndLine != 3 || item.StartColumn != 12 || item.EndColumn != 17 {
+		t.Fatalf("range = %d:%d-%d:%d, want 3:12-3:17 UTF-8 byte columns", item.StartLine, item.StartColumn, item.EndLine, item.EndColumn)
 	}
 }
 
@@ -425,6 +532,31 @@ func TestStructuralNeutralDirectoryRejectsProjectControlledTempBase(t *testing.T
 	}
 	if len(entries) != 0 {
 		t.Fatalf("rejected neutral directory was not cleaned up: %+v", entries)
+	}
+}
+
+func TestStructuralRuntimeDirectoryUsesTrustedConfigInsteadOfAncestor(t *testing.T) {
+	workspace := t.TempDir()
+	base := t.TempDir()
+	ancestorConfig := "customLanguages:\n  hostile:\n    libraryPath: /tmp/hostile.so\n"
+	if err := os.WriteFile(filepath.Join(base, structuralConfigName), []byte(ancestorConfig), 0o600); err != nil {
+		t.Fatalf("write ancestor config: %v", err)
+	}
+
+	directory, configPath, err := createStructuralRuntimeDirectory(workspace, base)
+	if err != nil {
+		t.Fatalf("create structural runtime directory: %v", err)
+	}
+	defer os.RemoveAll(directory)
+	if filepath.Dir(configPath) != directory || filepath.Base(configPath) != structuralConfigName {
+		t.Fatalf("config path = %q, want %q inside runtime directory", configPath, structuralConfigName)
+	}
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read trusted config: %v", err)
+	}
+	if string(contents) != structuralConfig || string(contents) == ancestorConfig {
+		t.Fatalf("trusted config = %q, want fixed content %q", contents, structuralConfig)
 	}
 }
 
