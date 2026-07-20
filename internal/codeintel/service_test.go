@@ -821,6 +821,13 @@ func executableFixture(t *testing.T, directory, name string) string {
 	if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
 		t.Fatalf("write executable fixture: %v", err)
 	}
+	if runtime.GOOS == "windows" {
+		canonical, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			t.Fatalf("canonicalize Windows executable fixture: %v", err)
+		}
+		return canonical
+	}
 	return path
 }
 
