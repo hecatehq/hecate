@@ -263,14 +263,14 @@ export function TasksView({
     ? (tasks.find((task) => task.id === pendingDeleteTaskID) ?? null)
     : null;
   const effectiveTaskFilter =
-    scheduleLoadState !== "loaded" && taskFilter === "scheduled" ? "all" : taskFilter;
+    scheduleLoadState === "error" && taskFilter === "scheduled" ? "all" : taskFilter;
   const filteredTasks = useMemo(
     () => tasks.filter((task) => taskMatchesFilter(task, effectiveTaskFilter, schedulesByTaskID)),
     [effectiveTaskFilter, tasks, schedulesByTaskID],
   );
 
   useEffect(() => {
-    if (scheduleLoadState === "loaded") return;
+    if (scheduleLoadState !== "error") return;
     setTaskFilter((current) => (current === "scheduled" ? "all" : current));
   }, [scheduleLoadState]);
   const resetRunDetail = useCallback(() => {
