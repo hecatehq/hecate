@@ -272,6 +272,59 @@ describe("TasksView scheduling", () => {
     expect(screen.getByRole("link", { name: "Task Plain task, not started" })).toBeTruthy();
   });
 
+  it("preserves Scheduled filtering through a successful refresh", async () => {
+    const scheduledTask = {
+      ...task,
+      id: "task_scheduled_refresh",
+      title: "Scheduled refresh task",
+      latest_run_id: "",
+      status: "not_started" as const,
+    };
+    const plainTask = {
+      ...task,
+      id: "task_plain_refresh",
+      title: "Plain refresh task",
+      latest_run_id: "",
+      status: "not_started" as const,
+    };
+    const schedule = {
+      id: "schedule_refresh",
+      task_id: scheduledTask.id,
+      kind: "cron" as const,
+      cron_expression: "0 9 * * *",
+      timezone: "Europe/Madrid",
+      enabled: true,
+      next_run_at: "2026-07-21T07:00:00Z",
+      created_at: "2026-07-20T08:00:00Z",
+      updated_at: "2026-07-20T08:00:00Z",
+    };
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [scheduledTask, plainTask] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [] });
+    vi.mocked(getTaskSchedules).mockResolvedValue({
+      object: "task_schedules",
+      data: [schedule],
+    });
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const scheduledFilter = await screen.findByRole("button", { name: "Scheduled" });
+    await waitFor(() => expect(scheduledFilter).not.toHaveAttribute("aria-disabled"));
+    fireEvent.click(scheduledFilter);
+    expect(screen.queryByRole("link", { name: "Task Plain refresh task, not started" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh task" }));
+
+    await waitFor(() => expect(getTaskSchedules).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(scheduledFilter).not.toHaveAttribute("aria-disabled"));
+    expect(scheduledFilter).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.getByRole("link", { name: /^Task Scheduled refresh task, not started,/ }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Task Plain refresh task, not started" })).toBeNull();
+  });
+
   it("keeps New task available when only the selected Task detail fails to load", async () => {
     vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [task] });
     vi.mocked(getTaskRuns).mockRejectedValue(new Error("detail unavailable"));

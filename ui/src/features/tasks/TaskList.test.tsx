@@ -259,6 +259,25 @@ describe("TaskList", () => {
     expect(screen.getByText("List the working directory")).toBeTruthy();
   });
 
+  it("preserves the requested Scheduled filter while Schedule data refreshes", async () => {
+    const onFilterChange = vi.fn();
+    const { render, user } = setup({
+      filter: "scheduled",
+      onFilterChange,
+      scheduleLoadState: "loading",
+    });
+    render();
+
+    const scheduled = screen.getByRole("button", { name: "Scheduled" });
+    expect(scheduled).toHaveAttribute("aria-disabled", "true");
+    expect(scheduled).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/Loading Schedule data/)).toBeTruthy();
+
+    await user.click(scheduled);
+    expect(onFilterChange).not.toHaveBeenCalled();
+  });
+
   it("marks tasks with paused or enabled schedule configuration", () => {
     const schedules = new Map([
       [

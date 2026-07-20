@@ -81,7 +81,7 @@ export function TaskList({
   emptyMessage = "No Tasks yet. Create one above to start its first Run.",
 }: Props) {
   const scheduleFilterUnavailable = scheduleLoadState !== "loaded";
-  const effectiveFilter = scheduleFilterUnavailable && filter === "scheduled" ? "all" : filter;
+  const effectiveFilter = scheduleLoadState === "error" && filter === "scheduled" ? "all" : filter;
   const scheduleFilterStatus =
     scheduleLoadState === "loading"
       ? "Loading Schedule data. Scheduled filtering will be available when it finishes."
