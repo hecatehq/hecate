@@ -9,6 +9,9 @@ on:
       - '.github/workflows/website.yml'
   pull_request:
     branches: [master]
+    # The desktop matrix skips draft PRs, so becoming ready must start a fresh
+    # run even when no commit is pushed after the draft checks complete.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - '**/*.md'
       - 'website/**'
