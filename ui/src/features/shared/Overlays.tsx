@@ -86,14 +86,14 @@ function DialogChrome({
         previousFocusRef.current &&
         previousFocusRef.current !== document.body &&
         previousFocusRef.current !== document.documentElement &&
-        !previousFocusRef.current.matches(":disabled") &&
-        document.contains(previousFocusRef.current)
+        document.contains(previousFocusRef.current) &&
+        isRenderedDialogControl(previousFocusRef.current)
       ) {
         previousFocusRef.current.focus();
       } else if (
         returnFocusRef?.current &&
-        !returnFocusRef.current.matches(":disabled") &&
-        document.contains(returnFocusRef.current)
+        document.contains(returnFocusRef.current) &&
+        isRenderedDialogControl(returnFocusRef.current)
       ) {
         returnFocusRef.current.focus();
       }
