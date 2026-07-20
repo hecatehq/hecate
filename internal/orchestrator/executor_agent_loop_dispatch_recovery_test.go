@@ -361,6 +361,83 @@ func TestAgentLoop_CompletedDispatchMissingConversationResultIsNotReplayed(t *te
 	assertRecoveryToolError(t, llm.lastReqs[0].Messages, "call-completed")
 }
 
+func TestAgentLoop_DurableDispatchWithInvalidModelCallProvenanceIsNotReplayed(t *testing.T) {
+	call := agentLoopToolCall("call-invalid-provenance", "shell_exec", `{"command":"already-ran"}`)
+	saved, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "run it"},
+		makeAssistantMsg("", call),
+	})
+	if err != nil {
+		t.Fatalf("marshal conversation: %v", err)
+	}
+	spec := newAgentLoopSpec(t)
+	intent := buildAgentToolDispatchIntent(spec, call, 2, 1, time.Now().UTC())
+	delete(intent.Input, agentLoopModelCallIndexKey)
+	intent.Status = "completed"
+	intent.FinishedAt = time.Now().UTC()
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:                          spec.Run.ID,
+		SameRun:                              true,
+		AgentConversation:                    saved,
+		ThisRunModelCallCount:                1,
+		PendingToolCallsApproved:             true,
+		PendingToolCallsOriginRunID:          spec.Run.ID,
+		PendingToolCallsOriginModelCallIndex: 1,
+		ToolDispatchSteps:                    []types.TaskStep{intent},
+	}
+
+	llm := &scriptedLLM{responses: []*types.ChatResponse{makeChatResp(makeAssistantMsg("recovery acknowledged"))}}
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if res.Status != "completed" || len(shell.calls) != 0 {
+		t.Fatalf("result status = %q shell effects = %d, want fail-closed recovery without replay", res.Status, len(shell.calls))
+	}
+	assertRecoveryToolError(t, llm.lastReqs[0].Messages, call.ID)
+}
+
+func TestAgentLoop_DurableDispatchWithMixedModelCallProvenanceIsNotReplayed(t *testing.T) {
+	call := agentLoopToolCall("call-mixed-provenance", "shell_exec", `{"command":"already-ran"}`)
+	saved, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "run it"},
+		makeAssistantMsg("", call),
+	})
+	if err != nil {
+		t.Fatalf("marshal conversation: %v", err)
+	}
+	spec := newAgentLoopSpec(t)
+	intent := buildAgentToolDispatchIntent(spec, call, 2, 1, time.Now().UTC())
+	intent.Input[agentLoopSourceRunIDKey] = "run-other"
+	intent.Input[agentLoopSourceModelCallIndexKey] = 2
+	intent.Status = "completed"
+	intent.FinishedAt = time.Now().UTC()
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:                          spec.Run.ID,
+		SameRun:                              true,
+		AgentConversation:                    saved,
+		ThisRunModelCallCount:                1,
+		PendingToolCallsApproved:             true,
+		PendingToolCallsOriginRunID:          spec.Run.ID,
+		PendingToolCallsOriginModelCallIndex: 1,
+		ToolDispatchSteps:                    []types.TaskStep{intent},
+	}
+
+	llm := &scriptedLLM{responses: []*types.ChatResponse{makeChatResp(makeAssistantMsg("recovery acknowledged"))}}
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if res.Status != "completed" || len(shell.calls) != 0 {
+		t.Fatalf("result status = %q shell effects = %d, want fail-closed recovery without replay", res.Status, len(shell.calls))
+	}
+	assertRecoveryToolError(t, llm.lastReqs[0].Messages, call.ID)
+}
+
 func TestAgentLoop_ContinueNormalizesUnresolvedSourceBatchBeforeUserPrompt(t *testing.T) {
 	completedCall := agentLoopToolCall("call-completed", "shell_exec", `{"command":"already-ran"}`)
 	neverStartedCall := agentLoopToolCall("call-never-started", "shell_exec", `{"command":"stale"}`)

@@ -30,15 +30,17 @@ const (
 )
 
 func buildAgentToolDispatchIntent(spec ExecutionSpec, call types.ToolCall, stepIndex, modelCall int, startedAt time.Time) types.TaskStep {
+	return buildAgentToolDispatchIntentForModelCallRef(spec, call, stepIndex, currentAgentLoopModelCallRef(spec, modelCall), startedAt)
+}
+
+func buildAgentToolDispatchIntentForModelCallRef(spec ExecutionSpec, call types.ToolCall, stepIndex int, modelCallRef agentLoopModelCallRef, startedAt time.Time) types.TaskStep {
 	input := map[string]any{
 		toolDispatchIntentVersionKey: agentToolDispatchIntentVersion,
 		toolDispatchCallIDKey:        call.ID,
 		toolDispatchDigestKey:        agentToolCallDigest(call),
 		"tool":                       call.Function.Name,
 	}
-	if modelCall > 0 {
-		input[toolDispatchModelCallKey] = modelCall
-	}
+	modelCallRef.addStepInput(spec.Run.ID, input)
 	return types.TaskStep{
 		ID:        spec.NewID("step"),
 		TaskID:    spec.Task.ID,
@@ -122,10 +124,18 @@ func mergeToolDispatchBinding(input, binding map[string]any) map[string]any {
 		toolDispatchCallIDKey,
 		toolDispatchDigestKey,
 		toolDispatchModelCallKey,
+		agentLoopSourceRunIDKey,
+		agentLoopSourceModelCallIndexKey,
 	} {
 		if value, ok := binding[key]; ok {
 			merged[key] = value
 		}
+	}
+	if _, sourceBound := binding[agentLoopSourceRunIDKey]; sourceBound {
+		delete(merged, toolDispatchModelCallKey)
+	} else if _, currentBound := binding[toolDispatchModelCallKey]; currentBound {
+		delete(merged, agentLoopSourceRunIDKey)
+		delete(merged, agentLoopSourceModelCallIndexKey)
 	}
 	if _, exists := merged["tool"]; !exists {
 		merged["tool"] = binding["tool"]
@@ -205,7 +215,7 @@ func isDurableToolDispatchStep(step types.TaskStep) bool {
 	return callID != "" && len(digest) == sha256.Size*2
 }
 
-func findDurableToolDispatch(steps []types.TaskStep, call types.ToolCall, modelCall int) (types.TaskStep, bool, bool) {
+func findDurableToolDispatch(steps []types.TaskStep, call types.ToolCall, modelCallRef agentLoopModelCallRef) (types.TaskStep, bool, bool) {
 	wantDigest := agentToolCallDigest(call)
 	var mismatch types.TaskStep
 	var exact types.TaskStep
@@ -214,7 +224,17 @@ func findDurableToolDispatch(steps []types.TaskStep, call types.ToolCall, modelC
 			continue
 		}
 		callID, _ := step.Input[toolDispatchCallIDKey].(string)
-		if callID != call.ID || intField(step.Input[toolDispatchModelCallKey]) != modelCall {
+		stepModelCallRef, found, err := agentLoopModelCallRefFromStep(step.RunID, step)
+		if callID != call.ID {
+			continue
+		}
+		if err != nil || !found {
+			if step.Index >= mismatch.Index {
+				mismatch = step
+			}
+			continue
+		}
+		if stepModelCallRef != modelCallRef {
 			continue
 		}
 		digest, _ := step.Input[toolDispatchDigestKey].(string)
@@ -242,9 +262,21 @@ func (e *AgentLoopExecutor) recoverDurableToolDispatches(spec ExecutionSpec, con
 	if checkpoint == nil || len(pending) == 0 || len(checkpoint.ToolDispatchSteps) == 0 {
 		return pending, nil
 	}
-	evidenceModelCall := checkpoint.ToolDispatchModelCallIndex
-	if checkpoint.SameRun && evidenceModelCall == 0 {
-		evidenceModelCall = runState.ModelCallCount()
+	evidenceModelCallRef := agentLoopModelCallRef{
+		RunID: checkpoint.PendingToolCallsOriginRunID,
+		Index: checkpoint.PendingToolCallsOriginModelCallIndex,
+	}
+	if evidenceModelCallRef.validate() != nil {
+		evidenceModelCallRef = agentLoopModelCallRef{
+			RunID: checkpoint.SourceRunID,
+			Index: checkpoint.ToolDispatchModelCallIndex,
+		}
+	}
+	if checkpoint.SameRun && evidenceModelCallRef.validate() != nil {
+		evidenceModelCallRef = currentAgentLoopModelCallRef(spec, runState.ModelCallCount())
+	}
+	if err := evidenceModelCallRef.validate(); err != nil {
+		return nil, fmt.Errorf("recover durable tool dispatch provenance: %w", err)
 	}
 	type recoveryMatch struct {
 		call     types.ToolCall
@@ -253,7 +285,7 @@ func (e *AgentLoopExecutor) recoverDurableToolDispatches(spec ExecutionSpec, con
 	}
 	matches := make([]recoveryMatch, 0, len(pending))
 	for _, call := range pending {
-		step, found, mismatch := findDurableToolDispatch(checkpoint.ToolDispatchSteps, call, evidenceModelCall)
+		step, found, mismatch := findDurableToolDispatch(checkpoint.ToolDispatchSteps, call, evidenceModelCallRef)
 		if !found {
 			continue
 		}
@@ -269,7 +301,7 @@ func (e *AgentLoopExecutor) recoverDurableToolDispatches(spec ExecutionSpec, con
 		// evidence for the entire unresolved suffix instead of falling back to
 		// dispatch once the current conversation artifact exists.
 		for _, match := range matches {
-			step := buildInheritedToolDispatchRecoveryStep(spec, runState.NextStepIndex(), match.call, match.step, evidenceModelCall, match.mismatch, time.Now().UTC())
+			step := buildInheritedToolDispatchRecoveryStep(spec, runState.NextStepIndex(), match.call, match.step, evidenceModelCallRef, match.mismatch, time.Now().UTC())
 			if err := runState.AddStep(spec, step); err != nil {
 				return nil, fmt.Errorf("record inherited tool dispatch recovery %q: %w", match.call.ID, err)
 			}
@@ -310,18 +342,21 @@ func toolDispatchSupersededByContinuationResult(call types.ToolCall) string {
 	return truncateUTF8(text, toolRecoveryResultMaxBytes)
 }
 
-func buildInheritedToolDispatchRecoveryStep(spec ExecutionSpec, index int, call types.ToolCall, source types.TaskStep, sourceModelCall int, mismatch bool, when time.Time) types.TaskStep {
+func buildInheritedToolDispatchRecoveryStep(spec ExecutionSpec, index int, call types.ToolCall, source types.TaskStep, sourceModelCallRef agentLoopModelCallRef, mismatch bool, when time.Time) types.TaskStep {
 	input := map[string]any{
 		toolDispatchIntentVersionKey: agentToolDispatchIntentVersion,
 		toolDispatchCallIDKey:        call.ID,
 		toolDispatchDigestKey:        agentToolCallDigest(call),
 		"tool":                       call.Function.Name,
-		"source_run_id":              source.RunID,
+		"source_run_id":              sourceModelCallRef.RunID,
 		"source_step_id":             source.ID,
 		"source_step_status":         source.Status,
 	}
-	if sourceModelCall > 0 {
-		input["source_model_call_index"] = sourceModelCall
+	if sourceModelCallRef.Index > 0 {
+		input["source_model_call_index"] = sourceModelCallRef.Index
+	}
+	if source.RunID != "" && source.RunID != sourceModelCallRef.RunID {
+		input["source_dispatch_run_id"] = source.RunID
 	}
 	errorMessage := "source Run dispatch may have produced side effects before its exact result was checkpointed; automatic replay was denied"
 	if mismatch {

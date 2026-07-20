@@ -2863,10 +2863,12 @@ func TestAgentLoop_CrossRunResumeRegatesPendingCallsBeforeDispatch(t *testing.T)
 	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
-		SourceRunID:           "run-source",
-		AgentConversation:     savedJSON,
-		Reason:                "resume_after_rejected_approval",
-		ThisRunModelCallCount: 0,
+		SourceRunID:                          "run-source",
+		AgentConversation:                    savedJSON,
+		Reason:                               "resume_after_rejected_approval",
+		ThisRunModelCallCount:                0,
+		PendingToolCallsOriginRunID:          "run-source",
+		PendingToolCallsOriginModelCallIndex: 3,
 	}
 	res, err := loop.Execute(context.Background(), spec)
 	if err != nil {
@@ -2889,6 +2891,18 @@ func TestAgentLoop_CrossRunResumeRegatesPendingCallsBeforeDispatch(t *testing.T)
 	}
 	if res.PendingApprovals[0].StepID != res.Steps[0].ID {
 		t.Fatalf("approval StepID = %q, want %q", res.PendingApprovals[0].StepID, res.Steps[0].ID)
+	}
+	if got := res.Steps[0].Input[agentLoopSourceRunIDKey]; got != "run-source" {
+		t.Fatalf("approval source_run_id = %v, want run-source", got)
+	}
+	if got := res.Steps[0].Input[agentLoopSourceModelCallIndexKey]; got != 3 {
+		t.Fatalf("approval source_model_call_index = %v, want 3", got)
+	}
+	if _, found := res.Steps[0].Input[agentLoopModelCallIndexKey]; found {
+		t.Fatalf("cross-Run approval attributed a model call to the new Run: %+v", res.Steps[0].Input)
+	}
+	if res.ModelCallCount != 0 || strings.Contains(res.Steps[0].Title, "model call 0") {
+		t.Fatalf("cross-Run approval accounting = calls %d title %q, want source provenance without a new call", res.ModelCallCount, res.Steps[0].Title)
 	}
 	conversation := findArtifactByKind(res.Artifacts, "agent_conversation")
 	if conversation == nil || !strings.Contains(conversation.ContentText, `"shell_exec"`) {
@@ -2959,10 +2973,11 @@ func TestAgentLoop_ToolsDisabledResumeDeniesPreviouslyPendingCall(t *testing.T) 
 	spec.Task.AgentPresetID = "review_qa"
 	spec.Task.AgentPresetToolsEnabled = &toolsEnabled
 	spec.ResumeCheckpoint = &ResumeCheckpoint{
-		SourceRunID:           "run-before-upgrade",
-		AgentConversation:     savedJSON,
-		Reason:                "approved_mid_loop",
-		ThisRunModelCallCount: 1,
+		SourceRunID:                          "run-before-upgrade",
+		AgentConversation:                    savedJSON,
+		Reason:                               "approved_mid_loop",
+		PendingToolCallsOriginRunID:          "run-before-upgrade",
+		PendingToolCallsOriginModelCallIndex: 1,
 	}
 
 	res, err := loop.Execute(context.Background(), spec)

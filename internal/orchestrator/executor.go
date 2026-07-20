@@ -135,6 +135,12 @@ type ResumeCheckpoint struct {
 	// whose approval Step is still the latest Step. Cross-Run checkpoints never
 	// inherit this authority.
 	PendingToolCallsApproved bool
+	// PendingToolCallsOriginRunID and PendingToolCallsOriginModelCallIndex
+	// identify the Run-local, 1-based model call that produced the unresolved
+	// assistant tool-call batch. A cross-Run resume preserves this source
+	// identity without increasing ThisRunModelCallCount for the recovering Run.
+	PendingToolCallsOriginRunID          string
+	PendingToolCallsOriginModelCallIndex int
 	// ToolDispatchSteps are durable, tool-call-ID-bound dispatch records for
 	// the assistant batch at the checkpoint boundary. Same-run recovery may
 	// settle these records in place. Ordinary cross-run Resume carries source
