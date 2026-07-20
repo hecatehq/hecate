@@ -12,9 +12,6 @@
   <a href="https://github.com/hecatehq/hecate/actions/workflows/test.yml">
     <img alt="Test workflow" src="https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg?branch=master">
   </a>
-  <a href="https://goreportcard.com/report/github.com/hecatehq/hecate">
-    <img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/hecatehq/hecate">
-  </a>
   <a href="go.mod">
     <img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/hecatehq/hecate">
   </a>
