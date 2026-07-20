@@ -52,13 +52,13 @@ var structuralLanguages = map[string]string{
 	"sh":         "bash",
 }
 
-var structuralExtensionLanguages = map[string]string{
-	".go": "go", ".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "jsx",
-	".ts": "ts", ".mts": "ts", ".cts": "ts", ".tsx": "tsx", ".py": "python",
-	".pyi": "python", ".rs": "rust", ".java": "java", ".c": "c", ".h": "c",
-	".cc": "cpp", ".cpp": "cpp", ".cxx": "cpp", ".hpp": "cpp", ".cs": "csharp",
-	".html": "html", ".htm": "html", ".css": "css", ".json": "json",
-	".yaml": "yaml", ".yml": "yaml", ".sh": "bash", ".bash": "bash",
+var structuralExtensionLanguages = map[string][]string{
+	".go": {"go"}, ".js": {"js"}, ".mjs": {"js"}, ".cjs": {"js"}, ".jsx": {"jsx"},
+	".ts": {"ts"}, ".mts": {"ts"}, ".cts": {"ts"}, ".tsx": {"tsx"}, ".py": {"python"},
+	".pyi": {"python"}, ".rs": {"rust"}, ".java": {"java"}, ".c": {"c"}, ".h": {"c", "cpp"},
+	".cc": {"cpp"}, ".cpp": {"cpp"}, ".cxx": {"cpp"}, ".hpp": {"cpp"}, ".cs": {"csharp"},
+	".html": {"html"}, ".htm": {"html"}, ".css": {"css"}, ".json": {"json"},
+	".yaml": {"yaml"}, ".yml": {"yaml"}, ".sh": {"bash"}, ".bash": {"bash"},
 }
 
 type astGrepMatch struct {
@@ -178,11 +178,11 @@ func (s *Service) queryStructural(ctx context.Context, fsys *workspacefs.FS, req
 		if err := json.Unmarshal(line, &match); err != nil {
 			return Result{}, fmt.Errorf("ast-grep returned a malformed JSON stream record at index %d", index+1)
 		}
-		path := strings.TrimSpace(match.File)
-		if path == "" {
-			path = strings.TrimSpace(match.Path)
+		path := match.File
+		if strings.TrimSpace(path) == "" {
+			path = match.Path
 		}
-		if path == "" {
+		if strings.TrimSpace(path) == "" {
 			result.OmittedExternal++
 			continue
 		}
@@ -272,18 +272,20 @@ func createStructuralRuntimeDirectory(workspace, base string) (string, string, e
 }
 
 func selectStructuralLanguage(requested, path string, directory bool) (string, error) {
-	inferred := ""
+	extension := ""
+	var compatible []string
 	if path != "" && !directory {
-		inferred = structuralExtensionLanguages[strings.ToLower(filepath.Ext(path))]
-		if inferred == "" {
-			return "", fmt.Errorf("no allowlisted structural-search language supports %q", filepath.Ext(path))
-		}
+		extension = strings.ToLower(filepath.Ext(path))
+		compatible = structuralExtensionLanguages[extension]
 	}
 	if requested == "" {
-		if inferred == "" {
+		if len(compatible) == 0 {
+			if path != "" && !directory {
+				return "", fmt.Errorf("no allowlisted structural-search language supports %q", filepath.Ext(path))
+			}
 			return "", fmt.Errorf("language is required when structural_search targets a directory")
 		}
-		return inferred, nil
+		return compatible[0], nil
 	}
 	if _, ok := structuralLanguages[requested]; !ok {
 		found := false
@@ -297,8 +299,20 @@ func selectStructuralLanguage(requested, path string, directory bool) (string, e
 			return "", fmt.Errorf("structural-search language %q is not allowlisted", requested)
 		}
 	}
-	if inferred != "" && inferred != requested {
+	if extension != "" && len(compatible) == 0 {
+		return "", fmt.Errorf("no allowlisted structural-search language supports %q", filepath.Ext(path))
+	}
+	if len(compatible) > 0 && !containsStructuralLanguage(compatible, requested) {
 		return "", fmt.Errorf("structural-search language %q does not match path %q", requested, path)
 	}
 	return requested, nil
+}
+
+func containsStructuralLanguage(languages []string, requested string) bool {
+	for _, language := range languages {
+		if language == requested {
+			return true
+		}
+	}
+	return false
 }

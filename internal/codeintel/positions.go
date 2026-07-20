@@ -60,8 +60,11 @@ func newSourceCache(fsys *workspacefs.FS) *sourceCache {
 }
 
 func (c *sourceCache) openRelative(relative string) (*sourceFile, error) {
-	relative = filepath.Clean(strings.TrimSpace(relative))
-	if relative == "." || relative == "" {
+	if strings.TrimSpace(relative) == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	relative = filepath.Clean(relative)
+	if relative == "." {
 		return nil, fmt.Errorf("file path is required")
 	}
 	if cached := c.files[relative]; cached != nil {

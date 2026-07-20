@@ -210,8 +210,7 @@ func filterProviderPath(value string, trust providerEnvironmentTrust, trustedPro
 	trusted := make([]string, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		entry = strings.TrimSpace(entry)
-		if entry == "" || !filepath.IsAbs(entry) {
+		if strings.TrimSpace(entry) == "" || !filepath.IsAbs(entry) {
 			continue
 		}
 		allowShared := configured && (samePath(entry, configuredDirectory) || samePath(entry, configuredCanonical))
@@ -240,7 +239,7 @@ func filterProviderDirectoryList(value string, trust providerEnvironmentTrust, g
 	entries := splitProviderPathList(value, goos)
 	trusted := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if directory, ok := trustedProviderDirectoryWithTrust(strings.TrimSpace(entry), trust, false); ok {
+		if directory, ok := trustedProviderDirectoryWithTrust(entry, trust, false); ok {
 			trusted = append(trusted, directory)
 		}
 	}
@@ -266,8 +265,7 @@ func trustedProviderDirectory(value, workspaceRoot string, allowSharedAncestor b
 }
 
 func trustedProviderDirectoryWithTrust(value string, trust providerEnvironmentTrust, allowSharedAncestor bool) (string, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" || !filepath.IsAbs(value) {
+	if strings.TrimSpace(value) == "" || !filepath.IsAbs(value) {
 		return "", false
 	}
 	directory := filepath.Clean(value)
@@ -298,8 +296,7 @@ func trustedProviderDirectoryWithTrust(value string, trust providerEnvironmentTr
 }
 
 func trustedConfiguredProviderDirectory(trust providerEnvironmentTrust, providerPath string) (string, string, bool) {
-	providerPath = strings.TrimSpace(providerPath)
-	if providerPath == "" || !filepath.IsAbs(providerPath) {
+	if strings.TrimSpace(providerPath) == "" || !filepath.IsAbs(providerPath) {
 		return "", "", false
 	}
 	providerPath = filepath.Clean(providerPath)
@@ -356,9 +353,8 @@ func (trust providerEnvironmentTrust) sharesUntrustedWorkspaceAncestor(candidate
 }
 
 func configuredProviderUsesDirectory(providerPath, directory string) bool {
-	providerPath = strings.TrimSpace(providerPath)
-	directory = strings.TrimSpace(directory)
-	if providerPath == "" || directory == "" || !filepath.IsAbs(providerPath) || !filepath.IsAbs(directory) {
+	if strings.TrimSpace(providerPath) == "" || strings.TrimSpace(directory) == "" ||
+		!filepath.IsAbs(providerPath) || !filepath.IsAbs(directory) {
 		return false
 	}
 	if !pathWithinRoot(filepath.Clean(directory), filepath.Clean(providerPath)) {

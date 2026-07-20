@@ -27,10 +27,10 @@ func (r *codeIntelProcessRunner) Run(ctx context.Context, request processrunner.
 }
 
 func (r *codeIntelProcessRunner) RunStreaming(ctx context.Context, request processrunner.Request, onChunk func(processrunner.Chunk)) (processrunner.Result, error) {
-	command := strings.TrimSpace(request.Command)
-	if command == "" {
+	if strings.TrimSpace(request.Command) == "" {
 		return processrunner.Result{ExitCode: -1}, fmt.Errorf("process command is required")
 	}
+	command := request.Command
 	runCtx := ctx
 	var cancel context.CancelFunc
 	if request.Timeout > 0 {

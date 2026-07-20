@@ -146,11 +146,51 @@ func TestService_TypeScriptWorkspaceSymbolsRequireProjectFile(t *testing.T) {
 }
 
 func TestNewServiceLoadsExactOperatorProviderPaths(t *testing.T) {
-	const configured = "/opt/hecate/providers/gopls"
+	const configured = "/opt/hecate/providers/gopls "
 	t.Setenv(providerExecutableEnv["gopls"], configured)
 	service := NewService()
 	if got := service.providerPaths["gopls"]; got != configured {
 		t.Fatalf("configured gopls path = %q, want %q", got, configured)
+	}
+}
+
+func TestService_TrustedBinaryResolutionPreservesWhitespaceInConfiguredPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows executable names must end in .exe")
+	}
+	workspace := t.TempDir()
+	fsys, err := openWorkspace(workspace)
+	if err != nil {
+		t.Fatalf("open workspace: %v", err)
+	}
+	binary := executableFixture(t, t.TempDir(), " gopls ")
+	service := NewService()
+	setProviderPath(service, "gopls", binary)
+
+	resolved, err := service.resolveTrustedBinary(fsys, "gopls")
+	if err != nil {
+		t.Fatalf("resolve whitespace path: %v", err)
+	}
+	if resolved != binary {
+		t.Fatalf("resolved path = %q, want exact configured path %q", resolved, binary)
+	}
+}
+
+func TestNormalizeOptionalPathPreservesNonBlankWhitespace(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "blank", path: " \t ", want: ""},
+		{name: "leading", path: " sample.go", want: filepath.Clean(" sample.go")},
+		{name: "trailing", path: "sample.go ", want: filepath.Clean("sample.go ")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := normalizeOptionalPath(test.path); got != test.want {
+				t.Fatalf("normalized path = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
@@ -188,8 +228,13 @@ func TestService_TrustedBinaryResolutionRejectsWorkspaceAndRelativePaths(t *test
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	service.lookPath = func(string) (string, error) { return link, nil }
-	if _, err := service.resolveTrustedBinary(fsys, "gopls"); err == nil || !strings.Contains(err.Error(), "symlink into the project workspace") {
-		t.Fatalf("symlink error = %v, want rejection", err)
+	_, err = service.resolveTrustedBinary(fsys, "gopls")
+	if err == nil {
+		t.Fatal("symlink error = nil, want rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink into the project workspace") &&
+		!strings.Contains(err.Error(), "filesystem ancestor shared with the workspace") {
+		t.Fatalf("symlink error = %v, want workspace-boundary or shared-ancestor rejection", err)
 	}
 }
 
@@ -326,7 +371,7 @@ func TestService_TypeScriptSelectionRejectsOldTSC(t *testing.T) {
 	binDir := t.TempDir()
 	tsc := executableFixture(t, binDir, "tsc")
 	runner := &recordingRunner{run: func(request processrunner.Request) (processrunner.Result, error) {
-		if filepath.Base(request.Command) == "tsc" && len(request.Args) == 1 && request.Args[0] == "--version" {
+		if request.Command == tsc && len(request.Args) == 1 && request.Args[0] == "--version" {
 			return processrunner.Result{Stdout: "Version 5.9.2\n"}, nil
 		}
 		return processrunner.Result{}, nil
@@ -471,6 +516,113 @@ func TestService_StructuralSearchUsesFixedNeutralInvocationAndParsesMatches(t *t
 	}
 	if result.OmittedExternal != 1 {
 		t.Fatalf("omitted external = %d, want 1", result.OmittedExternal)
+	}
+}
+
+func TestService_StructuralSearchExplicitLanguageOverridesMissingOrAmbiguousInference(t *testing.T) {
+	reset := sandbox.SetWrapperForTesting(sandbox.WrapperNone)
+	defer reset()
+	workspace := t.TempDir()
+	for name, contents := range map[string]string{
+		"script":     "echo hello\n",
+		"widget.h":   "class Widget {};\n",
+		" sample.go": "package sample\n",
+	} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	binary := executableFixture(t, t.TempDir(), "ast-grep")
+	runner := &recordingRunner{}
+	service := NewService()
+	service.runner = runner
+	setProviderPath(service, "ast-grep", binary)
+	service.lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+
+	tests := []struct {
+		name     string
+		path     string
+		language string
+		want     string
+	}{
+		{name: "extensionless Bash", path: "script", language: "bash", want: "bash"},
+		{name: "ambiguous C++ header", path: "widget.h", language: "c++", want: "cpp"},
+		{name: "leading whitespace path", path: " sample.go", language: "go", want: "go"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before := len(runner.requests)
+			if _, err := service.Query(context.Background(), workspace, Request{
+				Operation: OpStructuralSearch,
+				Path:      test.path,
+				Language:  test.language,
+				Query:     "$X",
+			}); err != nil {
+				t.Fatalf("structural search: %v", err)
+			}
+			if len(runner.requests) != before+1 {
+				t.Fatalf("runner requests = %d, want %d", len(runner.requests), before+1)
+			}
+			args := runner.requests[before].Args
+			foundLanguage := false
+			for index := 0; index+1 < len(args); index++ {
+				if args[index] == "--lang" && args[index+1] == test.want {
+					foundLanguage = true
+					break
+				}
+			}
+			if !foundLanguage {
+				t.Fatalf("args = %#v, want --lang %s", args, test.want)
+			}
+			wantTarget, err := filepath.EvalSymlinks(filepath.Join(workspace, test.path))
+			if err != nil {
+				t.Fatalf("canonicalize target: %v", err)
+			}
+			if len(args) == 0 {
+				t.Fatal("structural invocation has no arguments")
+			}
+			if args[len(args)-1] != wantTarget {
+				t.Fatalf("target arg = %q, want exact path %q", args[len(args)-1], wantTarget)
+			}
+		})
+	}
+}
+
+func TestService_StructuralSearchRejectsExplicitLanguageForIncompatibleOrUnsupportedExtension(t *testing.T) {
+	workspace := t.TempDir()
+	for _, path := range []string{"sample.go", "sample.rb"} {
+		if err := os.WriteFile(filepath.Join(workspace, path), []byte("fixture\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	runner := &recordingRunner{}
+	service := NewService()
+	service.runner = runner
+
+	tests := []struct {
+		name     string
+		path     string
+		language string
+		want     string
+	}{
+		{name: "incompatible known extension", path: "sample.go", language: "cpp", want: "does not match path"},
+		{name: "unsupported extension", path: "sample.rb", language: "python", want: "no allowlisted structural-search language"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := service.Query(context.Background(), workspace, Request{
+				Operation: OpStructuralSearch,
+				Path:      test.path,
+				Language:  test.language,
+				Query:     "$X",
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q rejection", err, test.want)
+			}
+		})
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("runner requests = %d, want 0", len(runner.requests))
 	}
 }
 

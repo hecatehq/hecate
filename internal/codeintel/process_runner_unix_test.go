@@ -5,6 +5,8 @@ package codeintel
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,6 +14,33 @@ import (
 
 	"github.com/hecatehq/hecate/internal/processrunner"
 )
+
+func TestCodeIntelProcessRunner_PreservesExactExecutablePath(t *testing.T) {
+	directory := t.TempDir()
+	exact := filepath.Join(directory, "provider ")
+	trimmed := filepath.Join(directory, "provider")
+	for path, output := range map[string]string{exact: "exact", trimmed: "trimmed"} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf "+output+"\n"), 0o755); err != nil {
+			t.Fatalf("write executable %q: %v", path, err)
+		}
+	}
+
+	result, err := newCodeIntelProcessRunner().Run(context.Background(), processrunner.Request{
+		Command: exact,
+		// Full-repository race instrumentation can delay process-exit
+		// observation substantially even for this tiny fixture. Keep a hard
+		// bound without making scheduler load part of the identity assertion.
+		Timeout:        10 * time.Second,
+		MaxStdoutBytes: 1024,
+		MaxStderrBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("run exact executable: %v", err)
+	}
+	if result.Stdout != "exact" {
+		t.Fatalf("stdout = %q, want exact executable identity", result.Stdout)
+	}
+}
 
 func TestCodeIntelProcessRunner_SuccessKillsDescendantsBeforeReap(t *testing.T) {
 	runner := newCodeIntelProcessRunner()
