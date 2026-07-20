@@ -89,6 +89,42 @@ func TestProjectJourneyAPI_CairnlineOnlyHandlerLaunchesWithoutNativePortableStor
 	}
 }
 
+func TestProjectJourneyAPI_CairnlineOnlyHandlerDeletesWithoutNativePortableStores(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{
+		Server: config.ServerConfig{DataDir: t.TempDir()},
+		Projects: config.ProjectsConfig{
+			CoordinationBackend:      "cairnline",
+			CairnlineConnector:       "embedded",
+			CairnlineReadSource:      "embedded",
+			CairnlineReplacementMode: "embedded",
+		},
+	}, quietLogger(), nil, nil, nil, nil)
+	client := newAPITestClient(t, NewServer(quietLogger(), handler))
+
+	project := mustRequestJSONStatus[ProjectResponse](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects", projectJourneyJSON(t, map[string]any{
+		"name":             "Cairnline-only delete",
+		"default_provider": "ollama",
+		"default_model":    "qwen2.5-coder",
+	}))
+	projectID := project.Data.ID
+	if projectID == "" || project.Data.ReadBackend != "cairnline" {
+		t.Fatalf("project = %+v, want Cairnline-backed project", project.Data)
+	}
+	if _, ok, err := handler.projectRuntime.GetProjectDefaults(t.Context(), projectID); err != nil || !ok {
+		t.Fatalf("runtime defaults ok=%v err=%v, want Hecate overlay before delete", ok, err)
+	}
+
+	deleted := mustRequestJSONStatus[ProjectDeleteResponse](client, http.StatusOK, http.MethodDelete, "/hecate/v1/projects/"+projectID, "")
+	if deleted.Object != "project_delete" || deleted.Data.ProjectID != projectID || deleted.Data.ProjectName != project.Data.Name || deleted.Data.ProjectRuntimeRowsDeleted != 1 {
+		t.Fatalf("delete response = %+v, want Cairnline identity and Hecate runtime overlay deleted", deleted)
+	}
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/projects/"+projectID, "")
+	if _, ok, err := handler.projectRuntime.GetProjectDefaults(t.Context(), projectID); err != nil || ok {
+		t.Fatalf("runtime defaults after delete ok=%v err=%v, want missing", ok, err)
+	}
+}
+
 func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()

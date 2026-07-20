@@ -742,6 +742,7 @@ export function TasksView({
               setNotice({ tone: "error", message: reason });
               return false;
             }}
+            projectScopeChangeBlockReason={chat.actions.chatOwnershipMutationBlockReason}
             beginProjectDelete={() => {
               const token = chat.actions.beginChatOwnershipMutation();
               if (token !== null) return token;

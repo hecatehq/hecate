@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChat } from "../../app/state/chat";
 import { ProjectsProvider, useProjects } from "../../app/state/projects";
-import { createProject, getProjects, updateProject } from "../../lib/api";
+import { ApiError, createProject, getProjects, updateProject } from "../../lib/api";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
@@ -101,7 +101,11 @@ const project: ProjectRecord = {
   updated_at: "2026-07-13T10:00:00Z",
 };
 
-function ReservedProjectScopePanel() {
+function ReservedProjectScopePanel({
+  onCanChangeProjectScope,
+}: {
+  onCanChangeProjectScope?: () => void;
+} = {}) {
   const chat = useChat();
   const projects = useProjects();
   const [turnAttempt, setTurnAttempt] = useState("not tried");
@@ -145,7 +149,11 @@ function ReservedProjectScopePanel() {
       <ProjectScopePanel
         noProjectDetail="Unprojected"
         emptyHint="No projects"
-        canChangeProjectScope={() => !chat.actions.chatOwnershipMutationBlockReason()}
+        canChangeProjectScope={() => {
+          onCanChangeProjectScope?.();
+          return !chat.actions.chatOwnershipMutationBlockReason();
+        }}
+        projectScopeChangeBlockReason={chat.actions.chatOwnershipMutationBlockReason}
         beginProjectDelete={chat.actions.beginChatOwnershipMutation}
         finishProjectDelete={chat.actions.finishChatOwnershipMutation}
         deleteMessage={(item) => <>Delete {item.name}?</>}
@@ -730,5 +738,97 @@ describe("ProjectScopePanel destructive chat ownership", () => {
 
     await user.click(screen.getByRole("button", { name: "Attach scope image" }));
     expect(screen.getByTestId("scope-draft-count")).toHaveTextContent("1");
+  });
+
+  it("keeps a failed project delete actionable in the dialog and retries", async () => {
+    const user = userEvent.setup();
+    const deleteResult: ProjectDeleteRecord = {
+      project_id: project.id,
+      project_name: project.name,
+      chat_sessions_deleted: 0,
+      project_work_rows_deleted: 0,
+      project_skills_deleted: 0,
+      memory_entries_deleted: 0,
+      memory_candidates_deleted: 0,
+    };
+    const deleteProject = vi
+      .fn<() => Promise<ProjectDeleteRecord | null>>()
+      .mockRejectedValueOnce(
+        new ApiError("Project could not be deleted.", 500, "gateway_error", {
+          operatorAction: "Try again after checking the gateway.",
+        }),
+      )
+      .mockResolvedValueOnce(deleteResult);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(
+        <ProjectScopePanel
+          beginProjectDelete={() => 1}
+          deleteMessage={(item) => <>Delete {item.name}?</>}
+          emptyHint="No projects"
+          finishProjectDelete={() => undefined}
+          noProjectDetail="Unprojected"
+        />,
+        { state, actions: { ...createRuntimeConsoleActions(), deleteProject } },
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Expand projects" }));
+    await user.click(screen.getByRole("button", { name: "Project Scope project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project Scope project" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete project" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete project" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Project could not be deleted. Try again after checking the gateway.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeEnabled();
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Delete project" })).toHaveFocus(),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete project" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Delete project" })).toBeNull(),
+    );
+    expect(deleteProject).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the exact ownership blocker inside the delete dialog", async () => {
+    const user = userEvent.setup();
+    const deleteProject = vi.fn<() => Promise<ProjectDeleteRecord | null>>();
+    const canChangeProjectScope = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(
+        <ReservedProjectScopePanel onCanChangeProjectScope={canChangeProjectScope} />,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), deleteProject },
+        },
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Expand projects" }));
+    await user.click(screen.getByRole("button", { name: "Project Scope project" }));
+    await user.click(screen.getByRole("button", { name: "Attach scope image" }));
+    await user.hover(screen.getByRole("button", { name: "Project Scope project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project Scope project" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete project" });
+    canChangeProjectScope.mockClear();
+    await user.click(within(dialog).getByRole("button", { name: "Delete project" }));
+
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Remove attached files before changing or deleting chat ownership.",
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(canChangeProjectScope).not.toHaveBeenCalled();
+    expect(deleteProject).not.toHaveBeenCalled();
   });
 });
