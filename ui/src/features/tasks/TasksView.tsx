@@ -4,6 +4,7 @@ import {
   applyTaskRunPatch,
   cancelTaskRun,
   createTask,
+  deleteTaskSchedule,
   deleteTask,
   getModels,
   getProviders,
@@ -15,6 +16,8 @@ import {
   getTaskRuns,
   getTaskRunSteps,
   getTasks,
+  getTaskScheduleOccurrences,
+  getTaskSchedules,
   resolveTaskApproval,
   revertTaskRunPatch,
   retryTaskRun,
@@ -23,6 +26,8 @@ import {
   resumeTaskRunRaisingCeiling,
   startTask,
   streamTaskRun,
+  upsertTaskSchedule,
+  type UpsertTaskSchedulePayload,
 } from "../../lib/api";
 import {
   useEnsureProviderPresetsLoaded,
@@ -40,17 +45,43 @@ import type {
   TaskRecord,
   TaskRunEventRecord,
   TaskRunRecord,
+  TaskScheduleOccurrenceRecord,
+  TaskScheduleRecord,
   TaskStepRecord,
 } from "../../types/task";
-import { TaskList } from "./TaskList";
+import { TaskList, type TaskListFilter } from "./TaskList";
 import { TaskDetail } from "./TaskDetail";
 import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
+import type { ScheduleHistoryState, ScheduleLoadState } from "./TaskScheduleControl";
 import { ProjectScopePanel } from "../projects/ProjectScopePanel";
 import { formatProjectDeleteSummary } from "../projects/projectDisplay";
+import { EntityDetailPane, MasterDetailWorkspace } from "../shared/EntityWorkspace";
+import { ConfirmModal } from "../shared/ui";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TaskSelection = { taskID: string; runID: string };
+
+export function taskMatchesFilter(
+  task: TaskRecord,
+  filter: TaskListFilter,
+  schedulesByTaskID: ReadonlyMap<string, TaskScheduleRecord>,
+): boolean {
+  switch (filter) {
+    case "attention":
+      return (
+        (task.pending_approval_count ?? 0) > 0 ||
+        task.status === "awaiting_approval" ||
+        task.status === "failed"
+      );
+    case "scheduled":
+      return schedulesByTaskID.has(task.id);
+    case "chat":
+      return task.origin_kind === "chat";
+    default:
+      return true;
+  }
+}
 
 export function streamModelCallCostKey(modelCallIndex: number | undefined): number | null {
   if (
@@ -65,18 +96,21 @@ export function streamModelCallCostKey(modelCallIndex: number | undefined): numb
 
 function TaskStartState({
   loading,
+  loadError,
   notice,
   onNewTask,
+  onRetry,
 }: {
   loading: boolean;
+  loadError: string;
   notice: { tone: "success" | "error"; message: string } | null;
   onNewTask: () => void;
+  onRetry: () => void;
 }) {
+  const unavailable = Boolean(loadError);
   return (
-    <div
+    <EntityDetailPane
       style={{
-        flex: 1,
-        display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: 24,
@@ -84,19 +118,45 @@ function TaskStartState({
     >
       <div style={{ maxWidth: 460, textAlign: "center" }}>
         <div style={{ fontSize: 15, color: "var(--t0)", fontWeight: 600 }}>
-          {loading ? "Loading tasks…" : "Start a task"}
+          {unavailable ? "Tasks unavailable" : loading ? "Loading tasks…" : "Start a task"}
         </div>
         <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.6, marginTop: 8 }}>
-          {loading
-            ? "Checking the task runtime for recent work."
-            : "Tasks are durable units of work. Each start, continuation, retry, or resume creates a Run. Create standalone shell, Git, file, or agent-loop work here, or inspect work started from Chats and Projects."}
+          {unavailable
+            ? "Hecate could not confirm the current Task list. Retry before creating work so existing Tasks are not mistaken for an empty workspace."
+            : loading
+              ? "Checking the task runtime for recent work."
+              : "Tasks are durable units of work. Each start, continuation, retry, or resume creates a Run. Create standalone shell, Git, file, or agent-loop work here, or inspect work started from Chats and Projects."}
         </div>
-        {!loading && notice?.tone === "error" && (
-          <div className="page-banner page-banner--error" role="alert" style={{ marginTop: 16 }}>
+        {unavailable && (
+          <div
+            className="page-banner page-banner--error"
+            role="alert"
+            aria-live="assertive"
+            style={{ marginTop: 16 }}
+          >
+            {loadError}
+          </div>
+        )}
+        {!unavailable && !loading && notice?.tone === "error" && (
+          <div
+            className="page-banner page-banner--error"
+            role="alert"
+            aria-live="assertive"
+            style={{ marginTop: 16 }}
+          >
             {notice.message}
           </div>
         )}
-        {!loading && (
+        {unavailable ? (
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={onRetry}
+            style={{ marginTop: 18, justifyContent: "center" }}
+          >
+            Retry task load
+          </button>
+        ) : !loading ? (
           <button
             className="btn btn-primary"
             type="button"
@@ -105,9 +165,9 @@ function TaskStartState({
           >
             New task
           </button>
-        )}
+        ) : null}
       </div>
-    </div>
+    </EntityDetailPane>
   );
 }
 
@@ -131,7 +191,18 @@ export function TasksView({
   ) => void;
 } = {}) {
   const [loading, setLoading] = useState(true);
+  const [taskListLoadError, setTaskListLoadError] = useState("");
+  const [taskDetailLoadError, setTaskDetailLoadError] = useState("");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [taskFilter, setTaskFilter] = useState<TaskListFilter>("all");
+  const [schedules, setSchedules] = useState<TaskScheduleRecord[]>([]);
+  const [scheduleLoadState, setScheduleLoadState] = useState<ScheduleLoadState>("loading");
+  const [scheduleLoadError, setScheduleLoadError] = useState("");
+  const [scheduleOccurrences, setScheduleOccurrences] = useState<TaskScheduleOccurrenceRecord[]>(
+    [],
+  );
+  const [scheduleHistoryState, setScheduleHistoryState] = useState<ScheduleHistoryState>("idle");
+  const [scheduleHistoryError, setScheduleHistoryError] = useState("");
   const [selectedTaskID, setSelectedTaskID] = useState("");
   const [runs, setRuns] = useState<TaskRunRecord[]>([]);
   const [selectedRunID, setSelectedRunID] = useState("");
@@ -148,8 +219,10 @@ export function TasksView({
   const [streamModelCallCosts, setStreamModelCallCosts] = useState<Map<number, number>>(new Map());
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [busyAction, setBusyAction] = useState("");
+  const [deletingTaskID, setDeletingTaskID] = useState("");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [pendingDeleteTaskID, setPendingDeleteTaskID] = useState("");
   const [availableModels, setAvailableModels] = useState<ModelRecord[]>([]);
   // Provider catalog feeds the new-task slideover's provider picker
   // and the model picker's per-row "(provider name)" suffix. Loaded
@@ -168,7 +241,10 @@ export function TasksView({
 
   const streamCursorRef = useRef(0);
   const taskLoadGenerationRef = useRef(0);
+  const scheduleMutationGenerationRef = useRef(0);
+  const scheduleHistoryGenerationRef = useRef(0);
   const selectedTaskRunRef = useRef<TaskSelection>({ taskID: "", runID: "" });
+  const taskIndexHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const selectedTask = useMemo(
     () => tasks.find((t) => t.id === selectedTaskID) ?? null,
@@ -178,6 +254,25 @@ export function TasksView({
     () => runs.find((r) => r.id === selectedRunID) ?? null,
     [runs, selectedRunID],
   );
+  const schedulesByTaskID = useMemo(
+    () => new Map(schedules.map((schedule) => [schedule.task_id, schedule])),
+    [schedules],
+  );
+  const selectedSchedule = selectedTaskID ? (schedulesByTaskID.get(selectedTaskID) ?? null) : null;
+  const pendingDeleteTask = pendingDeleteTaskID
+    ? (tasks.find((task) => task.id === pendingDeleteTaskID) ?? null)
+    : null;
+  const effectiveTaskFilter =
+    scheduleLoadState !== "loaded" && taskFilter === "scheduled" ? "all" : taskFilter;
+  const filteredTasks = useMemo(
+    () => tasks.filter((task) => taskMatchesFilter(task, effectiveTaskFilter, schedulesByTaskID)),
+    [effectiveTaskFilter, tasks, schedulesByTaskID],
+  );
+
+  useEffect(() => {
+    if (scheduleLoadState === "loaded") return;
+    setTaskFilter((current) => (current === "scheduled" ? "all" : current));
+  }, [scheduleLoadState]);
   const resetRunDetail = useCallback(() => {
     setSteps([]);
     setArtifacts([]);
@@ -190,6 +285,10 @@ export function TasksView({
   const selectTaskRun = useCallback(
     (taskID: string, runID: string) => {
       const previous = selectedTaskRunRef.current;
+      if (previous.taskID !== taskID) {
+        setRuns([]);
+        setApprovals([]);
+      }
       if (previous.taskID !== taskID || previous.runID !== runID) {
         resetRunDetail();
       }
@@ -233,13 +332,13 @@ export function TasksView({
       ]);
       if (taskLoadGenerationRef.current !== loadGeneration) return null;
       const nextRuns = runsRes.data ?? [];
-      setRuns(nextRuns);
-      setApprovals(approvalsRes.data ?? []);
       const nextRunID =
         (preferredRunID && nextRuns.some((r) => r.id === preferredRunID) ? preferredRunID : "") ||
         nextRuns[0]?.id ||
         "";
       selectTaskRun(taskID, nextRunID);
+      setRuns(nextRuns);
+      setApprovals(approvalsRes.data ?? []);
       if (nextRunID) {
         const loaded = await loadRunDetail(taskID, nextRunID, loadGeneration);
         if (!loaded) return null;
@@ -259,15 +358,26 @@ export function TasksView({
       const loadGeneration = ++taskLoadGenerationRef.current;
       // single-user: always authenticated
       setLoading(true);
+      setScheduleLoadState("loading");
+      setScheduleLoadError("");
+      setTaskDetailLoadError("");
+      let taskListLoaded = false;
       try {
         const res = await getTasks(30, projectID);
         if (taskLoadGenerationRef.current !== loadGeneration) return null;
+        taskListLoaded = true;
+        setTaskListLoadError("");
         const listedTasks = res.data ?? [];
         const nextTasks =
           addressedTask && !listedTasks.some((task) => task.id === addressedTask.id)
             ? [addressedTask, ...listedTasks]
             : listedTasks;
         setTasks(nextTasks);
+        const visibleTaskIDs = nextTasks.map((task) => task.id);
+        const visibleTaskIDSet = new Set(visibleTaskIDs);
+        setSchedules((current) =>
+          current.filter((schedule) => visibleTaskIDSet.has(schedule.task_id)),
+        );
         const currentTaskID = selectedTaskRunRef.current.taskID;
         const preservedTaskID =
           currentTaskID && nextTasks.some((t) => t.id === currentTaskID) ? currentTaskID : "";
@@ -281,17 +391,55 @@ export function TasksView({
         if (selectedTaskRunRef.current.taskID !== nextTaskID) {
           selectTaskRun(nextTaskID, "");
         }
-        if (nextTaskID) {
-          const nextRunID = await loadTaskDetail(nextTaskID, preferredRunID, loadGeneration);
-          if (nextRunID === null) return null;
-          return { taskID: nextTaskID, runID: nextRunID };
+        const scheduleRequest =
+          visibleTaskIDs.length > 0
+            ? getTaskSchedules(visibleTaskIDs)
+            : Promise.resolve({ object: "task_schedules", data: [] as TaskScheduleRecord[] });
+        if (visibleTaskIDs.length === 0) setScheduleLoadState("loaded");
+        const detailRequest = nextTaskID
+          ? loadTaskDetail(nextTaskID, preferredRunID, loadGeneration)
+          : Promise.resolve("");
+        if (!nextTaskID) {
+          setRuns([]);
+          setApprovals([]);
+          selectTaskRun("", "");
         }
-        setRuns([]);
-        setApprovals([]);
-        selectTaskRun("", "");
-        return { taskID: "", runID: "" };
-      } catch {
-        /* silently ignore */
+        const [scheduleResult, detailResult] = await Promise.allSettled([
+          scheduleRequest,
+          detailRequest,
+        ]);
+        if (taskLoadGenerationRef.current !== loadGeneration) return null;
+        if (scheduleResult.status === "fulfilled") {
+          setSchedules(scheduleResult.value.data ?? []);
+          setScheduleLoadState("loaded");
+          setScheduleLoadError("");
+        } else {
+          setScheduleLoadState("error");
+          setScheduleLoadError(
+            scheduleResult.reason instanceof Error
+              ? scheduleResult.reason.message
+              : "unknown error",
+          );
+        }
+        if (detailResult.status === "rejected") {
+          setTaskDetailLoadError(
+            detailResult.reason instanceof Error ? detailResult.reason.message : "unknown error",
+          );
+          return { taskID: nextTaskID, runID: "" };
+        }
+        if (detailResult.value === null) return null;
+        setTaskDetailLoadError("");
+        return { taskID: nextTaskID, runID: detailResult.value };
+      } catch (error) {
+        if (taskLoadGenerationRef.current !== loadGeneration) return null;
+        const message = error instanceof Error ? error.message : "unknown error";
+        if (!taskListLoaded) {
+          setTaskListLoadError(message);
+          setScheduleLoadState("error");
+          setScheduleLoadError("Tasks must load before their Schedules can be refreshed");
+        } else {
+          setTaskDetailLoadError(message);
+        }
         return null;
       } finally {
         if (taskLoadGenerationRef.current === loadGeneration) setLoading(false);
@@ -383,6 +531,40 @@ export function TasksView({
       .then((res) => setAvailableProviders(res.data ?? []))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const historyGeneration = ++scheduleHistoryGenerationRef.current;
+    const taskID = selectedTaskID;
+    if (!selectedTaskID || !selectedSchedule) {
+      setScheduleOccurrences([]);
+      setScheduleHistoryState("idle");
+      setScheduleHistoryError("");
+      return;
+    }
+    setScheduleOccurrences([]);
+    setScheduleHistoryState("loading");
+    setScheduleHistoryError("");
+    void getTaskScheduleOccurrences(selectedTaskID, 20)
+      .then((response) => {
+        if (
+          scheduleHistoryGenerationRef.current === historyGeneration &&
+          selectedTaskRunRef.current.taskID === taskID
+        ) {
+          setScheduleOccurrences(response.data ?? []);
+          setScheduleHistoryState("loaded");
+          setScheduleHistoryError("");
+        }
+      })
+      .catch((error) => {
+        if (
+          scheduleHistoryGenerationRef.current === historyGeneration &&
+          selectedTaskRunRef.current.taskID === taskID
+        ) {
+          setScheduleHistoryState("error");
+          setScheduleHistoryError(error instanceof Error ? error.message : "unknown error");
+        }
+      });
+  }, [selectedSchedule, selectedTaskID]);
 
   useEffect(() => {
     if (!selectedTaskID || !selectedRunID) {
@@ -495,17 +677,19 @@ export function TasksView({
   async function handleSelectTask(taskID: string) {
     selectTaskRun(taskID, "");
     setNotice(null);
+    setTaskDetailLoadError("");
     try {
       const runID = await loadTaskDetail(taskID);
       if (runID === null) return;
+      setTaskDetailLoadError("");
       onSelectionChange?.(taskID, runID || null);
     } catch (err) {
       // 404 here means the cached task ID is stale (gateway restarted
       // with memory backend, tenant change, etc.). Drop the dead row
       // from the visible list so subsequent clicks don't repeat the
       // 404, and surface a concrete notice. Other errors fall through
-      // silently — the run pane already renders an error from the
-      // SSE state if one occurs.
+      // in the selected Task pane without turning it into a Task-list
+      // failure.
       if (err instanceof ApiError && err.status === 404) {
         setNotice({ tone: "error", message: "That task no longer exists. Refreshing." });
         setTasks((cur) => cur.filter((t) => t.id !== taskID));
@@ -516,6 +700,8 @@ export function TasksView({
         if (selection) {
           onSelectionChange?.(selection.taskID || null, selection.runID || null, "replace");
         }
+      } else if (selectedTaskRunRef.current.taskID === taskID) {
+        setTaskDetailLoadError(err instanceof Error ? err.message : "unknown error");
       }
     }
   }
@@ -525,10 +711,17 @@ export function TasksView({
     selectTaskRun(selectedTaskID, runID);
     onSelectionChange?.(selectedTaskID, runID);
     setNotice(null);
+    setTaskDetailLoadError("");
     try {
       await loadRunDetail(selectedTaskID, runID);
-    } catch {
-      /* ignore */
+      setTaskDetailLoadError("");
+    } catch (error) {
+      if (
+        selectedTaskRunRef.current.taskID === selectedTaskID &&
+        selectedTaskRunRef.current.runID === runID
+      ) {
+        setTaskDetailLoadError(error instanceof Error ? error.message : "unknown error");
+      }
     }
   }
 
@@ -684,54 +877,297 @@ export function TasksView({
     }
   }
 
-  async function handleDeleteTask(taskID: string) {
+  async function handleDeleteTask(taskID: string): Promise<boolean> {
+    setDeletingTaskID(taskID);
     setBusyAction("delete:" + taskID);
     try {
       await deleteTask(taskID);
       const nextTasks = tasks.filter((t) => t.id !== taskID);
       setTasks(nextTasks);
+      setSchedules((current) => current.filter((schedule) => schedule.task_id !== taskID));
       if (selectedTaskID === taskID) {
         const next = nextTasks[0]?.id ?? "";
         selectTaskRun(next, "");
-        const nextRunID = next ? await loadTaskDetail(next) : "";
-        if (nextRunID === null) return;
+        let nextRunID = "";
+        if (next) {
+          try {
+            nextRunID = (await loadTaskDetail(next)) ?? "";
+            setTaskDetailLoadError("");
+          } catch (error) {
+            setRuns([]);
+            setApprovals([]);
+            setTaskDetailLoadError(
+              error instanceof Error ? error.message : "The next Task could not be loaded.",
+            );
+          }
+        } else {
+          setRuns([]);
+          setApprovals([]);
+          setTaskDetailLoadError("");
+        }
         onSelectionChange?.(next || null, nextRunID || null, "replace");
       }
+      return true;
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "delete failed" });
+      return false;
+    } finally {
+      setBusyAction((current) => (current === `delete:${taskID}` ? "" : current));
+      setDeletingTaskID((current) => (current === taskID ? "" : current));
+    }
+  }
+
+  async function handleStartRun() {
+    const taskID = selectedTaskRunRef.current.taskID;
+    if (!taskID) return;
+    setBusyAction("start");
+    try {
+      const started = await startTask(taskID);
+      const mergeStartedTaskRow = () => {
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === taskID && !task.latest_run_id
+              ? {
+                  ...task,
+                  status: started.data.status,
+                  latest_run_id: started.data.id,
+                  latest_model: started.data.model,
+                  latest_provider: started.data.provider,
+                  latest_run_step_count: started.data.step_count ?? 0,
+                  latest_run_artifact_count: started.data.artifact_count ?? 0,
+                  last_error: started.data.last_error,
+                  started_at: started.data.started_at,
+                  finished_at: started.data.finished_at,
+                }
+              : task,
+          ),
+        );
+      };
+      mergeStartedTaskRow();
+      if (selectedTaskRunRef.current.taskID !== taskID) return;
+      const ensureStartedRunIsVisible = () => {
+        selectTaskRun(taskID, started.data.id);
+        mergeStartedTaskRow();
+        setRuns((current) =>
+          current.some((run) => run.id === started.data.id) ? current : [started.data, ...current],
+        );
+      };
+      setApprovals([]);
+      ensureStartedRunIsVisible();
+      onSelectionChange?.(taskID, started.data.id);
+      const selection = await loadTasks(taskID, started.data.id, activeProjectID);
+      if (
+        !selection ||
+        selectedTaskRunRef.current.taskID !== taskID ||
+        selection.runID !== started.data.id
+      ) {
+        mergeStartedTaskRow();
+        if (selectedTaskRunRef.current.taskID === taskID) {
+          ensureStartedRunIsVisible();
+          setNotice({
+            tone: "error",
+            message:
+              `First Run started, but Tasks could not refresh. Run #${started.data.number} ` +
+              "is shown from the successful start response; use Refresh task to reconcile.",
+          });
+        }
+        return;
+      }
+      ensureStartedRunIsVisible();
+      setNotice({ tone: "success", message: "First Run started." });
+    } catch (error) {
+      if (selectedTaskRunRef.current.taskID === taskID) {
+        setNotice({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Could not start the first Run.",
+        });
+      }
     } finally {
       setBusyAction("");
     }
   }
 
-  async function handleCreateTask(payload: CreateTaskPayload) {
+  async function handleSaveSchedule(payload: UpsertTaskSchedulePayload): Promise<boolean> {
+    const taskID = selectedTaskRunRef.current.taskID;
+    if (!taskID) throw new Error("Select a task before saving a schedule.");
+    const mutationGeneration = ++scheduleMutationGenerationRef.current;
+    setBusyAction("schedule-save");
+    try {
+      const response = await upsertTaskSchedule(taskID, payload);
+      if (scheduleMutationGenerationRef.current !== mutationGeneration) return false;
+      setSchedules((current) => [
+        response.data,
+        ...current.filter((schedule) => schedule.task_id !== taskID),
+      ]);
+      const selectionIsCurrent = selectedTaskRunRef.current.taskID === taskID;
+      if (selectionIsCurrent) {
+        setNotice({
+          tone: "success",
+          message: payload.enabled ? "Schedule saved." : "Schedule paused.",
+        });
+      }
+      return selectionIsCurrent;
+    } catch (error) {
+      if (
+        scheduleMutationGenerationRef.current === mutationGeneration &&
+        selectedTaskRunRef.current.taskID === taskID
+      ) {
+        setNotice({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Could not save the schedule.",
+        });
+      }
+      throw error;
+    } finally {
+      if (scheduleMutationGenerationRef.current === mutationGeneration) setBusyAction("");
+    }
+  }
+
+  async function handleDeleteSchedule(): Promise<boolean> {
+    const taskID = selectedTaskRunRef.current.taskID;
+    if (!taskID) throw new Error("Select a task before removing a schedule.");
+    const mutationGeneration = ++scheduleMutationGenerationRef.current;
+    setBusyAction("schedule-delete");
+    try {
+      await deleteTaskSchedule(taskID);
+      if (scheduleMutationGenerationRef.current !== mutationGeneration) return false;
+      setSchedules((current) => current.filter((schedule) => schedule.task_id !== taskID));
+      const selectionIsCurrent = selectedTaskRunRef.current.taskID === taskID;
+      if (selectionIsCurrent) {
+        setScheduleOccurrences([]);
+        setScheduleHistoryState("idle");
+        setScheduleHistoryError("");
+        setNotice({ tone: "success", message: "Schedule removed." });
+      }
+      return selectionIsCurrent;
+    } catch (error) {
+      if (
+        scheduleMutationGenerationRef.current === mutationGeneration &&
+        selectedTaskRunRef.current.taskID === taskID
+      ) {
+        setNotice({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Could not remove the schedule.",
+        });
+      }
+      throw error;
+    } finally {
+      if (scheduleMutationGenerationRef.current === mutationGeneration) setBusyAction("");
+    }
+  }
+
+  async function handleCreateTask(payload: CreateTaskPayload): Promise<boolean> {
     setBusyAction("create");
+    setNotice(null);
+    const { start_immediately: startImmediately, ...taskPayload } = payload;
+    let createdTask: TaskRecord;
     try {
       const created = await createTask({
-        ...payload,
+        ...taskPayload,
         project_id: activeProjectID || undefined,
       });
-      const started = await startTask(created.data.id);
-      setNewTaskOpen(false);
-      await loadTasks(created.data.id, started.data.id, activeProjectID);
-      onSelectionChange?.(created.data.id, started.data.id);
-    } catch (err) {
+      createdTask = created.data;
+    } catch (error) {
       setNotice({
         tone: "error",
-        message: err instanceof Error ? err.message : "failed to create task",
+        message: `Task could not be created: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
       });
+      setBusyAction("");
+      return false;
+    }
+
+    const showCreatedTaskLocally = (startedRun: TaskRunRecord | null) => {
+      const fallbackTask: TaskRecord = startedRun
+        ? {
+            ...createdTask,
+            status: startedRun.status,
+            latest_run_id: startedRun.id,
+            latest_model: startedRun.model,
+            latest_provider: startedRun.provider,
+            latest_run_step_count: startedRun.step_count ?? 0,
+            latest_run_artifact_count: startedRun.artifact_count ?? 0,
+            last_error: startedRun.last_error,
+            started_at: startedRun.started_at,
+            finished_at: startedRun.finished_at,
+          }
+        : {
+            ...createdTask,
+            latest_run_id: undefined,
+            latest_model: undefined,
+            latest_provider: undefined,
+            latest_run_step_count: undefined,
+            latest_run_artifact_count: undefined,
+          };
+      selectTaskRun(createdTask.id, startedRun?.id ?? "");
+      setTasks((current) => [
+        fallbackTask,
+        ...current.filter((task) => task.id !== createdTask.id),
+      ]);
+      setRuns(startedRun ? [startedRun] : []);
+      setApprovals([]);
+    };
+
+    try {
+      let started: Awaited<ReturnType<typeof startTask>> | null = null;
+      if (startImmediately) {
+        try {
+          started = await startTask(createdTask.id);
+        } catch (error) {
+          setNewTaskOpen(false);
+          const selection = await loadTasks(createdTask.id, "", activeProjectID, createdTask);
+          if (!selection) showCreatedTaskLocally(null);
+          onSelectionChange?.(createdTask.id, null);
+          setNotice({
+            tone: "error",
+            message: `Task created, but its first Run could not start: ${
+              error instanceof Error ? error.message : "unknown error"
+            }. Use Start first Run to retry.`,
+          });
+          return true;
+        }
+      }
+      setNewTaskOpen(false);
+      const runID = started?.data.id ?? "";
+      const selection = await loadTasks(createdTask.id, runID, activeProjectID, createdTask);
+      if (!selection) showCreatedTaskLocally(started?.data ?? null);
+      onSelectionChange?.(createdTask.id, runID || null);
+      if (!startImmediately) {
+        setNotice({
+          tone: "success",
+          message: "Task created without a Run. Add a schedule or start it when you are ready.",
+        });
+      }
+      return true;
     } finally {
       setBusyAction("");
     }
   }
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden", position: "relative" }}>
+    <MasterDetailWorkspace>
       <TaskList
-        tasks={tasks}
+        tasks={filteredTasks}
         selectedTaskID={selectedTaskID}
         loading={loading}
         busyAction={busyAction}
+        deletingTaskID={deletingTaskID}
+        filter={effectiveTaskFilter}
+        onFilterChange={setTaskFilter}
+        schedulesByTaskID={schedulesByTaskID}
+        scheduleLoadState={scheduleLoadState}
+        scheduleLoadError={scheduleLoadError}
+        indexHeadingRef={taskIndexHeadingRef}
+        newTaskDisabled={Boolean(taskListLoadError)}
+        newTaskDisabledReason="Retry the Task list before creating a Task."
+        emptyMessage={
+          taskListLoadError
+            ? "Tasks could not be loaded."
+            : tasks.length === 0
+              ? undefined
+              : "No tasks match this filter."
+        }
         projectScope={
           <ProjectScopePanel
             noProjectDetail="Unprojected tasks only."
@@ -779,8 +1215,10 @@ export function TasksView({
           />
         }
         onSelect={(id) => void handleSelectTask(id)}
-        onDelete={(id) => void handleDeleteTask(id)}
+        onDelete={setPendingDeleteTaskID}
         onNewTask={() => {
+          if (taskListLoadError) return;
+          setNotice(null);
           setNewTaskOpen(true);
         }}
       />
@@ -811,6 +1249,7 @@ export function TasksView({
           onFocusRequestHandled={onFocusRequestHandled}
           onResolveApproval={(approval, decision) => void handleResolveApproval(approval, decision)}
           onCancelRun={() => void handleCancelRun()}
+          onStartRun={() => void handleStartRun()}
           onRetryRun={() => void handleRetryRun()}
           onResumeRun={() => void handleResumeRun()}
           onRefresh={() => void loadTasks(selectedTaskID, selectedRunID)}
@@ -828,14 +1267,28 @@ export function TasksView({
               : null
           }
           onOpenTrace={onOpenTrace}
+          schedule={selectedSchedule}
+          scheduleOccurrences={scheduleOccurrences}
+          scheduleLoadState={scheduleLoadState}
+          scheduleLoadError={scheduleLoadError}
+          scheduleHistoryState={scheduleHistoryState}
+          scheduleHistoryError={scheduleHistoryError}
+          taskListLoadError={taskListLoadError}
+          taskDetailLoadError={taskDetailLoadError}
+          onSaveSchedule={handleSaveSchedule}
+          onDeleteSchedule={handleDeleteSchedule}
         />
       ) : (
         <TaskStartState
           loading={loading}
+          loadError={taskListLoadError}
           notice={notice}
           onNewTask={() => {
+            if (taskListLoadError) return;
+            setNotice(null);
             setNewTaskOpen(true);
           }}
+          onRetry={() => void loadTasks("", "", activeProjectID)}
         />
       )}
 
@@ -848,13 +1301,39 @@ export function TasksView({
         busyAction={busyAction}
         errorMessage={notice?.tone === "error" ? notice.message : undefined}
         onClose={() => setNewTaskOpen(false)}
-        onCreate={(payload) => void handleCreateTask(payload)}
+        onCreate={handleCreateTask}
       />
+
+      {pendingDeleteTask && (
+        <ConfirmModal
+          danger
+          title="Delete task"
+          confirmLabel="Delete task"
+          message={
+            <>
+              Delete{" "}
+              <strong>
+                {pendingDeleteTask.title || pendingDeleteTask.prompt || "Untitled task"}
+              </strong>
+              ? This permanently removes the Task, all of its Runs, its Schedule, and occurrence
+              history. This cannot be undone.
+            </>
+          }
+          pending={deletingTaskID === pendingDeleteTask.id}
+          returnFocusRef={taskIndexHeadingRef}
+          onClose={() => {
+            if (deletingTaskID !== pendingDeleteTask.id) setPendingDeleteTaskID("");
+          }}
+          onConfirm={async () => {
+            if (await handleDeleteTask(pendingDeleteTask.id)) setPendingDeleteTaskID("");
+          }}
+        />
+      )}
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:0} }
       `}</style>
-    </div>
+    </MasterDetailWorkspace>
   );
 }

@@ -14,11 +14,15 @@ import (
 )
 
 type recordingTaskApplicationRunner struct {
-	startCalls int
-	startTask  types.Task
-	retryCalls int
-	retryTask  types.Task
-	retryRun   types.TaskRun
+	startCalls          int
+	startTask           types.Task
+	startErr            error
+	scheduledStartCalls int
+	scheduledRun        types.TaskRun
+	scheduledStart      orchestrator.ScheduledTaskStart
+	retryCalls          int
+	retryTask           types.Task
+	retryRun            types.TaskRun
 
 	resumeCalls  int
 	resumeTask   types.Task
@@ -45,7 +49,22 @@ type recordingTaskApplicationRunner struct {
 func (r *recordingTaskApplicationRunner) StartTask(_ context.Context, task types.Task, _ func(string) string) (*orchestrator.StartTaskResult, error) {
 	r.startCalls++
 	r.startTask = task
+	if r.startErr != nil {
+		return nil, r.startErr
+	}
 	run := types.TaskRun{ID: "run_started", TaskID: task.ID, Status: "queued"}
+	return &orchestrator.StartTaskResult{Task: task, Run: run}, nil
+}
+
+func (r *recordingTaskApplicationRunner) StartScheduledTask(_ context.Context, task types.Task, _ func(string) string, schedule orchestrator.ScheduledTaskStart) (*orchestrator.StartTaskResult, error) {
+	r.scheduledStartCalls++
+	r.scheduledStart = schedule
+	run := types.TaskRun{
+		ID: "run_scheduled", TaskID: task.ID, Status: "queued",
+		ScheduleID: schedule.ScheduleID, ScheduleOccurrenceID: schedule.ScheduleOccurrenceID,
+		ScheduledFor: schedule.ScheduledFor,
+	}
+	r.scheduledRun = run
 	return &orchestrator.StartTaskResult{Task: task, Run: run}, nil
 }
 
@@ -197,8 +216,11 @@ func TestTaskApplication_CreateTaskAppliesDefaults(t *testing.T) {
 	if task.TimeoutMS != 120000 {
 		t.Fatalf("timeout_ms = %d, want 120000", task.TimeoutMS)
 	}
-	if task.Priority != "normal" || task.Status != "queued" {
-		t.Fatalf("priority/status = %q/%q, want normal/queued", task.Priority, task.Status)
+	if task.Priority != "normal" || task.Status != types.TaskStatusNotStarted {
+		t.Fatalf("priority/status = %q/%q, want normal/%s", task.Priority, task.Status, types.TaskStatusNotStarted)
+	}
+	if task.LatestRunID != "" {
+		t.Fatalf("latest_run_id = %q, want empty before first run", task.LatestRunID)
 	}
 	if got := task.CreatedAt; !got.Equal(time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)) {
 		t.Fatalf("created_at = %s, want fixed clock", got)
@@ -470,6 +492,79 @@ func TestTaskApplication_StartTaskRejectsActiveRunBeforeRunner(t *testing.T) {
 	}
 	if runner.startCalls != 0 {
 		t.Fatalf("runner start calls = %d, want 0", runner.startCalls)
+	}
+}
+
+func TestTaskApplication_StartTaskMapsTaskDeletedBeforeAdmission(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingTaskApplicationRunner{startErr: taskstate.ErrTaskNotFound}
+	app := newTestTaskApplication(store, runner)
+	task := createTaskForAppTest(t, ctx, store, types.Task{
+		ID: "task_deleted_before_admission", Status: types.TaskStatusNotStarted,
+	})
+
+	_, err := app.StartTask(ctx, task)
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("StartTask() error = %v, want ErrTaskNotFound", err)
+	}
+	if runner.startCalls != 1 {
+		t.Fatalf("runner start calls = %d, want 1", runner.startCalls)
+	}
+}
+
+func TestTaskApplication_StartScheduledTaskStampsOccurrenceBeforeRunCreation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingTaskApplicationRunner{}
+	app := newTestTaskApplication(store, runner)
+	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_scheduled", Status: types.TaskStatusNotStarted})
+	scheduledFor := time.Date(2026, time.July, 20, 10, 15, 0, 0, time.FixedZone("local", 2*60*60))
+
+	result, err := app.StartScheduledTask(ctx, task, ScheduledStartCommand{
+		ScheduleID:           "schedule_1",
+		ScheduleOccurrenceID: "occurrence_1",
+		ScheduledFor:         scheduledFor,
+		ClaimOwner:           "scheduler_1",
+	})
+	if err != nil {
+		t.Fatalf("StartScheduledTask() error = %v", err)
+	}
+	if runner.scheduledStartCalls != 1 {
+		t.Fatalf("scheduled start calls = %d, want 1", runner.scheduledStartCalls)
+	}
+	if result.Run.ScheduleID != "schedule_1" || result.Run.ScheduleOccurrenceID != "occurrence_1" {
+		t.Fatalf("schedule provenance = %q/%q, want schedule_1/occurrence_1", result.Run.ScheduleID, result.Run.ScheduleOccurrenceID)
+	}
+	if !result.Run.ScheduledFor.Equal(scheduledFor.UTC()) || result.Run.ScheduledFor.Location() != time.UTC {
+		t.Fatalf("scheduled_for = %v, want %v UTC", result.Run.ScheduledFor, scheduledFor.UTC())
+	}
+	if runner.scheduledStart.ClaimOwner != "scheduler_1" {
+		t.Fatalf("scheduled claim owner = %q, want scheduler_1", runner.scheduledStart.ClaimOwner)
+	}
+}
+
+func TestTaskApplication_StartScheduledTaskRequiresClaimOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingTaskApplicationRunner{}
+	app := newTestTaskApplication(store, runner)
+	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_scheduled_owner", Status: types.TaskStatusNotStarted})
+
+	_, err := app.StartScheduledTask(ctx, task, ScheduledStartCommand{
+		ScheduleID: "schedule_1", ScheduleOccurrenceID: "occurrence_1", ScheduledFor: time.Now().UTC(),
+	})
+	if !errors.Is(err, ErrScheduleClaimOwnerRequired) || !IsValidationError(err) {
+		t.Fatalf("StartScheduledTask() error = %v, want claim-owner validation", err)
+	}
+	if runner.scheduledStartCalls != 0 {
+		t.Fatalf("scheduled start calls = %d, want 0", runner.scheduledStartCalls)
 	}
 }
 
@@ -963,6 +1058,16 @@ func TestTaskApplication_DeleteRejectsStaleSummaryWhenLatestRunActive(t *testing
 	}
 	if _, found, err := store.GetTask(ctx, task.ID); err != nil || !found {
 		t.Fatalf("task after delete attempt: found=%t err=%v, want still present", found, err)
+	}
+}
+
+func TestTaskApplication_DeleteMapsAtomicStoreNotFound(t *testing.T) {
+	t.Parallel()
+
+	app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
+	err := app.DeleteTask(t.Context(), "task_missing")
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("DeleteTask() error = %v, want ErrTaskNotFound", err)
 	}
 }
 

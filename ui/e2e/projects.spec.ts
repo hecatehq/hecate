@@ -1420,7 +1420,7 @@ test("Projects External Agent continuity: preserve the right draft, complete a t
   await expect(page).toHaveURL(new RegExp(`/chats\\?chat=${chatSessionID}$`));
   await expect(composer).toHaveValue(editedDraft);
 
-  await page.getByRole("button", { name: /Chat Other project chat/ }).click();
+  await page.getByRole("link", { name: /Chat Other project chat/ }).click();
   await expect(composer).toHaveValue("");
   await composer.fill("Unrelated operator draft that must stay with the other chat.");
 
@@ -2455,7 +2455,7 @@ test("Projects catalog retry preserves deliberate browser focus", async ({ page 
 
   await page.goto("/projects");
   await expect(page.getByText("Projects unavailable", { exact: true })).toBeVisible();
-  const retryButton = page.getByRole("button", { name: "Retry" });
+  const retryButton = page.getByRole("button", { name: "Retry", exact: true });
   await retryButton.focus();
   await retryButton.click();
 
@@ -2506,7 +2506,7 @@ test("Project scope recovers the catalog outside the Projects workspace", async 
 
   await page.goto("/tasks");
   await expect(page.getByText("Projects could not be loaded.")).toBeVisible();
-  const retryButton = page.getByRole("button", { name: "Retry" });
+  const retryButton = page.getByRole("button", { name: "Retry", exact: true });
   await retryButton.focus();
   await retryButton.click();
 
@@ -2520,7 +2520,7 @@ test("Project scope recovers the catalog outside the Projects workspace", async 
     "Projects loaded.",
   );
   await expect(page.getByRole("button", { name: "Expand projects" })).toBeFocused();
-  await expect(page.getByRole("button", { name: /Retry/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
   expect(state.projectCatalogRequestCount).toBe(2);
 });
 

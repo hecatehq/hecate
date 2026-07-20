@@ -14,6 +14,8 @@ import (
 	"github.com/hecatehq/hecate/internal/providerapp"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
+	"github.com/hecatehq/hecate/internal/taskschedule"
+	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
 func (h *Handler) dictationApplication() *dictationapp.Application {
@@ -39,6 +41,18 @@ func (h *Handler) taskApplication() *taskapp.Application {
 		MaxMCPServers: h.config.Server.TaskMaxMCPServersPerTask,
 		IDGenerator:   newOpaqueTaskResourceID,
 		OriginRunGate: h.taskRunOriginGate(),
+	})
+}
+
+func (h *Handler) taskscheduleApplication() *taskschedule.Application {
+	if h == nil {
+		return taskschedule.New(taskschedule.Options{})
+	}
+	scheduleStore, _ := h.taskStore.(taskstate.ScheduleStore)
+	return taskschedule.New(taskschedule.Options{
+		Store:       scheduleStore,
+		Tasks:       h.taskStore,
+		IDGenerator: newOpaqueTaskResourceID,
 	})
 }
 

@@ -360,8 +360,18 @@ textarea {
   color: var(--t0);
 }
 
-.chat-view {
+.entity-workspace {
   flex-direction: row;
+}
+
+.entity-list-row__primary:focus-visible {
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--teal);
+  outline: none;
+}
+
+.entity-list-row__primary:hover {
+  color: inherit;
 }
 
 .retention-controls {
@@ -395,11 +405,11 @@ textarea {
 }
 
 @media (max-width: 720px) {
-  .chat-view {
-    --chat-sidebar-border-bottom: 1px solid var(--border);
-    --chat-sidebar-border-right: 0;
-    --chat-sidebar-max-height: 260px;
-    --chat-sidebar-width: 100%;
+  .entity-workspace {
+    --entity-index-border-bottom: 1px solid var(--border);
+    --entity-index-border-right: 0;
+    --entity-index-max-height: 260px;
+    --entity-index-width: 100%;
     flex-direction: column;
   }
 

@@ -14,25 +14,29 @@ import (
 
 type MemoryStore struct {
 	runEventBus
-	mu        sync.Mutex
-	tasks     map[string]types.Task
-	runs      map[string]types.TaskRun
-	steps     map[string]types.TaskStep
-	approvals map[string]types.TaskApproval
-	artifacts map[string]types.TaskArtifact
-	events    map[string][]types.TaskRunEvent
-	nextSeq   int64
+	mu          sync.Mutex
+	tasks       map[string]types.Task
+	runs        map[string]types.TaskRun
+	steps       map[string]types.TaskStep
+	approvals   map[string]types.TaskApproval
+	artifacts   map[string]types.TaskArtifact
+	events      map[string][]types.TaskRunEvent
+	schedules   map[string]TaskSchedule
+	occurrences map[string]TaskScheduleOccurrence
+	nextSeq     int64
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		tasks:     make(map[string]types.Task),
-		runs:      make(map[string]types.TaskRun),
-		steps:     make(map[string]types.TaskStep),
-		approvals: make(map[string]types.TaskApproval),
-		artifacts: make(map[string]types.TaskArtifact),
-		events:    make(map[string][]types.TaskRunEvent),
-		nextSeq:   1,
+		tasks:       make(map[string]types.Task),
+		runs:        make(map[string]types.TaskRun),
+		steps:       make(map[string]types.TaskStep),
+		approvals:   make(map[string]types.TaskApproval),
+		artifacts:   make(map[string]types.TaskArtifact),
+		events:      make(map[string][]types.TaskRunEvent),
+		schedules:   make(map[string]TaskSchedule),
+		occurrences: make(map[string]TaskScheduleOccurrence),
+		nextSeq:     1,
 	}
 }
 
@@ -106,10 +110,19 @@ func (s *MemoryStore) UpdateTask(_ context.Context, task types.Task) (types.Task
 }
 
 func (s *MemoryStore) DeleteTask(_ context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("task id is required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.tasks[id]; !ok {
-		return fmt.Errorf("task %q not found", id)
+		return fmt.Errorf("%w: %q", ErrTaskNotFound, id)
+	}
+	for _, run := range s.runs {
+		if run.TaskID == id && !types.IsTerminalTaskRunStatus(run.Status) {
+			return ErrActiveRun
+		}
 	}
 	delete(s.tasks, id)
 	for runID, run := range s.runs {
@@ -133,6 +146,16 @@ func (s *MemoryStore) DeleteTask(_ context.Context, id string) error {
 	for k, artifact := range s.artifacts {
 		if artifact.TaskID == id {
 			delete(s.artifacts, k)
+		}
+	}
+	for scheduleID, schedule := range s.schedules {
+		if schedule.TaskID == id {
+			s.deleteTaskScheduleLocked(scheduleID)
+		}
+	}
+	for key, occurrence := range s.occurrences {
+		if occurrence.TaskID == id {
+			delete(s.occurrences, key)
 		}
 	}
 	return nil

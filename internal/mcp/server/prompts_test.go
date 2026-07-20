@@ -38,6 +38,9 @@ func TestDefaultPrompt_CreateAgentTask(t *testing.T) {
 			t.Fatalf("prompt text missing %q: %s", want, text)
 		}
 	}
+	if !strings.Contains(text, "no Run has started yet") || strings.Contains(text, "latest run id") {
+		t.Fatalf("prompt does not preserve the unstarted task contract: %s", text)
+	}
 }
 
 func TestDefaultPrompt_RequiresArguments(t *testing.T) {

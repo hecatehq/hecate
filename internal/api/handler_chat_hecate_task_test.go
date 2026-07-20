@@ -54,6 +54,9 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 	if runner.startCalls != 1 || runner.continueCalls != 0 {
 		t.Fatalf("runner calls = start %d continue %d, want start only", runner.startCalls, runner.continueCalls)
 	}
+	if runner.startTask.Status != types.TaskStatusNotStarted || runner.startTask.LatestRunID != "" {
+		t.Fatalf("task before first run = status %q latest_run_id %q, want not started with no run", runner.startTask.Status, runner.startTask.LatestRunID)
+	}
 	if task.ID != "task_fixed" || task.Title != "Hecate Chat" || task.Prompt != "use tools" || task.SystemPrompt != "be concise" {
 		t.Fatalf("task identity/prompt = %+v, want fixed Hecate Chat task", task)
 	}

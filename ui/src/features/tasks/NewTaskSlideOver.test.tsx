@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,14 @@ const agentLoopModelFixtures = [
     metadata: { provider: "test", provider_kind: "local", default: false },
   },
 ];
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function setup(propOverrides: Partial<React.ComponentProps<typeof NewTaskSlideOver>> = {}) {
   const props: React.ComponentProps<typeof NewTaskSlideOver> = {
@@ -116,6 +124,52 @@ describe("NewTaskSlideOver submit", () => {
         execution_kind: "shell",
         shell_command: "echo hi",
         prompt: "echo hi",
+      }),
+    );
+  });
+
+  it("retains the form when durable Task creation fails asynchronously", async () => {
+    const creation = deferred<boolean>();
+    const onCreate = vi.fn(() => creation.promise);
+    const { render, user } = setup({ onCreate });
+    render();
+    const command = screen.getByLabelText("Shell command");
+    await user.type(command, "echo retry me");
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    expect(command).toHaveValue("echo retry me");
+    await act(async () => creation.resolve(false));
+    expect(command).toHaveValue("echo retry me");
+  });
+
+  it("resets the form only after durable Task creation resolves successfully", async () => {
+    const creation = deferred<boolean>();
+    const onCreate = vi.fn(() => creation.promise);
+    const { render, user } = setup({ onCreate });
+    render();
+    const command = screen.getByLabelText("Shell command");
+    await user.type(command, "echo completed");
+    await user.click(screen.getByRole("button", { name: /create task & start run/i }));
+
+    expect(command).toHaveValue("echo completed");
+    await act(async () => creation.resolve(true));
+    await waitFor(() => expect(command).toHaveValue(""));
+  });
+
+  it("offers an explicit create-only choice for Tasks that will be scheduled later", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({ onCreate });
+    render();
+    expect(screen.getByRole("radio", { name: /Start a Run now/i })).toBeChecked();
+    await user.type(screen.getByPlaceholderText(/ls -la/i), "echo later");
+    await user.click(screen.getByRole("radio", { name: /Create without starting/i }));
+    await user.click(screen.getByRole("button", { name: /^Create task$/i }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_kind: "shell",
+        shell_command: "echo later",
+        start_immediately: false,
       }),
     );
   });

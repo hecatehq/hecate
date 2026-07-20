@@ -4980,7 +4980,7 @@ func TestUsageEndpointsStayDocumented(t *testing.T) {
 	}
 }
 
-func TestTasksCreateListAndGet(t *testing.T) {
+func TestTasksCreateListGetAndFirstRunLifecycle(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -5002,8 +5002,11 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	if created.Data.ID == "" {
 		t.Fatal("task id = empty, want task id")
 	}
-	if created.Data.Status != "queued" {
-		t.Fatalf("status = %q, want queued", created.Data.Status)
+	if created.Data.Status != "not_started" {
+		t.Fatalf("status = %q, want not_started", created.Data.Status)
+	}
+	if created.Data.LatestRunID != "" {
+		t.Fatalf("latest_run_id = %q, want empty before first run", created.Data.LatestRunID)
 	}
 	if created.Data.Repo != "hecate" {
 		t.Fatalf("repo = %q, want hecate", created.Data.Repo)
@@ -5045,6 +5048,11 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	}
 	if fetched.Data.ProjectID != project.ID {
 		t.Fatalf("fetched project_id = %q, want %q", fetched.Data.ProjectID, project.ID)
+	}
+
+	runsBeforeStart := mustTaskRequestJSON[TaskRunsResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID+"/runs", "")
+	if len(runsBeforeStart.Data) != 0 {
+		t.Fatalf("runs before start = %#v, want none", runsBeforeStart.Data)
 	}
 
 	startRecorder := tasks.mustRequest(http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")

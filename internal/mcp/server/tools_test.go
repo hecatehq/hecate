@@ -309,7 +309,7 @@ func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {
 				t.Errorf("requested_model = %q, want passthrough", body.RequestedModel)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"id":"task-new1","status":"queued","execution_kind":"agent_loop","latest_run_id":"run-first1"}}`))
+			_, _ = w.Write([]byte(`{"data":{"id":"task-new1","status":"not_started","execution_kind":"agent_loop"}}`))
 		},
 	})
 	server := NewServer("t", "0")
@@ -321,10 +321,13 @@ func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {
 		t.Fatalf("create_task: %v", err)
 	}
 	body := result.Content[0].Text
-	for _, want := range []string{"task-new1", "agent_loop", "queued", "run-first1", "get_task_status"} {
+	for _, want := range []string{"task-new1", "agent_loop", "not_started", "No Run has started", "get_task_status"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("output missing %q; got: %s", want, body)
 		}
+	}
+	if strings.Contains(body, "first run:") {
+		t.Fatalf("output invents a first run for an unstarted task: %s", body)
 	}
 }
 

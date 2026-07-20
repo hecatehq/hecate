@@ -119,6 +119,10 @@ type Task struct {
 	MCPServers []MCPServerConfig
 }
 
+// TaskStatusNotStarted is the canonical projection for a Task that has no Run.
+// A Task does not become queued until its first Run is durably admitted.
+const TaskStatusNotStarted = "not_started"
+
 const (
 	WorkspaceSystemPromptInherit = "inherit"
 	WorkspaceSystemPromptExclude = "exclude"
@@ -274,6 +278,13 @@ type TaskRun struct {
 	// fence for a disclosure boundary. Public task-run renderers intentionally
 	// omit it.
 	InputProviderDisclosedInstance ProviderInstanceIdentity
+	// ScheduleID and ScheduleOccurrenceID identify the durable schedule
+	// occurrence that created this run. They are both empty for manually
+	// started runs. ScheduledFor is the occurrence's nominal wall-clock time,
+	// which can precede StartedAt when the runtime coalesces a missed trigger.
+	ScheduleID           string
+	ScheduleOccurrenceID string
+	ScheduledFor         time.Time
 }
 
 type TaskStep struct {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskruncoord"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -326,6 +327,59 @@ func TestReconcilePendingRuns_OriginValidationControlsRecovery(t *testing.T) {
 			t.Fatalf("recovered run = %+v found=%t err=%v enqueued=%+v", stored, found, err, queue.enqueued)
 		}
 	})
+}
+
+func TestReconcileStaleRunRepairsFailedPostTransitionEnqueue(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	queue := &failFirstEnqueueQueue{failures: 1}
+	runner := &Runner{
+		logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store:    store,
+		policies: make(map[string]struct{}),
+	}
+	attachTestQueueCoordinator(runner, queue)
+	now := time.Now().UTC()
+	task := types.Task{
+		ID: "task-stale-enqueue-repair", Status: "running", LatestRunID: "run-stale-enqueue-repair",
+		CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{
+		ID: task.LatestRunID, TaskID: task.ID, Status: "running", StartedAt: now.Add(-time.Hour),
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	if err := runner.reconcileStaleRuns(ctx, time.Minute); err == nil {
+		t.Fatal("reconcileStaleRuns error = nil, want enqueue failure")
+	}
+	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found || storedRun.Status != "queued" {
+		t.Fatalf("Run after stale transition enqueue failure = (%+v, %v, %v), want queued", storedRun, found, err)
+	}
+	if len(runner.queueCoordinator.pendingReconciles) != 1 {
+		t.Fatalf("pending reconciles = %+v, want failed post-transition enqueue registered", runner.queueCoordinator.pendingReconciles)
+	}
+	if err := runner.queueCoordinator.retryPendingReconciles(ctx); err != nil {
+		t.Fatalf("retryPendingReconciles: %v", err)
+	}
+	if len(queue.enqueued) != 1 || queue.enqueued[0] != (QueueJob{TaskID: task.ID, RunID: run.ID}) {
+		t.Fatalf("queued jobs = %+v, want recovered stale Run", queue.enqueued)
+	}
+	if len(runner.queueCoordinator.pendingReconciles) != 0 {
+		t.Fatalf("pending reconciles after retry = %+v, want cleared", runner.queueCoordinator.pendingReconciles)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	assertEventCount(t, events, runtimeevents.EventGapRunDisconnected.String(), 1)
 }
 
 func TestReconcilePendingRuns_CASPreservesConcurrentTerminalWinner(t *testing.T) {

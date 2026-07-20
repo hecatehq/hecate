@@ -327,12 +327,23 @@ removed or described as distributed atomic coordination.
 
 ## Task runtime flow
 
-Tasks are durable: a run survives process restarts, can be resumed from a terminal state, and is leased to one worker at a time so two replicas can share a queue without stepping on each other.
+Tasks are durable: a Run survives process restarts, can be resumed from a
+terminal state, and is leased to one worker at a time so two replicas can share
+a queue without stepping on each other. A Schedule is a separate durable
+trigger attached to one Task; it creates an ordinary Run only when it fires.
 
 ```mermaid
 flowchart TD
     Caller["POST /hecate/v1/tasks/{id}/start"] --> TasksApi["Tasks API"]
     TasksApi --> Runner["Orchestrator runner"]
+    ScheduleEditor["PUT /hecate/v1/tasks/{id}/schedule"] --> ScheduleApi["Schedule API"]
+    ScheduleApi --> ScheduleState["Schedule state<br/>+ occurrence ledger"]
+    Clock["In-process scheduler<br/>polls due times"] --> Scheduler["Schedule manager"]
+    Scheduler -->|"list due"| ScheduleState
+    ScheduleState -->|"atomic claim + advance"| Scheduler
+    Scheduler -->|"no active Run"| Runner
+    Scheduler -->|"another Run active"| Skipped["Occurrence skipped<br/>(no backlog)"]
+
     Runner -->|"agent_loop, incomplete explicit route"| ErrModel["422 model_not_configured<br/>(no run created)"]
     Runner --> Workspace["Workspace manager<br/>(clone source to temp dir,<br/>or use source in_place)"]
     Workspace --> Queue["Run queue<br/>(leased)"]
@@ -379,6 +390,33 @@ flowchart TD
 
 Key invariants:
 
+- **A Schedule triggers; a Run executes.** No future Run is parked in the
+  queue. Manual and scheduled starts meet at the task application and
+  orchestrator boundary, so scheduled work retains the ordinary active-Run
+  guard, workspace, sandbox, approval, model, and budget behavior. Run
+  provenance records `schedule_id`, `schedule_occurrence_id`, and
+  `scheduled_for`; it does not create a Chat Turn.
+- **Occurrence admission is durable.** Claiming inserts one occurrence for the
+  unique `(schedule_id, scheduled_for)` key and advances or disables the
+  Schedule in the same memory lock or SQL transaction. Schedule definitions
+  carry an internal revision: both operator edits and claims advance it, so a
+  stale due snapshot cannot overwrite a newer cron definition and an edit
+  cannot restore a consumed occurrence. A second atomic transition validates
+  the claim owner and either links an idempotently existing Run, records an
+  active-Run overlap as skipped, or inserts the Run, projects the parent Task,
+  marks the occurrence started, appends the initial lifecycle events, and
+  creates any required pre-execution approval together. A live owner renews
+  its claim at no more than one-third of the stale-owner window while workspace
+  provisioning is in progress. Stale recovery therefore cannot create a
+  second Run, strand an approval-gated Run, or revive a skipped occurrence
+  after a crash. Queue insertion is the only post-commit side effect; it is
+  duplicate-safe, enters targeted reconciliation on failure, and is also
+  recovered by the normal boot scan.
+- **Catch-up is bounded.** A due one-time Schedule produces one occurrence.
+  Missed recurring times coalesce into one occurrence, then advance to the
+  first time after the current clock. If any Run is active—including
+  `awaiting_approval`—the occurrence is recorded as skipped instead of waiting
+  behind it.
 - **Workspace before queue.** Every run has a workspace before a worker can claim it. Default is an isolated clone of `task.WorkingDirectory` (or `task.Repo`) under `${TMPDIR}/hecate-workspaces/<task_id>/<run_id>`; opt in to `workspace_mode=in_place` to run directly in the source. A Hecate Chat task segment may carry internal `WorkspaceReuse` only when its working directory matches the prior durable run workspace, preserving dirty managed work without changing the session's managed posture. The sandbox `AllowedRoot` is the workspace path in every case.
 - **Lease before work.** A worker doesn't see a `task_run` until it has claimed a lease; if it crashes, the lease expires and another worker can pick the run up. Pinned by `HECATE_TASK_QUEUE_LEASE_SECONDS`.
 - **Workspace IO goes through WorkspaceFS.** Hecate-mediated file, search, and write tools resolve paths through `internal/workspacefs` before touching the filesystem. That shared resolver keeps traversal and symlink checks in one place instead of duplicating them across tools.
@@ -407,6 +445,13 @@ The orchestrator owns:
 - executor dispatch for `shell`, `git`, `file`, and `agent_loop`
 - blocking task approvals and the transition back to the queue after approval
 - run events, steps, artifacts, stdout/stderr capture, final-answer artifacts, and trace correlation
+
+`internal/taskschedule/` owns Schedule validation, CRUD application semantics,
+and the in-process due/claim/recovery loop. It does not execute Tasks. After a
+claim it calls `taskapp.StartScheduledTask`, which stamps occurrence provenance
+and enters the same orchestrator start path as ordinary Task work. Startup
+starts the scheduler after persisted-Run recovery is wired; shutdown joins the
+scheduler before draining the runner so no new Run can enter a stopped queue.
 
 The orchestrator does **not** own OpenAI/Anthropic request routing for normal
 chat traffic, and it does not own external-agent adapter runtimes such as Codex,
@@ -569,6 +614,13 @@ The full storage reference lives in [`docs/operator/deployment.md`](../operator/
   or faster, then performs one final conditional renewal before the atomic
   commit. A renewal that no longer matches the pending owner token and payload
   fingerprint fails closed before provider, task, or ACP dispatch.
+- Task Schedules and their occurrence ledger use the optional
+  `taskstate.ScheduleStore` seam so narrow task-store test doubles do not grow
+  scheduler methods. Memory, SQLite, and Postgres implement the same CRUD,
+  due-list, atomic claim/advance, owner-fenced claim renewal, stale-reclaim,
+  completion, and history
+  contract. SQL uses a unique `(schedule_id, scheduled_for)` key; Task or
+  Schedule deletion cascades its occurrences.
 - The SQLite task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for
   atomic claim under WAL. The Postgres queue uses `FOR UPDATE SKIP LOCKED`.
   Both are race-tested; the opt-in Postgres smoke covers real dialect behavior.

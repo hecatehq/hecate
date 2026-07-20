@@ -36,6 +36,8 @@ describe("ChatHeader", () => {
   it("keeps workspace actions in the chat header without owning the global terminal", () => {
     const { rerender, props } = renderChatHeader();
 
+    expect(screen.getByRole("banner", { name: "Chat details" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Hecate chat" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
     expect(screen.getByRole("button", { name: "Workspace changes" })).toBeTruthy();
 

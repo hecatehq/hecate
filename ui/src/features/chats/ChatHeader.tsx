@@ -1,4 +1,5 @@
 import type { ChatSessionRecord } from "../../types/chat";
+import { EntityDetailHeader } from "../shared/EntityWorkspace";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
 import { WorkspaceOpenMenu } from "./WorkspaceOpenMenu";
 
@@ -61,18 +62,7 @@ export function ChatHeader(props: Props) {
   } = props;
 
   return (
-    <div
-      style={{
-        height: "var(--topbar-h)",
-        borderBottom: "1px solid var(--border)",
-        display: "flex",
-        alignItems: "center",
-        padding: "0 12px",
-        gap: 8,
-        flexShrink: 0,
-        background: "var(--bg1)",
-      }}
-    >
+    <EntityDetailHeader aria-label="Chat details">
       {!sidebarOpen && (
         <button
           className="btn btn-ghost btn-sm"
@@ -93,18 +83,19 @@ export function ChatHeader(props: Props) {
         style={{ flexShrink: 0 }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div
+        <h1
           style={{
             fontSize: 13,
             fontWeight: 500,
             color: "var(--t0)",
+            margin: 0,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           }}
         >
           {title}
-        </div>
+        </h1>
         {subline && (
           <div
             title={sublineHoverTitle}
@@ -259,6 +250,6 @@ export function ChatHeader(props: Props) {
           </button>
         </div>
       )}
-    </div>
+    </EntityDetailHeader>
   );
 }

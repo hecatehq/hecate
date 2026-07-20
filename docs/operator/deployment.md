@@ -423,8 +423,8 @@ Hecate keeps one process-wide backend selector for Hecate-owned state.
 
 This backend covers settings, encrypted provider credentials, audit and usage
 history, Agent Presets, chat sessions, external-agent approvals and grants,
-chat attachment bodies, tasks, the task queue, and Hecate's
-project-runtime overlays.
+chat attachment bodies, Tasks, the task queue, Task Schedules and their
+occurrence ledger, and Hecate's project-runtime overlays.
 
 Portable Projects coordination is stored by embedded
 [Cairnline](https://github.com/hecatehq/cairnline) in
@@ -454,6 +454,12 @@ Deployment-specific notes:
 - When `HECATE_BACKEND=sqlite` or `postgres`, Hecate reconciles pending
   external-agent approvals from a prior process to `status=timed_out`,
   `path=startup_reconcile` before serving requests.
+- Task Schedules use the same backend as their Tasks. SQLite and Postgres keep
+  Schedule configuration and occurrence claims across restarts; memory loses
+  both when the process exits. An atomic occurrence key and claim-owner fence
+  coordinate runtimes that share the store, but the runtime process still has
+  to be running to dispatch due work. Missed recurring times coalesce at
+  startup rather than becoming a backfill queue.
 - Every backend runs Chat attachment recovery before serving: pending
   message-id claim fences are resolved from transcript metadata and a
   metadata-only session sweep removes bodies whose owning chat no longer

@@ -54,6 +54,9 @@ import type {
   TaskRunResponse,
   TaskRunStreamEventResponse,
   TaskRunsResponse,
+  TaskScheduleOccurrencesResponse,
+  TaskScheduleResponse,
+  TaskSchedulesResponse,
   TaskStepsResponse,
   TasksResponse,
 } from "../types/task";
@@ -294,6 +297,14 @@ export type CreateTaskPayload = {
   //     file / agent_loop tools land in the operator's actual repo.
   //     Requires an absolute, existing working_directory or repo.
   workspace_mode?: string;
+};
+
+export type UpsertTaskSchedulePayload = {
+  kind: "once" | "cron";
+  timezone: string;
+  enabled: boolean;
+  run_at?: string;
+  cron_expression?: string;
 };
 
 export type ResolveTaskApprovalPayload = {
@@ -1530,6 +1541,43 @@ export async function createTask(payload: CreateTaskPayload): Promise<TaskRespon
 
 export async function getTask(taskID: string): Promise<TaskResponse> {
   return fetchJSON<TaskResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}`);
+}
+
+export async function getTaskSchedules(taskIDs: string[]): Promise<TaskSchedulesResponse> {
+  const params = new URLSearchParams();
+  taskIDs.forEach((taskID) => params.append("task_id", taskID));
+  return fetchJSON<TaskSchedulesResponse>(`${HECATE_API}/task-schedules?${params.toString()}`);
+}
+
+export async function getTaskSchedule(taskID: string): Promise<TaskScheduleResponse> {
+  return fetchJSON<TaskScheduleResponse>(
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/schedule`,
+  );
+}
+
+export async function upsertTaskSchedule(
+  taskID: string,
+  payload: UpsertTaskSchedulePayload,
+): Promise<TaskScheduleResponse> {
+  return fetchJSON<TaskScheduleResponse>(
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/schedule`,
+    { method: "PUT", body: payload },
+  );
+}
+
+export async function deleteTaskSchedule(taskID: string): Promise<void> {
+  await fetchJSON(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/schedule`, {
+    method: "DELETE",
+  });
+}
+
+export async function getTaskScheduleOccurrences(
+  taskID: string,
+  limit = 20,
+): Promise<TaskScheduleOccurrencesResponse> {
+  return fetchJSON<TaskScheduleOccurrencesResponse>(
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/schedule/occurrences?limit=${encodeURIComponent(String(limit))}`,
+  );
 }
 
 export async function getTaskRuns(taskID: string): Promise<TaskRunsResponse> {

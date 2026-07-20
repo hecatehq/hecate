@@ -511,7 +511,7 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
                   label="Queue depth"
                   value={stats.queue_depth > 0 ? stats.queue_depth : "Idle"}
                   sub={stats.queue_capacity ? `capacity ${stats.queue_capacity}` : undefined}
-                  help="Tasks waiting to be claimed by a task runner."
+                  help="Runs waiting to be claimed by a task runner."
                   highlight={stats.queue_depth > 0}
                   status={stats.queue_depth > 0 ? "active" : "idle"}
                 />
@@ -519,7 +519,7 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
                   label="Task runners"
                   value={stats.worker_count}
                   sub={stats.worker_count === 1 ? "slot available" : "slots available"}
-                  help="Configured runner slots that can claim queued tasks."
+                  help="Configured runner slots that can claim queued Runs."
                 />
                 <StatCard
                   label="Active jobs"

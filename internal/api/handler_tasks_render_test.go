@@ -3,11 +3,32 @@ package api
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+func TestRenderTaskRun_ExposesScheduleProvenance(t *testing.T) {
+	t.Parallel()
+
+	scheduledFor := time.Date(2026, time.July, 20, 8, 30, 0, 0, time.FixedZone("local", 2*60*60))
+	item := renderTaskRun(types.TaskRun{
+		ID:                   "run_1",
+		TaskID:               "task_1",
+		ScheduleID:           "schedule_1",
+		ScheduleOccurrenceID: "occurrence_1",
+		ScheduledFor:         scheduledFor,
+	})
+
+	if item.ScheduleID != "schedule_1" || item.ScheduleOccurrenceID != "occurrence_1" {
+		t.Fatalf("schedule provenance = %q/%q, want schedule_1/occurrence_1", item.ScheduleID, item.ScheduleOccurrenceID)
+	}
+	if item.ScheduledFor != "2026-07-20T06:30:00Z" {
+		t.Fatalf("scheduled_for = %q, want UTC timestamp", item.ScheduledFor)
+	}
+}
 
 func TestRenderTaskRunUsesDirectRunProjectLinkage(t *testing.T) {
 	t.Parallel()

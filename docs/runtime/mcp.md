@@ -47,7 +47,7 @@ Seven tools — four reads and three writes:
 | `get_task_status`          | read                            | Detailed status of one task by id, including its latest run                                                                             |
 | `summarize_recent_traffic` | read                            | Aggregated request stats: by-provider breakdown, error rate, avg latency                                                                |
 | `search_traces`            | read                            | Search recent trace summaries by text, or fetch one exact trace by `request_id` with span/event details                                 |
-| `create_task`              | write                           | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id              |
+| `create_task`              | write                           | Create a not-started `agent_loop` Task with optional title / working_directory / model / provider / budget. It creates no Run           |
 | `resolve_approval`         | write (destructive)             | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject cancels the run with `approval rejected` |
 | `cancel_run`               | write (destructive, idempotent) | Cancel an in-flight task run. Cooperative — the worker stops at the next safe checkpoint                                                |
 
@@ -77,7 +77,7 @@ workflow templates:
 
 | Prompt              | Arguments                                | Description                                                              |
 | ------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
-| `create_agent_task` | `prompt` (required), `working_directory` | Guides the client to queue a new `agent_loop` task with `create_task`    |
+| `create_agent_task` | `prompt` (required), `working_directory` | Guides the client to create a not-started `agent_loop` Task              |
 | `investigate_task`  | `task_id` (required)                     | Inspect one task and summarize state, latest run, approvals, or failures |
 | `investigate_trace` | `request_id` (required)                  | Inspect one trace and explain routing, latency, status, and span clues   |
 | `operator_briefing` | none                                     | Produce a short handoff from recent tasks and recent traffic             |

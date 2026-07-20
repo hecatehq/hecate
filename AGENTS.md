@@ -55,6 +55,8 @@ internal/
   taskapp/              task lifecycle application layer used by API handlers:
                           creation defaults, load helpers, active-run guards,
                           approval resolution dispatch, runner calls
+  taskschedule/         Task Schedule validation, CRUD semantics, durable
+                          occurrence claiming/renewal, and due-dispatch loop
   providers/            outbound HTTP per provider (openAIChatMessage, lowercase)
                           — same JSON shape as api/, deliberate duplication
   gateway/              top-level request orchestration: governor → router → provider
@@ -173,7 +175,13 @@ touches request handling, persistence, or tool execution.
   then use `taskstate.ApplyRunStartTransition` as the memory/SQLite/Postgres
   authority for the no-active-run check, monotonic budget raise, run number,
   task projection, and run insert. Do not split those writes back into
-  read/check/update calls. Cancellation persists its terminal winner before
+  read/check/update calls. Scheduled starts renew their claim at no more than
+  one-third of its stale-owner window while provisioning, then atomically
+  commit the Run, Task projection, occurrence result, initial lifecycle events,
+  and any required pre-execution approval. Queue handoff after that commit must
+  be idempotent and enter targeted reconciliation on failure. Task deletion
+  uses the same store concurrency boundary, rejects every non-terminal Run,
+  and cascades only after that check in one transaction. Cancellation persists its terminal winner before
   draining the executor, then reapplies child cleanup without duplicating the
   terminal event so a late step, streaming artifact, or approval cannot remain
   actionable on a cancelled run. That replay must preserve the authoritative

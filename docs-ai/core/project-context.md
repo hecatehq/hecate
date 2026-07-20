@@ -204,6 +204,8 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
+internal/taskschedule/     Task Schedule validation, CRUD, occurrence claims,
+                             claim renewal, and due-dispatch loop
 internal/taskworkflow/     small built-in Task workflow contracts; no scheduler,
                              Project coordination, or durable workflow store
 internal/browserrunner/    narrow local Chromium inspection seam for native,
@@ -264,8 +266,9 @@ The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAI
 
 ## Storage tier rule
 
-Every Hecate-owned backend-bound concern (taskstate, chat, approvals, governor,
-retention history) ships with mirrored tiers:
+Every Hecate-owned backend-bound concern (taskstate, Task Schedules and their
+occurrence ledger, chat, approvals, governor, retention history) ships with
+mirrored tiers:
 
 - `memory` — in-process, default, perfect for `go test` and `just dev`.
 - `sqlite` — single-file local persistence via `modernc.org/sqlite` (no CGO).

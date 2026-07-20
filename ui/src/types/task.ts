@@ -118,6 +118,9 @@ export type TaskRunRecord = {
   otel_status_code?: string;
   otel_status_message?: string;
   source_ref?: TaskRunSourceRefRecord;
+  schedule_id?: string;
+  schedule_occurrence_id?: string;
+  scheduled_for?: string;
 };
 
 export type TaskRunSourceRefRecord = {
@@ -125,6 +128,46 @@ export type TaskRunSourceRefRecord = {
   chat_session_id: string;
   turn_id: string;
   message_id: string;
+};
+
+export type TaskScheduleRecord = {
+  id: string;
+  task_id: string;
+  kind: "once" | "cron";
+  cron_expression?: string;
+  timezone: string;
+  run_at?: string;
+  enabled: boolean;
+  next_run_at?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TaskScheduleOccurrenceRecord = {
+  id: string;
+  task_id: string;
+  schedule_id: string;
+  scheduled_for: string;
+  status: "claimed" | "started" | "skipped" | "failed";
+  claimed_at: string;
+  run_id?: string;
+  error?: string;
+  completed_at?: string;
+};
+
+export type TaskScheduleResponse = {
+  object: string;
+  data: TaskScheduleRecord;
+};
+
+export type TaskSchedulesResponse = {
+  object: string;
+  data: TaskScheduleRecord[];
+};
+
+export type TaskScheduleOccurrencesResponse = {
+  object: string;
+  data: TaskScheduleOccurrenceRecord[];
 };
 
 export type TaskRunsResponse = {

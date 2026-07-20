@@ -14,7 +14,7 @@ func RegisterDefaultPrompts(s *Server) {
 	s.RegisterPrompt(mcp.Prompt{
 		Name:        "create_agent_task",
 		Title:       "Create Hecate agent task",
-		Description: "Turn a request into a queued Hecate agent_loop task through the create_task tool.",
+		Description: "Turn a request into a not-started Hecate agent_loop task through the create_task tool.",
 		Arguments: []mcp.PromptArgument{
 			{Name: "prompt", Title: "Prompt", Description: "The work the Hecate agent_loop should perform.", Required: true},
 			{Name: "working_directory", Title: "Working directory", Description: "Optional absolute workspace path for an in-place task."},
@@ -54,7 +54,7 @@ func createAgentTaskPrompt(_ context.Context, args map[string]string) (mcp.GetPr
 	workingDirectory := strings.TrimSpace(args["working_directory"])
 	var b strings.Builder
 	b.WriteString("Create a Hecate agent_loop task for this request using the `create_task` MCP tool. ")
-	b.WriteString("After creating it, report the task id and latest run id, then suggest checking status with `get_task_status`.\n\n")
+	b.WriteString("After creating it, report the task id and that no Run has started yet. Do not claim it is queued or has a latest run.\n\n")
 	if workingDirectory != "" {
 		fmt.Fprintf(&b, "Use workspace_mode `in_place` and working_directory `%s`.\n\n", workingDirectory)
 	}

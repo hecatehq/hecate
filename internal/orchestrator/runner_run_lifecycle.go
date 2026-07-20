@@ -21,7 +21,7 @@ type disconnectedRunRequeueOptions struct {
 
 func (r *Runner) emitRunQueuedAndEnqueue(ctx context.Context, taskID, runID, requestID, traceID string, eventData map[string]any) error {
 	_, _ = r.emitRunEvent(ctx, taskID, runID, runtimeevents.EventRunQueued.String(), requestID, traceID, eventData)
-	return r.enqueueRun(taskID, runID)
+	return r.enqueueRunWithReconcile(taskID, runID)
 }
 
 func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, run types.TaskRun, opts disconnectedRunRequeueOptions) error {
@@ -75,5 +75,5 @@ func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, ru
 	if err != nil || !result.Applied {
 		return err
 	}
-	return r.enqueueRun(task.ID, run.ID)
+	return r.enqueueRunWithReconcile(task.ID, run.ID)
 }

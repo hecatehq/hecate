@@ -9,12 +9,19 @@ import (
 )
 
 var (
-	// ErrActiveRun is returned when an atomic run-start transition finds a
-	// durable non-terminal run for the same task.
+	// ErrTaskNotFound is returned when an atomic task-scoped transition can no
+	// longer find its parent Task.
+	ErrTaskNotFound = errors.New("task not found")
+	// ErrActiveRun is returned when an atomic Run admission or Task deletion
+	// finds a durable non-terminal Run for the same Task.
 	ErrActiveRun = errors.New("task already has an active run")
 	// ErrBudgetLower protects the durable per-task ceiling from stale or
 	// concurrent resume requests that would lower it.
 	ErrBudgetLower = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
+	// ErrScheduleOccurrenceClaimLost is returned when a scheduled Run start no
+	// longer owns the durable occurrence claim. Callers must not create or
+	// enqueue a Run after this fence has been lost.
+	ErrScheduleOccurrenceClaimLost = errors.New("task schedule occurrence claim is no longer owned")
 	// ErrRichInputProviderRouteConflict prevents a provider-bound rich input
 	// from being sent through a different durable route after admission.
 	ErrRichInputProviderRouteConflict = errors.New("rich input provider route conflicts with the admitted route")
@@ -32,6 +39,193 @@ type ArtifactFilter struct {
 	StepID string
 	Kind   string
 	Limit  int
+}
+
+const (
+	TaskScheduleKindOnce = "once"
+	TaskScheduleKindCron = "cron"
+
+	TaskScheduleOccurrenceClaimed = "claimed"
+	TaskScheduleOccurrenceStarted = "started"
+	TaskScheduleOccurrenceSkipped = "skipped"
+	TaskScheduleOccurrenceFailed  = "failed"
+)
+
+// TaskSchedule is the durable trigger configuration for one Task. TaskID is
+// unique across schedules; changing a Task's schedule updates this record
+// without replacing its identity or occurrence history.
+type TaskSchedule struct {
+	ID             string
+	TaskID         string
+	Kind           string
+	CronExpression string
+	Timezone       string
+	RunAt          time.Time
+	Enabled        bool
+	NextRunAt      time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	// Revision advances on every schedule definition change and occurrence
+	// claim. It is an internal CAS token and is intentionally omitted from the
+	// public schedule wire shape.
+	Revision int64
+}
+
+type TaskScheduleFilter struct {
+	TaskIDs []string
+	Enabled *bool
+	Limit   int
+}
+
+// TaskScheduleOccurrence records the durable handoff of one scheduled fire.
+// ID is its provenance identity; ScheduleID and ScheduledFor are also unique
+// and form the idempotency key used by schedule claims.
+type TaskScheduleOccurrence struct {
+	ID           string
+	TaskID       string
+	ScheduleID   string
+	ScheduledFor time.Time
+	Status       string
+	ClaimOwner   string
+	ClaimedAt    time.Time
+	RunID        string
+	Error        string
+	CompletedAt  time.Time
+}
+
+// TaskScheduleOccurrenceClaim advances a schedule only if ScheduledFor still
+// equals its durable NextRunAt. A zero NextRunAt disables the schedule.
+type TaskScheduleOccurrenceClaim struct {
+	OccurrenceID string
+	ScheduleID   string
+	// ExpectedScheduleRevision fences a manager snapshot so an operator edit
+	// that preserves NextRunAt cannot be advanced using the stale definition.
+	ExpectedScheduleRevision int64
+	ScheduledFor             time.Time
+	NextRunAt                time.Time
+	ClaimOwner               string
+	ClaimedAt                time.Time
+}
+
+type TaskScheduleOccurrenceReclaim struct {
+	ScheduleID   string
+	ScheduledFor time.Time
+	StaleBefore  time.Time
+	ClaimOwner   string
+	ClaimedAt    time.Time
+}
+
+// TaskScheduleOccurrenceRenewal keeps a live occurrence claim from becoming
+// eligible for stale recovery while its owner is still dispatching the Run.
+// OccurrenceID and ClaimOwner are compare-and-swap fences: a displaced worker
+// cannot extend a claim after another owner has reclaimed it.
+type TaskScheduleOccurrenceRenewal struct {
+	OccurrenceID string
+	ScheduleID   string
+	ScheduledFor time.Time
+	ClaimOwner   string
+	ClaimedAt    time.Time
+}
+
+// TaskScheduleOccurrenceCompletion settles ownership of a claimed occurrence.
+// Status must be started, skipped, or failed. ClaimOwner is a compare-and-swap
+// fence so a stale worker cannot overwrite a reclaimed occurrence.
+type TaskScheduleOccurrenceCompletion struct {
+	ScheduleID   string
+	ScheduledFor time.Time
+	ClaimOwner   string
+	Status       string
+	RunID        string
+	Error        string
+	CompletedAt  time.Time
+}
+
+type TaskScheduleOccurrenceFilter struct {
+	ScheduleID    string
+	Status        string
+	ClaimedBefore time.Time
+	Limit         int
+}
+
+// ScheduleStore is optional so narrow Store test doubles and consumers do not
+// need to implement scheduling before they use the core task-state contract.
+type ScheduleStore interface {
+	CompareAndSwapTaskSchedule(ctx context.Context, mutation TaskScheduleCompareAndSwap) (TaskSchedule, bool, error)
+	GetTaskSchedule(ctx context.Context, id string) (TaskSchedule, bool, error)
+	GetTaskScheduleByTask(ctx context.Context, taskID string) (TaskSchedule, bool, error)
+	ListTaskSchedules(ctx context.Context, filter TaskScheduleFilter) ([]TaskSchedule, error)
+	DeleteTaskSchedule(ctx context.Context, id string) error
+	ListDueTaskSchedules(ctx context.Context, dueAt time.Time, limit int) ([]TaskSchedule, error)
+	ClaimTaskScheduleOccurrence(ctx context.Context, claim TaskScheduleOccurrenceClaim) (TaskScheduleOccurrence, bool, error)
+	ReclaimTaskScheduleOccurrence(ctx context.Context, reclaim TaskScheduleOccurrenceReclaim) (TaskScheduleOccurrence, bool, error)
+	RenewTaskScheduleOccurrence(ctx context.Context, renewal TaskScheduleOccurrenceRenewal) (TaskScheduleOccurrence, bool, error)
+	CompleteTaskScheduleOccurrence(ctx context.Context, completion TaskScheduleOccurrenceCompletion) (TaskScheduleOccurrence, bool, error)
+	ListTaskScheduleOccurrences(ctx context.Context, filter TaskScheduleOccurrenceFilter) ([]TaskScheduleOccurrence, error)
+}
+
+type TaskScheduleCompareAndSwap struct {
+	Schedule         TaskSchedule
+	ExpectedRevision int64
+}
+
+// TaskScheduleRunAdmission is the atomic handoff from a claimed schedule
+// occurrence to the ordinary Task Run lifecycle. The candidate Task and Run
+// follow RunStartTransition's merge rules; ClaimOwner fences stale workers,
+// while CompletedAt timestamps either the started link or an overlap skip.
+// Approval is required for an awaiting-approval candidate and is committed
+// together with that Run and its initial durable lifecycle events.
+type TaskScheduleRunAdmission struct {
+	Task            types.Task
+	Run             types.TaskRun
+	Approval        *types.TaskApproval
+	BudgetMicrosUSD int64
+	ClaimOwner      string
+	CompletedAt     time.Time
+}
+
+// TaskScheduleRunPreflight closes the common overlap/replay cases before
+// workspace provisioning. Ready means no active Run existed at this instant;
+// ApplyTaskScheduleRunAdmission must still recheck after provisioning because
+// another process can start a Run in between.
+type TaskScheduleRunPreflight struct {
+	TaskID               string
+	ScheduleID           string
+	ScheduleOccurrenceID string
+	ScheduledFor         time.Time
+	ClaimOwner           string
+	CompletedAt          time.Time
+}
+
+type TaskScheduleRunPreflightResult struct {
+	Task        types.Task
+	Run         types.TaskRun
+	Occurrence  TaskScheduleOccurrence
+	Ready       bool
+	ExistingRun bool
+	Skipped     bool
+}
+
+// TaskScheduleRunAdmissionResult returns the authoritative durable state.
+// Applied means a new Run was inserted. ExistingRun means this occurrence was
+// already represented by Run and callers must not repeat durable post-create
+// effects; an existing queued Run may still be safely re-enqueued. Skipped
+// means an overlapping active Run won and the occurrence was settled without
+// creating a Run.
+type TaskScheduleRunAdmissionResult struct {
+	Task        types.Task
+	Run         types.TaskRun
+	Occurrence  TaskScheduleOccurrence
+	Applied     bool
+	ExistingRun bool
+	Skipped     bool
+}
+
+// ScheduledRunStore is optional so the core Store interface and its narrow
+// test doubles remain stable. Every production schedule-capable store
+// implements it; scheduled dispatch fails closed when it is unavailable.
+type ScheduledRunStore interface {
+	PreflightTaskScheduleRunAdmission(ctx context.Context, preflight TaskScheduleRunPreflight) (TaskScheduleRunPreflightResult, error)
+	ApplyTaskScheduleRunAdmission(ctx context.Context, admission TaskScheduleRunAdmission) (TaskScheduleRunAdmissionResult, error)
 }
 
 type RunFilter struct {
@@ -100,8 +294,9 @@ type RunStartTransition struct {
 }
 
 type RunStartTransitionResult struct {
-	Task types.Task
-	Run  types.TaskRun
+	Task        types.Task
+	Run         types.TaskRun
+	ExistingRun bool
 }
 
 // RunStateTransition atomically changes one non-terminal run and its parent
@@ -223,6 +418,8 @@ type Store interface {
 	GetTask(ctx context.Context, id string) (types.Task, bool, error)
 	ListTasks(ctx context.Context, filter TaskFilter) ([]types.Task, error)
 	UpdateTask(ctx context.Context, task types.Task) (types.Task, error)
+	// DeleteTask serializes with Run admission, rejects a Task with any
+	// non-terminal Run, and cascades all durable Task children atomically.
 	DeleteTask(ctx context.Context, id string) error
 
 	CreateRun(ctx context.Context, run types.TaskRun) (types.TaskRun, error)
