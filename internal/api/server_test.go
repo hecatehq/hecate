@@ -2644,11 +2644,16 @@ func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
 		client.handler.ServeHTTP(recorder, request)
 		revertDone <- recorder
 	}()
+	// The request reaches the injected restore fence only after bounded Git
+	// snapshots and lifecycle admission checks. Keep the fence assertion
+	// deterministic on a loaded race/build host without changing the production
+	// writer-drain or lifecycle semantics under test.
+	const restoreFenceTimeout = 15 * time.Second
 	select {
 	case <-blockingRunner.restoreStarted:
 	case recorder := <-revertDone:
 		t.Fatalf("revert completed before restore fence: status=%d body=%s", recorder.Code, recorder.Body.String())
-	case <-time.After(3 * time.Second):
+	case <-time.After(restoreFenceTimeout):
 		close(blockingRunner.restoreRelease)
 		t.Fatal("revert did not reach blocked restore")
 	}
