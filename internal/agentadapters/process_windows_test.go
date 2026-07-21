@@ -3,6 +3,7 @@
 package agentadapters
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,7 +21,7 @@ const agentProcessTreePIDFile = "HECATE_AGENT_PROCESS_TREE_PID_FILE"
 
 func TestAgentProcessTreeTerminatesDescendants(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestAgentProcessTreeHelperProcess$")
+	cmd := exec.CommandContext(context.Background(), os.Args[0], "-test.run=^TestAgentProcessTreeHelperProcess$")
 	cmd.Env = append(os.Environ(),
 		agentProcessTreeHelperMode+"=parent",
 		agentProcessTreePIDFile+"="+pidFile,
