@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatConfigOptionRecord } from "../../types/chat";
@@ -49,6 +49,7 @@ export function NewChatAgentButton({
   onCreate: (value: ChatAgentOptionID) => void;
   onSetupAgent?: (adapterID: string) => void;
 }) {
+  const launchDisclosureID = useId();
   const { open, setOpen, toggle, wrapRef, triggerRef, menuRef } = useFloatingMenu<
     HTMLDivElement,
     HTMLButtonElement
@@ -67,6 +68,22 @@ export function NewChatAgentButton({
   const options = chatAgentPickerOptions(adapters, healthByID, disableUnavailable, 17);
   const selectedDisabled = disableUnavailable && !selectedStatus.ready;
   const effectiveSelected = selectedDisabled ? chatAgentOption("hecate", adapters) : selected;
+  const effectiveAdapter =
+    effectiveSelected.id === "hecate"
+      ? undefined
+      : adapters.find((item) => item.id === effectiveSelected.id);
+  const effectiveHealth =
+    effectiveSelected.id === "hecate" ? undefined : healthByID.get(effectiveSelected.id);
+  const executablePath = externalAgentExecutablePath(effectiveAdapter, effectiveHealth);
+  const startsExternalAgent = effectiveSelected.id !== "hecate";
+  const externalAgentLaunchDisclosure = startsExternalAgent
+    ? `Starts ${effectiveSelected.label}${executablePath ? ` from ${executablePath}` : ""} and opens an ACP session`
+    : "";
+  const createActionTitle =
+    createTitle ||
+    (startsExternalAgent
+      ? externalAgentLaunchDisclosure
+      : `Start a new ${effectiveSelected.label} chat`);
 
   useEffect(() => {
     if (!selectedDisabled || selected.id === "hecate") return;
@@ -118,7 +135,8 @@ export function NewChatAgentButton({
           className="btn btn-primary btn-sm"
           disabled={createDisabled}
           type="button"
-          title={createTitle ?? `Start a new ${effectiveSelected.label} chat`}
+          aria-describedby={startsExternalAgent ? launchDisclosureID : undefined}
+          title={createActionTitle}
           onClick={() => {
             if (createDisabled) return;
             if (selectedDisabled && effectiveSelected.id !== selected.id) {
@@ -171,6 +189,27 @@ export function NewChatAgentButton({
           <Icon d={Icons.chevD} size={12} />
         </button>
       </div>
+      {startsExternalAgent && (
+        <div
+          id={launchDisclosureID}
+          style={{
+            color: "var(--t3)",
+            fontSize: 10,
+            lineHeight: 1.4,
+            marginTop: 5,
+            overflowWrap: "anywhere",
+          }}
+        >
+          Starts {effectiveSelected.label}
+          {executablePath ? (
+            <>
+              {" "}
+              from <code style={{ fontFamily: "var(--font-mono)" }}>{executablePath}</code>
+            </>
+          ) : null}{" "}
+          and opens an ACP session.
+        </div>
+      )}
       {open && floatingStyle && (
         <div
           ref={menuRef}
@@ -243,6 +282,14 @@ export function NewChatAgentButton({
       )}
     </div>
   );
+}
+
+function externalAgentExecutablePath(
+  adapter: AgentAdapterRecord | undefined,
+  health: AgentAdapterHealthRecord | undefined,
+): string {
+  const path = health?.path?.trim() || adapter?.path?.trim() || "";
+  return path.startsWith("dev-override://") ? "" : path;
 }
 
 export function ChatAgentPicker({

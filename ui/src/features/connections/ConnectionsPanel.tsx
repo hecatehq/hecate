@@ -818,9 +818,7 @@ function AdapterStatusRow({
     readiness.authStatus && readiness.authStatus === "ok" && !showLocalAuthSetup && !health,
   );
   const showHealthDebugMetadata = readiness.kind === "ready" || readiness.kind === "issue";
-  const showSelectedPath = Boolean(
-    selectedPath && !showLocalAuthSetup && !isDevOverridePath(selectedPath),
-  );
+  const showSelectedPath = Boolean(selectedPath && !isDevOverridePath(selectedPath));
   const showHealthDuration = Boolean(
     health?.duration_ms !== undefined && showHealthDebugMetadata && !showLocalAuthSetup,
   );
@@ -837,6 +835,8 @@ function AdapterStatusRow({
   const showLogoutAction =
     !remoteRuntime &&
     adapter.available &&
+    readiness.verifiedByProbe &&
+    readiness.authStatus === "ok" &&
     adapterLogoutSupportedByHecate(adapter, health) &&
     !showAuthenticateAction;
   const showProbeAction =
@@ -996,6 +996,7 @@ function AdapterStatusRow({
         {showLocalAuthSetup && loginCommand && (
           <AdapterLocalAuthSetup
             adapterID={adapter.id}
+            adapterName={adapter.name || adapter.id}
             loginCommand={loginCommand}
             onCopyCommand={onCopyCommand}
             onTestAgain={() => onProbeAdapter(adapter)}
@@ -1070,8 +1071,8 @@ function AdapterStatusRow({
             className="btn btn-primary btn-sm"
             onClick={() => onAuthenticateAdapter(adapter)}
             disabled={authenticateLoading}
-            aria-label={`Sign in ${adapter.name || adapter.id}`}
-            title={`Sign in ${adapter.name || adapter.id}`}
+            aria-label={`Sign in ${adapter.name || adapter.id}; starts the installed app`}
+            title={`Starts ${adapter.name || adapter.id} and opens an ACP session to sign in`}
           >
             <Icon d={Icons.keys} size={12} /> {authenticateLoading ? "Signing in..." : "Sign in"}
           </button>
@@ -1082,8 +1083,8 @@ function AdapterStatusRow({
             className="btn btn-ghost btn-sm"
             onClick={() => onLogoutAdapter(adapter)}
             disabled={logoutLoading}
-            aria-label={`Sign out ${adapter.name || adapter.id}`}
-            title={`Sign out ${adapter.name || adapter.id}`}
+            aria-label={`Sign out ${adapter.name || adapter.id}; starts the installed app`}
+            title={`Starts ${adapter.name || adapter.id} and opens an ACP session to sign out`}
           >
             <Icon d={Icons.x} size={12} /> {logoutLoading ? "Signing out..." : "Sign out"}
           </button>
@@ -1295,6 +1296,8 @@ function AdapterRemoteCredentialSetup({
                 className="btn btn-ghost btn-sm"
                 onClick={onTestAgain}
                 disabled={testing}
+                aria-label={`Check ${adapter.name || adapter.id} again; starts the agent runtime`}
+                title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session`}
               >
                 {testing ? "Testing..." : "Check again"}
               </button>
@@ -1308,12 +1311,14 @@ function AdapterRemoteCredentialSetup({
 
 function AdapterLocalAuthSetup({
   adapterID,
+  adapterName,
   loginCommand,
   onCopyCommand,
   onTestAgain,
   testing,
 }: {
   adapterID: string;
+  adapterName: string;
   loginCommand: string;
   onCopyCommand: (command: string) => void;
   onTestAgain: () => void;
@@ -1392,6 +1397,8 @@ function AdapterLocalAuthSetup({
               className="btn btn-ghost btn-sm"
               onClick={onTestAgain}
               disabled={testing}
+              aria-label={`Test ${adapterName} again; starts the installed app`}
+              title={`Starts ${adapterName} and opens a temporary ACP session`}
             >
               {testing ? "Testing..." : "Test again"}
             </button>

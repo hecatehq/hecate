@@ -1332,6 +1332,7 @@ export function ChatView({
                     isAgentChat={isAgentChat}
                     isHecateChat={isHecateChat}
                     isExternalAgentChat={isExternalAgentChat}
+                    externalAgentSessionPrepared={selectedChatReady}
                     isRemoteRuntime={isRemoteRuntime}
                     setupRepair={chatSetupRepair}
                     modelRouteUnavailable={modelRouteUnavailable}

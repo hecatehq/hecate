@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const agentDiagnosticOutputLimit = int64(256 * 1024)
+const agentDiagnosticWaitDelay = time.Second
 
 type agentDiagnosticOutput struct {
 	stdout          string
@@ -36,6 +38,7 @@ func runAgentDiagnostic(ctx context.Context, command string, args, env []string)
 	}
 	cmd := exec.CommandContext(ctx, command, append([]string(nil), args...)...)
 	cmd.Env = append([]string(nil), env...)
+	cmd.WaitDelay = agentDiagnosticWaitDelay
 	attachProcessTree, releaseProcessTree, err := prepareAgentProcessTree(cmd)
 	if err != nil {
 		return agentDiagnosticOutput{}, fmt.Errorf("prepare diagnostic process tree: %w", err)
@@ -53,16 +56,22 @@ func runAgentDiagnostic(ctx context.Context, command string, args, env []string)
 		terminateProcess(cmd)
 		return snapshotAgentDiagnosticOutput(stdout, stderr), fmt.Errorf("supervise diagnostic process tree: %w", err)
 	}
-	err = cmd.Wait()
-	// The leader can exit successfully after spawning a detached-from-stdio
-	// descendant. Wait has already reaped the leader, so cancel only the owned
-	// process unit here; on Unix this signals the process group, and on Windows
-	// it terminates the Job Object. Do not call terminateProcess, which would
-	// invoke Wait a second time.
+	// Observe the leader without reaping it so its PID/PGID cannot be reused
+	// before the owned process unit is terminated. WaitDelay bounds the sole
+	// Wait below if an escaped descendant retains inherited pipe descriptors.
+	observeErr := waitAgentProcessExitWithoutReaping(ctx, cmd)
 	if cmd.Cancel != nil {
 		_ = cmd.Cancel()
 	}
-	return snapshotAgentDiagnosticOutput(stdout, stderr), err
+	waitErr := cmd.Wait()
+	output := snapshotAgentDiagnosticOutput(stdout, stderr)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return output, ctxErr
+	}
+	if observeErr != nil {
+		return output, fmt.Errorf("observe diagnostic process exit: %w", observeErr)
+	}
+	return output, waitErr
 }
 
 func snapshotAgentDiagnosticOutput(stdout, stderr *limitedBuffer) agentDiagnosticOutput {
