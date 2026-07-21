@@ -5,7 +5,8 @@
 > [Agent runtime](../../runtime/agent-runtime.md), and [Runtime API](../../runtime/runtime-api.md).
 > **Next action:** implement automatic capability probes and broaden e2e/product
 > hardening. Named Agent Presets are now wired into Hecate Chat as a deliberately
-> narrow immutable runtime snapshot.
+> narrow immutable runtime snapshot, and manual tool-support verification is
+> implemented.
 >
 > **Terminology note:** this design record was written while "Hecate Agent" was the
 > proposed product label for Hecate-owned tools-on chat. Current UI and
@@ -98,6 +99,12 @@ type ModelCapabilities = {
   streaming?: boolean;
   max_context_tokens?: number;
   source: "unknown" | "catalog" | "provider" | "mixed";
+  tool_verification?: {
+    status: "testing" | "supported" | "unsupported" | "inconclusive";
+    checked_at: string;
+    expires_at: string;
+    reason?: string;
+  };
 };
 ```
 
@@ -150,34 +157,63 @@ discovery API does not report image support. Image-bearing compatibility
 requests still disable cross-provider failover, revalidate the selected opaque
 provider instance immediately before dispatch, and use the bounded 32 MiB,
 60-second compatibility ingress contract.
-The original product surface is Hecate-owned, Tools-off Chat with staged
-PNG/JPEG/WebP attachments. Task-backed turns still do not accept attachment ids.
-External Agent/ACP sessions now accept bounded arbitrary files and resolve them
-against live ACP image/embedded-resource capabilities, with a private per-turn
-`resource_link` as the baseline fallback; that path does not weaken direct
-model image-capability admission.
+Hecate-owned Chat accepts staged PNG/JPEG/WebP attachments with Tools off or
+with task-backed Tools on. The task-backed path persists only an opaque input
+reference and hydrates the image immediately before its fenced agent-loop
+dispatch. External Agent/ACP sessions accept bounded arbitrary files and
+resolve them against live ACP image/embedded-resource capabilities, with a
+private per-turn `resource_link` as the baseline fallback; that path does not
+weaken direct-model image-capability admission.
 
-### Automatic probing
+### Explicit tool-support verification
 
-Automatic probing is required before this feature can feel stable for local
-and custom providers. This is a product requirement, but it must be controlled,
-observable, and never surprising.
+The first verification path is deliberately manual. In **Connections**, a
+ready model whose effective `tool_calling` value is `unknown` can offer
+**Verify tool support**. This keeps a potentially billable provider request out
+of page loads, model refreshes, and Chat send paths. It is not available for
+Auto routes, unavailable models, or models that already have a known
+provider/catalog capability.
 
-Automatic probes should:
+One operator action makes at most one bounded request to the exact configured
+provider, model, and opaque provider configuration generation. Hecate supplies
+a fixed one-message prompt, a fixed harmless `hecate_capability_probe` function
+schema, and a forced choice of that function. It observes whether the provider
+returns that function call; it does not parse or execute its arguments, invoke
+a Hecate tool, start a task, or access a workspace, chat prompt, attachment, or
+External Agent session. The request never retries or fails over to another
+provider. It can incur the selected provider's normal model-request charge.
 
-1. Run only for models that are configured and routable.
-2. Use a small, deterministic tool-calling probe request with a harmless tool
-   schema.
-3. Never execute a tool or mutate a workspace.
-4. Respect a per-provider cooldown so the gateway does not probe every page
-   load.
-5. Persist results as provider/catalog metadata with timestamp, provider, model, probe
-   status, and any safe error summary.
-6. Surface probe state in Connections and the model picker: unknown, testing,
-   tools supported, no tools, failed.
-7. Let operators disable automatic probes globally or per provider/model.
+The durable result is only a safe observation: status, checked/expiry times,
+and a bounded reason code. It contains no prompt or response text, tool
+arguments, provider endpoint, provider generation, or credentials. A matching
+active result is reused so repeated clicks do not create another provider call;
+concurrent verification requests coalesce. A provider replacement or
+configuration change makes the old observation inapplicable.
 
-A failed probe must not override a provider-native capability result.
+For an otherwise unknown capability only:
+
+- `supported` projects `tool_calling="basic"`.
+- an explicit tool-schema rejection projects `tool_calling="none"`.
+- `testing` or `inconclusive` leaves `tool_calling="unknown"`.
+
+Provider-native and catalog-known capabilities remain authoritative. A manual
+observation is shown as `tool_verification` provenance but must never override
+an effective `none`, `basic`, or `parallel` value. In particular, an
+inconclusive network, authentication, rate-limit, timeout, policy, or provider
+failure is not proof that the model lacks tool support.
+
+For every tools-on Hecate task, a matching `supported` observation may satisfy
+only an otherwise-unknown **tool** requirement. It stays bound to the same
+exact provider name, model, and generation until the proof expires, with
+failover disabled; it neither proves `image_input` nor makes an Auto route
+eligible. An attachment turn keeps its separate explicit image-support gate.
+Final dispatch rechecks those fences so a queued run, retry, or delayed stream
+cannot outlive the proof.
+
+Automatic capability verification is future work, not an implication of this
+manual action. Any proposal for it needs separate cost, consent, cooldown, and
+operator-control decisions; it must preserve the same exact-route, no-tool-
+execution, and provider-native-precedence boundaries.
 
 ## Hecate Agent Sessions
 
@@ -474,6 +510,9 @@ Minimum coverage:
 - Memory/SQLite parity for new session fields.
 - UI target picker, tools on/off switches, tools-unavailable direct fallback,
   and task/run links.
+- Manual tool-support verification for an unknown, ready configured model:
+  exact-route request fencing, one-call/coalescing behavior, safe projection
+  into `/v1/models`, and Connections result states.
 - Task-backed Hecate Chat Task Run activity projection from Task Run SSE into Chats.
 - Task-backed Hecate Chat task approval banner in Chats, including approve, reject, and a
   link to the backing Task.
@@ -525,10 +564,15 @@ Done in the core bridge:
   Chat-safe runtime snapshot; preset instructions, provider/model hints, and
   task posture are applied without importing project, browser, MCP, or
   External Agent behavior
+- Connections lets an operator explicitly verify tool support for a ready,
+  otherwise-unknown provider/model. The result is generation-bound, safe to
+  inspect in `metadata.capabilities.tool_verification`, and only projects onto
+  an unknown effective tool capability.
 
 Still required for a complete Hecate Chat tools-on experience:
 
-- automatic capability probing
+- automatic capability probing or another explicit product decision for
+  provider/model verification beyond the manual operator action
 - broader e2e/product hardening around workspace modes, profiles, automatic
   capability detection, and mixed long-running sessions
 
@@ -538,8 +582,9 @@ The missing stable-scope pieces should land in this order:
 
 1. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
-   Probes must not execute tools or mutate workspaces, and provider-native
-   capability metadata remains the stronger source when it is available.
+   Probes must not execute tools or mutate workspaces, and must preserve manual
+   verification's exact-route, consent, cost, cooldown, disable-control, and
+   provider-native-precedence boundaries.
 2. **E2E hardening.** Extend the existing browser paths to cover workspace
    modes, profiles, automatic capability detection, refresh/reconnect edges,
    and long mixed chats with queued prompts.
@@ -567,6 +612,7 @@ Prefer explicit capability records over magic. Hecate should not infer
 should know what a model can do and show that clearly to the operator. During
 alpha, task-backed tools-on execution requires a known tool-capable value
 (`basic` or `parallel`); unknown local/custom models stay visibly unknown and
-fall back to direct model chat until provider metadata or a safe probe marks
-them tool-capable. Before stable, automatic probing should make that unknown
-state much rarer without silently overwriting provider-native facts.
+fall back to direct model chat until provider metadata or an explicit safe
+verification marks them tool-capable. A future automatic scheme must not
+silently overwrite provider-native facts or surprise an operator with a paid
+provider request.

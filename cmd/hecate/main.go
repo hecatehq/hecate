@@ -28,6 +28,7 @@ import (
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
 	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/modelprobe"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/profiler"
@@ -254,6 +255,7 @@ func runServe() {
 	projectRuntimeStore := buildProjectRuntimeStore(cfg, logger, sqliteClient, postgresClient)
 	pluginRegistryStore := buildPluginRegistryStore(cfg, logger, sqliteClient, postgresClient)
 	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient, postgresClient)
+	modelToolProbeStore := buildModelToolProbeStore(cfg, logger, sqliteClient, postgresClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
 	// and pending approval rows move together across memory/sqlite/postgres modes.
 	// Startup reconcile fires before the gateway accepts any request:
@@ -325,6 +327,7 @@ func runServe() {
 	handler.SetProjectRuntimeStore(projectRuntimeStore)
 	handler.SetPluginRegistryStore(pluginRegistryStore)
 	handler.SetAgentProfileStore(agentProfileStore)
+	handler.SetModelToolProbeStore(modelToolProbeStore)
 	handler.SetAgentApprovalStore(approvalStore)
 	if postgresClient != nil {
 		handler.SetStateCleaner(postgresClient)
@@ -908,6 +911,27 @@ func buildAgentProfileStore(cfg config.Config, logger *slog.Logger, sqliteClient
 		return store
 	default:
 		return agentprofiles.NewMemoryStore()
+	}
+}
+
+func buildModelToolProbeStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient, postgresClient *storage.PostgresClient) modelprobe.Store {
+	switch cfg.Server.ControlPlaneBackend {
+	case "sqlite":
+		store, err := modelprobe.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("model tool probe store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	case "postgres":
+		store, err := modelprobe.NewPostgresStore(context.Background(), postgresClient)
+		if err != nil {
+			logger.Error("model tool probe store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return modelprobe.NewMemoryStore()
 	}
 }
 

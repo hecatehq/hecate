@@ -1593,6 +1593,15 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 			ID:   "runtime-rich-input-disclosed",
 			Kind: types.ProviderInstanceIdentityRuntime,
 		},
+		ToolCallingVerification: types.ToolCallingVerificationFence{
+			Provider: "fixture-cloud",
+			Model:    "fixture-tools-unknown",
+			ProviderInstance: types.ProviderInstanceIdentity{
+				ID:   "runtime-tool-verification",
+				Kind: types.ProviderInstanceIdentityRuntime,
+			},
+			ExpiresAt: time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC),
+		},
 	}
 	if _, err := store.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
@@ -1612,6 +1621,9 @@ func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
 	}
 	if gotRun.InputRef != run.InputRef || gotRun.InputProviderInstance != run.InputProviderInstance || gotRun.InputProviderDispatchRecorded != run.InputProviderDispatchRecorded || gotRun.InputProviderDisclosedInstance != run.InputProviderDisclosedInstance {
 		t.Fatalf("GetRun rich-input fence = ref %q admitted %+v dispatched %t disclosed %+v, want %q/%+v/%t/%+v", gotRun.InputRef, gotRun.InputProviderInstance, gotRun.InputProviderDispatchRecorded, gotRun.InputProviderDisclosedInstance, run.InputRef, run.InputProviderInstance, run.InputProviderDispatchRecorded, run.InputProviderDisclosedInstance)
+	}
+	if gotRun.ToolCallingVerification != run.ToolCallingVerification {
+		t.Fatalf("GetRun tool-calling verification fence = %+v, want %+v", gotRun.ToolCallingVerification, run.ToolCallingVerification)
 	}
 
 	for i, status := range []string{"running", "completed"} {

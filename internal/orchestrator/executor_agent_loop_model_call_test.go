@@ -365,6 +365,21 @@ func TestAgentLoopChatRequestLeavesUnknownToolCapabilitiesRoutableWithoutRichInp
 	if !richRequest.Requirements.ToolCalling {
 		t.Fatalf("rich tool request requirements = %+v, want hard tool-capability requirement", richRequest.Requirements)
 	}
+
+	fence := types.ToolCallingVerificationFence{
+		Provider:         "local-runtime",
+		Model:            spec.Run.Model,
+		ProviderInstance: types.ProviderInstanceIdentity{ID: "verified-generation", Kind: types.ProviderInstanceIdentityConfiguration},
+		ExpiresAt:        time.Now().UTC().Add(time.Hour),
+	}
+	spec.Run.Provider = fence.Provider
+	spec.ChatRequirements = fence.ToolCallingRequirements()
+	verifiedRequest := agentLoopChatRequest(spec, nil, agentToolDefinitions())
+	if verifiedRequest.Requirements.ImageInput || !verifiedRequest.Requirements.ToolCalling || !verifiedRequest.Requirements.ToolCallingVerified ||
+		!verifiedRequest.Requirements.NoProviderFailover || !verifiedRequest.Requirements.ExactProvider || verifiedRequest.Requirements.ProviderInstance != fence.ProviderInstance ||
+		verifiedRequest.Requirements.ToolCallingVerifiedModel != fence.Model || verifiedRequest.Scope.ProviderHint != fence.Provider {
+		t.Fatalf("verified plain tool request = %+v scope=%+v, want durable exact tool-proof fence without image", verifiedRequest.Requirements, verifiedRequest.Scope)
+	}
 }
 
 func TestAgentLoopModelCall_ErrorRecordsAttemptedProviderInstance(t *testing.T) {

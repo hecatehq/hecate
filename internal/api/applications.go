@@ -190,5 +190,9 @@ func (h *Handler) modelApplication() *modelapp.Application {
 	if h == nil {
 		return modelapp.New(modelapp.Options{})
 	}
-	return modelapp.New(modelapp.Options{Service: h.service})
+	return modelapp.New(modelapp.Options{
+		Service:              h.service,
+		ToolProbeStore:       h.modelToolProbeStore,
+		ToolProbeCoordinator: h.modelToolProbeCoordinator,
+	})
 }

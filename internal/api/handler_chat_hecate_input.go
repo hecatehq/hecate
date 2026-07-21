@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/chatattachments"
+	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/modelprobe"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -87,6 +90,23 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 	if !imageCapable {
 		return orchestrator.AgentInput{}, fmt.Errorf("selected model route does not declare image-input support")
 	}
+	capabilities, err := h.resolveModelCapabilities(ctx, provider, model)
+	if err != nil {
+		return orchestrator.AgentInput{}, fmt.Errorf("resolve tool capability verification: %w", err)
+	}
+	// A manual proof can relax only the unknown tool gate. Rich input resolves
+	// the proof again from the current exact route; its provider, model,
+	// generation, and expiry are then checked at every final dispatch.
+	toolCallingVerified := capabilities.ToolCalling == modelcaps.ToolCallingBasic &&
+		capabilities.ToolVerification != nil &&
+		capabilities.ToolVerification.Status == modelprobe.StatusSupported &&
+		capabilities.ToolCallingVerificationApplied
+	toolCallingVerifiedModel := ""
+	toolCallingVerifiedUntil := time.Time{}
+	if toolCallingVerified {
+		toolCallingVerifiedModel = model
+		toolCallingVerifiedUntil = capabilities.ToolVerification.ExpiresAt
+	}
 	if h.chatImageTurnAdmission == nil || !h.chatImageTurnAdmission.Acquire(ctx) {
 		return orchestrator.AgentInput{}, fmt.Errorf("image input admission cancelled before execution")
 	}
@@ -120,10 +140,13 @@ func (h *Handler) resolveHecateAgentInput(ctx context.Context, task types.Task, 
 	return orchestrator.AgentInput{
 		Message: chatModelMessageWithAttachments(inputMessage.Content, attachments, nil),
 		Requirements: types.ChatRequestRequirements{
-			ImageInput:         true,
-			NoProviderFailover: true,
-			ExactProvider:      provider != "",
-			ProviderInstance:   providerInstance,
+			ImageInput:               true,
+			ToolCallingVerified:      toolCallingVerified,
+			ToolCallingVerifiedModel: toolCallingVerifiedModel,
+			ToolCallingVerifiedUntil: toolCallingVerifiedUntil,
+			NoProviderFailover:       true,
+			ExactProvider:            provider != "",
+			ProviderInstance:         providerInstance,
 		},
 		Release: release,
 	}, nil

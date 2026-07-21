@@ -191,9 +191,9 @@ func Aggregate(capabilities []types.ModelCapabilities) types.ModelCapabilities {
 	if len(capabilities) == 0 {
 		return normalize(types.ModelCapabilities{})
 	}
-	result := normalize(capabilities[0])
+	result := aggregateCapability(capabilities[0])
 	for _, raw := range capabilities[1:] {
-		capability := normalize(raw)
+		capability := aggregateCapability(raw)
 		if result.ToolCalling != capability.ToolCalling {
 			result.ToolCalling = ToolCallingUnknown
 		}
@@ -212,6 +212,20 @@ func Aggregate(capabilities []types.ModelCapabilities) types.ModelCapabilities {
 		}
 	}
 	return result
+}
+
+// aggregateCapability removes evidence that is valid only for one provider
+// generation. An Auto route intentionally cannot inherit a manual proof even
+// when the current candidate set contains only that one route: the route may
+// be replaced before dispatch and Auto carries no matching instance fence.
+func aggregateCapability(raw types.ModelCapabilities) types.ModelCapabilities {
+	capability := normalize(raw)
+	if capability.ToolCallingVerificationApplied {
+		capability.ToolCalling = ToolCallingUnknown
+	}
+	capability.ToolVerification = nil
+	capability.ToolCallingVerificationApplied = false
+	return capability
 }
 
 func normalize(cap types.ModelCapabilities) types.ModelCapabilities {

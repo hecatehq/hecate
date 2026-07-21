@@ -95,9 +95,21 @@ type ChatRequestRequirements struct {
 	// ToolCalling requires each route candidate to declare tool-call support.
 	// Rich-input agent turns set this alongside ImageInput so Auto routing cannot
 	// combine image support from one provider with tool support from another.
-	// Ordinary tool turns may leave it false to retain their established
-	// optimistic behavior for providers with unknown capability discovery.
+	// A manually verified tools-on task also sets it with a private exact-route
+	// fence. Ordinary tool turns may otherwise leave it false to retain their
+	// established optimistic behavior for providers with unknown capability
+	// discovery.
 	ToolCalling bool
+	// ToolCallingVerified carries a Hecate-owned, generation/model/expiry-bound
+	// manual proof for an otherwise-unknown tool capability. It is accepted by
+	// routing only with an exact, no-failover provider fence; it is never
+	// accepted from or emitted to HTTP clients.
+	ToolCallingVerified bool `json:"-"`
+	// ToolCallingVerifiedModel and ToolCallingVerifiedUntil make the internal
+	// verification proof reject a governor model rewrite and expire while a
+	// queued or long-running Hecate task is still alive.
+	ToolCallingVerifiedModel string    `json:"-"`
+	ToolCallingVerifiedUntil time.Time `json:"-"`
 	// NoProviderFailover keeps retries on the selected provider but prevents a
 	// request from crossing into another provider. It also requires the gateway
 	// to revalidate the selected provider instance immediately before every
@@ -310,6 +322,25 @@ type ModelCapabilities struct {
 	// snapshot combines dimensions from provider-native metadata and Hecate's
 	// catalog inference; it must not be presented as wholly provider-reported.
 	Source string `json:"source,omitempty"`
+	// ToolVerification is an operator-triggered, provider-generation-bound
+	// observation for an otherwise unknown tool-calling capability. It never
+	// contains request content, tool arguments, provider credentials, or an
+	// endpoint. Known provider/catalog capabilities remain authoritative.
+	ToolVerification *ToolCapabilityVerification `json:"tool_verification,omitempty"`
+	// ToolCallingVerificationApplied is internal merge metadata. It identifies
+	// a `basic`/`none` value projected from one route-bound verification so an
+	// Auto aggregate can safely restore the otherwise-unknown value.
+	ToolCallingVerificationApplied bool `json:"-"`
+}
+
+// ToolCapabilityVerification is the safe, operator-facing summary of one
+// manual tool-calling capability probe. The internal provider-instance fence
+// used to bind this record is deliberately omitted from the API contract.
+type ToolCapabilityVerification struct {
+	Status    string    `json:"status,omitempty"`
+	CheckedAt time.Time `json:"checked_at,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
 }
 
 // ReadinessSummary is the compact operator-facing answer to "can Hecate use

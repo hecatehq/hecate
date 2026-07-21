@@ -112,6 +112,34 @@ func TestAggregateReturnsOnlyCapabilitiesCommonToEveryRoute(t *testing.T) {
 	}
 }
 
+func TestAggregateDoesNotExposeRouteBoundToolVerification(t *testing.T) {
+	verified := &types.ToolCapabilityVerification{Status: "supported"}
+	got := Aggregate([]types.ModelCapabilities{
+		{ToolCalling: ToolCallingBasic, ToolVerification: verified},
+		{ToolCalling: ToolCallingBasic},
+	})
+	if got.ToolCalling != ToolCallingBasic {
+		t.Fatalf("tool calling = %q, want basic common to both routes", got.ToolCalling)
+	}
+	if got.ToolVerification != nil {
+		t.Fatalf("tool verification = %+v, want nil for auto-route aggregate", got.ToolVerification)
+	}
+}
+
+func TestAggregateRestoresUnknownWhenSingleRouteCapabilityCameFromVerification(t *testing.T) {
+	got := Aggregate([]types.ModelCapabilities{{
+		ToolCalling:                    ToolCallingBasic,
+		ToolVerification:               &types.ToolCapabilityVerification{Status: "supported"},
+		ToolCallingVerificationApplied: true,
+	}})
+	if got.ToolCalling != ToolCallingUnknown {
+		t.Fatalf("tool calling = %q, want unknown without an exact route fence", got.ToolCalling)
+	}
+	if got.ToolVerification != nil || got.ToolCallingVerificationApplied {
+		t.Fatalf("aggregate verification = %+v, want route-bound proof removed", got)
+	}
+}
+
 func TestImageCapableRequiresDeclaredSupport(t *testing.T) {
 	for _, tt := range []struct {
 		cap  string

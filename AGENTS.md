@@ -67,6 +67,8 @@ internal/
   modelapp/             model listing, refresh, capability resolution, readiness
                           errors for API/chat callers
   modelcaps/            shared model capability table (streaming, tools, vision, …)
+  modelprobe/           generation-bound manual tool-support verification state,
+                          lease coordination, and safe outcome projection
   orchestrator/         task runtime: queue, runner, agent_loop, sandbox boundary
   codeintel/            native read-only code intelligence: fixed allowlisted LSP
                           and ast-grep subprocesses, protocol/result bounds,

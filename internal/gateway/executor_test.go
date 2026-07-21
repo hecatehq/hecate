@@ -482,6 +482,120 @@ func TestResilientExecutorRejectsImageProviderReplacementDuringRetryBackoff(t *t
 	}
 }
 
+func TestResilientExecutorDoesNotRetryVerifiedToolDispatchAfterProofExpires(t *testing.T) {
+	t.Parallel()
+
+	provider := &sequenceProvider{
+		name: "vision",
+		kind: providers.KindCloud,
+		responses: []providerResponse{
+			{err: &providers.UpstreamError{StatusCode: http.StatusServiceUnavailable}},
+			{response: &types.ChatResponse{Model: "model-a"}},
+		},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance("vision")
+	if !ok {
+		t.Fatal("provider instance not found")
+	}
+	store := governor.NewMemoryUsageStore()
+	executor := NewResilientExecutor(
+		staticFallbackRouter{},
+		NewDefaultRoutePreflight(governor.NewStaticGovernor(config.GovernorConfig{}, store, store), registry),
+		registry,
+		nil,
+		nil,
+		nil,
+		ResilienceOptions{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+	)
+	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	clock := now
+	executor.now = func() time.Time { return clock }
+	executor.sleep = func(context.Context, time.Duration) error {
+		clock = now.Add(time.Hour)
+		return nil
+	}
+
+	trace := profiler.NewTrace("req-verified-proof-expired-retry", nil)
+	defer trace.Finalize()
+	result, err := executor.Execute(context.Background(), trace, types.ChatRequest{
+		Model:    "model-a",
+		Scope:    types.RequestScope{ProviderHint: "vision"},
+		Messages: []types.Message{{Role: "user", Content: "continue the task"}},
+		Requirements: types.ChatRequestRequirements{
+			ToolCalling:              true,
+			ToolCallingVerified:      true,
+			ToolCallingVerifiedModel: "model-a",
+			ToolCallingVerifiedUntil: now.Add(time.Minute),
+			NoProviderFailover:       true,
+			ExactProvider:            true,
+			ProviderInstance:         instance.Identity,
+		},
+	}, types.RouteDecision{
+		Provider:         "vision",
+		ProviderInstance: instance.Identity,
+		Model:            "model-a",
+		Reason:           "verified_tool_support",
+	})
+	if err == nil || !strings.Contains(err.Error(), "expired before dispatch") {
+		t.Fatalf("Execute() error = %v, want expired verification rejection", err)
+	}
+	if result == nil || result.AttemptCount != 1 || result.RetryCount != 1 {
+		t.Fatalf("Execute() result = %+v, want one dispatched attempt and one blocked retry", result)
+	}
+	if provider.callCount != 1 {
+		t.Fatalf("provider calls = %d, want expired retry blocked before another tool-capable dispatch", provider.callCount)
+	}
+}
+
+func TestResilientExecutorAllowsVerifiedRichInputWithoutToolDispatch(t *testing.T) {
+	t.Parallel()
+
+	provider := &sequenceProvider{
+		name:      "vision",
+		kind:      providers.KindCloud,
+		responses: []providerResponse{{response: &types.ChatResponse{Model: "model-a"}}},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance("vision")
+	if !ok {
+		t.Fatal("provider instance not found")
+	}
+	store := governor.NewMemoryUsageStore()
+	executor := NewResilientExecutor(
+		staticFallbackRouter{},
+		NewDefaultRoutePreflight(governor.NewStaticGovernor(config.GovernorConfig{}, store, store), registry),
+		registry,
+		nil,
+		nil,
+		nil,
+		ResilienceOptions{MaxAttempts: 1},
+	)
+	trace := profiler.NewTrace("req-verified-image-only", nil)
+	defer trace.Finalize()
+	_, err := executor.Execute(context.Background(), trace, types.ChatRequest{
+		Model:    "model-a",
+		Messages: []types.Message{{Role: "user", Content: "private image"}},
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:          true,
+			ToolCallingVerified: true,
+			NoProviderFailover:  true,
+			ProviderInstance:    instance.Identity,
+		},
+	}, types.RouteDecision{
+		Provider:         "vision",
+		ProviderInstance: instance.Identity,
+		Model:            "model-a",
+		Reason:           "verified_image_only",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want image-only dispatch without a tool requirement", err)
+	}
+	if provider.callCount != 1 {
+		t.Fatalf("provider calls = %d, want one image-only dispatch", provider.callCount)
+	}
+}
+
 func TestResilientExecutorFailsOverAfterRetryableFailure(t *testing.T) {
 	t.Parallel()
 

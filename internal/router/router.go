@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/catalog"
 	"github.com/hecatehq/hecate/internal/modelcaps"
@@ -164,7 +165,7 @@ func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRe
 		}
 	}
 	if req.Requirements.ProviderInstance.Valid() && entry.ProviderInstance != req.Requirements.ProviderInstance {
-		return types.RouteDecision{}, fmt.Errorf("provider %q configuration changed during image admission", explicitProvider)
+		return types.RouteDecision{}, fmt.Errorf("provider %q configuration changed during bound route admission", explicitProvider)
 	}
 	if !supportsRequest(entry, routedModel, req) {
 		return types.RouteDecision{}, fmt.Errorf("provider %q model %q does not satisfy required %s support", explicitProvider, routedModel, requestCapabilityLabel(req.Requirements))
@@ -284,7 +285,28 @@ func supportsRequest(entry catalog.Entry, model string, req types.ChatRequest) b
 	if req.Requirements.ImageInput && !modelcaps.ImageCapable(capability) {
 		return false
 	}
-	return !req.Requirements.ToolCalling || modelcaps.ToolCapable(capability)
+	if !req.Requirements.ToolCalling || modelcaps.ToolCapable(capability) {
+		return true
+	}
+	return verifiedToolCallingApplies(entry, model, req)
+}
+
+// verifiedToolCallingApplies is intentionally narrower than an ordinary tool
+// capability check. The marker comes only from Hecate's final task admission
+// after an operator-triggered probe has been projected for this exact provider
+// generation. Requiring every route fence keeps a proof from one provider from
+// authorizing auto-routing, a model rewrite, or provider failover.
+func verifiedToolCallingApplies(entry catalog.Entry, model string, req types.ChatRequest) bool {
+	if !req.Requirements.ToolCallingVerified ||
+		!req.Requirements.NoProviderFailover ||
+		!req.Requirements.ExactProvider ||
+		!req.Requirements.ProviderInstance.Valid() ||
+		entry.ProviderInstance != req.Requirements.ProviderInstance ||
+		strings.TrimSpace(req.Requirements.ToolCallingVerifiedModel) != strings.TrimSpace(model) ||
+		!req.Requirements.ToolCallingVerifiedUntil.After(time.Now().UTC()) {
+		return false
+	}
+	return requestscope.Normalize(req.Scope).ProviderHint == entry.Name
 }
 
 func requestCapabilityLabel(requirements types.ChatRequestRequirements) string {

@@ -920,6 +920,11 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	}
 	if sameInputSource != nil && task.ExecutionKind == "agent_loop" && strings.TrimSpace(options.AppendPrompt) == "" {
 		prior := *sameInputSource
+		// A manually verified unknown tool capability is a run-scoped execution
+		// fence, not a session display hint. Retain it for a same-input retry or
+		// resume so every new dispatch still checks the original provider/model/
+		// generation/expiry proof instead of reverting to optimistic routing.
+		run.ToolCallingVerification = prior.ToolCallingVerification
 		run.InputRef = strings.TrimSpace(prior.InputRef)
 		if run.InputRef != "" && prior.InputProviderInstance.Valid() {
 			run.InputProviderInstance = prior.InputProviderInstance
@@ -1466,6 +1471,12 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		if agentInput.Release != nil {
 			defer agentInput.Release()
 		}
+	} else if task.ExecutionKind == "agent_loop" && run.ToolCallingVerification.Valid() {
+		// Plain tools-on Hecate Chat has no rich-input resolver. Project its
+		// durable manual-proof fence directly into the execution request so a
+		// queued or retried run is still exact-provider, generation, model, and
+		// expiry bound at every final gateway dispatch.
+		agentInput.Requirements = run.ToolCallingVerification.ToolCallingRequirements()
 	}
 	var inputMessage *types.Message
 	if task.ExecutionKind == "agent_loop" && strings.TrimSpace(run.InputRef) != "" {

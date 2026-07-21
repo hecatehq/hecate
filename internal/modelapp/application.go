@@ -5,16 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/catalog"
 	"github.com/hecatehq/hecate/internal/gateway"
 	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/modelprobe"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
 var (
-	ErrServiceNotConfigured = errors.New("model service is not configured")
-	ErrProviderAmbiguous    = errors.New("provider identity is ambiguous")
+	ErrServiceNotConfigured  = errors.New("model service is not configured")
+	ErrProviderAmbiguous     = errors.New("provider identity is ambiguous")
+	ErrToolProbeUnavailable  = errors.New("model tool capability probing is unavailable")
+	ErrToolProbeNotNeeded    = errors.New("model tool capability is already known")
+	ErrToolProbeRouteChanged = errors.New("model tool capability probe route changed")
 )
 
 type Service interface {
@@ -23,12 +28,20 @@ type Service interface {
 	ProviderModelReadiness(ctx context.Context, provider, model string) (*gateway.ProviderModelReadinessResult, error)
 }
 
+type ToolProbeService interface {
+	ProbeToolCalling(ctx context.Context, input gateway.ToolCallingProbeRequest) (gateway.ToolCallingProbeResult, error)
+}
+
 type Application struct {
-	service Service
+	service              Service
+	toolProbeStore       modelprobe.Store
+	toolProbeCoordinator *modelprobe.Coordinator
 }
 
 type Options struct {
-	Service Service
+	Service              Service
+	ToolProbeStore       modelprobe.Store
+	ToolProbeCoordinator *modelprobe.Coordinator
 }
 
 type ListModelsCommand struct {
@@ -51,6 +64,18 @@ type modelCatalogSnapshot struct {
 type ReadinessError struct {
 	Cause     error
 	Readiness types.ModelReadiness
+}
+
+// ToolProbeResult is the operator-facing result of an explicit model tool
+// verification. Provider instance identity is intentionally absent: it is
+// persisted only as an internal generation fence.
+type ToolProbeResult struct {
+	Provider     string
+	Model        string
+	Capabilities types.ModelCapabilities
+	Verification *types.ToolCapabilityVerification
+	TraceID      string
+	Performed    bool
 }
 
 // ProviderAmbiguityError identifies an operator-supplied provider key that
@@ -79,7 +104,19 @@ func (e ReadinessError) Unwrap() error {
 }
 
 func New(opts Options) *Application {
-	return &Application{service: opts.Service}
+	store := opts.ToolProbeStore
+	if store == nil {
+		store = modelprobe.NewMemoryStore()
+	}
+	coordinator := opts.ToolProbeCoordinator
+	if coordinator == nil {
+		coordinator = modelprobe.NewCoordinator(store)
+	}
+	return &Application{
+		service:              opts.Service,
+		toolProbeStore:       store,
+		toolProbeCoordinator: coordinator,
+	}
 }
 
 func (app *Application) ListModels(ctx context.Context, cmd ListModelsCommand) ([]types.ModelInfo, error) {
@@ -106,9 +143,11 @@ func (app *Application) loadModelCatalog(ctx context.Context, cmd ListModelsComm
 	if err != nil {
 		return modelCatalogSnapshot{}, err
 	}
+	probeRecords := app.toolProbeRecords(ctx, result.Models)
+	now := time.Now().UTC()
 	out := make([]types.ModelInfo, 0, len(result.Models))
 	for _, item := range result.Models {
-		out = append(out, modelWithResolvedCapabilities(item))
+		out = append(out, app.modelWithResolvedCapabilities(item, probeRecords, now))
 	}
 	providerIdentities := make([]catalog.ProviderIdentity, 0, len(result.ProviderIdentities))
 	for _, identity := range result.ProviderIdentities {
@@ -116,6 +155,117 @@ func (app *Application) loadModelCatalog(ctx context.Context, cmd ListModelsComm
 		providerIdentities = append(providerIdentities, identity)
 	}
 	return modelCatalogSnapshot{models: out, providerIdentities: providerIdentities}, nil
+}
+
+// VerifyToolCalling sends one harmless, forced tool-call diagnostic to the
+// exact configured provider/model route. It never executes the returned tool.
+// Only otherwise-unknown capability values can be changed by the proof;
+// provider-native and catalog-known values remain authoritative.
+func (app *Application) VerifyToolCalling(ctx context.Context, provider, model string) (ToolProbeResult, error) {
+	provider = normalizeProvider(provider)
+	model = strings.TrimSpace(model)
+	if provider == "" || model == "" {
+		return ToolProbeResult{}, fmt.Errorf("provider and model are required")
+	}
+	if app == nil || app.service == nil || app.toolProbeCoordinator == nil {
+		return ToolProbeResult{}, ErrToolProbeUnavailable
+	}
+	snapshot, err := app.loadModelCatalog(ctx, ListModelsCommand{})
+	if err != nil {
+		return ToolProbeResult{}, err
+	}
+	item, ok, resolveErr := resolveProviderModel(snapshot.models, snapshot.providerIdentities, provider, model)
+	if resolveErr != nil {
+		return ToolProbeResult{}, resolveErr
+	}
+	if !ok {
+		err := fmt.Errorf("model %q is not available from provider %q", model, provider)
+		return ToolProbeResult{}, app.withModelReadiness(ctx, provider, model, err)
+	}
+	if !modelRouteReady(item) {
+		err := fmt.Errorf("model %q is not routable from provider %q", item.ID, item.Provider)
+		return ToolProbeResult{}, app.withModelReadiness(ctx, item.Provider, item.ID, err)
+	}
+	if !item.ProviderInstance.Valid() {
+		return ToolProbeResult{}, ErrToolProbeUnavailable
+	}
+	if item.Capabilities.ToolCalling != modelcaps.ToolCallingUnknown {
+		return ToolProbeResult{
+			Provider:     item.Provider,
+			Model:        item.ID,
+			Capabilities: item.Capabilities,
+			Verification: item.Capabilities.ToolVerification,
+		}, ErrToolProbeNotNeeded
+	}
+	service, ok := app.service.(ToolProbeService)
+	if !ok {
+		return ToolProbeResult{}, ErrToolProbeUnavailable
+	}
+
+	key := modelprobe.Key{
+		Provider: item.Provider,
+		Model:    item.ID,
+		Instance: item.ProviderInstance,
+		Version:  modelprobe.ProbeVersion,
+	}
+	traceID := ""
+	record, performed, err := app.toolProbeCoordinator.Verify(ctx, key, func(probeCtx context.Context) modelprobe.Outcome {
+		result, probeErr := service.ProbeToolCalling(probeCtx, gateway.ToolCallingProbeRequest{
+			Provider:         item.Provider,
+			Model:            item.ID,
+			ProviderInstance: item.ProviderInstance,
+		})
+		traceID = result.TraceID
+		if probeErr != nil {
+			reason := result.Reason
+			if strings.TrimSpace(reason) == "" {
+				reason = toolProbeFailureReason(probeErr)
+			}
+			return modelprobe.Outcome{
+				Status: modelprobe.StatusInconclusive,
+				Reason: reason,
+			}
+		}
+		// A provider reload after dispatch must not turn a stale proof into a
+		// valid proof for the replacement generation. The old row remains
+		// unreachable because the opaque identity is part of its key.
+		current, routeErr := app.ResolveProviderRoute(probeCtx, item.Provider, item.ID)
+		if routeErr != nil || current.Name != item.Provider || current.Instance != item.ProviderInstance {
+			return modelprobe.Outcome{Status: modelprobe.StatusInconclusive, Reason: modelprobe.ReasonProviderChanged}
+		}
+		return modelprobe.Outcome{Status: result.Status, Reason: result.Reason}
+	})
+	if err != nil {
+		return ToolProbeResult{}, err
+	}
+
+	// Read through the normal projection path so /v1/models and Hecate Chat
+	// both observe the same effective capability after a completed probe.
+	refreshed, err := app.loadModelCatalog(ctx, ListModelsCommand{})
+	if err != nil {
+		return ToolProbeResult{}, err
+	}
+	updated, found, resolveErr := resolveProviderModel(refreshed.models, refreshed.providerIdentities, item.Provider, item.ID)
+	if resolveErr != nil {
+		return ToolProbeResult{}, resolveErr
+	}
+	if !found {
+		return ToolProbeResult{}, fmt.Errorf("model tool capability probe route is no longer configured")
+	}
+	if updated.Provider != item.Provider || updated.ProviderInstance != item.ProviderInstance {
+		// The completed record is bound to the old opaque provider generation
+		// and cannot project onto the replacement. Do not return that stale
+		// observation as if it described the newly configured route.
+		return ToolProbeResult{}, ErrToolProbeRouteChanged
+	}
+	return ToolProbeResult{
+		Provider:     updated.Provider,
+		Model:        updated.ID,
+		Capabilities: updated.Capabilities,
+		Verification: record.Public(),
+		TraceID:      traceID,
+		Performed:    performed,
+	}, nil
 }
 
 func (app *Application) ResolveCapabilities(ctx context.Context, provider, model string) (types.ModelCapabilities, error) {
@@ -259,11 +409,111 @@ func (app *Application) withModelReadiness(ctx context.Context, provider, model 
 	return ReadinessError{Cause: err, Readiness: result.Readiness.ToModelReadiness()}
 }
 
-func modelWithResolvedCapabilities(item types.ModelInfo) types.ModelInfo {
+func (app *Application) modelWithResolvedCapabilities(item types.ModelInfo, probeRecords map[modelprobe.Key]modelprobe.Record, now time.Time) types.ModelInfo {
 	item.Capabilities = modelcaps.ResolveWithProviderCapability(item.ProviderFamily, item.Kind, item.ID, item.DiscoverySource, item.Capabilities)
+	item.Capabilities = applyToolVerification(item.Provider, item.ID, item.ProviderInstance, item.Capabilities, probeRecords, now)
 	item.ProviderAliases = append([]string(nil), item.ProviderAliases...)
 	item.Readiness.SuggestedModels = append([]string(nil), item.Readiness.SuggestedModels...)
 	return item
+}
+
+// toolProbeRecords reads current generation-bound observations for the whole
+// catalog in one bounded batch when the configured store supports it. The
+// fallback preserves the Store contract for narrow test doubles, while the
+// production memory and SQL stores avoid a query per model on hot list and
+// chat-admission paths.
+func (app *Application) toolProbeRecords(ctx context.Context, models []types.ModelInfo) map[modelprobe.Key]modelprobe.Record {
+	if app == nil || app.toolProbeStore == nil {
+		return nil
+	}
+	keys := make([]modelprobe.Key, 0, len(models))
+	for _, item := range models {
+		if !item.ProviderInstance.Valid() {
+			continue
+		}
+		keys = append(keys, modelprobe.Key{
+			Provider: item.Provider,
+			Model:    item.ID,
+			Instance: item.ProviderInstance,
+			Version:  modelprobe.ProbeVersion,
+		})
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if batch, ok := app.toolProbeStore.(modelprobe.BatchStore); ok {
+		records, err := batch.GetMany(ctx, keys)
+		if err == nil {
+			return records
+		}
+		return nil
+	}
+	records := make(map[modelprobe.Key]modelprobe.Record, len(keys))
+	for _, key := range keys {
+		record, found, err := app.toolProbeStore.Get(ctx, key)
+		if err != nil || !found {
+			continue
+		}
+		records[key] = record
+	}
+	return records
+}
+
+func applyToolVerification(
+	provider, model string,
+	instance types.ProviderInstanceIdentity,
+	capabilities types.ModelCapabilities,
+	probeRecords map[modelprobe.Key]modelprobe.Record,
+	now time.Time,
+) types.ModelCapabilities {
+	// Provider/catalog metadata never supplies this Hecate-owned observation.
+	// Clear any copied internal metadata before considering the generation-bound
+	// store row for this exact model route.
+	capabilities.ToolVerification = nil
+	capabilities.ToolCallingVerificationApplied = false
+	if !instance.Valid() || len(probeRecords) == 0 {
+		return capabilities
+	}
+	record, found := probeRecords[modelprobe.Key{
+		Provider: provider,
+		Model:    model,
+		Instance: instance,
+		Version:  modelprobe.ProbeVersion,
+	}]
+	if !found || !record.Active(now) {
+		return capabilities
+	}
+	capabilities.ToolVerification = record.Public()
+	if capabilities.ToolCalling != modelcaps.ToolCallingUnknown {
+		return capabilities
+	}
+	switch record.Status {
+	case modelprobe.StatusSupported:
+		capabilities.ToolCalling = modelcaps.ToolCallingBasic
+		// The effective tool value now combines provider/catalog discovery with
+		// Hecate-owned manual evidence. Keep provenance honest rather than
+		// presenting the projected value as provider-native metadata.
+		capabilities.Source = modelcaps.SourceMixed
+		capabilities.ToolCallingVerificationApplied = true
+	case modelprobe.StatusUnsupported:
+		capabilities.ToolCalling = modelcaps.ToolCallingNone
+		capabilities.Source = modelcaps.SourceMixed
+		capabilities.ToolCallingVerificationApplied = true
+	}
+	return capabilities
+}
+
+func toolProbeFailureReason(err error) string {
+	switch {
+	case errors.Is(err, gateway.ErrToolProbeModelRewritten):
+		return modelprobe.ReasonPolicyDenied
+	case errors.Is(err, gateway.ErrToolProbeUnavailable):
+		return modelprobe.ReasonConfiguration
+	case errors.Is(err, gateway.ErrToolProbeInvalid):
+		return modelprobe.ReasonConfiguration
+	default:
+		return modelprobe.ReasonProviderFailure
+	}
 }
 
 func resolveProviderModel(models []types.ModelInfo, providerIdentities []catalog.ProviderIdentity, provider, model string) (types.ModelInfo, bool, error) {

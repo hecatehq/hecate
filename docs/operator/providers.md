@@ -10,6 +10,7 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 
 - [Providers vs. clients](#providers-vs-clients)
 - [Adding a provider](#adding-a-provider)
+- [Verify model tool support](#verify-model-tool-support)
 - [Built-in presets](#built-in-presets)
 - [Env-configured providers](#env-configured-providers)
 - [Anthropic prompt caching](#anthropic-prompt-caching)
@@ -72,6 +73,54 @@ Click any row in the providers table to open the edit modal:
 - **Local / custom-local** — change the endpoint URL. Save URL is disabled when the new value matches the current one.
 
 The edit modal also shows live runtime status: health, route readiness, model count, last check time, and a collapsible diagnostics section with the last error, error class, latency, and totals.
+
+## Verify model tool support
+
+Some local and custom providers can report that a model exists without saying
+whether it accepts tool definitions. When a model is both route-ready and
+marked **Tools unknown**, its row in **Connections** offers **Verify tool
+support**. This is deliberately a Connections action, not something Hecate
+does while loading a page, refreshing the model list, or sending a Chat prompt.
+
+The action sends one bounded, static request to that exact configured provider
+and model. It asks for one harmless forced function call and only observes
+whether that call is returned. Hecate does not execute the function, inspect
+its arguments, start a task, read the current workspace, or include a Chat
+prompt, attachment, or External Agent data. There is no retry or provider
+failover. Because it is a real model request, the selected provider may bill
+for it.
+
+The result is shown on the model row and in the model metadata:
+
+- **Tool support verified** — the previously unknown model is eligible for Hecate
+  Chat's task-backed tools-on turns.
+- **No tool support** — the provider explicitly rejected the tool schema;
+  normal direct model chat remains available.
+- **Tool support not confirmed** — authentication, policy, network, rate-limit,
+  timeout, or other inconclusive outcomes leave the model unknown. Repair the
+  route or provider state and try again later.
+
+Hecate keeps only the status, times, and a short safe reason code for this
+observation. It does not show or persist raw probe prompts, model output, tool
+arguments, credentials, endpoints, or the internal provider configuration
+identity and selected model until its displayed expiry, so changing or
+replacing that provider, switching models, or waiting for expiry requires a
+new verification. Repeated clicks reuse a current result rather than creating
+another provider call.
+
+Verification is evidence only for an otherwise unknown capability. It never
+overrides tool support already known from provider-native metadata or Hecate's
+catalog. Use the model's capability details and
+[`GET /v1/models`](../runtime/runtime-api.md#get-v1models) for the precise
+operator/API state.
+
+For every Hecate Chat task-backed tools-on turn, a supported result applies
+only to the same pinned provider generation and model before it expires. It
+proves tool support, not image input: an attachment turn must still explicitly
+support images. Hecate never uses the result to select an Auto route, fail over
+to another provider, or authorize a policy-rewritten model. Hecate rechecks
+those fences at every final dispatch, including a queued run, retry, or delayed
+stream.
 
 ### Deleting a provider
 

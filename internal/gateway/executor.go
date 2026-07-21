@@ -30,6 +30,7 @@ type ResilientExecutor struct {
 	metrics       *telemetry.Metrics
 	options       ResilienceOptions
 	sleep         func(context.Context, time.Duration) error
+	now           func() time.Time
 }
 
 type failoverHistoryEntry struct {
@@ -69,6 +70,7 @@ func NewResilientExecutor(
 		metrics:       metrics,
 		options:       normalizeResilienceOptions(options),
 		sleep:         sleepContext,
+		now:           time.Now,
 	}
 }
 
@@ -246,6 +248,15 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 			dispatchRoute := candidate
 			dispatchRoute.ProviderKind = preflight.ProviderKind
 			dispatchRoute.ProviderInstance = dispatchInstance.Identity
+			if dispatchErr := validateToolCallingVerificationFence(req, dispatchRoute, verificationNow(e.now)); dispatchErr != nil {
+				lastErr = dispatchErr
+				recordProviderCallBlocked(trace, dispatchRoute, index, dispatchErr)
+				if lastAttempt != nil {
+					lastAttempt.AttemptCount = totalAttempts
+					lastAttempt.RetryCount = totalRetries
+				}
+				return lastAttempt, dispatchErr
+			}
 			if dispatchErr := providerdispatch.RecordAttempt(ctx, dispatchRoute); dispatchErr != nil {
 				lastErr = fmt.Errorf("record provider dispatch: %w", dispatchErr)
 				recordRichInputRouteFenceBlocked(trace, dispatchRoute, index, lastErr)

@@ -864,6 +864,23 @@ When changing this path:
    Model listing, refresh selection, capability resolution, and readiness-error
    wrapping live in `internal/modelapp`; API handlers should render DTOs and
    map `modelapp.ReadinessError` into the existing error envelope.
+   Manual tool-support verification belongs on that same model application /
+   gateway boundary, not in a Chat handler, normal model request, or provider
+   discovery refresh. It must target one exact configured provider/model and
+   opaque provider generation, make at most one static forced-tool request, and
+   only observe its reply: never execute the tool, parse/store its arguments,
+   reuse user content, access a workspace, retry, or fail over. Persist and
+   return only safe outcome/timing metadata. Project a verification result onto
+   an effective tool capability only while that capability is `unknown`;
+   provider-native and catalog-known `none`, `basic`, and `parallel` values
+   remain authoritative. For every tools-on Hecate task, carry an active
+   supported proof as an internal durable request marker; routing and every
+   final dispatch must require the exact provider name, model, opaque
+   generation, unexpired proof, and no-failover fence. Attachment turns also
+   require explicit image support. Never mutate catalog metadata to make the
+   proof globally routable, and never let it select an Auto route or relax
+   image admission. Any automatic verification needs a separate explicit cost,
+   consent, cooldown, and operator-control design.
 3. Keep `docs/runtime/external-agents.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.

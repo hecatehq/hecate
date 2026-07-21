@@ -26,6 +26,7 @@ const (
 	errCodeSessionCreateConflict     = "chat.session_create_conflict"
 	errCodeClientRequestConflict     = "chat.client_request_conflict"
 	errCodeModelCapability           = "chat.model_capability_required"
+	errCodeModelToolProbeUnavailable = "model_tool_probe_unavailable"
 	errCodeModelNotConfigured        = "model_not_configured"
 	errCodeProviderAmbiguous         = "provider_ambiguous"
 	errCodeWorkspaceRequired         = "chat.workspace_required"
