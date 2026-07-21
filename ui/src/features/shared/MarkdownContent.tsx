@@ -1,0 +1,245 @@
+import { Fragment, useMemo } from "react";
+import type React from "react";
+
+import { openDesktopExternalURL, safeExternalURL } from "../../lib/external-url";
+import { warn } from "../../lib/log";
+import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
+import { isTauriRuntime } from "../../lib/tauri";
+
+export type MarkdownHeadingStartLevel = 1 | 2 | 3 | 4;
+
+export type MarkdownContentProps = {
+  content: string;
+  headingStartLevel?: MarkdownHeadingStartLevel;
+  renderCodeBlock?: (code: string, language: string | undefined) => React.ReactNode;
+};
+
+export function MarkdownContent({
+  content,
+  headingStartLevel,
+  renderCodeBlock,
+}: MarkdownContentProps) {
+  // Parsing is the per-row hot cost in streamed transcripts. Memoizing on
+  // content also keeps release-note dialog re-renders inexpensive.
+  const blocks = useMemo(() => parseMarkdownBlocks(content), [content]);
+  return (
+    <div style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7 }}>
+      {blocks.map((block, i) => {
+        if (block.type === "code") {
+          const rendered = renderCodeBlock?.(block.text, block.lang);
+          if (rendered !== undefined) return <Fragment key={i}>{rendered}</Fragment>;
+          return (
+            <pre key={i} style={{ margin: "8px 0", overflowX: "auto" }}>
+              <code>{block.text}</code>
+            </pre>
+          );
+        }
+        if (block.type === "heading") {
+          const sizes: Record<number, string> = { 1: "16px", 2: "14px", 3: "13px" };
+          const style = {
+            fontWeight: 600,
+            fontSize: sizes[block.level ?? 1] ?? "13px",
+            margin: "10px 0 4px",
+            color: "var(--t0)",
+          };
+          const children = renderInline(block.text);
+          if (headingStartLevel !== undefined) {
+            const sourceLevel = Math.max(1, Math.min(3, block.level ?? 1));
+            const semanticLevel = Math.min(6, headingStartLevel + sourceLevel - 1);
+            const Heading = `h${semanticLevel}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+            return (
+              <Heading key={i} style={style}>
+                {children}
+              </Heading>
+            );
+          }
+          return (
+            <div key={i} style={style}>
+              {children}
+            </div>
+          );
+        }
+        if (block.type === "ul") {
+          return (
+            <ul key={i} style={{ margin: "4px 0 4px 20px", padding: 0 }}>
+              {block.items!.map((item, j) => (
+                <li key={j} style={{ marginBottom: 2 }}>
+                  {renderInline(item)}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "ol") {
+          return (
+            <ol key={i} style={{ margin: "4px 0 4px 20px", padding: 0 }}>
+              {block.items!.map((item, j) => (
+                <li key={j} style={{ marginBottom: 2 }}>
+                  {renderInline(item)}
+                </li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.type === "task") {
+          return (
+            <ul
+              key={i}
+              style={{ display: "grid", gap: 4, listStyle: "none", margin: "6px 0", padding: 0 }}
+            >
+              {block.tasks!.map((task, j) => (
+                <li key={j} style={{ alignItems: "flex-start", display: "flex", gap: 8 }}>
+                  <span
+                    aria-label={task.checked ? "Completed task" : "Incomplete task"}
+                    role="img"
+                    style={{
+                      alignItems: "center",
+                      background: task.checked ? "var(--teal-soft)" : "var(--bg3)",
+                      border: `1px solid ${task.checked ? "var(--teal-border)" : "var(--border)"}`,
+                      borderRadius: 4,
+                      color: task.checked ? "var(--teal)" : "transparent",
+                      display: "inline-flex",
+                      flex: "0 0 auto",
+                      fontSize: 10,
+                      height: 14,
+                      justifyContent: "center",
+                      marginTop: 4,
+                      width: 14,
+                    }}
+                  >
+                    x
+                  </span>
+                  <span>{renderInline(task.text)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "table") {
+          return (
+            <div
+              key={i}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                margin: "8px 0",
+                overflowX: "auto",
+              }}
+            >
+              <table style={{ borderCollapse: "collapse", minWidth: "100%", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {block.table!.headers.map((header, j) => (
+                      <th
+                        key={j}
+                        style={{
+                          background: "var(--bg3)",
+                          borderBottom: "1px solid var(--border)",
+                          color: "var(--t1)",
+                          fontWeight: 600,
+                          padding: "6px 8px",
+                          textAlign: "left",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {renderInline(header)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.table!.rows.map((row, j) => (
+                    <tr key={j}>
+                      {block.table!.headers.map((_, k) => (
+                        <td
+                          key={k}
+                          style={{
+                            borderTop: j === 0 ? "none" : "1px solid var(--border)",
+                            color: "var(--t0)",
+                            padding: "6px 8px",
+                            verticalAlign: "top",
+                          }}
+                        >
+                          {renderInline(row[k] ?? "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        if (block.type === "hr") {
+          return (
+            <hr
+              key={i}
+              style={{ border: "none", borderTop: "1px solid var(--border)", margin: "10px 0" }}
+            />
+          );
+        }
+        return (
+          <p key={i} style={{ margin: "0 0 6px", whiteSpace: "pre-wrap" }}>
+            {renderInline(block.text)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderInline(text: string): React.ReactNode {
+  return parseInlineNodes(text).map((node, i) => {
+    if (node.t === "bold") return <strong key={i}>{renderInline(node.v)}</strong>;
+    if (node.t === "italic") return <em key={i}>{renderInline(node.v)}</em>;
+    if (node.t === "code")
+      return (
+        <code
+          key={i}
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.9em",
+            background: "var(--bg3)",
+            padding: "1px 4px",
+            margin: "0 1px",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--teal)",
+          }}
+        >
+          {node.v}
+        </code>
+      );
+    if (node.t === "link") {
+      const href = safeExternalURL(node.href) ?? "#";
+      return (
+        <a
+          key={i}
+          href={href}
+          onClick={(event) => handleExternalLinkClick(event, href)}
+          rel="noopener noreferrer"
+          target="_blank"
+          style={{
+            color: "var(--teal)",
+            textDecoration: "none",
+            borderBottom: "1px solid var(--teal-border)",
+          }}
+        >
+          {node.v}
+        </a>
+      );
+    }
+    return node.v;
+  });
+}
+
+function handleExternalLinkClick(event: React.MouseEvent<HTMLAnchorElement>, href: string): void {
+  if (href === "#") {
+    event.preventDefault();
+    return;
+  }
+  if (!isTauriRuntime()) return;
+  event.preventDefault();
+  void openDesktopExternalURL(href).catch(() => {
+    warn("Could not open an external Markdown link in the system application.");
+  });
+}
