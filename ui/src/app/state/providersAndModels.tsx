@@ -90,6 +90,7 @@ export type ProvidersAndModelsActions = {
   setAgentAdapterHealth: (adapterID: string, record: AgentAdapterHealthRecord) => void;
   clearAgentAdapterHealth: (adapterID: string) => void;
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
+  loadModelCatalog: () => Promise<ModelResponse>;
   refreshProviders: () => Promise<void>;
   probeAgentAdapter: (adapterID: string) => Promise<ProbeAdapterResult>;
   verifyModelToolSupport: (
@@ -226,6 +227,18 @@ export function ProvidersAndModelsProvider({
     dispatch({ type: "models/set", next });
   }, []);
   const setModels = applyModels;
+  const loadModelCatalog = useCallback(async (): Promise<ModelResponse> => {
+    const modelsMutationRevisionAtStart = modelsMutationRevisionRef.current;
+    const refreshID = ++latestModelsRefreshRef.current;
+    const response = await getModels();
+    if (
+      modelsMutationRevisionRef.current === modelsMutationRevisionAtStart &&
+      latestModelsRefreshRef.current === refreshID
+    ) {
+      dispatch({ type: "models/set", next: response.data ?? [] });
+    }
+    return response;
+  }, []);
   const setAgentAdapters = useCallback(
     (next: SetStateAction<AgentAdapterRecord[]>) => dispatch({ type: "agentAdapters/set", next }),
     [],
@@ -250,19 +263,10 @@ export function ProvidersAndModelsProvider({
   );
 
   const refreshProviders = useCallback(async () => {
-    const modelsMutationRevisionAtStart = modelsMutationRevisionRef.current;
-    const refreshID = ++latestModelsRefreshRef.current;
     try {
-      const [pResult, mResult] = await Promise.allSettled([getProviders(), getModels()]);
+      const [pResult, mResult] = await Promise.allSettled([getProviders(), loadModelCatalog()]);
       if (pResult.status === "fulfilled") {
         dispatch({ type: "providers/set", next: pResult.value.data ?? [] });
-      }
-      if (
-        mResult.status === "fulfilled" &&
-        modelsMutationRevisionRef.current === modelsMutationRevisionAtStart &&
-        latestModelsRefreshRef.current === refreshID
-      ) {
-        dispatch({ type: "models/set", next: mResult.value.data ?? [] });
       }
       if (pResult.status === "rejected" || mResult.status === "rejected") {
         warn("providersAndModels.refresh.failed", {
@@ -287,7 +291,7 @@ export function ProvidersAndModelsProvider({
         err: error instanceof Error ? error.message : String(error),
       });
     }
-  }, []);
+  }, [loadModelCatalog]);
 
   const probeAgentAdapter = useCallback(async (adapterID: string): Promise<ProbeAdapterResult> => {
     if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
@@ -397,6 +401,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealth,
       clearAgentAdapterHealth,
       setAgentAdapterHealthLoading,
+      loadModelCatalog,
       refreshProviders,
       probeAgentAdapter,
       verifyModelToolSupport,
@@ -411,6 +416,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealth,
       clearAgentAdapterHealth,
       setAgentAdapterHealthLoading,
+      loadModelCatalog,
       refreshProviders,
       probeAgentAdapter,
       verifyModelToolSupport,
