@@ -17,6 +17,10 @@
     "allow-set-update-badge",
     "allow-take-pending-desktop-update-check",
     "log:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "http://*" }, { "url": "https://*" }, { "url": "mailto:*" }]
+    },
     "process:allow-restart",
     "updater:default"
   ]

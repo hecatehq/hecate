@@ -12,6 +12,7 @@ import {
 } from "../../lib/desktop-update";
 import { isTauriRuntime } from "../../lib/tauri";
 import { Icon, Icons } from "./Icons";
+import { MarkdownContent } from "./MarkdownContent";
 import { Modal } from "./Overlays";
 
 const MAX_RELEASE_NOTES_LENGTH = 12_000;
@@ -258,9 +259,10 @@ function DesktopUpdateDetails({
             aria-labelledby="desktop-update-release-notes"
             className="desktop-update-details__notes"
           >
-            <h3 id="desktop-update-release-notes">Release notes from the published release</h3>
-            {/* Release metadata is advisory. React renders it as text, never HTML/Markdown. */}
-            <pre>{releaseNotes}</pre>
+            <h2 id="desktop-update-release-notes">Release notes from the published release</h2>
+            <div className="desktop-update-details__notes-content">
+              <MarkdownContent content={releaseNotes} headingStartLevel={3} />
+            </div>
           </section>
         )}
 

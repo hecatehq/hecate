@@ -1,7 +1,19 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
+
+const { openUrlMock } = vi.hoisted(() => ({ openUrlMock: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
+
+beforeEach(() => {
+  openUrlMock.mockReset();
+  delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+});
+
+afterEach(() => {
+  delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+});
 
 describe("TranscriptMarkdown", () => {
   it("renders bold inline marks", () => {
@@ -73,6 +85,19 @@ describe("TranscriptMarkdown", () => {
     expect(container.textContent).toContain("H3");
   });
 
+  it("maps headings into a parent-provided semantic outline", () => {
+    render(
+      <TranscriptMarkdown
+        content={"# Release title\n## Highlights\n### Details"}
+        headingStartLevel={3}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { level: 3, name: "Release title" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 4, name: "Highlights" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 5, name: "Details" })).toBeInTheDocument();
+  });
+
   it("renders unordered lists", () => {
     render(<TranscriptMarkdown content={"- one\n- two\n- three"} />);
     expect(screen.getByText("one").tagName).toBe("LI");
@@ -103,14 +128,27 @@ describe("TranscriptMarkdown", () => {
     const link = screen.getByText("docs") as HTMLAnchorElement;
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("href")).toBe("#");
+    expect(fireEvent.click(link)).toBe(false);
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
-  it("preserves http(s) and mailto link hrefs", () => {
+  it("normalizes allowed http(s) links and preserves mailto hrefs", () => {
     render(<TranscriptMarkdown content="see [docs](https://example.com) and [me](mailto:x@y.z)" />);
     expect((screen.getByText("docs") as HTMLAnchorElement).getAttribute("href")).toBe(
-      "https://example.com",
+      "https://example.com/",
     );
     expect((screen.getByText("me") as HTMLAnchorElement).getAttribute("href")).toBe("mailto:x@y.z");
+  });
+
+  it("opens safe links in the system browser from the desktop runtime", async () => {
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    openUrlMock.mockResolvedValue(undefined);
+    render(<TranscriptMarkdown content="read the [release](https://example.com/releases)" />);
+
+    const link = screen.getByRole("link", { name: "release" });
+    expect(fireEvent.click(link)).toBe(false);
+
+    await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith("https://example.com/releases"));
   });
 
   it("renders tables with headers and rows", () => {

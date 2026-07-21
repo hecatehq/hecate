@@ -59,7 +59,7 @@ describe("DesktopUpdateCenter", () => {
     expect(screen.queryByRole("button", { name: "Updates" })).toBeNull();
   });
 
-  it("opens a portal-mounted dialog with literal release notes and returns focus", async () => {
+  it("opens a portal-mounted dialog with rendered release-note Markdown and returns focus", async () => {
     enterTauriRuntime();
     useDesktopUpdateMock.mockReturnValue(
       controllerFixture({
@@ -67,8 +67,16 @@ describe("DesktopUpdateCenter", () => {
           currentVersion: "0.3.0-alpha.1",
           version: "0.3.0-alpha.2",
           publishedAt: "2026-07-19T08:30:00Z",
-          notes:
-            '<img data-unsafe="release-note-image" src="https://invalid.example"> **Plain text**',
+          notes: [
+            "# Hecate 0.3.0-alpha.2",
+            "",
+            "## Highlights",
+            "",
+            "- Added **rendered release notes** with `safe links`.",
+            "- Read the [release guide](https://example.com/releases).",
+            "",
+            '<img data-unsafe="release-note-image" src="https://invalid.example">',
+          ].join("\n"),
         },
       }),
     );
@@ -85,6 +93,22 @@ describe("DesktopUpdateCenter", () => {
     expect(dialog).toHaveTextContent("0.3.0-alpha.1");
     expect(dialog).toHaveTextContent("Available");
     expect(dialog).toHaveTextContent("0.3.0-alpha.2");
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Release notes from the published release" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 3, name: "Hecate 0.3.0-alpha.2" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 4, name: "Highlights" })).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("# Hecate 0.3.0-alpha.2");
+    expect(dialog).not.toHaveTextContent("## Highlights");
+    expect(screen.getByText("rendered release notes").tagName).toBe("STRONG");
+    expect(screen.getByText("safe links").tagName).toBe("CODE");
+    expect(screen.getByText(/Added/).closest("li")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "release guide" })).toHaveAttribute(
+      "href",
+      "https://example.com/releases",
+    );
     expect(dialog).toHaveTextContent('<img data-unsafe="release-note-image"');
     expect(document.querySelector("[data-unsafe='release-note-image']")).toBeNull();
     expect(dialog.parentElement).toHaveStyle({ zIndex: "1100" });

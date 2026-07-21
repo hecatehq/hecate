@@ -324,7 +324,7 @@ html[data-tauri-os="macos"] .hecate-shell {
   padding-top: 14px;
 }
 
-.desktop-update-details__notes h3 {
+.desktop-update-details__notes > h2 {
   color: var(--t2);
   font-family: var(--font-mono);
   font-size: 10px;
@@ -333,13 +333,9 @@ html[data-tauri-os="macos"] .hecate-shell {
   text-transform: uppercase;
 }
 
-.desktop-update-details__notes pre {
-  color: var(--t1);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  margin: 0;
+.desktop-update-details__notes-content {
+  min-width: 0;
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
 .desktop-update-details__verification {
