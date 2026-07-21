@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseInlineNodes, parseMarkdownBlocks } from "./markdown";
+import {
+  incompleteMarkdownDestinationStart,
+  parseInlineNodes,
+  parseMarkdownBlocks,
+} from "./markdown";
 
 describe("parseMarkdownBlocks", () => {
   it("parses a plain paragraph", () => {
@@ -175,10 +179,80 @@ describe("parseInlineNodes", () => {
     ]);
   });
 
+  it("parses balanced, escaped, and relative markdown link destinations", () => {
+    expect(
+      parseInlineNodes(
+        "open [guide](https://example.com/(private)/guide) and [local](docs/\\(draft\\)/guide)",
+      ),
+    ).toEqual([
+      { t: "text", v: "open " },
+      {
+        t: "link",
+        v: "guide",
+        href: "https://example.com/(private)/guide",
+      },
+      { t: "text", v: " and " },
+      { t: "link", v: "local", href: "docs/\\(draft\\)/guide" },
+    ]);
+  });
+
+  it("keeps incomplete markdown links visible", () => {
+    expect(parseInlineNodes("open [guide](https://example.com/private")).toEqual([
+      { t: "text", v: "open [guide](" },
+      {
+        t: "link",
+        v: "https://example.com/private",
+        href: "https://example.com/private",
+      },
+    ]);
+  });
+
+  it("keeps unsupported whitespace destinations visible", () => {
+    expect(parseInlineNodes("open [guide](not a link) after")).toEqual([
+      { t: "text", v: "open [guide](not a link) after" },
+    ]);
+  });
+
+  it("bounds lookahead across repeated malformed markdown links", () => {
+    const source = "[missing](".repeat(30_000);
+    expect(parseInlineNodes(source)).toEqual([{ t: "text", v: source }]);
+  });
+
+  it("keeps parsing valid links after a malformed bracket prefix", () => {
+    const prefix = "[".repeat(100) + "a".repeat(1_000) + "]x ";
+    const nodes = parseInlineNodes(`${prefix}[label](relative/SECRET_VALUE)`);
+
+    expect(nodes.at(-1)).toEqual({
+      t: "link",
+      v: "label",
+      href: "relative/SECRET_VALUE",
+    });
+  });
+
+  it("finds only a destination cut at the end of a bounded source", () => {
+    expect(incompleteMarkdownDestinationStart("Before [public](relative/private")).toBe(7);
+    expect(incompleteMarkdownDestinationStart("Before [public](")).toBe(7);
+    expect(
+      incompleteMarkdownDestinationStart("Before [broken](not closed\nPUBLIC_AFTER"),
+    ).toBeNull();
+  });
+
   it("parses bare http links", () => {
     expect(parseInlineNodes("see https://example.com/docs")).toEqual([
       { t: "text", v: "see " },
       { t: "link", v: "https://example.com/docs", href: "https://example.com/docs" },
+    ]);
+  });
+
+  it("keeps balanced parentheses inside bare http links", () => {
+    expect(parseInlineNodes("see https://example.com/a(b)c/private after")).toEqual([
+      { t: "text", v: "see " },
+      {
+        t: "link",
+        v: "https://example.com/a(b)c/private",
+        href: "https://example.com/a(b)c/private",
+      },
+      { t: "text", v: " after" },
     ]);
   });
 

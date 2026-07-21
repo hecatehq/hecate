@@ -137,6 +137,32 @@ describe("ChatTranscript read aloud", () => {
     expect(screen.queryByRole("button", { name: "Read response aloud" })).toBeNull();
   });
 
+  it("cancels active speech when settled content changes under the same message ID", async () => {
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      activeChatSessionID: "chat-1",
+      chatTarget: "agent",
+    });
+    const actions = createRuntimeConsoleActions();
+    const original = messageItem(assistantMessage({ content: "Original private response" }));
+    const { rerender } = render(
+      withRuntimeConsole(transcript({ items: [original] }), { actions, state }),
+    );
+    await user.click(screen.getByRole("button", { name: "Read response aloud" }));
+    const staleUtterance = spoken[0];
+
+    const corrected = messageItem(assistantMessage({ content: "Corrected public response" }));
+    rerender(withRuntimeConsole(transcript({ items: [corrected] }), { actions, state }));
+
+    await waitFor(() => expect(cancelSpeech).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Read response aloud" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    staleUtterance.onend?.({} as SpeechSynthesisEvent);
+    expect(spoken).toHaveLength(1);
+  });
+
   it("surfaces a system speech failure as a visible Hecate notice", async () => {
     speak.mockImplementationOnce(() => {
       throw new Error("speech service unavailable");
@@ -184,7 +210,7 @@ describe("ChatTranscript read aloud", () => {
     );
 
     const button = screen.getByRole("button", { name: "Read response aloud" });
-    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toHaveAttribute("aria-disabled");
     await user.click(button);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(

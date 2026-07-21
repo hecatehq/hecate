@@ -84,8 +84,8 @@ What works:
   installed local voice, uses that voice explicitly, and never sends response
   text through the gateway, model route, or External Agent adapter. It requires
   no microphone permission. Voice availability still varies by operating
-  system and webview installation, so unsupported hosts show a disabled action
-  with system-voice setup guidance.
+  system and webview installation, so unsupported hosts keep the action
+  available for system-voice setup guidance.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,

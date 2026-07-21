@@ -350,12 +350,7 @@ textarea {
   opacity: 1;
 }
 
-.btn.transcript-message-read-aloud[aria-disabled="true"] {
-  cursor: help;
-  pointer-events: auto;
-}
-
-@media (hover: none) {
+@media (hover: none), (any-pointer: coarse) {
   .transcript-message-actions {
     opacity: 1;
   }

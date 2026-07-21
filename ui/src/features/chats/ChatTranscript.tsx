@@ -371,12 +371,14 @@ export function ChatTranscript({
     if (
       !activeMessage ||
       activeMessage.type !== "message" ||
+      visibleMessageContent(activeMessage.message) !== readAloud.readingContent ||
       !messageCanReadAloud(activeMessage.message, streaming, latestTranscriptMessageID)
     ) {
       readAloud.stop();
     }
   }, [
     latestTranscriptMessageID,
+    readAloud.readingContent,
     readAloud.readingMessageID,
     readAloud.stop,
     streaming,
