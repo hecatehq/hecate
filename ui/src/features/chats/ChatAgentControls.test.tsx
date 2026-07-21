@@ -101,6 +101,36 @@ describe("NewChatAgentButton", () => {
     expect(onCreate).toHaveBeenCalledWith("hecate");
   });
 
+  it("discloses the selected executable and ACP launch before creating an external chat", async () => {
+    const onCreate = vi.fn();
+    render(
+      <NewChatAgentButton
+        value="codex"
+        adapters={[
+          makeAdapter({
+            path: "/Applications/Codex.app/Contents/Resources/codex",
+          }),
+        ]}
+        healthByID={new Map()}
+        onChange={() => {}}
+        onCreate={onCreate}
+      />,
+    );
+
+    const create = screen.getByRole("button", { name: "New Codex chat" });
+    expect(create).toHaveAccessibleDescription(
+      "Starts Codex from /Applications/Codex.app/Contents/Resources/codex and opens an ACP session.",
+    );
+    expect(create).toHaveAttribute(
+      "title",
+      "Starts Codex from /Applications/Codex.app/Contents/Resources/codex and opens an ACP session",
+    );
+    expect(screen.getByText("/Applications/Codex.app/Contents/Resources/codex")).toBeVisible();
+
+    await userEvent.setup().click(create);
+    expect(onCreate).toHaveBeenCalledWith("codex");
+  });
+
   it("keeps the agent menu trigger at the same compact height", () => {
     render(
       <NewChatAgentButton

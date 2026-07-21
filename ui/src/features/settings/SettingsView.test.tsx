@@ -500,9 +500,9 @@ describe("Connections external-agent panel", () => {
     expect(within(denyRow).getByText(/always deny/i)).toBeTruthy();
   });
 
-  it("shows logout for logout-capable local adapters", async () => {
+  it("hides logout until a live probe confirms authenticated logout support", async () => {
     const logoutAgentAdapter = vi.fn(async () => true);
-    const { state, actions, user } = setup(
+    const { state, actions } = setup(
       {
         agentAdapters: [
           {
@@ -533,10 +533,58 @@ describe("Connections external-agent panel", () => {
     );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-    await user.click(await screen.findByRole("button", { name: "Sign out Codex" }));
+    await screen.findByTestId("external-agents-adapter-codex");
+    expect(screen.queryByRole("button", { name: /Sign out Codex/ })).toBeNull();
+    expect(logoutAgentAdapter).not.toHaveBeenCalled();
+  });
+
+  it("shows logout after a ready probe and discloses its process launch", async () => {
+    const logoutAgentAdapter = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            path: "/Users/alice/.local/bin/codex",
+            available: true,
+            status: "available",
+            auth_status: "ok",
+            supports_authenticate: true,
+            supports_logout: true,
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          [
+            "codex",
+            {
+              adapter_id: "codex",
+              status: "ready",
+              stage: "ready",
+              path: "/Users/alice/.local/bin/codex",
+              capabilities_known: true,
+              supports_authenticate: true,
+              supports_logout: true,
+              duration_ms: 25,
+            },
+          ],
+        ]),
+      },
+      { logoutAgentAdapter },
+    );
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+    const row = await screen.findByTestId("external-agents-adapter-codex");
+    const signOut = within(row).getByRole("button", {
+      name: "Sign out Codex; starts the installed app",
+    });
+    expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
+    expect(signOut).toHaveAttribute("title", "Starts Codex and opens an ACP session to sign out");
+    await user.click(signOut);
 
     expect(logoutAgentAdapter).toHaveBeenCalledWith("codex");
-    expect(screen.queryByRole("button", { name: "Sign out Cursor Agent" })).toBeNull();
   });
 
   it("shows authenticate for local adapters that need sign-in", async () => {
@@ -549,6 +597,7 @@ describe("Connections external-agent panel", () => {
             name: "Codex",
             kind: "acp",
             command: "codex-acp-adapter",
+            path: "/Users/alice/.local/bin/codex",
             available: true,
             status: "available",
             auth_status: "unauthenticated",
@@ -572,11 +621,17 @@ describe("Connections external-agent panel", () => {
     );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-    await user.click(await screen.findByRole("button", { name: "Sign in Codex" }));
+    const row = await screen.findByTestId("external-agents-adapter-codex");
+    const signIn = within(row).getByRole("button", {
+      name: "Sign in Codex; starts the installed app",
+    });
+    expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
+    expect(signIn).toHaveAttribute("title", "Starts Codex and opens an ACP session to sign in");
+    await user.click(signIn);
 
     expect(authenticateAgentAdapter).toHaveBeenCalledWith("codex");
-    expect(screen.queryByRole("button", { name: "Sign in Cursor Agent" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sign out Codex" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sign in Cursor Agent/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sign out Codex/ })).toBeNull();
   });
 
   it("uses live probe capabilities for authenticate visibility", async () => {
@@ -640,8 +695,8 @@ describe("Connections external-agent panel", () => {
     );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-    expect(screen.queryByRole("button", { name: "Sign in Codex" })).toBeNull();
-    await user.click(await screen.findByRole("button", { name: "Sign in Cursor Agent" }));
+    expect(screen.queryByRole("button", { name: /Sign in Codex/ })).toBeNull();
+    await user.click(await screen.findByRole("button", { name: /Sign in Cursor Agent/ }));
     expect(authenticateAgentAdapter).toHaveBeenCalledWith("cursor_agent");
   });
 
@@ -1044,6 +1099,60 @@ describe("Connections external-agent panel", () => {
       ).toHaveAttribute("title", "Starts Codex and opens a temporary ACP session");
     });
 
+    it("discloses the remote credential retry process and keeps its selected path visible", async () => {
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup(
+        withAdapter({
+          sessionInfo: {
+            role: "operator",
+            runtime_host: createRuntimeHostFixture({
+              runtime_mode: "remote_runtime",
+              operator_access: "remote_supervision",
+              local_only_actions_available: false,
+            }),
+            remote_identity: {
+              actor_id: "actor_1",
+              org_id: "org_1",
+              project_id: "project_1",
+              runtime_id: "runtime_1",
+            },
+          },
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex",
+              path: "/opt/hecate/agents/codex",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              remote_credential_hint: "Configure the hosted agent credential.",
+              credential_modes: [
+                {
+                  id: "api_key",
+                  remote_allowed: true,
+                  env_keys: ["AGENT_API_KEY"],
+                },
+              ],
+            },
+          ],
+        }),
+        { probeAgentAdapter },
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(row).toHaveTextContent("path /opt/hecate/agents/codex");
+      const checkAgain = within(row).getByRole("button", {
+        name: "Check Codex again; starts the agent runtime",
+      });
+      expect(checkAgain).toHaveAttribute("title", "Starts Codex and opens a temporary ACP session");
+
+      await user.click(checkAgain);
+      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
+    });
+
     it("renders compact local sign-in when the cached probe says auth is missing", async () => {
       const { state, actions } = setup(
         withAdapter({
@@ -1070,7 +1179,12 @@ describe("Connections external-agent panel", () => {
       expect(within(row).getByText("codex login")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-adapter-codex-detail")).toBeNull();
       expect(screen.queryByTestId("external-agents-adapter-codex-auth-warning")).toBeNull();
-      expect(row).not.toHaveTextContent("path /usr/local/bin/codex-acp-adapter");
+      expect(row).toHaveTextContent("path /usr/local/bin/codex-acp-adapter");
+      expect(
+        within(row).getByRole("button", {
+          name: "Test Codex again; starts the installed app",
+        }),
+      ).toHaveAttribute("title", "Starts Codex and opens a temporary ACP session");
       expect(row).not.toHaveTextContent("412 ms");
       expect(row).not.toHaveTextContent("auth unknown");
     });
@@ -1374,6 +1488,7 @@ describe("Connections external-agent panel", () => {
               name: "Claude Code",
               kind: "acp",
               command: "claude-code-acp-adapter",
+              path: "/Users/alice/.local/bin/claude",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -1385,7 +1500,16 @@ describe("Connections external-agent panel", () => {
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      await user.click(await screen.findByRole("button", { name: "Test again" }));
+      const row = await screen.findByTestId("external-agents-adapter-claude_code");
+      expect(row).toHaveTextContent("path /Users/alice/.local/bin/claude");
+      const testAgain = within(row).getByRole("button", {
+        name: "Test Claude Code again; starts the installed app",
+      });
+      expect(testAgain).toHaveAttribute(
+        "title",
+        "Starts Claude Code and opens a temporary ACP session",
+      );
+      await user.click(testAgain);
       expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     });
   });

@@ -5412,6 +5412,7 @@ describe("ChatView external-agent target", () => {
             name: "Codex",
             kind: "acp",
             command: "codex-acp-adapter",
+            path: "/Users/alice/.local/bin/codex",
             available: true,
             status: "available",
             cost_mode: "external",
@@ -5425,7 +5426,54 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     await screen.findByRole("button", { name: "Choose agent for new chat" });
+    expect(screen.getByText("Codex found")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Hecate found the installed app. Creating this chat starts it and opens an ACP session in the selected workspace.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("/Users/alice/.local/bin/codex")).toBeVisible();
     expect(probeAgentAdapter).not.toHaveBeenCalled();
+  });
+
+  it("describes an empty external-agent chat as an already prepared ACP session", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      newChatAgentID: "codex",
+      agentWorkspace: "/tmp/hecate",
+      activeChatSessionID: "agent_chat_1",
+      activeChatSession: {
+        id: "agent_chat_1",
+        title: "New Codex chat",
+        agent_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp-adapter",
+          path: "/Users/alice/.local/bin/codex",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+    });
+
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("Codex session ready")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Hecate started the installed app and opened its ACP session in this workspace. Send a message when you're ready.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Sending a message starts it/)).toBeNull();
   });
 
   it("shows Claude Code local auth repair when the agent reports auth required", async () => {

@@ -12,6 +12,7 @@ type Props = {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
+  externalAgentSessionPrepared: boolean;
   isRemoteRuntime: boolean;
   setupRepair: ChatSetupRepairState | null;
   modelRouteUnavailable: boolean;
@@ -46,6 +47,7 @@ export function ChatEmptyState({
   isAgentChat,
   isHecateChat,
   isExternalAgentChat,
+  externalAgentSessionPrepared,
   isRemoteRuntime,
   setupRepair,
   modelRouteUnavailable,
@@ -87,10 +89,14 @@ export function ChatEmptyState({
     Boolean(setupRepair) &&
     !(setupRepair?.kind === "no_provider" && hasQuickLocalProviderCandidates);
   const readyTitle = isExternalAgentChat
-    ? `${selectedAgent?.name || "External agent"} found`
+    ? externalAgentSessionPrepared
+      ? `${selectedAgent?.name || "External agent"} session ready`
+      : `${selectedAgent?.name || "External agent"} found`
     : "Ready when you are";
   const readyDetail = isExternalAgentChat
-    ? "Hecate found the installed app. Sending a message starts it in this workspace; use Check in Connections first if you want a no-prompt readiness test."
+    ? externalAgentSessionPrepared
+      ? "Hecate started the installed app and opened its ACP session in this workspace. Send a message when you're ready."
+      : "Hecate found the installed app. Creating this chat starts it and opens an ACP session in the selected workspace."
     : "Ask a question, inspect the workspace, or describe the change you want to make.";
   const title =
     isAgentChat && selectedAgentUnavailable
