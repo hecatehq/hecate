@@ -87,7 +87,8 @@ var knownMCPCacheEvents = map[string]struct{}{
 	MCPCacheEventEvicted: {},
 }
 
-// knownAgentAdapterProbeStatuses mirrors agentadapters.ProbeStatus*.
+// knownAgentAdapterProbeStatuses mirrors explicit agentadapters.ProbeStatus*
+// outcomes. Passive-only "unverified" reads do not emit probe metrics.
 // Duplicated here because the telemetry package can't import
 // agentadapters without a cycle; the contract test asserts every
 // known status passes through unchanged.

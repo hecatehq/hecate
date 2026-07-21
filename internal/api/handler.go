@@ -125,11 +125,10 @@ type Handler struct {
 	// ApprovalCoordinator if SetAgentApprovalStore replaces its
 	// backing store after NewHandler returned.
 	approvalConfig approvalConfig
-	// agentAdapterProbe is the override hook used by
-	// HandleAgentAdapterHealth. nil means production callers fall
-	// through to agentadapters.Probe; tests install a fake via
-	// SetAgentAdapterProbe so they can exercise the handler without
-	// spawning real ACP binaries.
+	// agentAdapterProbe is the override hook used by the explicit
+	// adapter probe endpoint. nil means production callers fall through
+	// to agentadapters.Probe; tests install a fake so they can exercise
+	// the handler without spawning real ACP binaries.
 	agentAdapterProbe        AgentAdapterProbe
 	agentAdapterLogout       AgentAdapterLogout
 	agentAdapterAuthenticate AgentAdapterAuthenticate

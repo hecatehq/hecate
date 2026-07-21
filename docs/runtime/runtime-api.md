@@ -1643,6 +1643,23 @@ cheap so the app can render startup state without spawning coding-agent CLIs.
 Use `POST /hecate/v1/agent-adapters/{id}/probe` for live version, auth,
 capability, and launch-control discovery.
 
+Discovery checks the Hecate process's `PATH` followed by allowlisted standard
+vendor, Homebrew, Volta, npm, pnpm, and WinGet locations for the selected
+adapter. Environment-derived roots must be absolute. The returned `path` is the
+absolute invocation path Hecate selected. If it is a symlink, Hecate validates
+the canonical target but preserves the invocation path for version-manager
+`argv[0]` dispatch. Discovery performs path and regular-file checks but does not
+run the launcher. An unavailable row means the command was absent from both
+`PATH` and the recognized locations, or its launcher form was rejected.
+
+On Windows, every external-agent provider selects only native `.exe` files.
+Hecate rejects `.cmd`, `.bat`, `.ps1`, and other launchers instead of invoking a
+command shell and accepting an unmeasured wrapper/interpreter chain. Native
+direct peers start suspended and enter Hecate's kill-on-close Job Object before
+provider code runs. A rejected launcher does not prevent discovery from
+continuing to a recognized native installation. The current Cursor Windows CLI
+is wrapper-only and therefore not yet supported.
+
 ```json
 GET /hecate/v1/agent-adapters
 → 200
@@ -1851,10 +1868,15 @@ appears on the prepared chat session and is updated with ACP
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
-Re-runs discovery for one adapter, then performs the same end-to-end ACP probe
-as `/health`. The response includes the fresh catalog row plus the health
-result, so UIs can update a single Connections row after the operator logs in or
-installs a missing dependency.
+Re-runs discovery for one adapter, then performs an end-to-end ACP probe. The
+response includes the fresh catalog row plus the health result, so UIs can
+update a single Connections row after the operator logs in or installs a
+missing dependency.
+
+Unlike catalog discovery, this endpoint executes the selected external app. It
+starts the ACP runtime, performs `Initialize`, and creates a temporary session.
+Clients should invoke it only after an explicit operator action and should show
+the catalog `path` before that action.
 
 ```json
 POST /hecate/v1/agent-adapters/codex/probe
@@ -1908,13 +1930,16 @@ Catalog discovery remains the offline fallback before a probe runs. Hecate only
 marks `supports_authenticate` true for ACP auth method `agent-login`, because
 that is the method the local `/authenticate` endpoint invokes.
 
+The probe creates and immediately abandons a fresh ACP session, so agents that
+bill on session creation may record one no-op session per call. Agents that bill
+on prompt completion see no prompt from this check.
+
 ### `GET /hecate/v1/agent-adapters/{id}/health`
 
-Probes a single adapter end-to-end and classifies the outcome so operators can
-distinguish "provider CLI missing" from "runtime available but auth failing"
-without reading raw error text. The probe starts the selected ACP runtime,
-performs ACP `Initialize` and `NewSession` against a temporary workspace, then
-stops it; it never issues a chat prompt.
+Compatibility read for one adapter's passive discovery state. It performs the
+same non-executing path inspection as the catalog and never starts the selected
+app. Use the explicit POST probe for live version, auth, ACP capabilities, and
+session readiness.
 
 ```json
 GET /hecate/v1/agent-adapters/codex/health
@@ -1923,59 +1948,35 @@ GET /hecate/v1/agent-adapters/codex/health
   "object": "agent_adapter_health",
   "data": {
     "adapter_id": "codex",
-    "status": "auth_required",
-    "stage": "initialize",
+    "status": "unverified",
+    "stage": "lookup",
     "path": "/Users/alice/.local/bin/codex",
-    "error": "Authentication required",
-    "hint": "Adapter started but failed authentication. Try the adapter's CLI login flow or set its API-key env var.",
-    "capabilities_known": true,
-    "supports_authenticate": true,
-    "supports_logout": true,
-    "supports_load_session": true,
-    "auth_methods": [
-      {
-        "id": "agent-login",
-        "kind": "agent",
-        "name": "Agent login"
-      }
-    ],
-    "duration_ms": 412
+    "hint": "App found but not tested. POST to the probe endpoint to start it and run an ACP readiness check.",
+    "supports_authenticate": false,
+    "supports_logout": false,
+    "supports_load_session": false,
+    "duration_ms": 0
   }
 }
 ```
 
+This compatibility response reuses the probe result type. When
+`capabilities_known` is absent or false, its false capability fields are zero
+values, not claims that the installed app lacks those features.
+
 `status` is one of:
 
-- `ready` — spawn + Initialize + NewSession all succeeded.
-- `not_installed` — binary not on PATH.
-- `auth_required` — process started but Initialize or NewSession failed with
-  an auth-shaped error (`Authentication required`, `Please log in`, `API key`,
-  `Credit balance is too low`, `401`, `403`, …).
-- `error` — anything else. `error` and `stderr` carry the verbatim diagnostic
-  so the operator can act on it. Timeout and deadline diagnostics stay in this
-  bucket with a hint to retry from Connections after resolving stuck CLI,
-  browser, or login prompts.
-
-`stage` reports which step in the sequence completed (on success) or failed (on
-error): `lookup` / `spawn` / `initialize` / `new_session` / `ready`.
-
-If ACP `Initialize` succeeds, the health payload also includes
-`capabilities_known`, `supports_authenticate`, `supports_logout`,
-`supports_load_session`, and a non-secret `auth_methods` summary. These fields
-can be present even when `status` is `auth_required` because auth failures may
-occur after `Initialize` during `NewSession`. Env-var names and terminal env
-payloads are intentionally not exposed through health responses.
+- `unverified` — an eligible app path was found but has not been executed.
+- `not_installed` — the command was absent from `PATH` and recognized standard
+  locations, or its launcher form was rejected.
+- `auth_required` — remote-runtime credential policy blocks discovery before
+  execution. Local auth is intentionally unknown until an explicit probe.
 
 Status codes:
 
-- `200 OK` with the typed result on every classification (`ready`,
-  `not_installed`, `auth_required`, `error`). The probe completing
-  successfully is itself a 200; the agent status lives in the body.
+- `200 OK` with the passive classification (`unverified`, `not_installed`, or
+  `auth_required`).
 - `404 not_found` when the adapter id is not registered.
-
-The probe creates and immediately abandons a fresh ACP session, so agents that
-bill on session creation will see one no-op session per call. Agents that bill
-on prompt completion see no charge.
 
 ### `POST /hecate/v1/agent-adapters/{id}/authenticate`
 

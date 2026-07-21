@@ -26,7 +26,7 @@ type AgentAdapterLogout func(ctx context.Context, adapterID string) (agentadapte
 // real adapter binaries.
 type AgentAdapterAuthenticate func(ctx context.Context, adapterID string) (agentadapters.AuthenticateResult, error)
 
-// SetAgentAdapterProbe overrides the probe used by HandleAgentAdapterHealth.
+// SetAgentAdapterProbe overrides the probe used by the explicit POST endpoint.
 // Pass nil to restore the default (agentadapters.Probe). Test-only.
 func (h *Handler) SetAgentAdapterProbe(p AgentAdapterProbe) {
 	h.agentAdapterProbe = p
@@ -46,19 +46,15 @@ func (h *Handler) SetAgentAdapterAuthenticate(fn AgentAdapterAuthenticate) {
 	h.agentAdapterAuthenticate = fn
 }
 
-// HandleAgentAdapterHealth probes a single adapter to confirm it can
-// serve a chat turn today (binary on PATH, ACP handshake completes,
-// session-create succeeds). The classification — `ready` /
-// `not_installed` / `auth_required` / `error` — drives the operator
-// UI's status chips and "why doesn't this work" diagnostics.
+// HandleAgentAdapterHealth returns passive discovery state for compatibility.
+// It intentionally does not execute the discovered app; clients that want a
+// live ACP readiness check must use POST /agent-adapters/{id}/probe.
 //
 // GET /hecate/v1/agent-adapters/{id}/health
 //
 // Status codes:
-//   - 200 OK with the typed ProbeResult on every classification,
-//     including `not_installed` and `auth_required`. The probe
-//     completing successfully is itself a 200 — the adapter's status
-//     lives in the body, not the HTTP code.
+//   - 200 OK with `unverified`, `not_installed`, or `auth_required` passive
+//     state. The adapter's status lives in the body, not the HTTP code.
 //   - 400 invalid_request when {id} is empty.
 //   - 404 not_found when {id} doesn't match any registered adapter.
 func (h *Handler) HandleAgentAdapterHealth(w http.ResponseWriter, r *http.Request) {
@@ -73,11 +69,35 @@ func (h *Handler) HandleAgentAdapterHealth(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	result := h.probeAgentAdapter(ctx, id)
+	status, _ := agentadapters.CatalogStatusForAdapter(ctx, id, nil)
+	result := passiveAgentAdapterHealth(status)
 	WriteJSON(w, http.StatusOK, AgentAdapterHealthResponse{
 		Object: "agent_adapter_health",
 		Data:   result,
 	})
+}
+
+func passiveAgentAdapterHealth(status agentadapters.Status) agentadapters.ProbeResult {
+	result := agentadapters.ProbeResult{
+		AdapterID: status.ID,
+		Stage:     agentadapters.ProbeStageLookup,
+		Path:      status.Path,
+		Error:     status.Error,
+	}
+	if status.Available {
+		result.Status = agentadapters.ProbeStatusUnverified
+		result.Error = ""
+		result.Hint = "App found but not tested. POST to the probe endpoint to start it and run an ACP readiness check."
+		return result
+	}
+	if status.AuthStatus == agentadapters.AuthStatusUnauthenticated {
+		result.Status = agentadapters.ProbeStatusAuthRequired
+		result.Hint = status.AuthError
+		return result
+	}
+	result.Status = agentadapters.ProbeStatusNotInstalled
+	result.Hint = "Install the external agent app in a recognized location or make its command available on PATH."
+	return result
 }
 
 func (h *Handler) probeAgentAdapter(ctx context.Context, id string) agentadapters.ProbeResult {

@@ -355,10 +355,10 @@ environment.
 Codex and Claude Code use Hecate's built-in Go ACP adapter libraries, which
 launch their vendor CLIs as supervised child processes. Cursor Agent and Grok
 Build expose ACP modes directly in their vendor CLIs.
-Connections probes External Agent integrations when the workspace opens; the probe calls
-`POST /hecate/v1/agent-adapters/{id}/probe`, which re-runs discovery and
-performs the ACP handshake so login/billing problems are visible before a chat
-fails.
+Opening Connections performs passive path discovery only. The operator-owned
+**Check** action calls `POST /hecate/v1/agent-adapters/{id}/probe`, which starts
+the discovered app and performs the ACP handshake so login/billing problems are
+visible before a chat fails.
 
 ## Resetting state
 

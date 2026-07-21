@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
@@ -19,7 +19,6 @@ import {
   humanizeProbeError,
   resolveExternalAgentReadiness,
   shouldShowProbeError,
-  shouldAutoProbeExternalAgentReadiness,
   type ExternalAgentReadinessTone,
 } from "../../lib/external-agent-readiness";
 import {
@@ -106,11 +105,9 @@ function SectionHeader({
 // remains exported for reuse by ProvidersView while Settings stays focused
 // on retention and other non-connection configuration.
 //
-// Grants and adapter health are lazy-loaded on panel mount — operators
-// rarely visit this surface, so we don't fetch on every dashboard
-// load. Adapter probes run automatically here because this panel is a
-// readiness panel; explicit probe actions let operators re-check local
-// CLI auth after installing or signing in to an external agent.
+// Grants are lazy-loaded on panel mount — operators rarely visit this surface,
+// so we don't fetch them on every dashboard load. Adapter discovery stays
+// passive; the explicit Check actions disclose and own process execution.
 export function ConnectionsPanel({
   onNavigate,
   onAddProvider,
@@ -156,7 +153,6 @@ export function ConnectionsPanel({
     [agentAdapters],
   );
   const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
-  const autoProbedAdapterIDs = useRef(new Set<string>());
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
   const authenticateAgentAdapter = agentAdapterActions.authenticateAgentAdapter;
@@ -172,30 +168,6 @@ export function ConnectionsPanel({
     // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    for (const adapter of agentAdapters) {
-      if (
-        !shouldAutoProbeExternalAgentReadiness(
-          adapter,
-          agentAdapterHealthByID.get(adapter.id) ?? null,
-          Boolean(agentAdapterHealthLoadingByID.get(adapter.id)),
-          remoteRuntime,
-        )
-      ) {
-        continue;
-      }
-      if (autoProbedAdapterIDs.current.has(adapter.id)) continue;
-      autoProbedAdapterIDs.current.add(adapter.id);
-      void probeAgentAdapter(adapter.id);
-    }
-  }, [
-    agentAdapters,
-    agentAdapterHealthByID,
-    agentAdapterHealthLoadingByID,
-    probeAgentAdapter,
-    remoteRuntime,
-  ]);
 
   // One-shot scroll, focus, and highlight when the operator arrived here via
   // a setup action on a failed agent turn or unavailable dictation control.
@@ -836,7 +808,7 @@ function AdapterStatusRow({
     );
   const visibleHealthError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
-  const healthPath = health?.path ?? "";
+  const selectedPath = health?.path || adapter.path || "";
   const detail = adapterStatusDetail(readiness, visibleHealthError);
   const showHealthDetail = Boolean(
     detail && health && !showLocalAuthSetup && (readiness.detail || visibleHealthError),
@@ -846,8 +818,8 @@ function AdapterStatusRow({
     readiness.authStatus && readiness.authStatus === "ok" && !showLocalAuthSetup && !health,
   );
   const showHealthDebugMetadata = readiness.kind === "ready" || readiness.kind === "issue";
-  const showHealthPath = Boolean(
-    healthPath && showHealthDebugMetadata && !showLocalAuthSetup && !isDevOverridePath(healthPath),
+  const showSelectedPath = Boolean(
+    selectedPath && !showLocalAuthSetup && !isDevOverridePath(selectedPath),
   );
   const showHealthDuration = Boolean(
     health?.duration_ms !== undefined && showHealthDebugMetadata && !showLocalAuthSetup,
@@ -910,7 +882,7 @@ function AdapterStatusRow({
               className="badge badge-neutral"
               data-testid={`external-agents-adapter-${adapter.id}-embedded`}
             >
-              built in
+              adapter built in
             </span>
           )}
           {adapter.version_outside_range && (
@@ -955,9 +927,9 @@ function AdapterStatusRow({
               auth <span style={{ color: "var(--t1)" }}>{readiness.authStatus}</span>
             </span>
           )}
-          {showHealthPath && (
+          {showSelectedPath && (
             <span>
-              path <span style={{ color: "var(--t1)" }}>{healthPath}</span>
+              path <span style={{ color: "var(--t1)" }}>{selectedPath}</span>
             </span>
           )}
           {showHealthDuration && health?.duration_ms !== undefined && (
@@ -1084,8 +1056,8 @@ function AdapterStatusRow({
             }
             onClick={() => onProbeAdapter(adapter)}
             disabled={loading}
-            aria-label={`Check ${adapter.name || adapter.id}`}
-            title={`Check ${adapter.name || adapter.id}`}
+            aria-label={`Check ${adapter.name || adapter.id}; starts the installed app`}
+            title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session`}
             data-testid={`external-agents-test-${adapter.id}`}
           >
             <Icon d={Icons.refresh} size={12} />{" "}

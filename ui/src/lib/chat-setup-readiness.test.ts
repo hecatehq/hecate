@@ -203,7 +203,7 @@ describe("resolveChatSetupRepairState", () => {
       title: "Set up Grok Build",
     });
     expect(repair?.message).toContain("grok login");
-    expect(repair?.message).toContain("model selected");
+    expect(repair?.message).toContain("selected model");
   });
 });
 

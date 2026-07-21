@@ -111,7 +111,16 @@ func launchEmbeddedACPAdapterPeer(adapter Adapter, resolvedPath string, baseEnv 
 
 func launchProcessACPAdapterPeer(adapter Adapter, workspace, resolvedPath string, env []string) (*acpPeer, error) {
 	cmd := exec.CommandContext(context.Background(), resolvedPath, append([]string(nil), adapter.Args...)...)
-	configureCommandProcessGroup(cmd)
+	attachProcessTree, releaseProcessTree, err := prepareAgentProcessTree(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("prepare ACP adapter process tree: %w", err)
+	}
+	releaseOnError := true
+	defer func() {
+		if releaseOnError {
+			releaseProcessTree()
+		}
+	}()
 	cmd.Dir = workspace
 	cmd.Env = append([]string(nil), env...)
 	stdin, err := cmd.StdinPipe()
@@ -130,6 +139,12 @@ func launchProcessACPAdapterPeer(adapter Adapter, workspace, resolvedPath string
 		_ = stdout.Close()
 		return nil, fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
 	}
+	if err := attachProcessTree(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		terminateProcess(cmd)
+		return nil, fmt.Errorf("supervise ACP adapter %q process tree: %w", adapter.ID, err)
+	}
 	done := make(chan struct{})
 	peer := &acpPeer{
 		stdin:  stdin,
@@ -142,8 +157,10 @@ func launchProcessACPAdapterPeer(adapter Adapter, workspace, resolvedPath string
 	}
 	peer.close = func() {
 		terminateProcess(cmd)
+		releaseProcessTree()
 		close(done)
 	}
+	releaseOnError = false
 	return peer, nil
 }
 

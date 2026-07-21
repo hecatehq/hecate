@@ -329,7 +329,7 @@ func TestProbeHonorsDevOverrideMatrix(t *testing.T) {
 			override:   "codex=connector_missing",
 			wantStatus: ProbeStatusNotInstalled,
 			wantStage:  ProbeStageLookup,
-			wantHint:   "codex-acp-adapter",
+			wantHint:   "developers.openai.com",
 		},
 		{
 			name:       "app missing",

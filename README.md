@@ -160,7 +160,7 @@ flowchart LR
 
     Providers["Cloud + local model providers"]
     Tools["Sandboxed workspace tools<br/>WorkspaceFS · ProcessRunner · GitRunner"]
-    ExternalCLIs["External Agent CLIs / frameworks<br/>own accounts · own runtime"]
+    ExternalCLIs["Vendor agent CLIs / frameworks<br/>operator-installed or runtime-image supplied<br/>own accounts · own runtime"]
 
     Console --> HTTP
     APIClients --> HTTP

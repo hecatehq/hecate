@@ -260,13 +260,13 @@ func TestBuiltInGoAdaptersUseEmbeddedLibrariesAndProviderCLIs(t *testing.T) {
 			id:           "codex",
 			command:      "codex",
 			agentCommand: "codex",
-			docsURL:      "https://github.com/hecatehq/codex-acp-adapter",
+			docsURL:      "https://developers.openai.com/codex/cli",
 		},
 		{
 			id:           "claude_code",
 			command:      "claude",
 			agentCommand: "claude",
-			docsURL:      "https://github.com/hecatehq/claude-code-acp-adapter",
+			docsURL:      "https://code.claude.com/docs/en/installation",
 		},
 	} {
 		adapter, ok := BuiltInByID(tc.id)
@@ -285,8 +285,92 @@ func TestBuiltInGoAdaptersUseEmbeddedLibrariesAndProviderCLIs(t *testing.T) {
 		assertNotPackageRunnerCommand(t, tc.id, adapter.Command)
 		assertNotPackageRunnerCommand(t, tc.id+" agent version probe", adapter.AgentVersion.Command)
 		for _, candidate := range adapter.CandidatePaths {
-			if !strings.HasSuffix(candidate, "/"+tc.command) {
-				t.Fatalf("%s candidate path = %q, want path ending in %s", tc.id, candidate, tc.command)
+			name := filepath.Base(candidate)
+			name = strings.TrimSuffix(name, filepath.Ext(name))
+			if name != tc.command {
+				t.Fatalf("%s candidate path = %q, want executable named %s", tc.id, candidate, tc.command)
+			}
+		}
+	}
+}
+
+func TestBuiltInsIncludeDocumentedVendorInstallPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"codex": {
+			"${CODEX_INSTALL_DIR}/codex.exe",
+			"${HOME}/.local/bin/codex",
+			"${HOME}/Library/pnpm/codex",
+			"${HOME}/Applications/Codex.app/Contents/Resources/codex",
+			"${HOME}/Applications/ChatGPT.app/Contents/Resources/codex",
+			"${LOCALAPPDATA}/Programs/OpenAI/Codex/bin/codex.exe",
+			"${LOCALAPPDATA}/Microsoft/WinGet/Links/codex.exe",
+			"/home/linuxbrew/.linuxbrew/bin/codex",
+			"/Applications/Codex.app/Contents/Resources/codex",
+			"/Applications/ChatGPT.app/Contents/Resources/codex",
+		},
+		"claude_code": {
+			"${HOME}/.local/bin/claude",
+			"${HOME}/.local/share/pnpm/claude",
+			"${USERPROFILE}/.local/bin/claude.exe",
+			"${LOCALAPPDATA}/Microsoft/WinGet/Links/claude.exe",
+			"${HOME}/.claude/local/claude",
+			"/home/linuxbrew/.linuxbrew/bin/claude",
+		},
+		"cursor_agent": {
+			"${HOME}/.local/bin/cursor-agent",
+		},
+		"grok_build": {
+			"${GROK_BIN_DIR}/grok",
+			"${HOME}/.grok/bin/grok",
+			"${HOME}/Applications/Grok Build.app/Contents/Resources/bin/grok",
+			"${USERPROFILE}/.grok/bin/grok.exe",
+			"/Applications/Grok Build.app/Contents/Resources/bin/grok",
+		},
+	}
+	for id, expected := range tests {
+		adapter, ok := BuiltInByID(id)
+		if !ok {
+			t.Fatalf("missing built-in adapter %q", id)
+		}
+		for _, candidate := range expected {
+			if !containsString(adapter.CandidatePaths, candidate) {
+				t.Errorf("%s candidates = %#v, want %q", id, adapter.CandidatePaths, candidate)
+			}
+		}
+		for _, candidate := range adapter.CandidatePaths {
+			name := strings.TrimSuffix(filepath.Base(candidate), filepath.Ext(candidate))
+			if name == "agent" {
+				t.Errorf("%s candidate paths include ambiguous generic launcher %q", id, candidate)
+			}
+		}
+		for _, candidate := range adapter.CandidatePaths {
+			switch strings.ToLower(filepath.Ext(candidate)) {
+			case ".cmd", ".bat", ".ps1":
+				t.Errorf("%s candidates include unsupported command-script launcher %q", id, candidate)
+			}
+		}
+	}
+
+	cursor, _ := BuiltInByID("cursor_agent")
+	if containsString(cursor.CandidatePaths, "/opt/homebrew/bin/cursor-agent") || containsString(cursor.CandidatePaths, "/usr/local/bin/cursor-agent") {
+		t.Errorf("cursor candidates include undocumented package-manager paths: %#v", cursor.CandidatePaths)
+	}
+	grok, _ := BuiltInByID("grok_build")
+	if containsString(grok.CandidatePaths, "/opt/homebrew/bin/grok") {
+		t.Errorf("grok candidates include undocumented Homebrew path: %#v", grok.CandidatePaths)
+	}
+	for _, candidate := range grok.CandidatePaths {
+		if strings.Contains(candidate, "VOLTA") || strings.Contains(candidate, ".volta") || strings.Contains(candidate, "NPM_CONFIG_PREFIX") || strings.Contains(candidate, "PNPM_HOME") || strings.Contains(candidate, "/pnpm/") {
+			t.Errorf("grok candidates include undocumented package-manager path %q", candidate)
+		}
+	}
+	for _, id := range []string{"codex", "claude_code"} {
+		adapter, _ := BuiltInByID(id)
+		for _, candidate := range adapter.CandidatePaths {
+			if strings.EqualFold(filepath.Ext(candidate), ".cmd") || strings.EqualFold(filepath.Ext(candidate), ".bat") {
+				t.Errorf("%s embedded provider candidates include unsupported Windows shim %q", id, candidate)
 			}
 		}
 	}
@@ -612,8 +696,8 @@ func TestListWithLookupUsesCandidatePathFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve executable: %v", err)
 		}
-		if path != exe {
-			t.Fatalf("path = %q, want %q", path, exe)
+		if path != filepath.Clean(exe) {
+			t.Fatalf("path = %q, want launch path %q", path, filepath.Clean(exe))
 		}
 		found = true
 	}
@@ -644,8 +728,105 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve executable: %v", err)
 	}
-	if path != exe {
-		t.Fatalf("path = %q, want %q", path, exe)
+	if path != filepath.Clean(exe) {
+		t.Fatalf("path = %q, want launch path %q", path, filepath.Clean(exe))
+	}
+}
+
+func TestExpandPathUsesOnlySupportedInstallerRoots(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", filepath.Join(t.TempDir(), "local-app-data"))
+	t.Setenv("APPDATA", filepath.Join(t.TempDir(), "roaming-app-data"))
+	t.Setenv("USERPROFILE", filepath.Join(t.TempDir(), "profile"))
+	t.Setenv("GROK_BIN_DIR", filepath.Join(t.TempDir(), "grok-bin"))
+	t.Setenv("UNSUPPORTED_AGENT_ROOT", filepath.Join(t.TempDir(), "unsupported"))
+
+	for candidate, want := range map[string]string{
+		"${LOCALAPPDATA}/Programs/provider.exe": filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "provider.exe"),
+		"${USERPROFILE}/.local/bin/claude.exe":  filepath.Join(os.Getenv("USERPROFILE"), ".local", "bin", "claude.exe"),
+		"${GROK_BIN_DIR}/grok":                  filepath.Join(os.Getenv("GROK_BIN_DIR"), "grok"),
+	} {
+		if got := expandPath(candidate); got != want {
+			t.Errorf("expandPath(%q) = %q, want %q", candidate, got, want)
+		}
+	}
+	if got := expandPath("${UNSUPPORTED_AGENT_ROOT}/agent"); got != "" {
+		t.Fatalf("unsupported placeholder expanded to %q, want skipped", got)
+	}
+}
+
+func TestExpandPathRejectsRelativeInstallerRoot(t *testing.T) {
+	t.Setenv("NPM_CONFIG_PREFIX", filepath.Join("relative", "npm"))
+	if got := expandPath("${NPM_CONFIG_PREFIX}/bin/claude"); got != "" {
+		t.Fatalf("relative installer root expanded to %q, want skipped", got)
+	}
+}
+
+func TestResolveExecutableValidatesTargetAndPreservesCandidateSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable-bit fixture")
+	}
+	target := filepath.Join(t.TempDir(), "agent")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "agent-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	got, err := resolveExecutable(Adapter{
+		Command:        "missing-agent",
+		CandidatePaths: []string{link},
+	}, func(string) (string, error) {
+		return "", exec.ErrNotFound
+	})
+	if err != nil {
+		t.Fatalf("resolveExecutable: %v", err)
+	}
+	if got != filepath.Clean(link) {
+		t.Fatalf("resolved symlink = %q, want launch path %q", got, filepath.Clean(link))
+	}
+}
+
+func TestResolveInstalledCommandPreservesDefaultPATHSymlinkForArgvZeroDispatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable-bit and symlink fixture")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "provider-shim")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n[ \"$(basename \"$0\")\" = \"hecate-provider-discovery-test\" ] || exit 23\nprintf 'provider 1.2.3\\n'\n"), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+	command := "hecate-provider-discovery-test"
+	link := filepath.Join(dir, command)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := resolveInstalledCommand(command, nil, nil)
+	if err != nil {
+		t.Fatalf("resolveInstalledCommand: %v", err)
+	}
+	if got != filepath.Clean(link) {
+		t.Fatalf("default PATH lookup = %q, want launch symlink %q", got, filepath.Clean(link))
+	}
+	out, err := exec.Command(got, "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("launch argv[0]-dispatch shim: %v (%s)", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "provider 1.2.3" {
+		t.Fatalf("shim output = %q, want provider version", out)
+	}
+}
+
+func TestValidateAgentProcessLauncherRequiresNativeWindowsExecutable(t *testing.T) {
+	for _, path := range []string{`C:\\agent.cmd`, `C:\\agent.bat`, `C:\\agent.ps1`, `C:\\agent.js`, `C:\\agent`} {
+		if err := validateAgentProcessLauncherForOS("windows", path); err == nil || !strings.Contains(err.Error(), "native .exe") {
+			t.Errorf("validateAgentProcessLauncherForOS(windows, %q) = %v, want native-executable guidance", path, err)
+		}
+	}
+	if err := validateAgentProcessLauncherForOS("windows", `C:\\agent.exe`); err != nil {
+		t.Fatalf("native Windows executable rejected: %v", err)
 	}
 }
 
@@ -1168,6 +1349,40 @@ func TestExplicitRemoteClaudeStatusDoesNotUseLocalAgentCandidatePath(t *testing.
 	}
 }
 
+func TestExplicitRemoteClaudeStatusDoesNotRunHostAuthCommand(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+	previous := runClaudeAuthStatus
+	authCommandCalled := false
+	runClaudeAuthStatus = func() (string, error) {
+		authCommandCalled = true
+		return `{"loggedIn":true}`, nil
+	}
+	t.Cleanup(func() { runClaudeAuthStatus = previous })
+
+	status, ok := StatusForAdapterAfterExplicitProbe(
+		remoteIdentityContext(),
+		"claude_code",
+		func(file string) (string, error) {
+			if file == "claude" {
+				return filepath.Join(t.TempDir(), "remote-claude"), nil
+			}
+			return "", exec.ErrNotFound
+		},
+	)
+	if !ok || !status.Available {
+		t.Fatalf("remote Claude status = %#v, ok %t; want remotely discoverable", status, ok)
+	}
+	if authCommandCalled {
+		t.Fatal("remote status executed the host Claude auth command")
+	}
+	if status.AuthStatus != AuthStatusUnknown {
+		t.Fatalf("remote auth status = %q, want probe-owned unknown", status.AuthStatus)
+	}
+}
+
 func TestRemoteRuntimeAdapterEnvUsesOnlyRemoteCredentialKeysAndEphemeralHome(t *testing.T) {
 	t.Parallel()
 
@@ -1425,6 +1640,15 @@ func hasCredentialMode(adapter Adapter, id string, cloudAllowed bool, envKeys ..
 			}
 		}
 		return true
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
 	}
 	return false
 }

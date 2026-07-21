@@ -70,6 +70,56 @@ when an operator configures a search provider and API key; it returns bounded
 search results, while fetching a result URL still goes through `http_request`
 and that tool's SSRF/host policy.
 
+## External-agent executable trust
+
+Hecate cannot prove that an external program is malware-free. Current catalog
+discovery can establish an absolute invocation path and inspect its canonical
+regular target, but path shape, filename, `--version`, auth output, and an ACP
+handshake do not authenticate its publisher. The latter checks already execute
+the candidate, so they are diagnostics rather than security verification.
+Catalog and compatibility health GETs therefore stay passive; Hecate runs a
+readiness probe only after an explicit operator action.
+
+A locally computed SHA-256 digest proves byte identity and detects later
+replacement. It proves origin only when the expected digest came from an
+independently authenticated publisher channel, such as a signed release
+manifest or attestation. An unsigned checksum downloaded beside a binary is not
+an independent trust root. Similarly, artifact attestations establish
+provenance, not that software is harmless.
+
+Stronger evidence can be layered:
+
+- pin the expected publisher when validating a macOS code signature or Windows
+  Authenticode signature; merely having any valid platform certificate is not
+  enough;
+- verify a vendor-signed manifest or Sigstore-style attestation and compare its
+  digest with the exact installed bytes;
+- retain package-manager integrity metadata, while treating hashes from
+  Homebrew, WinGet, npm, pnpm, and similar catalogs as byte-integrity evidence
+  rather than publisher identity unless a publisher signature or attestation
+  is actually verified; an installed mutable file can still change afterward;
+- record a user-approved fingerprint as trust on first use, then refuse a
+  changed executable until it is reviewed again.
+
+Launchers require chain-aware review. A symlink should record its canonical
+target. A shebang script also depends on its interpreter. A Windows `.cmd` or
+`.bat` file, Volta shim, or npm/pnpm launcher can dispatch other mutable files,
+so hashing only the visible wrapper is `launcher-only` evidence, not a complete
+measurement of the agent app.
+
+Hecate does not yet persist external-executable trust decisions or verify
+publisher signatures automatically. A complete gate should show the canonical
+path, launcher chain, publisher evidence, and shortened SHA-256 fingerprint,
+then key approval by adapter plus that measured invocation identity. It must
+recheck at the final spawn boundary and use platform-specific file-handle or
+file-identity binding for the executable that is actually launched; checking a
+path and then launching that path still leaves a swap/TOCTOU race. A path,
+content, launcher-chain, or signature change should invalidate approval before
+any version, auth, help, probe, or session command executes. Such approvals are
+separate from ACP tool grants and require memory, SQLite, and Postgres parity.
+Hecate should not upload executables or fingerprints to a reputation service by
+default.
+
 ## Workspaces
 
 Hecate supports isolated generated workspaces and opt-in in-place workspaces.

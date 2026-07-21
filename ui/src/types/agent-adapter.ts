@@ -57,10 +57,10 @@ export type AgentAdapterSetupCommandStatus = {
   executable_path?: string;
 };
 
-// AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Returned
-// by GET /hecate/v1/agent-adapters/{id}/health. The status string is one of
-// "ready" | "not_installed" | "auth_required" | "error"; the UI folds
-// this into setup, sign-in, billing, or issue states for display.
+// AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Passive GET
+// health reads can return "unverified"; explicit POST probes return "ready",
+// "not_installed", "auth_required", or "error". The UI folds this into
+// setup, sign-in, billing, or issue states for display.
 export type AgentAdapterHealthRecord = {
   adapter_id: string;
   status: string;

@@ -3906,7 +3906,7 @@ test("Claude Code setup appears when the adapter is not installed", async ({ pag
 
   await expect(page.getByText("Claude Code is unavailable")).toBeVisible();
   await expect(page.getByText(/Install Claude Code, then sign in with Claude Code/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Install" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Install" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Auth" })).toBeVisible();
   await page.locator("textarea").fill("hello from Claude Code");
   await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();

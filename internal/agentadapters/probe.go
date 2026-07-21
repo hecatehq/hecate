@@ -15,12 +15,12 @@ import (
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
-// Probe statuses. The "ready" / "not_installed" / "auth_required" /
-// "error" enumeration is the operator-facing classification surfaced
-// on /hecate/v1/agent-adapters/{id}/health and rendered in the UI's adapter
-// status panel + picker diagnostic chip. Stable strings — once
-// exported on the wire they're part of the frontend contract.
+// Probe statuses. "unverified" is reserved for passive catalog/health reads;
+// every other status is an operator-facing classification from an explicit
+// probe or a lookup failure. Stable strings — once exported on the wire they
+// are part of the frontend contract.
 const (
+	ProbeStatusUnverified   = "unverified"
 	ProbeStatusReady        = "ready"
 	ProbeStatusNotInstalled = "not_installed"
 	ProbeStatusAuthRequired = "auth_required"
