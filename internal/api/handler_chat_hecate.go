@@ -14,6 +14,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chatattachments"
 	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/modelprobe"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -21,6 +22,28 @@ import (
 )
 
 const hecateAgentPollInterval = 250 * time.Millisecond
+
+// activeToolCallingVerificationFence converts the current exact-route
+// capability projection into private run metadata. A model capability is not
+// enough here: only a currently active Hecate-owned proof may add the stricter
+// provider/model/generation fence to a queued tools-on task.
+func activeToolCallingVerificationFence(caps types.ModelCapabilities, provider, model string, instance types.ProviderInstanceIdentity, now time.Time) (types.ToolCallingVerificationFence, bool) {
+	verification := caps.ToolVerification
+	if caps.ToolCalling != modelcaps.ToolCallingBasic ||
+		!caps.ToolCallingVerificationApplied ||
+		verification == nil ||
+		verification.Status != modelprobe.StatusSupported ||
+		!verification.ExpiresAt.After(now.UTC()) {
+		return types.ToolCallingVerificationFence{}, false
+	}
+	fence := types.ToolCallingVerificationFence{
+		Provider:         strings.TrimSpace(provider),
+		Model:            strings.TrimSpace(model),
+		ProviderInstance: instance,
+		ExpiresAt:        verification.ExpiresAt.UTC(),
+	}
+	return fence, fence.Valid()
+}
 
 // handleCreateHecateChatMessage is the unified entry point for every
 // Hecate-side chat-message submission. It branches on toolsEnabled:
@@ -95,13 +118,54 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		}
 	}
 	caps := session.Capabilities
-	if !modelcaps.ToolCapable(caps) {
+	// A manual verification is generation- and expiry-bound. A persisted Chat
+	// snapshot is only an operator-facing hint, never durable admission proof,
+	// so resolve it again for every tools-on turn before creating a task.
+	if !modelcaps.ToolCapable(caps) || caps.ToolVerification != nil {
 		resolved, err := h.resolveModelCapabilities(r.Context(), session.Provider, session.Model)
 		if err != nil {
 			writeAgentChatModelResolutionError(w, err)
 			return
 		}
 		caps = resolved
+	}
+	admittedToolCallingVerification := types.ToolCallingVerificationFence{}
+	if caps.ToolCalling == modelcaps.ToolCallingBasic && caps.ToolCallingVerificationApplied {
+		// An applied manual proof is never valid for Auto. Resolve the exact
+		// route again so the durable task fence is bound to the current provider
+		// generation, then re-read the capability projection from that route.
+		// This closes the interval between the session snapshot and task creation.
+		requestedProvider := strings.TrimSpace(session.Provider)
+		if requestedProvider == "" || strings.EqualFold(requestedProvider, "auto") {
+			WriteError(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Verified tool support requires an exact provider route.")
+			return
+		}
+		route, routeErr := h.modelApplication().ResolveProviderRoute(r.Context(), requestedProvider, session.Model)
+		if routeErr != nil {
+			writeAgentChatModelResolutionError(w, routeErr)
+			return
+		}
+		if route.Name == "" || !route.Instance.Valid() {
+			WriteError(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Verified tool support requires a configured provider generation.")
+			return
+		}
+		session.Provider = route.Name
+		caps, routeErr = h.resolveModelCapabilities(r.Context(), route.Name, session.Model)
+		if routeErr != nil {
+			writeAgentChatModelResolutionError(w, routeErr)
+			return
+		}
+		var verified bool
+		admittedToolCallingVerification, verified = activeToolCallingVerificationFence(caps, route.Name, session.Model, route.Instance, time.Now().UTC())
+		if !verified {
+			WriteError(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Verified tool support is no longer active for this provider and model.")
+			return
+		}
+		if admittedInputProviderInstance.Valid() && admittedInputProviderInstance != route.Instance {
+			WriteError(w, http.StatusUnprocessableEntity, errCodeModelCapability, "The provider route changed while admitting this tools-on turn.")
+			return
+		}
+		admittedInputProviderInstance = route.Instance
 	}
 	if !modelcaps.ToolCapable(caps) {
 		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Tools are unavailable for this model. Send as direct model chat or choose a tool-capable model.", ErrorDetails{
@@ -300,14 +364,15 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		inputRef = userID
 	}
 	task, run, err := h.hecateAgentTaskOrchestrator().StartOrContinue(runCtx, hecateAgentTaskRunCommand{
-		Session:               session,
-		Prompt:                content,
-		InputRef:              inputRef,
-		InputProviderInstance: admittedInputProviderInstance,
-		SystemPrompt:          taskSystemPrompt,
-		ForceNewTask:          forceNewTask,
-		MCPServers:            mcpServers,
-		ContextPacket:         contextPacket,
+		Session:                 session,
+		Prompt:                  content,
+		InputRef:                inputRef,
+		InputProviderInstance:   admittedInputProviderInstance,
+		ToolCallingVerification: admittedToolCallingVerification,
+		SystemPrompt:            taskSystemPrompt,
+		ForceNewTask:            forceNewTask,
+		MCPServers:              mcpServers,
+		ContextPacket:           contextPacket,
 	})
 	if err != nil {
 		completedAt := time.Now().UTC()

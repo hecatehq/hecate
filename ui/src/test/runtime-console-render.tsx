@@ -76,6 +76,7 @@ function providersAndModelsInitialState(fixture: RuntimeConsoleFixtureState) {
     agentAdapterApprovalMode: fixture.agentAdapterApprovalMode,
     agentAdapterHealthByID: fixture.agentAdapterHealthByID,
     agentAdapterHealthLoadingByID: fixture.agentAdapterHealthLoadingByID,
+    modelToolSupportLoadingByKey: fixture.modelToolSupportLoadingByKey,
   };
 }
 
@@ -220,6 +221,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     providersAndModelsSlice: {
       refreshProviders: actions.refreshProviders,
       probeAgentAdapter: actions.probeAgentAdapter,
+      verifyModelToolSupport: actions.verifyModelToolSupport,
     },
     projectsSlice: {
       setActiveProjectID: actions.setActiveProjectID,

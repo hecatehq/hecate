@@ -29,6 +29,7 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/modelprobe"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -118,6 +119,297 @@ func TestHecateAgentChatToolsOnHydratesImageWithoutPersistingBodyInTaskArtifacts
 			t.Fatal("image turn permit was not released after agent-loop execution")
 		}
 		defer apiHandler.chatImageTurnAdmission.Release()
+	}
+}
+
+func TestHecateAgentChatToolsOnUsesVerifiedUnknownToolSupportForImageRoute(t *testing.T) {
+	provider := imageTurnTestProvider(modelcaps.ImageInputSupported)
+	capabilities := provider.capabilities.ModelCapabilities["llama-vision"]
+	capabilities.ToolCalling = modelcaps.ToolCallingUnknown
+	provider.capabilities.ModelCapabilities["llama-vision"] = capabilities
+	provider.responses = []*types.ChatResponse{
+		{
+			Choices: []types.ChatChoice{{
+				Message: types.Message{Role: "assistant", ToolCalls: []types.ToolCall{{
+					ID:   "call_probe",
+					Type: "function",
+					Function: types.ToolCallFunction{
+						Name:      "hecate_capability_probe",
+						Arguments: "{}",
+					},
+				}}},
+			}},
+		},
+		provider.response,
+	}
+	apiHandler := imageTurnTestHandler(provider)
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	probe := mustRequestJSON[ModelToolCapabilityProbeResponse](client, http.MethodPost,
+		"/hecate/v1/model-capabilities/tool-probes", `{"provider":"ollama","model":"llama-vision"}`)
+	if probe.Data.Capabilities.ToolCalling != modelcaps.ToolCallingBasic || probe.Data.Verification == nil || probe.Data.Verification.Status != modelprobe.StatusSupported {
+		t.Fatalf("tool probe = %+v, want supported unknown-model verification", probe.Data)
+	}
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"ollama","model":"llama-vision"}`, t.TempDir()))
+	attachment := imageTurnTestUpload(t, handler, session.Data.ID, "verified-tools.png", imageTurnTestPNG(t))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"ollama","model":"llama-vision","content":"Inspect this verified image route.","attachment_ids":["`+attachment.Data.ID+`"]}`)
+	if response.Data.Status != "completed" || response.Data.TaskID == "" {
+		t.Fatalf("tools-on verified image response = %+v, want completed task-backed turn", response.Data)
+	}
+
+	request := provider.LastRequest()
+	if !request.Requirements.ImageInput || !request.Requirements.ToolCalling || !request.Requirements.ToolCallingVerified ||
+		!request.Requirements.NoProviderFailover || !request.Requirements.ExactProvider || !request.Requirements.ProviderInstance.Valid() {
+		t.Fatalf("verified image requirements = %+v, want exact generation-fenced verification", request.Requirements)
+	}
+	if request.Requirements.ToolCallingVerifiedModel != "llama-vision" || !request.Requirements.ToolCallingVerifiedUntil.After(time.Now().UTC()) {
+		t.Fatalf("verified image proof = model %q until %s, want active model-bound proof", request.Requirements.ToolCallingVerifiedModel, request.Requirements.ToolCallingVerifiedUntil)
+	}
+	provider.mu.Lock()
+	calls := provider.calls
+	provider.mu.Unlock()
+	if calls != 2 {
+		t.Fatalf("provider calls = %d, want one probe and one agent-loop call", calls)
+	}
+}
+
+func TestHecateAgentChatToolsOnCarriesVerifiedUnknownToolSupportWithoutAttachment(t *testing.T) {
+	provider := imageTurnTestProvider(modelcaps.ImageInputNone)
+	capabilities := provider.capabilities.ModelCapabilities["llama-vision"]
+	capabilities.ToolCalling = modelcaps.ToolCallingUnknown
+	provider.capabilities.ModelCapabilities["llama-vision"] = capabilities
+	provider.responses = []*types.ChatResponse{
+		{
+			Choices: []types.ChatChoice{{
+				Message: types.Message{Role: "assistant", ToolCalls: []types.ToolCall{{
+					ID:   "call_probe",
+					Type: "function",
+					Function: types.ToolCallFunction{
+						Name:      "hecate_capability_probe",
+						Arguments: "{}",
+					},
+				}}},
+			}},
+		},
+		provider.response,
+	}
+	apiHandler := imageTurnTestHandler(provider)
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	probe := mustRequestJSON[ModelToolCapabilityProbeResponse](client, http.MethodPost,
+		"/hecate/v1/model-capabilities/tool-probes", `{"provider":"ollama","model":"llama-vision"}`)
+	if probe.Data.Capabilities.ToolCalling != modelcaps.ToolCallingBasic || probe.Data.Verification == nil || probe.Data.Verification.Status != modelprobe.StatusSupported {
+		t.Fatalf("tool probe = %+v, want supported unknown-model verification", probe.Data)
+	}
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"ollama","model":"llama-vision"}`, t.TempDir()))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"ollama","model":"llama-vision","content":"Use the verified tools without an attachment."}`)
+	if response.Data.Status != "completed" || response.Data.TaskID == "" || response.Data.LatestRunID == "" {
+		t.Fatalf("plain verified tools response = %+v, want completed task-backed turn", response.Data)
+	}
+
+	request := provider.LastRequest()
+	if request.Requirements.ImageInput || !request.Requirements.ToolCalling || !request.Requirements.ToolCallingVerified ||
+		!request.Requirements.NoProviderFailover || !request.Requirements.ExactProvider || !request.Requirements.ProviderInstance.Valid() {
+		t.Fatalf("plain verified requirements = %+v, want exact generation-fenced tool route without image", request.Requirements)
+	}
+	if request.Requirements.ToolCallingVerifiedModel != "llama-vision" || !request.Requirements.ToolCallingVerifiedUntil.After(time.Now().UTC()) {
+		t.Fatalf("plain verified proof = model %q until %s, want active model-bound proof", request.Requirements.ToolCallingVerifiedModel, request.Requirements.ToolCallingVerifiedUntil)
+	}
+	run, found, err := apiHandler.taskStore.GetRun(t.Context(), response.Data.TaskID, response.Data.LatestRunID)
+	if err != nil || !found {
+		t.Fatalf("GetRun() = found %v, error %v", found, err)
+	}
+	if run.InputRef != "" || !run.ToolCallingVerification.Valid() || run.ToolCallingVerification.ProviderInstance != request.Requirements.ProviderInstance || run.ToolCallingVerification.Model != "llama-vision" {
+		t.Fatalf("plain verified run fence = %+v, want durable exact tool-proof metadata", run)
+	}
+}
+
+func TestHecateAgentChatToolsOnRevalidatesExpiredToolVerificationBeforeAdmission(t *testing.T) {
+	provider := imageTurnTestProvider(modelcaps.ImageInputSupported)
+	capabilities := provider.capabilities.ModelCapabilities["llama-vision"]
+	capabilities.ToolCalling = modelcaps.ToolCallingUnknown
+	provider.capabilities.ModelCapabilities["llama-vision"] = capabilities
+	apiHandler := imageTurnTestHandler(provider)
+
+	route, err := apiHandler.modelApplication().ResolveProviderRoute(t.Context(), "ollama", "llama-vision")
+	if err != nil || !route.Instance.Valid() {
+		t.Fatalf("ResolveProviderRoute() = %+v, %v", route, err)
+	}
+	key := modelprobe.Key{Provider: route.Name, Model: "llama-vision", Instance: route.Instance, Version: modelprobe.ProbeVersion}
+	activeStore := modelprobe.NewMemoryStore()
+	imageTurnSeedToolVerification(t, activeStore, key, time.Now().UTC().Add(time.Hour))
+	apiHandler.SetModelToolProbeStore(activeStore)
+
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"ollama","model":"llama-vision"}`, t.TempDir()))
+	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingBasic || session.Data.Capabilities.ToolVerification == nil {
+		t.Fatalf("session capabilities = %+v, want active verified proof cached for display", session.Data.Capabilities)
+	}
+
+	expiredStore := modelprobe.NewMemoryStore()
+	imageTurnSeedToolVerification(t, expiredStore, key, time.Now().UTC().Add(-time.Minute))
+	// The dispatcher checks current capabilities before choosing the tools-on
+	// path. Let that check see the old proof, then make the handler's own
+	// admission recheck see the expired row; this is the stale session-snapshot
+	// boundary that must not create an agent task.
+	apiHandler.SetModelToolProbeStore(&toolVerificationSequentialStore{first: activeStore, next: expiredStore})
+	recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"ollama","model":"llama-vision","content":"Do not admit a stale proof."}`)
+	if !strings.Contains(recorder.Body.String(), errCodeModelCapability) {
+		t.Fatalf("response = %s, want capability admission error", recorder.Body.String())
+	}
+	if provider.CallCount() != 0 {
+		t.Fatalf("provider calls = %d, want expired proof rejected before task dispatch", provider.CallCount())
+	}
+}
+
+func TestHecateAgentChatToolsOnRejectsVerifiedRichInputAfterGovernorModelRewrite(t *testing.T) {
+	const (
+		requestedModel = "verified-vision-requested"
+		rewrittenModel = "verified-vision-rewritten"
+	)
+	provider := imageTurnNamedTestProvider("verified-vision", modelcaps.ImageInputSupported)
+	provider.capabilities.DefaultModel = requestedModel
+	provider.capabilities.Models = []string{requestedModel, rewrittenModel}
+	unknownCapability := provider.capabilities.ModelCapabilities["llama-vision"]
+	unknownCapability.ToolCalling = modelcaps.ToolCallingUnknown
+	provider.capabilities.ModelCapabilities = map[string]types.ModelCapabilities{
+		requestedModel: unknownCapability,
+		rewrittenModel: unknownCapability,
+	}
+	apiHandler := newTestAPIHandlerWithSettings(imageTurnTestLogger(), []providers.Provider{provider}, config.Config{
+		Governor: config.GovernorConfig{PolicyRules: []config.PolicyRuleConfig{{
+			ID:             "rewrite-verified-rich-input",
+			Action:         "rewrite_model",
+			Models:         []string{requestedModel},
+			RewriteModelTo: rewrittenModel,
+		}}},
+	}, controlplane.NewMemoryStore())
+	route, err := apiHandler.modelApplication().ResolveProviderRoute(t.Context(), provider.Name(), requestedModel)
+	if err != nil || !route.Instance.Valid() {
+		t.Fatalf("ResolveProviderRoute() = %+v, %v", route, err)
+	}
+	store := modelprobe.NewMemoryStore()
+	imageTurnSeedToolVerification(t, store, modelprobe.Key{
+		Provider: route.Name, Model: requestedModel, Instance: route.Instance, Version: modelprobe.ProbeVersion,
+	}, time.Now().UTC().Add(time.Hour))
+	apiHandler.SetModelToolProbeStore(store)
+
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":%q,"model":%q}`, t.TempDir(), provider.Name(), requestedModel))
+	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingBasic || session.Data.Capabilities.ToolVerification == nil {
+		t.Fatalf("session capabilities = %+v, want model-bound manual proof", session.Data.Capabilities)
+	}
+	attachment := imageTurnTestUpload(t, handler, session.Data.ID, "rewrite-verified-rich-input.png", imageTurnTestPNG(t))
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":`+fmt.Sprintf("%q", provider.Name())+`,"model":`+fmt.Sprintf("%q", requestedModel)+`,"content":"Do not disclose this image after rewrite.","attachment_ids":["`+attachment.Data.ID+`"]}`)
+
+	if provider.CallCount() != 0 {
+		t.Fatalf("provider calls = %d, want governor rewrite blocked before attachment disclosure", provider.CallCount())
+	}
+	var assistant ChatMessageItem
+	for _, message := range response.Data.Messages {
+		if message.Role == "assistant" {
+			assistant = message
+		}
+	}
+	if assistant.Status != "failed" {
+		t.Fatalf("assistant = %+v, want a route-fenced failure", assistant)
+	}
+}
+
+func TestHecateAgentChatToolsOnRevalidatesToolVerificationAfterProviderReplacement(t *testing.T) {
+	original := imageTurnNamedTestProvider("vision-a", modelcaps.ImageInputSupported)
+	originalCaps := original.capabilities.ModelCapabilities["llama-vision"]
+	originalCaps.ToolCalling = modelcaps.ToolCallingUnknown
+	original.capabilities.ModelCapabilities["llama-vision"] = originalCaps
+	replacement := imageTurnNamedTestProvider("vision-a", modelcaps.ImageInputSupported)
+	replacementCaps := replacement.capabilities.ModelCapabilities["llama-vision"]
+	replacementCaps.ToolCalling = modelcaps.ToolCallingUnknown
+	replacement.capabilities.ModelCapabilities["llama-vision"] = replacementCaps
+	registry := providers.NewMutableRegistry(original)
+	apiHandler := newTestAPIHandlerWithRegistry(
+		imageTurnTestLogger(), registry, []providers.Provider{original}, config.Config{}, controlplane.NewMemoryStore(),
+	)
+
+	route, err := apiHandler.modelApplication().ResolveProviderRoute(t.Context(), "vision-a", "llama-vision")
+	if err != nil || !route.Instance.Valid() {
+		t.Fatalf("ResolveProviderRoute() = %+v, %v", route, err)
+	}
+	store := modelprobe.NewMemoryStore()
+	imageTurnSeedToolVerification(t, store, modelprobe.Key{
+		Provider: route.Name, Model: "llama-vision", Instance: route.Instance, Version: modelprobe.ProbeVersion,
+	}, time.Now().UTC().Add(time.Hour))
+	apiHandler.SetModelToolProbeStore(store)
+
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"vision-a","model":"llama-vision"}`, t.TempDir()))
+	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingBasic || session.Data.Capabilities.ToolVerification == nil {
+		t.Fatalf("session capabilities = %+v, want verified original generation", session.Data.Capabilities)
+	}
+
+	registry.Replace(replacement)
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"vision-a","model":"llama-vision","content":"Do not admit a replaced provider proof."}`)
+	if response.Data.TaskID != "" || len(response.Data.Messages) == 0 || response.Data.Messages[0].ToolsEnabled {
+		t.Fatalf("replacement response = %+v, want tools-on request downgraded before task admission", response.Data)
+	}
+	if original.CallCount() != 0 || replacement.CallCount() != 1 {
+		t.Fatalf("provider calls original=%d replacement=%d, want one safe direct-model fallback only", original.CallCount(), replacement.CallCount())
+	}
+}
+
+func TestHecateAgentChatToolsOnDoesNotUseManualVerificationForAuto(t *testing.T) {
+	provider := imageTurnTestProvider(modelcaps.ImageInputSupported)
+	capabilities := provider.capabilities.ModelCapabilities["llama-vision"]
+	capabilities.ToolCalling = modelcaps.ToolCallingUnknown
+	provider.capabilities.ModelCapabilities["llama-vision"] = capabilities
+	apiHandler := imageTurnTestHandler(provider)
+
+	route, err := apiHandler.modelApplication().ResolveProviderRoute(t.Context(), "ollama", "llama-vision")
+	if err != nil || !route.Instance.Valid() {
+		t.Fatalf("ResolveProviderRoute() = %+v, %v", route, err)
+	}
+	store := modelprobe.NewMemoryStore()
+	imageTurnSeedToolVerification(t, store, modelprobe.Key{
+		Provider: route.Name, Model: "llama-vision", Instance: route.Instance, Version: modelprobe.ProbeVersion,
+	}, time.Now().UTC().Add(time.Hour))
+	apiHandler.SetModelToolProbeStore(store)
+
+	handler := NewServer(imageTurnTestLogger(), apiHandler)
+	client := newTaskTestClient(t, handler)
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"workspace_mode":"in_place","provider":"auto","model":"llama-vision"}`, t.TempDir()))
+	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingUnknown || session.Data.Capabilities.ToolVerification != nil {
+		t.Fatalf("auto session capabilities = %+v, want route-bound verification withheld", session.Data.Capabilities)
+	}
+
+	response := mustRequestJSON[ChatSessionResponse](client, http.MethodPost,
+		"/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":true,"provider":"auto","model":"llama-vision","content":"Do not admit an auto proof."}`)
+	if response.Data.TaskID != "" || len(response.Data.Messages) == 0 || response.Data.Messages[0].ToolsEnabled {
+		t.Fatalf("auto response = %+v, want manual proof withheld from tools-on task admission", response.Data)
+	}
+	if provider.CallCount() != 0 {
+		t.Fatalf("provider calls = %d, want Auto proof rejected before dispatch", provider.CallCount())
 	}
 }
 
@@ -1564,7 +1856,7 @@ func TestHecateChatImageHistoryRejectsSameNameRuntimeReplacementAfterAdmission(t
 			assistant = message
 		}
 	}
-	if assistant.Status != "failed" || !strings.Contains(assistant.Error, "changed during image admission") {
+	if assistant.Status != "failed" || !strings.Contains(assistant.Error, "changed during bound route admission") {
 		t.Fatalf("assistant = %+v, want fail-closed provider-instance replacement", assistant)
 	}
 }
@@ -2004,6 +2296,48 @@ func TestHecateChatImageTurnReleasesCurrentDraftWhenHistoryPreparationFails(t *t
 
 func imageTurnTestProvider(imageInput string) *fakeProvider {
 	return imageTurnNamedTestProvider("ollama", imageInput)
+}
+
+func imageTurnSeedToolVerification(t *testing.T, store modelprobe.Store, key modelprobe.Key, expiresAt time.Time) {
+	t.Helper()
+	now := time.Now().UTC()
+	record, acquired, err := store.Acquire(t.Context(), key, now, now.Add(time.Minute), "image-turn-tool-verification")
+	if err != nil || !acquired {
+		t.Fatalf("seed tool verification Acquire() = %+v, %t, %v", record, acquired, err)
+	}
+	record.Status = modelprobe.StatusSupported
+	record.Reason = modelprobe.ReasonNone
+	record.CheckedAt = now.Add(-time.Minute)
+	record.ExpiresAt = expiresAt.UTC()
+	if _, err := store.Complete(t.Context(), record); err != nil {
+		t.Fatalf("seed tool verification Complete() error = %v", err)
+	}
+}
+
+// toolVerificationSequentialStore drives the two admission reads in a
+// deterministic order: dispatcher capability selection first, then the
+// handler's pre-task recheck. It models a proof expiring in that narrow gap.
+type toolVerificationSequentialStore struct {
+	first modelprobe.Store
+	next  modelprobe.Store
+	gets  atomic.Int64
+}
+
+func (s *toolVerificationSequentialStore) Backend() string { return "test-sequential" }
+
+func (s *toolVerificationSequentialStore) Get(ctx context.Context, key modelprobe.Key) (modelprobe.Record, bool, error) {
+	if s.gets.Add(1) == 1 {
+		return s.first.Get(ctx, key)
+	}
+	return s.next.Get(ctx, key)
+}
+
+func (s *toolVerificationSequentialStore) Acquire(ctx context.Context, key modelprobe.Key, now, leaseUntil time.Time, leaseID string) (modelprobe.Record, bool, error) {
+	return s.next.Acquire(ctx, key, now, leaseUntil, leaseID)
+}
+
+func (s *toolVerificationSequentialStore) Complete(ctx context.Context, record modelprobe.Record) (modelprobe.Record, error) {
+	return s.next.Complete(ctx, record)
 }
 
 func imageTurnNamedTestProvider(name, imageInput string) *fakeProvider {

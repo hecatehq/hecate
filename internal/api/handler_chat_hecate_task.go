@@ -33,14 +33,15 @@ type hecateAgentTaskOrchestrator struct {
 }
 
 type hecateAgentTaskRunCommand struct {
-	Session               chat.Session
-	Prompt                string
-	InputRef              string
-	InputProviderInstance types.ProviderInstanceIdentity
-	SystemPrompt          string
-	ForceNewTask          bool
-	MCPServers            []types.MCPServerConfig
-	ContextPacket         chat.ContextPacket
+	Session                 chat.Session
+	Prompt                  string
+	InputRef                string
+	InputProviderInstance   types.ProviderInstanceIdentity
+	ToolCallingVerification types.ToolCallingVerificationFence
+	SystemPrompt            string
+	ForceNewTask            bool
+	MCPServers              []types.MCPServerConfig
+	ContextPacket           chat.ContextPacket
 }
 
 func (h *Handler) hecateAgentTaskOrchestrator() hecateAgentTaskOrchestrator {
@@ -135,6 +136,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 	}
 	result, err := o.runner.StartTaskWithRunInitializer(ctx, task, o.resourceID, func(run *types.TaskRun) {
 		run.InputRef = strings.TrimSpace(cmd.InputRef)
+		run.ToolCallingVerification = cmd.ToolCallingVerification
 		run.InputProviderDispatchRecorded = false
 		if run.InputRef != "" {
 			run.InputProviderInstance = cmd.InputProviderInstance
@@ -176,6 +178,7 @@ func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecat
 	}
 	result, err := o.runner.ContinueAgentTaskWithRunInitializer(ctx, task, run, cmd.Prompt, o.resourceID, func(nextRun *types.TaskRun) {
 		nextRun.InputRef = strings.TrimSpace(cmd.InputRef)
+		nextRun.ToolCallingVerification = cmd.ToolCallingVerification
 		nextRun.InputProviderDispatchRecorded = false
 		if nextRun.InputRef != "" {
 			nextRun.InputProviderInstance = cmd.InputProviderInstance

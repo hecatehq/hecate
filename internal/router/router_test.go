@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/catalog"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -414,6 +415,84 @@ func TestRuleRouterRequiresImageAndToolCapabilitiesOnSameCandidate(t *testing.T)
 	})
 }
 
+func TestRuleRouterAllowsVerifiedUnknownToolsOnlyForExactRichInputRoute(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeProvider{
+		name:            "verified-vision",
+		kind:            providers.KindCloud,
+		defaultModel:    "custom-vision",
+		supportedModels: []string{"custom-vision"},
+		capabilities: providers.Capabilities{
+			Name:            "verified-vision",
+			Kind:            providers.KindCloud,
+			DefaultModel:    "custom-vision",
+			Models:          []string{"custom-vision"},
+			DiscoverySource: "provider",
+			ModelCapabilities: map[string]types.ModelCapabilities{
+				"custom-vision": {
+					ImageInput:  modelcaps.ImageInputSupported,
+					ToolCalling: modelcaps.ToolCallingUnknown,
+					Source:      modelcaps.SourceProvider,
+				},
+			},
+		},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance(provider.Name())
+	if !ok || !instance.Identity.Valid() {
+		t.Fatalf("provider instance = %+v, found=%t, want valid identity", instance, ok)
+	}
+	router := NewRuleRouter("", catalog.NewRegistryCatalog(registry, nil))
+	request := types.ChatRequest{
+		Model: "custom-vision",
+		Scope: types.RequestScope{ProviderHint: provider.Name()},
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:         true,
+			ToolCalling:        true,
+			NoProviderFailover: true,
+			ExactProvider:      true,
+			ProviderInstance:   instance.Identity,
+		},
+	}
+
+	if _, err := router.Route(context.Background(), request); err == nil {
+		t.Fatal("Route() error = nil, want unknown tool capability rejected without verification")
+	}
+	request.Requirements.ToolCallingVerified = true
+	request.Requirements.ToolCallingVerifiedModel = "custom-vision"
+	request.Requirements.ToolCallingVerifiedUntil = time.Now().UTC().Add(time.Hour)
+	if _, err := router.Route(context.Background(), request); err != nil {
+		t.Fatalf("Route() error = %v, want generation-fenced verified route", err)
+	}
+	request.Requirements.ImageInput = false
+	if _, err := router.Route(context.Background(), request); err != nil {
+		t.Fatalf("Route() plain verified tool request error = %v, want exact generation-fenced route without image", err)
+	}
+	request.Requirements.ImageInput = true
+	request.Requirements.ToolCallingVerifiedModel = "different-model"
+	if _, err := router.Route(context.Background(), request); err == nil {
+		t.Fatal("Route() error = nil, want model-mismatched verification rejected")
+	}
+	request.Requirements.ToolCallingVerifiedModel = "custom-vision"
+	request.Requirements.ToolCallingVerifiedUntil = time.Now().UTC().Add(-time.Second)
+	if _, err := router.Route(context.Background(), request); err == nil {
+		t.Fatal("Route() error = nil, want expired verification rejected")
+	}
+	request.Requirements.ToolCallingVerifiedUntil = time.Now().UTC().Add(time.Hour)
+
+	request.Requirements.ProviderInstance = types.ProviderInstanceIdentity{}
+	if _, err := router.Route(context.Background(), request); err == nil {
+		t.Fatal("Route() error = nil, want unfenced verification rejected")
+	}
+
+	request.Requirements.ProviderInstance = instance.Identity
+	request.Requirements.NoProviderFailover = false
+	if _, err := router.Route(context.Background(), request); err == nil {
+		t.Fatal("Route() error = nil, want failover-capable verification rejected")
+	}
+}
+
 func TestRuleRouterRejectsExpectedProviderInstanceAfterSameNameReplacement(t *testing.T) {
 	t.Parallel()
 
@@ -455,7 +534,7 @@ func TestRuleRouterRejectsExpectedProviderInstanceAfterSameNameReplacement(t *te
 
 	request.Requirements.ProviderInstance = admitted.ProviderInstance
 	registry.Replace(newVisionProvider())
-	if _, err := router.Route(context.Background(), request); err == nil || !strings.Contains(err.Error(), "configuration changed during image admission") {
+	if _, err := router.Route(context.Background(), request); err == nil || !strings.Contains(err.Error(), "configuration changed during bound route admission") {
 		t.Fatalf("Route() error = %v, want expected-instance rejection", err)
 	}
 }

@@ -108,6 +108,26 @@ the same root cause and a concrete first action: add a provider, open the
 blocked provider, or refresh provider/model discovery after the operator starts
 a local runtime or fixes an upstream account.
 
+Tool support is a separate model capability. When a ready configured model is
+still `tool_calling="unknown"`, Chats keeps direct model chat available rather
+than sending a tools-on turn that will fail. The operator can use
+**Connections → Verify tool support** to make one explicit, bounded test of
+that exact provider/model; Chats never starts that potentially billable request
+while loading, refreshing, or sending a prompt. The test does not receive chat
+content or a workspace and does not execute a tool. A supported result makes
+only that unknown model eligible for task-backed tools; a known provider/catalog
+capability remains authoritative. See [Providers](../operator/providers.md#verify-model-tool-support)
+and [the runtime API](runtime-api.md#post-hecatev1model-capabilitiestool-probes)
+for its safe result and failure contract.
+
+For every tools-on Hecate task, that manual proof is usable only on the exact
+provider generation and model that were verified, before the proof expires.
+An image turn additionally must use that provider's independently confirmed
+image route. The proof does not infer image support, select an Auto route,
+allow provider failover, or survive a governor model rewrite. Hecate rechecks
+those fences at every final dispatch, including a queued run, retry, or delayed
+stream.
+
 Hecate Chat also has one per-chat **Instructions** field. With tools off, the
 instructions are sent as the direct model turn's `system_prompt`. With tools
 on, the same text becomes the per-task system prompt for the Hecate-owned
@@ -543,11 +563,13 @@ flowchart LR
     API -->|"append metadata, then link bodies"| Transcript["Chat transcript metadata"]
     Transcript --> Hydrate["Direct-model history or agent-input resolver"]
     Bodies -->|"bounded transient hydration"| Hydrate
+    Verification["Manual tool verification"] -->|"matching provider, model, generation, expiry"| ToolFence["Durable tools-on task fence"]
+    ToolFence -->|"exact route only"| AgentLoop["Task-backed agent loop"]
     Hydrate -->|"canonical image blocks"| Router["Capability-aware router"]
     Router -->|"name + opaque generation"| Fence["Live provider fence"]
     Fence -->|"exact instance only"| Provider["Selected provider"]
     TurnGate -. "permit held until provider returns" .-> Provider
-    Hydrate -->|"tools-on rich prompt"| AgentLoop["Task-backed agent loop"]
+    Hydrate -->|"tools-on rich prompt"| AgentLoop
     AgentLoop -->|"atomic final-route record before I/O"| TaskFence["Durable rich-input dispatch fence"]
     TaskFence -->|"exact route on retry"| Provider
     AgentLoop -->|"artifact marker; no image body"| TaskArtifacts["Task conversation artifacts"]

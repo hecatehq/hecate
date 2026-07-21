@@ -125,10 +125,11 @@ func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []
 	// tasks that didn't specify a provider.
 	requirements := spec.ChatRequirements
 	// Rich input needs one candidate that is explicitly capable of both the
-	// image and the tool catalog. Ordinary Task Runs retain their established
-	// optimistic behavior for providers whose capability discovery is unknown;
-	// the provider remains the authority for a normal tool-call rejection.
-	requirements.ToolCalling = requirements.ImageInput && len(tools) > 0
+	// image and the tool catalog. A Hecate-owned manual proof is also an
+	// explicit tool capability requirement, even without an image: it carries
+	// a private exact-provider/generation/model/expiry fence. Ordinary Task
+	// Runs retain their established optimistic behavior for unknown discovery.
+	requirements.ToolCalling = len(tools) > 0 && (requirements.ImageInput || requirements.ToolCallingVerified)
 	return types.ChatRequest{
 		RequestID:    spec.RequestID,
 		Model:        spec.Run.Model,

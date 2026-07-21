@@ -304,6 +304,63 @@ func TestRouteForStreamRejectsProviderReplacementForProviderBoundRequest(t *test
 	assertStreamProviderCallBlocked(t, tracer, "req-stream-image-replaced", RoutePreflightProviderChanged, admittedInstance.Identity.ID, "private image")
 }
 
+func TestRouteForStreamRejectsVerifiedRichInputAfterProofExpires(t *testing.T) {
+	t.Parallel()
+
+	provider := &streamingSequenceProvider{
+		sequenceProvider: sequenceProvider{name: "vision", kind: providers.KindCloud},
+	}
+	registry := providers.NewRegistry(provider)
+	instance, ok := registry.GetInstance("vision")
+	if !ok {
+		t.Fatal("provider instance not found")
+	}
+	store := governor.NewMemoryUsageStore()
+	service := NewService(Dependencies{
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Router: staticFallbackRouter{route: types.RouteDecision{
+			Provider:         "vision",
+			ProviderInstance: instance.Identity,
+			Model:            "model-a",
+			Reason:           "verified_rich_input",
+		}},
+		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
+		Providers: registry,
+		Tracer:    profiler.NewInMemoryTracer(nil),
+		Metrics:   telemetry.NewMetrics(),
+	})
+	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	clock := now
+	service.now = func() time.Time { return clock }
+
+	handle, _, err := service.RouteForStream(context.Background(), types.ChatRequest{
+		RequestID: "req-stream-verified-proof-expired",
+		Model:     "model-a",
+		Scope:     types.RequestScope{ProviderHint: "vision"},
+		Messages:  []types.Message{{Role: "user", Content: "private image"}},
+		Requirements: types.ChatRequestRequirements{
+			ImageInput:               true,
+			ToolCalling:              true,
+			ToolCallingVerified:      true,
+			ToolCallingVerifiedModel: "model-a",
+			ToolCallingVerifiedUntil: now.Add(time.Minute),
+			NoProviderFailover:       true,
+			ExactProvider:            true,
+			ProviderInstance:         instance.Identity,
+		},
+	})
+	if err != nil {
+		t.Fatalf("RouteForStream() error = %v", err)
+	}
+	clock = now.Add(time.Hour)
+	if err := handle.Execute(io.Discard); err == nil || !strings.Contains(err.Error(), "expired before dispatch") {
+		t.Fatalf("Execute() error = %v, want expired verification rejection", err)
+	}
+	if provider.streamCallCount != 0 {
+		t.Fatalf("stream calls = %d, want expired proof blocked before disclosure", provider.streamCallCount)
+	}
+}
+
 func TestRouteForStreamRecordsImageProviderRemovalBeforeExecute(t *testing.T) {
 	t.Parallel()
 

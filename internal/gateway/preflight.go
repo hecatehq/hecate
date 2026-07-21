@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/providers"
@@ -124,6 +126,50 @@ func validateProviderInstanceFence(req types.ChatRequest, decision types.RouteDe
 		return fmt.Errorf("provider %q changed after bound route admission", decision.Provider)
 	}
 	return nil
+}
+
+// validateToolCallingVerificationFence rechecks Hecate's internal manual
+// proof immediately before a provider dispatch. Route selection is not
+// sufficient: a queued task, retry, or delayed stream can outlive a proof's
+// expiry.
+//
+// The marker is never supplied by an HTTP client. When it is present it must
+// remain tied to the one provider/model/generation route that admission
+// verified, with failover disabled.
+func validateToolCallingVerificationFence(req types.ChatRequest, decision types.RouteDecision, now time.Time) error {
+	// The marker is carried from Hecate Chat admission through the agent loop,
+	// including image-only steps before the loop exposes its tool catalog. It is
+	// relevant only when this dispatch actually relies on tool support.
+	if !req.Requirements.ToolCallingVerified || !req.Requirements.ToolCalling {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	if !req.Requirements.NoProviderFailover ||
+		!req.Requirements.ExactProvider ||
+		!req.Requirements.ProviderInstance.Valid() ||
+		!decision.ProviderInstance.Valid() ||
+		decision.ProviderInstance != req.Requirements.ProviderInstance ||
+		strings.TrimSpace(req.Scope.ProviderHint) != decision.Provider {
+		return fmt.Errorf("verified tool support is not bound to the dispatch route")
+	}
+	if strings.TrimSpace(req.Requirements.ToolCallingVerifiedModel) != strings.TrimSpace(decision.Model) {
+		return fmt.Errorf("verified tool support does not apply to dispatch model %q", decision.Model)
+	}
+	if !req.Requirements.ToolCallingVerifiedUntil.After(now) {
+		return errors.New("verified tool support expired before dispatch")
+	}
+	return nil
+}
+
+func verificationNow(clock func() time.Time) time.Time {
+	if clock == nil {
+		return time.Now().UTC()
+	}
+	return clock().UTC()
 }
 
 func requiresProviderInstanceFence(req types.ChatRequest) bool {

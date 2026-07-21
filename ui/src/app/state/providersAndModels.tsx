@@ -11,7 +11,8 @@
 //   - Map mutators for the adapter-health map and the per-adapter
 //     loading flag avoid the "rebuild the whole map in the
 //     caller" boilerplate that every probe path used.
-//   - Domain actions (refreshProviders, probeAgentAdapter) own the
+//   - Domain actions (refreshProviders, probeAgentAdapter,
+//     verifyModelToolSupport) own the
 //     API call + the state update. They return Results so the shim
 //     wires success / error to the global notice banner without the
 //     slice importing cross-cut state.
@@ -40,10 +41,11 @@ import {
   getModels,
   getProviderPresets,
   probeAgentAdapter as probeAgentAdapterRequest,
+  verifyModelToolSupport as verifyModelToolSupportRequest,
 } from "../../lib/api";
 import { warn } from "../../lib/log";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
-import type { ModelResponse } from "../../types/model";
+import type { ModelResponse, ModelToolCapabilityProbeResponse } from "../../types/model";
 import type { ProviderPresetRecord, ProviderStatusResponse } from "../../types/provider";
 
 export type ProvidersAndModelsState = {
@@ -61,6 +63,7 @@ export type ProvidersAndModelsState = {
   agentAdapterApprovalMode: string;
   agentAdapterHealthByID: Map<string, AgentAdapterHealthRecord>;
   agentAdapterHealthLoadingByID: Map<string, true>;
+  modelToolSupportLoadingByKey: Map<string, true>;
 };
 
 type SetStateAction<T> = T | ((prev: T) => T);
@@ -68,6 +71,14 @@ type SetStateAction<T> = T | ((prev: T) => T);
 export type ProbeAdapterResult =
   | { ok: true; health: AgentAdapterHealthRecord }
   | { ok: false; error: string };
+
+export type VerifyModelToolSupportResult =
+  | { ok: true; probe: ModelToolCapabilityProbeResponse }
+  | { ok: false; error: string };
+
+export function modelToolSupportKey(provider: string, model: string): string {
+  return `${provider.trim().toLowerCase()}\0${model.trim()}`;
+}
 
 export type ProvidersAndModelsActions = {
   setProviders: (next: SetStateAction<ProviderStatusResponse["data"]>) => void;
@@ -81,6 +92,10 @@ export type ProvidersAndModelsActions = {
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
   refreshProviders: () => Promise<void>;
   probeAgentAdapter: (adapterID: string) => Promise<ProbeAdapterResult>;
+  verifyModelToolSupport: (
+    provider: string,
+    model: string,
+  ) => Promise<VerifyModelToolSupportResult>;
 };
 
 type ProvidersAndModelsContextValue = {
@@ -97,7 +112,8 @@ type Action =
   | { type: "agentAdapterApprovalMode/set"; value: string }
   | { type: "agentAdapterHealth/set"; adapterID: string; record: AgentAdapterHealthRecord }
   | { type: "agentAdapterHealth/clear"; adapterID: string }
-  | { type: "agentAdapterHealthLoading/set"; adapterID: string; loading: boolean };
+  | { type: "agentAdapterHealthLoading/set"; adapterID: string; loading: boolean }
+  | { type: "modelToolSupportLoading/set"; key: string; loading: boolean };
 
 const initialState: ProvidersAndModelsState = {
   providers: [],
@@ -108,6 +124,7 @@ const initialState: ProvidersAndModelsState = {
   agentAdapterApprovalMode: "",
   agentAdapterHealthByID: new Map(),
   agentAdapterHealthLoadingByID: new Map(),
+  modelToolSupportLoadingByKey: new Map(),
 };
 
 function resolve<T>(prev: T, next: SetStateAction<T>): T {
@@ -151,6 +168,18 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
       next.delete(action.adapterID);
       return { ...state, agentAdapterHealthLoadingByID: next };
     }
+    case "modelToolSupportLoading/set": {
+      const map = state.modelToolSupportLoadingByKey;
+      if (action.loading) {
+        const next = new Map(map);
+        next.set(action.key, true);
+        return { ...state, modelToolSupportLoadingByKey: next };
+      }
+      if (!map.has(action.key)) return state;
+      const next = new Map(map);
+      next.delete(action.key);
+      return { ...state, modelToolSupportLoadingByKey: next };
+    }
   }
 }
 
@@ -168,6 +197,9 @@ export function ProvidersAndModelsProvider({
     seededState ? { ...initialState, ...seededState } : initialState,
   );
   const probeAgentAdapterInFlightRef = useRef(new Map<string, Promise<ProbeAdapterResult>>());
+  const verifyModelToolSupportInFlightRef = useRef(
+    new Map<string, Promise<VerifyModelToolSupportResult>>(),
+  );
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -219,8 +251,28 @@ export function ProvidersAndModelsProvider({
       if (mResult.status === "fulfilled") {
         dispatch({ type: "models/set", next: mResult.value.data ?? [] });
       }
-    } catch {
-      // Best-effort background refresh — ignore errors.
+      if (pResult.status === "rejected" || mResult.status === "rejected") {
+        warn("providersAndModels.refresh.failed", {
+          providers:
+            pResult.status === "rejected"
+              ? pResult.reason instanceof Error
+                ? pResult.reason.message
+                : String(pResult.reason)
+              : undefined,
+          models:
+            mResult.status === "rejected"
+              ? mResult.reason instanceof Error
+                ? mResult.reason.message
+                : String(mResult.reason)
+              : undefined,
+        });
+      }
+    } catch (error) {
+      // Best-effort background refresh — report the failure without making
+      // a completed provider operation look unsuccessful.
+      warn("providersAndModels.refresh.failed", {
+        err: error instanceof Error ? error.message : String(error),
+      });
     }
   }, []);
 
@@ -253,6 +305,76 @@ export function ProvidersAndModelsProvider({
     return probe;
   }, []);
 
+  const verifyModelToolSupport = useCallback(
+    async (provider: string, model: string): Promise<VerifyModelToolSupportResult> => {
+      const normalizedProvider = provider.trim();
+      const normalizedModel = model.trim();
+      if (!normalizedProvider || !normalizedModel) {
+        return { ok: false, error: "Provider and model are required to verify tool support." };
+      }
+      const key = modelToolSupportKey(normalizedProvider, normalizedModel);
+      const inFlight = verifyModelToolSupportInFlightRef.current.get(key);
+      if (inFlight) return inFlight;
+
+      const verification: Promise<VerifyModelToolSupportResult> = (async () => {
+        dispatch({ type: "modelToolSupportLoading/set", key, loading: true });
+        try {
+          const probe = await verifyModelToolSupportRequest(normalizedProvider, normalizedModel);
+          // Apply the returned projection first so the operator sees the
+          // result even if the best-effort catalog refresh is delayed.
+          dispatch({
+            type: "models/set",
+            next: (current) =>
+              current.map((entry) =>
+                entry.id === probe.data.model && entry.metadata?.provider === probe.data.provider
+                  ? {
+                      ...entry,
+                      metadata: {
+                        ...entry.metadata,
+                        capabilities: {
+                          ...probe.data.capabilities,
+                          tool_verification:
+                            probe.data.verification ?? probe.data.capabilities.tool_verification,
+                        },
+                      },
+                    }
+                  : entry,
+              ),
+          });
+          // The proof is provider-generation-bound. Reload both model catalog
+          // and provider status after the bounded explicit action rather than
+          // guessing at any other affected route. This refresh is strictly
+          // best-effort: the probe result above remains authoritative until a
+          // later catalog response replaces it.
+          try {
+            await refreshProviders();
+          } catch (error) {
+            // refreshProviders normally handles its own transport failures,
+            // but keep the completed diagnostic independent if that contract
+            // ever changes.
+            warn("modelToolSupport.refresh.failed", {
+              provider: normalizedProvider,
+              model: normalizedModel,
+              err: error instanceof Error ? error.message : String(error),
+            });
+          }
+          return { ok: true, probe };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : "Failed to verify tool support.",
+          };
+        } finally {
+          verifyModelToolSupportInFlightRef.current.delete(key);
+          dispatch({ type: "modelToolSupportLoading/set", key, loading: false });
+        }
+      })();
+      verifyModelToolSupportInFlightRef.current.set(key, verification);
+      return verification;
+    },
+    [refreshProviders],
+  );
+
   const actions = useMemo<ProvidersAndModelsActions>(
     () => ({
       setProviders,
@@ -266,6 +388,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealthLoading,
       refreshProviders,
       probeAgentAdapter,
+      verifyModelToolSupport,
     }),
     [
       setProviders,
@@ -279,6 +402,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealthLoading,
       refreshProviders,
       probeAgentAdapter,
+      verifyModelToolSupport,
     ],
   );
 

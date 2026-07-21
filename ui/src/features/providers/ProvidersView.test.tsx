@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersView } from "./ProvidersView";
 import { AddProviderModal } from "./AddProviderModal";
+import { modelToolSupportKey } from "../../app/state/providersAndModels";
 import { discoverLocalProviders, getDictationOptions } from "../../lib/api";
 import {
   createRuntimeConsoleActions,
@@ -512,6 +513,328 @@ describe("ProvidersView edit modal", () => {
     expect(screen.getByText("m2")).toBeTruthy();
     // Only the default model row carries the badge.
     expect(screen.getByText("default")).toBeTruthy();
+  });
+
+  it("offers an explicit tool-support verification only for a ready unknown model", async () => {
+    const verifyModelToolSupport = vi.fn(async () => ({
+      ok: true,
+      probe: {
+        object: "model_tool_capability_probe",
+        data: {
+          provider: "ollama",
+          model: "m2",
+          capabilities: { tool_calling: "basic" },
+          verification: { status: "supported" },
+          performed: true,
+        },
+      },
+    }));
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local", default_model: "m1" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["m1", "m2", "m3"],
+          model_count: 3,
+        }),
+      ],
+      models: [
+        {
+          id: "m1",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: { tool_calling: "basic" },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+        {
+          id: "m2",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: { tool_calling: "unknown" },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+        {
+          id: "m3",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: { tool_calling: "unknown" },
+            readiness: { ready: false, routing_ready: false },
+          },
+        },
+      ],
+    });
+    const actions = { ...createRuntimeConsoleActions(), verifyModelToolSupport };
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Ollama"));
+    const verify = screen.getByRole("button", { name: "Verify tool support" });
+    expect(verify).toHaveAttribute(
+      "title",
+      expect.stringContaining("Hecate never executes the returned tool"),
+    );
+    expect(screen.getAllByText("Tool support unknown")).toHaveLength(2);
+
+    await user.click(verify);
+    expect(verifyModelToolSupport).toHaveBeenCalledWith("ollama", "m2");
+  });
+
+  it("shows model-specific progress while tool-support verification is in flight", async () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["m2"],
+          model_count: 1,
+        }),
+      ],
+      models: [
+        {
+          id: "m2",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: {
+              tool_calling: "unknown",
+              tool_verification: { status: "testing" },
+            },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+      ],
+      modelToolSupportLoadingByKey: new Map([[modelToolSupportKey("ollama", "m2"), true]]),
+    });
+
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Ollama"));
+    expect(screen.getByText("Verifying tool support")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Verifying…" })).toBeDisabled();
+  });
+
+  it("shows accessible verification details and lets current no-tool metadata override an old success", async () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["m2"],
+          model_count: 1,
+        }),
+      ],
+      models: [
+        {
+          id: "m2",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: {
+              tool_calling: "none",
+              tool_verification: {
+                status: "supported",
+                checked_at: "2026-07-21T10:00:00Z",
+                expires_at: "2026-08-20T10:00:00Z",
+                reason: "The fixed diagnostic tool call succeeded.",
+              },
+            },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+      ],
+    });
+
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Ollama"));
+
+    expect(screen.getByText("Tool support unavailable")).toBeTruthy();
+    expect(screen.queryByText("Tool support verified")).toBeNull();
+    const details = screen.getByRole("group", {
+      name: "Tool support verification details for m2",
+    });
+    expect(within(details).getByText("Checked:")).toBeTruthy();
+    expect(within(details).getByText("Expires:")).toBeTruthy();
+    expect(within(details).getByText("Reason:")).toBeTruthy();
+    expect(within(details).getByText("The fixed diagnostic tool call succeeded.")).toBeTruthy();
+    expect(details.querySelectorAll("time")).toHaveLength(2);
+  });
+
+  it("lets current tool-capable metadata override an old negative verification", async () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["m2"],
+          model_count: 1,
+        }),
+      ],
+      models: [
+        {
+          id: "m2",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: {
+              tool_calling: "basic",
+              tool_verification: { status: "unsupported" },
+            },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+      ],
+    });
+
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Ollama"));
+
+    expect(screen.getByText("Tool support available")).toBeTruthy();
+    expect(screen.queryByText("No tool support")).toBeNull();
+  });
+
+  it("keeps a failed tool-support verification inline with its model", async () => {
+    const verifyModelToolSupport = vi.fn(async () => ({
+      ok: false,
+      error: "The selected provider/model is not available for verification.",
+    }));
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["m2"],
+          model_count: 1,
+        }),
+      ],
+      models: [
+        {
+          id: "m2",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: { tool_calling: "unknown" },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+      ],
+    });
+    const actions = { ...createRuntimeConsoleActions(), verifyModelToolSupport };
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Ollama"));
+    await user.click(screen.getByRole("button", { name: "Verify tool support" }));
+    const error = await screen.findByText(
+      "The selected provider/model is not available for verification.",
+    );
+    expect(error).toHaveAttribute("role", "status");
+  });
+
+  it("does not offer tool-support verification for known or unready models", async () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["known", "not-ready"],
+          model_count: 2,
+        }),
+      ],
+      models: [
+        {
+          id: "known",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: { tool_calling: "basic" },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+        {
+          id: "not-ready",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            capabilities: { tool_calling: "unknown" },
+            readiness: { ready: false, routing_ready: false },
+          },
+        },
+      ],
+    });
+
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Ollama"));
+    expect(screen.queryByRole("button", { name: "Verify tool support" })).toBeNull();
   });
 });
 

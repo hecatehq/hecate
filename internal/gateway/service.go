@@ -70,6 +70,7 @@ type Service struct {
 	traceBodyCapture  bool
 	traceBodyMaxBytes int
 	traceBodyMode     string
+	now               func() time.Time
 }
 
 const (
@@ -207,6 +208,7 @@ func NewService(deps Dependencies) *Service {
 		traceBodyCapture:  deps.TraceBodyCapture,
 		traceBodyMaxBytes: traceBodyMaxBytes,
 		traceBodyMode:     traceBodyMode,
+		now:               time.Now,
 	}
 }
 
@@ -753,6 +755,10 @@ func (s *Service) RouteForStream(ctx context.Context, req types.ChatRequest) (*S
 			dispatchRoute := plan.Route
 			dispatchRoute.ProviderKind = plan.ProviderKind
 			dispatchRoute.ProviderInstance = dispatchInstance.Identity
+			if err := validateToolCallingVerificationFence(streamReq, dispatchRoute, verificationNow(s.now)); err != nil {
+				recordProviderCallBlocked(trace, dispatchRoute, 0, err)
+				return err
+			}
 			if err := providerdispatch.RecordAttempt(ctx, dispatchRoute); err != nil {
 				err = fmt.Errorf("record provider dispatch: %w", err)
 				recordRichInputRouteFenceBlocked(trace, dispatchRoute, 0, err)

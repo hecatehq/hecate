@@ -5,7 +5,7 @@ import type {
   RuntimeStatsResponse,
   SessionResponse,
 } from "../types/runtime";
-import type { ModelResponse } from "../types/model";
+import type { ModelResponse, ModelToolCapabilityProbeResponse } from "../types/model";
 import type { ContextPacketResponse } from "../types/context";
 import type {
   ConfiguredStateResponse,
@@ -331,6 +331,19 @@ export async function getSession(): Promise<SessionResponse> {
 
 export async function getModels(): Promise<ModelResponse> {
   return fetchJSON<ModelResponse>("/v1/models");
+}
+
+// verifyModelToolSupport sends one explicit diagnostic request for a single
+// configured provider/model route. The gateway supplies a fixed, harmless
+// tool schema and never executes a returned tool call.
+export async function verifyModelToolSupport(
+  provider: string,
+  model: string,
+): Promise<ModelToolCapabilityProbeResponse> {
+  return fetchJSON<ModelToolCapabilityProbeResponse>(
+    `${HECATE_API}/model-capabilities/tool-probes`,
+    { method: "POST", body: { provider, model } },
+  );
 }
 
 export async function getProviders(): Promise<ProviderStatusResponse> {

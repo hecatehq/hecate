@@ -1495,7 +1495,27 @@ turn as direct model chat and showing a compact capability hint. Local/custom
 OpenAI-compatible providers often report `unknown`; Ollama models are enriched
 from the native `/api/show` capability list when available. Tool usage is a
 per-chat setting; model capability metadata is observed from provider/catalog
-data rather than edited globally.
+data rather than edited globally. An optional
+`capabilities.tool_verification` records a manual, safe observation for an
+otherwise unknown model:
+
+```json
+{
+  "status": "supported",
+  "checked_at": "2026-07-21T12:00:00Z",
+  "expires_at": "2026-08-20T12:00:00Z"
+}
+```
+
+`status` is `testing`, `supported`, `unsupported`, or `inconclusive`.
+`reason`, when present, is a bounded diagnostic classification rather than raw
+provider output. For an otherwise unknown effective capability, `supported`
+projects `tool_calling` to `basic`, and an explicit tool-schema rejection
+projects it to `none`; `testing` and `inconclusive` leave it `unknown`.
+Provider-native and catalog-known values stay authoritative, so a verification
+never overrides an effective `none`, `basic`, or `parallel` value. The opaque
+provider configuration identity that binds this observation is intentionally
+not exposed here.
 
 `capabilities.image_input` is one of `unknown`, `none`, or `supported`.
 Image-bearing Hecate Chat turns require `supported`; both `unknown` and `none`
@@ -1519,6 +1539,14 @@ without a generation is omitted. The generation is internal-only and is never
 accepted from clients or rendered in model/chat responses, errors, logs, or
 telemetry. Failed calls retain attempted provider/model and trace metadata when
 the provider received the request.
+
+For every task-backed Hecate Chat tools-on turn, a current
+`tool_verification.status` of `supported` can satisfy an otherwise-unknown tool
+requirement only through the same exact provider/model/generation fence before
+the proof expires. An attachment turn still independently requires image
+support. The proof does not permit a different provider, make an Auto route
+eligible, or survive a policy model rewrite. Hecate rechecks those fences at
+every final dispatch, including a queued run, retry, or delayed stream.
 Ordinary
 provider-compatible `/v1/chat/completions` and `/v1/messages` rich-content
 requests do not opt into this Hecate runtime requirement and preserve upstream
@@ -1535,6 +1563,76 @@ provider is credential-blocked, circuit-open, disabled, or otherwise not
 routable. When `ready=false`, show `message` and `operator_action` directly and
 use `reason`, `provider_status`, `provider_blocked_reason`, and
 `suggested_models` for compact diagnostics.
+
+### `POST /hecate/v1/model-capabilities/tool-probes`
+
+Performs an explicit, bounded verification of tool support for one configured,
+routable provider/model route. This is the API behind **Connections → Verify
+tool support**. It accepts neither Auto routing nor a workspace, prompt,
+attachment, tool definition, or provider generation from the caller.
+
+```json
+POST /hecate/v1/model-capabilities/tool-probes
+{
+  "provider": "local-runtime",
+  "model": "custom-tool-model"
+}
+
+→ 200
+{
+  "object": "model_tool_capability_probe",
+  "data": {
+    "provider": "local-runtime",
+    "model": "custom-tool-model",
+    "capabilities": {
+      "tool_calling": "basic",
+      "source": "mixed",
+      "tool_verification": {
+        "status": "supported",
+        "checked_at": "2026-07-21T12:00:00Z",
+        "expires_at": "2026-08-20T12:00:00Z"
+      }
+    },
+    "verification": {
+      "status": "supported",
+      "checked_at": "2026-07-21T12:00:00Z",
+      "expires_at": "2026-08-20T12:00:00Z"
+    },
+    "trace_id": "trace_...",
+    "performed": true
+  }
+}
+```
+
+Hecate itself supplies one static one-message request, one harmless forced
+function schema, and the exact configured provider/model route. It observes a
+returned call to that function but never parses or executes its arguments,
+starts a task, or accesses a workspace, Chat content, attachment, or ACP
+session. The request makes no provider retry or failover attempt. It can incur
+the selected provider's normal model-request charge.
+
+Hecate persists only the safe verification status, times, and bounded reason;
+it does not retain the static prompt, model response, tool arguments, provider
+endpoint, opaque provider identity, or credentials in the API result or
+verification record. A matching active result is reused, and concurrent
+requests coalesce, so `performed=false` means this response reused a current
+result or the model already had a known capability rather than sending another
+provider request. Reconfiguring or replacing the provider makes prior
+verification inapplicable.
+
+The endpoint is limited to models whose current effective `tool_calling` value
+is `unknown`. Known provider/catalog values are returned unchanged without a
+probe. A `supported` result makes only that unknown capability eligible as
+`basic`; an explicit tool-schema rejection makes it `none`; all other failures
+are `inconclusive` and leave it `unknown`.
+
+- `400 invalid_request` — provider or model is missing, or `provider` is
+  `auto`.
+- `409 provider_ambiguous` or `model_not_configured` — the provider identity is
+  ambiguous, the model is not ready, or the exact route changed during the
+  verification.
+- `503 model_tool_probe_unavailable` — this runtime cannot perform the
+  verification.
 
 ### `GET /hecate/v1/agent-adapters`
 
@@ -5407,6 +5505,10 @@ the user message and assistant output.
   `image_input="supported"`. A tools-on Task Run persists only an opaque input
   reference, hydrates the body immediately before agent-loop execution, and
   replaces image blocks with omission markers in its conversation artifact.
+  A matching manual tool-support verification can satisfy only an otherwise
+  unknown tool requirement on the exact pinned route, including a tools-on
+  Task Run without an attachment; it never substitutes for image support or
+  enables Auto/failover routing.
   Same-input resumes and retries inherit the reference. External Agent
   turns accept the staged files; text may be empty when at least one attachment
   is present. Hecate persists only immutable attachment metadata on the user

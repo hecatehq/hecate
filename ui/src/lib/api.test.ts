@@ -89,6 +89,7 @@ import {
   updateProjectWorkRole,
   updateProjectWorkItem,
   uploadChatAttachment,
+  verifyModelToolSupport,
   type ApiError,
 } from "./api";
 
@@ -1729,6 +1730,46 @@ describe("api client", () => {
         "/hecate/v1/chat/grants/grant-1",
         expect.objectContaining({ method: "DELETE" }),
       );
+    });
+  });
+
+  describe("verifyModelToolSupport", () => {
+    it("posts one configured provider/model pair and returns the capability projection", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "model_tool_capability_probe",
+          data: {
+            provider: "Local Runtime",
+            model: "custom-tool-model",
+            capabilities: {
+              tool_calling: "basic",
+              tool_verification: {
+                status: "supported",
+                checked_at: "2026-07-21T10:00:00Z",
+                expires_at: "2026-08-20T10:00:00Z",
+              },
+            },
+            verification: {
+              status: "supported",
+              checked_at: "2026-07-21T10:00:00Z",
+              expires_at: "2026-08-20T10:00:00Z",
+            },
+            performed: true,
+          },
+        }),
+      );
+
+      const result = await verifyModelToolSupport("Local Runtime", "custom-tool-model");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/model-capabilities/tool-probes",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ provider: "Local Runtime", model: "custom-tool-model" }),
+        }),
+      );
+      expect(result.data.capabilities.tool_calling).toBe("basic");
+      expect(result.data.verification?.status).toBe("supported");
     });
   });
 

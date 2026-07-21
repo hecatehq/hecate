@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { modelToolSupportKey, useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import {
   useWiredDashboardActions,
   useWiredProviderActions,
 } from "../../app/state/coordinators/wired";
+import type { ModelRecord, ToolCapabilityVerificationRecord } from "../../types/model";
 import type { ConfiguredProviderRecord, ProviderRecord } from "../../types/provider";
-import { formatLocaleTime } from "../../lib/format";
+import { formatLocaleDateTime, formatLocaleTime } from "../../lib/format";
 import {
   providerFleetRepairHint,
   providerReadinessMeaning,
@@ -84,6 +85,7 @@ export function ProvidersView() {
   const settingsConfig = settings.state.config;
   const providers = providersAndModels.state.providers;
   const models = providersAndModels.state.models;
+  const modelToolSupportLoadingByKey = providersAndModels.state.modelToolSupportLoadingByKey;
   const providerPresets = providersAndModels.state.providerPresets;
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState("");
@@ -93,6 +95,7 @@ export function ProvidersView() {
   const [pendingAccountID, setPendingAccountID] = useState("");
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [deleteConfirmID, setDeleteConfirmID] = useState<string | null>(null);
+  const [modelToolSupportErrors, setModelToolSupportErrors] = useState(new Map<string, string>());
 
   // Auto-poll model discovery only when there's something to discover for —
   // either at least one configured provider, or the Add modal is open
@@ -999,6 +1002,23 @@ export function ProvidersView() {
                 >
                   {selectedStatus.models.map((m) => {
                     const displayModel = modelDisplayName(m);
+                    const catalogModel = findSelectedProviderModel(models, m, selectedStatus.name);
+                    const capabilities = catalogModel?.metadata?.capabilities;
+                    const verification = capabilities?.tool_verification;
+                    const verificationProvider = catalogModel?.metadata?.provider ?? "";
+                    const verificationKey = modelToolSupportKey(verificationProvider, m);
+                    const verificationInProgress =
+                      Boolean(modelToolSupportLoadingByKey.get(verificationKey)) ||
+                      verification?.status === "testing";
+                    const canVerifyToolSupport =
+                      Boolean(verificationProvider) &&
+                      capabilities?.tool_calling === "unknown" &&
+                      modelReadyForToolVerification(catalogModel);
+                    const verificationLabel = toolVerificationLabel(
+                      verification,
+                      capabilities?.tool_calling,
+                    );
+                    const verificationError = modelToolSupportErrors.get(verificationKey);
                     return (
                       <div
                         key={m}
@@ -1006,6 +1026,8 @@ export function ProvidersView() {
                         style={{
                           display: "flex",
                           alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 6,
                           padding: "5px 0",
                           borderBottom: "1px solid var(--border)",
                         }}
@@ -1027,6 +1049,113 @@ export function ProvidersView() {
                         {m === selectedConfig.default_model && (
                           <span className="badge badge-teal" style={{ fontSize: 9 }}>
                             default
+                          </span>
+                        )}
+                        {verificationLabel && (
+                          <span
+                            className="badge badge-neutral"
+                            style={{ fontSize: 9 }}
+                            title={toolVerificationTitle(verification, capabilities?.tool_calling)}
+                          >
+                            {verificationLabel}
+                          </span>
+                        )}
+                        {verification && (
+                          <div
+                            role="group"
+                            aria-label={`Tool support verification details for ${displayModel}`}
+                            style={{
+                              flexBasis: "100%",
+                              margin: 0,
+                              color: "var(--t2)",
+                              fontSize: 10,
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            <dl
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: "2px 12px",
+                                margin: 0,
+                              }}
+                            >
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <dt style={{ color: "var(--t3)" }}>Checked:</dt>
+                                <dd style={{ margin: 0 }}>
+                                  {verification.checked_at ? (
+                                    <time dateTime={verification.checked_at}>
+                                      {formatVerificationTimestamp(verification.checked_at)}
+                                    </time>
+                                  ) : (
+                                    "Not recorded"
+                                  )}
+                                </dd>
+                              </div>
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <dt style={{ color: "var(--t3)" }}>Expires:</dt>
+                                <dd style={{ margin: 0 }}>
+                                  {verification.expires_at ? (
+                                    <time dateTime={verification.expires_at}>
+                                      {formatVerificationTimestamp(verification.expires_at)}
+                                    </time>
+                                  ) : (
+                                    "Not recorded"
+                                  )}
+                                </dd>
+                              </div>
+                              <div style={{ display: "flex", flexBasis: "100%", gap: 4 }}>
+                                <dt style={{ color: "var(--t3)", flexShrink: 0 }}>Reason:</dt>
+                                <dd style={{ margin: 0, overflowWrap: "anywhere" }}>
+                                  {verification.reason || "No diagnostic reason was recorded."}
+                                </dd>
+                              </div>
+                            </dl>
+                          </div>
+                        )}
+                        {canVerifyToolSupport && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={verificationInProgress}
+                            aria-busy={verificationInProgress || undefined}
+                            title={
+                              verificationInProgress
+                                ? "Tool support verification is already in progress."
+                                : "Make one harmless provider request to confirm tool calling. Hecate never executes the returned tool; the request may count toward provider usage."
+                            }
+                            onClick={() => {
+                              setModelToolSupportErrors((current) => {
+                                const next = new Map(current);
+                                next.delete(verificationKey);
+                                return next;
+                              });
+                              void providersAndModels.actions
+                                .verifyModelToolSupport(verificationProvider, m)
+                                .then((result) => {
+                                  if (result.ok) return;
+                                  setModelToolSupportErrors((current) => {
+                                    const next = new Map(current);
+                                    next.set(verificationKey, result.error);
+                                    return next;
+                                  });
+                                });
+                            }}
+                          >
+                            {verificationInProgress ? "Verifying…" : "Verify tool support"}
+                          </button>
+                        )}
+                        {verificationError && (
+                          <span
+                            role="status"
+                            style={{
+                              flexBasis: "100%",
+                              fontSize: 11,
+                              color: "var(--red)",
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            {verificationError}
                           </span>
                         )}
                       </div>
@@ -1139,6 +1268,89 @@ function statColor(tone: ConnectionStatTone): string {
     case "muted":
       return "var(--t3)";
   }
+}
+
+function findSelectedProviderModel(
+  models: ModelRecord[],
+  model: string,
+  runtimeProviderName: string,
+): ModelRecord | undefined {
+  // Do not fall back to aliases here. This action makes an exact paid
+  // provider request, so a temporarily mismatched model/status snapshot must
+  // hide the action rather than accidentally verifying a sibling route.
+  return models.find(
+    (entry) => entry.id === model && entry.metadata?.provider === runtimeProviderName,
+  );
+}
+
+function modelReadyForToolVerification(model: ModelRecord | undefined): boolean {
+  const readiness = model?.metadata?.readiness;
+  return readiness?.ready === true && readiness.routing_ready !== false;
+}
+
+function toolVerificationLabel(
+  verification: ToolCapabilityVerificationRecord | undefined,
+  toolCalling: string | undefined,
+): string {
+  // A stored verification is historical diagnostic evidence. Current
+  // authoritative capability metadata wins when it explicitly says that
+  // this model cannot call tools, including while an old observation remains
+  // visible below for operator auditability.
+  if (toolCalling === "none" && verification) {
+    return "Tool support unavailable";
+  }
+  // Provider/catalog capability data supersedes a conflicting historical
+  // probe. Keep the record visible for audit, but do not let its old negative
+  // result make a currently tool-capable model look unavailable.
+  if (
+    (toolCalling === "basic" || toolCalling === "parallel") &&
+    verification?.status === "unsupported"
+  ) {
+    return "Tool support available";
+  }
+  switch (verification?.status) {
+    case "testing":
+      return "Verifying tool support";
+    case "supported":
+      return "Tool support verified";
+    case "unsupported":
+      return "No tool support";
+    case "inconclusive":
+      return "Tool support not confirmed";
+    default:
+      return toolCalling === "unknown" ? "Tool support unknown" : "";
+  }
+}
+
+function toolVerificationTitle(
+  verification: ToolCapabilityVerificationRecord | undefined,
+  toolCalling: string | undefined,
+): string {
+  if (toolCalling === "none") {
+    return "Current capability metadata says this model does not support tool calling. Any earlier verification record is retained below for audit.";
+  }
+  if (
+    (toolCalling === "basic" || toolCalling === "parallel") &&
+    verification?.status === "unsupported"
+  ) {
+    return "Current capability metadata says this model supports tool calling. The earlier negative verification record is retained below for audit.";
+  }
+  switch (verification?.status) {
+    case "testing":
+      return "A tool support verification is in progress.";
+    case "supported":
+      return "Tool support was verified with one explicit, harmless provider request.";
+    case "unsupported":
+      return "The provider explicitly rejected the fixed tool schema during verification.";
+    case "inconclusive":
+      return "Hecate could not confirm tool support. Resolve provider issues and verify again.";
+    default:
+      return "Tool support has not been confirmed for this model.";
+  }
+}
+
+function formatVerificationTimestamp(value: string): string {
+  return formatLocaleDateTime(value) || "Not recorded";
 }
 
 function isProviderRoutingReady(

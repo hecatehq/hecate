@@ -2,22 +2,26 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  modelToolSupportKey,
   ProvidersAndModelsProvider,
   useEnsureProviderPresetsLoaded,
   useProvidersAndModels,
 } from "./providersAndModels";
 import type { ReactNode } from "react";
 
+const getProvidersMock = vi.fn();
+const getModelsMock = vi.fn();
 const getProviderPresetsMock = vi.fn();
 const probeAgentAdapterMock = vi.fn();
+const verifyModelToolSupportMock = vi.fn();
 const warnMock = vi.fn();
 
 vi.mock("../../lib/api", () => ({
+  getProviders: (...args: unknown[]) => getProvidersMock(...args),
+  getModels: (...args: unknown[]) => getModelsMock(...args),
   getProviderPresets: (...args: unknown[]) => getProviderPresetsMock(...args),
   probeAgentAdapter: (...args: unknown[]) => probeAgentAdapterMock(...args),
-  // Stubs for other api symbols the slice imports — unused in these tests.
-  getProviders: vi.fn(),
-  getModels: vi.fn(),
+  verifyModelToolSupport: (...args: unknown[]) => verifyModelToolSupportMock(...args),
 }));
 
 vi.mock("../../lib/log", () => ({
@@ -31,8 +35,11 @@ function Wrapper({ children }: { children: ReactNode }) {
 }
 
 beforeEach(() => {
+  getProvidersMock.mockReset();
+  getModelsMock.mockReset();
   getProviderPresetsMock.mockReset();
   probeAgentAdapterMock.mockReset();
+  verifyModelToolSupportMock.mockReset();
   warnMock.mockReset();
 });
 
@@ -199,5 +206,156 @@ describe("probeAgentAdapter", () => {
       status: "ready",
     });
     expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+  });
+});
+
+describe("verifyModelToolSupport", () => {
+  it("dedupes one provider/model diagnostic and refreshes the catalog projection", async () => {
+    let resolveProbe: (value: unknown) => void = () => {};
+    verifyModelToolSupportMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    getProvidersMock.mockResolvedValue({ object: "provider_status", data: [] });
+    getModelsMock.mockResolvedValue({
+      object: "list",
+      data: [
+        {
+          id: "custom-tool-model",
+          owned_by: "Local Runtime",
+          metadata: {
+            provider: "Local Runtime",
+            capabilities: {
+              tool_calling: "basic",
+              tool_verification: { status: "supported" },
+            },
+            readiness: { ready: true, routing_ready: true },
+          },
+        },
+      ],
+    });
+    const ProviderModelWrapper = ({ children }: { children: ReactNode }) => (
+      <ProvidersAndModelsProvider
+        initialState={{
+          models: [
+            {
+              id: "custom-tool-model",
+              owned_by: "Local Runtime",
+              metadata: {
+                provider: "Local Runtime",
+                capabilities: { tool_calling: "unknown" },
+                readiness: { ready: true, routing_ready: true },
+              },
+            },
+          ],
+        }}
+      >
+        {children}
+      </ProvidersAndModelsProvider>
+    );
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: ProviderModelWrapper });
+    let first: Promise<unknown> | undefined;
+    let second: Promise<unknown> | undefined;
+
+    act(() => {
+      first = result.current.actions.verifyModelToolSupport("Local Runtime", "custom-tool-model");
+      second = result.current.actions.verifyModelToolSupport("Local Runtime", "custom-tool-model");
+    });
+
+    const key = modelToolSupportKey("Local Runtime", "custom-tool-model");
+    expect(verifyModelToolSupportMock).toHaveBeenCalledTimes(1);
+    expect(verifyModelToolSupportMock).toHaveBeenCalledWith("Local Runtime", "custom-tool-model");
+    expect(result.current.state.modelToolSupportLoadingByKey.has(key)).toBe(true);
+
+    await act(async () => {
+      resolveProbe({
+        object: "model_tool_capability_probe",
+        data: {
+          provider: "Local Runtime",
+          model: "custom-tool-model",
+          capabilities: {
+            tool_calling: "basic",
+            tool_verification: { status: "supported" },
+          },
+          verification: { status: "supported" },
+          performed: true,
+        },
+      });
+      await Promise.all([first, second]);
+    });
+
+    expect(getProvidersMock).toHaveBeenCalledTimes(1);
+    expect(getModelsMock).toHaveBeenCalledTimes(1);
+    expect(result.current.state.modelToolSupportLoadingByKey.has(key)).toBe(false);
+    expect(result.current.state.models[0]?.metadata?.capabilities).toMatchObject({
+      tool_calling: "basic",
+      tool_verification: { status: "supported" },
+    });
+  });
+
+  it("keeps a successful probe result when the best-effort catalog refresh fails", async () => {
+    verifyModelToolSupportMock.mockResolvedValueOnce({
+      object: "model_tool_capability_probe",
+      data: {
+        provider: "Local Runtime",
+        model: "custom-tool-model",
+        capabilities: {
+          tool_calling: "basic",
+          tool_verification: {
+            status: "supported",
+            checked_at: "2026-07-21T10:00:00Z",
+          },
+        },
+        verification: {
+          status: "supported",
+          checked_at: "2026-07-21T10:00:00Z",
+        },
+        performed: true,
+      },
+    });
+    getProvidersMock.mockRejectedValueOnce(new Error("provider status unavailable"));
+    getModelsMock.mockRejectedValueOnce(new Error("model catalog unavailable"));
+    const ProviderModelWrapper = ({ children }: { children: ReactNode }) => (
+      <ProvidersAndModelsProvider
+        initialState={{
+          models: [
+            {
+              id: "custom-tool-model",
+              owned_by: "Local Runtime",
+              metadata: {
+                provider: "Local Runtime",
+                capabilities: { tool_calling: "unknown" },
+                readiness: { ready: true, routing_ready: true },
+              },
+            },
+          ],
+        }}
+      >
+        {children}
+      </ProvidersAndModelsProvider>
+    );
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: ProviderModelWrapper });
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.actions.verifyModelToolSupport(
+        "Local Runtime",
+        "custom-tool-model",
+      );
+    });
+
+    expect(outcome).toMatchObject({ ok: true });
+    expect(warnMock).toHaveBeenCalledWith(
+      "providersAndModels.refresh.failed",
+      expect.objectContaining({
+        providers: "provider status unavailable",
+        models: "model catalog unavailable",
+      }),
+    );
+    expect(result.current.state.models[0]?.metadata?.capabilities).toMatchObject({
+      tool_calling: "basic",
+      tool_verification: { status: "supported" },
+    });
   });
 });

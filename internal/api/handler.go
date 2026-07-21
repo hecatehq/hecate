@@ -22,6 +22,7 @@ import (
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/modelapp"
+	"github.com/hecatehq/hecate/internal/modelprobe"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/pluginregistry"
 	"github.com/hecatehq/hecate/internal/profiler"
@@ -91,6 +92,8 @@ type Handler struct {
 	projectAssistantApplyMu           sync.Mutex
 	projectAssistant                  *projectassistantapp.Application
 	agentProfiles                     agentprofiles.Store
+	modelToolProbeStore               modelprobe.Store
+	modelToolProbeCoordinator         *modelprobe.Coordinator
 	browserEvidenceReadiness          BrowserEvidenceRuntimeReadinessResponse
 	agentChatRunner                   agentadapters.Runner
 	agentChatLive                     *agentChatLive
@@ -244,6 +247,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 
 	taskOriginRunGate := taskruncoord.NewOriginGate()
 	workspaceCoordinator := workspacecoord.NewRegistry()
+	modelToolProbeStore := modelprobe.NewMemoryStore()
 	browserInspector, browserEvidenceReadiness := browserInspectorFromConfig(cfg, logger)
 	runner := orchestrator.NewRunner(logger, taskStore, tracer, orchestrator.Config{
 		DefaultModel:           cfg.Router.DefaultModel,
@@ -416,6 +420,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		projectAssistantProposals:         projectAssistantProposalStore,
 		pluginRegistry:                    pluginregistry.NewMemoryStore(),
 		agentProfiles:                     agentprofiles.NewMemoryStore(),
+		modelToolProbeStore:               modelToolProbeStore,
+		modelToolProbeCoordinator:         modelprobe.NewCoordinator(modelToolProbeStore),
 		browserEvidenceReadiness:          browserEvidenceReadiness,
 		agentChatRunner:                   agentChatRunner,
 		agentChatLive:                     agentChatLive,
@@ -625,6 +631,17 @@ func (h *Handler) SetAgentProfileStore(store agentprofiles.Store) {
 		return
 	}
 	h.agentProfiles = store
+}
+
+// SetModelToolProbeStore swaps the Hecate-owned durable capability-probe
+// state. It is wired during process composition; tests that do not call it use
+// the in-memory default from NewHandler.
+func (h *Handler) SetModelToolProbeStore(store modelprobe.Store) {
+	if store == nil {
+		return
+	}
+	h.modelToolProbeStore = store
+	h.modelToolProbeCoordinator = modelprobe.NewCoordinator(store)
 }
 
 func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {

@@ -360,7 +360,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   transcript, and suggest choosing a known tool-capable model for task-backed
   turns. Put the fallback state in the chat header/status line, not as a noisy
   composer warning. Connections shows observed provider/catalog capability
-  metadata, not a global "tools on/off" override editor.
+  metadata, not a global "tools on/off" override editor. For a ready model
+  whose tool support is unknown, Connections may offer an explicit **Verify
+  tool support** action. Keep it opt-in and visibly capable of incurring one
+  provider request; never trigger it from page load, model refresh, or Chat
+  send. Render only the safe `tool_verification` outcome/times/reason, refresh
+  the shared model list after it settles, and do not offer it for Auto,
+  unready, or already-known models.
 - Hecate image attachments are independent of the Tools toggle. Keep the
   PNG/JPEG/WebP and confirmed `image_input` gates in both direct-model and
   task-backed modes; never reintroduce UI copy that asks operators to disable

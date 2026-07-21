@@ -597,6 +597,67 @@ func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
 	}
 }
 
+func TestRetryTaskCarriesForwardPlainToolVerificationFence(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+	now := time.Now().UTC()
+	fence := types.ToolCallingVerificationFence{
+		Provider:         "local-runtime",
+		Model:            "custom-model",
+		ProviderInstance: types.ProviderInstanceIdentity{ID: "verified-generation", Kind: types.ProviderInstanceIdentityConfiguration},
+		ExpiresAt:        now.Add(time.Hour),
+	}
+	task := types.Task{
+		ID:                "task-retry-tool-verification",
+		Title:             "retry verified tools",
+		Prompt:            "retry me",
+		ExecutionKind:     "agent_loop",
+		RequestedProvider: fence.Provider,
+		RequestedModel:    fence.Model,
+		WorkingDirectory:  t.TempDir(),
+		Status:            "failed",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	run := types.TaskRun{
+		ID:                      "run-retry-tool-verification",
+		TaskID:                  task.ID,
+		Number:                  1,
+		Status:                  "failed",
+		Provider:                fence.Provider,
+		Model:                   fence.Model,
+		StartedAt:               now,
+		FinishedAt:              now,
+		ToolCallingVerification: fence,
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	result, err := runner.RetryTask(ctx, task, run, defaultResourceID)
+	if err != nil {
+		t.Fatalf("RetryTask: %v", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, result.Run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
+	}
+	if stored.InputRef != "" || stored.ToolCallingVerification != fence {
+		t.Fatalf("retry run = %+v, want the original plain tool-proof fence", stored)
+	}
+}
+
 func TestRetryTaskCarriesForwardOnlySourceContext(t *testing.T) {
 	t.Parallel()
 

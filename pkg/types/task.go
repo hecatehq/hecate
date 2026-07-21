@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -209,6 +210,47 @@ type MCPServerConfig struct {
 	ApprovalPolicy string
 }
 
+// ToolCallingVerificationFence is the private execution proof created from an
+// operator-triggered tool-capability probe. It is intentionally narrower than
+// a model capability: only this exact provider generation and model may use
+// it, and callers must still check ExpiresAt immediately before dispatch.
+//
+// Task-run persistence retains this internal fence so queued and retried
+// Hecate Chat work cannot lose the admission boundary. Public task-run
+// renderers intentionally omit it.
+type ToolCallingVerificationFence struct {
+	Provider         string
+	Model            string
+	ProviderInstance ProviderInstanceIdentity
+	ExpiresAt        time.Time
+}
+
+func (fence ToolCallingVerificationFence) Valid() bool {
+	return strings.TrimSpace(fence.Provider) != "" &&
+		strings.TrimSpace(fence.Model) != "" &&
+		fence.ProviderInstance.Valid() &&
+		!fence.ExpiresAt.IsZero()
+}
+
+// ToolCallingRequirements projects the private durable fence into the
+// request-scoped constraints enforced by routing and final gateway dispatch.
+// It deliberately does not decide whether the proof is still live; that must
+// happen immediately before every provider attempt.
+func (fence ToolCallingVerificationFence) ToolCallingRequirements() ChatRequestRequirements {
+	if !fence.Valid() {
+		return ChatRequestRequirements{}
+	}
+	return ChatRequestRequirements{
+		ToolCalling:              true,
+		ToolCallingVerified:      true,
+		ToolCallingVerifiedModel: strings.TrimSpace(fence.Model),
+		ToolCallingVerifiedUntil: fence.ExpiresAt.UTC(),
+		NoProviderFailover:       true,
+		ExactProvider:            true,
+		ProviderInstance:         fence.ProviderInstance,
+	}
+}
+
 type TaskRun struct {
 	ID     string
 	TaskID string
@@ -278,6 +320,11 @@ type TaskRun struct {
 	// fence for a disclosure boundary. Public task-run renderers intentionally
 	// omit it.
 	InputProviderDisclosedInstance ProviderInstanceIdentity
+	// ToolCallingVerification carries the private manual-proof fence for a
+	// tools-on Hecate Chat run without rich input. It is zero for ordinary task
+	// runs, which retain their existing optimistic unknown-capability behavior.
+	// Public task-run renderers intentionally omit it.
+	ToolCallingVerification ToolCallingVerificationFence
 	// ScheduleID and ScheduleOccurrenceID identify the durable schedule
 	// occurrence that created this run. They are both empty for manually
 	// started runs. ScheduledFor is the occurrence's nominal wall-clock time,

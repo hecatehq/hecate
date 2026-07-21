@@ -146,6 +146,7 @@ export type RuntimeConsoleFixtureState = {
   agentAdapterApprovalMode: string;
   agentAdapterHealthByID: Map<string, AgentAdapterHealthRecord>;
   agentAdapterHealthLoadingByID: Map<string, true>;
+  modelToolSupportLoadingByKey: Map<string, true>;
   pendingThread: ChatMessage[] | null;
   chatTargetBySessionID: Map<string, HecateChatTarget>;
   defaultChatTarget: ChatTarget;
@@ -239,6 +240,7 @@ export function createRuntimeConsoleFixture(
     agentAdapterApprovalMode: "",
     agentAdapterHealthByID: new Map(),
     agentAdapterHealthLoadingByID: new Map(),
+    modelToolSupportLoadingByKey: new Map(),
     pendingThread: null,
     chatTargetBySessionID: new Map(),
     defaultChatTarget: "agent",
@@ -331,6 +333,7 @@ export type RuntimeConsoleFixtureActions = {
   ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
   probeAgentAdapter: (adapterID: string) => Promise<unknown>;
+  verifyModelToolSupport: (provider: string, model: string) => Promise<unknown>;
   authenticateAgentAdapter: (adapterID: string) => Promise<boolean>;
   logoutAgentAdapter: (adapterID: string) => Promise<boolean>;
   dismissNotice: () => void;
@@ -422,6 +425,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setChatConfigOption: async () => true,
     setHecateRTKEnabled: async () => true,
     probeAgentAdapter: async () => null,
+    verifyModelToolSupport: async () => null,
     authenticateAgentAdapter: async () => true,
     logoutAgentAdapter: async () => true,
     dismissNotice: () => undefined,

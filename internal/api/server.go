@@ -70,6 +70,7 @@ func registerHecateRuntimeRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/providers/presets", handler.HandleProviderPresets)
 	mux.HandleFunc("GET /hecate/v1/providers/status", handler.HandleProviderStatus)
 	mux.HandleFunc("GET /hecate/v1/providers/history", handler.HandleProviderHealthHistory)
+	mux.HandleFunc("POST /hecate/v1/model-capabilities/tool-probes", handler.HandleModelToolCapabilityProbe)
 	mux.HandleFunc("GET /hecate/v1/dictation/options", handler.HandleDictationOptions)
 	mux.HandleFunc("POST /hecate/v1/dictation/transcriptions", handler.HandleCreateDictationTranscription)
 }
