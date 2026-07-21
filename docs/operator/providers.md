@@ -100,11 +100,12 @@ The result is shown on the model row and in the model metadata:
   timeout, or other inconclusive outcomes leave the model unknown. Repair the
   route or provider state and try again later.
 
-Hecate keeps only the status, times, and a short safe reason code for this
-observation. It does not show or persist raw probe prompts, model output, tool
-arguments, credentials, endpoints, or the internal provider configuration
-identity and selected model until its displayed expiry, so changing or
-replacing that provider, switching models, or waiting for expiry requires a
+The operator-facing observation contains only the status, times, and a short
+safe reason code. Hecate does not persist raw probe prompts, model output, tool
+arguments, credentials, or endpoints. Internally, it retains the configured
+provider, selected model, and opaque configuration identity only to bind the
+observation to that route and expiry; it never exposes that identity. Changing
+or replacing the provider, switching models, or waiting for expiry requires a
 new verification. Repeated clicks reuse a current result rather than creating
 another provider call.
 

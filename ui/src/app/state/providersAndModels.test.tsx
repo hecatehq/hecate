@@ -358,4 +358,101 @@ describe("verifyModelToolSupport", () => {
       tool_verification: { status: "supported" },
     });
   });
+
+  it("does not let an older catalog refresh erase a completed verification", async () => {
+    let resolveStaleModels: (value: unknown) => void = () => {};
+    getProvidersMock.mockResolvedValue({ object: "provider_status", data: [] });
+    getModelsMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStaleModels = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        object: "list",
+        data: [
+          {
+            id: "custom-tool-model",
+            owned_by: "Local Runtime",
+            metadata: {
+              provider: "Local Runtime",
+              capabilities: {
+                tool_calling: "basic",
+                tool_verification: { status: "supported" },
+              },
+              readiness: { ready: true, routing_ready: true },
+            },
+          },
+        ],
+      });
+    verifyModelToolSupportMock.mockResolvedValueOnce({
+      object: "model_tool_capability_probe",
+      data: {
+        provider: "Local Runtime",
+        model: "custom-tool-model",
+        capabilities: {
+          tool_calling: "basic",
+          tool_verification: { status: "supported" },
+        },
+        verification: { status: "supported" },
+        performed: true,
+      },
+    });
+    const ProviderModelWrapper = ({ children }: { children: ReactNode }) => (
+      <ProvidersAndModelsProvider
+        initialState={{
+          models: [
+            {
+              id: "custom-tool-model",
+              owned_by: "Local Runtime",
+              metadata: {
+                provider: "Local Runtime",
+                capabilities: { tool_calling: "unknown" },
+                readiness: { ready: true, routing_ready: true },
+              },
+            },
+          ],
+        }}
+      >
+        {children}
+      </ProvidersAndModelsProvider>
+    );
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: ProviderModelWrapper });
+
+    let staleRefresh: Promise<void> | undefined;
+    act(() => {
+      staleRefresh = result.current.actions.refreshProviders();
+    });
+    await waitFor(() => {
+      expect(getModelsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.actions.verifyModelToolSupport("Local Runtime", "custom-tool-model");
+    });
+    expect(result.current.state.models[0]?.metadata?.capabilities?.tool_calling).toBe("basic");
+
+    await act(async () => {
+      resolveStaleModels({
+        object: "list",
+        data: [
+          {
+            id: "custom-tool-model",
+            owned_by: "Local Runtime",
+            metadata: {
+              provider: "Local Runtime",
+              capabilities: { tool_calling: "unknown" },
+              readiness: { ready: true, routing_ready: true },
+            },
+          },
+        ],
+      });
+      await staleRefresh;
+    });
+
+    expect(result.current.state.models[0]?.metadata?.capabilities).toMatchObject({
+      tool_calling: "basic",
+      tool_verification: { status: "supported" },
+    });
+  });
 });

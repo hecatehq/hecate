@@ -200,6 +200,10 @@ export function ProvidersAndModelsProvider({
   const verifyModelToolSupportInFlightRef = useRef(
     new Map<string, Promise<VerifyModelToolSupportResult>>(),
   );
+  // A catalog response can be older than an explicit model mutation (notably a
+  // completed tool-support verification). Track each local model write so an
+  // already-running refresh cannot erase newer operator-visible evidence.
+  const modelsRevisionRef = useRef(0);
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -215,10 +219,11 @@ export function ProvidersAndModelsProvider({
     () => dispatch({ type: "providerPresetsLoaded/mark" }),
     [],
   );
-  const setModels = useCallback(
-    (next: SetStateAction<ModelResponse["data"]>) => dispatch({ type: "models/set", next }),
-    [],
-  );
+  const applyModels = useCallback((next: SetStateAction<ModelResponse["data"]>) => {
+    modelsRevisionRef.current += 1;
+    dispatch({ type: "models/set", next });
+  }, []);
+  const setModels = applyModels;
   const setAgentAdapters = useCallback(
     (next: SetStateAction<AgentAdapterRecord[]>) => dispatch({ type: "agentAdapters/set", next }),
     [],
@@ -243,13 +248,14 @@ export function ProvidersAndModelsProvider({
   );
 
   const refreshProviders = useCallback(async () => {
+    const modelsRevisionAtStart = modelsRevisionRef.current;
     try {
       const [pResult, mResult] = await Promise.allSettled([getProviders(), getModels()]);
       if (pResult.status === "fulfilled") {
         dispatch({ type: "providers/set", next: pResult.value.data ?? [] });
       }
-      if (mResult.status === "fulfilled") {
-        dispatch({ type: "models/set", next: mResult.value.data ?? [] });
+      if (mResult.status === "fulfilled" && modelsRevisionRef.current === modelsRevisionAtStart) {
+        applyModels(mResult.value.data ?? []);
       }
       if (pResult.status === "rejected" || mResult.status === "rejected") {
         warn("providersAndModels.refresh.failed", {
@@ -274,7 +280,7 @@ export function ProvidersAndModelsProvider({
         err: error instanceof Error ? error.message : String(error),
       });
     }
-  }, []);
+  }, [applyModels]);
 
   const probeAgentAdapter = useCallback(async (adapterID: string): Promise<ProbeAdapterResult> => {
     if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
@@ -322,25 +328,23 @@ export function ProvidersAndModelsProvider({
           const probe = await verifyModelToolSupportRequest(normalizedProvider, normalizedModel);
           // Apply the returned projection first so the operator sees the
           // result even if the best-effort catalog refresh is delayed.
-          dispatch({
-            type: "models/set",
-            next: (current) =>
-              current.map((entry) =>
-                entry.id === probe.data.model && entry.metadata?.provider === probe.data.provider
-                  ? {
-                      ...entry,
-                      metadata: {
-                        ...entry.metadata,
-                        capabilities: {
-                          ...probe.data.capabilities,
-                          tool_verification:
-                            probe.data.verification ?? probe.data.capabilities.tool_verification,
-                        },
+          applyModels((current) =>
+            current.map((entry) =>
+              entry.id === probe.data.model && entry.metadata?.provider === probe.data.provider
+                ? {
+                    ...entry,
+                    metadata: {
+                      ...entry.metadata,
+                      capabilities: {
+                        ...probe.data.capabilities,
+                        tool_verification:
+                          probe.data.verification ?? probe.data.capabilities.tool_verification,
                       },
-                    }
-                  : entry,
-              ),
-          });
+                    },
+                  }
+                : entry,
+            ),
+          );
           // The proof is provider-generation-bound. Reload both model catalog
           // and provider status after the bounded explicit action rather than
           // guessing at any other affected route. This refresh is strictly
@@ -372,7 +376,7 @@ export function ProvidersAndModelsProvider({
       verifyModelToolSupportInFlightRef.current.set(key, verification);
       return verification;
     },
-    [refreshProviders],
+    [applyModels, refreshProviders],
   );
 
   const actions = useMemo<ProvidersAndModelsActions>(
