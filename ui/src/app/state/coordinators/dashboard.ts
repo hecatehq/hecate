@@ -46,7 +46,7 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     setHecateRTKPath,
   } = runtime.actions;
   const { providers, agentAdapters } = providersAndModels.state;
-  const { setProviders, setModels, setAgentAdapters, setAgentAdapterApprovalMode } =
+  const { setProviders, loadModelCatalog, setAgentAdapters, setAgentAdapterApprovalMode } =
     providersAndModels.actions;
   const { activeChatSession, chatSessions } = chat.state;
   const {
@@ -93,6 +93,11 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     try {
       const snapshot = await resolveDashboardSnapshot({
         activeChatSessionID: dashboardActiveChatSessionID,
+        // Model catalog responses are committed by the provider/model slice,
+        // which owns the shared mutation and request-order freshness fence.
+        // The dashboard still receives the data for its snapshot contract but
+        // must not publish a second, unfenced model write below.
+        loadModels: loadModelCatalog,
         previous: {
           providers,
           agentAdapters,
@@ -120,7 +125,6 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
 
       setHealth(snapshot.health);
       setSessionInfo(snapshot.sessionInfo);
-      setModels(snapshot.models);
       setProviders(snapshot.providers);
       setAgentAdapters(snapshot.agentAdapters);
       const liveChatSessions = snapshot.chatSessions.filter(

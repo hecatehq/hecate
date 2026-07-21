@@ -81,8 +81,14 @@ export async function resolveDashboardSnapshot(args: {
   activeChatSessionID: string;
   previous: DashboardPreviousState;
   /**
-   * Fires once the essentials wave (health + session + models +
-   * settingsConfig) resolves, before the secondary wave starts.
+   * Optional model-catalog loader. The providers/models slice supplies this
+   * in production so every catalog response commits through its shared
+   * freshness fence; standalone callers use the API client directly.
+   */
+  loadModels?: () => Promise<ModelResponse>;
+  /**
+   * Fires once the essentials wave (health + session + settingsConfig)
+   * resolves, before the secondary wave starts.
    * The hook uses this to commit just enough state to clear the
    * Connecting gate so the rest of the dashboard can load behind a
    * rendered shell rather than a blocking spinner.
@@ -94,6 +100,7 @@ export async function resolveDashboardSnapshot(args: {
   const results = await loadDashboardResults({
     onEssentials: args.onEssentials ? (essentials) => args.onEssentials!(essentials) : undefined,
     onChatSessionsReadStart: args.onChatSessionsReadStart,
+    loadModels: args.loadModels,
     previousSettingsConfig: args.previous.settingsConfig,
   });
   const health = requireFulfilledDashboardResult(results.health);
@@ -169,6 +176,7 @@ export function deriveSessionState(sessionInfo: SessionResponse["data"] | null):
 async function loadDashboardResults(opts: {
   onEssentials?: (essentials: DashboardEssentials) => void;
   onChatSessionsReadStart?: () => void;
+  loadModels?: () => Promise<ModelResponse>;
   previousSettingsConfig: ConfiguredStateResponse["data"] | null;
 }): Promise<DashboardResults> {
   // Wave 1 — essentials. Three parallel calls drive everything the
@@ -223,10 +231,11 @@ async function loadDashboardResults(opts: {
     opts.previousSettingsConfig,
   );
   const configured = resolvedSettingsConfig?.providers ?? [];
+  const loadModels = opts.loadModels ?? getModels;
   opts.onChatSessionsReadStart?.();
   const chatSessionsRequest = getChatSessions();
   const secondary: Promise<unknown>[] = [
-    getModels().then(
+    loadModels().then(
       (r) => {
         models = { status: "fulfilled", value: r };
       },
