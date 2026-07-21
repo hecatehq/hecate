@@ -343,19 +343,25 @@ than becoming inline previews. Staged path aliases are removed from
 operator-visible output and approvals, and staged-turn raw ACP diagnostics are
 withheld when present.
 
-The composer also supports dictation through an explicitly selected OpenAI,
-Groq, LocalAI, or env-configured OpenAI-compatible transcription route. Hecate
-records for at most two minutes, sends the bounded audio to that route only,
-does not retain the audio, and inserts the returned transcript at the cursor as
-an editable draft. Capture uses standard secure-context browser APIs, with
-native permission integration for the macOS, Windows, and Linux desktop
-webviews; the browser or operating system controls microphone access. The
-transcription route is independent of the selected chat model or External
-Agent, so the editable draft works with Claude, Codex, and every other target.
-Connections shows the ready and unavailable speech-to-text routes, rather than
-mistaking an External Agent sign-in for transcription setup. Linux and Windows
-desktop capture remain experimental until they have real-machine audio smoke
-coverage. Dictation never sends the chat message automatically.
+The composer supports two explicit dictation routes. The provider baseline
+records for at most two minutes and sends the bounded audio only to the selected
+OpenAI, Groq, LocalAI, or env-configured OpenAI-compatible transcription
+provider. A browser-managed route is available where Web Speech is exposed,
+but must be chosen explicitly because the browser may use its vendor's cloud
+service. Hecate does not invoke experimental on-device language-pack probes and
+never silently moves dictation between routes after a failure.
+
+Every route inserts the returned transcript at the cursor as an editable draft
+and is independent of the selected chat model or External Agent, so it works
+with Claude, Codex, and every other target. Connections reports provider-route
+readiness; client speech support is detected in the composer. macOS Dictation
+and Windows voice typing (`Win+H`) can also type directly into the focused
+composer under their operating-system privacy settings. Client recognition and
+OS dictation do not send audio through Hecate or Tauri IPC; provider recordings
+use the Hecate dictation API, which does not retain them. Linux and Windows
+desktop provider capture remain experimental until they have real-machine audio
+smoke coverage. Dictation never sends the chat message automatically, and
+text-to-speech/read-aloud is a separate capability.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 

@@ -220,6 +220,67 @@ test("browser dictation records and inserts an editable draft", async ({ page })
   expect(transcriptionContentType).toContain("multipart/form-data; boundary=");
 });
 
+test("browser-managed dictation inserts a draft without a provider upload", async ({ page }) => {
+  let providerUploads = 0;
+  await page.route("/hecate/v1/dictation/options", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "dictation_options", data: [] }),
+    }),
+  );
+  await page.route("/hecate/v1/dictation/transcriptions", (route) => {
+    providerUploads += 1;
+    return route.fulfill({ status: 500 });
+  });
+  await page.addInitScript(() => {
+    class BrowserManagedSpeechRecognition {
+      lang = "";
+      continuous = false;
+      interimResults = false;
+      maxAlternatives = 1;
+      onresult:
+        | ((event: {
+            resultIndex: number;
+            results: Array<Array<{ transcript: string }> & { isFinal: boolean }>;
+          }) => void)
+        | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onend: (() => void) | null = null;
+
+      start() {}
+
+      stop() {
+        const result = Object.assign([{ transcript: "browser-managed dictation draft" }], {
+          isFinal: true,
+        });
+        this.onresult?.({ resultIndex: 0, results: [result] });
+        this.onend?.();
+      }
+
+      abort() {}
+    }
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: BrowserManagedSpeechRecognition,
+    });
+  });
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+
+  await startHecateChat(page);
+  const route = page.getByRole("combobox", { name: "Dictation route" });
+  await expect(route).toHaveValue("");
+  await route.selectOption("client:web-speech:browser-managed");
+  await page.getByRole("button", { name: "Start dictation" }).click();
+  await page.getByRole("button", { name: "Stop dictation recording" }).click();
+
+  await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue(
+    "browser-managed dictation draft",
+  );
+  expect(providerUploads).toBe(0);
+});
+
 test("send button is disabled when message is empty", async ({ page }) => {
   await startHecateChat(page);
   await page.locator("textarea").fill("");

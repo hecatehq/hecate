@@ -54,19 +54,31 @@ What works:
 - Runtime discovery file (`hecate.runtime.json`) written by the sidecar gateway
   on successful startup and removed on app exit for native diagnostics.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
-- Chat dictation through the platform webview microphone on macOS, Windows, and
-  Linux. macOS displays Hecate's native purpose string, Windows uses WebView2's
-  site permission prompt, and the Linux host grants WebKitGTK only audio-only
-  requests from the exact active loopback sidecar origin. Denying access leaves
-  the composer usable. Audio follows the same selected-provider/no-retention
-  boundary as browser dictation and never crosses Tauri IPC.
-  Browser capture has automated end-to-end coverage; Linux and Windows native
-  capture are permission-logic- and bundle-tested but remain experimental until
-  exercised with real microphones on those platforms.
-  If access was denied, enable Hecate in the operating system's microphone
-  privacy settings and restart the app. On macOS use **System Settings →
-  Privacy & Security → Microphone**. On Windows use **Settings → Privacy &
-  security → Microphone** and enable desktop-app microphone access.
+- Chat dictation through explicit webview routes on macOS, Windows, and Linux.
+  The provider route remains the baseline: it records with `MediaRecorder` and
+  sends audio only to the selected Hecate transcription provider. A
+  browser-managed Web Speech route may use the webview vendor's cloud service
+  and must be chosen explicitly. Hecate does not query experimental on-device
+  language-pack APIs during startup, and no route silently fails over to
+  another. macOS displays Hecate's native purpose
+  string, Windows uses WebView2's site permission prompt, and the Linux host
+  grants WebKitGTK only audio-only requests from the exact active loopback
+  sidecar origin. Denying access leaves the composer usable. Client recognition
+  audio does not enter the Hecate API, and no dictation audio crosses Tauri IPC.
+  Browser provider capture has automated end-to-end coverage; Linux and Windows
+  native provider capture are permission-logic- and bundle-tested but remain
+  experimental until exercised with real microphones on those platforms.
+  If access was denied, enable Hecate in the operating system's privacy
+  settings and restart the app. On macOS, provider recording needs **System
+  Settings → Privacy & Security → Microphone**; browser-managed recognition may
+  additionally need Hecate enabled under **Speech Recognition**. On Windows use
+  **Settings → Privacy & security → Microphone**, enable desktop-app microphone
+  access, and verify speech services are enabled for the browser-managed route.
+- System dictation also works while the composer textarea is focused. Use the
+  configured macOS Dictation shortcut or Windows voice typing (`Win+H`); this is
+  owned by the operating system, bypasses Hecate's route selector, and gives
+  Hecate only the resulting text. Text-to-speech/read-aloud is a separate
+  output capability.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,

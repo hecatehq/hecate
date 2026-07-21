@@ -148,8 +148,8 @@ rather than falling through to the embedded UI shell.
 
 ## Dictation API
 
-Dictation is a Hecate-native composer capability, separate from chat model
-routing:
+These endpoints implement the provider-upload branch of Hecate's composer
+dictation capability, separate from chat model routing:
 
 - `GET /hecate/v1/dictation/options` returns only provider instances with an
   explicitly configured OpenAI-compatible transcription path and default
@@ -173,6 +173,12 @@ different provider. This prevents a route replacement from silently changing
 the audio destination. Audio and transcript bodies do not enter Hecate
 persistence, usage events, traces, metrics, or logs; the UI inserts the returned
 text into the editable composer draft and never submits it automatically.
+
+Client Web Speech routes and operating-system dictation do not call these
+endpoints. The explicit browser-managed route may use the browser vendor's
+cloud service and does not send audio through Hecate or Tauri IPC. The composer
+does not invoke experimental static on-device language-pack probes and does not
+silently fail over between a client route and this provider API.
 
 Stable dictation error types are `dictation.invalid`, `dictation.too_large`,
 `dictation.unsupported_media`, `dictation.busy`, `dictation.body_timeout`,

@@ -174,38 +174,57 @@ Hecate stores local configuration and operational state on disk.
   apply there. The self-hosted warning is conservative advisory output and can
   still appear behind an authenticating reverse proxy.
 
-### Dictation audio
+### Dictation speech and audio
 
-Microphone audio is sensitive operator input. Hecate accepts dictation only on
-the Hecate-native runtime API, bounds it to 10 MiB, validates its declared media
-type against its file signature, and holds at most two requests in process at a
-time. The body exists only in transient request/provider memory: Hecate does not
-write audio to the chat attachment store, transcript rows, usage events,
-traces, metrics, logs, or artifacts.
+Microphone audio is sensitive operator input. The composer exposes explicit
+routes with different disclosure boundaries:
 
-The operator must select one transcription provider independently of the chat
-model or External Agent that will receive the editable transcript. Anthropic
-chat credentials alone do not configure speech-to-text. Hecate captures that
-provider's opaque generation and revalidates it immediately before the upstream
-call; provider removal, endpoint/account replacement, or capability removal
-fails closed before disclosure. Dictation has no Auto route and no
-cross-provider failover. A configured cloud provider receives the recording;
-the `local` label describes provider configuration and is not a network egress
-firewall. Use a local LocalAI endpoint when audio must stay on the operator's
-machine, and enforce destination policy outside Hecate for non-loopback custom
-URLs.
+- **Browser speech service** must be selected explicitly. Recognition is owned
+  by the browser and may send audio to the browser vendor's cloud service.
+  Hecate cannot inspect or enforce that service's retention or network policy,
+  so this route is never labelled local. Hecate does not invoke experimental
+  static on-device language-pack probes during composer startup.
+- **Transcription provider** is the existing cross-browser baseline. Hecate
+  records audio, accepts it only on the Hecate-native runtime API, bounds it to
+  10 MiB, validates its declared media type against its file signature, and
+  holds at most two requests in process at a time. The body exists only in
+  transient request/provider memory: Hecate does not write audio to the chat
+  attachment store, transcript rows, usage events, traces, metrics, logs, or
+  artifacts.
 
-The returned transcript becomes ordinary editable composer text. It is not
+The operator selects one route independently of the chat model or External
+Agent that will receive the editable transcript. Hecate never silently retries
+through another client service or provider after a failure. Anthropic chat and
+External Agent credentials alone do not configure a transcription provider.
+For a provider route, Hecate captures the provider's opaque generation and
+revalidates it immediately before the upstream call; provider removal,
+endpoint/account replacement, or capability removal fails closed before
+disclosure. There is no Auto provider route or cross-provider failover. A
+configured cloud provider receives the recording; the `local` label describes
+provider configuration and is not a network egress firewall. Use a local
+LocalAI endpoint when provider-routed audio must stay on the operator's machine,
+and enforce destination policy outside Hecate for non-loopback custom URLs.
+
+macOS Dictation and Windows voice typing (`Win+H`) are operating-system input
+features that can type directly into the focused composer. Their audio and
+recognition remain under the operating system's privacy and network policy;
+Hecate receives only the resulting text. They do not use the Hecate dictation
+route selector.
+
+Every returned transcript becomes ordinary editable composer text. It is not
 auto-sent, but once the operator sends it, normal chat transcript retention and
 provider/agent disclosure rules apply. The desktop app requests microphone
-permission only when recording starts; browser deployments are subject to the
-browser and origin's microphone permission policy. Browser capture requires
-HTTPS or a loopback Hecate URL. The Linux desktop host handles WebKitGTK's media
-permission signal but grants only audio-only requests from the exact active
-sidecar origin while the owned gateway child is still running; it denies camera,
-mismatched-origin, stale-sidecar, and pre-readiness requests. macOS retains its
-native purpose-string prompt, and Windows retains WebView2's site permission
-prompt.
+permission only when a selected route needs it; browser deployments are subject
+to the browser and origin's microphone permission policy. Client speech routes
+require HTTPS or a loopback Hecate URL. Provider recording also requires
+`getUserMedia` and `MediaRecorder`. The Linux desktop host handles WebKitGTK's
+media permission signal but grants only audio-only requests from the exact
+active sidecar origin while the owned gateway child is still running; it denies
+camera, mismatched-origin, stale-sidecar, and pre-readiness requests. macOS
+declares native Microphone and Speech Recognition purpose strings; denied
+browser-managed recognition may require enabling Hecate in both macOS privacy
+panes. Windows retains WebView2's site permission prompt. Text-to-speech/read-aloud is separate from these input
+routes.
 
 ### Chat attachment data
 
