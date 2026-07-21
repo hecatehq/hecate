@@ -337,6 +337,35 @@ output capability and is not part of dictation routing. See
 [Providers](../operator/providers.md#dictation-providers) and the
 [Runtime API](runtime-api.md#dictation-api).
 
+### Read aloud
+
+A settled assistant message exposes **Read aloud** when the browser or desktop
+webview provides Web Speech synthesis and reports at least one voice with
+`localService=true`. Hecate assigns that voice explicitly; it never falls back
+to an undeclared browser default that may use an online speech service. If no
+local voice is available, the disabled action directs the operator to install
+or enable a system voice. Hecate revalidates the selected local voice for every
+chunk and stops instead of switching voices if that identity disappears.
+Text-to-speech requires an operator click and no microphone permission.
+
+Read aloud is client playback, independent of the selected model, provider,
+Hecate task, or External Agent adapter. It does not call a Hecate API or persist
+speech state. The client converts only the visible assistant `content` from
+Markdown to speech text. It keeps link labels and inline code, omits fenced
+code with an audible marker, and excludes attachments, MCP Apps, activity/tool
+rows, diffs, raw output, timing, usage, context packets, and debug bundles.
+Mutable streaming, queued, running, failed, and cancelled responses do not
+expose the action.
+
+The transcript owns one speech queue. Starting another response stops the
+current one; Stop, chat navigation, message invalidation, and transcript
+teardown cancel playback. A system synthesis failure stops the queue and
+surfaces a visible operator notice. Speech text is capped at 12,000 characters,
+divided into utterances of at most 500 characters, and ends with an audible
+truncation notice when bounded. Browser and Tauri webview support remains
+capability detected because installed voices and synthesis engines vary by
+platform.
+
 ### File attachments
 
 Chat attachments have two ownership-specific admission modes:

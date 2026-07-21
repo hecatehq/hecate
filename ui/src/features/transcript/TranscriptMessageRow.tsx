@@ -22,6 +22,7 @@ import { DiffViewer } from "../shared/DiffViewer";
 import { Icon, Icons } from "../shared/Icons";
 import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
+import { readAloudStatusIsBlocked } from "./readAloudEligibility";
 import {
   activityDisplay,
   activityEffectiveStatus,
@@ -29,6 +30,17 @@ import {
 } from "./transcriptActivityHelpers";
 
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+const VISUALLY_HIDDEN_STYLE = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute" as const,
+  whiteSpace: "nowrap" as const,
+  width: 1,
+};
 
 export function TranscriptMessageRow({
   id,
@@ -58,6 +70,7 @@ export function TranscriptMessageRow({
   setupAction,
   onCopy,
   copied,
+  readAloud,
   turnPrompt,
   copiedDebug,
   onOpenProjectProposal,
@@ -100,11 +113,15 @@ export function TranscriptMessageRow({
   setupAction?: { label: string; title?: string; onClick: () => void };
   onCopy: (id: string, text: string) => void;
   copied: boolean;
+  readAloud?: {
+    active: boolean;
+    disabledReason?: string;
+    onToggle: (id: string, content: string) => void;
+  };
   turnPrompt?: string;
   copiedDebug?: boolean;
   onOpenProjectProposal?: (activity: ChatActivityRecord) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
   const failed = isAssistant && badge === "failed";
@@ -167,13 +184,18 @@ export function TranscriptMessageRow({
     Boolean(diffStat?.trim() || diff?.trim()) &&
     !changedFilesLink &&
     !(visibleActivities ?? []).some(isFilesChangedActivity);
+  const showReadAloud =
+    isAssistant &&
+    Boolean(content.trim()) &&
+    Boolean(readAloud) &&
+    !readAloudStatusIsBlocked(badge);
+  const readAloudUnavailable = Boolean(readAloud?.disabledReason) && !readAloud?.active;
+  const readAloudDescriptionID = `${id}-read-aloud-description`;
 
   return (
     <div
       id={id}
-      className="cross-surface-focus-target"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="cross-surface-focus-target transcript-message-row"
       tabIndex={-1}
       style={{ padding: "4px 16px 12px", maxWidth: 820, margin: "0 auto", width: "100%" }}
     >
@@ -247,12 +269,12 @@ export function TranscriptMessageRow({
               </span>
             )}
             <div
+              className="transcript-message-actions"
+              data-active={readAloud?.active ? "true" : undefined}
               style={{
                 marginLeft: "auto",
                 display: "flex",
                 gap: 4,
-                opacity: hovered ? 1 : 0,
-                transition: "opacity 0.15s",
               }}
             >
               {isAssistant && (
@@ -287,6 +309,30 @@ export function TranscriptMessageRow({
                   <Icon d={copiedDebug ? Icons.check : Icons.copy} size={12} />
                   <span style={{ fontSize: 10 }}>debug</span>
                 </button>
+              )}
+              {showReadAloud && readAloud && (
+                <button
+                  aria-label="Read response aloud"
+                  aria-pressed={readAloud.active}
+                  aria-disabled={readAloudUnavailable || undefined}
+                  aria-describedby={readAloudUnavailable ? readAloudDescriptionID : undefined}
+                  className="btn btn-ghost btn-sm transcript-message-read-aloud"
+                  onClick={() => readAloud.onToggle(id, content)}
+                  title={
+                    readAloud.active
+                      ? "Stop reading this response"
+                      : readAloud.disabledReason || "Read this response with a local system voice"
+                  }
+                  type="button"
+                  style={{ padding: "2px 6px", gap: 4 }}
+                >
+                  <Icon d={readAloud.active ? Icons.stop : Icons.volume} size={12} />
+                </button>
+              )}
+              {showReadAloud && readAloudUnavailable && readAloud?.disabledReason && (
+                <span id={readAloudDescriptionID} style={VISUALLY_HIDDEN_STYLE}>
+                  {readAloud.disabledReason}
+                </span>
               )}
               <button
                 aria-label="Copy message"

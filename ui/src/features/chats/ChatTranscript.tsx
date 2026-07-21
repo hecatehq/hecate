@@ -21,6 +21,8 @@ import type {
 import type { ProjectAssistantProposal } from "../../types/project";
 import { CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
+import { readAloudStatusIsBlocked } from "../transcript/readAloudEligibility";
+import { useReadAloud } from "../transcript/useReadAloud";
 
 import { compactID } from "./ChatComposer";
 import { ChatAttachmentGallery } from "./ChatImageAttachments";
@@ -98,6 +100,18 @@ type Props = {
 };
 
 const noop = () => {};
+
+const VISUALLY_HIDDEN_STATUS_STYLE = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: 1,
+  margin: -1,
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute" as const,
+  whiteSpace: "nowrap" as const,
+  width: 1,
+};
 
 // useStableCallback returns a callback whose identity is constant for the
 // component's lifetime but that always invokes the most recent function
@@ -190,6 +204,10 @@ export function ChatTranscript({
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const copiedMsgTimerRef = useRef<number | null>(null);
   const handledFocusRequestNonceRef = useRef<number | null>(null);
+  const notifyReadAloudError = useStableCallback((message: string) => {
+    settingsActions.setNoticeMessage("error", message);
+  });
+  const readAloud = useReadAloud(activeSessionID, notifyReadAloudError);
 
   useEffect(() => {
     return () => {
@@ -338,13 +356,38 @@ export function ChatTranscript({
     },
   );
   const stableWorkspaceChanges = useStableCallback(onOpenWorkspaceChanges ?? noop);
+  const handleReadAloud = useStableCallback(readAloud.toggle);
   // Preserve the undefined case: TranscriptMessageRow renders a plain,
   // non-clickable label when changedFilesLink.onClick is undefined, so a
   // missing handler must stay undefined rather than become a no-op button.
   const workspaceChangesHandler = onOpenWorkspaceChanges ? stableWorkspaceChanges : undefined;
+  const latestTranscriptMessageID = lastTranscriptMessageID(transcriptItems);
+
+  useEffect(() => {
+    if (!readAloud.readingMessageID) return;
+    const activeMessage = transcriptItems.find(
+      (item) => item.type === "message" && item.message.id === readAloud.readingMessageID,
+    );
+    if (
+      !activeMessage ||
+      activeMessage.type !== "message" ||
+      !messageCanReadAloud(activeMessage.message, streaming, latestTranscriptMessageID)
+    ) {
+      readAloud.stop();
+    }
+  }, [
+    latestTranscriptMessageID,
+    readAloud.readingMessageID,
+    readAloud.stop,
+    streaming,
+    transcriptItems,
+  ]);
 
   return (
     <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+      <div aria-atomic="true" aria-live="polite" style={VISUALLY_HIDDEN_STATUS_STYLE}>
+        {readAloud.announcement}
+      </div>
       <div
         ref={scrollRef}
         aria-label="Chat transcript"
@@ -373,8 +416,12 @@ export function ChatTranscript({
                 activeModel={activeChatSession?.model}
                 copied={copiedMsgId === m.id}
                 copiedDebug={copiedMsgId === `${m.id}:debug`}
+                canReadAloud={messageCanReadAloud(m, streaming, latestTranscriptMessageID)}
+                isReadingAloud={readAloud.readingMessageID === m.id}
+                readAloudDisabledReason={readAloud.disabledReason}
                 turnPrompt={turnPrompt}
                 onCopy={handleCopy}
+                onReadAloud={handleReadAloud}
                 onOpenTask={onOpenTask ? handleOpenTask : undefined}
                 onOpenTrace={handleOpenTrace}
                 onOpenProjectProposal={handleOpenProjectProposal}
@@ -500,8 +547,12 @@ type ChatTranscriptRowProps = {
   activeModel?: string;
   copied: boolean;
   copiedDebug: boolean;
+  canReadAloud: boolean;
+  isReadingAloud: boolean;
+  readAloudDisabledReason?: string;
   turnPrompt?: string;
   onCopy: (id: string, text: string) => void;
+  onReadAloud: (id: string, content: string) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace: (requestID: string) => void;
   onOpenProjectProposal: (message: VisibleChatMessage, activity: ChatActivityRecord) => void;
@@ -520,8 +571,12 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
   activeModel,
   copied,
   copiedDebug,
+  canReadAloud,
+  isReadingAloud,
+  readAloudDisabledReason,
   turnPrompt,
   onCopy,
+  onReadAloud,
   onOpenTask,
   onOpenTrace,
   onOpenProjectProposal,
@@ -621,10 +676,38 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
       onCopy={onCopy}
       copied={copied}
       copiedDebug={copiedDebug}
+      readAloud={
+        canReadAloud
+          ? {
+              active: isReadingAloud,
+              disabledReason: readAloudDisabledReason,
+              onToggle: onReadAloud,
+            }
+          : undefined
+      }
       turnPrompt={turnPrompt}
     />
   );
 });
+
+function lastTranscriptMessageID(items: TranscriptItem[]): string {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.type === "message") return item.message.id;
+  }
+  return "";
+}
+
+function messageCanReadAloud(
+  message: VisibleChatMessage,
+  streaming: boolean,
+  latestMessageID: string,
+): boolean {
+  if (message.role !== "assistant" || !visibleMessageContent(message).trim()) return false;
+  if (streaming && message.id === latestMessageID) return false;
+  const turn = toChatMessageViewModel(message);
+  return !turn.isBusy && !readAloudStatusIsBlocked(message.agent_status) && !message.error?.trim();
+}
 
 function visibleMessageContent(message: VisibleChatMessage): string {
   if (typeof message.content === "string") return message.content;
