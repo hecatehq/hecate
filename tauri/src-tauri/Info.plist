@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Hecate uses the microphone only while you record dictation for a chat draft.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Hecate uses Apple's speech recognition only while you dictate an editable chat draft through the browser-managed speech service.</string>
 </dict>
 </plist>

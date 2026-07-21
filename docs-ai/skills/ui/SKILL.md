@@ -605,40 +605,62 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 
 ## Chat dictation ownership
 
-`ChatDictationControl` owns browser microphone and transcription-request
-lifecycle; `ChatComposer` owns only insertion into the editable message. Keep
-these boundaries when changing dictation:
+`ChatDictationControl` owns client speech recognition, browser microphone, and
+provider-transcription request lifecycle; `ChatComposer` owns only insertion
+into the editable message. Keep these boundaries when changing dictation:
 
-- load the typed `/hecate/v1/dictation/options` capability snapshot and default
-  to the first available route (the backend orders local first);
-- detect secure-context, `getUserMedia`, and `MediaRecorder` support before
-  enabling capture. Keep client capture failures distinct from provider
-  readiness failures so “unsupported browser,” “permission denied,” and
+- build one typed route list from the `/hecate/v1/dictation/options` provider
+  snapshot plus the presence of a client Web Speech constructor. When no route
+  has been saved, prefer the first available provider (the backend orders
+  providers local first). Preserve an unavailable saved route until the
+  operator explicitly chooses another one. Never implicitly select the
+  browser-managed route;
+- do not call experimental static Web Speech language-pack or on-device
+  availability APIs while the composer mounts. Some engines advertise those
+  methods without a usable speech service and may terminate the renderer when
+  queried. Do not infer local processing from a browser name or a generic Web
+  Speech constructor;
+- label generic Web Speech as a browser-managed service that may use the browser
+  vendor's cloud. It is an explicit route, not a fallback, and its audio must
+  not be represented as entering Hecate;
+- detect secure-context and SpeechRecognition support for client routes, and
+  `getUserMedia` plus `MediaRecorder` support for provider recording. Keep
+  client recognition failures, capture failures, and provider readiness
+  failures distinct so “unsupported browser,” “permission denied,” and
   “connect a transcription provider” remain actionable states;
 - explain that speech-to-text routing is independent of the selected chat
-  model or External Agent. A Claude-only setup still needs a transcription
-  route. Permission-denied copy must point browser users to site controls and
-  desktop users to the operating-system microphone privacy settings;
+  model or External Agent. A Claude-only setup may use a client speech route;
+  it needs a separate provider credential only for provider transcription.
+  Permission-denied copy must point browser users to site controls and desktop
+  users to the operating-system microphone privacy settings;
 - keep **Connections → Speech-to-text route readiness** aligned with the same typed
-  options snapshot: it must show each explicit route, its local/cloud boundary,
-  default model, and bounded repair reason. Do not treat a Claude Code, Codex,
+  provider-options snapshot: it must show each explicit provider route, its
+  local/cloud boundary, default model, and bounded repair reason. Client routes
+  are capability-detected in the composer. Do not treat a Claude Code, Codex,
   or other External Agent sign-in as a transcription credential;
-- show the exact provider and local/cloud kind before recording, and never
-  silently select a different route after a failure;
+- show the exact route and disclosure boundary before recording/listening, and
+  never silently select a different client service or provider after a failure;
 - cap recording duration and client-side bytes, stop every `MediaStreamTrack`
   on stop/error/unmount/chat switch, abort the HTTP request on unmount, and keep
-  the provider selector disabled while audio is live;
+  the route selector disabled while audio is live. Client recognizers need the
+  equivalent stop/abort cleanup, a stale-event generation fence, and a bounded
+  finalization watchdog. No dictation audio crosses Tauri IPC;
 - insert returned text at the textarea selection with readable boundary
   spacing, restore focus/cursor, and never call submit automatically;
-- keep MediaRecorder/getUserMedia/API mocks in focused component tests. Test
-  track cleanup and unmount-before-disclosure, not just the happy transcript.
-  Keep one Playwright path for the browser capture-to-editable-draft contract;
-  mock the device stream and recorder rather than depending on CI audio
-  hardware.
+- preserve ordinary OS text input: macOS Dictation and Windows voice typing
+  (`Win+H`) work through the focused textarea without a Hecate route. Their
+  privacy boundary belongs to the OS. Text-to-speech/read-aloud is a separate
+  output capability and must not be folded into dictation routing;
+- keep Web Speech and MediaRecorder/getUserMedia/API mocks in focused component
+  tests. Test recognition stop/abort, track cleanup, and
+  unmount-before-disclosure, not just happy transcripts. Keep Playwright paths
+  for client recognition and provider capture into an editable draft; mock the
+  recognizer/device stream/recorder rather than depending on CI audio hardware.
 
 The API owns real media sniffing, size/read/concurrency limits, and the provider
-generation fence. The UI disclosure copy must not claim a `kind=local` custom
-URL is enforced loopback egress.
+generation fence for the provider branch only. Client Web Speech routes do not
+call it. The UI disclosure copy must not claim a `kind=local` custom URL is
+enforced loopback egress.
 
 ## Build / test commands
 

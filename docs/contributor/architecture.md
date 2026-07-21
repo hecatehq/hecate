@@ -58,18 +58,24 @@ Key invariants:
 
 ## Dictation flow
 
-Dictation is a narrow Hecate-native application seam, not a chat-router mode.
-The browser or desktop webview records audio, the API owns binary admission and
-media validation, `dictationapp` owns provider selection and the exact-instance
-disclosure fence, and the provider adapter owns the OpenAI-compatible multipart
-call. The Tauri layer handles only native webview permission integration; audio
-does not cross Tauri IPC. No chat handler or provider failover path receives the
-audio.
+Dictation is a composer capability, not a chat-router mode. It has a client
+recognition branch and a provider-upload branch. The client branch uses Web
+Speech directly through an explicit browser-managed route that may use the
+browser vendor's cloud service. Its audio never enters the Hecate API. Hecate
+does not query experimental static language-pack availability during composer
+startup. The provider
+branch remains the cross-browser baseline: the browser or desktop webview
+records audio, the API owns binary admission and media validation,
+`dictationapp` owns provider selection and the exact-instance disclosure fence,
+and the provider adapter owns the OpenAI-compatible multipart call. The Tauri
+layer handles only native webview permission integration; no dictation audio
+crosses Tauri IPC. No chat handler or provider failover path receives the
+audio, and Hecate never silently switches branches after a failure.
 
 ```mermaid
 sequenceDiagram
-    participant UI as Chat composer / MediaRecorder
-    participant Media as Browser or desktop webview
+    participant UI as Chat composer
+    participant Client as Browser / desktop webview
     participant API as Dictation API
     participant App as dictationapp
     participant Registry as Provider registry
@@ -78,31 +84,45 @@ sequenceDiagram
     API->>App: list explicit transcription capabilities
     App->>Registry: snapshot available instances (local first)
     Registry-->>UI: provider, kind, default model, availability
-    UI->>Media: request audio-only microphone stream
-    Media-->>UI: stream after site / OS permission
-    UI->>API: POST multipart audio + explicit provider
-    API->>API: 10 MiB + 60s + signature + two-slot admission
-    API->>App: resolve route after bounded upload
-    App->>Registry: capture opaque provider generation
-    API->>App: transcribe with five-minute bound
-    App->>Registry: re-read exact name + generation
-    alt generation still matches
-        App->>Provider: one multipart transcription call
-        Provider-->>App: bounded transcript
-        App-->>UI: editable draft text
-    else provider changed or disappeared
-        App-->>UI: conflict before audio disclosure
+    UI->>Client: detect a Web Speech constructor
+    Client-->>UI: browser-managed route availability
+    alt client Web Speech route selected
+        UI->>Client: start selected recognizer
+        Note over Client: browser vendor may process audio in cloud
+        Client-->>UI: transcript text
+    else provider route selected (baseline)
+        UI->>Client: request audio-only MediaRecorder stream
+        Client-->>UI: stream after site / OS permission
+        UI->>API: POST multipart audio + explicit provider
+        API->>API: 10 MiB + 60s + signature + two-slot admission
+        API->>App: resolve route after bounded upload
+        App->>Registry: capture opaque provider generation
+        API->>App: transcribe with five-minute bound
+        App->>Registry: re-read exact name + generation
+        alt generation still matches
+            App->>Provider: one multipart transcription call
+            Provider-->>App: bounded transcript
+            App-->>UI: transcript text
+        else provider changed or disappeared
+            App-->>UI: conflict before audio disclosure
+        end
     end
+    UI->>UI: insert editable draft; never auto-submit
 ```
 
-Audio and transcript bodies are transient and must not enter Hecate storage,
-usage events, traces, metrics, logs, or artifacts. Provider configuration
-fingerprints include the transcription path and default model but exclude
-credentials. The UI stops microphone tracks on stop/unmount/chat switch,
-inserts returned text at the current selection, and never submits it. On Linux,
-the desktop host grants WebKitGTK user-media requests only when they are
-audio-only, the active document matches the exact loopback sidecar origin, and
-the owned gateway child is still running; camera, mismatched-origin,
+Provider-route audio and transcript bodies are transient and must not enter
+Hecate storage, usage events, traces, metrics, logs, or artifacts. Client-route
+audio does not enter Hecate at all; its transcript remains browser-local until
+the operator sends the draft. Provider configuration fingerprints include the
+transcription path and default model but exclude credentials. The UI stops
+microphone tracks or client recognition on stop/unmount/chat switch, inserts
+returned text at the current selection, and never submits it. System dictation
+on macOS and Windows is outside this route graph and types into the focused
+textarea under OS-owned privacy policy. Text-to-speech/read-aloud is a separate
+output capability. On Linux, the desktop host grants WebKitGTK user-media
+requests only when they are audio-only, the active document matches the exact
+loopback sidecar origin, and the owned gateway child is still running; camera,
+mismatched-origin,
 stale-sidecar, and pre-readiness requests fail closed.
 
 ## Chat attachment flow

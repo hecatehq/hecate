@@ -270,44 +270,70 @@ server or browser state because it fails closed before mutation.
 
 ### Dictation
 
-The chat composer can turn a short microphone recording into editable draft
-text for Hecate Chat, direct-model chat, or an External Agent chat. Dictation is
-not part of the chat execution route: the operator chooses a transcription
-provider independently, sees whether it is local or cloud, and can change that
-choice before recording. Hecate prefers the first available local route when no
-saved choice is available.
+The chat composer can turn speech into editable draft text for Hecate Chat,
+direct-model chat, or an External Agent chat. Dictation is not part of the chat
+execution route. The route selector can contain two route classes:
 
-Recording is capped at two minutes in the UI and 10 MiB at the API boundary.
-The composer stops every microphone track when recording ends, the active chat
-changes, or the component unmounts. Hecate sends the audio only to the selected
-provider generation, with no cross-provider retry or failover, and does not
-retain the audio. The transcript is inserted at the current textarea selection
-with readable boundary spacing. It remains an ordinary editable draft and is
-never sent automatically.
+1. **Transcription provider** is the existing cross-browser baseline. The
+   composer records with `getUserMedia` and `MediaRecorder`, then posts the
+   bounded audio to the explicitly selected OpenAI, Groq, LocalAI, or compatible
+   provider through Hecate. When no route has been saved, Hecate prefers the
+   first available provider; provider options are ordered local first.
+2. **Browser speech service** is available only where the browser exposes Web
+   Speech. It must be selected explicitly because processing is controlled by
+   the browser and may use its vendor's cloud service. Hecate does not call this
+   route local, does not send its audio through the Hecate API or Tauri IPC, and
+   does not invoke experimental static on-device language-pack probes while the
+   composer mounts.
 
-Browser dictation requires a secure context (HTTPS or the loopback Hecate URL),
-`getUserMedia`, and `MediaRecorder`. The macOS, Windows, and Linux desktop apps
-integrate those same web APIs through their platform webviews. Linux and Windows
-desktop capture remain experimental pending real-machine microphone smokes. The
-composer reports an unsupported context separately from an unconfigured
-transcription provider, and a denied microphone request leaves the draft and
-the rest of the composer usable.
+Hecate never silently moves between client recognition and provider routes
+after a failure. A saved explicit route remains selected while it is available;
+otherwise the operator sees a route/setup state instead of an undisclosed
+fallback.
+
+Every route is capped at two minutes in the UI. The 10 MiB API limit applies to
+provider recordings only. For those recordings, the composer stops every
+microphone track when recording ends, the active chat changes, or the component
+unmounts. Hecate sends audio only to the selected provider generation, with no
+cross-provider retry or failover, and does not retain it. Client recognition is
+stopped or aborted on the same lifecycle boundaries. The transcript is inserted
+at the current textarea selection with readable boundary spacing. It remains an
+ordinary editable draft and is never sent automatically.
+
+All built-in composer routes require a secure context (HTTPS or the loopback
+Hecate URL). Provider recording additionally requires `getUserMedia` and
+`MediaRecorder`; client recognition requires a supported Web Speech
+implementation. The macOS, Windows, and Linux desktop apps expose these browser
+capabilities through their platform webviews. Linux and Windows desktop
+provider capture remain experimental pending real-machine microphone smokes.
+The composer reports an unsupported route separately from provider setup, and a
+denied microphone request leaves the draft and the rest of the composer usable.
 
 When permission was denied, browser users should open the current site's
 controls in the address bar, change **Microphone** to **Allow**, and reload the
 page. Desktop users should enable Hecate in the operating system's microphone
-privacy settings and restart the app. On macOS that control is **System
-Settings → Privacy & Security → Microphone**; on Windows it is **Settings →
-Privacy & security → Microphone**, including desktop-app access.
+privacy settings and restart the app. On macOS, provider recording uses
+**System Settings → Privacy & Security → Microphone**; browser-managed
+recognition may additionally require **Speech Recognition** permission. On
+Windows use **Settings → Privacy & security → Microphone**, including
+desktop-app access, and verify speech services are enabled for the
+browser-managed route.
 
-The transcription route is independent of the selected chat model or External
-Agent. A Claude Code, Codex, or Anthropic chat therefore still needs one
-configured speech-to-text route; the returned text is then an ordinary draft
-that the target can receive. **Connections → Speech-to-text route readiness** shows the
-ready and unavailable routes, their local/cloud boundary, and repair reasons.
-The built-in routes are OpenAI (`gpt-4o-mini-transcribe`), Groq
-(`whisper-large-v3-turbo`), and LocalAI (`whisper-1`). Operators can also opt an
-env-configured OpenAI-compatible provider into the same typed contract. See
+macOS Dictation and Windows voice typing (`Win+H`) can type directly into the
+focused composer without using Hecate's route selector. Their audio,
+permissions, processing location, and retention are controlled by the operating
+system; Hecate receives only the resulting text.
+
+The dictation route is independent of the selected chat model or External
+Agent. A Claude Code, Codex, or Anthropic chat can use a client speech route; it
+needs a separately configured speech-to-text provider only when a provider
+route is selected. **Connections → Speech-to-text route readiness** shows the
+ready and unavailable provider routes, their local/cloud boundary, and repair
+reasons. The built-in provider routes are OpenAI
+(`gpt-4o-mini-transcribe`), Groq (`whisper-large-v3-turbo`), and LocalAI
+(`whisper-1`). Operators can also opt an env-configured OpenAI-compatible
+provider into the same typed contract. Text-to-speech/read-aloud is a separate
+output capability and is not part of dictation routing. See
 [Providers](../operator/providers.md#dictation-providers) and the
 [Runtime API](runtime-api.md#dictation-api).
 

@@ -172,6 +172,7 @@ Providers whose endpoint is account-, gateway-, deployment-, or header-specific 
 
 ### Dictation providers
 
+Provider transcription remains the dependable cross-browser dictation route.
 Three built-in presets advertise a separately verified audio-transcription
 contract:
 
@@ -192,19 +193,30 @@ their local/cloud boundary, default transcription model, and a bounded repair
 reason. If the composer says that dictation needs setup, use that card to add or
 repair a route; it is intentionally separate from External Agent setup. The
 card reports provider-route readiness only; the composer separately reports
-browser or desktop microphone-permission problems. On a hosted runtime it
-offers cloud transcription setup and does not suggest the machine-local LocalAI
-route.
+browser or desktop microphone-permission problems and detects client-side Web
+Speech support. On a hosted runtime the card offers cloud transcription setup
+and does not suggest the machine-local LocalAI route.
+
+Where the browser exposes Web Speech, the composer can also offer client-side
+a route that is not a provider record and therefore does not appear in
+Connections. **Browser speech service** is an explicit alternative that may use
+the browser vendor's cloud service; it is not a local route and is never an
+implicit fallback. It does not send audio through the Hecate API or Tauri IPC.
+Hecate does not invoke experimental static on-device language-pack probes while
+the composer mounts.
 
 The dictation choice is independent of the chat target. Claude Code, Codex, and
 other External Agents receive the returned text normally, but their local
-sign-ins do not provide speech-to-text. Configure OpenAI, Groq, LocalAI, or an
-explicitly compatible transcription endpoint as the separate dictation route.
+sign-ins do not configure a provider transcription route. Operators who choose
+that route must separately configure OpenAI, Groq, LocalAI, or an explicitly
+compatible transcription endpoint; the browser speech route needs no
+provider credential.
 
-Hecate sends each recording to the explicitly selected provider only. It does
-not use Auto routing or fail over dictation audio to another provider. The
-provider's name and opaque configuration generation are revalidated immediately
-before disclosure.
+Hecate sends each provider recording to the explicitly selected provider only.
+It does not use Auto routing or fail over dictation audio to another provider
+or client recognition route. The provider's name and opaque configuration
+generation are revalidated immediately before disclosure. Dictation routes are
+speech-to-text inputs; text-to-speech/read-aloud configuration is separate.
 
 ## Env-configured providers
 
