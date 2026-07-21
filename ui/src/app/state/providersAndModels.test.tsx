@@ -455,4 +455,101 @@ describe("verifyModelToolSupport", () => {
       tool_verification: { status: "supported" },
     });
   });
+
+  it("applies the newest catalog refresh when an older response returns first", async () => {
+    let resolveOlderModels: (value: unknown) => void = () => {};
+    let resolveNewerModels: (value: unknown) => void = () => {};
+    getProvidersMock.mockResolvedValue({ object: "provider_status", data: [] });
+    getModelsMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOlderModels = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveNewerModels = resolve;
+        }),
+      );
+    const ProviderModelWrapper = ({ children }: { children: ReactNode }) => (
+      <ProvidersAndModelsProvider
+        initialState={{
+          models: [
+            {
+              id: "custom-tool-model",
+              owned_by: "Local Runtime",
+              metadata: {
+                provider: "Local Runtime",
+                capabilities: { tool_calling: "unknown" },
+                readiness: { ready: true, routing_ready: true },
+              },
+            },
+          ],
+        }}
+      >
+        {children}
+      </ProvidersAndModelsProvider>
+    );
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: ProviderModelWrapper });
+
+    let olderRefresh: Promise<void> | undefined;
+    act(() => {
+      olderRefresh = result.current.actions.refreshProviders();
+    });
+    await waitFor(() => {
+      expect(getModelsMock).toHaveBeenCalledTimes(1);
+    });
+
+    let newerRefresh: Promise<void> | undefined;
+    act(() => {
+      newerRefresh = result.current.actions.refreshProviders();
+    });
+    await waitFor(() => {
+      expect(getModelsMock).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      resolveOlderModels({
+        object: "list",
+        data: [
+          {
+            id: "custom-tool-model",
+            owned_by: "Local Runtime",
+            metadata: {
+              provider: "Local Runtime",
+              capabilities: { tool_calling: "none" },
+              readiness: { ready: true, routing_ready: true },
+            },
+          },
+        ],
+      });
+      await olderRefresh;
+    });
+    expect(result.current.state.models[0]?.metadata?.capabilities?.tool_calling).toBe("unknown");
+
+    await act(async () => {
+      resolveNewerModels({
+        object: "list",
+        data: [
+          {
+            id: "custom-tool-model",
+            owned_by: "Local Runtime",
+            metadata: {
+              provider: "Local Runtime",
+              capabilities: {
+                tool_calling: "basic",
+                tool_verification: { status: "supported" },
+              },
+              readiness: { ready: true, routing_ready: true },
+            },
+          },
+        ],
+      });
+      await newerRefresh;
+    });
+    expect(result.current.state.models[0]?.metadata?.capabilities).toMatchObject({
+      tool_calling: "basic",
+      tool_verification: { status: "supported" },
+    });
+  });
 });

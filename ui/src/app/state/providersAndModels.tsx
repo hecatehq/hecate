@@ -201,9 +201,11 @@ export function ProvidersAndModelsProvider({
     new Map<string, Promise<VerifyModelToolSupportResult>>(),
   );
   // A catalog response can be older than an explicit model mutation (notably a
-  // completed tool-support verification). Track each local model write so an
-  // already-running refresh cannot erase newer operator-visible evidence.
-  const modelsRevisionRef = useRef(0);
+  // completed tool-support verification). Track those local writes separately
+  // from catalog refreshes: a catalog result must neither erase newer evidence
+  // nor prevent a newer refresh from replacing an older refresh.
+  const modelsMutationRevisionRef = useRef(0);
+  const latestModelsRefreshRef = useRef(0);
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -220,7 +222,7 @@ export function ProvidersAndModelsProvider({
     [],
   );
   const applyModels = useCallback((next: SetStateAction<ModelResponse["data"]>) => {
-    modelsRevisionRef.current += 1;
+    modelsMutationRevisionRef.current += 1;
     dispatch({ type: "models/set", next });
   }, []);
   const setModels = applyModels;
@@ -248,14 +250,19 @@ export function ProvidersAndModelsProvider({
   );
 
   const refreshProviders = useCallback(async () => {
-    const modelsRevisionAtStart = modelsRevisionRef.current;
+    const modelsMutationRevisionAtStart = modelsMutationRevisionRef.current;
+    const refreshID = ++latestModelsRefreshRef.current;
     try {
       const [pResult, mResult] = await Promise.allSettled([getProviders(), getModels()]);
       if (pResult.status === "fulfilled") {
         dispatch({ type: "providers/set", next: pResult.value.data ?? [] });
       }
-      if (mResult.status === "fulfilled" && modelsRevisionRef.current === modelsRevisionAtStart) {
-        applyModels(mResult.value.data ?? []);
+      if (
+        mResult.status === "fulfilled" &&
+        modelsMutationRevisionRef.current === modelsMutationRevisionAtStart &&
+        latestModelsRefreshRef.current === refreshID
+      ) {
+        dispatch({ type: "models/set", next: mResult.value.data ?? [] });
       }
       if (pResult.status === "rejected" || mResult.status === "rejected") {
         warn("providersAndModels.refresh.failed", {
@@ -280,7 +287,7 @@ export function ProvidersAndModelsProvider({
         err: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [applyModels]);
+  }, []);
 
   const probeAgentAdapter = useCallback(async (adapterID: string): Promise<ProbeAdapterResult> => {
     if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
