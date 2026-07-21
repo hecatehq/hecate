@@ -87,10 +87,10 @@ export function ChatEmptyState({
     Boolean(setupRepair) &&
     !(setupRepair?.kind === "no_provider" && hasQuickLocalProviderCandidates);
   const readyTitle = isExternalAgentChat
-    ? `Ready for ${selectedAgent?.name || "the agent"}`
+    ? `${selectedAgent?.name || "External agent"} found`
     : "Ready when you are";
   const readyDetail = isExternalAgentChat
-    ? "Describe what you want done and Hecate will start the selected agent in this workspace."
+    ? "Hecate found the installed app. Sending a message starts it in this workspace; use Check in Connections first if you want a no-prompt readiness test."
     : "Ask a question, inspect the workspace, or describe the change you want to make.";
   const title =
     isAgentChat && selectedAgentUnavailable
@@ -308,7 +308,7 @@ function buildStartGuideItems({
 }): StartGuideItem[] {
   const modelNeedsAttention =
     !hasConfiguredProviders || modelRouteUnavailable || Boolean(selectedModelIssue);
-  const agentReady = agentAdapters.some((adapter) => adapter.available);
+  const agentFound = agentAdapters.some((adapter) => adapter.available);
   const workspaceNeedsAttention = setupRepair?.action === "choose_workspace";
   return [
     {
@@ -333,8 +333,8 @@ function buildStartGuideItems({
         : "Use Codex, Claude Code, Cursor, or Grok Build once ready.",
       icon: Icons.terminal,
       label: "Agents",
-      status: agentReady ? "Ready" : agentAdapters.length > 0 ? "Setup" : "Unavailable",
-      tone: agentReady ? "ready" : agentAdapters.length > 0 ? "setup" : "optional",
+      status: agentFound ? "Found" : agentAdapters.length > 0 ? "Setup" : "Unavailable",
+      tone: agentFound ? "optional" : agentAdapters.length > 0 ? "setup" : "optional",
     },
   ];
 }
@@ -447,7 +447,7 @@ function ExternalAgentSetupSummary({
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span
             style={{
-              color: adapter.available ? "var(--green)" : "var(--red)",
+              color: adapter.available ? "var(--teal)" : "var(--red)",
               display: "inline-flex",
               flexShrink: 0,
             }}
@@ -482,8 +482,8 @@ function ExternalAgentSetupSummary({
         </div>
       </div>
       <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
-        <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
-          {adapter.available ? agentReadyLabel(adapter) : hint.action}
+        <div style={{ color: adapter.available ? "var(--teal)" : "var(--t1)" }}>
+          {adapter.available ? agentFoundLabel(adapter) : hint.action}
         </div>
         {!adapter.available && hint.commands.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 7 }}>
@@ -575,41 +575,29 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
       return {
         label: "Codex",
         action: "Install Codex CLI, then sign in with Codex.",
-        commands: [
-          { label: "Install", command: "npm install -g @openai/codex" },
-          { label: "Auth", command: "codex login" },
-        ],
-        note: "The ACP adapter is built into Hecate. Hecate uses the CLI's local auth and does not store provider tokens.",
+        commands: [{ label: "Auth", command: "codex login" }],
+        note: "The ACP adapter is built into Hecate; install the provider CLI from its official instructions. Hecate also recognizes the installed macOS app bundle and uses local CLI auth without storing provider tokens.",
       };
     case "claude_code":
       return {
         label: "Claude Code",
         action: "Install Claude Code, then sign in with Claude Code.",
-        commands: [
-          {
-            label: "Install",
-            command: "npm install -g @anthropic-ai/claude-code",
-          },
-          { label: "Auth", command: "claude /login" },
-        ],
-        note: "The ACP adapter is built into Hecate. Hecate uses Claude Code's local auth and does not store Claude tokens.",
+        commands: [{ label: "Auth", command: "claude /login" }],
+        note: "The ACP adapter is built into Hecate; install Claude Code from its official instructions. Windows requires the native CLI build. Hecate uses Claude Code's local auth and does not store Claude tokens.",
       };
     case "cursor_agent":
       return {
         label: "Cursor Agent",
-        action: "Install Cursor with Agent support, then sign in with Cursor Agent.",
+        action: "Install the Cursor Agent CLI, then sign in with Cursor Agent.",
         commands: [{ label: "Auth", command: "cursor-agent login" }],
-        note: "Cursor Agent is installed with the Cursor application, not npm.",
+        note: "Hecate does not install Cursor Agent. Use Cursor's CLI installation instructions. The current Windows .cmd-only launcher is not supported because Hecate requires a directly launchable native executable.",
       };
     case "grok_build":
       return {
         label: "Grok Build",
         action: "Install Grok Build, then sign in with Grok.",
-        commands: [
-          { label: "Install", command: "curl -fsSL https://x.ai/cli/install.sh | bash" },
-          { label: "Auth", command: "grok login" },
-        ],
-        note: "Headless environments can set XAI_API_KEY instead of using browser sign-in.",
+        commands: [{ label: "Auth", command: "grok login" }],
+        note: "Hecate does not install Grok Build. Use xAI's CLI installation instructions; headless environments can set XAI_API_KEY instead of using browser sign-in.",
       };
     default:
       return {
@@ -622,13 +610,13 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
   }
 }
 
-function agentReadyLabel(adapter: AgentAdapterRecord): string {
+function agentFoundLabel(adapter: AgentAdapterRecord): string {
   if (adapter.auth_status === "unauthenticated" || adapter.auth_status === "billing") {
     return adapter.auth_error || `Auth status: ${adapter.auth_status}`;
   }
-  if (adapter.agent_version) return `Ready · agent ${adapter.agent_version}`;
-  if (adapter.adapter_version) return `Ready · adapter ${adapter.adapter_version}`;
-  return "Ready";
+  if (adapter.agent_version) return `Tested · agent ${adapter.agent_version}`;
+  if (adapter.adapter_version) return `Tested · adapter ${adapter.adapter_version}`;
+  return "Found · not tested";
 }
 
 function RTKOnboardingHint({ path, onEnable }: { path: string; onEnable: () => void }) {

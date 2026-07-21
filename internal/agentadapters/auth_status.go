@@ -1,19 +1,19 @@
 package agentadapters
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-// DetectAuthStatus is a lightweight dashboard hint. It deliberately avoids
-// spawning the adapter; Connections refreshes the full ACP probe when opened.
+// DetectAuthStatus is an explicit diagnostic. Most branches inspect local
+// credential hints, while Claude may run its bounded `auth status` command.
+// Callers must keep it behind an operator-owned execution boundary.
 func DetectAuthStatus(adapter Adapter) (string, string) {
 	switch adapter.ID {
 	case "codex":
@@ -111,12 +111,23 @@ func detectClaudeCLIAuthStatus() (ok bool, checked bool) {
 func defaultRunClaudeAuthStatus() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "claude", "auth", "status")
-	cmd.Env = sanitizedEnv(os.Environ())
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	err := cmd.Run()
-	return stdout.String(), err
+	adapter, ok := BuiltInByID("claude_code")
+	if !ok {
+		return "", errors.New("Claude Code adapter is unavailable")
+	}
+	path, err := resolveExecutable(adapter, nil)
+	if err != nil {
+		return "", err
+	}
+	processEnv, err := prepareAdapterProcessEnv(ctx, adapter, os.Environ())
+	if err != nil {
+		return "", err
+	}
+	if processEnv.cleanup != nil {
+		defer processEnv.cleanup()
+	}
+	out, err := runAgentDiagnostic(ctx, path, []string{"auth", "status"}, processEnv.values)
+	return out.stdout, err
 }
 
 func envAny(names ...string) bool {

@@ -183,6 +183,11 @@ GET  /hecate/v1/chat/grants
 DELETE /hecate/v1/chat/grants/{grant_id}
 ```
 
+The catalog and compatibility health `GET` endpoints are passive: they may
+resolve and inspect an executable path but must not execute it. The explicit
+`POST /agent-adapters/{id}/probe` endpoint is the first compatibility-check
+boundary that starts the discovered app and performs an ACP handshake.
+
 Stored message diffs are read-only historical evidence. The current
 `workspace-diff` response carries an opaque revision for the complete scoped
 unstaged tracked patch (index → worktree), and its revision-bound revert

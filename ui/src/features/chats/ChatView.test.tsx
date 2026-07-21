@@ -5089,7 +5089,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.queryByText(/External agents run as your OS user/)).toBeNull();
   });
 
-  it("does not show provider setup actions when agent chat has no available CLI", () => {
+  it("shows official setup guidance without an in-app installer when no CLI is available", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       message: "run codex",
@@ -5114,7 +5114,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText(/could not start Codex/)).toBeTruthy();
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
     expect(screen.getByText(/Install Codex CLI, then sign in with Codex/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Install/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Install/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Auth/ })).toBeTruthy();
     expect(screen.getByText(/codex not found/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
@@ -5396,7 +5396,7 @@ describe("ChatView external-agent target", () => {
     expect(setNewChatAgent).toHaveBeenCalledWith("claude_code");
   });
 
-  it("checks available external agents when Chats opens", async () => {
+  it("does not start an available external agent when Chats opens", async () => {
     const probeAgentAdapter = vi.fn(async () => null);
     const { state, actions } = setup(
       {
@@ -5424,8 +5424,8 @@ describe("ChatView external-agent target", () => {
 
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    await waitFor(() => expect(probeAgentAdapter).toHaveBeenCalledWith("codex"));
-    expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
+    await screen.findByRole("button", { name: "Choose agent for new chat" });
+    expect(probeAgentAdapter).not.toHaveBeenCalled();
   });
 
   it("shows Claude Code local auth repair when the agent reports auth required", async () => {

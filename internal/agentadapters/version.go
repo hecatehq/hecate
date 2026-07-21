@@ -3,7 +3,6 @@ package agentadapters
 import (
 	"context"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,7 +20,7 @@ var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z._-]+)*`)
 // stay independent of CI subprocess-startup jitter.
 //
 // 5 s is generous on purpose. Probe runs are pre-flight — an
-// operator clicked "Check auth" or opened the Settings tab;
+// operator explicitly clicked the adapter's Check action;
 // latency is surfaced in the UI as "checking…" while the request
 // is in flight, so a few seconds of overhead is acceptable.
 // Earlier values (2 s, then 5 s) flaked on CI under -race +
@@ -50,24 +49,11 @@ func DetectVersionProbe(ctx context.Context, probe VersionProbe, lookup LookupFu
 }
 
 func resolveVersionProbe(probe VersionProbe, lookup LookupFunc) (string, bool) {
-	if lookup == nil {
-		lookup = exec.LookPath
+	path, err := resolveInstalledCommand(probe.Command, probe.CandidatePaths, lookup)
+	if err != nil {
+		return "", false
 	}
-	if strings.TrimSpace(probe.Command) != "" {
-		if path, err := lookup(probe.Command); err == nil {
-			return path, true
-		}
-	}
-	for _, candidate := range probe.CandidatePaths {
-		path := expandPath(candidate)
-		if path == "" {
-			continue
-		}
-		if resolved, err := lookup(path); err == nil {
-			return resolved, true
-		}
-	}
-	return "", false
+	return path, true
 }
 
 func detectVersionCommand(ctx context.Context, command string, args ...string) string {
@@ -81,12 +67,10 @@ func detectVersionCommand(ctx context.Context, command string, args ...string) s
 	if processEnv.cleanup != nil {
 		defer processEnv.cleanup()
 	}
-	cmd := exec.CommandContext(ctx, command, args...)
-	cmd.Env = processEnv.values
-	out, _ := cmd.CombinedOutput()
+	out, _ := runAgentDiagnostic(ctx, command, args, processEnv.values)
 	// Some CLI adapters print version text before exiting non-zero, so prefer
 	// any captured semver token before treating the command as unusable.
-	version := semverRe.FindString(strings.TrimSpace(string(out)))
+	version := semverRe.FindString(strings.TrimSpace(out.combined()))
 	if version != "" {
 		return version
 	}

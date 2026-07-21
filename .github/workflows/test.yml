@@ -200,8 +200,8 @@ jobs:
       - name: Test
         run: go test ./internal/bootstrap
 
-      - name: Test native ACP prompt staging
-        run: go test ./internal/agentadapters -run 'Test(ACPPromptStage|StagedFileURI|ACPBaselineStagesPortable)'
+      - name: Test native ACP staging and launcher boundaries
+        run: go test ./internal/agentadapters -run 'Test(ACPPromptStage|StagedFileURI|ACPBaselineStagesPortable|ValidateAgentProcessLauncherRequiresNativeWindowsExecutable|ResolveInstalledCommandSkipsPATHScriptForNativeCandidate|ResolveInstalledCommandRejectsPATHScriptWithoutNativeCandidate|AgentProcessTree|RunAgentDiagnostic|AgentDiagnostic)'
 
       - name: Test native code intelligence
         run: go test ./internal/codeintel

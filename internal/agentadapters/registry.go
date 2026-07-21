@@ -368,10 +368,26 @@ func BuiltIns() []Adapter {
 			Name:    "Codex",
 			Command: "codex",
 			CandidatePaths: []string{
+				"${CODEX_INSTALL_DIR}/codex",
+				"${CODEX_INSTALL_DIR}/codex.exe",
 				"${HOME}/.local/bin/codex",
 				"${HOME}/.volta/bin/codex",
+				"${VOLTA_HOME}/bin/codex",
+				"${NPM_CONFIG_PREFIX}/bin/codex",
+				"${PNPM_HOME}/codex",
+				"${HOME}/Library/pnpm/codex",
+				"${HOME}/.local/share/pnpm/codex",
+				"${HOME}/Applications/Codex.app/Contents/Resources/codex",
+				"${HOME}/Applications/ChatGPT.app/Contents/Resources/codex",
+				"${LOCALAPPDATA}/Volta/bin/codex.exe",
+				"${LOCALAPPDATA}/Programs/OpenAI/Codex/bin/codex.exe",
+				"${LOCALAPPDATA}/Microsoft/WinGet/Links/codex.exe",
+				"${PROGRAMFILES}/WinGet/Links/codex.exe",
 				"/opt/homebrew/bin/codex",
+				"/home/linuxbrew/.linuxbrew/bin/codex",
 				"/usr/local/bin/codex",
+				"/Applications/Codex.app/Contents/Resources/codex",
+				"/Applications/ChatGPT.app/Contents/Resources/codex",
 			},
 			Embedded:           true,
 			TestProcessCommand: "codex-acp-adapter",
@@ -384,16 +400,32 @@ func BuiltIns() []Adapter {
 				Command: "codex",
 				Args:    []string{"--version"},
 				CandidatePaths: []string{
+					"${CODEX_INSTALL_DIR}/codex",
+					"${CODEX_INSTALL_DIR}/codex.exe",
 					"${HOME}/.local/bin/codex",
 					"${HOME}/.volta/bin/codex",
+					"${VOLTA_HOME}/bin/codex",
+					"${NPM_CONFIG_PREFIX}/bin/codex",
+					"${PNPM_HOME}/codex",
+					"${HOME}/Library/pnpm/codex",
+					"${HOME}/.local/share/pnpm/codex",
+					"${HOME}/Applications/Codex.app/Contents/Resources/codex",
+					"${HOME}/Applications/ChatGPT.app/Contents/Resources/codex",
+					"${LOCALAPPDATA}/Volta/bin/codex.exe",
+					"${LOCALAPPDATA}/Programs/OpenAI/Codex/bin/codex.exe",
+					"${LOCALAPPDATA}/Microsoft/WinGet/Links/codex.exe",
+					"${PROGRAMFILES}/WinGet/Links/codex.exe",
 					"/opt/homebrew/bin/codex",
+					"/home/linuxbrew/.linuxbrew/bin/codex",
 					"/usr/local/bin/codex",
+					"/Applications/Codex.app/Contents/Resources/codex",
+					"/Applications/ChatGPT.app/Contents/Resources/codex",
 				},
 			},
 			Kind:                 "acp",
 			Description:          "Run Codex through Hecate's built-in Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:             "external",
-			DocsURL:              "https://github.com/hecatehq/codex-acp-adapter",
+			DocsURL:              "https://developers.openai.com/codex/cli",
 			SupportedRange:       ">=0.1.0",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
@@ -423,8 +455,19 @@ func BuiltIns() []Adapter {
 			Command: "claude",
 			CandidatePaths: []string{
 				"${HOME}/.local/bin/claude",
+				"${HOME}/.claude/local/claude",
 				"${HOME}/.volta/bin/claude",
+				"${VOLTA_HOME}/bin/claude",
+				"${NPM_CONFIG_PREFIX}/bin/claude",
+				"${PNPM_HOME}/claude",
+				"${HOME}/Library/pnpm/claude",
+				"${HOME}/.local/share/pnpm/claude",
+				"${LOCALAPPDATA}/Volta/bin/claude.exe",
+				"${LOCALAPPDATA}/Microsoft/WinGet/Links/claude.exe",
+				"${PROGRAMFILES}/WinGet/Links/claude.exe",
+				"${USERPROFILE}/.local/bin/claude.exe",
 				"/opt/homebrew/bin/claude",
+				"/home/linuxbrew/.linuxbrew/bin/claude",
 				"/usr/local/bin/claude",
 			},
 			Embedded:           true,
@@ -439,15 +482,26 @@ func BuiltIns() []Adapter {
 				Args:    []string{"--version"},
 				CandidatePaths: []string{
 					"${HOME}/.local/bin/claude",
+					"${HOME}/.claude/local/claude",
 					"${HOME}/.volta/bin/claude",
+					"${VOLTA_HOME}/bin/claude",
+					"${NPM_CONFIG_PREFIX}/bin/claude",
+					"${PNPM_HOME}/claude",
+					"${HOME}/Library/pnpm/claude",
+					"${HOME}/.local/share/pnpm/claude",
+					"${LOCALAPPDATA}/Volta/bin/claude.exe",
+					"${LOCALAPPDATA}/Microsoft/WinGet/Links/claude.exe",
+					"${PROGRAMFILES}/WinGet/Links/claude.exe",
+					"${USERPROFILE}/.local/bin/claude.exe",
 					"/opt/homebrew/bin/claude",
+					"/home/linuxbrew/.linuxbrew/bin/claude",
 					"/usr/local/bin/claude",
 				},
 			},
 			Kind:                 "acp",
 			Description:          "Run Claude Code through Hecate's built-in Go ACP adapter as an external coding-agent session supervised by Hecate.",
 			CostMode:             "external",
-			DocsURL:              "https://github.com/hecatehq/claude-code-acp-adapter",
+			DocsURL:              "https://code.claude.com/docs/en/installation",
 			SupportedRange:       ">=0.1.0",
 			SupportsAuthenticate: true,
 			SupportsLogout:       true,
@@ -478,8 +532,6 @@ func BuiltIns() []Adapter {
 			Args:    []string{"acp"},
 			CandidatePaths: []string{
 				"${HOME}/.local/bin/cursor-agent",
-				"/opt/homebrew/bin/cursor-agent",
-				"/usr/local/bin/cursor-agent",
 			},
 			Kind:           "acp",
 			Description:    "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
@@ -511,9 +563,14 @@ func BuiltIns() []Adapter {
 			Command: "grok",
 			Args:    []string{"agent", "stdio"},
 			CandidatePaths: []string{
+				"${GROK_BIN_DIR}/grok",
+				"${GROK_BIN_DIR}/grok.exe",
+				"${HOME}/.grok/bin/grok",
+				"${USERPROFILE}/.grok/bin/grok.exe",
 				"${HOME}/.local/bin/grok",
-				"/opt/homebrew/bin/grok",
+				"${HOME}/Applications/Grok Build.app/Contents/Resources/bin/grok",
 				"/usr/local/bin/grok",
+				"/Applications/Grok Build.app/Contents/Resources/bin/grok",
 			},
 			Kind:           "acp",
 			Description:    "Run Grok Build through its ACP mode as a long-lived external coding-agent session supervised by Hecate.",
@@ -731,12 +788,13 @@ func FindAdapter(id string) (Adapter, bool) {
 	return Adapter{}, false
 }
 
+// List returns passive discovery state. It never executes a provider command.
 func List(ctx context.Context) []Status {
-	return ListWithLookup(ctx, exec.LookPath)
+	return ListWithLookup(ctx, nil)
 }
 
 func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
-	return listWithLookup(ctx, lookup, statusDiagnosticsFull)
+	return listWithLookup(ctx, lookup, statusDiagnosticsCatalog)
 }
 
 // ListCatalog returns the built-in adapter catalog using only cheap local
@@ -744,18 +802,26 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 // startup and the Connections list can render immediately; explicit probe
 // endpoints refresh the expensive health details on demand.
 func ListCatalog(ctx context.Context) []Status {
-	return ListCatalogWithLookup(ctx, exec.LookPath)
+	return ListCatalogWithLookup(ctx, nil)
 }
 
 func ListCatalogWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	return listWithLookup(ctx, lookup, statusDiagnosticsCatalog)
 }
 
-func listWithLookup(ctx context.Context, lookup LookupFunc, diagnostics statusDiagnosticsMode) []Status {
-	if lookup == nil {
-		lookup = exec.LookPath
+// CatalogStatusForAdapter returns one adapter's passive discovery state. It
+// resolves and validates paths but never runs version, auth, or ACP commands.
+func CatalogStatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
+	id = strings.TrimSpace(id)
+	for _, item := range BuiltIns() {
+		if item.ID == id {
+			return statusForAdapterWithDiagnostics(ctx, item, lookup, statusDiagnosticsCatalog), true
+		}
 	}
+	return Status{}, false
+}
 
+func listWithLookup(ctx context.Context, lookup LookupFunc, diagnostics statusDiagnosticsMode) []Status {
 	items := BuiltIns()
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
@@ -765,7 +831,7 @@ func listWithLookup(ctx context.Context, lookup LookupFunc, diagnostics statusDi
 }
 
 func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
-	return statusForAdapterByID(ctx, id, lookup)
+	return CatalogStatusForAdapter(ctx, id, lookup)
 }
 
 func StatusForAdapterAfterExplicitProbe(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
@@ -773,9 +839,6 @@ func StatusForAdapterAfterExplicitProbe(ctx context.Context, id string, lookup L
 }
 
 func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
-	if lookup == nil {
-		lookup = exec.LookPath
-	}
 	for _, item := range BuiltIns() {
 		if item.ID != strings.TrimSpace(id) {
 			continue
@@ -847,7 +910,9 @@ func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup L
 	if diagnostics == statusDiagnosticsFull {
 		status.AdapterVersion, status.AgentVersion = detectAdapterAndAgentVersionsForStatus(ctx, diagnosticItem, path, lookup)
 		status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
-		status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+		if !remoteRuntime {
+			status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+		}
 	}
 	return status
 }
@@ -1046,32 +1111,121 @@ func applyAdapterDiscoveryOverride(status Status, override string) Status {
 }
 
 func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
+	return resolveInstalledCommand(adapter.Command, adapter.CandidatePaths, lookup)
+}
+
+func resolveInstalledCommand(command string, candidatePaths []string, lookup LookupFunc) (string, error) {
+	validateOnDisk := lookup == nil
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
-	path, err := lookup(adapter.Command)
-	if err == nil {
-		return path, nil
+	var firstErr error = exec.ErrNotFound
+	if strings.TrimSpace(command) != "" {
+		path, err := lookup(command)
+		if err == nil {
+			if validated, validateErr := validateResolvedExecutable(path, validateOnDisk); validateErr == nil {
+				return validated, nil
+			} else {
+				firstErr = validateErr
+			}
+		} else {
+			firstErr = err
+		}
 	}
-	var firstErr error = err
-	for _, candidate := range adapter.CandidatePaths {
+	for _, candidate := range candidatePaths {
 		path := expandPath(candidate)
 		if path == "" {
+			continue
+		}
+		if resolved, lookupErr := lookup(path); lookupErr == nil {
+			if validated, validateErr := validateResolvedExecutable(resolved, validateOnDisk); validateErr == nil {
+				return validated, nil
+			} else if errors.Is(firstErr, exec.ErrNotFound) {
+				firstErr = validateErr
+			}
+			continue
+		}
+		// Unix's executable bit is authoritative even when an injected lookup
+		// cannot resolve an absolute candidate. On Windows, LookPath owns the
+		// PATHEXT rules for native executables and command launchers.
+		if runtime.GOOS == "windows" {
 			continue
 		}
 		info, statErr := os.Stat(path)
 		if statErr != nil {
 			continue
 		}
-		if info.IsDir() {
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		if info.Mode()&0o111 == 0 {
 			continue
 		}
-		return path, nil
+		validated, validateErr := validateResolvedExecutable(path, true)
+		if validateErr == nil {
+			return validated, nil
+		}
+		if errors.Is(firstErr, exec.ErrNotFound) {
+			firstErr = validateErr
+		}
 	}
 	return "", firstErr
+}
+
+func validateResolvedExecutable(path string, validateOnDisk bool) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("resolved executable path is empty")
+	}
+	if strings.ContainsRune(path, '\x00') {
+		return "", errors.New("resolved executable path contains a NUL byte")
+	}
+	if !filepath.IsAbs(path) {
+		var err error
+		path, err = filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("make resolved executable path absolute: %w", err)
+		}
+	}
+	path = filepath.Clean(path)
+	launchPath := path
+	if validateOnDisk {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve executable symlinks: %w", err)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return "", fmt.Errorf("inspect resolved executable: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return "", errors.New("resolved executable is not a regular file")
+		}
+		if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+			return "", errors.New("resolved executable is not executable")
+		}
+		// Inspect the canonical target, but preserve the discovered launch path.
+		// Version managers such as Volta dispatch by argv[0]; invoking their
+		// shared canonical shim target directly breaks otherwise valid installs.
+	}
+	if err := validateAgentProcessLauncher(launchPath); err != nil {
+		return "", err
+	}
+	return launchPath, nil
+}
+
+func validateAgentProcessLauncher(path string) error {
+	return validateAgentProcessLauncherForOS(runtime.GOOS, path)
+}
+
+func validateAgentProcessLauncherForOS(goos, path string) error {
+	if goos != "windows" {
+		return nil
+	}
+	if strings.ToLower(filepath.Ext(strings.TrimSpace(path))) != ".exe" {
+		return errors.New("Windows external agents require a native .exe; the resolved launcher type is not supported")
+	}
+	return nil
 }
 
 func resolveExecutableForStatus(ctx context.Context, adapter Adapter, lookup LookupFunc) (string, error) {
@@ -1097,12 +1251,33 @@ func expandPath(path string) string {
 	if path == "" {
 		return ""
 	}
-	if strings.HasPrefix(path, "${HOME}/") {
-		home, err := os.UserHomeDir()
-		if err != nil || home == "" {
+	for _, expansion := range []struct {
+		prefix string
+		root   func() (string, error)
+	}{
+		{prefix: "${HOME}/", root: os.UserHomeDir},
+		{prefix: "${USERPROFILE}/", root: func() (string, error) { return os.Getenv("USERPROFILE"), nil }},
+		{prefix: "${LOCALAPPDATA}/", root: func() (string, error) { return os.Getenv("LOCALAPPDATA"), nil }},
+		{prefix: "${APPDATA}/", root: func() (string, error) { return os.Getenv("APPDATA"), nil }},
+		{prefix: "${VOLTA_HOME}/", root: func() (string, error) { return os.Getenv("VOLTA_HOME"), nil }},
+		{prefix: "${NPM_CONFIG_PREFIX}/", root: func() (string, error) { return os.Getenv("NPM_CONFIG_PREFIX"), nil }},
+		{prefix: "${PNPM_HOME}/", root: func() (string, error) { return os.Getenv("PNPM_HOME"), nil }},
+		{prefix: "${GROK_BIN_DIR}/", root: func() (string, error) { return os.Getenv("GROK_BIN_DIR"), nil }},
+		{prefix: "${CODEX_INSTALL_DIR}/", root: func() (string, error) { return os.Getenv("CODEX_INSTALL_DIR"), nil }},
+		{prefix: "${PROGRAMFILES}/", root: func() (string, error) { return os.Getenv("PROGRAMFILES"), nil }},
+	} {
+		if !strings.HasPrefix(path, expansion.prefix) {
+			continue
+		}
+		root, err := expansion.root()
+		root = strings.TrimSpace(root)
+		if err != nil || root == "" || !filepath.IsAbs(root) {
 			return ""
 		}
-		return filepath.Join(home, strings.TrimPrefix(path, "${HOME}/"))
+		return filepath.Join(filepath.Clean(root), strings.TrimPrefix(path, expansion.prefix))
+	}
+	if strings.HasPrefix(path, "${") {
+		return ""
 	}
 	return path
 }
@@ -1180,7 +1355,7 @@ func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string
 
 // prependResolvedAgentRuntimePath keeps local desktop launches independent of
 // the GUI process's often-minimal PATH. The adapter catalog already owns the
-// provider CLI's direct command and trusted candidate paths; resolve that same
+// provider CLI's direct command and allowlisted candidate paths; resolve that same
 // metadata and expose only the selected executable directory to the adapter.
 // Remote runtime environments intentionally use their separate fail-closed
 // credential and PATH policy above.

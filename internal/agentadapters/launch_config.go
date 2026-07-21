@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -337,14 +336,12 @@ func discoverLaunchHelp(ctx context.Context, command string, adapter Adapter) st
 	if processEnv.cleanup != nil {
 		defer processEnv.cleanup()
 	}
-	cmd := exec.CommandContext(discoverCtx, command, args...)
-	cmd.Env = processEnv.values
-	out, err := cmd.CombinedOutput()
+	out, err := runAgentDiagnostic(discoverCtx, command, args, processEnv.values)
 	if err != nil {
 		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
 		return ""
 	}
-	help := string(out)
+	help := out.combined()
 	storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{help: help})
 	return help
 }
@@ -380,14 +377,12 @@ func discoverLaunchModels(ctx context.Context, command string, adapter Adapter) 
 	if processEnv.cleanup != nil {
 		defer processEnv.cleanup()
 	}
-	cmd := exec.CommandContext(discoverCtx, command, adapter.LaunchModel.ListArgs...)
-	cmd.Env = processEnv.values
-	out, err := cmd.CombinedOutput()
+	out, err := runAgentDiagnostic(discoverCtx, command, adapter.LaunchModel.ListArgs, processEnv.values)
 	if err != nil {
 		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
 		return nil
 	}
-	models := parseLaunchModelList(string(out))
+	models := parseLaunchModelList(out.combined())
 	storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{models: cloneLaunchModels(models)})
 	return models
 }

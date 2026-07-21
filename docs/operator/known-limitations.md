@@ -246,6 +246,22 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.
+- Hecate does not yet authenticate a discovered provider CLI or persist an
+  executable fingerprint approval. Catalog discovery is passive and shows the
+  selected path, but **Check**, auth/logout, setup discovery, and session launch
+  execute that path. A local SHA-256 digest alone would detect changed bytes;
+  without a signed publisher manifest or attestation it would not prove origin
+  or that the program is malware-free. Prefer vendor installers and pinned
+  platform publisher signatures or vendor-signed manifests when available;
+  treat ordinary package-manager hashes as integrity rather than publisher
+  identity, and isolate agents you do not fully trust.
+- On Windows, every external agent currently requires a native `.exe`. Hecate
+  rejects `.cmd`, `.bat`, `.ps1`, and other launcher forms rather than invoking
+  a command shell and trusting an unmeasured wrapper/interpreter chain. Native
+  direct peers are assigned to a kill-on-close Job Object before they run. The
+  current Cursor Agent Windows installer is `.cmd`-only, so that integration
+  remains unavailable until Hecate has a measured wrapper launcher or Cursor
+  ships a native executable.
 - External Agent resource-link file input requires a trusted temporary
   filesystem path. macOS rejects any non-local mount in the canonical temporary
   path or its ancestors. Linux accepts only ext2/3/4, XFS, Btrfs, tmpfs,

@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,104 +16,45 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 )
 
-// TestAgentAdapterHealthSurfacesProbeResult covers the happy-path
-// classifications (`ready`, `auth_required`, `not_installed`,
-// `error`). Each one reaches the wire as a 200 with the typed
-// payload — the probe completing successfully is itself a 200; the
-// adapter's status lives in the body.
-func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name   string
-		result agentadapters.ProbeResult
-	}{
-		{
-			name: "ready",
-			result: agentadapters.ProbeResult{
-				AdapterID: "codex",
-				Status:    agentadapters.ProbeStatusReady,
-				Stage:     agentadapters.ProbeStageReady,
-				Path:      "/usr/local/bin/codex-acp-adapter",
-				AgentInfo: &agentadapters.ProbeAgentInfo{
-					Name:    "codex-acp-adapter",
-					Title:   "Codex ACP Adapter",
-					Version: "0.1.0-alpha.28",
-				},
-			},
-		},
-		{
-			name: "auth_required",
-			result: agentadapters.ProbeResult{
-				AdapterID: "codex",
-				Status:    agentadapters.ProbeStatusAuthRequired,
-				Stage:     agentadapters.ProbeStageInitialize,
-				Path:      "/usr/local/bin/codex-acp-adapter",
-				Error:     "Authentication required",
-				Hint:      "Run codex login",
-			},
-		},
-		{
-			name: "not_installed",
-			result: agentadapters.ProbeResult{
-				AdapterID: "codex",
-				Status:    agentadapters.ProbeStatusNotInstalled,
-				Stage:     agentadapters.ProbeStageLookup,
-				Error:     "exec: codex-acp-adapter not found",
-				Hint:      "Install Codex and ensure it's on PATH.",
-			},
-		},
-		{
-			name: "error",
-			result: agentadapters.ProbeResult{
-				AdapterID: "codex",
-				Status:    agentadapters.ProbeStatusError,
-				Stage:     agentadapters.ProbeStageInitialize,
-				Path:      "/usr/local/bin/codex-acp-adapter",
-				Error:     "unexpected ACP protocol version",
-			},
-		},
+func TestAgentAdapterHealthIsPassiveAndUnverified(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "executed")
+	executable := filepath.Join(dir, "codex.exe")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf executed > '"+marker+"'\n"), 0o755); err != nil {
+		t.Fatalf("write fake executable: %v", err)
 	}
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_INSTALL_DIR", dir)
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	probeCalls := 0
+	apiHandler.SetAgentAdapterProbe(func(context.Context, string) agentadapters.ProbeResult {
+		probeCalls++
+		return agentadapters.ProbeResult{Status: agentadapters.ProbeStatusReady}
+	})
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
 
-			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-			apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
-			calls := 0
-			apiHandler.SetAgentAdapterProbe(func(_ context.Context, id string) agentadapters.ProbeResult {
-				calls++
-				if id != "codex" {
-					t.Fatalf("probe called for %q, want codex", id)
-				}
-				return tc.result
-			})
-			server := NewServer(logger, apiHandler)
-			client := newAPITestClient(t, server)
-
-			resp := mustRequestJSON[AgentAdapterHealthResponse](client, http.MethodGet, "/hecate/v1/agent-adapters/codex/health", "")
-			if calls != 1 {
-				t.Fatalf("probe call count = %d, want 1", calls)
-			}
-			if resp.Object != "agent_adapter_health" {
-				t.Fatalf("Object = %q, want agent_adapter_health", resp.Object)
-			}
-			if resp.Data.Status != tc.result.Status {
-				t.Fatalf("Status = %q, want %q", resp.Data.Status, tc.result.Status)
-			}
-			if resp.Data.Stage != tc.result.Stage {
-				t.Fatalf("Stage = %q, want %q", resp.Data.Stage, tc.result.Stage)
-			}
-			if resp.Data.AdapterID != "codex" {
-				t.Fatalf("AdapterID = %q, want codex", resp.Data.AdapterID)
-			}
-			if tc.name == "ready" {
-				if resp.Data.AgentInfo == nil || resp.Data.AgentInfo.Name != "codex-acp-adapter" || resp.Data.AgentInfo.Version != "0.1.0-alpha.28" {
-					t.Fatalf("AgentInfo = %#v, want initialized adapter metadata", resp.Data.AgentInfo)
-				}
-			}
-		})
+	resp := mustRequestJSON[AgentAdapterHealthResponse](client, http.MethodGet, "/hecate/v1/agent-adapters/codex/health", "")
+	if probeCalls != 0 {
+		t.Fatalf("GET health invoked probe %d times, want passive lookup only", probeCalls)
+	}
+	if resp.Object != "agent_adapter_health" {
+		t.Fatalf("Object = %q, want agent_adapter_health", resp.Object)
+	}
+	if resp.Data.AdapterID != "codex" || resp.Data.Status != agentadapters.ProbeStatusUnverified {
+		t.Fatalf("health = %#v, want passively discovered unverified adapter", resp.Data)
+	}
+	if resp.Data.Path != executable {
+		t.Fatalf("health path = %q, want %q", resp.Data.Path, executable)
+	}
+	if resp.Data.Stage != agentadapters.ProbeStageLookup || !strings.Contains(resp.Data.Hint, "POST") {
+		t.Fatalf("health = %#v, want explicit-probe guidance", resp.Data)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("passive GET executed candidate; marker stat = %v", err)
 	}
 }
 

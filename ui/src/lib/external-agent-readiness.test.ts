@@ -107,8 +107,9 @@ describe("resolveExternalAgentReadiness", () => {
       kind: "setup",
       needsRepair: true,
     });
-    expect(readiness.setupHint).toContain("built into Hecate");
-    expect(readiness.setupHint).toContain("claude is on PATH");
+    expect(readiness.setupHint).toContain("separately");
+    expect(readiness.setupHint).toContain("standard install locations and PATH");
+    expect(readiness.setupHint).toContain("ACP adapter is built in");
     expect(readiness.setupHint).toContain("claude /login");
   });
 
@@ -122,7 +123,8 @@ describe("resolveExternalAgentReadiness", () => {
       needsRepair: false,
       verifiedByProbe: false,
     });
-    expect(readiness.detail).toContain("Run a quick check");
+    expect(readiness.detail).toContain("starts the installed app");
+    expect(readiness.detail).toContain("temporary ACP session");
   });
 
   it("uses adapter-specific setup guidance for Grok Build", () => {

@@ -165,6 +165,20 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 - **Cost is in micro-USD when present.** Money fields stay `int64` in micro-USD (`1_000_000` = $1). Never `float64` for money. The gateway records usage events for visibility; it does not enforce global spend controls.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the response header (`X-Trace-Id`) and persisted on the run record. New code paths add spans, not just log lines.
 - **Metric labels are guarded.** Record metrics through `internal/telemetry` helpers and normalizers. Closed-set dimensions collapse unknown values to `other`; free-form dimensions must reject control characters and oversized labels. Put raw commands, paths, stdout/stderr snippets, and adapter diagnostics in spans, logs, or persisted events — never metric labels.
+- **External-agent discovery is passive.** Catalog discovery may resolve
+  allowlisted install roots, resolve symlink targets for validation while
+  preserving the invocation path, inspect file type, or
+  compute local identity evidence, but it must never execute the candidate.
+  Version/help/auth commands and ACP `Initialize` are execution surfaces, not
+  authenticity checks. Keep them behind an explicit operator action and, when
+  executable trust is implemented, behind the same final-boundary identity
+  gate as real sessions. Do not auto-probe when Chats or Connections opens,
+  silently install provider CLIs, treat a checksum without authenticated
+  publisher evidence as provenance, or describe a discovered binary as safe.
+  On Windows, every external-agent provider requires a native `.exe`. Reject
+  `.cmd`, `.bat`, `.ps1`, and other launchers until Hecate has an explicit,
+  measured wrapper/interpreter chain under the same Job Object supervision;
+  never weaken that boundary to make a package-manager shim appear compatible.
 
 ## Backend recipes
 

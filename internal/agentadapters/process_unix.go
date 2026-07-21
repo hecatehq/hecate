@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func configureCommandProcessGroup(cmd *exec.Cmd) {
+func prepareAgentProcessTree(cmd *exec.Cmd) (attach func() error, release func(), err error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -21,4 +21,5 @@ func configureCommandProcessGroup(cmd *exec.Cmd) {
 		}
 		return err
 	}
+	return func() error { return nil }, func() {}, nil
 }

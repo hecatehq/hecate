@@ -979,14 +979,14 @@ describe("Connections external-agent panel", () => {
       expect(screen.getByTestId("external-agents-test-codex")).toHaveTextContent("Check");
     });
 
-    it("checks available local adapters when Connections opens", async () => {
+    it("does not start available local adapters when Connections opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
 
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      await waitFor(() => expect(probeAgentAdapter).toHaveBeenCalledWith("codex"));
-      expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
+      await screen.findByTestId("external-agents-adapter-codex");
+      expect(probeAgentAdapter).not.toHaveBeenCalled();
     });
 
     it("shows bridge and underlying agent versions separately", async () => {
@@ -1014,8 +1014,34 @@ describe("Connections external-agent panel", () => {
       expect(row).toHaveTextContent("adapter 1.2.3");
       expect(row).toHaveTextContent("agent 0.48.0");
       expect(within(row).getByTestId("external-agents-adapter-codex-embedded")).toHaveTextContent(
-        "built in",
+        "adapter built in",
       );
+    });
+
+    it("shows the passively discovered path before an adapter is checked", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex",
+              available: true,
+              status: "available",
+              path: "/Users/alice/.local/bin/codex",
+              cost_mode: "external",
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
+      expect(
+        within(row).getByRole("button", { name: /starts the installed app/i }),
+      ).toHaveAttribute("title", "Starts Codex and opens a temporary ACP session");
     });
 
     it("renders compact local sign-in when the cached probe says auth is missing", async () => {

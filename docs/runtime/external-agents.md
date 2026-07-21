@@ -149,7 +149,7 @@ Codex adapter `v0.1.0-alpha.33` carries tool title/kind metadata from start
 events onto sparse completion updates, so Hecate can keep rendering MCP and
 provider tool timeline entries with stable labels even when the completion event
 only carries the result payload.
-Codex adapter `v0.1.0` is the stable supported floor for Hecate's bundled Codex
+Codex adapter `v0.1.0` is the stable supported floor for Hecate's embedded Codex
 adapter path. It keeps the alpha.33 behavior, pins the shared ACP adapter kit to
 its first stable release, and documents draft ACP RFD work as non-blocking
 future work.
@@ -216,7 +216,7 @@ to verify a local stdio MCP echo tool call, delimits Claude's variadic
 `--mcp-config` option before prompt text, and preserves provider tool metadata
 on matching result updates.
 Claude Code adapter `v0.1.0` remains the minimum stable compatibility baseline
-for Hecate's bundled Claude Code adapter path. Hecate embeds Claude Code adapter
+for Hecate's embedded Claude Code adapter path. Hecate embeds Claude Code adapter
 `v0.3.1`, which replaces the early fixed suggestion list with a live Claude CLI
 command catalog: the adapter discovers a provider-owned bare/minimal inventory
 and publishes it as an ACP replacement snapshot. Hecate therefore does not
@@ -234,6 +234,52 @@ non-blocking future work.
 | Claude Code    | Built-in adapter -> `claude` CLI | Operator-owned Claude Code login visible to Claude Code    | `ANTHROPIC_API_KEY`                              |
 | Cursor Agent   | `cursor-agent acp`               | Operator-owned Cursor Agent auth visible to `cursor-agent` | `CURSOR_API_KEY`                                 |
 | Grok Build     | `grok agent ... stdio`           | Operator-owned Grok login visible to `grok`                | `XAI_API_KEY` or Hecate's `PROVIDER_XAI_API_KEY` |
+
+## Install and discovery
+
+Hecate embeds its owned ACP integrations, not a desktop copy of each provider
+CLI. Bare-binary, source, web, and desktop deployments use the provider CLI
+installed on the runtime host. The published Docker runtime image is the
+exception: it includes pinned provider CLIs so container deployments have a
+complete runtime image.
+
+Catalog discovery first resolves the provider command from the Hecate process's
+`PATH`, then checks a small allowlist of standard installer locations:
+
+| External agent | Additional locations Hecate recognizes                                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex          | `CODEX_INSTALL_DIR`, `~/.local/bin`, Homebrew/Linuxbrew, Volta, Unix npm/pnpm, and the Codex/ChatGPT macOS app bundles; on Windows, the native installer directory and standard WinGet links |
+| Claude Code    | `~/.local/bin`, legacy `~/.claude/local`, Homebrew/Linuxbrew, Volta, and Unix npm/pnpm locations; on Windows, the native installer directory and standard WinGet links                       |
+| Cursor Agent   | `~/.local/bin`; arbitrary versioned locations remain available through `PATH`                                                                                                                |
+| Grok Build     | `GROK_BIN_DIR`, `~/.grok/bin`, `~/.local/bin`, `/usr/local/bin`, and the system or per-user macOS Grok Build app bundle                                                                      |
+
+Package managers and version managers with arbitrary per-version directories
+remain supported when their active command is on `PATH`. Hecate deliberately
+does not discover the generic `agent` aliases published by Cursor and Grok,
+because that name does not identify one provider unambiguously.
+
+Environment-provided install roots must be absolute; unset, blank, relative, or
+unknown placeholders are ignored. Hecate preserves the selected invocation
+path, resolves any symlink only to validate that its target is a regular
+executable file, and launches through the original path so `argv[0]`-dispatch
+version managers continue to work.
+
+Windows external agents currently require a native `.exe`. Hecate rejects
+`.cmd`, `.bat`, `.ps1`, and other launcher forms because direct ACP launch does
+not invoke a command shell or accept an unmeasured wrapper/interpreter layer.
+Native direct peers are started suspended and assigned to Hecate's kill-on-close
+Job Object before provider code runs. The current Cursor Agent Windows installer
+exposes only a `.cmd` wrapper, so Cursor Agent is not yet supported by Hecate on
+Windows. Other agents remain available when their vendor supplies a native
+Windows executable.
+
+`GET /hecate/v1/agent-adapters` and the compatibility `GET
+/hecate/v1/agent-adapters/{id}/health` only resolve and inspect these paths.
+They do not run `--version`, auth commands, or ACP. The explicit **Check**
+action and `POST /hecate/v1/agent-adapters/{id}/probe` execute the selected app,
+perform ACP `Initialize`, and open a temporary session. Authentication, logout,
+session preparation, and Chat turns also execute it. Opening Chats or
+Connections no longer starts a newly discovered executable automatically.
 
 ## Hecate ACP Capability Contract
 
@@ -263,8 +309,9 @@ The Docker runtime image includes the supported agent CLIs, while the
 Hecate-owned ACP adapters are compiled into the Hecate binary. Local/self-host
 Docker deployments can therefore use External Agents without installing extra
 adapter executables at runtime. Bare binary and desktop deployments use the
-vendor agent CLIs installed on the operator's machine. Local launches resolve each provider CLI from the
-adapter catalog's direct command and trusted candidate paths. Hecate prepends
+vendor agent CLIs installed on the operator's machine. Local launches resolve
+each provider CLI from the adapter catalog's direct command and allowlisted
+standard locations. Hecate prepends
 only the resolved executable directory to the adapter's sanitized `PATH`, so a
 desktop launch can use common per-user installations such as `~/.local/bin` or
 `~/.volta/bin` without importing a login shell environment. Remote runtimes keep
@@ -454,12 +501,12 @@ Check discovery:
 curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 ```
 
-Discovery reports command availability, tested version range, and lightweight
-auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
-For built-in adapters, Hecate reports both versions: `adapter_version` for the
-compiled Go module and `agent_version` for the underlying vendor CLI (`codex`
-or `claude`). Direct ACP CLIs report their executable version as the agent
-version when available.
+Discovery reports passive command availability, selected path, static tested
+range, and `auth_status: unknown`; it does not claim the app is ready. The
+explicit probe response adds live auth/capability state. For built-in adapters,
+that response can report `adapter_version` for the compiled Go module and
+`agent_version` for the underlying vendor CLI. Direct ACP CLIs report their
+executable version as the agent version when available.
 
 Manual setup stays in the upstream CLIs:
 
@@ -477,8 +524,9 @@ finish startup or ACP session creation inside the probe window. Hecate did not
 send a prompt; close any stuck browser or login prompt, fix the CLI if needed,
 then retry from Connections.
 
-Connections refreshes agent readiness when opened. You can also
-call the probe endpoint for a full spawn + ACP handshake + no-op session check:
+Connections leaves newly discovered apps untested until the operator chooses
+**Check**. The same explicit probe is available through the API for a full
+spawn + ACP handshake + no-op session check:
 
 ![Connections — external agent readiness checks and durable approval grants](../screenshots/connections-external-agents.png)
 
@@ -501,8 +549,9 @@ Claude Code may open a browser or terminal login.
 
 Codex and Claude Code use Go ACP adapter libraries compiled into Hecate and
 backed by the operator's local vendor CLI. Cursor and Grok ship ACP mode inside
-the vendor CLI itself. Only the selected vendor CLI must be installed and
-visible on `PATH`. Hecate does not pin an external-agent model by default. When
+the vendor CLI itself. Only the selected vendor CLI must be installed in a
+recognized standard location or visible on `PATH`. Hecate does not pin an
+external-agent model by default. When
 an ACP agent reports model state, the agent-provided model list and current
 model become the chat model control.
 
@@ -519,11 +568,11 @@ authenticated vendor CLI, verifies a minimal text turn, then verifies that the
 same prepared native session can read a privately staged text-file input. It may
 consume provider quota. For Claude Code, it also verifies that Hecate receives
 the provider-owned command-catalog replacement snapshot. Discovery is
-best-effort and an explicit empty catalog is valid; automatic discovery uses
-Claude Code's safe bare/minimal startup boundary, not an unrestricted
-workspace/plugin inventory.
+best-effort and an explicit empty catalog is valid; command-catalog discovery
+inside that explicit prepared session uses Claude Code's safe bare/minimal
+startup boundary, not an unrestricted workspace/plugin inventory.
 
-For the direct ACP implementations bundled with Cursor and Grok, operators can
+For the direct ACP implementations exposed by Cursor and Grok, operators can
 run `just test-acp-real-direct` (or pass one adapter id as its argument). The
 opt-in smoke starts the installed vendor CLI, checks Hecate's live probe and
 session preparation, sends a minimal text turn, then verifies that the same
@@ -602,8 +651,9 @@ login. Hosted adapter probes and chat starts still run ACP `Initialize`, but
 they authenticate the underlying vendor CLI through the remote-safe environment
 Hecate passed to the vendor CLI process.
 
-If discovery cannot find a direct CLI adapter, install the vendor CLI and
-restart Hecate from an environment where the command is on `PATH`. If a turn
+If discovery cannot find a direct CLI adapter, install the vendor CLI in a
+recognized standard location or restart Hecate from an environment where the
+command is on `PATH`. If a turn
 fails with an authentication-required message, authenticate the CLI in the same
 environment that starts Hecate.
 
@@ -847,8 +897,8 @@ for display and audit. That means a broad `mcp` grant applies to MCP tool
 requests from that adapter within the chosen session/workspace/adapter scope,
 not only to one vendor-specific `server/tool` label.
 
-Adapter health probes also preserve ACP `initialize.agentInfo` in
-`/hecate/v1/agent-adapters/{id}/health` as `agent_info`. Connections renders
+Explicit adapter probes also preserve ACP `initialize.agentInfo` in the
+`POST /hecate/v1/agent-adapters/{id}/probe` health payload as `agent_info`. Connections renders
 that live self-reported agent name/version alongside the static binary version
 checks so operators can confirm which ACP implementation answered the handshake.
 When a chat session is prepared or a turn runs, Hecate stores the same

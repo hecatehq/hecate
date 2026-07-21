@@ -141,22 +141,11 @@ export function resolveExternalAgentReadiness(
     loginCommand,
     setupHint,
     signInHint,
-    detail: "Run a quick check to verify local auth before the first prompt.",
+    detail: "Checking starts the installed app and opens a temporary ACP session.",
     authStatus,
     authError,
     verifiedByProbe,
   };
-}
-
-export function shouldAutoProbeExternalAgentReadiness(
-  adapter: AgentAdapterRecord,
-  health: AgentAdapterHealthRecord | null,
-  loading: boolean,
-  remoteRuntime: boolean,
-): boolean {
-  if (!adapter.available || health || loading) return false;
-  if (remoteRuntime && adapter.remote_credential_ok !== true) return false;
-  return adapter.auth_status === "ok" || adapter.auth_status === "unknown" || !adapter.auth_status;
 }
 
 export function externalAgentLoginCommand(adapter: AgentAdapterRecord): string {
@@ -191,21 +180,21 @@ export function externalAgentSignInHint(adapter: AgentAdapterRecord): string {
 
 export function externalAgentSetupHint(adapter: AgentAdapterRecord): string {
   if (adapter.id === "codex") {
-    return "Install Codex CLI, ensure codex is on PATH, then run codex login. The ACP adapter is built into Hecate.";
+    return "Install Codex separately, then run codex login. Hecate checks official CLI locations, supported macOS app bundles, and PATH; the ACP adapter is built in.";
   }
   if (adapter.id === "claude_code") {
-    return "Install Claude Code, ensure claude is on PATH, then run claude /login. The ACP adapter is built into Hecate.";
+    return "Install Claude Code separately, then run claude /login. Hecate checks standard install locations and PATH; the ACP adapter is built in.";
   }
   if (adapter.id === "cursor_agent") {
-    return "Install Cursor's command-line agent, confirm cursor-agent is on PATH, then run cursor-agent login.";
+    return "Install Cursor's command-line agent separately, then run cursor-agent login. Hecate checks its standard Unix location and PATH. The current Windows .cmd-only launcher is not yet supported.";
   }
   if (adapter.id === "grok_build") {
-    return "Install the Grok CLI, confirm grok is on PATH, then run grok login. Grok Build also needs a model selected before send.";
+    return "Install the Grok CLI separately, then run grok login. Hecate checks standard CLI locations, the macOS Grok Build app, and PATH. Grok Build also needs a model selected before send.";
   }
   if (adapter.docs_url) {
-    return `Install ${adapter.name} and ensure ${adapter.command} is on PATH. Setup docs: ${adapter.docs_url}`;
+    return `Install ${adapter.name} separately. Hecate checks standard install locations and PATH. Setup docs: ${adapter.docs_url}`;
   }
-  return `Install ${adapter.name} and ensure ${adapter.command} is on PATH.`;
+  return `Install ${adapter.name} separately and make ${adapter.command} available on PATH.`;
 }
 
 export function shouldShowProbeError(health: AgentAdapterHealthRecord): boolean {
