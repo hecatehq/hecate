@@ -405,7 +405,8 @@ describe("TranscriptMessageRow", () => {
 
     const button = screen.getByRole("button", { name: "Read response aloud" });
     expect(button).not.toBeDisabled();
-    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).not.toHaveAttribute("aria-pressed");
     expect(button).toHaveAccessibleDescription(
       "Install or enable a local system voice to use read aloud.",
     );

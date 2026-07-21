@@ -313,8 +313,7 @@ export function TranscriptMessageRow({
               {showReadAloud && readAloud && (
                 <button
                   aria-label="Read response aloud"
-                  aria-pressed={readAloud.active}
-                  aria-disabled={readAloudUnavailable || undefined}
+                  aria-pressed={readAloudUnavailable ? undefined : readAloud.active}
                   aria-describedby={readAloudUnavailable ? readAloudDescriptionID : undefined}
                   className="btn btn-ghost btn-sm transcript-message-read-aloud"
                   onClick={() => readAloud.onToggle(id, content)}

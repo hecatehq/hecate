@@ -688,15 +688,20 @@ boundaries when changing text-to-speech:
   response, mutable streaming text, tool activity, or status changes;
 - derive speech text from the persisted visible assistant `content`, not DOM
   `textContent`. Flatten Markdown deterministically, speak link labels rather
-  than destinations, retain inline code, mark fenced code as omitted, and
-  exclude attachments, MCP Apps, activities, diffs, raw output, timing, usage,
-  context packets, and debug bundles;
+  than destinations, retain inline code and literal JSX/HTML-like source and
+  entity spelling, replace URI-shaped visible values—including labels, inline
+  code, and tag-like attribute values—with “link,” mark fenced code as omitted,
+  and exclude attachments, MCP Apps, activities, diffs, raw output, timing,
+  usage, context packets, and debug bundles. Keep link parsing in the shared
+  Markdown parser; do not add a speech-only Markdown grammar or interpret
+  visible tag-like source as HTML;
 - keep one controller for the transcript because `speechSynthesis` has a
   page-global queue. Starting another response cancels the old generation;
   ignore late completion/error events from cancelled utterances and cancel on
   chat switch, message invalidation, or unmount;
-- bound the total text and each utterance. Preserve the audible truncation
-  notice rather than silently stopping a long answer;
+- bound source parsing, total speech text, and each utterance. If a source bound
+  cuts a Markdown destination, omit from that unmatched link start. Preserve
+  the audible truncation notice rather than silently stopping a long answer;
 - keep the stable Read aloud toggle label, `aria-pressed`, Stop tooltip/icon, a
   polite status announcement, keyboard-visible message actions, touch
   visibility, and reduced-motion behavior aligned. Text-to-speech needs no

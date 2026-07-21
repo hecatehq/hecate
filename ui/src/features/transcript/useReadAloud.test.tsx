@@ -83,6 +83,7 @@ describe("useReadAloud", () => {
     act(() => result.current.toggle("message-1", "Read **this**.\n\n```sh\nsecret\n```"));
 
     expect(result.current.readingMessageID).toBe("message-1");
+    expect(result.current.readingContent).toBe("Read **this**.\n\n```sh\nsecret\n```");
     expect(spoken).toHaveLength(1);
     expect(spoken[0].text).toBe("Read this.\n\nCode block omitted.");
     expect(spoken[0].voice?.name).toBe("System");
@@ -96,6 +97,7 @@ describe("useReadAloud", () => {
     act(() => result.current.toggle("message-1", "Response"));
 
     expect(result.current.readingMessageID).toBeNull();
+    expect(result.current.readingContent).toBeNull();
     expect(result.current.announcement).toBe("Read aloud stopped.");
     expect(cancelSpeech).toHaveBeenCalledTimes(2);
   });
@@ -104,9 +106,12 @@ describe("useReadAloud", () => {
     const { result } = renderHook(() => useReadAloud("chat-1"));
     act(() => result.current.toggle("message-1", "First"));
     const first = spoken[0];
+    const firstAnnouncement = result.current.announcement;
 
     act(() => result.current.toggle("message-2", "Second"));
     expect(result.current.readingMessageID).toBe("message-2");
+    expect(result.current.announcement).toBe("Reading selected response aloud.");
+    expect(result.current.announcement).not.toBe(firstAnnouncement);
 
     act(() => first.onend?.({} as SpeechSynthesisEvent));
     expect(result.current.readingMessageID).toBe("message-2");

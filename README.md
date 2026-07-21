@@ -368,9 +368,11 @@ or desktop webview reports an installed local text-to-speech voice. Hecate uses
 that explicit device voice without calling a model, adapter, or Hecate backend
 speech route, so the same control works for Hecate and every External Agent.
 Only the visible response text is spoken: Markdown formatting is flattened,
-fenced code is announced as omitted, and attachments, tool activity, diffs,
-raw output, context packets, and debug data stay out of the speech queue. A
-new read stops the previous one, and changing chats stops playback.
+literal JSX/HTML-like examples and entity spellings remain audible, URI-shaped
+text—including link labels, inline code, and tag-like attribute values—becomes
+“link,” fenced code is announced as omitted, and attachments, tool activity,
+diffs, raw output, context packets, and debug data stay out of the speech queue.
+A new read stops the previous one, and changing chats stops playback.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 

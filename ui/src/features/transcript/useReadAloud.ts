@@ -8,6 +8,7 @@ export type ReadAloudController = {
   announcement: string;
   availability: ReadAloudAvailability;
   disabledReason?: string;
+  readingContent: string | null;
   readingMessageID: string | null;
   stop: () => void;
   toggle: (messageID: string, content: string) => void;
@@ -18,12 +19,14 @@ export function useReadAloud(
   onVisibleError?: (message: string) => void,
 ): ReadAloudController {
   const [availability, setAvailability] = useState<ReadAloudAvailability>(initialAvailability);
+  const [readingContent, setReadingContent] = useState<string | null>(null);
   const [readingMessageID, setReadingMessageID] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const readingMessageIDRef = useRef<string | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const activeVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const generationRef = useRef(0);
+  const startAnnouncementVariantRef = useRef(false);
   const previousScopeKeyRef = useRef(scopeKey);
 
   const reportError = useCallback(
@@ -40,6 +43,7 @@ export function useReadAloud(
     utteranceRef.current = null;
     activeVoiceRef.current = null;
     readingMessageIDRef.current = null;
+    setReadingContent(null);
     setReadingMessageID(null);
     try {
       browserSpeechEnvironment()?.synthesis.cancel();
@@ -89,8 +93,14 @@ export function useReadAloud(
       }
       readingMessageIDRef.current = messageID;
       activeVoiceRef.current = voice;
+      setReadingContent(content);
       setReadingMessageID(messageID);
-      setAnnouncement("Reading response aloud.");
+      startAnnouncementVariantRef.current = !startAnnouncementVariantRef.current;
+      setAnnouncement(
+        startAnnouncementVariantRef.current
+          ? "Reading response aloud."
+          : "Reading selected response aloud.",
+      );
 
       const settleFailure = (message: string) => {
         if (generationRef.current !== generation) return;
@@ -98,6 +108,7 @@ export function useReadAloud(
         utteranceRef.current = null;
         activeVoiceRef.current = null;
         readingMessageIDRef.current = null;
+        setReadingContent(null);
         setReadingMessageID(null);
         reportError(message);
         try {
@@ -114,6 +125,7 @@ export function useReadAloud(
           utteranceRef.current = null;
           activeVoiceRef.current = null;
           readingMessageIDRef.current = null;
+          setReadingContent(null);
           setReadingMessageID(null);
           setAnnouncement("Finished reading response.");
           return;
@@ -207,6 +219,7 @@ export function useReadAloud(
     announcement,
     availability,
     disabledReason: availabilityReason(availability),
+    readingContent,
     readingMessageID,
     stop,
     toggle,

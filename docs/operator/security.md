@@ -273,8 +273,28 @@ active sidecar origin while the owned gateway child is still running; it denies
 camera, mismatched-origin, stale-sidecar, and pre-readiness requests. macOS
 declares native Microphone and Speech Recognition purpose strings; denied
 browser-managed recognition may require enabling Hecate in both macOS privacy
-panes. Windows retains WebView2's site permission prompt. Text-to-speech/read-aloud is separate from these input
-routes.
+panes. Windows retains WebView2's site permission prompt.
+Text-to-speech/read-aloud is separate from these input routes.
+
+### Read-aloud speech output
+
+Read aloud is operator-triggered client playback, not a model or provider
+route. Hecate requires a browser-reported voice with `localService=true`,
+assigns that voice explicitly, and refuses remote-only/default voices. Response
+text does not cross the Hecate API, Tauri IPC, model gateway, or External Agent
+adapter for synthesis.
+
+The speech queue derives only from settled assistant `content`. It excludes
+attachments, tools and activity, diffs, raw output, context packets, and debug
+bundles; announces fenced code as omitted; suppresses Markdown destinations;
+replaces URI-shaped visible values with “link”; and bounds both source parsing
+and spoken output. For labelled Markdown links, Hecate speaks the non-URI label.
+Literal JSX/HTML-like examples and entity spelling outside URI candidates
+remain audible because Hecate renders them as ordinary visible text rather than
+HTML.
+Navigation, message mutation, voice loss, errors, and replacement reads cancel
+the prior queue. These controls reduce accidental disclosure but do not make
+audio private from people or recording devices near the operator.
 
 ### Chat attachment data
 
