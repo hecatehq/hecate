@@ -667,6 +667,53 @@ generation fence for the provider branch only. Client Web Speech routes do not
 call it. The UI disclosure copy must not claim a `kind=local` custom URL is
 enforced loopback egress.
 
+## Chat read-aloud ownership
+
+`useReadAloud` owns the browser speech-synthesis lifecycle for Chat;
+`ChatTranscript` owns the single active response and
+`TranscriptMessageRow` only renders the accessible action. Keep these
+boundaries when changing text-to-speech:
+
+- treat read aloud as client playback, not a model, provider, preset, ACP, or
+  External Agent capability. Every settled assistant response reaches the same
+  shared transcript path;
+- require both Web Speech synthesis and an explicit voice whose
+  `localService` property is `true`. Never leave `utterance.voice` unset or
+  silently select a remote voice. Explain how to install or enable a system
+  voice when none is available;
+- revalidate the selected local voice before every chunk and after
+  `voiceschanged`. If that exact voice identity disappears, stop and report it;
+  never switch an active response to another voice or browser default;
+- start only from the operator's **Read aloud** action. Do not auto-read a new
+  response, mutable streaming text, tool activity, or status changes;
+- derive speech text from the persisted visible assistant `content`, not DOM
+  `textContent`. Flatten Markdown deterministically, speak link labels rather
+  than destinations, retain inline code, mark fenced code as omitted, and
+  exclude attachments, MCP Apps, activities, diffs, raw output, timing, usage,
+  context packets, and debug bundles;
+- keep one controller for the transcript because `speechSynthesis` has a
+  page-global queue. Starting another response cancels the old generation;
+  ignore late completion/error events from cancelled utterances and cancel on
+  chat switch, message invalidation, or unmount;
+- bound the total text and each utterance. Preserve the audible truncation
+  notice rather than silently stopping a long answer;
+- keep the stable Read aloud toggle label, `aria-pressed`, Stop tooltip/icon, a
+  polite status announcement, keyboard-visible message actions, touch
+  visibility, and reduced-motion behavior aligned. Text-to-speech needs no
+  microphone permission;
+- route host/voice failures through the existing visible Hecate notice. When
+  that alert handles the error, clear the read-aloud polite live region so
+  assistive technology receives exactly one announcement;
+- mock both `speechSynthesis` and `SpeechSynthesisUtterance` in focused tests.
+  Cover remote-only/unsupported hosts, voice refresh, replacement, Stop,
+  generation races, chat changes, Markdown normalization, and Hecate plus
+  External Agent integration. Native real-machine voice smoke remains a
+  separate platform check.
+
+Voice/rate selection, pause/resume, word highlighting, automatic playback,
+Task Detail narration, and native Rust fallbacks are outside the initial Chat
+control. Add them only with explicit UX and platform contracts.
+
 ## Build / test commands
 
 | Command                                         | What it does                                        | When to use                                      |
