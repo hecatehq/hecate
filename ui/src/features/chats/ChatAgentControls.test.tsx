@@ -42,6 +42,7 @@ describe("NewChatAgentButton", () => {
     expect(status.label).toBe("available");
     expect(status.ready).toBe(true);
     expect(status.title).toContain("config is present");
+    expect(status.title).toContain("Starting a chat launches it");
   });
 
   it("labels passive discovery available and explains launch-time ACP verification", () => {

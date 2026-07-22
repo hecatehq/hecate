@@ -149,8 +149,8 @@ export function resolveExternalAgentReadiness(
   if (health?.status === "not_installed" || isSetupProbe(health)) {
     return {
       kind: "setup",
-      tone: "muted",
-      label: "not configured",
+      tone: "amber",
+      label: "diagnostic",
       needsRepair: true,
       launchBlocked,
       loginCommand,

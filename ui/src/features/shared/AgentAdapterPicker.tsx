@@ -84,7 +84,10 @@ function adapterPickerDiagnostic(
   }
   if (adapter.auth_status === "billing") {
     return {
-      title: adapter.auth_error || "Billing or usage limit requires attention",
+      title: adapterAdvisoryTitle(
+        adapter,
+        adapter.auth_error || "Billing or usage limit requires attention.",
+      ),
       iconColor: "var(--amber)",
       chipLabel: "billing",
       chipColor: "var(--amber)",
@@ -92,7 +95,7 @@ function adapterPickerDiagnostic(
   }
   if (adapter.auth_status === "unauthenticated") {
     return {
-      title: adapter.auth_error || "Authentication required",
+      title: adapterAdvisoryTitle(adapter, adapter.auth_error || "Authentication may be required."),
       iconColor: "var(--amber)",
       chipLabel: "auth",
       chipColor: "var(--amber)",
@@ -100,9 +103,7 @@ function adapterPickerDiagnostic(
   }
   if (adapter.auth_status === "unknown") {
     return {
-      title:
-        adapter.auth_error ||
-        "Agent found. Starting a chat launches it and verifies the ACP connection.",
+      title: adapterAvailableTitle(adapter, adapter.auth_error),
       iconColor: "var(--t3)",
       chipLabel: "available",
       chipColor: "var(--t3)",
@@ -110,7 +111,10 @@ function adapterPickerDiagnostic(
   }
   if (adapter.auth_status && adapter.auth_status !== "ok") {
     return {
-      title: adapter.auth_error || `Auth status: ${adapter.auth_status}`,
+      title: adapterAdvisoryTitle(
+        adapter,
+        adapter.auth_error || `Auth status: ${adapter.auth_status}.`,
+      ),
       iconColor: "var(--amber)",
       chipLabel: "auth",
       chipColor: "var(--amber)",
@@ -139,14 +143,19 @@ function adapterCheckedTitle(adapter: AgentAdapterRecord, path: string | undefin
   return `The last ${adapter.name} diagnostic passed startup, auth, and ACP session creation. Starting a chat still performs a fresh launch.${suffix}`;
 }
 
-function adapterAvailableTitle(adapter: AgentAdapterRecord): string {
+function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): string {
   const command = adapter.path || adapter.command;
   const suffix = command ? ` Command: ${command}` : "";
-  return `${adapter.name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+  const action = `${adapter.name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+  return detail ? `${detail} ${action}` : action;
 }
 
 function adapterDiagnosticTitle(adapter: AgentAdapterRecord, detail: string): string {
   return `The last ${adapter.name} diagnostic needs attention. Starting a chat retries the current ACP launch; diagnostics in Connections are optional. ${detail}`;
+}
+
+function adapterAdvisoryTitle(adapter: AgentAdapterRecord, detail: string): string {
+  return `${detail} Starting a chat retries ${adapter.name}; diagnostics in Connections are optional.`;
 }
 
 export function AgentAdapterPicker({
