@@ -58,6 +58,24 @@ export function resolveChatSetupRepairState({
   selectedAgentReadiness?: ExternalAgentReadiness;
 }): ChatSetupRepairState | null {
   if (target === "external_agent") {
+    // A hosted missing-credential response is also `available: false`. Route
+    // that real wire shape to its credential repair before the generic local
+    // executable/install fallback.
+    if (
+      externalAgentSetupRequired &&
+      selectedAgentReadiness?.kind === "sign_in" &&
+      selectedAgentReadiness.launchBlocked
+    ) {
+      const agent = selectedAgentName || "Selected agent";
+      return {
+        kind: "external_agent_setup",
+        title: externalAgentSetupTitle(agent, selectedAgentReadiness),
+        message: externalAgentSetupMessage(selectedAgentID, agent, selectedAgentReadiness),
+        action: "open_agent_setup",
+        actionLabel: "Open setup",
+        tone: "amber",
+      };
+    }
     if (!anyAgentAvailable || !selectedAgentAvailable) {
       const agent = selectedAgentName || "Selected agent";
       return {

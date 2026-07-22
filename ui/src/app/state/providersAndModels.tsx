@@ -132,6 +132,26 @@ function resolve<T>(prev: T, next: SetStateAction<T>): T {
   return typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
 }
 
+function applyAgentAdapterDiagnostic(
+  current: AgentAdapterRecord,
+  diagnostic: AgentAdapterRecord,
+): AgentAdapterRecord {
+  return {
+    ...diagnostic,
+    // A probe can enrich auth, version, and capability metadata, but its
+    // disposable process result must not replace the passive catalog fields
+    // that control and disclose a later launch. Chat creation resolves these
+    // fields again and performs the authoritative ACP handshake.
+    available: current.available,
+    status: current.status,
+    path: current.path,
+    error: current.error,
+    remote_credential_mode: current.remote_credential_mode,
+    remote_credential_ok: current.remote_credential_ok,
+    remote_credential_hint: current.remote_credential_hint,
+  };
+}
+
 function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndModelsState {
   switch (action.type) {
     case "providers/set":
@@ -305,7 +325,11 @@ export function ProvidersAndModelsProvider({
         dispatch({
           type: "agentAdapters/set",
           next: (current) =>
-            current.map((item) => (item.id === adapterID ? payload.data.adapter : item)),
+            current.map((item) =>
+              item.id === adapterID
+                ? applyAgentAdapterDiagnostic(item, payload.data.adapter)
+                : item,
+            ),
         });
         return { ok: true, health: payload.data.health };
       } catch (error) {

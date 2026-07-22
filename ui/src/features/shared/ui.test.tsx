@@ -1214,6 +1214,41 @@ describe("AgentAdapterPicker", () => {
     expect(cursor).toHaveAttribute("aria-disabled", "true");
   });
 
+  it("shows hosted credential repair for the unavailable remote wire shape", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude",
+            available: false,
+            status: "missing",
+            cost_mode: "external",
+            supports_authenticate: false,
+            supports_logout: false,
+            auth_status: "unauthenticated",
+            auth_error: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+            remote_credential_ok: false,
+            remote_credential_hint: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const claude = within(menu).getByText("Claude Code").closest("button") as HTMLElement;
+    expect(within(claude).getByText("auth")).toBeTruthy();
+    expect(claude).toHaveAttribute("title", expect.stringContaining("ANTHROPIC_API_KEY"));
+    expect(claude).toHaveAttribute("aria-disabled", "true");
+    expect(claude.title).not.toContain("command was not found");
+  });
+
   it("uses useful ready tooltips instead of showing only the executable path", async () => {
     const user = userEvent.setup();
     render(

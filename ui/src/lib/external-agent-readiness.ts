@@ -58,23 +58,9 @@ export function resolveExternalAgentReadiness(
   const visibleProbeError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
 
-  if (!adapter.available) {
-    return {
-      kind: "setup",
-      tone: "muted",
-      label: "not configured",
-      needsRepair: true,
-      launchBlocked,
-      loginCommand,
-      setupHint,
-      signInHint,
-      detail: adapter.error || setupHint,
-      authStatus,
-      authError,
-      verifiedByProbe,
-    };
-  }
-
+  // Remote runtimes report a missing required credential as unavailable too.
+  // Preserve the more actionable credential diagnosis instead of presenting
+  // that wire shape as a missing local executable.
   if (adapter.remote_credential_ok === false) {
     const remoteCredentialHint =
       adapter.remote_credential_hint ||
@@ -90,6 +76,23 @@ export function resolveExternalAgentReadiness(
       setupHint,
       signInHint: remoteCredentialHint,
       detail: remoteCredentialHint,
+      authStatus,
+      authError,
+      verifiedByProbe,
+    };
+  }
+
+  if (!adapter.available) {
+    return {
+      kind: "setup",
+      tone: "muted",
+      label: "not configured",
+      needsRepair: true,
+      launchBlocked,
+      loginCommand,
+      setupHint,
+      signInHint,
+      detail: adapter.error || setupHint,
       authStatus,
       authError,
       verifiedByProbe,

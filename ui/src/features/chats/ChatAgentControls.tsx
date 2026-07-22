@@ -73,9 +73,7 @@ export function NewChatAgentButton({
     effectiveSelected.id === "hecate"
       ? undefined
       : adapters.find((item) => item.id === effectiveSelected.id);
-  const effectiveHealth =
-    effectiveSelected.id === "hecate" ? undefined : healthByID.get(effectiveSelected.id);
-  const executablePath = externalAgentExecutablePath(effectiveAdapter, effectiveHealth);
+  const executablePath = externalAgentExecutablePath(effectiveAdapter);
   const startsExternalAgent = effectiveSelected.id !== "hecate";
   const externalAgentLaunchDisclosure = startsExternalAgent
     ? `Starts ${effectiveSelected.label}${executablePath ? ` from ${executablePath}` : ""} and opens an ACP session`
@@ -285,11 +283,11 @@ export function NewChatAgentButton({
   );
 }
 
-function externalAgentExecutablePath(
-  adapter: AgentAdapterRecord | undefined,
-  health: AgentAdapterHealthRecord | undefined,
-): string {
-  const path = health?.path?.trim() || adapter?.path?.trim() || "";
+function externalAgentExecutablePath(adapter: AgentAdapterRecord | undefined): string {
+  // Launch disclosure must describe current passive discovery. A diagnostic
+  // path is historical evidence and can differ from the executable that the
+  // authoritative chat launch resolves now.
+  const path = adapter?.path?.trim() || "";
   return path.startsWith("dev-override://") ? "" : path;
 }
 
@@ -416,15 +414,7 @@ export function chatAgentOptionStatus(
     return { label: "local", color: "var(--teal)", title: "Hecate Chat", ready: true };
   }
   const launchReady = !resolveExternalAgentReadiness(adapter, health ?? null).launchBlocked;
-  if (!adapter?.available) {
-    return {
-      label: "setup",
-      color: "var(--t3)",
-      title: adapterSetupTitle(optionID, adapter, adapter?.error),
-      ready: launchReady,
-    };
-  }
-  if (adapter.remote_credential_ok === false) {
+  if (adapter?.remote_credential_ok === false) {
     return {
       label: "auth",
       color: "var(--amber)",
@@ -433,6 +423,14 @@ export function chatAgentOptionStatus(
         adapter,
         adapter.remote_credential_hint || adapter.auth_error,
       ),
+      ready: launchReady,
+    };
+  }
+  if (!adapter?.available) {
+    return {
+      label: "setup",
+      color: "var(--t3)",
+      title: adapterSetupTitle(optionID, adapter, adapter?.error),
       ready: launchReady,
     };
   }

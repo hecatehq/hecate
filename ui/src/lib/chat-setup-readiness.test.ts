@@ -190,6 +190,39 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
+  it("routes the hosted missing-credential wire shape before generic unavailability", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentID: "claude_code",
+      selectedAgentName: "Claude Code",
+      selectedAgentAvailable: false,
+      anyAgentAvailable: false,
+      externalAgentSetupRequired: true,
+      selectedAgentReadiness: {
+        kind: "sign_in",
+        tone: "amber",
+        label: "credential",
+        needsRepair: true,
+        launchBlocked: true,
+        loginCommand: "claude /login",
+        setupHint: "Install Claude Code separately.",
+        signInHint: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        detail: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        authStatus: "unauthenticated",
+        authError: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        verifiedByProbe: false,
+      },
+    });
+
+    expect(repair).toMatchObject({
+      kind: "external_agent_setup",
+      title: "Set up Claude Code",
+      message: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+      action: "open_agent_setup",
+    });
+  });
+
   it("uses Grok Build setup copy that mentions sign-in and model selection", () => {
     const repair = resolveChatSetupRepairState({
       ...base,

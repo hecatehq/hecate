@@ -804,7 +804,11 @@ function AdapterStatusRow({
     );
   const visibleHealthError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
-  const selectedPath = health?.path || adapter.path || "";
+  const selectedPath = adapter.path || "";
+  const diagnosticPath =
+    health?.path && health.path !== selectedPath && !isDevOverridePath(health.path)
+      ? health.path
+      : "";
   const detail = adapterStatusDetail(readiness, visibleHealthError);
   const showHealthDetail = Boolean(
     detail && health && !showLocalAuthSetup && (readiness.detail || visibleHealthError),
@@ -926,6 +930,11 @@ function AdapterStatusRow({
           {showSelectedPath && (
             <span>
               path <span style={{ color: "var(--t1)" }}>{selectedPath}</span>
+            </span>
+          )}
+          {diagnosticPath && (
+            <span>
+              diagnostic path <span style={{ color: "var(--t1)" }}>{diagnosticPath}</span>
             </span>
           )}
           {showHealthDuration && health?.duration_ms !== undefined && (

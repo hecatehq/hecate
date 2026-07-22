@@ -840,7 +840,7 @@ func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err e
 	if errors.Is(err, context.DeadlineExceeded) {
 		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
 			UserMessage:    "The external agent did not respond while starting the session.",
-			OperatorAction: "Try again, or test the adapter from Settings if it keeps hanging.",
+			OperatorAction: "Retry New chat. If it keeps hanging, optionally run diagnostics in Connections; diagnostics start the app and open a temporary ACP session without sending a prompt.",
 		})
 		return
 	}

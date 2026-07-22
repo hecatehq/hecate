@@ -207,6 +207,73 @@ describe("probeAgentAdapter", () => {
     });
     expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
   });
+
+  it("keeps passive launch discovery when a disposable diagnostic cannot resolve the app", async () => {
+    probeAgentAdapterMock.mockResolvedValueOnce({
+      object: "agent_adapter_probe",
+      data: {
+        adapter: {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex",
+          available: false,
+          status: "missing",
+          error: "codex command was not found",
+          auth_status: "unknown",
+          supports_authenticate: false,
+          supports_logout: false,
+        },
+        health: {
+          adapter_id: "codex",
+          status: "not_installed",
+          stage: "resolve",
+          error: "codex command was not found",
+          duration_ms: 12,
+        },
+      },
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider
+          initialState={{
+            agentAdapters: [
+              {
+                id: "codex",
+                name: "Codex",
+                kind: "acp",
+                command: "codex",
+                available: true,
+                status: "available",
+                path: "/Applications/Codex.app/Contents/Resources/codex",
+                auth_status: "unknown",
+                supports_authenticate: false,
+                supports_logout: false,
+              },
+            ],
+          }}
+        >
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+
+    await act(async () => {
+      await result.current.actions.probeAgentAdapter("codex");
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+    });
+    expect(result.current.state.agentAdapters[0]?.error).toBeUndefined();
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "not_installed",
+      stage: "resolve",
+    });
+  });
 });
 
 describe("verifyModelToolSupport", () => {
