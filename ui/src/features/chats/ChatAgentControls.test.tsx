@@ -39,12 +39,12 @@ describe("NewChatAgentButton", () => {
       undefined,
     );
 
-    expect(status.label).toBe("check");
+    expect(status.label).toBe("available");
     expect(status.ready).toBe(true);
     expect(status.title).toContain("config is present");
   });
 
-  it("explains ready state instead of using a raw adapter path as the tooltip", () => {
+  it("labels passive discovery available and explains launch-time ACP verification", () => {
     const discovered = chatAgentOptionStatus(
       "cursor_agent",
       makeAdapter({
@@ -55,9 +55,10 @@ describe("NewChatAgentButton", () => {
       }),
       undefined,
     );
-    expect(discovered.label).toBe("ready");
+    expect(discovered.label).toBe("available");
     expect(discovered.title).toContain("Cursor Agent is available");
-    expect(discovered.title).toContain("full ACP readiness check");
+    expect(discovered.title).toContain("Starting a chat launches it");
+    expect(discovered.title).toContain("verifies the ACP connection");
     expect(discovered.title).toContain("/Users/test/.local/bin/cursor-agent");
 
     const probed = chatAgentOptionStatus(
@@ -71,7 +72,107 @@ describe("NewChatAgentButton", () => {
         duration_ms: 80,
       },
     );
-    expect(probed.title).toContain("verified agent startup, auth, and ACP session creation");
+    expect(probed.label).toBe("checked");
+    expect(probed.title).toContain("last Cursor Agent diagnostic passed");
+    expect(probed.title).toContain("fresh launch");
+  });
+
+  it.each([
+    {
+      status: "auth_required",
+      stage: "initialize",
+      hint: "Run cursor-agent login.",
+      expectedLabel: "auth",
+    },
+    {
+      status: "error",
+      stage: "initialize",
+      hint: "The last diagnostic failed.",
+      expectedLabel: "issue",
+    },
+    {
+      status: "not_installed",
+      stage: "resolve",
+      hint: "The executable was missing during the last diagnostic.",
+      expectedLabel: "diagnostic",
+    },
+  ])(
+    "keeps a discovered agent selectable after a cached $status diagnostic",
+    ({ status, stage, hint, expectedLabel }) => {
+      const result = chatAgentOptionStatus(
+        "cursor_agent",
+        makeAdapter({
+          id: "cursor_agent",
+          name: "Cursor Agent",
+          command: "cursor-agent",
+          available: true,
+        }),
+        {
+          adapter_id: "cursor_agent",
+          status,
+          stage,
+          hint,
+          duration_ms: 80,
+        },
+      );
+
+      expect(result).toMatchObject({
+        label: expectedLabel,
+        ready: true,
+      });
+    },
+  );
+
+  it("keeps current passive discovery authoritative over a stale ready diagnostic", () => {
+    const result = chatAgentOptionStatus(
+      "cursor_agent",
+      makeAdapter({
+        id: "cursor_agent",
+        name: "Cursor Agent",
+        command: "cursor-agent",
+        available: false,
+        status: "missing",
+      }),
+      {
+        adapter_id: "cursor_agent",
+        status: "ready",
+        stage: "session",
+        duration_ms: 80,
+      },
+    );
+
+    expect(result).toMatchObject({
+      label: "setup",
+      ready: false,
+    });
+  });
+
+  it("blocks launch when the current remote credential gate fails", () => {
+    const result = chatAgentOptionStatus(
+      "cursor_agent",
+      makeAdapter({
+        id: "cursor_agent",
+        name: "Cursor Agent",
+        command: "cursor-agent",
+        remote_credential_mode: "api_key",
+        remote_credential_ok: false,
+        remote_credential_hint: "Set CURSOR_API_KEY for the runtime.",
+      }),
+      {
+        adapter_id: "cursor_agent",
+        status: "ready",
+        stage: "session",
+        duration_ms: 80,
+      },
+    );
+
+    expect(result).toMatchObject({
+      label: "auth",
+      ready: false,
+    });
+    expect(result.title).toContain("Set CURSOR_API_KEY");
+    expect(result.title).toContain("required remote credential");
+    expect(result.title).not.toContain("cursor-agent login");
   });
 
   it("preserves an external-agent selection while the agent catalog loads", () => {
@@ -147,7 +248,7 @@ describe("NewChatAgentButton", () => {
     });
   });
 
-  it("falls back to a normal Hecate create button when the remembered agent is unavailable", async () => {
+  it("does not replace a remembered agent because its cached diagnostic failed", async () => {
     const onChange = vi.fn();
     const onCreate = vi.fn();
     render(
@@ -182,13 +283,13 @@ describe("NewChatAgentButton", () => {
       />,
     );
 
-    const create = screen.getByRole("button", { name: "New Hecate chat" });
+    const create = screen.getByRole("button", { name: "New Cursor Agent chat" });
     expect(create).not.toBeDisabled();
     expect(create).toHaveStyle({ color: "var(--accent-fg)" });
-    expect(onChange).toHaveBeenCalledWith("hecate");
+    expect(onChange).not.toHaveBeenCalled();
 
     await userEvent.setup().click(create);
-    expect(onCreate).toHaveBeenCalledWith("hecate");
+    expect(onCreate).toHaveBeenCalledWith("cursor_agent");
   });
 
   it("opens focused setup from disabled agent options", async () => {
@@ -201,7 +302,8 @@ describe("NewChatAgentButton", () => {
             id: "cursor_agent",
             name: "Cursor Agent",
             command: "cursor-agent",
-            available: true,
+            available: false,
+            status: "missing",
           }),
         ]}
         healthByID={

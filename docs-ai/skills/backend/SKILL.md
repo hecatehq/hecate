@@ -382,10 +382,12 @@ path after callback success must carry the committed replacement id, including
 shutdown, so terminal settlement cannot restore stale durable state.
 
 Adapter action visibility uses a two-step contract. The built-in registry is
-the offline fallback for expected support; after an explicit probe,
-ACP `Initialize` capabilities are authoritative for that adapter row. Keep
-`ProbeResult.CapabilitiesKnown` explicit so a successful initialize with no
-auth/logout support can override stale static flags. Hecate's local
+the offline fallback for expected support; after optional diagnostics, that
+disposable session's ACP `Initialize` capabilities are authoritative for its
+Connections row only. They never authorize or block a later chat, whose fresh
+initialization is authoritative for the real session. Keep
+`ProbeResult.CapabilitiesKnown` explicit so a successful diagnostic initialize
+with no auth/logout support can override stale static flags in that row. Hecate's local
 `authenticate` endpoint calls ACP method `agent-login` after Initialize, so only
 that agent auth method should set `supports_authenticate=true`; other auth
 methods may be surfaced as non-secret health diagnostics without enabling the
@@ -897,7 +899,7 @@ When changing this path:
    consent, cooldown, and operator-control design.
 3. Keep `docs/runtime/external-agents.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
-   guardrails, auth/readiness probes, and troubleshooting.
+   guardrails, optional adapter diagnostics, and troubleshooting.
 4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
    persistence behavior. Guardrail changes should cover both the HTTP 422

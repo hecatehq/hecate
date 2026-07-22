@@ -86,8 +86,8 @@ func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "Open Connections") {
-		t.Fatalf("hint = %q, want Connections guidance", hint)
+	if !strings.Contains(hint, "Start a chat") {
+		t.Fatalf("hint = %q, want launch-time verification guidance", hint)
 	}
 	if !strings.Contains(hint, "claude /login") {
 		t.Fatalf("hint = %q, want the `claude /login` command callout", hint)
@@ -109,9 +109,9 @@ func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "has not verified CLI auth yet") ||
-		!strings.Contains(hint, "Open Connections") {
-		t.Fatalf("hint = %q, want CLI-verification Connections guidance", hint)
+	if !strings.Contains(hint, "verifies CLI auth when a chat starts") ||
+		!strings.Contains(hint, "diagnostics are optional") {
+		t.Fatalf("hint = %q, want launch-time verification and optional-diagnostics guidance", hint)
 	}
 }
 

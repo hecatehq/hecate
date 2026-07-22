@@ -14,6 +14,7 @@ export type ExternalAgentReadiness = {
   tone: ExternalAgentReadinessTone;
   label: string;
   needsRepair: boolean;
+  launchBlocked: boolean;
   loginCommand: string;
   setupHint: string;
   signInHint: string;
@@ -33,6 +34,7 @@ export function resolveExternalAgentReadiness(
       tone: "muted",
       label: "not configured",
       needsRepair: true,
+      launchBlocked: true,
       loginCommand: "",
       setupHint: "Choose an available external agent in Connections.",
       signInHint: "Choose an available external agent in Connections.",
@@ -40,7 +42,12 @@ export function resolveExternalAgentReadiness(
     };
   }
 
-  const verifiedByProbe = health?.status === "ready";
+  // Diagnostics describe the last disposable probe; they never authorize a
+  // later process launch. Current passive discovery and remote credential
+  // posture are the only client-side launch gates. The backend re-resolves and
+  // re-handshakes the agent when the operator actually starts a chat.
+  const launchBlocked = !adapter.available || adapter.remote_credential_ok === false;
+  const verifiedByProbe = health?.status === "ready" && !launchBlocked;
   const authStatus = verifiedByProbe ? "ok" : adapter.auth_status;
   const authError = verifiedByProbe ? "" : adapter.auth_error;
   const loginCommand = externalAgentLoginCommand(adapter);
@@ -51,12 +58,51 @@ export function resolveExternalAgentReadiness(
   const visibleProbeError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
 
+  if (!adapter.available) {
+    return {
+      kind: "setup",
+      tone: "muted",
+      label: "not configured",
+      needsRepair: true,
+      launchBlocked,
+      loginCommand,
+      setupHint,
+      signInHint,
+      detail: adapter.error || setupHint,
+      authStatus,
+      authError,
+      verifiedByProbe,
+    };
+  }
+
+  if (adapter.remote_credential_ok === false) {
+    const remoteCredentialHint =
+      adapter.remote_credential_hint ||
+      authError ||
+      `Configure a remote credential for ${adapter.name}.`;
+    return {
+      kind: "sign_in",
+      tone: "amber",
+      label: "credential",
+      needsRepair: true,
+      launchBlocked,
+      loginCommand,
+      setupHint,
+      signInHint: remoteCredentialHint,
+      detail: remoteCredentialHint,
+      authStatus,
+      authError,
+      verifiedByProbe,
+    };
+  }
+
   if (verifiedByProbe) {
     return {
       kind: "ready",
       tone: "green",
-      label: "ready",
+      label: "checked",
       needsRepair: false,
+      launchBlocked,
       loginCommand,
       setupHint,
       signInHint,
@@ -72,6 +118,7 @@ export function resolveExternalAgentReadiness(
       tone: "amber",
       label: "billing",
       needsRepair: true,
+      launchBlocked,
       loginCommand,
       setupHint,
       signInHint,
@@ -88,6 +135,7 @@ export function resolveExternalAgentReadiness(
       tone: "amber",
       label: "sign in",
       needsRepair: true,
+      launchBlocked,
       loginCommand,
       setupHint,
       signInHint,
@@ -98,12 +146,13 @@ export function resolveExternalAgentReadiness(
     };
   }
 
-  if (!adapter.available || health?.status === "not_installed" || isSetupProbe(health)) {
+  if (health?.status === "not_installed" || isSetupProbe(health)) {
     return {
       kind: "setup",
       tone: "muted",
       label: "not configured",
       needsRepair: true,
+      launchBlocked,
       loginCommand,
       setupHint,
       signInHint,
@@ -123,6 +172,7 @@ export function resolveExternalAgentReadiness(
       tone: "amber",
       label: "needs attention",
       needsRepair: true,
+      launchBlocked,
       loginCommand,
       setupHint,
       signInHint,
@@ -136,12 +186,14 @@ export function resolveExternalAgentReadiness(
   return {
     kind: "unverified",
     tone: "muted",
-    label: "not tested",
+    label: "available",
     needsRepair: false,
+    launchBlocked,
     loginCommand,
     setupHint,
     signInHint,
-    detail: "Checking starts the installed app and opens a temporary ACP session.",
+    detail:
+      "Starting a chat launches the installed app and verifies its ACP connection. Diagnostics are optional.",
     authStatus,
     authError,
     verifiedByProbe,
@@ -166,13 +218,13 @@ export function externalAgentLoginCommand(adapter: AgentAdapterRecord): string {
 export function externalAgentSignInHint(adapter: AgentAdapterRecord): string {
   switch (adapter.id) {
     case "codex":
-      return "Run codex login in Terminal, then test the agent again.";
+      return "Run codex login in Terminal, then retry the chat. Diagnostics in Connections are optional.";
     case "claude_code":
-      return "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.";
+      return "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then retry the chat.";
     case "cursor_agent":
-      return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment.";
+      return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment, then retry the chat.";
     case "grok_build":
-      return "Run grok login, or set XAI_API_KEY for the adapter environment.";
+      return "Run grok login, or set XAI_API_KEY for the adapter environment, then retry the chat.";
     default:
       return externalAgentSetupHint(adapter);
   }

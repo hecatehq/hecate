@@ -1,4 +1,4 @@
-// Agent-adapter coordinator: readiness probes for external agent adapters.
+// Agent-adapter coordinator: optional diagnostics for external agent adapters.
 
 import { useContext } from "react";
 
@@ -18,12 +18,11 @@ export type UseAgentAdapterActionsParams = {
 export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
   const providersAndModels = useProvidersAndModels();
 
-  // probeAgentAdapter exercises the configured adapter and caches the
-  // typed result keyed by adapter id. Operators trigger this via the
-  // readiness probe in Connections; the result drives
-  // the status chip + the picker dropdown's inline diagnostic. The
-  // loading map is keyed by id so two adapters can be probing
-  // concurrently without confusing the UI.
+  // probeAgentAdapter exercises the configured adapter and caches the typed
+  // diagnostic keyed by adapter id. Operators trigger it explicitly in
+  // Connections; it annotates status chips but never gates a later chat. The
+  // loading map is keyed by id so two adapters can run concurrently without
+  // confusing the UI.
   async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
     const result = await providersAndModels.actions.probeAgentAdapter(adapterID);
     if (!result.ok) {

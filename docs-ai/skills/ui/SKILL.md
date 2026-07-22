@@ -415,14 +415,23 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Render only `http`/`https` locators as links; show every other locator as
   plain escaped text. Source notes are metadata, not project memory, until the
   operator promotes or rewrites them as memory.
-- External Agent readiness belongs in Connections and in the picker
-  diagnostics: distinguish missing binaries, auth/billing problems, unsupported
-  versions, and managed-launcher issues without sending users to raw logs first.
-  Catalog discovery means only that an app path was found: render it as
-  **Found** or **Not tested**, never **Ready**. Opening Chats or Connections
-  must not probe, start, authenticate, or otherwise execute a discovered app.
-  Keep execution behind an explicit action whose accessible name or help text
-  says it starts the app; `POST /agent-adapters/{id}/probe` is that boundary.
+- External Agent availability belongs in the picker; optional launch
+  diagnostics belong in Connections and can also inform picker detail.
+  Distinguish missing binaries, required remote credentials, auth/billing
+  problems, unsupported versions, and managed-launcher issues without sending
+  users to raw logs first. Catalog discovery means only that an eligible app
+  path was found: render it as **Available**, never **Ready**. Missing/rejected
+  executables and absent required remote credentials are launch blockers.
+  Cached auth, billing, version, or probe failures are advisory and must not
+  disable agent selection, **New chat**, attachments, or Send; the operator may
+  have repaired the app since that diagnostic ran.
+- Opening Chats or Connections must not probe, start, authenticate, or otherwise
+  execute a discovered app. **New chat** is the authoritative execution
+  boundary: it re-resolves the current executable and performs a fresh ACP
+  handshake for the real session. `POST /agent-adapters/{id}/probe` is an
+  optional disposable diagnostic, not a prerequisite or launch authority. Its
+  accessible name/help text must say that it starts the app and opens a
+  temporary ACP session.
   To smoke-test adapter states without uninstalling local tools, use
   `just dev-no-agent-adapters` or
   `just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'`.
