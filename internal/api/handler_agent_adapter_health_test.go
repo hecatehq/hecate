@@ -50,8 +50,10 @@ func TestAgentAdapterHealthIsPassiveAndUnverified(t *testing.T) {
 	if resp.Data.Path != executable {
 		t.Fatalf("health path = %q, want %q", resp.Data.Path, executable)
 	}
-	if resp.Data.Stage != agentadapters.ProbeStageLookup || !strings.Contains(resp.Data.Hint, "POST") {
-		t.Fatalf("health = %#v, want explicit-probe guidance", resp.Data)
+	if resp.Data.Stage != agentadapters.ProbeStageLookup ||
+		!strings.Contains(resp.Data.Hint, "Starting a chat") ||
+		!strings.Contains(resp.Data.Hint, "optional diagnostics") {
+		t.Fatalf("health = %#v, want launch-time verification and optional-diagnostics guidance", resp.Data)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("passive GET executed candidate; marker stat = %v", err)

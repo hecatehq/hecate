@@ -107,7 +107,7 @@ function SectionHeader({
 //
 // Grants are lazy-loaded on panel mount — operators rarely visit this surface,
 // so we don't fetch them on every dashboard load. Adapter discovery stays
-// passive; the explicit Check actions disclose and own process execution.
+// passive; optional diagnostics disclose that they execute the installed app.
 export function ConnectionsPanel({
   onNavigate,
   onAddProvider,
@@ -702,15 +702,11 @@ function AnthropicProviderKeyCard({
   );
 }
 
-// AdapterStatusSection lists the configured external agents.
-// Manual checks start the adapter runtime, complete the ACP handshake, and
-// return a typed health classification. That handshake is also the auth check:
-// auth failures surface as `auth_required`.
-//
-// The section is read-only otherwise: agent discovery and
-// availability are still owned by the dashboard fan-out's
-// /hecate/v1/agent-adapters response. We just surface the additional
-// per-agent "can I actually use this?" check here.
+// AdapterStatusSection lists the configured external agents. Optional
+// diagnostics start the runtime, complete an ACP handshake, and classify that
+// disposable session; they annotate this view but never gate a later chat.
+// Passive discovery and launch availability remain owned by the dashboard
+// fan-out's /hecate/v1/agent-adapters response.
 function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
@@ -741,7 +737,7 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Checks local agent readiness and auth by starting the agent runtime, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
+        description="Hecate finds installed agents without launching them. Starting a chat performs the authoritative ACP launch check; optional diagnostics below start the agent and open a temporary session for troubleshooting."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
       />
       <div className="card" style={{ overflow: "hidden" }}>
@@ -999,7 +995,7 @@ function AdapterStatusRow({
             adapterName={adapter.name || adapter.id}
             loginCommand={loginCommand}
             onCopyCommand={onCopyCommand}
-            onTestAgain={() => onProbeAdapter(adapter)}
+            onRunDiagnostics={() => onProbeAdapter(adapter)}
             testing={loading}
           />
         )}
@@ -1007,7 +1003,7 @@ function AdapterStatusRow({
           <AdapterRemoteCredentialSetup
             adapter={adapter}
             onCopyCommand={onCopyCommand}
-            onTestAgain={() => onProbeAdapter(adapter)}
+            onRunDiagnostics={() => onProbeAdapter(adapter)}
             testing={loading}
           />
         )}
@@ -1039,6 +1035,8 @@ function AdapterStatusRow({
         {loading && (
           <span
             data-testid={`external-agents-checking-${adapter.id}`}
+            role="status"
+            aria-live="polite"
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: 11,
@@ -1046,23 +1044,20 @@ function AdapterStatusRow({
               whiteSpace: "nowrap",
             }}
           >
-            checking…
+            diagnosing…
           </span>
         )}
         {showProbeAction && (
           <button
             type="button"
-            className={
-              readiness.kind === "unverified" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
-            }
+            className="btn btn-ghost btn-sm"
             onClick={() => onProbeAdapter(adapter)}
             disabled={loading}
-            aria-label={`Check ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session`}
+            aria-label={`Run diagnostics for ${adapter.name || adapter.id}; starts the installed app`}
+            title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session without sending a prompt`}
             data-testid={`external-agents-test-${adapter.id}`}
           >
-            <Icon d={Icons.refresh} size={12} />{" "}
-            {loading ? "Checking..." : readiness.verifiedByProbe ? "Check again" : "Check"}
+            <Icon d={Icons.refresh} size={12} /> {loading ? "Running..." : "Run diagnostics"}
           </button>
         )}
         {showAuthenticateAction && (
@@ -1221,12 +1216,12 @@ function adapterAuthenticateSupportedByHecate(
 function AdapterRemoteCredentialSetup({
   adapter,
   onCopyCommand,
-  onTestAgain,
+  onRunDiagnostics,
   testing,
 }: {
   adapter: AgentAdapterRecord;
   onCopyCommand: (command: string) => void;
-  onTestAgain: () => void;
+  onRunDiagnostics: () => void;
   testing: boolean;
 }) {
   const keys = remoteCredentialKeys(adapter);
@@ -1294,12 +1289,12 @@ function AdapterRemoteCredentialSetup({
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={onTestAgain}
+                onClick={onRunDiagnostics}
                 disabled={testing}
-                aria-label={`Check ${adapter.name || adapter.id} again; starts the agent runtime`}
-                title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session`}
+                aria-label={`Run diagnostics for ${adapter.name || adapter.id}; starts the agent runtime`}
+                title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session without sending a prompt`}
               >
-                {testing ? "Testing..." : "Check again"}
+                {testing ? "Running..." : "Run diagnostics"}
               </button>
             </div>
           )}
@@ -1314,14 +1309,14 @@ function AdapterLocalAuthSetup({
   adapterName,
   loginCommand,
   onCopyCommand,
-  onTestAgain,
+  onRunDiagnostics,
   testing,
 }: {
   adapterID: string;
   adapterName: string;
   loginCommand: string;
   onCopyCommand: (command: string) => void;
-  onTestAgain: () => void;
+  onRunDiagnostics: () => void;
   testing: boolean;
 }) {
   const accent = chipColor("amber");
@@ -1360,8 +1355,8 @@ function AdapterLocalAuthSetup({
             Local sign-in
           </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
-            Run in Terminal, then test again. Hecate uses local CLI auth as your OS user and does
-            not store credentials.
+            Run in Terminal, then retry the chat. Hecate uses local CLI auth as your OS user and
+            does not store credentials. Diagnostics are optional.
           </div>
           <div
             style={{
@@ -1395,12 +1390,12 @@ function AdapterLocalAuthSetup({
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              onClick={onTestAgain}
+              onClick={onRunDiagnostics}
               disabled={testing}
-              aria-label={`Test ${adapterName} again; starts the installed app`}
-              title={`Starts ${adapterName} and opens a temporary ACP session`}
+              aria-label={`Run diagnostics for ${adapterName}; starts the installed app`}
+              title={`Starts ${adapterName} and opens a temporary ACP session without sending a prompt`}
             >
-              {testing ? "Testing..." : "Test again"}
+              {testing ? "Running..." : "Run diagnostics"}
             </button>
           </div>
         </div>

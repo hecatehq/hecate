@@ -396,7 +396,7 @@ export function ChatView({
     : null;
 
   const selectedAgentReadiness = resolveExternalAgentReadiness(selectedAgent, selectedAgentHealth);
-  const externalAgentSetupRequired = selectedAgentReadiness.needsRepair;
+  const externalAgentLaunchBlocked = selectedAgentReadiness.launchBlocked;
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
   const configuredProviders = state.settingsConfig?.providers ?? [];
   const providerConfigLoaded = state.settingsConfig !== null;
@@ -619,7 +619,7 @@ export function ChatView({
     selectedAgentName: selectedAgent?.name,
     selectedAgentAvailable: Boolean(selectedAgent?.available),
     anyAgentAvailable: availableAgents.length > 0,
-    externalAgentSetupRequired,
+    externalAgentSetupRequired: externalAgentLaunchBlocked,
     selectedAgentReadiness,
   });
   const externalAgentModelRequired = externalAgentRequiresModelSelection(
@@ -640,7 +640,7 @@ export function ChatView({
         (state.chatCreating || Boolean(state.message) || pendingAttachments.length > 0))) &&
     !selectedChatReady &&
     Boolean(selectedAgent?.available) &&
-    !externalAgentSetupRequired &&
+    !externalAgentLaunchBlocked &&
     Boolean(state.agentWorkspace.trim());
   const composerVisible =
     isAgentChat &&
@@ -733,7 +733,7 @@ export function ChatView({
     isExternalAgentChat &&
     (selectedChatReady || draftExternalAgentReadyForComposer) &&
     Boolean(selectedAgent?.available) &&
-    !externalAgentSetupRequired &&
+    !externalAgentLaunchBlocked &&
     !externalAgentModelRequired &&
     Boolean(activeWorkspacePath.trim());
   const attachmentModeAllowed = isExternalAgentChat
@@ -781,7 +781,7 @@ export function ChatView({
     (!agentBusy &&
       isExternalAgentChat &&
       (!state.agentWorkspace.trim() || !selectedAgent?.available)) ||
-    (!agentBusy && isExternalAgentChat && externalAgentSetupRequired) ||
+    (!agentBusy && isExternalAgentChat && externalAgentLaunchBlocked) ||
     (!agentBusy &&
       isHecateAgentChat &&
       (!hecateChatModelReady ||

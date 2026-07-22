@@ -77,8 +77,11 @@ discovery can establish an absolute invocation path and inspect its canonical
 regular target, but path shape, filename, `--version`, auth output, and an ACP
 handshake do not authenticate its publisher. The latter checks already execute
 the candidate, so they are diagnostics rather than security verification.
-Catalog and compatibility health GETs therefore stay passive; Hecate runs a
-readiness probe only after an explicit operator action.
+Catalog and compatibility health GETs therefore stay passive. Hecate executes
+the candidate only after an explicit operator action such as **New chat**,
+**Run diagnostics**, authentication, or logout. Starting a chat performs a
+fresh executable resolution and ACP handshake; the optional diagnostic is not
+a security check or a prerequisite for use.
 
 A locally computed SHA-256 digest proves byte identity and detects later
 replacement. It proves origin only when the expected digest came from an
@@ -215,7 +218,12 @@ Hecate stores local configuration and operational state on disk.
   traces, artifacts, or screenshots.
 - Do not commit `.env`, SQLite databases, Postgres dumps or DSNs, release keys,
   update signing keys, or platform credential files.
-- External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own, proxy, or pool those accounts. See [External Agents](../runtime/external-agents.md#credential-and-account-boundaries) for credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok Build.
+- External agent credentials belong to the underlying CLI account. A fresh
+  chat launch and optional diagnostics can surface auth failures, but Hecate
+  does not own, proxy, or pool those accounts. See [External
+  Agents](../runtime/external-agents.md#credential-and-account-boundaries) for
+  credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok
+  Build.
 - Stdio MCP servers inherit only runtime-essential environment variables from the gateway. Server credentials must be configured explicitly on that MCP server entry.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach an unprotected inference path may be able to spend those credentials. Use your own network access control; set `HECATE_INFERENCE_TOKEN` for provider-compatible `/v1/*` clients and `HECATE_RUNTIME_TOKEN` for Hecate-native chat, task, and control-plane clients.
 - On self-hosted non-loopback starts, Hecate logs warnings when configured

@@ -171,6 +171,7 @@ describe("resolveChatSetupRepairState", () => {
         tone: "amber",
         label: "sign in",
         needsRepair: true,
+        launchBlocked: true,
         loginCommand: "claude /login",
         setupHint: "Install Claude Code and ensure claude is on PATH.",
         signInHint:

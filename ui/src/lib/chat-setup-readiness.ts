@@ -153,10 +153,10 @@ function externalAgentSetupMessage(
       case "billing":
         return (
           readiness.detail ||
-          `Check ${agent}'s billing or subscription, then test the adapter again in Connections.`
+          `Check ${agent}'s billing or subscription, then retry the chat. Diagnostics in Connections are optional.`
         );
       case "issue":
-        return readiness.detail || `Open Connections and test ${agent} again.`;
+        return readiness.detail || `Retry the chat, or use Connections diagnostics for details.`;
       default:
         break;
     }

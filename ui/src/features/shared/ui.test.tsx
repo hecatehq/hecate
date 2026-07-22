@@ -1088,7 +1088,7 @@ describe("AgentAdapterPicker", () => {
     expect(onChange).toHaveBeenCalledWith("claude_code");
   });
 
-  it("shows unverified auth as a non-blocking check state", async () => {
+  it("shows unverified auth as a non-blocking available state", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -1116,7 +1116,7 @@ describe("AgentAdapterPicker", () => {
     await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const claude = within(menu).getByText("Claude Code").closest("button") as HTMLElement;
-    expect(within(claude).getByText("check")).toBeTruthy();
+    expect(within(claude).getByText("available")).toBeTruthy();
     expect(within(claude).queryByText("auth")).toBeNull();
     expect(claude).not.toHaveAttribute("aria-disabled");
 
@@ -1124,7 +1124,7 @@ describe("AgentAdapterPicker", () => {
     expect(onChange).toHaveBeenCalledWith("claude_code");
   });
 
-  it("shows missing adapters as setup instead of errors", async () => {
+  it("shows a stale setup-shaped diagnostic without disabling a discovered adapter", async () => {
     const user = userEvent.setup();
     render(
       <AgentAdapterPicker
@@ -1165,10 +1165,52 @@ describe("AgentAdapterPicker", () => {
     await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
-    expect(within(cursor).getByText("setup")).toBeTruthy();
+    expect(within(cursor).getByText("diagnostic")).toBeTruthy();
     expect(within(cursor).queryByText("error")).toBeNull();
     expect(cursor.title).toContain("Install Cursor with Agent support");
     expect(cursor).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("does not let a stale ready diagnostic override a missing current executable", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: false,
+            status: "missing",
+            cost_mode: "external",
+            supports_authenticate: false,
+            supports_logout: false,
+          },
+        ]}
+        healthByID={
+          new Map([
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "ready",
+                stage: "ready",
+                duration_ms: 80,
+              },
+            ],
+          ])
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
+    expect(within(cursor).getByText("setup")).toBeTruthy();
+    expect(cursor).toHaveAttribute("aria-disabled", "true");
   });
 
   it("uses useful ready tooltips instead of showing only the executable path", async () => {
@@ -1212,8 +1254,9 @@ describe("AgentAdapterPicker", () => {
     await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
-    expect(cursor.title).toContain("Cursor Agent is ready");
-    expect(cursor.title).toContain("verified agent startup, auth, and ACP session creation");
+    expect(within(cursor).getByText("checked")).toBeTruthy();
+    expect(cursor.title).toContain("last Cursor Agent diagnostic passed");
+    expect(cursor.title).toContain("fresh launch");
     expect(cursor.title).toContain("/Users/test/.local/bin/cursor-agent");
   });
 });

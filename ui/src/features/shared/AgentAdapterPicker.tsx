@@ -1,67 +1,27 @@
-// AgentAdapterPicker is the dropdown the chat view uses to switch
-// between registered external-agent adapters. It surfaces both the
-// dashboard's discovery flag and
-// the on-demand probe result so operators can see at a glance which
-// adapter is actually usable on this machine.
+// AgentAdapterPicker is the dropdown the chat view uses to switch between
+// registered external-agent adapters. Passive discovery controls whether an
+// adapter can be selected; an on-demand diagnostic is advisory because the
+// real chat launch always resolves the executable and performs a fresh ACP
+// handshake.
 
 import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
 
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
 import { useFloatingMenu } from "./useFloatingMenu";
 
-// adapterPickerDiagnostic combines the dashboard's "is the binary on
-// PATH?" flag with the on-demand probe result into one row diagnostic.
-// Probe data wins when present — it's a strictly more informative
-// signal — but we still fall back to the dashboard flag so the picker
-// reads correctly before any probe has run.
+// adapterPickerDiagnostic combines current passive discovery with the latest
+// optional diagnostic for display. Current discovery and required remote
+// credentials win over stale diagnostics; failed diagnostics remain visible
+// but do not disable a locally available adapter.
 function adapterPickerDiagnostic(
   adapter: AgentAdapterRecord,
   health: AgentAdapterHealthRecord | null | undefined,
 ): { title: string; iconColor: string; chipLabel: string; chipColor: string } {
-  if (health) {
-    switch (health.status) {
-      case "ready":
-        return {
-          title: adapterReadyTitle(adapter, health.path),
-          iconColor: "var(--green)",
-          chipLabel: "ready",
-          chipColor: "var(--teal)",
-        };
-      case "auth_required":
-        return {
-          title: health.hint || health.error || "Authentication required",
-          iconColor: "var(--amber)",
-          chipLabel: "auth",
-          chipColor: "var(--amber)",
-        };
-      case "not_installed":
-        return {
-          title: health.hint || health.error || `${adapter.name} command was not found`,
-          iconColor: "var(--t3)",
-          chipLabel: "setup",
-          chipColor: "var(--t3)",
-        };
-      case "error":
-        if (adapterProbeLooksLikeSetupState(health)) {
-          return {
-            title: health.hint || health.error || `Set up ${adapter.name} to use it`,
-            iconColor: "var(--t3)",
-            chipLabel: "setup",
-            chipColor: "var(--t3)",
-          };
-        }
-        return {
-          title: health.error || `${adapter.name} probe failed`,
-          iconColor: "var(--amber)",
-          chipLabel: "issue",
-          chipColor: "var(--amber)",
-        };
-    }
-  }
   if (!adapter.available) {
     return {
       title: adapter.error || `${adapter.name} command was not found`,
@@ -69,6 +29,58 @@ function adapterPickerDiagnostic(
       chipLabel: "setup",
       chipColor: "var(--t3)",
     };
+  }
+  if (adapter.remote_credential_ok === false) {
+    return {
+      title:
+        adapter.remote_credential_hint ||
+        adapter.auth_error ||
+        `Configure a remote credential for ${adapter.name}`,
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (health) {
+    switch (health.status) {
+      case "ready":
+        return {
+          title: adapterCheckedTitle(adapter, health.path),
+          iconColor: "var(--green)",
+          chipLabel: "checked",
+          chipColor: "var(--teal)",
+        };
+      case "auth_required":
+        return {
+          title: adapterDiagnosticTitle(
+            adapter,
+            health.hint || health.error || "Authentication required",
+          ),
+          iconColor: "var(--amber)",
+          chipLabel: "auth",
+          chipColor: "var(--amber)",
+        };
+      case "not_installed":
+        return {
+          title: adapterDiagnosticTitle(
+            adapter,
+            health.hint || health.error || `${adapter.name} command was not found`,
+          ),
+          iconColor: "var(--amber)",
+          chipLabel: "diagnostic",
+          chipColor: "var(--amber)",
+        };
+      case "error":
+        return {
+          title: adapterDiagnosticTitle(
+            adapter,
+            health.hint || health.error || `${adapter.name} diagnostic failed`,
+          ),
+          iconColor: "var(--amber)",
+          chipLabel: adapterProbeLooksLikeSetupState(health) ? "diagnostic" : "issue",
+          chipColor: "var(--amber)",
+        };
+    }
   }
   if (adapter.auth_status === "billing") {
     return {
@@ -89,9 +101,10 @@ function adapterPickerDiagnostic(
   if (adapter.auth_status === "unknown") {
     return {
       title:
-        adapter.auth_error || "Auth has not been verified yet. Test this adapter in Connections.",
+        adapter.auth_error ||
+        "Agent found. Starting a chat launches it and verifies the ACP connection.",
       iconColor: "var(--t3)",
-      chipLabel: "check",
+      chipLabel: "available",
       chipColor: "var(--t3)",
     };
   }
@@ -105,9 +118,9 @@ function adapterPickerDiagnostic(
   }
   return {
     title: adapterAvailableTitle(adapter),
-    iconColor: "var(--green)",
-    chipLabel: "",
-    chipColor: "",
+    iconColor: "var(--t3)",
+    chipLabel: "available",
+    chipColor: "var(--t3)",
   };
 }
 
@@ -121,15 +134,19 @@ function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): bool
   );
 }
 
-function adapterReadyTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
+function adapterCheckedTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
   const suffix = path ? ` Path: ${path}` : "";
-  return `${adapter.name} is ready. Hecate verified agent startup, auth, and ACP session creation.${suffix}`;
+  return `The last ${adapter.name} diagnostic passed startup, auth, and ACP session creation. Starting a chat still performs a fresh launch.${suffix}`;
 }
 
 function adapterAvailableTitle(adapter: AgentAdapterRecord): string {
   const command = adapter.path || adapter.command;
   const suffix = command ? ` Command: ${command}` : "";
-  return `${adapter.name} is available. Hecate found the local agent command and auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
+  return `${adapter.name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+}
+
+function adapterDiagnosticTitle(adapter: AgentAdapterRecord, detail: string): string {
+  return `The last ${adapter.name} diagnostic needs attention. Starting a chat retries the current ACP launch; diagnostics in Connections are optional. ${detail}`;
 }
 
 export function AgentAdapterPicker({
@@ -144,11 +161,8 @@ export function AgentAdapterPicker({
   value: string;
   onChange: (v: string) => void;
   adapters: AgentAdapterRecord[];
-  // healthByID is optional; when supplied, each row in the dropdown
-  // shows the most recent probe diagnostic (auth required / error) so
-  // operators can see why an adapter that's "available" might still
-  // fail. The dashboard's discovery flag (adapter.available) covers
-  // "binary on PATH"; the probe covers "auth + handshake works".
+  // healthByID is optional; when supplied, each row shows the most recent
+  // advisory diagnostic. It never overrides current passive availability.
   healthByID?: Map<string, AgentAdapterHealthRecord>;
   disabled?: boolean;
   disabledReason?: string;
@@ -244,8 +258,7 @@ export function AgentAdapterPicker({
         >
           {adapters.map((adapter) => {
             const health = healthByID?.get(adapter.id);
-            const isProbeReady = health?.status === "ready";
-            const disabled = !adapter.available && !isProbeReady;
+            const disabled = resolveExternalAgentReadiness(adapter, health ?? null).launchBlocked;
             const diag = adapterPickerDiagnostic(adapter, health);
             return (
               <button

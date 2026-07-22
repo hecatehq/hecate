@@ -113,7 +113,7 @@ func writeAgentChatRuntimeMismatch(w http.ResponseWriter, message string) {
 func writeAgentChatAdapterNotFound(w http.ResponseWriter, adapterID string) {
 	WriteErrorDetails(w, http.StatusBadRequest, errCodeAgentAdapterNotFound, fmt.Sprintf("agent adapter %q not found", adapterID), ErrorDetails{
 		UserMessage:    "The selected external agent is not configured.",
-		OperatorAction: "Open Connections and test the external agent adapter, or choose another agent.",
+		OperatorAction: "Refresh agent discovery in Connections, install the selected app if needed, or choose another agent.",
 	})
 }
 

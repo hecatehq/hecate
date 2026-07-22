@@ -608,7 +608,7 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     default:
       return {
         label: adapter.command || adapter.id,
-        action: "Install the local agent command and test it in Connections.",
+        action: "Install the local agent command, then start a chat to verify its ACP connection.",
         commands: adapter.command
           ? [{ label: "Check", command: `${adapter.command} --version` }]
           : [],
@@ -620,9 +620,9 @@ function agentFoundLabel(adapter: AgentAdapterRecord): string {
   if (adapter.auth_status === "unauthenticated" || adapter.auth_status === "billing") {
     return adapter.auth_error || `Auth status: ${adapter.auth_status}`;
   }
-  if (adapter.agent_version) return `Tested · agent ${adapter.agent_version}`;
-  if (adapter.adapter_version) return `Tested · adapter ${adapter.adapter_version}`;
-  return "Found · not tested";
+  if (adapter.agent_version) return `Available · agent ${adapter.agent_version}`;
+  if (adapter.adapter_version) return `Available · adapter ${adapter.adapter_version}`;
+  return "Available";
 }
 
 function RTKOnboardingHint({ path, onEnable }: { path: string; onEnable: () => void }) {

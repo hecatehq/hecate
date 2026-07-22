@@ -59,8 +59,9 @@ export type AgentAdapterSetupCommandStatus = {
 
 // AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Passive GET
 // health reads can return "unverified"; explicit POST probes return "ready",
-// "not_installed", "auth_required", or "error". The UI folds this into
-// setup, sign-in, billing, or issue states for display.
+// "not_installed", "auth_required", or "error". These results annotate the UI
+// but never authorize or block a later chat launch; current passive discovery
+// and required remote credentials own that gate.
 export type AgentAdapterHealthRecord = {
   adapter_id: string;
   status: string;
