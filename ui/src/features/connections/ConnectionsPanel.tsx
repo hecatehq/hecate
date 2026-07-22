@@ -1439,9 +1439,12 @@ function adapterStatusDetail(
   if (readiness.kind === "ready" || readiness.kind === "sign_in") return null;
 
   if (readiness.kind === "setup") {
+    const detail = readiness.detail || readiness.setupHint;
     return {
-      tone: "muted",
-      message: `Set up to use: ${readiness.detail || readiness.setupHint}`,
+      tone: readiness.launchBlocked ? "muted" : "amber",
+      message: readiness.launchBlocked
+        ? `Set up to use: ${detail}`
+        : `Last diagnostic: ${detail} This result is advisory; starting a chat retries the current app.`,
     };
   }
 

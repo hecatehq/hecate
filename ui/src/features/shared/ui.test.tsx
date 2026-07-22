@@ -1119,6 +1119,7 @@ describe("AgentAdapterPicker", () => {
     expect(within(claude).getByText("available")).toBeTruthy();
     expect(within(claude).queryByText("auth")).toBeNull();
     expect(claude).not.toHaveAttribute("aria-disabled");
+    expect(claude).toHaveAttribute("title", expect.stringContaining("Starting a chat launches it"));
 
     await user.click(claude);
     expect(onChange).toHaveBeenCalledWith("claude_code");

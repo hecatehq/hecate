@@ -66,16 +66,20 @@ describe("resolveExternalAgentReadiness", () => {
       stage: "initialize",
       hint: "The last diagnostic failed.",
       expectedKind: "issue",
+      expectedLabel: "needs attention",
+      expectedTone: "amber",
     },
     {
       status: "not_installed",
       stage: "resolve",
       hint: "The executable was missing during the last diagnostic.",
       expectedKind: "setup",
+      expectedLabel: "diagnostic",
+      expectedTone: "amber",
     },
   ])(
     "keeps a currently discovered agent launchable after a cached $status diagnostic",
-    ({ status, stage, hint, expectedKind }) => {
+    ({ status, stage, hint, expectedKind, expectedLabel, expectedTone }) => {
       const readiness = resolveExternalAgentReadiness(adapter(), {
         adapter_id: "cursor_agent",
         status,
@@ -86,6 +90,8 @@ describe("resolveExternalAgentReadiness", () => {
 
       expect(readiness).toMatchObject({
         kind: expectedKind,
+        label: expectedLabel,
+        tone: expectedTone,
         needsRepair: true,
         launchBlocked: false,
         verifiedByProbe: false,

@@ -488,9 +488,7 @@ export function chatAgentOptionStatus(
     return {
       label: "available",
       color: "var(--t3)",
-      title:
-        adapter.auth_error ||
-        "Agent found. Starting a chat launches it and verifies the ACP connection.",
+      title: adapterAvailableTitle(optionID, adapter, adapter.auth_error),
       ready: launchReady,
     };
   }
@@ -623,11 +621,17 @@ function adapterCheckedTitle(
   return `The last ${name} diagnostic passed startup, auth, and ACP session creation. Starting a chat still performs a fresh launch.${suffix}`;
 }
 
-function adapterAvailableTitle(optionID: ChatAgentOptionID, adapter: AgentAdapterRecord): string {
+function adapterAvailableTitle(
+  optionID: ChatAgentOptionID,
+  adapter: AgentAdapterRecord,
+  detail?: string,
+): string {
   const name = adapterDisplayName(optionID, adapter);
   const command = adapter.path || adapter.command;
   const suffix = command ? ` Command: ${command}` : "";
-  return `${name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+  const cleanDetail = sanitizedAdapterDetail(detail);
+  const action = `${name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+  return cleanDetail ? `${cleanDetail} ${action}` : action;
 }
 
 export function HecateToolsToggle({

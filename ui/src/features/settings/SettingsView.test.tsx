@@ -1325,17 +1325,17 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       const codex = await screen.findByTestId("external-agents-adapter-codex");
-      expect(within(codex).getByText("not configured")).toBeTruthy();
-      expect(codex).toHaveTextContent(
-        "Set up to use: Install Codex and ensure codex-acp-adapter is on PATH.",
-      );
+      expect(within(codex).getByText("diagnostic")).toBeTruthy();
+      expect(codex).toHaveTextContent("Last diagnostic: Install Codex");
+      expect(codex).toHaveTextContent("This result is advisory");
       expect(codex).not.toHaveTextContent("not installed");
       expect(codex).not.toHaveTextContent("auth unknown");
       expect(codex).not.toHaveTextContent("0 ms");
 
       const cursor = await screen.findByTestId("external-agents-adapter-cursor_agent");
-      expect(within(cursor).getByText("not configured")).toBeTruthy();
-      expect(cursor).toHaveTextContent("Set up to use: Install Cursor with Agent support");
+      expect(within(cursor).getByText("diagnostic")).toBeTruthy();
+      expect(cursor).toHaveTextContent("Last diagnostic: Install Cursor with Agent support");
+      expect(cursor).toHaveTextContent("starting a chat retries the current app");
       expect(cursor).not.toHaveTextContent("error");
       expect(cursor).not.toHaveTextContent("auth unknown");
       expect(cursor).not.toHaveTextContent("dev-override://cursor_agent");
