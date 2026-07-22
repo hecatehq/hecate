@@ -185,8 +185,13 @@ DELETE /hecate/v1/chat/grants/{grant_id}
 
 The catalog and compatibility health `GET` endpoints are passive: they may
 resolve and inspect an executable path but must not execute it. The explicit
-`POST /agent-adapters/{id}/probe` endpoint is the first compatibility-check
-boundary that starts the discovered app and performs an ACP handshake.
+`POST /agent-adapters/{id}/probe` endpoint is an optional, disposable
+diagnostic boundary that starts the discovered app and performs an ACP
+handshake without sending a prompt. Creating an External Agent chat is the
+independent, authoritative execution boundary: it resolves the current app,
+starts it, and performs a fresh ACP handshake whether or not a diagnostic ran.
+A cached diagnostic result can explain an earlier failure, but cannot authorize
+or block that later launch.
 
 Stored message diffs are read-only historical evidence. The current
 `workspace-diff` response carries an opaque revision for the complete scoped

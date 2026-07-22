@@ -3908,7 +3908,8 @@ func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
 	}
 	var payload struct {
 		Error struct {
-			Type string `json:"type"`
+			Type           string `json:"type"`
+			OperatorAction string `json:"operator_action"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
@@ -3916,6 +3917,9 @@ func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
 	}
 	if payload.Error.Type != errCodeAgentAdapterUnavailable {
 		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
+	}
+	if payload.Error.OperatorAction != "Retry New chat. If it keeps hanging, optionally run diagnostics in Connections; diagnostics start the app and open a temporary ACP session without sending a prompt." {
+		t.Fatalf("operator action = %q, want optional Connections diagnostic guidance", payload.Error.OperatorAction)
 	}
 	if !runner.prepareHasDeadline {
 		t.Fatal("prepare context did not have a deadline")

@@ -507,9 +507,14 @@ export function ChatView({
     }
     return out;
   })();
-  const agentRouteUnavailable = availableAgents.length === 0;
+  const agentRouteUnavailable = !state.agentAdapters.some(
+    (adapter) => adapter.available || adapter.remote_credential_ok === false,
+  );
   const selectedAgentUnavailable =
-    isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
+    isExternalAgentChat &&
+    Boolean(selectedAgent) &&
+    !selectedAgent?.available &&
+    selectedAgent?.remote_credential_ok !== false;
   // newChatAgentID is already computed at the top of the component
   // via useNewChatAgentID(); no need to re-derive here.
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;

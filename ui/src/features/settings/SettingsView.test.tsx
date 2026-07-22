@@ -1102,6 +1102,42 @@ describe("Connections external-agent panel", () => {
       );
     });
 
+    it("distinguishes current launch discovery from a stale diagnostic path", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex",
+              available: true,
+              status: "available",
+              path: "/Applications/Codex.app/Contents/Resources/codex",
+              cost_mode: "external",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "ready",
+                stage: "ready",
+                path: "/usr/local/bin/codex-old",
+                duration_ms: 80,
+              },
+            ],
+          ]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(row).toHaveTextContent("path /Applications/Codex.app/Contents/Resources/codex");
+      expect(row).toHaveTextContent("diagnostic path /usr/local/bin/codex-old");
+    });
+
     it("discloses the remote credential retry process and keeps its selected path visible", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions, user } = setup(
@@ -1157,6 +1193,56 @@ describe("Connections external-agent panel", () => {
 
       await user.click(runDiagnostics);
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
+    });
+
+    it("shows hosted credential repair for the backend missing-credential response", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          sessionInfo: {
+            role: "operator",
+            runtime_host: createRuntimeHostFixture({
+              runtime_mode: "remote_runtime",
+              operator_access: "remote_supervision",
+              local_only_actions_available: false,
+            }),
+            remote_identity: {
+              actor_id: "actor_1",
+              org_id: "org_1",
+              project_id: "project_1",
+              runtime_id: "runtime_1",
+            },
+          },
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude",
+              available: false,
+              status: "missing",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+              auth_error: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+              remote_credential_ok: false,
+              remote_credential_hint: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+              credential_modes: [
+                {
+                  id: "api_key",
+                  remote_allowed: true,
+                  env_keys: ["ANTHROPIC_API_KEY"],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const row = await screen.findByTestId("external-agents-adapter-claude_code");
+      expect(within(row).getByText("credential")).toBeTruthy();
+      expect(within(row).getByText("Hosted credential")).toBeTruthy();
+      expect(row).toHaveTextContent("Configure ANTHROPIC_API_KEY for this hosted runtime.");
+      expect(row).not.toHaveTextContent("not configured");
     });
 
     it("renders compact local sign-in when the cached probe says auth is missing", async () => {

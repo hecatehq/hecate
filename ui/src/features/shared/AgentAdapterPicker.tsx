@@ -22,14 +22,6 @@ function adapterPickerDiagnostic(
   adapter: AgentAdapterRecord,
   health: AgentAdapterHealthRecord | null | undefined,
 ): { title: string; iconColor: string; chipLabel: string; chipColor: string } {
-  if (!adapter.available) {
-    return {
-      title: adapter.error || `${adapter.name} command was not found`,
-      iconColor: "var(--t3)",
-      chipLabel: "setup",
-      chipColor: "var(--t3)",
-    };
-  }
   if (adapter.remote_credential_ok === false) {
     return {
       title:
@@ -39,6 +31,14 @@ function adapterPickerDiagnostic(
       iconColor: "var(--amber)",
       chipLabel: "auth",
       chipColor: "var(--amber)",
+    };
+  }
+  if (!adapter.available) {
+    return {
+      title: adapter.error || `${adapter.name} command was not found`,
+      iconColor: "var(--t3)",
+      chipLabel: "setup",
+      chipColor: "var(--t3)",
     };
   }
   if (health) {

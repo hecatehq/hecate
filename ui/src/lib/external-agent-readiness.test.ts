@@ -197,6 +197,10 @@ describe("resolveExternalAgentReadiness", () => {
   it("keeps a failed current remote credential gate authoritative over a stale ready diagnostic", () => {
     const readiness = resolveExternalAgentReadiness(
       adapter({
+        available: false,
+        status: "missing",
+        auth_status: "unauthenticated",
+        auth_error: "Set the credential in the runtime environment.",
         remote_credential_mode: "api_key",
         remote_credential_ok: false,
         remote_credential_hint: "Set the credential in the runtime environment.",

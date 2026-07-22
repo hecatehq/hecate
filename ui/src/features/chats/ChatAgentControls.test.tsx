@@ -155,6 +155,10 @@ describe("NewChatAgentButton", () => {
         id: "cursor_agent",
         name: "Cursor Agent",
         command: "cursor-agent",
+        available: false,
+        status: "missing",
+        auth_status: "unauthenticated",
+        auth_error: "Set CURSOR_API_KEY for the runtime.",
         remote_credential_mode: "api_key",
         remote_credential_ok: false,
         remote_credential_hint: "Set CURSOR_API_KEY for the runtime.",
@@ -231,6 +235,41 @@ describe("NewChatAgentButton", () => {
 
     await userEvent.setup().click(create);
     expect(onCreate).toHaveBeenCalledWith("codex");
+  });
+
+  it("discloses current discovery instead of a stale diagnostic executable", () => {
+    render(
+      <NewChatAgentButton
+        value="codex"
+        adapters={[
+          makeAdapter({
+            path: "/Applications/Codex.app/Contents/Resources/codex",
+          }),
+        ]}
+        healthByID={
+          new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "ready",
+                stage: "ready",
+                path: "/usr/local/bin/codex-old",
+                duration_ms: 80,
+              },
+            ],
+          ])
+        }
+        onChange={() => {}}
+        onCreate={() => {}}
+      />,
+    );
+
+    const create = screen.getByRole("button", { name: "New Codex chat" });
+    expect(create).toHaveAccessibleDescription(
+      "Starts Codex from /Applications/Codex.app/Contents/Resources/codex and opens an ACP session.",
+    );
+    expect(create).not.toHaveAccessibleDescription(/codex-old/);
   });
 
   it("keeps the agent menu trigger at the same compact height", () => {
