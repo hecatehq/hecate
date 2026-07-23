@@ -81,9 +81,10 @@ Catalog and compatibility health GETs therefore stay passive. Hecate executes
 the candidate only after an explicit operator action such as **New chat**,
 **Run diagnostics**, authentication, or logout. **New chat** performs a fresh
 executable resolution and prepares the real ACP session. Direct ACP agents are
-started during that setup; embedded bridges may defer the vendor CLI and auth
-check until the first message. The optional diagnostic is not a security check
-or a prerequisite for use.
+started during that setup. Embedded bridges may run bounded provider discovery
+during setup while deferring their prompt-serving vendor invocation and
+prompt-time auth result until the first message. The optional diagnostic is not
+a security check or a prerequisite for use.
 
 A locally computed SHA-256 digest proves byte identity and detects later
 replacement. It proves origin only when the expected digest came from an

@@ -137,7 +137,7 @@ function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): bool
 
 function adapterCheckedTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
   const suffix = path ? ` Path: ${path}` : "";
-  return `The last ${adapter.name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred vendor launch and authentication.${suffix}`;
+  return `The last ${adapter.name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred prompt-serving vendor invocation and authentication.${suffix}`;
 }
 
 function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): string {
@@ -146,16 +146,16 @@ function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): st
     : adapter.command
       ? ` Configured command: ${adapter.command}`
       : "";
-  const action = `${adapter.name} is available. New chat re-resolves the executable and prepares its ACP session; the first message verifies any deferred vendor launch and authentication.${suffix}`;
+  const action = `${adapter.name} is available. New chat re-resolves the executable and prepares its ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication.${suffix}`;
   return detail ? `${detail} ${action}` : action;
 }
 
 function adapterDiagnosticTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `The last ${adapter.name} diagnostic needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred vendor launch; diagnostics in Connections are optional. ${detail}`;
+  return `The last ${adapter.name} diagnostic needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred prompt-serving vendor invocation; diagnostics in Connections are optional. ${detail}`;
 }
 
 function adapterAdvisoryTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred vendor launch; diagnostics in Connections are optional.`;
+  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred prompt-serving vendor invocation; diagnostics in Connections are optional.`;
 }
 
 export function AgentAdapterPicker({

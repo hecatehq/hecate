@@ -43,7 +43,9 @@ describe("NewChatAgentButton", () => {
     expect(status.ready).toBe(true);
     expect(status.title).toContain("config is present");
     expect(status.title).toContain("New chat re-resolves the executable");
-    expect(status.title).toContain("first message verifies any deferred vendor launch");
+    expect(status.title).toContain(
+      "first message verifies any deferred prompt-serving vendor invocation",
+    );
   });
 
   it("labels passive discovery available and explains launch-time ACP verification", () => {
@@ -60,7 +62,9 @@ describe("NewChatAgentButton", () => {
     expect(discovered.label).toBe("available");
     expect(discovered.title).toContain("Cursor Agent is available");
     expect(discovered.title).toContain("New chat re-resolves the executable");
-    expect(discovered.title).toContain("first message verifies any deferred vendor launch");
+    expect(discovered.title).toContain(
+      "first message verifies any deferred prompt-serving vendor invocation",
+    );
     expect(discovered.title).toContain("/Users/test/.local/bin/cursor-agent");
 
     const probed = chatAgentOptionStatus(
@@ -77,7 +81,9 @@ describe("NewChatAgentButton", () => {
     expect(probed.label).toBe("checked");
     expect(probed.title).toContain("last Cursor Agent diagnostic completed ACP startup");
     expect(probed.title).toContain("without sending a prompt");
-    expect(probed.title).toContain("first message checks any deferred vendor launch");
+    expect(probed.title).toContain(
+      "first message checks any deferred prompt-serving vendor invocation",
+    );
   });
 
   it("does not let a ready ACP diagnostic hide an explicit sign-in state", () => {
@@ -252,11 +258,11 @@ describe("NewChatAgentButton", () => {
 
     const create = screen.getByRole("button", { name: "New Codex chat" });
     expect(create).toHaveAccessibleDescription(
-      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any deferred vendor launch and authentication happen when the first message is sent.",
+      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any prompt-serving vendor invocation and authentication deferred by an embedded bridge happen when the first message is sent.",
     );
     expect(create).toHaveAttribute(
       "title",
-      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any deferred vendor launch and authentication happen when the first message is sent",
+      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any prompt-serving vendor invocation and authentication deferred by an embedded bridge happen when the first message is sent",
     );
     expect(screen.getByText("/Applications/Codex.app/Contents/Resources/codex")).toBeVisible();
 
@@ -294,7 +300,7 @@ describe("NewChatAgentButton", () => {
 
     const create = screen.getByRole("button", { name: "New Codex chat" });
     expect(create).toHaveAccessibleDescription(
-      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any deferred vendor launch and authentication happen when the first message is sent.",
+      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any prompt-serving vendor invocation and authentication deferred by an embedded bridge happen when the first message is sent.",
     );
     expect(create).not.toHaveAccessibleDescription(/codex-old/);
   });

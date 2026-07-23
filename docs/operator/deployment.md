@@ -360,8 +360,9 @@ Opening Connections performs passive path discovery only. The operator-owned
 /hecate/v1/agent-adapters/{id}/probe`, which starts the discovered app and opens
 a disposable ACP session for troubleshooting. It is optional: **New chat**
 re-resolves the executable and prepares the real ACP session. Direct ACP peers
-start during setup; embedded bridges may defer vendor CLI execution and auth
-until the first message.
+start during setup. Embedded bridges may run bounded provider discovery during
+setup while deferring their prompt-serving vendor invocation and prompt-time
+auth result until the first message.
 
 ## Resetting state
 

@@ -755,7 +755,7 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Hecate finds installed agents without launching them. Refresh only repeats that passive discovery. New chat re-resolves the app and prepares the real ACP session; the first message verifies any deferred vendor launch and authentication. Optional diagnostics below start a temporary session for troubleshooting."
+        description="Hecate finds installed agents without launching them. Refresh only repeats that passive discovery. New chat re-resolves the app and prepares the real ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. Optional diagnostics below start a temporary session for troubleshooting."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
         actions={
           <button
@@ -1485,7 +1485,7 @@ function adapterStatusDetail(
       tone: readiness.launchBlocked ? "muted" : "amber",
       message: readiness.launchBlocked
         ? `Set up to use: ${detail}`
-        : `Last diagnostic: ${detail} This result is advisory; New chat prepares a fresh ACP session and the first message retries any deferred vendor process.`,
+        : `Last diagnostic: ${detail} This result is advisory; New chat prepares a fresh ACP session and the first message retries any deferred prompt-serving vendor process.`,
     };
   }
 

@@ -280,8 +280,11 @@ found, the app is **Available** to launch; that passive result does not claim
 that its account, version, or ACP implementation will succeed. **New chat** is
 the real-session boundary: Hecate resolves the executable again, performs ACP
 `Initialize`, and creates the session. Direct ACP peers start during that setup;
-the embedded Codex and Claude bridges defer their vendor CLI and auth check
-until the first message. The optional **Run diagnostics** action and `POST
+embedded bridges may run bounded provider discovery without sending a prompt.
+In particular, the Claude bridge can start a short-lived `--bare` command-catalog
+process during session setup. The prompt-serving vendor invocation and
+prompt-time auth result can remain deferred until the first message. The
+optional **Run diagnostics** action and `POST
 /hecate/v1/agent-adapters/{id}/probe` open a disposable session and may execute
 the selected app for troubleshooting. Authentication and logout also execute
 it. Opening Chats or Connections never starts a newly discovered executable
@@ -387,10 +390,13 @@ agent runtime, while authentication and billing stay with the provider.
    choose the values you want. Some controls are launch-time choices and some
    appear after the ACP session is prepared.
 5. Click **New chat**. Hecate resolves the executable and prepares the real ACP
-   session immediately. Direct ACP peers start during this setup; the embedded
-   Codex and Claude bridges launch their vendor CLI when the first message is
-   sent. The message input appears after the ACP session exists, while launch
-   controls can be shown earlier so required values can be selected first.
+   session immediately. Direct ACP peers start during this setup. Embedded
+   bridges may run bounded provider discovery; the Claude bridge uses a
+   short-lived `--bare` process to discover commands. No user prompt is sent
+   during setup. The first message starts any deferred prompt-serving vendor
+   invocation and provides the authoritative prompt-time auth result. The
+   message input appears after the ACP session exists, while launch controls can
+   be shown earlier so required values can be selected first.
 6. Optionally attach up to four non-empty files by choosing, dropping, or
    pasting them. Each file can be up to 5 MiB and one turn can carry up to
    12 MiB combined. Hecate uses the live ACP session's supported inline image
@@ -521,13 +527,15 @@ Discovery reports passive command availability, selected path, static tested
 range, and `auth_status: unknown`; **Available** means Hecate found an eligible
 app to try, not that it has authenticated or completed an ACP handshake. **New
 chat** re-resolves that executable and prepares the real ACP session. Direct
-peers launch during setup; embedded bridges launch their vendor CLI and verify
-auth when the first message is sent. The optional diagnostic response adds live
-ACP capabilities from its disposable session and separate auth/version
-classification when provider-specific checks can classify them. A ready ACP
-diagnostic alone does not mean vendor auth succeeded. For built-in adapters,
-that response can report `adapter_version` for the compiled Go module and
-`agent_version` for the underlying vendor CLI. Direct ACP CLIs report their
+peers launch during setup. Embedded bridges may run bounded provider discovery
+during setup without sending a prompt; their prompt-serving vendor invocation
+and prompt-time auth result can remain deferred until the first message. The
+optional diagnostic response adds live ACP capabilities from its disposable
+session and separate auth/version classification when provider-specific checks
+can classify them. A ready ACP diagnostic alone does not mean vendor auth
+succeeded. For built-in adapters, that response can report `adapter_version`
+for the compiled Go module and `agent_version` for the underlying vendor CLI.
+Direct ACP CLIs report their
 executable version as the agent version when available.
 
 Manual setup stays in the upstream CLIs:
@@ -623,7 +631,8 @@ Use this order when launching or troubleshooting:
    only this passive discovery and does not start the app.
 2. **New chat** — Hecate resolves the current executable again, performs ACP
    `Initialize`, and opens the real session. Direct ACP peers start during this
-   setup; embedded bridges may defer vendor CLI execution and auth until the
+   setup. Embedded bridges may run bounded provider discovery while deferring
+   their prompt-serving vendor invocation and prompt-time auth result until the
    first message. No earlier diagnostic result is required, and a cached
    diagnostic failure must not prevent this fresh session attempt after the
    operator fixes the underlying issue.

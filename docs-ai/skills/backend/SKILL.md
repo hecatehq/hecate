@@ -386,13 +386,15 @@ the offline fallback for expected support; after optional diagnostics, that
 disposable session's ACP `Initialize` capabilities are authoritative for its
 Connections row only. They never authorize or block a later chat, whose fresh
 initialization is authoritative for the real ACP session. Direct peers launch
-during session setup; embedded command bridges may defer their vendor CLI and
-auth check until the first message, which owns that deferred readiness result.
-A ready probe must not promote separate auth evidence to `ok`. Keep
-`ProbeResult.CapabilitiesKnown` explicit so a successful diagnostic initialize
-with no auth/logout support can override stale static flags in that row. Hecate's local
-`authenticate` endpoint calls ACP method `agent-login` after Initialize, so only
-that agent auth method should set `supports_authenticate=true`; other auth
+during session setup. Embedded command bridges may run bounded provider
+discovery during setup while deferring their prompt-serving vendor invocation
+and prompt-time auth result until the first message, which owns that deferred
+readiness result. A ready probe must not promote separate auth evidence to `ok`.
+Keep `ProbeResult.CapabilitiesKnown` explicit so a successful diagnostic
+initialize with no auth/logout support can override stale static flags in that
+row. Hecate's local `authenticate` endpoint calls ACP method `agent-login` after
+Initialize, so only that agent auth method should set
+`supports_authenticate=true`; other auth
 methods may be surfaced as non-secret health diagnostics without enabling the
 button. Keep action execution aligned with the same live capability contract:
 do not call ACP `authenticate` unless `agent-login` was advertised, and do not

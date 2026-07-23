@@ -80,7 +80,7 @@ export function NewChatAgentButton({
         executablePath
           ? `. Last discovered at ${executablePath}; Hecate resolves the executable again during session setup`
           : ""
-      }. Any deferred vendor launch and authentication happen when the first message is sent`
+      }. Any prompt-serving vendor invocation and authentication deferred by an embedded bridge happen when the first message is sent`
     : "";
   const createActionTitle =
     createTitle ||
@@ -212,7 +212,8 @@ export function NewChatAgentButton({
               resolves the executable again during session setup.
             </>
           ) : null}{" "}
-          Any deferred vendor launch and authentication happen when the first message is sent.
+          Any prompt-serving vendor invocation and authentication deferred by an embedded bridge
+          happen when the first message is sent.
         </div>
       )}
       {open && floatingStyle && (
@@ -618,7 +619,7 @@ function adapterCheckedTitle(
 ): string {
   const name = adapterDisplayName(optionID, adapter);
   const suffix = path ? ` Path: ${path}` : "";
-  return `The last ${name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred vendor launch and authentication.${suffix}`;
+  return `The last ${name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred prompt-serving vendor invocation and authentication.${suffix}`;
 }
 
 function adapterAvailableTitle(
@@ -633,7 +634,7 @@ function adapterAvailableTitle(
       ? ` Configured command: ${adapter.command}`
       : "";
   const cleanDetail = sanitizedAdapterDetail(detail);
-  const action = `${name} is available. New chat re-resolves the executable and prepares its ACP session; the first message verifies any deferred vendor launch and authentication.${suffix}`;
+  const action = `${name} is available. New chat re-resolves the executable and prepares its ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication.${suffix}`;
   return cleanDetail ? `${cleanDetail} ${action}` : action;
 }
 
