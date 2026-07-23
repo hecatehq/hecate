@@ -194,6 +194,8 @@ struct MobileSession {
     /// Kept native-only so the authorization transaction never enters the webview.
     approval_url: Option<String>,
     authorization_deadline: Option<tokio::time::Instant>,
+    /// Generation-owned wake signal for the single authorization poll worker.
+    authorization_wake: Option<Arc<tokio::sync::Notify>>,
     account_email: Option<String>,
     message: String,
     last_error: Option<String>,
@@ -207,6 +209,7 @@ impl Default for MobileSession {
             token: None,
             approval_url: None,
             authorization_deadline: None,
+            authorization_wake: None,
             account_email: None,
             message: "Sign in to see the Hecate runtimes available to you.".to_string(),
             last_error: None,
@@ -710,6 +713,7 @@ impl MobileCloud {
             session.token = Some(token.clone());
             session.approval_url = None;
             session.authorization_deadline = None;
+            session.authorization_wake = Some(Arc::new(tokio::sync::Notify::new()));
             session.account_email = None;
             session.message = "Creating a secure browser confirmation.".to_string();
             session.last_error = None;
@@ -738,18 +742,30 @@ impl MobileCloud {
     }
 
     fn note_authorization_callback(&self) {
-        let Ok(mut session) = self.inner.session.lock() else {
-            return;
-        };
-        if session.phase == MobilePhase::Authorizing
-            && session.token.is_some()
-            && session.approval_url.is_some()
-        {
+        let wake = {
+            let Ok(mut session) = self.inner.session.lock() else {
+                return;
+            };
+            if session.phase != MobilePhase::Authorizing
+                || session.token.is_none()
+                || session.approval_url.is_none()
+            {
+                return;
+            }
             // The callback is intentionally only a foreground hint. The
             // authenticated `/api/v1/me` poll remains the source of truth.
             session.message = "Finishing sign-in…".to_string();
             session.last_error = None;
-        }
+            let Some(wake) = session.authorization_wake.clone() else {
+                return;
+            };
+            wake
+        };
+        // `notify_one` retains a permit when the poll task is between its
+        // request and wait, so the foreground callback cannot be lost. The
+        // signal belongs to this authorization generation, and wakes its
+        // existing worker rather than starting a duplicate long-lived poll.
+        wake.notify_one();
     }
 
     fn open_authorization_in_browser(
@@ -799,6 +815,7 @@ impl MobileCloud {
             session.token = None;
             session.approval_url = None;
             session.authorization_deadline = None;
+            session.authorization_wake = None;
             session.account_email = None;
             session.message = "This sign-in request expired. Try again.".to_string();
             session.last_error = None;
@@ -820,7 +837,7 @@ impl MobileCloud {
 
     async fn poll_authorization(&self, generation: u64) {
         loop {
-            let Some((token, deadline)) = self.pending_authorization(generation) else {
+            let Some((token, deadline, wake)) = self.pending_authorization(generation) else {
                 return;
             };
             match self
@@ -853,16 +870,26 @@ impl MobileCloud {
                     return;
                 }
             }
-            tokio::time::sleep(LOGIN_POLL_INTERVAL).await;
+            tokio::select! {
+                _ = tokio::time::sleep(LOGIN_POLL_INTERVAL) => {}
+                _ = wake.notified() => {}
+            }
         }
     }
 
-    fn pending_authorization(&self, generation: u64) -> Option<(String, tokio::time::Instant)> {
+    fn pending_authorization(
+        &self,
+        generation: u64,
+    ) -> Option<(String, tokio::time::Instant, Arc<tokio::sync::Notify>)> {
         self.inner.session.lock().ok().and_then(|session| {
             if session.generation != generation || session.phase != MobilePhase::Authorizing {
                 return None;
             }
-            Some((session.token.clone()?, session.authorization_deadline?))
+            Some((
+                session.token.clone()?,
+                session.authorization_deadline?,
+                session.authorization_wake.clone()?,
+            ))
         })
     }
 
@@ -876,6 +903,7 @@ impl MobileCloud {
         session.phase = MobilePhase::SignedIn;
         session.approval_url = None;
         session.authorization_deadline = None;
+        session.authorization_wake = None;
         session.account_email = Some(email);
         session.message = "Signed in. Choose a Hecate connection to continue.".to_string();
         session.last_error = None;
@@ -905,6 +933,7 @@ impl MobileCloud {
         session.token = None;
         session.approval_url = None;
         session.authorization_deadline = None;
+        session.authorization_wake = None;
         session.account_email = None;
         session.message = message.to_string();
         session.last_error = detail;
@@ -1668,6 +1697,7 @@ impl MobileCloud {
             session.token = None;
             session.approval_url = None;
             session.authorization_deadline = None;
+            session.authorization_wake = None;
             session.account_email = None;
             session.message = "Your Hecate Cloud session expired. Sign in again.".to_string();
             session.last_error = None;
@@ -1690,6 +1720,7 @@ impl MobileCloud {
         session.phase = MobilePhase::SignedOut;
         session.approval_url = None;
         session.authorization_deadline = None;
+        session.authorization_wake = None;
         session.account_email = None;
         session.message = "Signed out of Hecate Cloud.".to_string();
         session.last_error = None;
@@ -1919,7 +1950,14 @@ fn validate_approval_url(
     let approval_url = resolve_same_origin_url(cloud_url, candidate)?;
     let parsed = reqwest::Url::parse(&approval_url)
         .map_err(|_| "Hecate Cloud returned an invalid approval URL.".to_string())?;
-    if parsed.path() != "/desktop-login" || parsed.query().is_some() {
+    // The public request id is repeated in the query so each authorization is
+    // a full browser navigation rather than a fragment-only navigation. Safari
+    // may otherwise reuse an already-successful `/desktop-login` document and
+    // leave the new fragment unprocessed. Keep the secret browser ticket in the
+    // fragment, and require the query to match exactly so Cloud cannot append
+    // another navigation parameter.
+    let expected_query = format!("request={authorization_id}");
+    if parsed.path() != "/desktop-login" || parsed.query() != Some(expected_query.as_str()) {
         return Err("Hecate Cloud returned an invalid approval URL.".to_string());
     }
     let fragment = parsed
@@ -2690,7 +2728,7 @@ mod tests {
     fn app_authorization_response_rejects_removed_manual_code_fields() {
         let body = r#"{
           "authorization_id":"appauth_0123456789abcdef0123456789abcdef",
-          "approval_url":"https://console.hecatehq.com/desktop-login#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&client=mobile",
+          "approval_url":"https://console.hecatehq.com/desktop-login?request=appauth_0123456789abcdef0123456789abcdef#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&client=mobile",
           "expires_at":"2026-07-23T12:00:00Z",
           "user_code":"ABCD-EFGH"
         }"#;
@@ -2714,6 +2752,82 @@ mod tests {
                 &tauri::Url::parse(candidate).unwrap()
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn mobile_auth_callback_wakes_only_the_pending_authorization_poll() {
+        let cloud = MobileCloud::with_cloud_url(DEFAULT_CLOUD_URL).unwrap();
+        cloud.begin_sign_in().unwrap();
+        {
+            let mut session = cloud.inner.session.lock().unwrap();
+            session.approval_url = Some(
+                "https://console.hecatehq.com/desktop-login?request=appauth_0123456789abcdef0123456789abcdef"
+                    .to_string(),
+            );
+            session.authorization_deadline =
+                Some(tokio::time::Instant::now() + Duration::from_secs(60));
+        }
+
+        let generation_wake = cloud
+            .inner
+            .session
+            .lock()
+            .unwrap()
+            .authorization_wake
+            .clone()
+            .unwrap();
+        let wake = generation_wake.notified();
+        cloud.note_authorization_callback();
+        tokio::time::timeout(Duration::from_millis(100), wake)
+            .await
+            .expect("pending poll wake");
+        {
+            let session = cloud.inner.session.lock().unwrap();
+            assert_eq!(session.message, "Finishing sign-in…");
+            assert_eq!(session.phase, MobilePhase::Authorizing);
+            assert!(session.token.is_some());
+        }
+
+        cloud.clear_for_sign_out().unwrap();
+        cloud.begin_sign_in().unwrap();
+        {
+            let mut session = cloud.inner.session.lock().unwrap();
+            session.approval_url = Some(
+                "https://console.hecatehq.com/desktop-login?request=appauth_ffffffffffffffffffffffffffffffff"
+                    .to_string(),
+            );
+            session.authorization_deadline =
+                Some(tokio::time::Instant::now() + Duration::from_secs(60));
+        }
+        let replacement_wake = cloud
+            .inner
+            .session
+            .lock()
+            .unwrap()
+            .authorization_wake
+            .clone()
+            .unwrap();
+        let stale_generation = generation_wake.notified();
+        let replacement_generation = replacement_wake.notified();
+        cloud.note_authorization_callback();
+        tokio::time::timeout(Duration::from_millis(100), replacement_generation)
+            .await
+            .expect("replacement generation poll wake");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), stale_generation)
+                .await
+                .is_err(),
+            "replacement callback woke the stale generation"
+        );
+
+        cloud.clear_for_sign_out().unwrap();
+        let signed_out_wake = replacement_wake.notified();
+        cloud.note_authorization_callback();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), signed_out_wake)
+                .await
+                .is_err()
+        );
     }
 
     #[test]
@@ -2748,7 +2862,7 @@ mod tests {
         let authorization_id = "appauth_0123456789abcdef0123456789abcdef";
         let browser_ticket = format!("hbat_{}", "A".repeat(43));
         let approval_url = format!(
-            "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+            "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
         );
         let authorization = validate_app_authorization(
             DEFAULT_CLOUD_URL,
@@ -2766,37 +2880,43 @@ mod tests {
 
         for invalid_approval_url in [
             format!(
-                "https://evil.example/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+                "https://evil.example/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login?next=bad#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id=appauth_ffffffffffffffffffffffffffffffff&browser_ticket={browser_ticket}&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request=appauth_ffffffffffffffffffffffffffffffff#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket=hbat_short&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}&next=bad#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile&extra=1"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id=appauth_ffffffffffffffffffffffffffffffff&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&authorization_id={authorization_id}&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket=hbat_short&client=mobile"
             ),
             format!(
-                "https://user@console.hecatehq.com/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile&extra=1"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#%61uthorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&authorization_id={authorization_id}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}"
+                "https://user@console.hecatehq.com/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=desktop"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#%61uthorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
             ),
             format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#client=mobile&authorization_id={authorization_id}&browser_ticket={browser_ticket}"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}"
+            ),
+            format!(
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=desktop"
+            ),
+            format!(
+                "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#client=mobile&authorization_id={authorization_id}&browser_ticket={browser_ticket}"
             ),
         ] {
             assert!(validate_app_authorization(
@@ -2828,11 +2948,43 @@ mod tests {
     }
 
     #[test]
+    fn mobile_approval_request_query_forces_a_new_browser_document() {
+        let authorization_id = "appauth_0123456789abcdef0123456789abcdef";
+        let browser_ticket = format!("hbat_{}", "A".repeat(43));
+        let fragment = format!(
+            "authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+        );
+
+        assert!(validate_approval_url(
+            DEFAULT_CLOUD_URL,
+            &format!("{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#{fragment}"),
+            authorization_id,
+        )
+        .is_ok());
+
+        for query in [
+            String::new(),
+            "?request=appauth_ffffffffffffffffffffffffffffffff".to_string(),
+            format!("?request={authorization_id}&next=elsewhere"),
+        ] {
+            assert!(
+                validate_approval_url(
+                    DEFAULT_CLOUD_URL,
+                    &format!("{DEFAULT_CLOUD_URL}/desktop-login{query}#{fragment}"),
+                    authorization_id,
+                )
+                .is_err(),
+                "unexpectedly accepted query {query:?}"
+            );
+        }
+    }
+
+    #[test]
     fn approval_url_stays_native_only_and_is_cleared_with_the_session() {
         let authorization_id = "appauth_0123456789abcdef0123456789abcdef";
         let browser_ticket = format!("hbat_{}", "A".repeat(43));
         let approval_url = format!(
-            "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
+            "{DEFAULT_CLOUD_URL}/desktop-login?request={authorization_id}#authorization_id={authorization_id}&browser_ticket={browser_ticket}&client=mobile"
         );
         let cloud = MobileCloud::with_cloud_url(DEFAULT_CLOUD_URL).unwrap();
         let (generation, _) = cloud.begin_sign_in().unwrap();
@@ -2872,7 +3024,7 @@ mod tests {
         {
             let mut session = cloud.inner.session.lock().unwrap();
             session.approval_url = Some(format!(
-                "{DEFAULT_CLOUD_URL}/desktop-login#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket={browser_ticket}&client=mobile"
+                "{DEFAULT_CLOUD_URL}/desktop-login?request=appauth_0123456789abcdef0123456789abcdef#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket={browser_ticket}&client=mobile"
             ));
             session.authorization_deadline =
                 Some(tokio::time::Instant::now() + Duration::from_secs(60));

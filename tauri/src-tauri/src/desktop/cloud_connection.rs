@@ -22,6 +22,8 @@ const SESSION_CREDENTIAL: &str = "account-session";
 const HOST_CREDENTIAL: &str = "desktop-host";
 const MAX_LOGIN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const AUTHENTICATED_BOOTSTRAP_RETRY_INITIAL: Duration = Duration::from_secs(1);
+const AUTHENTICATED_BOOTSTRAP_RETRY_MAX: Duration = Duration::from_secs(30);
 const RELAY_RECONNECT_MAX: Duration = Duration::from_secs(30);
 const RELAY_PING_INTERVAL: Duration = Duration::from_secs(15);
 const RELAY_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
@@ -629,19 +631,37 @@ impl CloudConnectionSupervisor {
             self.inner.http.clone(),
             env!("CARGO_PKG_VERSION"),
         );
-        let actor = match client.me(&session_token).await {
+        let actor = match retry_cloud_bootstrap_request(
+            "account",
+            AUTHENTICATED_BOOTSTRAP_RETRY_INITIAL,
+            AUTHENTICATED_BOOTSTRAP_RETRY_MAX,
+            &mut cancel_rx,
+            || self.is_current(generation),
+            |err, _| {
+                self.set_phase_if_current(
+                    generation,
+                    ConnectionPhase::Reconnecting,
+                    "Hecate Cloud is temporarily unavailable. Reconnecting...",
+                    Some(err.to_string()),
+                );
+            },
+            || client.me(&session_token),
+        )
+        .await
+        {
             Ok(actor) => actor,
-            Err(err) if err.status == Some(401) => {
+            Err(CloudBootstrapRequestError::Cancelled) => return,
+            Err(CloudBootstrapRequestError::Terminal(err)) if err.status == Some(401) => {
                 self.expire_account_if_current(
                     generation,
                     "Your Hecate Cloud session expired. Sign in again.",
                 );
                 return;
             }
-            Err(err) => {
+            Err(CloudBootstrapRequestError::Terminal(err)) => {
                 self.set_error_if_current(
                     generation,
-                    "Hecate Cloud is not reachable.",
+                    "Remote access could not start.",
                     Some(err.to_string()),
                 );
                 return;
@@ -651,11 +671,27 @@ impl CloudConnectionSupervisor {
             return;
         }
         let (host_id, host_token) = match self
-            .ensure_host(generation, &client, &session_token, &actor)
+            .ensure_host(generation, &client, &session_token, &actor, &mut cancel_rx)
             .await
         {
             Ok(credentials) => credentials,
-            Err(err) => {
+            Err(HostBootstrapError::Cancelled) => return,
+            Err(HostBootstrapError::TerminalCloud(err)) if err.status == Some(401) => {
+                self.expire_account_if_current(
+                    generation,
+                    "Your Hecate Cloud session expired. Sign in again.",
+                );
+                return;
+            }
+            Err(HostBootstrapError::TerminalCloud(err)) => {
+                self.set_error_if_current(
+                    generation,
+                    "This computer could not be registered.",
+                    Some(err.to_string()),
+                );
+                return;
+            }
+            Err(HostBootstrapError::Local(err)) => {
                 self.set_error_if_current(
                     generation,
                     "This computer could not be registered.",
@@ -753,15 +789,14 @@ impl CloudConnectionSupervisor {
         client: &CloudClient,
         session_token: &str,
         actor: &CloudActor,
-    ) -> Result<(String, String), String> {
+        cancel_rx: &mut watch::Receiver<bool>,
+    ) -> Result<(String, String), HostBootstrapError> {
         let (existing_id, existing_actor_id, existing_org_id) = {
-            let state = self
-                .inner
-                .state
-                .lock()
-                .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            let state = self.inner.state.lock().map_err(|_| {
+                HostBootstrapError::Local("Remote access state is unavailable.".to_string())
+            })?;
             if state.generation != generation {
-                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+                return Err(HostBootstrapError::Cancelled);
             }
             (
                 state.preferences.host_id.clone(),
@@ -769,7 +804,11 @@ impl CloudConnectionSupervisor {
                 state.preferences.host_org_id.clone(),
             )
         };
-        let existing_token = self.inner.credentials.get(HOST_CREDENTIAL)?;
+        let existing_token = self
+            .inner
+            .credentials
+            .get(HOST_CREDENTIAL)
+            .map_err(HostBootstrapError::Local)?;
         if saved_host_owner_matches(
             existing_actor_id.as_deref(),
             existing_org_id.as_deref(),
@@ -779,35 +818,61 @@ impl CloudConnectionSupervisor {
                 if self.is_current(generation) {
                     return Ok((id, token));
                 }
-                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+                return Err(HostBootstrapError::Cancelled);
             }
         }
         if existing_id.is_some() || existing_token.is_some() {
-            let mut state = self
-                .inner
-                .state
-                .lock()
-                .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            let mut state = self.inner.state.lock().map_err(|_| {
+                HostBootstrapError::Local("Remote access state is unavailable.".to_string())
+            })?;
             if state.generation != generation {
-                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+                return Err(HostBootstrapError::Cancelled);
             }
-            self.inner.credentials.delete(HOST_CREDENTIAL)?;
+            self.inner
+                .credentials
+                .delete(HOST_CREDENTIAL)
+                .map_err(HostBootstrapError::Local)?;
             state.preferences.host_id = None;
             state.preferences.host_actor_id = None;
             state.preferences.host_org_id = None;
-            self.persist_preferences(&state.preferences)?;
+            self.persist_preferences(&state.preferences)
+                .map_err(HostBootstrapError::Local)?;
         }
 
-        let created = client
-            .create_host(session_token, &actor.org_id, &default_host_name())
-            .await
-            .map_err(|err| err.to_string())?;
+        let host_name = default_host_name();
+        let created = retry_cloud_bootstrap_request(
+            "host_registration",
+            AUTHENTICATED_BOOTSTRAP_RETRY_INITIAL,
+            AUTHENTICATED_BOOTSTRAP_RETRY_MAX,
+            cancel_rx,
+            || self.is_current(generation),
+            |err, _| {
+                self.set_phase_if_current(
+                    generation,
+                    ConnectionPhase::Reconnecting,
+                    "Hecate Cloud is temporarily unavailable. Reconnecting...",
+                    Some(err.to_string()),
+                );
+            },
+            || client.create_host(session_token, &actor.org_id, &host_name),
+        )
+        .await
+        .map_err(|err| match err {
+            CloudBootstrapRequestError::Cancelled => HostBootstrapError::Cancelled,
+            CloudBootstrapRequestError::Terminal(err) => HostBootstrapError::TerminalCloud(err),
+        })?;
         if created.host.id.trim().is_empty() || created.host_token.trim().is_empty() {
-            return Err("Cloud did not return desktop host credentials.".to_string());
+            return Err(HostBootstrapError::Local(
+                "Cloud did not return desktop host credentials.".to_string(),
+            ));
         }
         if let Err(err) = self.save_created_host_if_current(generation, actor, &created) {
             abandon_created_host(client, session_token, actor, &created.host.id).await;
-            return Err(err);
+            return Err(if err == REMOTE_ACCESS_CANCELLED {
+                HostBootstrapError::Cancelled
+            } else {
+                HostBootstrapError::Local(err)
+            });
         }
         Ok((created.host.id, created.host_token))
     }
@@ -1335,11 +1400,99 @@ impl CloudAPIError {
             },
         }
     }
+
+    fn is_retryable_authenticated_bootstrap(&self) -> bool {
+        matches!(self.status, None | Some(408 | 429 | 500..=599))
+    }
+
+    fn authenticated_bootstrap_retry_reason(&self) -> Option<String> {
+        if !self.is_retryable_authenticated_bootstrap() {
+            return None;
+        }
+        Some(match self.status {
+            Some(status) => format!("http_{status}"),
+            None => "network".to_string(),
+        })
+    }
 }
 
 impl fmt::Display for CloudAPIError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.message)
+    }
+}
+
+#[derive(Debug)]
+enum CloudBootstrapRequestError {
+    Cancelled,
+    Terminal(CloudAPIError),
+}
+
+#[derive(Debug)]
+enum HostBootstrapError {
+    Cancelled,
+    TerminalCloud(CloudAPIError),
+    Local(String),
+}
+
+async fn retry_cloud_bootstrap_request<T, Request, RequestFuture, IsCurrent, OnRetry>(
+    stage: &'static str,
+    initial_delay: Duration,
+    max_delay: Duration,
+    cancel_rx: &mut watch::Receiver<bool>,
+    is_current: IsCurrent,
+    mut on_retry: OnRetry,
+    mut request: Request,
+) -> Result<T, CloudBootstrapRequestError>
+where
+    Request: FnMut() -> RequestFuture,
+    RequestFuture: std::future::Future<Output = Result<T, CloudAPIError>>,
+    IsCurrent: Fn() -> bool,
+    OnRetry: FnMut(&CloudAPIError, Duration),
+{
+    let mut delay = std::cmp::min(initial_delay, max_delay);
+    loop {
+        if *cancel_rx.borrow() || !is_current() {
+            return Err(CloudBootstrapRequestError::Cancelled);
+        }
+        let result = tokio::select! {
+            result = request() => result,
+            changed = cancel_rx.changed() => {
+                let _ = changed;
+                return Err(CloudBootstrapRequestError::Cancelled);
+            }
+        };
+        if *cancel_rx.borrow() || !is_current() {
+            return Err(CloudBootstrapRequestError::Cancelled);
+        }
+        match result {
+            Ok(value) => return Ok(value),
+            Err(err) if err.is_retryable_authenticated_bootstrap() => {
+                let reason = err
+                    .authenticated_bootstrap_retry_reason()
+                    .expect("retryable errors have a sanitized reason");
+                log::warn!(
+                    "remote access bootstrap retry stage={stage} reason={reason} retry_ms={}",
+                    delay.as_millis()
+                );
+                on_retry(&err, delay);
+                if *cancel_rx.borrow() || !is_current() {
+                    return Err(CloudBootstrapRequestError::Cancelled);
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {}
+                    changed = cancel_rx.changed() => {
+                        let _ = changed;
+                        return Err(CloudBootstrapRequestError::Cancelled);
+                    }
+                }
+                if *cancel_rx.borrow() || !is_current() {
+                    return Err(CloudBootstrapRequestError::Cancelled);
+                }
+                delay = std::cmp::min(delay.saturating_mul(2), max_delay);
+            }
+            Err(err) => return Err(CloudBootstrapRequestError::Terminal(err)),
+        }
     }
 }
 
@@ -1401,11 +1554,16 @@ fn validated_app_authorization(
     let same_origin = cloud.scheme() == approval.scheme()
         && cloud.host_str() == approval.host_str()
         && cloud.port_or_known_default() == approval.port_or_known_default();
+    // Make every approval a full browser navigation. A fragment-only change
+    // can leave Safari on an already-successful login document whose React
+    // state never observes the new authorization. The request id is public;
+    // the one-time browser ticket remains in the fragment.
+    let expected_query = format!("request={}", authorization.authorization_id);
     if !same_origin
         || !approval.username().is_empty()
         || approval.password().is_some()
         || approval.path() != "/desktop-login"
-        || approval.query().is_some()
+        || approval.query() != Some(expected_query.as_str())
     {
         return Err("Hecate Cloud returned an untrusted approval URL.".to_string());
     }
@@ -2705,7 +2863,7 @@ mod tests {
         AppAuthorization {
             authorization_id: "appauth_0123456789abcdef0123456789abcdef".to_string(),
             approval_url: format!(
-                "https://console.example.test/desktop-login#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_{}&client=desktop",
+                "https://console.example.test/desktop-login?request=appauth_0123456789abcdef0123456789abcdef#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_{}&client=desktop",
                 "a".repeat(43),
             ),
             expires_at: authorization_expiry_after(Duration::from_secs(5 * 60)),
@@ -2728,6 +2886,169 @@ mod tests {
             "host_test",
         )
         .expect("relay authorization")
+    }
+
+    fn bootstrap_test_error(status: Option<u16>, message: &str) -> CloudAPIError {
+        CloudAPIError {
+            status,
+            message: message.to_string(),
+        }
+    }
+
+    #[test]
+    fn authenticated_bootstrap_retry_classification_is_fail_closed_for_client_errors() {
+        for status in [None, Some(408), Some(429), Some(500), Some(503), Some(599)] {
+            assert!(
+                bootstrap_test_error(status, "transient").is_retryable_authenticated_bootstrap(),
+                "expected {status:?} to retry"
+            );
+        }
+        for status in [
+            Some(200),
+            Some(301),
+            Some(400),
+            Some(401),
+            Some(403),
+            Some(404),
+            Some(422),
+        ] {
+            assert!(
+                !bootstrap_test_error(status, "terminal").is_retryable_authenticated_bootstrap(),
+                "expected {status:?} to stop"
+            );
+        }
+    }
+
+    #[test]
+    fn authenticated_bootstrap_retry_log_reason_never_uses_remote_error_text() {
+        let network = bootstrap_test_error(None, "token=happ_secret");
+        let unavailable = bootstrap_test_error(Some(503), "upstream body with credentials");
+
+        assert_eq!(
+            network.authenticated_bootstrap_retry_reason().as_deref(),
+            Some("network")
+        );
+        assert_eq!(
+            unavailable
+                .authenticated_bootstrap_retry_reason()
+                .as_deref(),
+            Some("http_503")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_bootstrap_retries_transient_failures_with_bounded_backoff() {
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let mut attempts = 0;
+        let mut retry_delays = Vec::new();
+
+        let result = retry_cloud_bootstrap_request(
+            "test",
+            Duration::from_millis(1),
+            Duration::from_millis(4),
+            &mut cancel_rx,
+            || true,
+            |_, delay| retry_delays.push(delay),
+            || {
+                attempts += 1;
+                std::future::ready(match attempts {
+                    1 => Err(bootstrap_test_error(None, "network")),
+                    2 => Err(bootstrap_test_error(Some(429), "rate limited")),
+                    3 => Err(bootstrap_test_error(Some(503), "unavailable")),
+                    _ => Ok("connected"),
+                })
+            },
+        )
+        .await
+        .expect("transient failures should recover");
+
+        assert_eq!(result, "connected");
+        assert_eq!(attempts, 4);
+        assert_eq!(
+            retry_delays,
+            [
+                Duration::from_millis(1),
+                Duration::from_millis(2),
+                Duration::from_millis(4),
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_bootstrap_keeps_401_and_403_terminal() {
+        for status in [401, 403] {
+            let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+            let mut attempts = 0;
+            let mut retries = 0;
+
+            let result: Result<(), CloudBootstrapRequestError> = retry_cloud_bootstrap_request(
+                "test",
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+                &mut cancel_rx,
+                || true,
+                |_, _| retries += 1,
+                || {
+                    attempts += 1;
+                    std::future::ready(Err(bootstrap_test_error(Some(status), "terminal")))
+                },
+            )
+            .await;
+
+            match result {
+                Err(CloudBootstrapRequestError::Terminal(err)) => {
+                    assert_eq!(err.status, Some(status));
+                }
+                other => panic!("expected terminal HTTP {status}, got {other:?}"),
+            }
+            assert_eq!(attempts, 1);
+            assert_eq!(retries, 0);
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_bootstrap_cancellation_interrupts_an_inflight_request() {
+        let (cancel_tx, mut cancel_rx) = watch::channel(false);
+        let retry = retry_cloud_bootstrap_request(
+            "test",
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            &mut cancel_rx,
+            || true,
+            |_, _| panic!("pending request must not reach retry"),
+            || std::future::pending::<Result<(), CloudAPIError>>(),
+        );
+        let cancel = async move {
+            tokio::task::yield_now().await;
+            cancel_tx.send(true).expect("cancel bootstrap");
+        };
+
+        let (result, ()) = tokio::join!(retry, cancel);
+        assert!(matches!(result, Err(CloudBootstrapRequestError::Cancelled)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_bootstrap_stops_before_backoff_when_generation_is_stale() {
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let current = std::cell::Cell::new(true);
+        let mut attempts = 0;
+
+        let result: Result<(), CloudBootstrapRequestError> = retry_cloud_bootstrap_request(
+            "test",
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+            &mut cancel_rx,
+            || current.get(),
+            |_, _| current.set(false),
+            || {
+                attempts += 1;
+                std::future::ready(Err(bootstrap_test_error(None, "network")))
+            },
+        )
+        .await;
+
+        assert!(matches!(result, Err(CloudBootstrapRequestError::Cancelled)));
+        assert_eq!(attempts, 1);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -3002,8 +3323,8 @@ mod tests {
         );
         authorization = desktop_app_authorization();
         authorization.approval_url = authorization.approval_url.replacen(
-            "authorization_id=appauth_0123456789abcdef0123456789abcdef",
-            "authorization_id=appauth_ffffffffffffffffffffffffffffffff",
+            "#authorization_id=appauth_0123456789abcdef0123456789abcdef",
+            "#authorization_id=appauth_ffffffffffffffffffffffffffffffff",
             1,
         );
         assert!(
@@ -3028,8 +3349,26 @@ mod tests {
         );
         authorization = desktop_app_authorization();
         authorization.approval_url = authorization.approval_url.replacen(
-            "/desktop-login#",
-            "/desktop-login?next=elsewhere#",
+            "?request=appauth_0123456789abcdef0123456789abcdef#",
+            "#",
+            1,
+        );
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url = authorization.approval_url.replacen(
+            "?request=appauth_0123456789abcdef0123456789abcdef#",
+            "?request=appauth_ffffffffffffffffffffffffffffffff#",
+            1,
+        );
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url = authorization.approval_url.replacen(
+            "?request=appauth_0123456789abcdef0123456789abcdef#",
+            "?request=appauth_0123456789abcdef0123456789abcdef&next=elsewhere#",
             1,
         );
         assert!(
@@ -3053,6 +3392,32 @@ mod tests {
     }
 
     #[test]
+    fn desktop_approval_request_query_forces_a_new_browser_document() {
+        let authorization = desktop_app_authorization();
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_ok()
+        );
+
+        for replacement in [
+            "#",
+            "?request=appauth_ffffffffffffffffffffffffffffffff#",
+            "?request=appauth_0123456789abcdef0123456789abcdef&next=elsewhere#",
+        ] {
+            let mut invalid = desktop_app_authorization();
+            invalid.approval_url = invalid.approval_url.replacen(
+                "?request=appauth_0123456789abcdef0123456789abcdef#",
+                replacement,
+                1,
+            );
+            assert!(
+                validated_app_authorization(&invalid, "https://console.example.test").is_err(),
+                "unexpectedly accepted approval URL {}",
+                invalid.approval_url
+            );
+        }
+    }
+
+    #[test]
     fn app_authorization_rejects_expired_or_excessive_expiry() {
         let mut authorization = desktop_app_authorization();
         authorization.expires_at = authorization_expiry_after(Duration::from_secs(0));
@@ -3071,7 +3436,7 @@ mod tests {
         let response = serde_json::json!({
             "authorization_id": "appauth_0123456789abcdef0123456789abcdef",
             "approval_url": format!(
-                "https://console.example.test/desktop-login#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_{}&client=desktop",
+                "https://console.example.test/desktop-login?request=appauth_0123456789abcdef0123456789abcdef#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_{}&client=desktop",
                 "a".repeat(43),
             ),
             "expires_at": authorization_expiry_after(Duration::from_secs(5 * 60)),

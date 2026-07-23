@@ -57,11 +57,14 @@ runs on the selected Hecate instance, not on the phone.
 
 The native client sends a random app token to Cloud once over HTTPS, and Cloud
 stores only its hash. Cloud returns a ten-minute authorization ID and a
-same-origin `/desktop-login` approval URL. Its fragment contains that
-authorization ID, a bound one-time browser ticket, and the `mobile` client
-marker. The native layer validates the exact origin, path, fragment shape,
-identifier, ticket, and client marker before opening the system browser. There
-is no verification-code or copy-code flow.
+same-origin `/desktop-login` approval URL. A non-secret `request` query repeats
+the authorization ID so every attempt loads a fresh browser document instead
+of reusing an earlier Safari tab. Its fragment contains that authorization ID,
+a bound one-time browser ticket, and the `mobile` client marker. The native
+layer validates the exact origin, path, query, fragment shape, identifier,
+ticket, and client marker before opening the system browser. The browser ticket
+never enters the query or referrer, and there is no verification-code or
+copy-code flow.
 
 While authorization is pending, the validated approval URL remains in native
 memory so **Open sign-in again** can retry the browser handoff without exposing
