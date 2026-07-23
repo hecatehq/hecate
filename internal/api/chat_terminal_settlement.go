@@ -259,6 +259,28 @@ func (t *agentChatSettlementTurn) currentSession(ctx context.Context, publish bo
 	})
 }
 
+// settledSession reads and publishes the final External Agent snapshot inside
+// the settlement serializer. Keeping the publication in the submitted
+// operation prevents a later queued metadata/activity write from overtaking
+// the read before the snapshot is marked as fully settled.
+func (t *agentChatSettlementTurn) settledSession(ctx context.Context) (chat.Session, error) {
+	if t == nil || t.dispatcher == nil {
+		return chat.Session{}, errAgentChatSettlementClosed
+	}
+	d := t.dispatcher
+	return d.submit(ctx, false, false, func(readCtx context.Context) (chat.Session, error) {
+		session, ok, err := d.handler.agentChat.Get(readCtx, d.sessionID)
+		if err != nil {
+			return chat.Session{}, err
+		}
+		if !ok {
+			return chat.Session{}, fmt.Errorf("agent chat session %q not found", d.sessionID)
+		}
+		d.handler.agentChatLive.publishSettledSession(session, t.messageID)
+		return session, nil
+	})
+}
+
 // terminalActivity is intentionally enqueue-only. ACP calls it while holding
 // its terminal callback-order mutex; storage latency must never delay terminal
 // output drain or consume the adapter shutdown budget.

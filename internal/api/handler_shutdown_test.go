@@ -723,9 +723,18 @@ func TestHandler_Shutdown_CalledTwice(t *testing.T) {
 	t.Parallel()
 	runner := newShutdownTestRunner(t)
 	cache := newShutdownTestCache()
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	turnCtx, turnCancel := context.WithCancel(context.Background())
+	turnSnapshot := live.snapshotLifecycle("shutdown_turn")
+	defer turnSnapshot.release()
+	if got := live.registerTurn(turnSnapshot, turnCancel); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn before shutdown = %v, want accepted", got)
+	}
+	defer live.clearTurn("shutdown_turn")
 	h := &Handler{
 		taskRunner:     runner,
 		mcpClientCache: cache,
+		agentChatLive:  live,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -734,8 +743,23 @@ func TestHandler_Shutdown_CalledTwice(t *testing.T) {
 	if err := h.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown 1: %v", err)
 	}
+	select {
+	case <-turnCtx.Done():
+	default:
+		t.Fatal("first Shutdown did not cancel the admitted chat turn")
+	}
+	afterShutdown := live.snapshotLifecycle("after_shutdown")
+	defer afterShutdown.release()
+	if got := live.registerTurn(afterShutdown, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn after first Shutdown = %v, want admission closed", got)
+	}
 	if err := h.Shutdown(ctx); err != nil {
 		t.Errorf("Shutdown 2: %v (idempotent expected)", err)
+	}
+	afterSecondShutdown := live.snapshotLifecycle("after_second_shutdown")
+	defer afterSecondShutdown.release()
+	if got := live.registerTurn(afterSecondShutdown, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn after second Shutdown = %v, want admission closed", got)
 	}
 }
 

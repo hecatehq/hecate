@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
@@ -32,6 +31,14 @@ type AgentChatLiveEvent struct {
 	SessionUpdate     *ChatSessionResponse
 	ApprovalRequested *ChatApprovalRequestedEvent
 	ApprovalResolved  *ChatApprovalResolvedEvent
+	// turnSettled marks the External Agent handler's final publication after
+	// session metadata and turn counters have finished their ordered writes.
+	// Other terminal-looking snapshots can occur while a new or completing
+	// turn is still active and must not close the stream. settledMessageID
+	// binds that evidence to the exact terminal assistant row so a delayed
+	// marker cannot settle a newer turn.
+	turnSettled      bool
+	settledMessageID string
 }
 
 // ChatApprovalRequestedEvent is the SSE payload published when
@@ -75,7 +82,11 @@ type agentChatLive struct {
 	activeTurns map[string]*agentChatTurnControl
 	mutating    map[string]struct{}
 	lifecycles  map[string]*agentChatLifecycleState
-	snapshot    agentChatSnapshotConfig
+	// turnAdmissionClosed is permanent for this live registry. Handler
+	// shutdown closes admission and snapshots active turns under the same
+	// mutex, so every registration either joins that snapshot or is rejected.
+	turnAdmissionClosed bool
+	snapshot            agentChatSnapshotConfig
 }
 
 // agentChatLifecycleSnapshot binds work admitted after a session read to the
@@ -131,25 +142,24 @@ type agentChatTurnControl struct {
 	// (operator Stop/close/delete or handler shutdown). The handler reads
 	// this when the turn terminates so the cancellation counter can label
 	// the first cancellation authority.
-	// Stored as an atomic *string so the cancel and complete paths
-	// can race without locking the live struct.
-	reason atomic.Pointer[string]
+	// Protected by agentChatLive.mu so selecting a turn and recording the
+	// authority are one operation with respect to handler shutdown.
+	reason string
 }
 
-// markCancelReason CAS-installs the cancellation reason so the
-// handler can label the cancellation counter correctly. First write
-// wins — once a reason is recorded, later cancel calls (e.g.
-// cancelTurnAndWait fired by Delete after Cancel) don't clobber it.
-func (c *agentChatTurnControl) markCancelReason(reason string) {
-	c.reason.CompareAndSwap(nil, &reason)
-}
-
-// cancelReason reports the recorded reason or empty string.
-func (c *agentChatTurnControl) cancelReason() string {
-	if r := c.reason.Load(); r != nil {
-		return *r
+// markCancelReasonLocked installs the first cancellation authority. The
+// caller must hold agentChatLive.mu so selecting the turn and recording the
+// reason cannot be interleaved with shutdown's turn snapshot.
+func (c *agentChatTurnControl) markCancelReasonLocked(reason string) {
+	if c.reason == "" {
+		c.reason = reason
 	}
-	return ""
+}
+
+// cancelReasonLocked reports the recorded reason or empty string. The caller
+// must hold agentChatLive.mu.
+func (c *agentChatTurnControl) cancelReasonLocked() string {
+	return c.reason
 }
 
 func newAgentChatLive(snapshot agentChatSnapshotConfig) *agentChatLive {
@@ -163,15 +173,25 @@ func newAgentChatLive(snapshot agentChatSnapshotConfig) *agentChatLive {
 }
 
 func (l *agentChatLive) subscribe(sessionID string) (<-chan AgentChatLiveEvent, func()) {
+	ch, _, unsubscribe := l.subscribeWithTurnState(sessionID)
+	return ch, unsubscribe
+}
+
+// subscribeWithTurnState atomically installs a subscriber and reports whether
+// a turn was already admitted. A reconnect that lands during terminal
+// settlement must remember that it observed live work even if clearTurn races
+// the subsequent durable session read.
+func (l *agentChatLive) subscribeWithTurnState(sessionID string) (<-chan AgentChatLiveEvent, bool, func()) {
 	ch := make(chan AgentChatLiveEvent, 16)
 	l.mu.Lock()
 	if l.subscribers[sessionID] == nil {
 		l.subscribers[sessionID] = make(map[chan AgentChatLiveEvent]struct{})
 	}
 	l.subscribers[sessionID][ch] = struct{}{}
+	_, turnActive := l.activeTurns[sessionID]
 	l.mu.Unlock()
 
-	return ch, func() {
+	return ch, turnActive, func() {
 		l.mu.Lock()
 		if subs := l.subscribers[sessionID]; subs != nil {
 			delete(subs, ch)
@@ -189,12 +209,22 @@ func (l *agentChatLive) subscribe(sessionID string) (<-chan AgentChatLiveEvent, 
 // (latest-write-wins) — operators care about current state, not the
 // chronology of every micro-update.
 func (l *agentChatLive) publishSession(session chat.Session) {
+	l.publishSessionWithSettlement(session, "")
+}
+
+func (l *agentChatLive) publishSettledSession(session chat.Session, messageID string) {
+	l.publishSessionWithSettlement(session, messageID)
+}
+
+func (l *agentChatLive) publishSessionWithSettlement(session chat.Session, settledMessageID string) {
 	l.publish(session.ID, AgentChatLiveEvent{
 		Type: AgentChatLiveEventSessionUpdate,
 		SessionUpdate: &ChatSessionResponse{
 			Object: "chat_session",
 			Data:   renderChatSession(session, l.snapshot),
 		},
+		turnSettled:      settledMessageID != "",
+		settledMessageID: settledMessageID,
 	}, true)
 }
 
@@ -352,6 +382,9 @@ func (l *agentChatLive) reapLifecycleLocked(sessionID string, state *agentChatLi
 func (l *agentChatLive) registerTurn(snapshot agentChatLifecycleSnapshot, cancel context.CancelFunc) agentChatTurnRegistration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.turnAdmissionClosed {
+		return agentChatTurnAdmissionClosed
+	}
 	if _, current := l.snapshotCurrentLocked(snapshot); !current {
 		return agentChatTurnAdmissionClosed
 	}
@@ -589,22 +622,24 @@ func (l *agentChatLive) hasTurn(sessionID string) bool {
 // uses this on the turn-completion path for closed-set metric attribution.
 func (l *agentChatLive) turnCancelReason(sessionID string) string {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	turn, ok := l.activeTurns[sessionID]
-	l.mu.Unlock()
 	if !ok || turn == nil {
 		return ""
 	}
-	return turn.cancelReason()
+	return turn.cancelReasonLocked()
 }
 
 func (l *agentChatLive) cancelTurn(sessionID string) bool {
 	l.mu.Lock()
 	turn, ok := l.activeTurns[sessionID]
+	if ok && turn != nil {
+		turn.markCancelReasonLocked("operator")
+	}
 	l.mu.Unlock()
-	if !ok {
+	if !ok || turn == nil {
 		return false
 	}
-	turn.markCancelReason("operator")
 	turn.cancel()
 	return true
 }
@@ -612,11 +647,13 @@ func (l *agentChatLive) cancelTurn(sessionID string) bool {
 func (l *agentChatLive) cancelTurnAndWait(ctx context.Context, sessionID string) bool {
 	l.mu.Lock()
 	turn, ok := l.activeTurns[sessionID]
+	if ok && turn != nil {
+		turn.markCancelReasonLocked("operator")
+	}
 	l.mu.Unlock()
-	if !ok {
+	if !ok || turn == nil {
 		return true
 	}
-	turn.markCancelReason("operator")
 	turn.cancel()
 	select {
 	case <-turn.done:
@@ -626,18 +663,22 @@ func (l *agentChatLive) cancelTurnAndWait(ctx context.Context, sessionID string)
 	}
 }
 
-// cancelAllTurns marks and cancels every registered turn without waiting for
-// settlement. First reason wins, so an operator Stop racing shutdown keeps its
-// more specific attribution. Handler.Shutdown calls this before draining the
+// cancelAllTurns permanently closes turn admission, then marks and snapshots
+// every registered turn without waiting for settlement. Admission closure and
+// the snapshot share one critical section: a concurrent registration either
+// wins first and is included here, or observes the closed gate. First reason
+// wins, so an operator Stop that selected a turn before shutdown keeps its more
+// specific attribution. Handler.Shutdown calls this before draining the
 // adapter runtime so custom runners cannot leave detached turn contexts alive.
 func (l *agentChatLive) cancelAllTurns(reason string) {
 	l.mu.Lock()
+	l.turnAdmissionClosed = true
 	turns := make([]*agentChatTurnControl, 0, len(l.activeTurns))
 	for _, turn := range l.activeTurns {
 		if turn == nil {
 			continue
 		}
-		turn.markCancelReason(reason)
+		turn.markCancelReasonLocked(reason)
 		turns = append(turns, turn)
 	}
 	l.mu.Unlock()

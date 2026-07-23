@@ -6652,6 +6652,328 @@ describe("useRuntimeConsole", () => {
       });
     });
 
+    it.each([
+      { disconnectKind: "eof", reconnectKind: "running" },
+      { disconnectKind: "error", reconnectKind: "running" },
+      { disconnectKind: "orphan", reconnectKind: "running" },
+      { disconnectKind: "eof", reconnectKind: "terminal" },
+    ] as const)(
+      "reconnects a local External Agent stream after $disconnectKind with a $reconnectKind snapshot",
+      async ({ disconnectKind, reconnectKind }) => {
+        window.localStorage.setItem("hecate.chatTarget", "external_agent");
+        window.localStorage.setItem("hecate.agentAdapterID", "codex");
+        window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+        window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+        const encoder = new TextEncoder();
+        let streamRequests = 0;
+        let disconnected = false;
+        let retryController: ReadableStreamDefaultController<Uint8Array> | null = null;
+        let messagePostStarted = false;
+        let releaseMessagePost: ((response: Response) => void) | undefined;
+        const deferredMessagePost = new Promise<Response>((resolve) => {
+          releaseMessagePost = resolve;
+        });
+        const session = (
+          status: "completed" | "running",
+          content: string,
+        ): Record<string, unknown> => ({
+          id: "chat_a",
+          title: "External Agent chat",
+          agent_id: "codex",
+          status,
+          workspace: "/workspace",
+          messages:
+            status === "running"
+              ? [
+                  { id: "user_1", role: "user", content: "keep going", status: "completed" },
+                  { id: "assistant_1", role: "assistant", content, status: "running" },
+                ]
+              : content
+                ? [
+                    { id: "user_1", role: "user", content: "keep going", status: "completed" },
+                    { id: "assistant_1", role: "assistant", content, status: "completed" },
+                  ]
+                : [],
+          created_at: "2026-07-23T10:00:00Z",
+          updated_at: status === "running" ? "2026-07-23T10:00:01Z" : "2026-07-23T10:00:02Z",
+        });
+        const pendingApproval = {
+          id: "approval_gap",
+          session_id: "chat_a",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          tool_name: "write_file",
+          status: "pending",
+          acp_options: [],
+          scope_choices: ["once"],
+          created_at: "2026-07-23T10:00:01Z",
+          expires_at: "2026-07-23T10:05:00Z",
+        };
+        const emitRetryEvent = (event: string, payload: unknown) => {
+          retryController?.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`),
+          );
+        };
+
+        fetchMock.mockImplementation(
+          withSessions([{ id: "chat_a", title: "External Agent chat" }], {
+            "/hecate/v1/agent-adapters": () =>
+              jsonResponse({
+                object: "agent_adapters",
+                data: [{ id: "codex", name: "Codex", kind: "acp", available: true }],
+              }),
+            "/hecate/v1/chat/sessions/chat_a": () =>
+              jsonResponse({
+                object: "chat_session",
+                data:
+                  disconnectKind === "orphan"
+                    ? {
+                        ...session("completed", ""),
+                        status: "idle",
+                        messages: [
+                          {
+                            id: "user_orphaned",
+                            role: "user",
+                            content: "previous interrupted message",
+                            status: "completed",
+                          },
+                        ],
+                      }
+                    : session("completed", ""),
+              }),
+            "/hecate/v1/chat/sessions/chat_a/stream": () => {
+              streamRequests += 1;
+              if (streamRequests === 1) {
+                disconnected = true;
+                if (disconnectKind === "error") {
+                  return jsonResponse(
+                    { error: { type: "gateway_error", message: "temporary stream failure" } },
+                    503,
+                  );
+                }
+                if (disconnectKind === "orphan") {
+                  return jsonResponse(
+                    {
+                      error: {
+                        type: "chat.session_not_running",
+                        message: "external agent turn is no longer active",
+                      },
+                    },
+                    409,
+                  );
+                }
+                return new Response(
+                  new ReadableStream<Uint8Array>({
+                    start(controller) {
+                      controller.enqueue(
+                        encoder.encode(
+                          `event: session_update\ndata: ${JSON.stringify({
+                            object: "chat_session",
+                            data: session("completed", ""),
+                          })}\n\n`,
+                        ),
+                      );
+                      controller.close();
+                    },
+                  }),
+                  { status: 200, headers: { "Content-Type": "text/event-stream" } },
+                );
+              }
+              return new Response(
+                new ReadableStream<Uint8Array>({
+                  start(controller) {
+                    retryController = controller;
+                    controller.enqueue(
+                      encoder.encode(
+                        `event: session_update\ndata: ${JSON.stringify({
+                          object: "chat_session",
+                          data:
+                            reconnectKind === "terminal"
+                              ? session("completed", "Finished")
+                              : session("running", "Recovered live output"),
+                        })}\n\n`,
+                      ),
+                    );
+                    if (reconnectKind === "terminal") controller.close();
+                  },
+                }),
+                { status: 200, headers: { "Content-Type": "text/event-stream" } },
+              );
+            },
+            "/hecate/v1/chat/sessions/chat_a/approvals?status=pending": () =>
+              jsonResponse({
+                object: "list",
+                data: disconnected ? [pendingApproval] : [],
+              }),
+            "/hecate/v1/chat/sessions/chat_a/messages": () => {
+              messagePostStarted = true;
+              return deferredMessagePost;
+            },
+          }),
+        );
+
+        const { result } = renderRuntimeConsoleWithChatHook();
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        });
+        act(() => {
+          result.current.runtimeConsole.actions.setMessage("keep going");
+        });
+        let submission!: Promise<void>;
+        act(() => {
+          submission = result.current.runtimeConsole.actions.submitChat({
+            preventDefault: vi.fn(),
+          } as any);
+        });
+        await waitFor(() => expect(messagePostStarted).toBe(true));
+        await waitFor(() => expect(streamRequests).toBe(2), { timeout: 1_500 });
+        const expectedReconnectStatus = reconnectKind === "terminal" ? "completed" : "running";
+        const expectedReconnectContent =
+          reconnectKind === "terminal" ? "Finished" : "Recovered live output";
+        const expectedReconnectApprovalIDs = reconnectKind === "terminal" ? [] : ["approval_gap"];
+        await waitFor(() =>
+          expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+            status: expectedReconnectStatus,
+            messages: [
+              expect.anything(),
+              expect.objectContaining({ content: expectedReconnectContent }),
+            ],
+          }),
+        );
+        await waitFor(() =>
+          expect(
+            (
+              result.current.runtimeConsole.state.pendingApprovalsBySessionID.get("chat_a") ?? []
+            ).map((approval) => approval.approval_id),
+          ).toEqual(expectedReconnectApprovalIDs),
+        );
+
+        const terminal = session("completed", "Finished");
+        act(() => {
+          if (reconnectKind === "running") {
+            emitRetryEvent("session_update", {
+              object: "chat_session",
+              data: terminal,
+            });
+            retryController?.close();
+          }
+          releaseMessagePost?.(jsonResponse({ object: "chat_session", data: terminal }));
+        });
+        await act(async () => {
+          await submission;
+        });
+
+        expect(result.current.runtimeConsole.state.activeChatSession).toMatchObject({
+          status: "completed",
+          messages: [expect.anything(), expect.objectContaining({ content: "Finished" })],
+        });
+        expect(result.current.runtimeConsole.state.pendingApprovalsBySessionID.has("chat_a")).toBe(
+          false,
+        );
+        expect(streamRequests).toBe(2);
+      },
+    );
+
+    it.each([
+      { status: 401, code: "unauthorized", deleted: false },
+      { status: 403, code: "forbidden", deleted: false },
+      { status: 404, code: "not_found", deleted: true },
+    ] as const)(
+      "does not retry a locally owned External Agent stream after $status",
+      async ({ status, code, deleted }) => {
+        window.localStorage.setItem("hecate.chatTarget", "external_agent");
+        window.localStorage.setItem("hecate.agentAdapterID", "codex");
+        window.localStorage.setItem("hecate.chatSessionID", "chat_a");
+        window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+        let streamRequests = 0;
+        let messagePostStarted = false;
+        let releaseMessagePost: ((response: Response) => void) | undefined;
+        const deferredMessagePost = new Promise<Response>((resolve) => {
+          releaseMessagePost = resolve;
+        });
+        const session = {
+          id: "chat_a",
+          title: "External Agent chat",
+          agent_id: "codex",
+          status: "completed",
+          workspace: "/workspace",
+          messages: [],
+          created_at: "2026-07-23T10:00:00Z",
+          updated_at: "2026-07-23T10:00:00Z",
+        };
+        const errorResponse = () =>
+          jsonResponse(
+            {
+              error: {
+                type: code,
+                message: `stream rejected with ${status}`,
+              },
+            },
+            status,
+          );
+
+        fetchMock.mockImplementation(
+          withSessions([{ id: "chat_a", title: "External Agent chat" }], {
+            "/hecate/v1/agent-adapters": () =>
+              jsonResponse({
+                object: "agent_adapters",
+                data: [{ id: "codex", name: "Codex", kind: "acp", available: true }],
+              }),
+            "/hecate/v1/chat/sessions/chat_a": () =>
+              jsonResponse({ object: "chat_session", data: session }),
+            "/hecate/v1/chat/sessions/chat_a/stream": () => {
+              streamRequests += 1;
+              return errorResponse();
+            },
+            "/hecate/v1/chat/sessions/chat_a/approvals?status=pending": () =>
+              jsonResponse({ object: "list", data: [] }),
+            "/hecate/v1/chat/sessions/chat_a/messages": () => {
+              messagePostStarted = true;
+              return deferredMessagePost;
+            },
+          }),
+        );
+
+        const { result } = renderRuntimeConsoleWithChatHook();
+        await waitFor(() => expect(result.current.runtimeConsole.state.loading).toBe(false));
+        await act(async () => {
+          await result.current.runtimeConsole.actions.selectChatSession("chat_a");
+        });
+        act(() => {
+          result.current.runtimeConsole.actions.setMessage("keep going");
+        });
+        let submission!: Promise<void>;
+        act(() => {
+          submission = result.current.runtimeConsole.actions.submitChat({
+            preventDefault: vi.fn(),
+          } as any);
+        });
+        await waitFor(() => expect(messagePostStarted).toBe(true));
+        await waitFor(() =>
+          expect(result.current.runtimeConsole.state.activeChatSession?.id ?? "").toBe(
+            deleted ? "" : "chat_a",
+          ),
+        );
+        expect(
+          result.current.runtimeConsole.state.chatSessions.map((candidate) => candidate.id),
+        ).toEqual(deleted ? [] : ["chat_a"]);
+        await waitFor(() =>
+          expect(result.current.runtimeConsole.state.chatErrorStatus).toBe(deleted ? null : status),
+        );
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        expect(streamRequests).toBe(1);
+
+        act(() => {
+          releaseMessagePost?.(errorResponse());
+        });
+        await act(async () => {
+          await submission;
+        });
+        expect(streamRequests).toBe(1);
+      },
+    );
+
     it("keeps an accepted Stop fenced through stale acknowledgements and exact-turn updates", async () => {
       window.localStorage.setItem("hecate.chatTarget", "external_agent");
       window.localStorage.setItem("hecate.agentAdapterID", "codex");

@@ -400,7 +400,7 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 	// after it is queued for the projector. Reversing those operations leaves a
 	// gap where a terminal turn can be missed and a stale running stream can
 	// heartbeat forever.
-	updates, unsubscribe := h.agentChatLive.subscribe(sessionID)
+	updates, observedLiveTurn, unsubscribe := h.agentChatLive.subscribeWithTurnState(sessionID)
 	defer unsubscribe()
 
 	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
@@ -412,19 +412,31 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
+	// Admission can begin after subscribeWithTurnState snapshots the registry
+	// but before the durable read observes the appended user row. Recheck only
+	// in the positive direction so that window is live, while a trailing user
+	// with no turn at either boundary is authoritative orphan evidence.
+	observedLiveTurn = observedLiveTurn || h.agentChatLive.hasTurn(sessionID)
+	if isExternalChatSession(session) && chatSessionHasTrailingUserMessage(session) && !observedLiveTurn {
+		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, "external agent turn is no longer active", ErrorDetails{
+			UserMessage:    "This external-agent turn did not finish starting.",
+			OperatorAction: "Retry the message after reviewing the last user entry.",
+		})
+		return
+	}
 
 	writeSSEHeaders(w)
 	snapshotConfig := h.agentChatSnapshotConfig()
 	projector := newAgentChatStreamProjector(session, snapshotConfig)
-	initial := projector.initialFrame(session)
-	sendAgentChatSSE(w, flusher, initial.Event, initial.Data)
-	lastUpdatedAt := formatOptionalTime(session.UpdatedAt)
-	lastStatus := session.Status
+	if observedLiveTurn {
+		projector.observeTurn()
+	}
+	externalSettlementPending := isExternalChatSession(session) && observedLiveTurn
+	if !(externalSettlementPending && isTerminalAgentChatStatus(session.Status)) {
+		initial := projector.initialFrame(session)
+		sendAgentChatSSE(w, flusher, initial.Event, initial.Data)
+	}
 	projectAndSend := func(payload AgentChatLiveEvent) bool {
-		if payload.Type == AgentChatLiveEventSessionUpdate && payload.SessionUpdate != nil {
-			lastUpdatedAt = payload.SessionUpdate.Data.UpdatedAt
-			lastStatus = payload.SessionUpdate.Data.Status
-		}
 		for _, frame := range projector.project(payload) {
 			sendAgentChatSSE(w, flusher, frame.Event, frame.Data)
 			if frame.Done {
@@ -432,6 +444,43 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 			}
 		}
 		return false
+	}
+	readAuthoritativeUpdate := func(payload AgentChatLiveEvent) (AgentChatLiveEvent, bool) {
+		authoritative, found, reconcileErr := h.agentChat.Get(r.Context(), sessionID)
+		if reconcileErr != nil {
+			if r.Context().Err() != nil {
+				return AgentChatLiveEvent{}, false
+			}
+			if h.logger != nil {
+				h.logger.WarnContext(r.Context(), "chat.session_stream_reconcile_failed",
+					"session_id", sessionID,
+					"error", reconcileErr,
+				)
+			}
+			sendAgentChatSSE(w, flusher, "error", map[string]any{
+				"error": map[string]any{
+					"type":    errCodeGatewayError,
+					"message": "failed to reconcile chat session",
+				},
+			})
+			return AgentChatLiveEvent{}, false
+		}
+		if !found {
+			sendAgentChatSSE(w, flusher, "error", map[string]any{
+				"error": map[string]any{
+					"type":    errCodeNotFound,
+					"message": "chat session no longer exists",
+				},
+			})
+			return AgentChatLiveEvent{}, false
+		}
+		reconciled := ChatSessionResponse{
+			Object: "chat_session",
+			Data:   renderChatSession(authoritative, snapshotConfig),
+		}
+		payload.Type = AgentChatLiveEventSessionUpdate
+		payload.SessionUpdate = &reconciled
+		return payload, true
 	}
 
 	heartbeatC := h.agentChatStreamHeartbeatC
@@ -450,6 +499,29 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				return
 			}
+			if payload.Type == AgentChatLiveEventSessionUpdate && payload.SessionUpdate != nil {
+				hintStatus := payload.SessionUpdate.Data.Status
+				reconciled, read := readAuthoritativeUpdate(payload)
+				if !read {
+					return
+				}
+				payload = reconciled
+				status := payload.SessionUpdate.Data.Status
+				settledCurrentTurn := payload.turnSettled &&
+					payload.settledMessageID != "" &&
+					payload.settledMessageID == chatSessionTerminalAssistantMessageID(payload.SessionUpdate.Data)
+				if isExternalChatSession(session) &&
+					(hintStatus == "running" || status == "running" || settledCurrentTurn || h.agentChatLive.hasTurn(sessionID)) {
+					externalSettlementPending = true
+					projector.observeTurn()
+				}
+				if externalSettlementPending && isTerminalAgentChatStatus(status) && !settledCurrentTurn {
+					continue
+				}
+				if settledCurrentTurn && isTerminalAgentChatStatus(status) {
+					externalSettlementPending = false
+				}
+			}
 			if projectAndSend(payload) {
 				return
 			}
@@ -458,43 +530,33 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 			// authority. Re-read on every bounded heartbeat so a committed
 			// terminal state still closes the stream if its final publish was
 			// dropped or the publishing handler lost its post-commit read.
-			authoritative, found, reconcileErr := h.agentChat.Get(r.Context(), sessionID)
-			if reconcileErr != nil {
-				if r.Context().Err() != nil {
-					return
-				}
-				if h.logger != nil {
-					h.logger.WarnContext(r.Context(), "chat.session_stream_reconcile_failed",
-						"session_id", sessionID,
-						"error", reconcileErr,
-					)
-				}
-				sendAgentChatSSE(w, flusher, "error", map[string]any{
-					"error": map[string]any{
-						"type":    errCodeGatewayError,
-						"message": "failed to reconcile chat session",
-					},
-				})
+			reconciled, read := readAuthoritativeUpdate(AgentChatLiveEvent{
+				Type: AgentChatLiveEventSessionUpdate,
+			})
+			if !read {
 				return
 			}
-			if !found {
-				sendAgentChatSSE(w, flusher, "error", map[string]any{
-					"error": map[string]any{
-						"type":    errCodeNotFound,
-						"message": "chat session no longer exists",
-					},
-				})
-				return
+			rendered := reconciled.SessionUpdate.Data
+			if isExternalChatSession(session) && rendered.Status == "running" {
+				externalSettlementPending = true
+				projector.observeTurn()
 			}
-			rendered := renderChatSession(authoritative, snapshotConfig)
-			if rendered.UpdatedAt != lastUpdatedAt || rendered.Status != lastStatus {
-				reconciled := ChatSessionResponse{Object: "chat_session", Data: rendered}
-				if projectAndSend(AgentChatLiveEvent{
-					Type:          AgentChatLiveEventSessionUpdate,
-					SessionUpdate: &reconciled,
-				}) {
-					return
-				}
+			if externalSettlementPending &&
+				isTerminalAgentChatStatus(rendered.Status) &&
+				h.agentChatLive.hasTurn(sessionID) {
+				// The assistant terminal row is committed before session-level
+				// metadata and turn counters finish settling. Its normal live
+				// publication is deliberately delayed until those writes are
+				// complete; a heartbeat must preserve the same boundary.
+				fmt.Fprint(w, ": heartbeat\n\n")
+				flusher.Flush()
+				continue
+			}
+			if externalSettlementPending && isTerminalAgentChatStatus(rendered.Status) {
+				externalSettlementPending = false
+			}
+			if projectAndSend(reconciled) {
+				return
 			}
 			fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
@@ -956,6 +1018,33 @@ func isExternalChatSession(session chat.Session) bool {
 
 func isHecateChatSession(session chat.Session) bool {
 	return !isExternalChatSession(session)
+}
+
+func chatSessionHasTrailingUserMessage(session chat.Session) bool {
+	for index := len(session.Messages) - 1; index >= 0; index-- {
+		switch session.Messages[index].Role {
+		case "assistant":
+			return false
+		case "user":
+			return true
+		}
+	}
+	return false
+}
+
+func chatSessionTerminalAssistantMessageID(session ChatSessionItem) string {
+	for index := len(session.Messages) - 1; index >= 0; index-- {
+		switch session.Messages[index].Role {
+		case "user":
+			return ""
+		case "assistant":
+			if isTerminalAgentChatStatus(session.Messages[index].Status) {
+				return session.Messages[index].ID
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Session) (types.TaskRun, bool, error) {
@@ -1597,7 +1686,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		h.logger.WarnContext(terminalCtx, "chat.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
 	h.reconcileProjectAssignmentsForChat(terminalCtx, updated)
-	if current, publishErr := settlementTurn.currentSession(terminalCtx, true); publishErr == nil {
+	if current, publishErr := settlementTurn.settledSession(terminalCtx); publishErr == nil {
 		updated = current
 	} else if terminalCtx.Err() == nil {
 		h.logger.WarnContext(terminalCtx, "chat.external_agent.final_publish_failed", "session_id", session.ID, "error", publishErr)

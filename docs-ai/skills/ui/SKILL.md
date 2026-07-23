@@ -179,14 +179,25 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   queued work overtake it.
 - An admitted External Agent turn is server-owned after its running assistant is
   durable. When app hydration or chat selection finds an authoritatively busy
-  External Agent session without a locally owned submit, follow that session
-  from the app lifetime: subscribe to its typed stream, apply the initial and
-  live snapshots, reconcile approval events, and retry an unexpected stream
-  close with bounded backoff while the session remains busy. Abort that local
-  observer on terminal state, chat switch, or unmount without calling the
-  cancellation endpoint. Do not create a second observer while the local submit
-  already owns one, and preserve accepted-Stop fences so a reordered snapshot or
-  approval cannot restore cancelled work.
+  External Agent session, or a session whose durable tail is a user message,
+  without a locally owned submit, follow that session from the app lifetime:
+  subscribe to its typed stream, apply the initial and live snapshots, reconcile
+  approval events, and retry an unexpected stream close with bounded backoff.
+  Treat an initial idle snapshot after a trailing user message as an admission
+  gap, not terminal proof. The locally owned submit stream must use the same
+  bounded reconnect behavior rather than leaving ownership with a dead stream.
+  After every reconnect, refetch pending approvals because approval events are
+  not replayed. Abort that local observer on terminal state, chat switch, or
+  unmount without calling the cancellation endpoint. Do not create a second
+  observer while the local submit already owns one, and preserve accepted-Stop
+  fences so a reordered snapshot or approval cannot restore cancelled work.
+  A passive observer treats `409 chat.session_not_running` for a trailing-user
+  admission gap as authoritative interruption and stops reconnecting. A local
+  observer paired with a replacement submit retries that response until its
+  POST is admitted or settles, because the stream can inspect the previous
+  orphan immediately before the new POST registers its turn.
+  Treat a session GET `404` as authoritative deletion: install the durable
+  deletion fence and remove the ghost session instead of retrying indefinitely.
 - Treat `POST /chat/sessions/{id}/cancel` `202` as a signal acknowledgement,
   not a terminal session snapshot. Keep a session/turn-scoped fence after the
   acknowledgement, suppress reordered busy snapshots and approval requests,

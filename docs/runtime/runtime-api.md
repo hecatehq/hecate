@@ -6381,8 +6381,24 @@ and follow later updates until the exact turn is terminal. Losing an SSE
 connection does not cancel an admitted External Agent turn; clients may reopen
 the stream with bounded backoff and poll the session snapshot as a fallback.
 The server treats live notifications as low-latency hints and rereads the
-durable session on its 15-second heartbeat, so a committed terminal state still
-emits the final snapshot and `done` if its immediate publication was lost.
+durable session for every session notification and on its 15-second heartbeat.
+A delayed buffered notification therefore cannot overwrite a newer durable
+snapshot, and a committed terminal state still emits the final snapshot and
+`done` if its immediate publication was lost. During an External Agent turn,
+the assistant's terminal row may commit before session metadata and turn
+counters finish settling; a reconnecting stream and heartbeat defer unmarked
+terminal notifications until a final settlement publication bound to the exact
+terminal assistant message, or until the live turn clears and a later heartbeat
+confirms the fully settled durable state. A delayed settlement marker from an
+older turn cannot authorize a newer terminal row. A stream that attaches inside
+that narrow settlement window can
+therefore receive a heartbeat comment before its first full snapshot.
+If an External Agent session has a durable trailing user message but no live
+turn, the stream request returns `409 chat.session_not_running`. Passive
+observers should surface the interrupted admission rather than reconnecting
+indefinitely. A stream paired with a replacement message submit should retry
+until that POST is admitted or settles, because the stream can observe the
+previous orphan immediately before the new POST registers its turn.
 If that reconciliation fails after streaming headers were sent, the server
 emits a fixed operator-safe `error` event and closes the stream; clients should
 reconnect or use the session GET rather than treating the last snapshot as
