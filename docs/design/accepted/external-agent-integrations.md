@@ -191,7 +191,9 @@ handshake without sending a prompt. Creating an External Agent chat is the
 independent, authoritative execution boundary: it resolves the current app,
 starts it, and performs a fresh ACP handshake whether or not a diagnostic ran.
 A cached diagnostic result can explain an earlier failure, but cannot authorize
-or block that later launch.
+or block that later launch. Clients refresh the passive catalog independently
+after install/path changes or a diagnostic; only that passive response may
+update pre-launch availability and last-discovered path.
 
 Stored message diffs are read-only historical evidence. The current
 `workspace-diff` response carries an opaque revision for the complete scoped

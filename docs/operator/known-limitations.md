@@ -248,9 +248,10 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   own their internal runtime loops.
 - Hecate does not yet authenticate a discovered provider CLI or persist an
   executable fingerprint approval. Catalog discovery is passive and shows the
-  selected path, but **New chat**, **Run diagnostics**, auth/logout, setup
-  discovery, and session launch execute that path. A local SHA-256 digest alone
-  would detect changed bytes;
+  last-discovered path; **Refresh** repeats discovery without execution. **New
+  chat**, **Run diagnostics**, auth/logout, setup discovery, and session launch
+  resolve the executable again, so the executed path can differ from earlier
+  discovery. A local SHA-256 digest alone would detect changed bytes;
   without a signed publisher manifest or attestation it would not prove origin
   or that the program is malware-free. Prefer vendor installers and pinned
   platform publisher signatures or vendor-signed manifests when available;

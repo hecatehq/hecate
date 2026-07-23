@@ -37,6 +37,7 @@ import {
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
+  getAgentAdapters,
   getProviders,
   getModels,
   getProviderPresets,
@@ -72,6 +73,10 @@ export type ProbeAdapterResult =
   | { ok: true; health: AgentAdapterHealthRecord }
   | { ok: false; error: string };
 
+export type RefreshAgentAdaptersResult =
+  | { ok: true; adapters: AgentAdapterRecord[] }
+  | { ok: false; error: string };
+
 export type VerifyModelToolSupportResult =
   | { ok: true; probe: ModelToolCapabilityProbeResponse }
   | { ok: false; error: string };
@@ -92,6 +97,7 @@ export type ProvidersAndModelsActions = {
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
   loadModelCatalog: () => Promise<ModelResponse>;
   refreshProviders: () => Promise<void>;
+  refreshAgentAdapters: () => Promise<RefreshAgentAdaptersResult>;
   probeAgentAdapter: (adapterID: string) => Promise<ProbeAdapterResult>;
   verifyModelToolSupport: (
     provider: string,
@@ -227,6 +233,7 @@ export function ProvidersAndModelsProvider({
   // nor prevent a newer refresh from replacing an older refresh.
   const modelsMutationRevisionRef = useRef(0);
   const latestModelsRefreshRef = useRef(0);
+  const latestAgentAdaptersRefreshRef = useRef(0);
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -313,38 +320,65 @@ export function ProvidersAndModelsProvider({
     }
   }, [loadModelCatalog]);
 
-  const probeAgentAdapter = useCallback(async (adapterID: string): Promise<ProbeAdapterResult> => {
-    if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
-    const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
-    if (inFlight) return inFlight;
-    const probe: Promise<ProbeAdapterResult> = (async (): Promise<ProbeAdapterResult> => {
-      dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
-      try {
-        const payload = await probeAgentAdapterRequest(adapterID);
-        dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
-        dispatch({
-          type: "agentAdapters/set",
-          next: (current) =>
-            current.map((item) =>
-              item.id === adapterID
-                ? applyAgentAdapterDiagnostic(item, payload.data.adapter)
-                : item,
-            ),
-        });
-        return { ok: true, health: payload.data.health };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : "Failed to probe adapter.",
-        };
-      } finally {
-        probeAgentAdapterInFlightRef.current.delete(adapterID);
-        dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+  const refreshAgentAdapters = useCallback(async (): Promise<RefreshAgentAdaptersResult> => {
+    const refreshID = ++latestAgentAdaptersRefreshRef.current;
+    try {
+      const payload = await getAgentAdapters();
+      if (latestAgentAdaptersRefreshRef.current === refreshID) {
+        dispatch({ type: "agentAdapters/set", next: payload.data });
       }
-    })();
-    probeAgentAdapterInFlightRef.current.set(adapterID, probe);
-    return probe;
+      return { ok: true, adapters: payload.data };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Failed to refresh external-agent discovery.",
+      };
+    }
   }, []);
+
+  const probeAgentAdapter = useCallback(
+    async (adapterID: string): Promise<ProbeAdapterResult> => {
+      if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
+      const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
+      if (inFlight) return inFlight;
+      const probe: Promise<ProbeAdapterResult> = (async (): Promise<ProbeAdapterResult> => {
+        dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
+        try {
+          const payload = await probeAgentAdapterRequest(adapterID);
+          dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
+          dispatch({
+            type: "agentAdapters/set",
+            next: (current) =>
+              current.map((item) =>
+                item.id === adapterID
+                  ? applyAgentAdapterDiagnostic(item, payload.data.adapter)
+                  : item,
+              ),
+          });
+          const catalogRefresh = await refreshAgentAdapters();
+          if (!catalogRefresh.ok) {
+            warn("agentAdapters.refreshAfterDiagnostic.failed", {
+              adapterID,
+              err: catalogRefresh.error,
+            });
+          }
+          return { ok: true, health: payload.data.health };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : "Failed to probe adapter.",
+          };
+        } finally {
+          probeAgentAdapterInFlightRef.current.delete(adapterID);
+          dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+        }
+      })();
+      probeAgentAdapterInFlightRef.current.set(adapterID, probe);
+      return probe;
+    },
+    [refreshAgentAdapters],
+  );
 
   const verifyModelToolSupport = useCallback(
     async (provider: string, model: string): Promise<VerifyModelToolSupportResult> => {
@@ -427,6 +461,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealthLoading,
       loadModelCatalog,
       refreshProviders,
+      refreshAgentAdapters,
       probeAgentAdapter,
       verifyModelToolSupport,
     }),
@@ -442,6 +477,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealthLoading,
       loadModelCatalog,
       refreshProviders,
+      refreshAgentAdapters,
       probeAgentAdapter,
       verifyModelToolSupport,
     ],

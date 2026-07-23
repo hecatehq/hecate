@@ -138,6 +138,7 @@ export function ConnectionsPanel({
   const [agentAdapterAuthenticateLoadingByID, setAgentAdapterAuthenticateLoadingByID] = useState<
     Map<string, true>
   >(() => new Map());
+  const [agentAdapterCatalogRefreshing, setAgentAdapterCatalogRefreshing] = useState(false);
   const chatGrants = approvals.state.grants;
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
@@ -155,6 +156,7 @@ export function ConnectionsPanel({
   const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
+  const refreshAgentAdapters = agentAdapterActions.refreshAgentAdapters;
   const authenticateAgentAdapter = agentAdapterActions.authenticateAgentAdapter;
   const logoutAgentAdapter = agentAdapterActions.logoutAgentAdapter;
 
@@ -168,6 +170,16 @@ export function ConnectionsPanel({
     // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleRefreshAgentAdapters() {
+    if (agentAdapterCatalogRefreshing) return;
+    setAgentAdapterCatalogRefreshing(true);
+    try {
+      await refreshAgentAdapters();
+    } finally {
+      setAgentAdapterCatalogRefreshing(false);
+    }
+  }
 
   // One-shot scroll, focus, and highlight when the operator arrived here via
   // a setup action on a failed agent turn or unavailable dictation control.
@@ -307,7 +319,9 @@ export function ConnectionsPanel({
         agentAdapterAuthenticateLoadingByID={agentAdapterAuthenticateLoadingByID}
         agentAdapterLogoutLoadingByID={agentAdapterLogoutLoadingByID}
         remoteRuntime={remoteRuntime}
+        catalogRefreshing={agentAdapterCatalogRefreshing}
         copyCommand={copyCommand}
+        onRefreshCatalog={() => void handleRefreshAgentAdapters()}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
         onAuthenticateAdapter={(adapterID) => void handleAuthenticateAdapter(adapterID)}
         onLogoutAdapter={(adapterID) => void handleLogoutAdapter(adapterID)}
@@ -705,8 +719,8 @@ function AnthropicProviderKeyCard({
 // AdapterStatusSection lists the configured external agents. Optional
 // diagnostics start the runtime, complete an ACP handshake, and classify that
 // disposable session; they annotate this view but never gate a later chat.
-// Passive discovery and launch availability remain owned by the dashboard
-// fan-out's /hecate/v1/agent-adapters response.
+// Passive discovery and launch availability remain owned by the
+// /hecate/v1/agent-adapters catalog, which can be refreshed independently.
 function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
@@ -714,7 +728,9 @@ function AdapterStatusSection({
   agentAdapterAuthenticateLoadingByID,
   agentAdapterLogoutLoadingByID,
   remoteRuntime,
+  catalogRefreshing,
   copyCommand,
+  onRefreshCatalog,
   onProbeAdapter,
   onAuthenticateAdapter,
   onLogoutAdapter,
@@ -725,7 +741,9 @@ function AdapterStatusSection({
   agentAdapterAuthenticateLoadingByID: Map<string, true>;
   agentAdapterLogoutLoadingByID: Map<string, true>;
   remoteRuntime: boolean;
+  catalogRefreshing: boolean;
   copyCommand: (command: string) => Promise<void>;
+  onRefreshCatalog: () => void;
   onProbeAdapter: (adapterID: string) => void;
   onAuthenticateAdapter: (adapterID: string) => void;
   onLogoutAdapter: (adapterID: string) => void;
@@ -737,8 +755,21 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Hecate finds installed agents without launching them. Starting a chat performs the authoritative ACP launch check; optional diagnostics below start the agent and open a temporary session for troubleshooting."
+        description="Hecate finds installed agents without launching them. Refresh only repeats that passive discovery. Starting a chat performs the authoritative ACP launch check; optional diagnostics below start the agent and open a temporary session for troubleshooting."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
+        actions={
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onRefreshCatalog}
+            disabled={catalogRefreshing}
+            aria-label="Refresh external-agent discovery without starting agents"
+            title="Refresh installed-agent paths without starting an agent"
+          >
+            <Icon d={Icons.refresh} size={13} />
+            {catalogRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        }
       />
       <div className="card" style={{ overflow: "hidden" }}>
         {agentAdapters.map((adapter, i) => (
@@ -929,7 +960,7 @@ function AdapterStatusRow({
           )}
           {showSelectedPath && (
             <span>
-              path <span style={{ color: "var(--t1)" }}>{selectedPath}</span>
+              last discovered path <span style={{ color: "var(--t1)" }}>{selectedPath}</span>
             </span>
           )}
           {diagnosticPath && (
