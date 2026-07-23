@@ -63,7 +63,7 @@ targets:
             CFBundleURLSchemes:
               - hecate-mobile
         CFBundleShortVersionString: 0.5.0
-        CFBundleVersion: "6.0.3"
+        CFBundleVersion: "6.0.4"
         ITSAppUsesNonExemptEncryption: false
         NSMicrophoneUsageDescription: Hecate uses the microphone only while you record dictation for a chat draft.
         NSSpeechRecognitionUsageDescription: "Hecate uses Apple's speech recognition only while you dictate an editable chat draft through the browser-managed speech service."

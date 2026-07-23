@@ -25,14 +25,16 @@
     "icon": [],
     "iOS": {
       "minimumSystemVersion": "15.0",
-      "bundleVersion": "6.0.3"
+      "bundleVersion": "6.0.4"
     }
   },
   "plugins": {
     "deep-link": {
       "mobile": [
         {
-          "scheme": ["hecate-mobile"],
+          "scheme": [
+            "hecate-mobile"
+          ],
           "appLink": false
         }
       ]

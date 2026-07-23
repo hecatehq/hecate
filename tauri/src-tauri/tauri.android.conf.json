@@ -25,14 +25,16 @@
     "icon": [],
     "android": {
       "minSdkVersion": 26,
-      "versionCode": 500003
+      "versionCode": 500004
     }
   },
   "plugins": {
     "deep-link": {
       "mobile": [
         {
-          "scheme": ["hecate-mobile"],
+          "scheme": [
+            "hecate-mobile"
+          ],
           "appLink": false
         }
       ]

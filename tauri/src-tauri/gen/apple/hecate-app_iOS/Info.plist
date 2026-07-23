@@ -30,7 +30,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>6.0.3</string>
+	<string>6.0.4</string>
 	<key>HecateAPNSEnvironment</key>
 	<string>$(HECATE_APNS_ENVIRONMENT)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
