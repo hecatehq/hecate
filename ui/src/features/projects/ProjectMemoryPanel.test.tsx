@@ -187,6 +187,50 @@ describe("ProjectMemoryPanel", () => {
     expect(handlers.onRejectCandidate).toHaveBeenCalledWith(candidate);
   });
 
+  it("renders saved and suggested memory bodies as Markdown", () => {
+    render(
+      <ProjectMemoryPanel
+        candidates={[
+          memoryCandidate({
+            body: "# Suggested guidance\n\n1. Verify with `bun run test`.",
+          }),
+        ]}
+        discoveringContext={false}
+        entries={[
+          memoryEntry({
+            body: "# Saved guidance\n\n- Keep **review decisions** explicit.",
+          }),
+        ]}
+        error=""
+        loading={false}
+        onDiscoverContextSources={vi.fn()}
+        onDeleteSource={vi.fn()}
+        onEditSource={vi.fn()}
+        onPromoteCandidate={vi.fn()}
+        onRejectCandidate={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn()}
+        onNew={vi.fn()}
+        onNewSource={vi.fn()}
+        onRefresh={vi.fn()}
+        project={project()}
+        rejectingCandidateID=""
+      />,
+    );
+
+    const saved = screen.getByRole("article", { name: "Memory Commit style" });
+    expect(within(saved).getByRole("heading", { level: 3, name: "Saved guidance" })).toBeTruthy();
+    expect(within(saved).getByText("review decisions").tagName).toBe("STRONG");
+
+    const suggestion = screen.getByRole("article", {
+      name: "Memory suggestion Generated summary",
+    });
+    expect(
+      within(suggestion).getByRole("heading", { level: 3, name: "Suggested guidance" }),
+    ).toBeTruthy();
+    expect(within(suggestion).getByText("bun run test").tagName).toBe("CODE");
+  });
+
   it("renders source locators defensively", async () => {
     const handlers = {
       onDiscoverContextSources: vi.fn(),

@@ -1534,6 +1534,27 @@ describe("ProjectWorkItemDetail", () => {
     expect(screen.getAllByText("follow-up required")).toHaveLength(1);
   });
 
+  it("renders collaboration artifact bodies as Markdown", () => {
+    renderDetail({
+      assignments: [],
+      artifacts: [
+        artifact({
+          kind: "decision_note",
+          title: "Dogfood scorecard",
+          body: "# Outcome\n\n- **PASS** workspace isolation\n- Prefer `code_intelligence`",
+        }),
+      ],
+    });
+
+    const decision = screen.getByRole("group", {
+      name: "Dogfood scorecard Decision note artifact",
+    });
+    expect(within(decision).getByRole("heading", { level: 3, name: "Outcome" })).toBeTruthy();
+    expect(within(decision).getByText("PASS").tagName).toBe("STRONG");
+    expect(within(decision).getByText("code_intelligence").tagName).toBe("CODE");
+    expect(decision).not.toHaveTextContent("# Outcome");
+  });
+
   it("surfaces server readiness review follow-up as a closeout notice", async () => {
     const reviewArtifact = artifact({
       review_verdict: "blocked",

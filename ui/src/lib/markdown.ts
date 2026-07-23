@@ -164,3 +164,37 @@ export function parseInlineNodes(text: string): InlineNode[] {
   if (last < text.length) nodes.push({ t: "text", v: text.slice(last) });
   return nodes;
 }
+
+export function markdownToPlainText(content: string): string {
+  return parseMarkdownBlocks(content)
+    .flatMap((block) => {
+      if (block.type === "hr") return [];
+      if (block.type === "code") return [block.text];
+      if (block.type === "ul" || block.type === "ol") {
+        return (block.items ?? []).map(inlineMarkdownToPlainText);
+      }
+      if (block.type === "task") {
+        return (block.tasks ?? []).map(
+          (task) => `[${task.checked ? "x" : " "}] ${inlineMarkdownToPlainText(task.text)}`,
+        );
+      }
+      if (block.type === "table") {
+        const table = block.table;
+        if (!table) return [];
+        return [table.headers, ...table.rows].map((row) =>
+          row.map(inlineMarkdownToPlainText).join(" | "),
+        );
+      }
+      return [inlineMarkdownToPlainText(block.text)];
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function inlineMarkdownToPlainText(content: string): string {
+  return parseInlineNodes(content)
+    .map((node) =>
+      node.t === "bold" || node.t === "italic" ? inlineMarkdownToPlainText(node.v) : node.v,
+    )
+    .join("");
+}

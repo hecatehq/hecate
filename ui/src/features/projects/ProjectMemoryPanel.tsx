@@ -7,6 +7,7 @@ import type {
   ProjectMemoryRecord,
   ProjectRecord,
 } from "../../types/project";
+import { MarkdownContent } from "../shared/MarkdownContent";
 import { CopyableID, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import {
   isLinkableSourceLocator,
@@ -753,7 +754,7 @@ function ProjectMemoryRow({
           {entry.enabled ? "enabled" : "disabled"}
         </span>
       </div>
-      <div style={memoryBodyStyle}>{entry.body}</div>
+      <MarkdownContent content={entry.body} headingStartLevel={3} style={memoryMarkdownStyle} />
       <details className="project-support-details" style={rowDetailsStyle}>
         <summary>Details and actions</summary>
         <div style={rowDetailsBodyStyle}>
@@ -855,7 +856,7 @@ function ProjectMemoryCandidateRow({
           </div>
         )}
       </div>
-      <div style={memoryBodyStyle}>{candidate.body}</div>
+      <MarkdownContent content={candidate.body} headingStartLevel={3} style={memoryMarkdownStyle} />
       <div
         style={candidateDecisionGridStyle}
         aria-label={`Memory suggestion summary ${candidate.title}`}
@@ -1091,6 +1092,11 @@ const memoryBodyStyle: CSSProperties = {
   lineHeight: 1.45,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
+};
+
+const memoryMarkdownStyle: CSSProperties = {
+  ...memoryBodyStyle,
+  whiteSpace: "normal",
 };
 
 const surfaceTitleStyle: CSSProperties = {

@@ -1,6 +1,7 @@
 import { useMemo, type CSSProperties } from "react";
 
 import { formatAbsoluteTime } from "../../lib/format";
+import { markdownToPlainText } from "../../lib/markdown";
 import type {
   ProjectActivityData,
   ProjectCollaborationArtifactRecord,
@@ -262,7 +263,7 @@ function ProjectTimelineRow({
           )}
         </div>
       </div>
-      {item.summary && <div style={timelineSummaryStyle}>{item.summary}</div>}
+      <ProjectTimelineSummary item={item} />
       <div style={metaLineStyle}>
         {item.actor && <span>{item.actor}</span>}
         {item.timestamp && <span>{formatAbsoluteTime(item.timestamp)}</span>}
@@ -304,13 +305,22 @@ function ProjectDecisionRow({
           </button>
         )}
       </div>
-      {item.summary && <div style={timelineSummaryStyle}>{item.summary}</div>}
+      <ProjectTimelineSummary item={item} />
       <div style={metaLineStyle}>
         {item.actor && <span>{item.actor}</span>}
         {item.timestamp && <span>{formatAbsoluteTime(item.timestamp)}</span>}
       </div>
     </div>
   );
+}
+
+function ProjectTimelineSummary({ item }: { item: ProjectTimelineItem }) {
+  if (!item.summary) return null;
+  const summary =
+    item.kind === "artifact" || item.kind === "decision" || item.kind === "memory_candidate"
+      ? markdownToPlainText(item.summary)
+      : item.summary;
+  return <div style={timelineSummaryStyle}>{summary}</div>;
 }
 
 const panelStyle: CSSProperties = {
