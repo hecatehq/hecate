@@ -95,8 +95,8 @@ export function ChatEmptyState({
     : "Ready when you are";
   const readyDetail = isExternalAgentChat
     ? externalAgentSessionPrepared
-      ? "Hecate prepared the ACP session in this workspace. Send a message to start any deferred vendor process and verify its authentication."
-      : "Hecate found the installed app. New chat re-resolves it and prepares the ACP session; the first message starts any deferred vendor process."
+      ? "Hecate prepared the ACP session in this workspace. Send a message to start any deferred prompt-serving vendor process and verify its authentication."
+      : "Hecate found the installed app. New chat re-resolves it and prepares the ACP session; the first message starts any deferred prompt-serving vendor process."
     : "Ask a question, inspect the workspace, or describe the change you want to make.";
   const title =
     isAgentChat && selectedAgentUnavailable

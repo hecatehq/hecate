@@ -97,14 +97,15 @@ func SetProbeMetrics(metrics *telemetry.AgentAdapterMetrics) {
 
 // Probe attempts a minimal start-and-handshake against the named adapter to
 // determine whether it can prepare an ACP session. It does not prove that an
-// embedded bridge can launch its vendor CLI, authenticate, or serve a turn.
+// embedded bridge can launch its prompt-serving vendor process, authenticate,
+// or serve a turn. Session setup may still run bounded provider discovery.
 //
 // Sequence: resolve provider/runtime command → start runtime → ACP Initialize → ACP NewSession
 // (against a temporary workspace) → terminate. On any failure, the
 // stage that failed is recorded and the error + captured stderr are
 // surfaced as-is. We deliberately do NOT issue a chat prompt — the
 // goal is "would startACPSession succeed?", not "does the adapter launch its
-// deferred vendor process or produce useful output?".
+// deferred prompt-serving vendor process or produce useful output?".
 //
 // Side effects: a fresh ACP session is created and immediately
 // abandoned. Adapters that bill on session-create will see a single

@@ -1456,7 +1456,9 @@ describe("Connections external-agent panel", () => {
       expect(within(cursor).getByText("diagnostic")).toBeTruthy();
       expect(cursor).toHaveTextContent("Last diagnostic: Install Cursor with Agent support");
       expect(cursor).toHaveTextContent("New chat prepares a fresh ACP session");
-      expect(cursor).toHaveTextContent("first message retries any deferred vendor process");
+      expect(cursor).toHaveTextContent(
+        "first message retries any deferred prompt-serving vendor process",
+      );
       expect(cursor).not.toHaveTextContent("error");
       expect(cursor).not.toHaveTextContent("auth unknown");
       expect(cursor).not.toHaveTextContent("dev-override://cursor_agent");

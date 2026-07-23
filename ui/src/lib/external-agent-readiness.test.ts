@@ -190,7 +190,9 @@ describe("resolveExternalAgentReadiness", () => {
       checkedByProbe: false,
     });
     expect(readiness.detail).toContain("New chat re-resolves the executable");
-    expect(readiness.detail).toContain("first message verifies any deferred vendor launch");
+    expect(readiness.detail).toContain(
+      "first message verifies any deferred prompt-serving vendor invocation",
+    );
     expect(readiness.detail).toContain("Diagnostics are optional");
   });
 

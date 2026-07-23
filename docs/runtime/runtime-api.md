@@ -1805,8 +1805,9 @@ process Hecate supervises.
 
 `auth_status` is `unknown` on the cheap catalog path unless a dev or remote
 runtime override can classify it without spawning a CLI. **New chat** prepares
-the fresh ACP session; the first message checks vendor auth for an embedded
-bridge that defers its CLI. Use the optional `POST
+the fresh ACP session. An embedded bridge may run bounded provider discovery
+during setup; the first message checks prompt-time auth when the bridge defers
+its prompt-serving vendor invocation. Use the optional `POST
 /hecate/v1/agent-adapters/{id}/probe` diagnostic when Connections needs a
 standalone login / billing classification, but do not infer verified vendor auth
 from `health.status=ready` alone.
@@ -1887,8 +1888,8 @@ Runs an optional, disposable ACP session diagnostic. It re-runs discovery for
 one adapter, starts a direct peer or embedded bridge, performs ACP `Initialize`,
 and creates a temporary session without sending a prompt. Provider-specific
 version or auth-status classification may also execute the discovered app, but
-an embedded bridge may still defer its vendor prompt process beyond this
-diagnostic. `data.health` is evidence from the disposable ACP attempt;
+an embedded bridge may still defer its prompt-serving vendor invocation beyond
+this diagnostic. `data.health` is evidence from the disposable ACP attempt;
 `health.path` is the path that attempt used. `data.adapter` is a separately
 re-resolved diagnostic projection that combines full status, versions, launch
 controls, and the probe's auth/capability classification. Its `path`, `status`,
@@ -1905,10 +1906,11 @@ agent.
 This endpoint is not required before use and its cached result is never launch
 authority. Starting an External Agent chat independently resolves the current
 executable, performs a fresh `Initialize`, and creates the real session. Direct
-ACP peers start during setup; the first message is authoritative for a vendor
-launch or auth check deferred by an embedded bridge. Clients should invoke the
-diagnostic only after an explicit operator action, label it as optional, and
-show the catalog `path` before that action.
+ACP peers start during setup. An embedded bridge may run bounded provider
+discovery, while the first message remains authoritative for a prompt-serving
+vendor invocation or auth result deferred by that bridge. Clients should invoke
+the diagnostic only after an explicit operator action, label it as optional,
+and show the catalog `path` before that action.
 Treat that path as last-discovered evidence rather than a pinned launch target:
 chat creation resolves the executable again.
 
@@ -1966,10 +1968,10 @@ before diagnostics run. Hecate only marks `supports_authenticate` true for ACP
 auth method `agent-login`, because that is the method the local
 `/authenticate` endpoint invokes. `health.status=ready` means ACP initialization
 and temporary session creation completed; it does not itself promote
-`data.adapter.auth_status` to `ok` or prove that a deferred vendor process can
-authenticate and answer a prompt. Any non-`unknown` auth classification in
-`data.adapter` comes from a separate provider-specific heuristic or status
-check, not from the ready health status.
+`data.adapter.auth_status` to `ok` or prove that a deferred prompt-serving
+vendor process can authenticate and answer a prompt. Any non-`unknown` auth
+classification in `data.adapter` comes from a separate provider-specific
+heuristic or status check, not from the ready health status.
 
 The probe creates and immediately abandons a fresh ACP session, so agents that
 bill on session creation may record one no-op session per call. Agents that bill
@@ -1980,9 +1982,9 @@ on prompt completion see no prompt from this check.
 Compatibility read for one adapter's passive discovery state. It performs the
 same non-executing path inspection as the catalog and never starts the selected
 app. **New chat** re-resolves it and prepares the real ACP session; the first
-message checks any deferred vendor launch and auth. Use the explicit POST probe
-only for optional live version, auth classification, and ACP-capability
-diagnostics.
+message checks any deferred prompt-serving vendor invocation and auth. Use the
+explicit POST probe only for optional live version, auth classification, and
+ACP-capability diagnostics.
 
 ```json
 GET /hecate/v1/agent-adapters/codex/health
@@ -1994,7 +1996,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "status": "unverified",
     "stage": "lookup",
     "path": "/Users/alice/.local/bin/codex",
-    "hint": "App found. Starting a chat performs a fresh ACP handshake; POST to the probe endpoint only for optional diagnostics.",
+    "hint": "App found. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. POST to the probe endpoint only for optional diagnostics.",
     "supports_authenticate": false,
     "supports_logout": false,
     "supports_load_session": false,
@@ -4973,8 +4975,9 @@ failing only after execution starts.
 For external-agent `agent_id` values, session creation is the authoritative ACP
 session-preparation attempt: Hecate resolves the executable again, performs a
 fresh ACP `Initialize`, and starts or restores the native ACP session
-immediately. Direct ACP peers launch during this setup; embedded command bridges
-may defer the vendor CLI and auth check until the first message. A prior
+immediately. Direct ACP peers launch during this setup. Embedded command bridges
+may run bounded provider discovery while deferring their prompt-serving vendor
+invocation and prompt-time auth result until the first message. A prior
 diagnostic probe is neither required nor trusted as launch authority. Clients
 may include `config_options` selected from the latest explicit diagnostic
 projection when it exposes Hecate-managed launch controls; the passive catalog
@@ -4989,9 +4992,9 @@ reports ACP `initialize.agentInfo`, Hecate returns the trimmed implementation
 metadata as `agent_info` on the chat session and on assistant messages produced
 by that session. If the selected command is missing, a required launch option is
 absent, or the ACP session handshake fails, session creation fails and Hecate
-removes the empty chat record. For an embedded bridge, vendor-process or auth
-failure can instead surface on the first message because no vendor prompt is
-sent during session creation.
+removes the empty chat record. For an embedded bridge, prompt-serving vendor
+process or auth failure can instead surface on the first message because no
+vendor prompt is sent during session creation.
 
 External Agent session creation may also include `mcp_servers`, using the same
 stdio/HTTP server shape as task-create `mcp_servers`. Hecate stores the server

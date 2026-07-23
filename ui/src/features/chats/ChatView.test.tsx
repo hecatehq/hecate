@@ -5429,7 +5429,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Codex found")).toBeTruthy();
     expect(
       screen.getByText(
-        "Hecate found the installed app. New chat re-resolves it and prepares the ACP session; the first message starts any deferred vendor process.",
+        "Hecate found the installed app. New chat re-resolves it and prepares the ACP session; the first message starts any deferred prompt-serving vendor process.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("/Users/alice/.local/bin/codex")).toBeVisible();
@@ -5470,10 +5470,12 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Codex session ready")).toBeTruthy();
     expect(
       screen.getByText(
-        "Hecate prepared the ACP session in this workspace. Send a message to start any deferred vendor process and verify its authentication.",
+        "Hecate prepared the ACP session in this workspace. Send a message to start any deferred prompt-serving vendor process and verify its authentication.",
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/Send a message to start any deferred vendor process/)).toBeTruthy();
+    expect(
+      screen.getByText(/Send a message to start any deferred prompt-serving vendor process/),
+    ).toBeTruthy();
   });
 
   it("keeps a discovered agent launchable when the last diagnostic reports auth required", () => {

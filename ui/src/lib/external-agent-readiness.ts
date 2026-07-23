@@ -43,9 +43,10 @@ export function resolveExternalAgentReadiness(
   }
 
   // Diagnostics describe the last disposable ACP session; they never
-  // authorize a later process launch or prove that a deferred vendor CLI can
-  // authenticate and serve a message. Current passive discovery and remote
-  // credential posture are the only client-side launch gates.
+  // authorize a later process launch or prove that a deferred prompt-serving
+  // vendor process can authenticate and serve a message. Current passive
+  // discovery and remote credential posture are the only client-side launch
+  // gates.
   const launchBlocked = !adapter.available || adapter.remote_credential_ok === false;
   const checkedByProbe = health?.status === "ready" && !launchBlocked;
   const authStatus = adapter.auth_status;
@@ -196,7 +197,7 @@ export function resolveExternalAgentReadiness(
     setupHint,
     signInHint,
     detail:
-      "New chat re-resolves the executable and prepares a fresh ACP session. The first message verifies any deferred vendor launch and authentication. Diagnostics are optional.",
+      "New chat re-resolves the executable and prepares a fresh ACP session. The first message verifies any deferred prompt-serving vendor invocation and authentication. Diagnostics are optional.",
     authStatus,
     authError,
     checkedByProbe,
