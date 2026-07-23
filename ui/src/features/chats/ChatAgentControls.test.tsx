@@ -48,6 +48,47 @@ describe("NewChatAgentButton", () => {
     );
   });
 
+  it("labels a missing remote credential as auth instead of local setup", () => {
+    const status = chatAgentOptionStatus(
+      "codex",
+      makeAdapter({
+        available: false,
+        status: "missing",
+        auth_status: "unauthenticated",
+        auth_error: "Codex requires one remote-safe credential.",
+        remote_credential_hint:
+          "Codex requires one remote-safe credential environment variable: OPENAI_API_KEY, CODEX_API_KEY",
+        remote_credential_ok: false,
+      }),
+      undefined,
+    );
+
+    expect(status.label).toBe("auth");
+    expect(status.ready).toBe(false);
+    expect(status.title).toContain("required remote credential for Codex");
+    expect(status.title).toContain("OPENAI_API_KEY");
+    expect(status.title).not.toContain("Install Codex");
+  });
+
+  it("keeps a personal remote local-login catalog row selectable until it is tested", () => {
+    const status = chatAgentOptionStatus(
+      "codex",
+      makeAdapter({
+        auth_status: "unknown",
+        remote_credential_mode: "local_login",
+        remote_credential_ok: true,
+      }),
+      undefined,
+    );
+
+    expect(status.label).toBe("available");
+    expect(status.ready).toBe(true);
+    expect(status.title).toContain("New chat re-resolves the executable");
+    expect(status.title).toContain(
+      "first message verifies any deferred prompt-serving vendor invocation",
+    );
+  });
+
   it("labels passive discovery available and explains launch-time ACP verification", () => {
     const discovered = chatAgentOptionStatus(
       "cursor_agent",
