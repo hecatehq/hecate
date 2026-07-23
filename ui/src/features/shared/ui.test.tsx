@@ -1119,7 +1119,10 @@ describe("AgentAdapterPicker", () => {
     expect(within(claude).getByText("available")).toBeTruthy();
     expect(within(claude).queryByText("auth")).toBeNull();
     expect(claude).not.toHaveAttribute("aria-disabled");
-    expect(claude).toHaveAttribute("title", expect.stringContaining("Starting a chat launches it"));
+    expect(claude).toHaveAttribute(
+      "title",
+      expect.stringContaining("New chat re-resolves the executable"),
+    );
 
     await user.click(claude);
     expect(onChange).toHaveBeenCalledWith("claude_code");
@@ -1291,9 +1294,55 @@ describe("AgentAdapterPicker", () => {
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
     expect(within(cursor).getByText("checked")).toBeTruthy();
-    expect(cursor.title).toContain("last Cursor Agent diagnostic passed");
-    expect(cursor.title).toContain("fresh launch");
+    expect(cursor.title).toContain("last Cursor Agent diagnostic completed ACP startup");
+    expect(cursor.title).toContain("without sending a prompt");
     expect(cursor.title).toContain("/Users/test/.local/bin/cursor-agent");
+  });
+
+  it("keeps explicit sign-in guidance ahead of a ready ACP diagnostic", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-code-acp-adapter",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            supports_authenticate: true,
+            supports_logout: true,
+            auth_status: "unauthenticated",
+            auth_error: "Run claude /login in Terminal.",
+          },
+        ]}
+        healthByID={
+          new Map([
+            [
+              "claude_code",
+              {
+                adapter_id: "claude_code",
+                status: "ready",
+                stage: "session",
+                duration_ms: 80,
+              },
+            ],
+          ])
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const claude = within(menu).getByText("Claude Code").closest("button") as HTMLElement;
+    expect(within(claude).getByText("auth")).toBeTruthy();
+    expect(within(claude).queryByText("checked")).toBeNull();
+    expect(claude.title).toContain("Run claude /login");
+    expect(claude).not.toHaveAttribute("aria-disabled");
   });
 });
 

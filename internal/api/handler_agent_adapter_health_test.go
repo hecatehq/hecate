@@ -51,9 +51,10 @@ func TestAgentAdapterHealthIsPassiveAndUnverified(t *testing.T) {
 		t.Fatalf("health path = %q, want %q", resp.Data.Path, executable)
 	}
 	if resp.Data.Stage != agentadapters.ProbeStageLookup ||
-		!strings.Contains(resp.Data.Hint, "Starting a chat") ||
+		!strings.Contains(resp.Data.Hint, "New chat") ||
+		!strings.Contains(resp.Data.Hint, "first message") ||
 		!strings.Contains(resp.Data.Hint, "optional diagnostics") {
-		t.Fatalf("health = %#v, want launch-time verification and optional-diagnostics guidance", resp.Data)
+		t.Fatalf("health = %#v, want session and first-message guidance with optional diagnostics", resp.Data)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("passive GET executed candidate; marker stat = %v", err)
@@ -94,7 +95,7 @@ func TestAgentAdapterHealth404OnUnknownAdapter(t *testing.T) {
 }
 
 func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
-	t.Parallel()
+	t.Setenv("HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "codex=available")
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
@@ -120,8 +121,8 @@ func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
 	if resp.Data.Adapter.ID != "codex" || resp.Data.Health.AdapterID != "codex" {
 		t.Fatalf("probe response = %#v, want codex adapter and health", resp.Data)
 	}
-	if resp.Data.Adapter.AuthStatus != agentadapters.AuthStatusOK {
-		t.Fatalf("adapter auth_status = %q, want ok", resp.Data.Adapter.AuthStatus)
+	if resp.Data.Adapter.AuthStatus != agentadapters.AuthStatusUnknown {
+		t.Fatalf("adapter auth_status = %q, want ready ACP health not to manufacture auth evidence", resp.Data.Adapter.AuthStatus)
 	}
 	if resp.Data.Health.Status != agentadapters.ProbeStatusReady || resp.Data.Health.DurationMS != 42 {
 		t.Fatalf("health = %#v, want ready duration 42", resp.Data.Health)
@@ -197,11 +198,8 @@ func TestAgentAdapterProbeAppliesLiveCapabilitiesToAdapterRow(t *testing.T) {
 	}
 }
 
-func TestAgentAdapterProbePromotesClaudeHandshakeToAuthOK(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
+func TestAgentAdapterProbeDoesNotPromoteClaudeHandshakeToAuthOK(t *testing.T) {
+	t.Setenv("HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "claude_code=available")
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
@@ -224,8 +222,36 @@ func TestAgentAdapterProbePromotesClaudeHandshakeToAuthOK(t *testing.T) {
 	if resp.Data.Health.Status != agentadapters.ProbeStatusReady {
 		t.Fatalf("health status = %q, want ready", resp.Data.Health.Status)
 	}
-	if resp.Data.Adapter.AuthStatus != agentadapters.AuthStatusOK {
-		t.Fatalf("adapter auth_status = %q, want ok after ready probe", resp.Data.Adapter.AuthStatus)
+	if resp.Data.Adapter.AuthStatus != agentadapters.AuthStatusUnknown {
+		t.Fatalf("adapter auth_status = %q, want ready handshake not to promote auth evidence", resp.Data.Adapter.AuthStatus)
+	}
+}
+
+func TestAuthStatusFromReadyProbePreservesFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		status string
+		hint   string
+	}{
+		{name: "unknown", status: agentadapters.AuthStatusUnknown, hint: "Vendor auth has not been checked."},
+		{name: "authenticated", status: agentadapters.AuthStatusOK},
+		{name: "unauthenticated", status: agentadapters.AuthStatusUnauthenticated, hint: "Sign in required."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			status, hint := authStatusFromProbe(
+				agentadapters.ProbeResult{Status: agentadapters.ProbeStatusReady},
+				tc.status,
+				tc.hint,
+			)
+
+			if status != tc.status || hint != tc.hint {
+				t.Fatalf("auth status/hint = %q/%q, want fallback %q/%q", status, hint, tc.status, tc.hint)
+			}
+		})
 	}
 }
 

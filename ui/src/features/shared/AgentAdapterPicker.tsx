@@ -1,8 +1,8 @@
 // AgentAdapterPicker is the dropdown the chat view uses to switch between
 // registered external-agent adapters. Passive discovery controls whether an
 // adapter can be selected; an on-demand diagnostic is advisory because the
-// real chat launch always resolves the executable and performs a fresh ACP
-// handshake.
+// real chat setup always resolves the executable and performs a fresh ACP
+// handshake; an embedded vendor process may not start until the first prompt.
 
 import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
@@ -41,6 +41,39 @@ function adapterPickerDiagnostic(
       chipColor: "var(--t3)",
     };
   }
+  if (adapter.auth_status === "billing") {
+    return {
+      title: adapterAdvisoryTitle(
+        adapter,
+        adapter.auth_error || "Billing or usage limit requires attention.",
+      ),
+      iconColor: "var(--amber)",
+      chipLabel: "billing",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (health?.status === "auth_required" || adapter.auth_status === "unauthenticated") {
+    return {
+      title: adapterAdvisoryTitle(
+        adapter,
+        health?.hint || health?.error || adapter.auth_error || "Authentication may be required.",
+      ),
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (adapter.auth_status && adapter.auth_status !== "ok" && adapter.auth_status !== "unknown") {
+    return {
+      title: adapterAdvisoryTitle(
+        adapter,
+        adapter.auth_error || `Auth status: ${adapter.auth_status}.`,
+      ),
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
+    };
+  }
   if (health) {
     switch (health.status) {
       case "ready":
@@ -51,15 +84,9 @@ function adapterPickerDiagnostic(
           chipColor: "var(--teal)",
         };
       case "auth_required":
-        return {
-          title: adapterDiagnosticTitle(
-            adapter,
-            health.hint || health.error || "Authentication required",
-          ),
-          iconColor: "var(--amber)",
-          chipLabel: "auth",
-          chipColor: "var(--amber)",
-        };
+        // Handled above so an auth diagnostic stays ahead of ready-state
+        // presentation even when adapter metadata and health arrive separately.
+        break;
       case "not_installed":
         return {
           title: adapterDiagnosticTitle(
@@ -82,42 +109,12 @@ function adapterPickerDiagnostic(
         };
     }
   }
-  if (adapter.auth_status === "billing") {
-    return {
-      title: adapterAdvisoryTitle(
-        adapter,
-        adapter.auth_error || "Billing or usage limit requires attention.",
-      ),
-      iconColor: "var(--amber)",
-      chipLabel: "billing",
-      chipColor: "var(--amber)",
-    };
-  }
-  if (adapter.auth_status === "unauthenticated") {
-    return {
-      title: adapterAdvisoryTitle(adapter, adapter.auth_error || "Authentication may be required."),
-      iconColor: "var(--amber)",
-      chipLabel: "auth",
-      chipColor: "var(--amber)",
-    };
-  }
   if (adapter.auth_status === "unknown") {
     return {
       title: adapterAvailableTitle(adapter, adapter.auth_error),
       iconColor: "var(--t3)",
       chipLabel: "available",
       chipColor: "var(--t3)",
-    };
-  }
-  if (adapter.auth_status && adapter.auth_status !== "ok") {
-    return {
-      title: adapterAdvisoryTitle(
-        adapter,
-        adapter.auth_error || `Auth status: ${adapter.auth_status}.`,
-      ),
-      iconColor: "var(--amber)",
-      chipLabel: "auth",
-      chipColor: "var(--amber)",
     };
   }
   return {
@@ -140,7 +137,7 @@ function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): bool
 
 function adapterCheckedTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
   const suffix = path ? ` Path: ${path}` : "";
-  return `The last ${adapter.name} diagnostic passed startup, auth, and ACP session creation. Starting a chat still performs a fresh launch.${suffix}`;
+  return `The last ${adapter.name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred vendor launch and authentication.${suffix}`;
 }
 
 function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): string {
@@ -149,16 +146,16 @@ function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): st
     : adapter.command
       ? ` Configured command: ${adapter.command}`
       : "";
-  const action = `${adapter.name} is available. Starting a chat launches it after re-resolving the current executable and verifies the ACP connection.${suffix}`;
+  const action = `${adapter.name} is available. New chat re-resolves the executable and prepares its ACP session; the first message verifies any deferred vendor launch and authentication.${suffix}`;
   return detail ? `${detail} ${action}` : action;
 }
 
 function adapterDiagnosticTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `The last ${adapter.name} diagnostic needs attention. Starting a chat retries the current ACP launch; diagnostics in Connections are optional. ${detail}`;
+  return `The last ${adapter.name} diagnostic needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred vendor launch; diagnostics in Connections are optional. ${detail}`;
 }
 
 function adapterAdvisoryTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `${detail} Starting a chat retries ${adapter.name}; diagnostics in Connections are optional.`;
+  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred vendor launch; diagnostics in Connections are optional.`;
 }
 
 export function AgentAdapterPicker({

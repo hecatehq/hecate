@@ -21,7 +21,7 @@ export type ExternalAgentReadiness = {
   detail?: string;
   authStatus?: string;
   authError?: string;
-  verifiedByProbe: boolean;
+  checkedByProbe: boolean;
 };
 
 export function resolveExternalAgentReadiness(
@@ -38,18 +38,18 @@ export function resolveExternalAgentReadiness(
       loginCommand: "",
       setupHint: "Choose an available external agent in Connections.",
       signInHint: "Choose an available external agent in Connections.",
-      verifiedByProbe: false,
+      checkedByProbe: false,
     };
   }
 
-  // Diagnostics describe the last disposable probe; they never authorize a
-  // later process launch. Current passive discovery and remote credential
-  // posture are the only client-side launch gates. The backend re-resolves and
-  // re-handshakes the agent when the operator actually starts a chat.
+  // Diagnostics describe the last disposable ACP session; they never
+  // authorize a later process launch or prove that a deferred vendor CLI can
+  // authenticate and serve a message. Current passive discovery and remote
+  // credential posture are the only client-side launch gates.
   const launchBlocked = !adapter.available || adapter.remote_credential_ok === false;
-  const verifiedByProbe = health?.status === "ready" && !launchBlocked;
-  const authStatus = verifiedByProbe ? "ok" : adapter.auth_status;
-  const authError = verifiedByProbe ? "" : adapter.auth_error;
+  const checkedByProbe = health?.status === "ready" && !launchBlocked;
+  const authStatus = adapter.auth_status;
+  const authError = adapter.auth_error;
   const loginCommand = externalAgentLoginCommand(adapter);
   const setupHint = externalAgentSetupHint(adapter);
   const signInHint = externalAgentSignInHint(adapter);
@@ -78,7 +78,7 @@ export function resolveExternalAgentReadiness(
       detail: remoteCredentialHint,
       authStatus,
       authError,
-      verifiedByProbe,
+      checkedByProbe,
     };
   }
 
@@ -95,23 +95,7 @@ export function resolveExternalAgentReadiness(
       detail: adapter.error || setupHint,
       authStatus,
       authError,
-      verifiedByProbe,
-    };
-  }
-
-  if (verifiedByProbe) {
-    return {
-      kind: "ready",
-      tone: "green",
-      label: "checked",
-      needsRepair: false,
-      launchBlocked,
-      loginCommand,
-      setupHint,
-      signInHint,
-      authStatus,
-      authError,
-      verifiedByProbe,
+      checkedByProbe,
     };
   }
 
@@ -128,7 +112,7 @@ export function resolveExternalAgentReadiness(
       detail: health?.hint || authError || visibleProbeError || "Check billing or subscription.",
       authStatus,
       authError,
-      verifiedByProbe,
+      checkedByProbe,
     };
   }
 
@@ -145,7 +129,23 @@ export function resolveExternalAgentReadiness(
       detail: health?.hint || authError || signInHint,
       authStatus,
       authError,
-      verifiedByProbe,
+      checkedByProbe,
+    };
+  }
+
+  if (checkedByProbe) {
+    return {
+      kind: "ready",
+      tone: "green",
+      label: "checked",
+      needsRepair: false,
+      launchBlocked,
+      loginCommand,
+      setupHint,
+      signInHint,
+      authStatus,
+      authError,
+      checkedByProbe,
     };
   }
 
@@ -162,7 +162,7 @@ export function resolveExternalAgentReadiness(
       detail: health?.hint || authError || setupHint,
       authStatus,
       authError,
-      verifiedByProbe,
+      checkedByProbe,
     };
   }
 
@@ -182,7 +182,7 @@ export function resolveExternalAgentReadiness(
       detail: health?.hint || authError || visibleProbeError || setupHint,
       authStatus,
       authError,
-      verifiedByProbe,
+      checkedByProbe,
     };
   }
 
@@ -196,10 +196,10 @@ export function resolveExternalAgentReadiness(
     setupHint,
     signInHint,
     detail:
-      "Starting a chat launches the installed app and verifies its ACP connection. Diagnostics are optional.",
+      "New chat re-resolves the executable and prepares a fresh ACP session. The first message verifies any deferred vendor launch and authentication. Diagnostics are optional.",
     authStatus,
     authError,
-    verifiedByProbe,
+    checkedByProbe,
   };
 }
 

@@ -74,7 +74,7 @@ export type ProvidersAndModelsState = {
 type SetStateAction<T> = T | ((prev: T) => T);
 
 export type ProbeAdapterResult =
-  | { ok: true; health: AgentAdapterHealthRecord }
+  | { ok: true; health: AgentAdapterHealthRecord | null }
   | { ok: false; error: string };
 
 export type RefreshAgentAdaptersResult =
@@ -281,6 +281,7 @@ export function ProvidersAndModelsProvider({
     seededState ? { ...initialState, ...seededState } : initialState,
   );
   const probeAgentAdapterInFlightRef = useRef(new Map<string, Promise<ProbeAdapterResult>>());
+  const agentAdapterEvidenceRevisionByIDRef = useRef(new Map<string, number>());
   const verifyModelToolSupportInFlightRef = useRef(
     new Map<string, Promise<VerifyModelToolSupportResult>>(),
   );
@@ -343,9 +344,19 @@ export function ProvidersAndModelsProvider({
   const applyAgentAdapterAuthResult = useCallback(
     (adapterID: string, authStatus: "ok" | "unauthenticated") => {
       // An auth action starts the adapter and is newer evidence than any
-      // passive read already in flight. A later operator refresh may replace
-      // it with catalog auth=unknown, but an older response must not.
+      // passive read or disposable diagnostic already in flight. A later
+      // operator refresh may replace it with catalog auth=unknown, but an
+      // older response must not.
       latestAgentAdaptersRefreshRef.current += 1;
+      agentAdapterEvidenceRevisionByIDRef.current.set(
+        adapterID,
+        (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) + 1,
+      );
+      // A new explicit diagnostic after auth must not dedupe onto the older
+      // request. The old request remains bounded by its HTTP lifecycle, and
+      // its generation check below prevents it from publishing evidence.
+      probeAgentAdapterInFlightRef.current.delete(adapterID);
+      dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
       dispatch({ type: "agentAdapterAuth/apply", adapterID, authStatus });
     },
     [],
@@ -414,10 +425,20 @@ export function ProvidersAndModelsProvider({
       if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
       const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
       if (inFlight) return inFlight;
-      const probe: Promise<ProbeAdapterResult> = (async (): Promise<ProbeAdapterResult> => {
+      const evidenceRevision = agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0;
+      const probe = (async (): Promise<ProbeAdapterResult> => {
         dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
         try {
           const payload = await probeAgentAdapterRequest(adapterID);
+          if (
+            (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) !== evidenceRevision
+          ) {
+            // A successful authenticate/logout completed after this disposable
+            // diagnostic began. Its explicit result owns the current auth
+            // projection, so discard every field from the older probe and do
+            // not start the probe's automatic catalog merge.
+            return { ok: true, health: null };
+          }
           dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
           dispatch({
             type: "agentAdapters/set",
@@ -437,13 +458,25 @@ export function ProvidersAndModelsProvider({
           }
           return { ok: true, health: payload.data.health };
         } catch (error) {
+          if (
+            (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) !== evidenceRevision
+          ) {
+            // The failure belongs to an operation superseded by a successful
+            // auth mutation. Do not replace the newer success notice with an
+            // obsolete diagnostic transport or process error.
+            return { ok: true, health: null };
+          }
           return {
             ok: false,
             error: error instanceof Error ? error.message : "Failed to probe adapter.",
           };
         } finally {
-          probeAgentAdapterInFlightRef.current.delete(adapterID);
-          dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+          if (
+            (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) === evidenceRevision
+          ) {
+            probeAgentAdapterInFlightRef.current.delete(adapterID);
+            dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+          }
         }
       })();
       probeAgentAdapterInFlightRef.current.set(adapterID, probe);

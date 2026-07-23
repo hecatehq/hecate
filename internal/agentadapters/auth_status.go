@@ -31,9 +31,9 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 			return AuthStatusUnauthenticated, adapterSignInHint(adapter)
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
-			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate verifies CLI auth when a chat starts; Connections diagnostics are optional."
+			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate verifies CLI auth when Claude Code handles the first message; Connections diagnostics are optional."
 		}
-		return AuthStatusUnknown, "Start a chat to verify Claude Code. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
+		return AuthStatusUnknown, "Send a message in a Claude Code chat to verify it. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""

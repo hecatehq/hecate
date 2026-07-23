@@ -386,6 +386,161 @@ describe("probeAgentAdapter", () => {
       status: "ready",
     });
   });
+
+  it("discards a pre-sign-in diagnostic and lets a fresh diagnostic start", async () => {
+    let resolveOldProbe: (value: unknown) => void = () => {};
+    let resolveFreshProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOldProbe = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFreshProbe = resolve;
+        }),
+      );
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      auth_status: "unauthenticated",
+      auth_error: "Sign in required.",
+      supports_authenticate: true,
+      supports_logout: true,
+    };
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [{ ...adapter, auth_status: "unknown", auth_error: undefined }],
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let oldProbe!: Promise<unknown>;
+    let freshProbe!: Promise<unknown>;
+
+    act(() => {
+      oldProbe = result.current.actions.probeAgentAdapter("codex");
+    });
+    act(() => {
+      result.current.actions.applyAgentAdapterAuthResult("codex", "ok");
+      freshProbe = result.current.actions.probeAgentAdapter("codex");
+    });
+
+    expect(probeAgentAdapterMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveOldProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter,
+          health: {
+            adapter_id: "codex",
+            status: "auth_required",
+            stage: "authenticate",
+            error: "Sign in required.",
+            duration_ms: 42,
+          },
+        },
+      });
+      await oldProbe;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({ auth_status: "ok" });
+    expect(result.current.state.agentAdapters[0]?.auth_error).toBeUndefined();
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(true);
+    expect(getAgentAdaptersMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFreshProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter: { ...adapter, auth_status: "ok", auth_error: undefined },
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 12,
+          },
+        },
+      });
+      await freshProbe;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({ auth_status: "ok" });
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "ready",
+    });
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+    expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a pre-logout diagnostic restore ready evidence", async () => {
+    let resolveProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+    };
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let probe!: Promise<unknown>;
+
+    act(() => {
+      probe = result.current.actions.probeAgentAdapter("codex");
+    });
+    act(() => {
+      result.current.actions.applyAgentAdapterAuthResult("codex", "unauthenticated");
+    });
+    await act(async () => {
+      resolveProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter,
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 42,
+          },
+        },
+      });
+      await probe;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({
+      auth_status: "unauthenticated",
+    });
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+    expect(getAgentAdaptersMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("refreshAgentAdapters", () => {

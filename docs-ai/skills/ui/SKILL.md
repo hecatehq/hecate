@@ -426,12 +426,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   disable agent selection, **New chat**, attachments, or Send; the operator may
   have repaired the app since that diagnostic ran.
 - Opening Chats or Connections must not probe, start, authenticate, or otherwise
-  execute a discovered app. **New chat** is the authoritative execution
-  boundary: it re-resolves the current executable and performs a fresh ACP
-  handshake for the real session. `POST /agent-adapters/{id}/probe` is an
-  optional disposable diagnostic, not a prerequisite or launch authority. Its
-  accessible name/help text must say that it starts the app and opens a
-  temporary ACP session.
+  execute a discovered app. **New chat** re-resolves the current executable and
+  prepares a fresh ACP session for the real chat. Direct ACP peers start during
+  that setup; embedded bridges may defer vendor CLI execution and auth until the
+  first message, which is authoritative for that deferred work. `POST
+/agent-adapters/{id}/probe` is an optional disposable diagnostic, not a
+  prerequisite or launch authority. Its accessible name/help text must say that
+  it starts a temporary ACP session and may execute the app for diagnostics.
 - Route every passive External Agent catalog read—dashboard hydration, manual
   Refresh, and the post-diagnostic re-read—through
   `loadAgentAdapterCatalog`. That provider/model slice owns request ordering

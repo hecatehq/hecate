@@ -359,8 +359,9 @@ Opening Connections performs passive path discovery only. The operator-owned
 **Run diagnostics** action calls `POST
 /hecate/v1/agent-adapters/{id}/probe`, which starts the discovered app and opens
 a disposable ACP session for troubleshooting. It is optional: **New chat**
-re-resolves the executable and performs the authoritative ACP handshake for the
-real session.
+re-resolves the executable and prepares the real ACP session. Direct ACP peers
+start during setup; embedded bridges may defer vendor CLI execution and auth
+until the first message.
 
 ## Resetting state
 
