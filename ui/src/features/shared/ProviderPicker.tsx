@@ -79,6 +79,7 @@ export function ProviderPicker({
     open,
     "left",
     variant === "composer" ? "up" : "down",
+    180,
   );
 
   useEffect(() => {

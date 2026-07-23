@@ -5,14 +5,17 @@ import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
 const { openUrlMock } = vi.hoisted(() => ({ openUrlMock: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
+const originalUserAgent = navigator.userAgent;
 
 beforeEach(() => {
   openUrlMock.mockReset();
   delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUserAgent });
 });
 
 afterEach(() => {
   delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUserAgent });
 });
 
 describe("TranscriptMarkdown", () => {
@@ -149,6 +152,19 @@ describe("TranscriptMarkdown", () => {
     expect(fireEvent.click(link)).toBe(false);
 
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith("https://example.com/releases"));
+  });
+
+  it("leaves safe links to web navigation in the mobile Tauri runtime", () => {
+    (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "HecateMobile",
+    });
+    render(<TranscriptMarkdown content="read the [release](https://example.com/releases)" />);
+
+    const link = screen.getByRole("link", { name: "release" });
+    expect(fireEvent.click(link)).toBe(true);
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
   it("renders tables with headers and rows", () => {

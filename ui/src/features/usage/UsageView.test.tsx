@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UsageView } from "./UsageView";
@@ -81,6 +81,38 @@ describe("UsageView", () => {
     expect(screen.getByText("cloud-request")).toBeInTheDocument();
     expect(screen.queryByText("local-request")).toBeNull();
     expect(screen.queryByText("ministral-3:latest")).toBeNull();
+  });
+
+  it("contains the dense usage table in a keyboard-reachable horizontal scroller", () => {
+    setup({
+      settingsConfig: {
+        backend: "memory",
+        policy_rules: [],
+        events: [],
+        providers: [{ id: "openai", name: "OpenAI", kind: "openai", enabled: true }],
+      },
+      usageEvents: [
+        {
+          type: "usage",
+          request_id: "cloud-request",
+          timestamp: "2026-04-25T10:00:00Z",
+          provider: "openai",
+          model: "gpt-5.4-mini",
+          prompt_tokens: 80,
+          completion_tokens: 50,
+          total_tokens: 130,
+          amount_micros_usd: 123_000,
+          amount_usd: "$0.123",
+        },
+      ],
+    });
+
+    const scroller = screen.getByRole("region", { name: "Recent cloud calls table" });
+    const table = within(scroller).getByRole("table");
+    expect(scroller.style.maxWidth).toBe("100%");
+    expect(scroller.style.overflowX).toBe("auto");
+    expect(scroller.tabIndex).toBe(0);
+    expect(table.style.minWidth).toBe("820px");
   });
 
   it("keeps zero-cost cloud usage visible as token usage", () => {

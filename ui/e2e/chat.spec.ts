@@ -997,7 +997,7 @@ test("New chat falls back to Hecate when the remembered external agent needs set
   await expect(cursorOption).not.toHaveAttribute("aria-disabled");
   await expect(cursorOption).toHaveAttribute(
     "title",
-    "Open Connections to set up Cursor Agent, then sign in with cursor-agent login.",
+    /^Open Connections to set up Cursor Agent, then sign in with cursor-agent login\./,
   );
 
   await newHecateChat.click();
@@ -1093,6 +1093,83 @@ test("system prompt editor opens and closes", async ({ page }) => {
   await expect(
     page.getByText("SYSTEM PROMPT / AGENT INSTRUCTIONS", { exact: true }),
   ).not.toBeVisible();
+});
+
+test("uses a full-width replacement panel and phone-sized chat controls", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await switchToModel(page);
+
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const settingsButton = page.getByRole("button", { name: "Chat settings" });
+  const sendButton = page.getByRole("button", { name: "Send message" });
+  await composer.fill("Keep this phone draft");
+
+  const openChatsButton = page.getByRole("button", { name: "Open chats sidebar" });
+  await expect(openChatsButton).toBeVisible();
+  await openChatsButton.click();
+  const chatSidebar = page.getByRole("complementary", { name: "Chats" });
+  await expect(chatSidebar).toBeVisible();
+  await expect(page.locator(".entity-detail-pane")).toHaveCSS("display", "none");
+  const closeChatsButton = page.getByRole("button", { name: "Close chats sidebar" });
+  await expect(closeChatsButton).toBeFocused();
+  await closeChatsButton.click();
+  await expect(chatSidebar).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open chats sidebar" })).toBeFocused();
+  await expect(composer).toHaveValue("Keep this phone draft");
+
+  await expect(composer).toHaveCSS("font-size", "16px");
+  for (const control of [settingsButton, sendButton]) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await settingsButton.click();
+
+  const mainBody = page.locator(".chat-main-body");
+  const mainContent = page.locator(".chat-main-content");
+  const settingsPanel = page.getByLabel("Chat settings panel");
+  await expect(settingsPanel).toBeFocused();
+  await expect(mainContent).toHaveCSS("display", "none");
+  await expect(page.getByRole("separator", { name: "Resize right panel" })).toBeHidden();
+
+  const workspaceMode = settingsPanel.getByRole("combobox", { name: "Workspace mode" });
+  await expect(workspaceMode).toHaveCSS("font-size", "16px");
+  const workspaceModeBox = await workspaceMode.boundingBox();
+  expect(workspaceModeBox).not.toBeNull();
+  expect(workspaceModeBox!.height).toBeGreaterThanOrEqual(44);
+
+  const mainBodyBox = await mainBody.boundingBox();
+  const settingsPanelBox = await settingsPanel.boundingBox();
+  expect(mainBodyBox).not.toBeNull();
+  expect(settingsPanelBox).not.toBeNull();
+  expect(Math.abs(settingsPanelBox!.x - mainBodyBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(settingsPanelBox!.width - mainBodyBox!.width)).toBeLessThanOrEqual(1);
+
+  await settingsButton.click();
+  await expect(settingsPanel).toHaveCount(0);
+  await expect(mainContent).not.toHaveCSS("display", "none");
+  await expect(composer).toHaveValue("Keep this phone draft");
+  await expect(settingsButton).toBeFocused();
+});
+
+test("moves focus into and back from a phone replacement panel opened by slash command", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await switchToModel(page);
+
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await composer.fill("/settings");
+  await composer.press("Escape");
+  await composer.press("Enter");
+
+  const settingsPanel = page.getByLabel("Chat settings panel");
+  await expect(settingsPanel).toBeFocused();
+  await page.getByRole("button", { name: "Chat settings" }).click();
+  await expect(settingsPanel).toHaveCount(0);
+  await expect(composer).toBeFocused();
 });
 
 test("Enter-switch toggle is visible in the input toolbar and clickable", async ({ page }) => {
@@ -3650,7 +3727,22 @@ test("workspace changes review inspects and discards a current file", async ({ p
     workspaceChangesPanel.getByText("1 file changed, 4 insertions(+)").first(),
   ).toBeVisible();
 
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(workspaceChangesPanel).toBeFocused();
+  await expect(page.locator(".chat-main-content")).toHaveCSS("display", "none");
+  const reviewTab = page.getByRole("tab", { name: "Review" });
+  const filesTab = page.getByRole("tab", { name: "Files" });
+  for (const tab of [reviewTab, filesTab]) {
+    const box = await tab.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
+  await expect(page.getByRole("textbox", { name: "Search changed files" })).toHaveCSS(
+    "font-size",
+    "16px",
+  );
+
+  await filesTab.click();
   const workspaceFileList = page.getByLabel("Workspace file tree");
   await expect(workspaceFileList).toBeVisible();
   await expect(page.getByRole("tree", { name: "Workspace file tree" })).toHaveCount(0);

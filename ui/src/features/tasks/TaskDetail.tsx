@@ -592,6 +592,7 @@ type Props = {
   // stored in run events and shown in the timeline.
   onRetryFromModelCall: (modelCall: number, reason: string) => void;
   onOpenChat?: (sessionID: string, messageID?: string) => void;
+  onOpenTaskList?: () => void;
   onFocusRequestHandled?: (nonce: number) => void;
   // onResumeRaisingCeiling raises the task's per-task cost ceiling
   // and resumes the run in one server-side transaction. Surfaced
@@ -644,6 +645,7 @@ export function TaskDetail({
   onRefresh,
   onRetryFromModelCall,
   onOpenChat,
+  onOpenTaskList,
   onFocusRequestHandled,
   onResumeRaisingCeiling,
   onApplyPatch,
@@ -744,6 +746,18 @@ export function TaskDetail({
           flexWrap: "wrap",
         }}
       >
+        {onOpenTaskList && (
+          <button
+            aria-label="Back to tasks"
+            className="btn btn-ghost btn-sm task-list-open"
+            onClick={onOpenTaskList}
+            title="Back to tasks"
+            type="button"
+          >
+            <Icon d={Icons.chevL} size={13} />
+            Tasks
+          </button>
+        )}
         <Badge
           {...(taskHasRun
             ? taskBadgeProps(task.status, task.last_error)

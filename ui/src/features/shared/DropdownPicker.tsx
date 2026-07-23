@@ -74,7 +74,7 @@ export function DropdownPicker<Value extends string = string>({
     // doesn't re-bind the document listener — no useCallback needed.
     onClose: () => setFilter(""),
   });
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement);
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement, menuMinWidth);
   const selected = options.find((option) => option.value === value);
   const locked = disabled || options.length === 0;
   const filteredOptions =

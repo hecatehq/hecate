@@ -12,8 +12,11 @@ export function SettingsSectionHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
-      <div style={{ minWidth: 0 }}>
+    <div
+      className="settings-section-header"
+      style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}
+    >
+      <div className="settings-section-header__copy" style={{ minWidth: 0 }}>
         <div
           style={{
             fontSize: 13,
@@ -30,6 +33,7 @@ export function SettingsSectionHeader({
       </div>
       {meta && (
         <span
+          className="settings-section-header__meta"
           style={{
             fontFamily: "var(--font-mono)",
             fontSize: 11,
@@ -41,7 +45,10 @@ export function SettingsSectionHeader({
         </span>
       )}
       {actions && (
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+        <div
+          className="settings-section-header__actions"
+          style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}
+        >
           {actions}
         </div>
       )}

@@ -93,6 +93,41 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/Live|Paused/);
   });
 
+  it("stacks Recent requests filters at phone width", async () => {
+    setViewportWidth(390);
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
+      container = result.container;
+    });
+
+    const filters = container.querySelector(
+      '[data-testid="recent-request-filters"]',
+    ) as HTMLElement;
+    const controls = container.querySelector(
+      '[data-testid="recent-request-filter-controls"]',
+    ) as HTMLElement;
+    expect(filters.style.flexDirection).toBe("column");
+    expect(filters.style.alignItems).toBe("stretch");
+    expect(controls.style.width).toBe("100%");
+    expect(controls.style.justifyContent).toBe("flex-start");
+    expect((controls.querySelector("button") as HTMLButtonElement).style.width).toBe("180px");
+
+    await act(async () => {
+      setViewportWidth(1280);
+      fireEvent(window, new Event("resize"));
+    });
+    expect(filters.style.flexDirection).toBe("row");
+    expect(controls.style.justifyContent).toBe("flex-end");
+    expect((controls.querySelector("button") as HTMLButtonElement).style.width).toBe("");
+  });
+
   it("calls /hecate/v1/system/stats and /hecate/v1/traces on mount", async () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
@@ -1208,6 +1243,73 @@ describe("ObservabilityView", () => {
     });
   });
 
+  it("keeps the request table contained and opens a focused row from the keyboard", async () => {
+    setViewportWidth(390);
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-keyboard",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            duration_ms: 10,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        {
+          request_id: "req-keyboard",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [] },
+        },
+      ),
+    );
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/req-keyb/);
+    });
+
+    const scroller = container.querySelector(
+      '[data-testid="recent-requests-table-scroll"]',
+    ) as HTMLElement;
+    const table = scroller.querySelector("table") as HTMLTableElement;
+    const row = scroller.querySelector("tbody tr") as HTMLTableRowElement;
+    expect(scroller.style.maxWidth).toBe("100%");
+    expect(scroller.style.overflowX).toBe("auto");
+    expect(scroller.tabIndex).toBe(0);
+    expect(table.style.minWidth).toBe("900px");
+    expect(row.tabIndex).toBe(0);
+    expect(row.getAttribute("aria-label")).toMatch(/Press Enter to view details/);
+
+    await act(async () => row.focus());
+    expect(document.activeElement).toBe(row);
+    expect(row.style.outline).toBe("2px solid var(--teal-border)");
+
+    const copyButton = within(row).getByRole("button");
+    await act(async () => {
+      fireEvent.keyDown(copyButton, { key: "Enter" });
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => {
+      fireEvent.keyDown(row, { key: " " });
+    });
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
+  });
+
   it("renders the span waterfall with rows, expandable attributes, and bounded timelines", async () => {
     const traceID = "trace-abc";
     const t0 = new Date(Date.now() - 1000);
@@ -1325,6 +1427,11 @@ describe("ObservabilityView", () => {
     expect(rootRow.style.gridTemplateColumns).toBe("160px minmax(360px, 1fr) 72px");
     expect(normalizedInlineStyle(waterfallScroller, "max-height")).toBe("min(420px,52vh)");
     expect(waterfallScroller.style.overflowY).toBe("auto");
+    expect(waterfallScroller.style.overflowX).toBe("auto");
+    expect(waterfallScroller.tabIndex).toBe(0);
+    expect(waterfallScroller).toHaveAttribute("aria-label", "Span waterfall");
+    const waterfallContent = expectHTMLElement('[data-testid="span-waterfall-content"]');
+    expect(waterfallContent.style.minWidth).toBe("616px");
     const eventFlow = expectHTMLElement('[data-testid="trace-event-flow"]');
     expect(normalizedInlineStyle(eventFlow, "max-height")).toBe("min(320px,42vh)");
     expect(eventFlow.style.overflowY).toBe("auto");

@@ -372,7 +372,7 @@ test("Projects delete explains a failure in the dialog and retries at narrow wid
   await confirm.click();
 
   await expect(dialog).toBeHidden();
-  await expect(page.getByText("Add a project to begin")).toBeVisible();
+  await expect(page.getByText("No projects yet")).toBeVisible();
   expect(deleteRequests).toBe(2);
 });
 
@@ -2134,11 +2134,13 @@ test("Projects overview is the default ready-project home at desktop and narrow 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  const projectIndex = await page.getByRole("region", { name: "Projects" }).boundingBox();
-  const projectMain = await page.locator(".projects-cockpit-main").boundingBox();
-  expect(projectIndex?.width).toBeGreaterThan(300);
-  expect(projectMain?.width).toBeGreaterThan(300);
-  expect(projectMain?.y ?? 0).toBeGreaterThan(projectIndex?.y ?? 0);
+  const projectIndex = page.getByRole("region", { name: "Projects" });
+  const projectMain = page.locator(".projects-cockpit-main");
+  await expect(projectIndex).toBeHidden();
+  await expect(projectMain).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to projects" })).toBeVisible();
+  const projectMainBox = await projectMain.boundingBox();
+  expect(projectMainBox?.width).toBeGreaterThan(300);
   await expect(page.getByRole("region", { name: "Project overview" })).toBeVisible();
   const primaryOperationTitle = page.getByText(
     "Prepare first assignment: Review launch narrative",
@@ -2158,6 +2160,21 @@ test("Projects overview is the default ready-project home at desktop and narrow 
   for (let index = 0; index < 5; index += 1) {
     await expect(narrowTabs.nth(index)).toBeInViewport();
   }
+
+  await page.getByRole("button", { name: "Back to projects" }).click();
+  await expect(projectIndex).toBeVisible();
+  await expect(projectMain).toBeHidden();
+  const renameProject = page.getByRole("button", { name: "Rename project Editorial planning" });
+  await expect(renameProject).toBeVisible();
+  const renameProjectBox = await renameProject.boundingBox();
+  expect(renameProjectBox?.width).toBeGreaterThanOrEqual(44);
+  expect(renameProjectBox?.height).toBeGreaterThanOrEqual(44);
+  const projectLink = page.getByRole("link", { name: "Open project Editorial planning" });
+  const projectLinkBox = await projectLink.boundingBox();
+  expect(projectLinkBox?.height).toBeGreaterThanOrEqual(44);
+  await projectLink.click();
+  await expect(projectIndex).toBeHidden();
+  await expect(projectMain).toBeVisible();
 
   const operationsBox = await page
     .getByRole("region", { name: "Project operations" })
@@ -2701,6 +2718,8 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
   await page.setViewportSize({ width: 390, height: 844 });
   const narrowSkill = page.getByRole("article", { name: "Skill Implementation review" });
   const narrowSkillDetails = narrowSkill.getByText("Settings and source");
+  const narrowSkillSummaryBox = await narrowSkillDetails.boundingBox();
+  expect(narrowSkillSummaryBox?.height).toBeGreaterThanOrEqual(44);
   if ((await narrowSkillDetails.locator("xpath=..").getAttribute("open")) === null) {
     await narrowSkillDetails.click();
   }

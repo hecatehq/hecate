@@ -5,6 +5,8 @@ import { formatInteger, formatLocaleTime, formatMicrosUSD } from "../../lib/form
 import type { UsageEventRecord } from "../../types/usage";
 import { CopyBtn } from "../shared/ui";
 
+/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- A horizontally scrollable labelled region must be keyboard-focusable. */
+
 type UsageEntry = UsageEventRecord;
 type UsageTotals = {
   promptTokens: number;
@@ -12,6 +14,8 @@ type UsageTotals = {
   totalTokens: number;
   costMicrosUSD: number;
 };
+
+const USAGE_TABLE_MIN_WIDTH_PX = 820;
 
 // Only cross-chat Hecate-controlled provider calls belong here; active-chat
 // adapter usage lives in ChatView where the reported values have context.
@@ -28,8 +32,17 @@ export function UsageView() {
   const hasCloudUsage = cloudEvents.length > 0;
 
   return (
-    <div style={{ height: "100%", overflow: "hidden" }}>
-      <div style={{ height: "100%", overflowY: "auto", padding: 16 }}>
+    <div style={{ height: "100%", minWidth: 0, maxWidth: "100%", overflow: "hidden" }}>
+      <div
+        style={{
+          height: "100%",
+          minWidth: 0,
+          overflowY: "auto",
+          overflowX: "hidden",
+          padding: 16,
+          boxSizing: "border-box",
+        }}
+      >
         <div style={{ marginBottom: 18 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>
@@ -72,8 +85,26 @@ export function UsageView() {
               title="Recent cloud calls"
               description="Hecate-controlled cloud-provider calls. Local-provider rows are hidden because they do not spend cloud-provider tokens."
             />
-            <div className="card" style={{ overflow: "hidden", marginBottom: 20 }}>
-              <table className="table" style={{ tableLayout: "fixed" }}>
+            <div
+              className="card horizontal-scroll-region"
+              role="region"
+              aria-label="Recent cloud calls table"
+              tabIndex={0}
+              data-testid="usage-table-scroll"
+              style={{
+                maxWidth: "100%",
+                minWidth: 0,
+                overflowX: "auto",
+                overflowY: "hidden",
+                overscrollBehaviorX: "contain",
+                WebkitOverflowScrolling: "touch",
+                marginBottom: 20,
+              }}
+            >
+              <table
+                className="table"
+                style={{ tableLayout: "fixed", minWidth: USAGE_TABLE_MIN_WIDTH_PX }}
+              >
                 <colgroup>
                   <col style={{ width: 82 }} />
                   <col style={{ width: 110 }} />

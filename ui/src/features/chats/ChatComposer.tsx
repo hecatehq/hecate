@@ -1242,6 +1242,7 @@ export function ChatComposer(props: ChatComposerProps) {
               )}
               <textarea
                 ref={textareaRef}
+                className="chat-composer-message"
                 aria-label="Message"
                 aria-activedescendant={activeCommandOptionID}
                 aria-controls={commandPickerVisible ? commandListboxID : undefined}
@@ -1311,6 +1312,7 @@ export function ChatComposer(props: ChatComposerProps) {
               />
               <span aria-hidden="true" style={{ flex: 1 }} />
               <button
+                className="chat-composer-touch-action chat-composer-send"
                 type="submit"
                 aria-describedby={workspaceModePending ? workspaceModeStatusID : undefined}
                 aria-label={

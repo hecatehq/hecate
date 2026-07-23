@@ -1095,15 +1095,16 @@ function ProjectOnboardingPanel({
   readiness: ProjectSetupReadiness;
 }) {
   const primaryAction = readiness.primary_action;
+  const readinessChecks = Array.isArray(readiness.checks) ? readiness.checks : [];
   const fallbackWorkAction =
     error && primaryAction.type === "bootstrap_project"
-      ? readiness.checks.find((check) => check.action?.type === "create_work_item")?.action
+      ? readinessChecks.find((check) => check.action?.type === "create_work_item")?.action
       : undefined;
   const recoveryWorkAction = bootstrapRecoveryAvailable ? fallbackWorkAction : undefined;
   const displayedPrimaryAction = recoveryWorkAction ?? primaryAction;
   const primaryPending = bootstrapPending && displayedPrimaryAction.type === "bootstrap_project";
   const startsWithWork = displayedPrimaryAction.type === "create_work_item";
-  const coveredCheckCount = readiness.checks.filter(
+  const coveredCheckCount = readinessChecks.filter(
     (check) => check.status === "ready" || check.optional,
   ).length;
   return (
@@ -1185,12 +1186,12 @@ function ProjectOnboardingPanel({
         <summary style={projectOnboardingSummaryStyle}>
           <span>Setup details</span>
           <span className="badge badge-muted">
-            {coveredCheckCount}/{readiness.checks.length} covered
+            {coveredCheckCount}/{readinessChecks.length} covered
           </span>
         </summary>
         <div style={projectOnboardingDetailsBodyStyle}>
           <div style={projectOnboardingChecklistStyle}>
-            {readiness.checks.map((check) => (
+            {readinessChecks.map((check) => (
               <div
                 aria-label={check.label}
                 key={check.id}
@@ -1715,7 +1716,7 @@ function ProjectActivityInbox({
           </div>
         )}
         {selectedWorkItems.length > 0 && (
-          <div style={workItemListStyle}>
+          <div className="project-work-item-list" style={workItemListStyle}>
             {selectedWorkItems.map((item) => (
               <WorkItemRow
                 key={item.id}

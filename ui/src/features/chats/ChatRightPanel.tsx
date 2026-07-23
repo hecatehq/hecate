@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 560;
@@ -9,13 +9,17 @@ export function ChatRightPanel({
   ariaLabel,
   children,
   className,
+  id,
   onWidthChange,
+  panelRef,
   width,
 }: {
   ariaLabel: string;
   children: ReactNode;
   className?: string;
+  id?: string;
   onWidthChange: (width: number) => void;
+  panelRef?: Ref<HTMLElement>;
   width: number;
 }) {
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -32,7 +36,9 @@ export function ChatRightPanel({
   return (
     <aside
       aria-label={ariaLabel}
-      className={className}
+      className={["chat-right-panel", className].filter(Boolean).join(" ")}
+      id={id}
+      ref={panelRef}
       style={{
         background: "var(--bg1)",
         borderLeft: "1px solid var(--border)",
@@ -47,11 +53,15 @@ export function ChatRightPanel({
         position: "relative",
         width,
       }}
+      tabIndex={-1}
     >
       <div
         aria-label="Resize right panel"
         role="separator"
         aria-orientation="vertical"
+        aria-valuemax={MAX_WIDTH}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuenow={width}
         tabIndex={0}
         className="chat-right-panel-resize-handle"
         onKeyDown={(event) => {

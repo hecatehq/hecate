@@ -8,6 +8,7 @@ import type {
   ProviderPresetRecord,
   ProviderRecord,
 } from "../../types/provider";
+import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { modelDisplayName } from "../../lib/runtime-utils";
 import { BrandAvatar, DropdownPicker, Icon, Icons } from "../shared/ui";
@@ -31,6 +32,7 @@ export function NewChatAgentButton({
   adapters,
   healthByID,
   disableUnavailable = false,
+  createLabel,
   createTitle,
   createDisabled,
   selectionDisabled = false,
@@ -42,6 +44,7 @@ export function NewChatAgentButton({
   adapters: AgentAdapterRecord[];
   healthByID: Map<string, AgentAdapterHealthRecord>;
   disableUnavailable?: boolean;
+  createLabel?: string;
   createTitle?: string;
   createDisabled?: boolean;
   selectionDisabled?: boolean;
@@ -59,7 +62,7 @@ export function NewChatAgentButton({
   // the menu width matches the visual button group, not just the
   // narrow caret.
   const anchorRef = useRef<HTMLDivElement>(null);
-  const floatingStyle = useFloatingDropdownStyle(anchorRef, open, "left");
+  const floatingStyle = useFloatingDropdownStyle(anchorRef, open, "left", "down", 230);
   const selected = chatAgentOption(value, adapters);
   const selectedAdapter =
     selected.id === "hecate" ? undefined : adapters.find((item) => item.id === selected.id);
@@ -158,13 +161,13 @@ export function NewChatAgentButton({
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            New {effectiveSelected.label} chat
+            {createLabel || `New ${effectiveSelected.label} chat`}
           </span>
         </button>
         <button
           ref={triggerRef}
           type="button"
-          className="btn btn-primary btn-sm"
+          className="btn btn-primary btn-sm new-chat-agent-picker-trigger"
           aria-label="Choose agent for new chat"
           aria-expanded={open}
           aria-haspopup="listbox"
@@ -414,107 +417,53 @@ export function chatAgentOptionStatus(
   if (optionID === "hecate") {
     return { label: "local", color: "var(--teal)", title: "Hecate Chat", ready: true };
   }
-  if (health?.status === "ready") {
-    return {
-      label: "ready",
-      color: "var(--teal)",
-      title: adapterReadyTitle(optionID, adapter, health.path),
-      ready: true,
-    };
-  }
-  if (health?.status === "auth_required") {
-    return {
-      label: "auth",
-      color: "var(--amber)",
-      title: adapterAuthSetupTitle(optionID, adapter, health.hint || health.error),
-      ready: false,
-    };
-  }
-  if (health?.status === "error") {
-    if (adapterProbeLooksLikeSetupState(health)) {
+  const readiness = resolveExternalAgentReadiness(adapter, health ?? null);
+  switch (readiness.kind) {
+    case "ready":
+      return {
+        label: "ready",
+        color: "var(--teal)",
+        title: adapterReadyTitle(optionID, adapter, health?.path),
+        ready: true,
+      };
+    case "billing":
+      return {
+        label: "billing",
+        color: "var(--amber)",
+        title: adapterIssueTitle(optionID, adapter, readiness.detail),
+        ready: false,
+      };
+    case "sign_in":
+      return {
+        label: "auth",
+        color: "var(--amber)",
+        title: adapterAuthSetupTitle(optionID, adapter, readiness.detail),
+        ready: false,
+      };
+    case "setup":
       return {
         label: "setup",
         color: "var(--t3)",
-        title: adapterSetupTitle(optionID, adapter, health.hint || health.error),
+        title: adapterSetupTitle(optionID, adapter, readiness.detail),
         ready: false,
       };
-    }
-    return {
-      label: "issue",
-      color: "var(--amber)",
-      title: adapterIssueTitle(optionID, adapter, health.hint || health.error),
-      ready: false,
-    };
+    case "issue":
+      return {
+        label: "issue",
+        color: "var(--amber)",
+        title: adapterIssueTitle(optionID, adapter, readiness.detail),
+        ready: false,
+      };
+    case "unverified":
+      return {
+        label: "check",
+        color: "var(--t3)",
+        title:
+          sanitizedAdapterDetail(adapter?.auth_error) ||
+          (adapter ? adapterAvailableTitle(optionID, adapter) : readiness.detail || "Not tested."),
+        ready: true,
+      };
   }
-  if (health?.status === "not_installed") {
-    return {
-      label: "setup",
-      color: "var(--t3)",
-      title: adapterSetupTitle(optionID, adapter, health.hint || health.error),
-      ready: false,
-    };
-  }
-  if (!adapter?.available) {
-    return {
-      label: "setup",
-      color: "var(--t3)",
-      title: adapterSetupTitle(optionID, adapter, adapter?.error),
-      ready: false,
-    };
-  }
-  if (adapter.auth_status === "billing") {
-    return {
-      label: "billing",
-      color: "var(--amber)",
-      title: adapterIssueTitle(optionID, adapter, adapter.auth_error),
-      ready: false,
-    };
-  }
-  if (adapter.auth_status === "unauthenticated") {
-    return {
-      label: "auth",
-      color: "var(--amber)",
-      title: adapterAuthSetupTitle(optionID, adapter, adapter.auth_error),
-      ready: false,
-    };
-  }
-  if (adapter.auth_status === "unknown") {
-    return {
-      label: "check",
-      color: "var(--t3)",
-      title:
-        adapter.auth_error || "Auth has not been verified yet. Test this agent in Connections.",
-      ready: true,
-    };
-  }
-  if (adapter.auth_status && adapter.auth_status !== "ok") {
-    return {
-      label: "issue",
-      color: "var(--amber)",
-      title: adapterIssueTitle(
-        optionID,
-        adapter,
-        adapter.auth_error || `Auth status: ${adapter.auth_status}`,
-      ),
-      ready: false,
-    };
-  }
-  return {
-    label: "ready",
-    color: "var(--teal)",
-    title: adapterAvailableTitle(optionID, adapter),
-    ready: true,
-  };
-}
-
-function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): boolean {
-  const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
-  return (
-    text.includes("app cli missing") ||
-    text.includes("command was not found") ||
-    text.includes("setup docs:") ||
-    text.startsWith("install ")
-  );
 }
 
 function adapterSetupTitle(
@@ -536,6 +485,10 @@ function adapterAuthSetupTitle(
   detail: string | undefined,
 ): string {
   const name = adapterDisplayName(optionID, adapter);
+  const remoteCredentialHint = sanitizedAdapterDetail(adapter?.remote_credential_hint);
+  if (remoteCredentialHint) {
+    return `Open Connections to enable ${name} for remote access. ${remoteCredentialHint}`;
+  }
   const command = adapterLoginCommand(optionID);
   const action = command
     ? `Run ${command} in Terminal, then test ${name} again in Connections.`

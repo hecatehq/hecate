@@ -20,6 +20,7 @@ function renderChatHeader(overrides: Partial<Parameters<typeof ChatHeader>[0]> =
     workspaceDialogOpen: false,
     workspaceChangesOpen: false,
     chatSettingsOpen: false,
+    rightPanelID: "chat-right-panel",
     onChooseWorkspace: vi.fn(),
     onToggleWorkspaceChanges: vi.fn(),
     onToggleChatSettings: vi.fn(),
@@ -39,7 +40,14 @@ describe("ChatHeader", () => {
     expect(screen.getByRole("banner", { name: "Chat details" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Hecate chat" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Workspace changes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Workspace changes" })).toHaveAttribute(
+      "aria-controls",
+      "chat-right-panel",
+    );
+    expect(screen.getByRole("button", { name: "Chat settings" })).toHaveAttribute(
+      "aria-controls",
+      "chat-right-panel",
+    );
 
     rerender(<ChatHeader {...props} workspacePath="" />);
 

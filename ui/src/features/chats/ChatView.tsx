@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -47,6 +47,7 @@ import {
   projectDefaultWorkspace,
 } from "../../lib/project-workspace";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
+import { isMobileTauriRuntime } from "../../lib/tauri";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type {
   ChatConfigOptionRecord,
@@ -59,6 +60,7 @@ import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprov
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";
 import { EntityDetailPane, MasterDetailWorkspace } from "../shared/EntityWorkspace";
+import { Modal } from "../shared/ui";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { ChatHeader } from "./ChatHeader";
@@ -95,6 +97,27 @@ type Props = {
 
 const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
 const DEFAULT_RIGHT_PANEL_WIDTH = 380;
+const CHAT_RIGHT_PANEL_ID = "chat-right-panel";
+const PHONE_MASTER_DETAIL_QUERY =
+  "(max-width: 720px), (max-width: 960px) and (max-height: 520px) and (hover: none) and (pointer: coarse)";
+
+function usePhoneMasterDetailLayout(): boolean {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia(PHONE_MASTER_DETAIL_QUERY).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(PHONE_MASTER_DETAIL_QUERY);
+    const update = () => setMatches(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+
+  return matches;
+}
 
 function chatAttachmentsDisabledReason({
   ownershipMutationInFlight,
@@ -151,6 +174,7 @@ export function ChatView({
   const hecateChatToolsEnabled = useChatToolsEnabled();
   const newChatAgentID = useNewChatAgentID();
   const derived = useRuntimeDerivedState();
+  const phoneMasterDetailLayout = usePhoneMasterDetailLayout();
   const { actions: settingsActions } = useWiredSettingsActions();
   const chatActions = useChatActions({
     chatTarget,
@@ -164,6 +188,36 @@ export function ChatView({
   const activeProjectWorkspace = projectDefaultWorkspace(projects.activeProject);
   const agentWorkspace = chat.state.agentWorkspace || activeProjectWorkspace;
   const isRemoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
+  const requiresTypedWorkspacePath = isRemoteRuntime || isMobileTauriRuntime();
+  const runtimeLabel = runtime.state.sessionInfo?.runtime_host.label?.trim() || "selected runtime";
+  const workspaceSuggestions = useMemo(() => {
+    const suggestions: Array<{ label: string; path: string }> = [];
+    const seen = new Set<string>();
+    const add = (path: string | undefined, label: string) => {
+      const normalized = path?.trim() ?? "";
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      suggestions.push({ label, path: normalized });
+    };
+
+    add(activeProjectWorkspace, projects.activeProject?.name || "Selected project");
+    for (const project of projects.state.projects) {
+      if (!Array.isArray(project.roots)) continue;
+      add(projectDefaultWorkspace(project), project.name || "Project folder");
+    }
+    add(chat.state.agentWorkspace, "Last used folder");
+    for (const session of chat.state.chatSessions) {
+      if ((session.workspace_mode ?? "in_place") !== "in_place") continue;
+      add(session.workspace, session.title || "Recent chat folder");
+    }
+    return suggestions.slice(0, 8);
+  }, [
+    activeProjectWorkspace,
+    chat.state.agentWorkspace,
+    chat.state.chatSessions,
+    projects.activeProject?.name,
+    projects.state.projects,
+  ]);
   // Compose the legacy `state` and `actions` lookalikes so the JSX
   // below stays close to the pre-migration shape. Each field is read
   // off the slice (or computed via a derived hook) the field used to
@@ -234,7 +288,14 @@ export function ChatView({
     setProviderFilter: chatActions.selectProviderRoute,
     setSystemPrompt: chat.actions.setSystemPrompt,
   };
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => !phoneMasterDetailLayout || !state.activeChatSessionID,
+  );
+  const phoneAutoCollapsedSessionRef = useRef("");
+  const sidebarCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarOpenButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarReturnFocusRef = useRef<HTMLElement | null>(null);
+  const sidebarFocusedAsReplacementRef = useRef(false);
   // Bind modal intent to the session that surfaced the approval. A later
   // navigation must never reinterpret an approval id against another chat.
   const [approvalModal, setApprovalModal] = useState<{
@@ -246,12 +307,16 @@ export function ChatView({
   const workspaceDialogOpenRef = useRef(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
+  const rightPanelRef = useRef<HTMLElement>(null);
+  const rightPanelReturnFocusRef = useRef<HTMLElement | null>(null);
+  const rightPanelFocusedAsReplacementRef = useRef(false);
   const [workspaceRefreshSignal, setWorkspaceRefreshSignal] = useState(0);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
   const [draftChatStarted, setDraftChatStarted] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
+  const workspacePathInputRef = useRef<HTMLInputElement>(null);
   const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>(
     [],
   );
@@ -904,6 +969,67 @@ export function ChatView({
   }, [activeSessionID, onSelectChat, selectedChatReady]);
 
   useEffect(() => {
+    if (!phoneMasterDetailLayout) {
+      phoneAutoCollapsedSessionRef.current = "";
+      setSidebarOpen(true);
+      return;
+    }
+    if (selectedChatReady) {
+      if (phoneAutoCollapsedSessionRef.current === activeSessionID) return;
+      phoneAutoCollapsedSessionRef.current = activeSessionID;
+      sidebarReturnFocusRef.current = null;
+      setSidebarOpen(false);
+      return;
+    }
+    phoneAutoCollapsedSessionRef.current = "";
+    if (!composerShellVisible) setSidebarOpen(true);
+  }, [activeSessionID, composerShellVisible, phoneMasterDetailLayout, selectedChatReady]);
+
+  useLayoutEffect(() => {
+    if (
+      phoneMasterDetailLayout &&
+      sidebarOpen &&
+      sidebarReturnFocusRef.current &&
+      sidebarCloseButtonRef.current
+    ) {
+      sidebarFocusedAsReplacementRef.current = true;
+      sidebarCloseButtonRef.current.focus();
+      return;
+    }
+    if (sidebarOpen || !sidebarFocusedAsReplacementRef.current) return;
+    sidebarFocusedAsReplacementRef.current = false;
+    const target = sidebarReturnFocusRef.current;
+    sidebarReturnFocusRef.current = null;
+    if (target?.isConnected) {
+      target.focus();
+      return;
+    }
+    sidebarOpenButtonRef.current?.focus();
+  }, [phoneMasterDetailLayout, sidebarOpen]);
+
+  useLayoutEffect(() => {
+    if (rightPanelOpen && phoneMasterDetailLayout && !sidebarOpen) {
+      if (!rightPanelReturnFocusRef.current) {
+        const active = document.activeElement;
+        rightPanelReturnFocusRef.current =
+          active instanceof HTMLElement && active !== document.body ? active : textareaRef.current;
+      }
+      rightPanelFocusedAsReplacementRef.current = true;
+      rightPanelRef.current?.focus();
+      return;
+    }
+    if (rightPanelOpen || !rightPanelFocusedAsReplacementRef.current) return;
+    rightPanelFocusedAsReplacementRef.current = false;
+    const target = rightPanelReturnFocusRef.current;
+    rightPanelReturnFocusRef.current = null;
+    if (target?.isConnected) {
+      target.focus();
+      return;
+    }
+    if (textareaRef.current?.isConnected) textareaRef.current.focus();
+  }, [phoneMasterDetailLayout, rightPanelOpen, sidebarOpen]);
+
+  useEffect(() => {
     if (!selectedChatReady || !activeWorkspacePath.trim()) {
       setWorkspaceChangesOpen(false);
     }
@@ -923,14 +1049,26 @@ export function ChatView({
   }, [activeSessionID, agentBusy, workspaceChangesPanelOpen]);
 
   useEffect(() => {
-    if (!focusComposerAfterNewChatRef.current || !composerVisible) return;
+    if (
+      !focusComposerAfterNewChatRef.current ||
+      !composerVisible ||
+      (phoneMasterDetailLayout && sidebarOpen)
+    )
+      return;
     const frame = requestAnimationFrame(() => {
       if (!textareaRef.current) return;
       textareaRef.current.focus();
       focusComposerAfterNewChatRef.current = false;
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeSessionID, composerVisible, messageControlsVisible, state.activeChatSession]);
+  }, [
+    activeSessionID,
+    composerVisible,
+    messageControlsVisible,
+    phoneMasterDetailLayout,
+    sidebarOpen,
+    state.activeChatSession,
+  ]);
 
   useEffect(() => {
     setWorkspacePathValue(state.agentWorkspace);
@@ -961,8 +1099,8 @@ export function ChatView({
 
   async function chooseWorkspace() {
     if (workspaceDialogOpenRef.current) return;
-    if (isRemoteRuntime) {
-      setWorkspacePathValue(state.agentWorkspace || "/workspace");
+    if (requiresTypedWorkspacePath) {
+      setWorkspacePathValue(state.agentWorkspace);
       setWorkspaceEntryOpen(true);
       return;
     }
@@ -980,10 +1118,11 @@ export function ChatView({
     }
   }
 
-  function useTypedWorkspace() {
-    const next = workspacePathValue.trim();
+  function useTypedWorkspace(path = workspacePathValue) {
+    const next = path.trim();
     if (!next) return;
     actions.setAgentWorkspace(next);
+    setWorkspacePathValue(next);
     setWorkspaceEntryOpen(false);
   }
 
@@ -1110,12 +1249,60 @@ export function ChatView({
     void actions.setHecateWorkspaceMode(mode);
   }
 
+  function rememberRightPanelFocusOrigin() {
+    if (!phoneMasterDetailLayout) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && rightPanelRef.current?.contains(active)) return;
+    rightPanelReturnFocusRef.current =
+      active instanceof HTMLElement && active !== document.body ? active : textareaRef.current;
+  }
+
+  function toggleWorkspaceChangesPanel() {
+    const opening = !workspaceChangesPanelOpen;
+    if (opening) rememberRightPanelFocusOrigin();
+    setChatSettingsOpen(false);
+    setWorkspaceChangesOpen(opening);
+  }
+
+  function openWorkspaceChangesPanel() {
+    rememberRightPanelFocusOrigin();
+    setChatSettingsOpen(false);
+    setWorkspaceChangesOpen(true);
+  }
+
+  function toggleChatSettingsPanel() {
+    const opening = !chatSettingsPanelOpen;
+    if (opening) rememberRightPanelFocusOrigin();
+    setWorkspaceChangesOpen(false);
+    setChatSettingsOpen(opening);
+  }
+
+  function openChatSettingsPanel() {
+    rememberRightPanelFocusOrigin();
+    setWorkspaceChangesOpen(false);
+    setChatSettingsOpen(true);
+  }
+
+  function openChatSidebar() {
+    if (phoneMasterDetailLayout) {
+      const active = document.activeElement;
+      sidebarReturnFocusRef.current =
+        active instanceof HTMLElement && active !== document.body ? active : null;
+    }
+    setSidebarOpen(true);
+  }
+
+  function closeChatSidebar(restoreFocus: boolean) {
+    if (!restoreFocus) sidebarReturnFocusRef.current = null;
+    setSidebarOpen(false);
+  }
+
   function focusComposerWhenReady() {
     focusComposerAfterNewChatRef.current = true;
   }
 
   return (
-    <MasterDetailWorkspace className="chat-view">
+    <MasterDetailWorkspace className={`chat-view${sidebarOpen ? " chat-view--sidebar-open" : ""}`}>
       {sidebarOpen && (
         <ChatSidebar
           isAgentChat={isAgentChat}
@@ -1128,6 +1315,7 @@ export function ChatView({
             else onSelectChat?.(sessionID);
             setApprovalModal(null);
             setDraftChatStarted(!sessionID);
+            if (phoneMasterDetailLayout && sessionID) closeChatSidebar(false);
             focusComposerWhenReady();
             textareaRef.current?.focus();
             return true;
@@ -1140,6 +1328,13 @@ export function ChatView({
             focusComposerWhenReady();
             void actions.createChatSession({ agentID, projectID, agentPresetID });
           }}
+          onChooseWorkspace={() => void chooseWorkspace()}
+          closeButtonRef={sidebarCloseButtonRef}
+          onClose={
+            phoneMasterDetailLayout && (selectedChatReady || composerShellVisible)
+              ? () => closeChatSidebar(true)
+              : undefined
+          }
           onOpenAgentSetup={(adapterID) => openAgentSetup(adapterID)}
         />
       )}
@@ -1149,7 +1344,8 @@ export function ChatView({
         {selectedChatReady && (
           <ChatHeader
             sidebarOpen={sidebarOpen}
-            onOpenSidebar={() => setSidebarOpen(true)}
+            onOpenSidebar={openChatSidebar}
+            openSidebarButtonRef={sidebarOpenButtonRef}
             brand={activeHeaderBrand}
             fallback={activeHeaderFallback}
             title={activeTitle || "New chat"}
@@ -1171,24 +1367,20 @@ export function ChatView({
             workspaceDialogOpen={workspaceDialogOpen}
             workspaceChangesOpen={workspaceChangesOpen}
             chatSettingsOpen={chatSettingsOpen}
+            rightPanelID={CHAT_RIGHT_PANEL_ID}
             onChooseWorkspace={() => void chooseWorkspace()}
-            onToggleWorkspaceChanges={() => {
-              setChatSettingsOpen(false);
-              setWorkspaceChangesOpen((open) => !open);
-            }}
-            onToggleChatSettings={() => {
-              setWorkspaceChangesOpen(false);
-              setChatSettingsOpen((open) => !open);
-            }}
+            onToggleWorkspaceChanges={toggleWorkspaceChangesPanel}
+            onToggleChatSettings={toggleChatSettingsPanel}
             activeChatSession={state.activeChatSession}
           />
         )}
 
         <div
-          className="chat-main-body"
+          className={`chat-main-body${rightPanelOpen ? " chat-main-body--right-panel-open" : ""}`}
           style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}
         >
           <div
+            className="chat-main-content"
             style={{
               flex: 1,
               minWidth: 0,
@@ -1198,51 +1390,6 @@ export function ChatView({
               position: "relative",
             }}
           >
-            {selectedChatReady && isAgentChat && workspaceEntryOpen && (
-              <div
-                style={{
-                  borderBottom: "1px solid var(--border)",
-                  padding: "10px 14px",
-                  background: "var(--bg2)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: "var(--t2)",
-                    fontFamily: "var(--font-mono)",
-                    flexShrink: 0,
-                  }}
-                >
-                  WORKSPACE PATH
-                </span>
-                <input
-                  className="input"
-                  onChange={(e) => setWorkspacePathValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      useTypedWorkspace();
-                    }
-                  }}
-                  placeholder={isRemoteRuntime ? "/workspace" : "/Users/alice/dev/project"}
-                  style={{ height: 30, minWidth: 0 }}
-                  value={workspacePathValue}
-                />
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={!workspacePathValue.trim()}
-                  onClick={useTypedWorkspace}
-                  type="button"
-                >
-                  Use
-                </button>
-              </div>
-            )}
-
             {/* External-agent approval surfaces. Both banners are agent-chat-only;
             the auto-mode warning is persistent for as long as the gateway
             runs in auto, the pending banner appears only when there's at
@@ -1320,10 +1467,7 @@ export function ChatView({
                 onFocusRequestHandled={onFocusRequestHandled}
                 onOpenTask={onOpenTask}
                 onOpenTrace={onOpenTrace}
-                onOpenWorkspaceChanges={() => {
-                  setChatSettingsOpen(false);
-                  setWorkspaceChangesOpen(true);
-                }}
+                onOpenWorkspaceChanges={openWorkspaceChangesPanel}
                 canOpenProject={canOpenProject}
                 onOpenProject={openProject}
                 openExternalAgentSetup={openAgentSetup}
@@ -1539,14 +1683,8 @@ export function ChatView({
                 onNavigate={onNavigate}
                 onOpenTask={onOpenTask}
                 onOpenTrace={onOpenTrace}
-                onOpenWorkspaceChanges={() => {
-                  setChatSettingsOpen(false);
-                  setWorkspaceChangesOpen(true);
-                }}
-                onOpenChatSettings={() => {
-                  setWorkspaceChangesOpen(false);
-                  setChatSettingsOpen(true);
-                }}
+                onOpenWorkspaceChanges={openWorkspaceChangesPanel}
+                onOpenChatSettings={openChatSettingsPanel}
                 onOpenLinkedProject={
                   activeSessionProjectID && onNavigate ? () => openLinkedProject() : undefined
                 }
@@ -1556,6 +1694,8 @@ export function ChatView({
           {rightPanelOpen && (
             <ChatRightPanel
               ariaLabel={rightPanelLabel}
+              id={CHAT_RIGHT_PANEL_ID}
+              panelRef={rightPanelRef}
               width={rightPanelWidth}
               onWidthChange={updateRightPanelWidth}
             >
@@ -1638,6 +1778,80 @@ export function ChatView({
             onCancel={actions.cancelChatApproval}
           />
         )}
+      {workspaceEntryOpen && (
+        <Modal
+          ariaLabel={`Choose a folder on ${runtimeLabel}`}
+          footer={
+            <button
+              className="btn btn-primary"
+              disabled={!workspacePathValue.trim()}
+              onClick={() => useTypedWorkspace()}
+              type="button"
+            >
+              Use folder
+            </button>
+          }
+          initialFocusRef={workspacePathInputRef}
+          onClose={() => setWorkspaceEntryOpen(false)}
+          title={`Choose a folder on ${runtimeLabel}`}
+          width={480}
+        >
+          <div className="chat-workspace-picker">
+            <p className="chat-workspace-picker__intro">
+              Coding agents run inside this folder and may read or edit its files. A Hecate project
+              is optional.
+            </p>
+            {workspaceSuggestions.length > 0 && (
+              <div>
+                <div className="chat-workspace-picker__label">Available folders</div>
+                <div
+                  aria-label={`Available folders on ${runtimeLabel}`}
+                  className="chat-workspace-picker__suggestions"
+                >
+                  {workspaceSuggestions.map((suggestion) => (
+                    <button
+                      aria-label={`${suggestion.label}: ${suggestion.path}`}
+                      className="chat-workspace-picker__suggestion"
+                      key={suggestion.path}
+                      onClick={() => useTypedWorkspace(suggestion.path)}
+                      type="button"
+                    >
+                      <span>{suggestion.label}</span>
+                      <code>{suggestion.path}</code>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <label className="chat-workspace-picker__field">
+              <span className="chat-workspace-picker__label">Folder path on {runtimeLabel}</span>
+              <input
+                aria-label={`Folder path on ${runtimeLabel}`}
+                className="input"
+                onChange={(event) => setWorkspacePathValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    useTypedWorkspace();
+                  }
+                }}
+                placeholder={
+                  requiresTypedWorkspacePath
+                    ? "/path/on/runtime/project"
+                    : "/Users/alice/dev/project"
+                }
+                ref={workspacePathInputRef}
+                value={workspacePathValue}
+              />
+            </label>
+            {requiresTypedWorkspacePath && (
+              <p className="chat-workspace-picker__hint">
+                Enter a path that exists on {runtimeLabel}, not a folder on this phone.
+              </p>
+            )}
+          </div>
+        </Modal>
+      )}
       <AddProviderModal open={addProviderOpen} onClose={() => setAddProviderOpen(false)} />
     </MasterDetailWorkspace>
   );

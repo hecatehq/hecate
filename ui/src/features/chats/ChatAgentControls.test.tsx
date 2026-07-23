@@ -44,6 +44,44 @@ describe("NewChatAgentButton", () => {
     expect(status.title).toContain("config is present");
   });
 
+  it("labels a missing remote credential as auth instead of local setup", () => {
+    const status = chatAgentOptionStatus(
+      "codex",
+      makeAdapter({
+        available: false,
+        status: "missing",
+        auth_status: "unauthenticated",
+        auth_error: "Codex requires one remote-safe credential.",
+        remote_credential_hint:
+          "Codex requires one remote-safe credential environment variable: OPENAI_API_KEY, CODEX_API_KEY",
+        remote_credential_ok: false,
+      }),
+      undefined,
+    );
+
+    expect(status.label).toBe("auth");
+    expect(status.ready).toBe(false);
+    expect(status.title).toContain("enable Codex for remote access");
+    expect(status.title).toContain("OPENAI_API_KEY");
+    expect(status.title).not.toContain("Install Codex");
+  });
+
+  it("keeps a personal remote local-login catalog row selectable until it is tested", () => {
+    const status = chatAgentOptionStatus(
+      "codex",
+      makeAdapter({
+        auth_status: "unknown",
+        remote_credential_mode: "local_login",
+        remote_credential_ok: true,
+      }),
+      undefined,
+    );
+
+    expect(status.label).toBe("check");
+    expect(status.ready).toBe(true);
+    expect(status.title).toContain("full ACP readiness check");
+  });
+
   it("explains ready state instead of using a raw adapter path as the tooltip", () => {
     const discovered = chatAgentOptionStatus(
       "cursor_agent",
@@ -55,7 +93,7 @@ describe("NewChatAgentButton", () => {
       }),
       undefined,
     );
-    expect(discovered.label).toBe("ready");
+    expect(discovered.label).toBe("check");
     expect(discovered.title).toContain("Cursor Agent is available");
     expect(discovered.title).toContain("full ACP readiness check");
     expect(discovered.title).toContain("/Users/test/.local/bin/cursor-agent");

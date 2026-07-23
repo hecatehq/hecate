@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   useEnsureProviderPresetsLoaded,
   useProvidersAndModels,
@@ -11,6 +11,7 @@ import { resolvedBaseURL } from "../../lib/provider-utils";
 import { isRemoteRuntimeSession } from "../../lib/runtime-utils";
 import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError, Modal } from "../shared/ui";
+import "./provider-mobile.css";
 
 type Props = {
   open: boolean;
@@ -28,6 +29,7 @@ type AddFormState = {
 };
 
 export function AddProviderModal({ open, onClose }: Props) {
+  const fieldIDPrefix = useId();
   useEnsureProviderPresetsLoaded(open);
   const settings = useSettings();
   const runtime = useRuntime();
@@ -174,8 +176,12 @@ export function AddProviderModal({ open, onClose }: Props) {
     const gridMinHeight = maxRows * rowHeight + (maxRows - 1) * rowGap;
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div
+        className="add-provider-pick-step"
+        style={{ display: "flex", flexDirection: "column", gap: 16 }}
+      >
         <div
+          className="add-provider-tabs"
           style={{
             display: "flex",
             gap: 4,
@@ -223,6 +229,7 @@ export function AddProviderModal({ open, onClose }: Props) {
           </div>
         )}
         <div
+          className="add-provider-picker-grid"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -285,7 +292,10 @@ export function AddProviderModal({ open, onClose }: Props) {
     const saveDisabled =
       loading || !form.name.trim() || Boolean(baseURLTakenBy) || Boolean(duplicateProvider);
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        className="add-provider-form-step"
+        style={{ display: "flex", flexDirection: "column", gap: 14 }}
+      >
         <button
           type="button"
           className="btn btn-ghost btn-sm"
@@ -304,10 +314,15 @@ export function AddProviderModal({ open, onClose }: Props) {
           <span style={{ fontSize: 11 }}>All providers</span>
         </button>
         <div>
-          <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+          <label
+            className="kicker-lg"
+            htmlFor={`${fieldIDPrefix}-name`}
+            style={{ display: "block", marginBottom: 6 }}
+          >
             Name
           </label>
           <input
+            id={`${fieldIDPrefix}-name`}
             className="input"
             type="text"
             value={form.name}
@@ -324,13 +339,18 @@ export function AddProviderModal({ open, onClose }: Props) {
           />
         </div>
         <div>
-          <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+          <label
+            className="kicker-lg"
+            htmlFor={`${fieldIDPrefix}-custom-name`}
+            style={{ display: "block", marginBottom: 6 }}
+          >
             Custom name{" "}
             <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>
               optional
             </span>
           </label>
           <input
+            id={`${fieldIDPrefix}-custom-name`}
             className="input"
             type="text"
             value={form.custom_name}
@@ -349,10 +369,15 @@ export function AddProviderModal({ open, onClose }: Props) {
         </div>
         {showURL && (
           <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+            <label
+              className="kicker-lg"
+              htmlFor={`${fieldIDPrefix}-endpoint`}
+              style={{ display: "block", marginBottom: 6 }}
+            >
               Endpoint URL
             </label>
             <input
+              id={`${fieldIDPrefix}-endpoint`}
               className="input"
               type="text"
               value={form.base_url}
@@ -387,10 +412,15 @@ export function AddProviderModal({ open, onClose }: Props) {
         )}
         {preset?.id === "fireworks" && (
           <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+            <label
+              className="kicker-lg"
+              htmlFor={`${fieldIDPrefix}-account-id`}
+              style={{ display: "block", marginBottom: 6 }}
+            >
               Fireworks account ID
             </label>
             <input
+              id={`${fieldIDPrefix}-account-id`}
               className="input"
               type="text"
               value={form.account_id}
@@ -406,10 +436,15 @@ export function AddProviderModal({ open, onClose }: Props) {
         )}
         {showAPIKey && (
           <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+            <label
+              className="kicker-lg"
+              htmlFor={`${fieldIDPrefix}-api-key`}
+              style={{ display: "block", marginBottom: 6 }}
+            >
               API Key
             </label>
             <input
+              id={`${fieldIDPrefix}-api-key`}
               className="input"
               type="password"
               name="hecate-provider-api-key"
@@ -447,7 +482,9 @@ export function AddProviderModal({ open, onClose }: Props) {
       footer={null}
       width={680}
     >
-      {step === "pick" ? renderPickStep() : renderFormStep()}
+      <div className="add-provider-content">
+        {step === "pick" ? renderPickStep() : renderFormStep()}
+      </div>
     </Modal>
   );
 }
@@ -520,7 +557,7 @@ function PresetButton({
   const status = localDiscoveryStatus(discovery);
   return (
     <button
-      className="btn btn-ghost"
+      className="btn btn-ghost add-provider-picker-card"
       style={{
         minHeight: 60,
         height: "100%",
@@ -536,7 +573,10 @@ function PresetButton({
     >
       <BrandAvatar brand={preset.id} fallback={preset.name} size={28} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <div
+          className="add-provider-preset-heading"
+          style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}
+        >
           <div
             style={{
               fontSize: 13,
@@ -593,7 +633,7 @@ function PresetButton({
 function CustomButton({ onClick }: { onClick: () => void }) {
   return (
     <button
-      className="btn btn-ghost"
+      className="btn btn-ghost add-provider-picker-card"
       style={{
         minHeight: 60,
         height: "100%",

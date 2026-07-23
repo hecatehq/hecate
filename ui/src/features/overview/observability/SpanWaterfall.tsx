@@ -6,6 +6,8 @@ import { Fragment } from "react";
 // data model lives in `lib/runtime-trace.ts` (`buildSpanWaterfall`);
 // this file is the React surface only.
 
+/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- A horizontally scrollable labelled region must be keyboard-focusable. */
+
 import type { TraceTimelineItem, TraceWaterfall, WaterfallSpan } from "../../../lib/runtime-trace";
 
 import { ATTR_PRIORITY_KEYS, PHASE_LABEL, phaseColor } from "./styles";
@@ -13,6 +15,8 @@ import { ATTR_PRIORITY_KEYS, PHASE_LABEL, phaseColor } from "./styles";
 const WATERFALL_MIN_LABEL_PX = 120;
 const WATERFALL_MAX_LABEL_PX = 280;
 const WATERFALL_COLUMN_GAP = 12;
+const WATERFALL_TIMELINE_MIN_PX = 360;
+const WATERFALL_DURATION_PX = 72;
 
 type SpanWaterfallProps = {
   waterfall: TraceWaterfall;
@@ -60,7 +64,8 @@ export function SpanWaterfall({
   }
 
   const ticks = waterfallTicks(totalMs);
-  const columns = waterfallColumns(spans);
+  const layout = waterfallLayout(spans);
+  const columns = layout.columns;
 
   return (
     <div
@@ -68,6 +73,9 @@ export function SpanWaterfall({
         padding: "10px 12px",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-sm)",
+        minWidth: 0,
+        maxWidth: "100%",
+        boxSizing: "border-box",
       }}
     >
       {/* Header — count + total */}
@@ -137,31 +145,39 @@ export function SpanWaterfall({
       </div>
 
       <div
+        className="horizontal-scroll-region"
+        role="region"
+        aria-label="Span waterfall"
+        tabIndex={0}
         data-testid="span-waterfall-scroll"
         style={{
           maxHeight: "min(420px, 52vh)",
           overflowY: "auto",
-          overflowX: "hidden",
+          overflowX: "auto",
+          overscrollBehavior: "contain",
+          WebkitOverflowScrolling: "touch",
         }}
       >
-        <WaterfallRuler ticks={ticks} columns={columns} />
+        <div data-testid="span-waterfall-content" style={{ minWidth: layout.minWidth }}>
+          <WaterfallRuler ticks={ticks} columns={columns} />
 
-        {/* Span rows */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {spans.map((ws) => (
-            <SpanRow
-              key={ws.span.span_id}
-              ws={ws}
-              totalMs={totalMs}
-              ticks={ticks}
-              columns={columns}
-              isExpanded={expandedSpanID === ws.span.span_id}
-              isDimmed={phaseFilter !== null && ws.phase !== phaseFilter}
-              onToggle={() =>
-                setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)
-              }
-            />
-          ))}
+          {/* Span rows */}
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {spans.map((ws) => (
+              <SpanRow
+                key={ws.span.span_id}
+                ws={ws}
+                totalMs={totalMs}
+                ticks={ticks}
+                columns={columns}
+                isExpanded={expandedSpanID === ws.span.span_id}
+                isDimmed={phaseFilter !== null && ws.phase !== phaseFilter}
+                onToggle={() =>
+                  setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)
+                }
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -427,7 +443,7 @@ type WaterfallTick = {
   edge: boolean;
 };
 
-function waterfallColumns(spans: WaterfallSpan[]): string {
+function waterfallLayout(spans: WaterfallSpan[]): { columns: string; minWidth: number } {
   const labelPx = spans.reduce((max, ws) => {
     // Monospace span labels render near 7.5px per character at 12px.
     // Add indentation and dot/gap chrome, then clamp so short names
@@ -439,7 +455,11 @@ function waterfallColumns(spans: WaterfallSpan[]): string {
     WATERFALL_MAX_LABEL_PX,
     Math.max(WATERFALL_MIN_LABEL_PX, Math.ceil(labelPx)),
   );
-  return `${clamped}px minmax(360px, 1fr) 72px`;
+  return {
+    columns: `${clamped}px minmax(${WATERFALL_TIMELINE_MIN_PX}px, 1fr) ${WATERFALL_DURATION_PX}px`,
+    minWidth:
+      clamped + WATERFALL_TIMELINE_MIN_PX + WATERFALL_DURATION_PX + WATERFALL_COLUMN_GAP * 2,
+  };
 }
 
 function waterfallTicks(totalMs: number): WaterfallTick[] {

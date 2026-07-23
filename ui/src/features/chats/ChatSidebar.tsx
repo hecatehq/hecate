@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 
 import { chatNavigationURL } from "../../app/navigation";
 import { composerDraftScope, composerDraftScopesMatch, useChat } from "../../app/state/chat";
@@ -55,6 +55,9 @@ type Props = {
   onSelectSession: (sessionID: string, mode?: "push" | "replace") => Promise<boolean>;
   // New-chat creation. Gated on agent readiness inside the sidebar.
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string, agentPresetID?: string) => void;
+  onChooseWorkspace: () => void;
+  onClose?: () => void;
+  closeButtonRef?: Ref<HTMLButtonElement>;
   onOpenAgentSetup: (adapterID: string) => void;
 };
 
@@ -62,6 +65,9 @@ export function ChatSidebar({
   isAgentChat,
   onSelectSession,
   onCreateChat,
+  onChooseWorkspace,
+  onClose,
+  closeButtonRef,
   onOpenAgentSetup,
 }: Props) {
   const chat = useChat();
@@ -284,12 +290,26 @@ export function ChatSidebar({
           }}
         />
         <EntityIndexHeader>
-          <EntityIndexHeading>
-            Chats
-            {projectSessions.length > 0
-              ? ` · ${filteredSessions.length}${filteredSessions.length === projectSessions.length ? "" : `/${projectSessions.length}`}`
-              : ""}
-          </EntityIndexHeading>
+          <div className="chat-sidebar-heading-row">
+            <EntityIndexHeading style={{ flex: 1, minWidth: 0 }}>
+              Chats
+              {projectSessions.length > 0
+                ? ` · ${filteredSessions.length}${filteredSessions.length === projectSessions.length ? "" : `/${projectSessions.length}`}`
+                : ""}
+            </EntityIndexHeading>
+            {onClose && (
+              <button
+                aria-label="Close chats sidebar"
+                className="btn btn-ghost btn-sm chat-sidebar-close"
+                onClick={onClose}
+                ref={closeButtonRef}
+                title="Return to chat"
+                type="button"
+              >
+                <Icon d={Icons.chevL} size={13} />
+              </button>
+            )}
+          </div>
           <div style={{ padding: "4px 8px 8px" }}>
             <NewChatAgentButton
               value={newChatAgentID}
@@ -297,8 +317,12 @@ export function ChatSidebar({
               healthByID={agentAdapterHealthByID}
               disableUnavailable
               selectionDisabled={chatCreating || chatSessionCreateInFlight}
+              createLabel={
+                workspaceRequiredForNewChat
+                  ? `Choose folder for ${chatAgentOption(newChatAgentID, agentAdapters).label}`
+                  : undefined
+              }
               createDisabled={
-                workspaceRequiredForNewChat ||
                 chatCreating ||
                 chatSessionCreateInFlight ||
                 attachmentTurnInFlight ||
@@ -306,7 +330,7 @@ export function ChatSidebar({
               }
               createTitle={
                 workspaceRequiredForNewChat
-                  ? "Choose a workspace before starting this chat"
+                  ? `${chatAgentOption(newChatAgentID, agentAdapters).label} needs a folder on the selected runtime`
                   : chatCreating || chatSessionCreateInFlight
                     ? "A new chat is already being created"
                     : attachmentTurnInFlight
@@ -319,7 +343,10 @@ export function ChatSidebar({
               onSetupAgent={onOpenAgentSetup}
               onCreate={(agentID) => {
                 if (chatCreating || chat.actions.isChatCreationActive()) return;
-                if (workspaceRequiredForNewChat) return;
+                if (workspaceRequiredForNewChat) {
+                  onChooseWorkspace();
+                  return;
+                }
                 if (
                   chatSessionCreateInFlight ||
                   attachmentTurnInFlight ||
@@ -398,7 +425,9 @@ export function ChatSidebar({
                   padding: "6px 2px 0",
                 }}
               >
-                Choose a workspace in the chat view before starting agent chats.
+                Projects are optional. {chatAgentOption(newChatAgentID, agentAdapters).label} needs
+                a folder because it can read and edit files. Choose Hecate from the agent menu for
+                chat without file access.
               </div>
             )}
             {!chatCreating && savedRecoveryNotice && (

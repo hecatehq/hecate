@@ -107,6 +107,7 @@ export function ModelPicker({
     open,
     "right",
     variant === "composer" ? "up" : "down",
+    300,
   );
 
   useEffect(() => {

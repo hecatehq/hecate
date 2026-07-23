@@ -218,7 +218,7 @@ describe("SettingsView", () => {
         account_email: null,
         cloud_url: "https://console.hecatehq.com",
         base_url: "http://127.0.0.1:54321",
-        message: "Finish signing in in your browser.",
+        message: "Approve sign-in in your browser. This window will update automatically.",
         last_error: null,
       });
     const { state, actions, user } = setup();
@@ -227,6 +227,11 @@ describe("SettingsView", () => {
     const section = await screen.findByTestId("desktop-cloud-connection");
     expect(within(section).getAllByText("Remote access").length).toBeGreaterThan(0);
     expect(within(section).getByText(/Sign in once/i)).toBeTruthy();
+    expect(
+      within(section).getByText(
+        /External Agent work may use this computer's configured CLI sign-ins/i,
+      ),
+    ).toBeTruthy();
     expect(within(section).queryByText(/hec CLI/i)).toBeNull();
 
     await user.click(within(section).getByRole("button", { name: "Sign in to Hecate Cloud" }));
@@ -234,8 +239,19 @@ describe("SettingsView", () => {
     expect(tauriInvokeMock).toHaveBeenNthCalledWith(1, "cloud_connection_status", undefined);
     expect(tauriInvokeMock).toHaveBeenNthCalledWith(2, "cloud_connection_start", undefined);
     expect(await within(section).findByText("Finish signing in")).toBeTruthy();
-    expect(within(section).getByRole("button", { name: "Open sign-in again" })).toBeTruthy();
+    expect(
+      within(section).getByText(
+        /Approve the sign-in request in your browser. This window updates automatically/i,
+      ),
+    ).toBeTruthy();
+    expect(within(section).queryByText("ABCD-EFGH")).toBeNull();
+    expect(within(section).getByRole("button", { name: "Open browser again" })).toBeTruthy();
     expect(within(section).getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(
+      within(section).queryByRole("status", {
+        name: "Verification code",
+      }),
+    ).toBeNull();
   });
 
   it("lets a signed-in user enable remote access and sign out", async () => {

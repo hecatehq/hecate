@@ -1,15 +1,32 @@
-// Tauri runtime detection. Returns true when the gateway UI is
-// loaded inside the Tauri webview (the desktop app), false in any
-// other host — browser tab, Docker, bare binary serving the
-// embedded UI. Anything that calls Tauri-only APIs should gate on
-// this check.
+// Tauri runtime detection. The mobile companion deliberately keeps a Tauri
+// bridge while it navigates to a hosted runtime, so bridge presence alone no
+// longer identifies the desktop shell. Both mobile configs stamp the webview
+// user agent with this stable marker.
 
-export function isTauriRuntime(): boolean {
+export const MOBILE_TAURI_USER_AGENT_MARKER = "HecateMobile";
+export const MOBILE_INSTANCES_URL = "hecate-mobile://connections/";
+
+function hasTauriBridge(): boolean {
   return (
     typeof window !== "undefined" &&
     (Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__") ||
       Object.prototype.hasOwnProperty.call(window, "__TAURI__"))
   );
+}
+
+export function isMobileTauriRuntime(): boolean {
+  return (
+    hasTauriBridge() &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes(MOBILE_TAURI_USER_AGENT_MARKER)
+  );
+}
+
+// Returns true only for the desktop Tauri shell. Mobile companion pages use
+// ordinary web/gateway behavior for updater, opener, and workspace actions.
+
+export function isTauriRuntime(): boolean {
+  return hasTauriBridge() && !isMobileTauriRuntime();
 }
 
 export type DesktopHost = "linux" | "macos" | "windows";

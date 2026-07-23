@@ -2385,6 +2385,9 @@ describe("ProjectsView index", () => {
     expect(screen.queryByRole("button", { name: "Project settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add" })).toHaveClass("btn-primary");
+    expect(empty.container.querySelector(".projects-cockpit-shell")).toHaveClass(
+      "projects-cockpit-shell--index-open",
+    );
     empty.unmount();
 
     render(<WorkProjects />, {
@@ -2397,6 +2400,21 @@ describe("ProjectsView index", () => {
       wrapper: directWrapper({ projects: [], error: "project list failed" }),
     });
     expect(screen.getByText("project list failed")).toBeTruthy();
+  });
+
+  it("returns from a selected project to the compact project index", async () => {
+    window.localStorage.setItem("hecate.project", project.id);
+    const view = render(<WorkProjects />, {
+      wrapper: directWrapper({ projects: [project], loaded: true }),
+    });
+
+    const back = await screen.findByRole("button", { name: "Back to projects" });
+    const shell = view.container.querySelector(".projects-cockpit-shell");
+    expect(shell).toHaveClass("projects-cockpit-shell--detail-open");
+
+    await userEvent.click(back);
+
+    expect(shell).toHaveClass("projects-cockpit-shell--index-open");
   });
 
   it("uses existing project actions for create, rename, and delete", async () => {

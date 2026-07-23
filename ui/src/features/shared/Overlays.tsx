@@ -24,6 +24,7 @@ function DialogChrome({
   initialFocusRef,
   onClose,
   returnFocusRef,
+  surfaceClassName,
   surface,
 }: {
   id?: string;
@@ -37,6 +38,7 @@ function DialogChrome({
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
+  surfaceClassName?: string;
   surface: React.CSSProperties;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -116,6 +118,7 @@ function DialogChrome({
 
   return (
     <div
+      className="dialog-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -134,6 +137,7 @@ function DialogChrome({
     >
       <div
         ref={dialogRef}
+        className={`dialog-surface${surfaceClassName ? ` ${surfaceClassName}` : ""}`}
         id={id}
         role="dialog"
         aria-modal="true"
@@ -143,6 +147,7 @@ function DialogChrome({
         onClick={(e) => e.stopPropagation()}
       >
         <div
+          className="dialog-header"
           style={{
             padding: "11px 16px",
             borderBottom: "1px solid var(--border)",
@@ -165,7 +170,7 @@ function DialogChrome({
             {title}
           </span>
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm dialog-close"
             style={{ marginLeft: "auto", padding: "3px 6px" }}
             disabled={!dismissible}
             onClick={onClose}
@@ -177,6 +182,7 @@ function DialogChrome({
           </button>
         </div>
         <div
+          className="dialog-body"
           style={{
             padding: 16,
             flex: 1,
@@ -187,6 +193,7 @@ function DialogChrome({
           {children}
         </div>
         <div
+          className="dialog-footer"
           style={{
             padding: "12px 16px",
             borderTop: "1px solid var(--border)",
@@ -273,14 +280,21 @@ export function SlideOver({
       title={title}
       footer={footer}
       onClose={onClose}
+      surfaceClassName="dialog-surface--slide-over"
       surface={{
         marginLeft: "auto",
         width,
+        maxWidth: "calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))",
         background: "var(--bg1)",
         borderLeft: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        height: "100%",
+        height: "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+        marginBottom: "env(safe-area-inset-bottom, 0px)",
+        marginRight: "env(safe-area-inset-right, 0px)",
+        marginTop: "env(safe-area-inset-top, 0px)",
+        boxSizing: "border-box",
+        overflow: "hidden",
       }}
     >
       {children}
@@ -328,10 +342,13 @@ export function Modal({
       initialFocusRef={initialFocusRef}
       onClose={onClose}
       returnFocusRef={returnFocusRef}
+      surfaceClassName="dialog-surface--modal"
       surface={{
         width,
-        maxWidth: "calc(100vw - 24px)",
-        maxHeight: "min(80vh, calc(100dvh - 24px))",
+        maxWidth:
+          "calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 24px)",
+        maxHeight:
+          "min(80vh, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px))",
         background: "var(--bg1)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius)",

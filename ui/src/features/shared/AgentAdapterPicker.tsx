@@ -162,7 +162,7 @@ export function AgentAdapterPicker({
     triggerRef,
     menuRef,
   } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left", "down", 220);
 
   useEffect(() => {
     if (!open) return;

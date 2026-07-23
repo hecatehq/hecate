@@ -219,6 +219,21 @@ describe("ProvidersView add provider modal", () => {
     await user.click(screen.getAllByText("Add provider")[0]);
     // Ollama is local — its presence proves the Local tab is active by default.
     expect(screen.getByText("Ollama")).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Add provider" });
+    expect(dialog.querySelector(".add-provider-picker-grid")).toHaveStyle({ display: "grid" });
+    expect(dialog.querySelectorAll(".add-provider-picker-card").length).toBeGreaterThan(0);
+  });
+
+  it("associates visible labels with provider form fields", async () => {
+    openAddModal();
+    const user = userEvent.setup();
+    await user.click(screen.getAllByText("Add provider")[0]);
+    await user.click(screen.getByRole("button", { name: "Cloud" }));
+    await user.click(within(screen.getByRole("dialog")).getByText("Anthropic", { exact: true }));
+
+    expect(screen.getByLabelText("Name")).toHaveValue("Anthropic");
+    expect(screen.getByLabelText(/Custom name/i)).toBeEnabled();
+    expect(screen.getByLabelText("API Key")).toHaveAttribute("type", "password");
   });
 
   it("opens the modal on Cloud and skips local discovery in remote runtime mode", async () => {
@@ -895,6 +910,26 @@ describe("ProvidersView table renders", () => {
     expect(screen.getAllByText("Configured").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Not required")).toBeTruthy();
 
+    const cloudTable = screen.getByTestId("connections-provider-table-cloud-providers");
+    const anthropicRow = within(cloudTable).getByRole("button", {
+      name: "Provider Anthropic",
+    });
+    expect(anthropicRow).toHaveClass("connections-provider-row");
+    expect(anthropicRow.querySelector('[data-label="Protocol"]')).toBeTruthy();
+    expect(anthropicRow.querySelector('[data-label="Endpoint"]')).toBeTruthy();
+    expect(anthropicRow.querySelector('[data-label="Credentials"]')).toBeTruthy();
+    expect(anthropicRow.querySelector('[data-label="Models"]')).toBeTruthy();
+    expect(anthropicRow.querySelector('[data-label="Last checked"]')).toBeTruthy();
+    const removeButton = within(anthropicRow).getByRole("button", {
+      name: "Remove provider Anthropic",
+    });
+    expect(removeButton).toHaveClass("provider-remove-button");
+    expect(removeButton).toHaveTextContent("Remove");
+
+    const keyCard = screen.getByTestId("anthropic-provider-key-card");
+    const keyInput = within(keyCard).getByLabelText("Anthropic API key");
+    expect(keyInput.parentElement).toHaveClass("anthropic-provider-key-controls");
+
     // No toggle/switch elements
     expect(screen.queryByRole("switch")).toBeNull();
   });
@@ -1212,6 +1247,8 @@ describe("ProvidersView table renders", () => {
           adapter_id: "codex",
           tool_kind: "file_write",
           decision: "approve",
+          workspace:
+            "/Users/example/a-very-long-workspace-identifier-that-must-wrap-on-a-phone/project",
           granted_at: "2026-04-21T10:00:00Z",
         },
       ],
@@ -1220,8 +1257,12 @@ describe("ProvidersView table renders", () => {
     render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
-    expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
-    expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
+    const adapterRow = screen.getByTestId("external-agents-adapter-codex");
+    expect(adapterRow.querySelector(".external-agent-metadata")).toBeTruthy();
+    const grantRow = screen.getByTestId("external-agents-row-grant-1");
+    expect(grantRow.querySelector(".external-agent-grant-metadata")).toHaveTextContent(
+      "/Users/example/a-very-long-workspace-identifier-that-must-wrap-on-a-phone/project",
+    );
     expect(screen.getByText("file write")).toBeTruthy();
     expect(screen.getByText("Codex ACP Adapter 0.1.0-alpha.28")).toBeTruthy();
     expect(listChatGrants).toHaveBeenCalled();
