@@ -3,6 +3,9 @@ package acpserver
 import (
 	"context"
 	"errors"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hecatehq/acp-adapter-kit/acptest"
+	"github.com/hecatehq/acp-adapter-kit/runtimeacp"
 )
 
 func TestAgentCreatesTaskAndMapsRuntimeEvents(t *testing.T) {
@@ -47,7 +51,9 @@ func TestAgentCreatesTaskAndMapsRuntimeEvents(t *testing.T) {
 		} `json:"agentCapabilities"`
 	}
 	initialize[0].ResultInto(t, &initialized)
-	if initialized.AgentCapabilities.PromptCapabilities.Image || initialized.AgentCapabilities.PromptCapabilities.Audio || initialized.AgentCapabilities.PromptCapabilities.EmbeddedContext {
+	if initialized.AgentCapabilities.PromptCapabilities.Image ||
+		initialized.AgentCapabilities.PromptCapabilities.Audio ||
+		initialized.AgentCapabilities.PromptCapabilities.EmbeddedContext {
 		t.Fatalf("rich prompt capabilities = %#v, want all false", initialized.AgentCapabilities.PromptCapabilities)
 	}
 	if initialized.AgentCapabilities.SessionCapabilities.Close == nil {
@@ -128,27 +134,22 @@ func TestAgentExplainsWhenHecateAwaitsApproval(t *testing.T) {
 func TestAgentRejectsUnsupportedEditorInputsWithoutLeakingResourceURI(t *testing.T) {
 	t.Parallel()
 
-	runtime := &fakeRuntime{
-		events: map[string][]RunEvent{
-			"run_1": {
-				{Sequence: 1, Type: "run.finished", Data: map[string]any{}},
-			},
-		},
-	}
+	runtime := &fakeRuntime{events: map[string][]RunEvent{}}
 	agent := newTestAgent(t, runtime)
 	client := acptest.NewLiveClient(t, agent.Server())
 	initializeTestAgent(t, client)
+	workspace := t.TempDir()
 
 	relative := client.Request("relative", "session/new", map[string]any{"cwd": "relative", "mcpServers": []any{}}, time.Second)
 	if len(relative) != 1 || relative[0].Error == nil || relative[0].Error.Code != -32602 {
 		t.Fatalf("relative cwd responses = %#v", relative)
 	}
-	mcp := client.Request("mcp", "session/new", map[string]any{"cwd": "/workspace", "mcpServers": []map[string]any{{"name": "tool"}}}, time.Second)
+	mcp := client.Request("mcp", "session/new", map[string]any{"cwd": workspace, "mcpServers": []map[string]any{{"name": "tool"}}}, time.Second)
 	if len(mcp) != 1 || mcp[0].Error == nil || !strings.Contains(mcp[0].Error.Message, "unsupported") {
 		t.Fatalf("MCP session responses = %#v", mcp)
 	}
 
-	sessionID := createTestSession(t, client, "/workspace")
+	sessionID := createTestSession(t, client, workspace)
 	image := client.Request("image", "session/prompt", map[string]any{
 		"sessionId": sessionID,
 		"prompt":    []map[string]any{{"type": "image", "data": "abc", "mimeType": "image/png"}},
@@ -156,8 +157,26 @@ func TestAgentRejectsUnsupportedEditorInputsWithoutLeakingResourceURI(t *testing
 	if len(image) != 1 || image[0].Error == nil || image[0].Error.Code != -32602 {
 		t.Fatalf("image prompt responses = %#v", image)
 	}
+	embedded := client.Request("embedded", "session/prompt", map[string]any{
+		"sessionId": sessionID,
+		"prompt": []map[string]any{{
+			"type": "resource",
+			"resource": map[string]any{
+				"uri":  "editor://selection/context",
+				"text": "editor context",
+			},
+		}},
+	}, time.Second)
+	if len(embedded) != 1 || embedded[0].Error == nil || embedded[0].Error.Code != -32602 {
+		t.Fatalf("embedded-resource prompt responses = %#v", embedded)
+	}
 
-	const secretURI = "file:///private/secret-plan.txt"
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "secret-plan.txt")
+	if err := os.WriteFile(secretPath, []byte("do not transfer"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	secretURI := localFileURI(secretPath)
 	resources := client.Request("resource", "session/prompt", map[string]any{
 		"sessionId": sessionID,
 		"prompt": []map[string]any{{
@@ -166,18 +185,180 @@ func TestAgentRejectsUnsupportedEditorInputsWithoutLeakingResourceURI(t *testing
 			"uri":  secretURI,
 		}},
 	}, time.Second)
-	assertPromptResponse(t, resources, "resource", "end_turn")
+	if len(resources) != 1 || resources[0].Error == nil || resources[0].Error.Code != -32602 {
+		t.Fatalf("outside resource responses = %#v", resources)
+	}
+	detail, _ := resources[0].Error.Data.(string)
+	if strings.Contains(detail, secretURI) ||
+		strings.Contains(detail, secretPath) ||
+		strings.Contains(detail, "secret-plan") {
+		t.Fatalf("outside resource error leaked client path: %q", detail)
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.created) != 0 {
+		t.Fatalf("created tasks = %#v, want none", runtime.created)
+	}
+}
+
+func TestAgentMapsWorkspaceResourceLinksToRelativeReferences(t *testing.T) {
+	t.Parallel()
+
+	runtime := &fakeRuntime{events: map[string][]RunEvent{
+		"run_1": {{Sequence: 1, Type: "run.finished", Data: map[string]any{}}},
+	}}
+	agent := newTestAgent(t, runtime)
+	client := acptest.NewLiveClient(t, agent.Server())
+	initializeTestAgent(t, client)
+
+	workspace := t.TempDir()
+	docs := filepath.Join(workspace, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatalf("create docs directory: %v", err)
+	}
+	const body = "private workspace file body"
+	resourcePath := filepath.Join(docs, "review notes.txt")
+	if err := os.WriteFile(resourcePath, []byte(body), 0o600); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+	resourceURI := localFileURI(resourcePath)
+	localhostURI := fileURIWithHost(resourcePath, "LOCALHOST")
+	if relativePath, err := workspaceResourceRelativePath(workspace, localhostURI); err != nil ||
+		relativePath != "docs/review notes.txt" {
+		t.Fatalf("localhost resource path = %q, %v", relativePath, err)
+	}
+	sessionID := createTestSession(t, client, workspace)
+	responses := client.Request("resource", "session/prompt", map[string]any{
+		"sessionId": sessionID,
+		"prompt": []map[string]any{{
+			"type": "resource_link",
+			"name": "review notes",
+			"uri":  resourceURI,
+		}},
+	}, time.Second)
+	assertPromptResponse(t, responses, "resource", "end_turn")
 
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	if len(runtime.created) != 1 {
 		t.Fatalf("created tasks = %#v, want one", runtime.created)
 	}
-	if strings.Contains(runtime.created[0].Prompt, secretURI) {
-		t.Fatalf("resource URI leaked into Hecate task prompt: %q", runtime.created[0].Prompt)
+	prompt := runtime.created[0].Prompt
+	if !strings.Contains(prompt, "docs/review notes.txt") {
+		t.Fatalf("workspace-relative resource path missing from task prompt: %q", prompt)
 	}
-	if !strings.Contains(runtime.created[0].Prompt, "secret plan") {
-		t.Fatalf("opaque resource label missing from task prompt: %q", runtime.created[0].Prompt)
+	if strings.Contains(prompt, resourceURI) ||
+		strings.Contains(prompt, workspace) ||
+		strings.Contains(prompt, body) {
+		t.Fatalf("resource URI, root, or contents leaked into task prompt: %q", prompt)
+	}
+	if runtime.created[0].WorkingDirectory != workspace {
+		t.Fatalf("working directory = %q, want %q", runtime.created[0].WorkingDirectory, workspace)
+	}
+}
+
+func TestWorkspaceResourceLinksRejectNonFilesAndEscapes(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	outsidePath := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	outsideLinkPath := filepath.Join(workspace, "outside-link.txt")
+	insideTargetPath := filepath.Join(workspace, "inside-target.txt")
+	if err := os.WriteFile(insideTargetPath, []byte("context"), 0o600); err != nil {
+		t.Fatalf("write inside target file: %v", err)
+	}
+	insideLinkPath := filepath.Join(workspace, "inside-link.txt")
+	insideTargetDir := filepath.Join(workspace, "inside-target-dir")
+	if err := os.MkdirAll(insideTargetDir, 0o755); err != nil {
+		t.Fatalf("create inside target directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(insideTargetDir, "context.txt"), []byte("context"), 0o600); err != nil {
+		t.Fatalf("write file under inside target directory: %v", err)
+	}
+	insideDirLinkPath := filepath.Join(workspace, "inside-dir-link")
+	cases := map[string]string{
+		"outside workspace": localFileURI(outsidePath),
+		"missing file":      localFileURI(filepath.Join(workspace, "missing.txt")),
+		"remote file host":  fileURIWithHost(outsidePath, "files.example.com"),
+		"remote URL":        "https://example.com/private.txt",
+		"workspace root":    localFileURI(workspace),
+	}
+	if err := os.Symlink(outsidePath, outsideLinkPath); err == nil {
+		cases["escaping symlink"] = localFileURI(outsideLinkPath)
+	} else {
+		t.Logf("escaping symlink case unavailable: %v", err)
+	}
+	if err := os.Symlink(insideTargetPath, insideLinkPath); err == nil {
+		cases["in-workspace file symlink"] = localFileURI(insideLinkPath)
+	} else {
+		t.Logf("in-workspace file symlink case unavailable: %v", err)
+	}
+	if err := os.Symlink(insideTargetDir, insideDirLinkPath); err == nil {
+		cases["in-workspace directory symlink"] = localFileURI(
+			filepath.Join(insideDirLinkPath, "context.txt"),
+		)
+	} else {
+		t.Logf("in-workspace directory symlink case unavailable: %v", err)
+	}
+
+	for name, resourceURI := range cases {
+		t.Run(name, func(t *testing.T) {
+			relativePath, err := workspaceResourceRelativePath(workspace, resourceURI)
+			if !errors.Is(err, errInvalidWorkspaceResourceLink) || relativePath != "" {
+				t.Fatalf("workspaceResourceRelativePath(%q) = %q, %v", resourceURI, relativePath, err)
+			}
+		})
+	}
+}
+
+func TestPromptTextBoundsResourceLinksAndGeneratedSize(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	resourcePath := filepath.Join(workspace, "context.txt")
+	if err := os.WriteFile(resourcePath, []byte("context"), 0o600); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+	resourceURI := localFileURI(resourcePath)
+	links := make([]runtimeacp.ContentBlock, maxResourceLinksPerPrompt)
+	for index := range links {
+		links[index] = runtimeacp.ContentBlock{
+			Type: "resource_link",
+			Name: "context.txt",
+			URI:  resourceURI,
+		}
+	}
+	prompt, err := promptText(workspace, links)
+	if err != nil || prompt == "" {
+		t.Fatalf("exact resource-link limit failed: %v", err)
+	}
+	prompt, err = promptText(workspace, append(links, runtimeacp.ContentBlock{
+		Type: "resource_link",
+		Name: "context.txt",
+		URI:  resourceURI,
+	}))
+	if err == nil || prompt != "" {
+		t.Fatalf("resource-link overflow = %q, %v", prompt, err)
+	}
+
+	prompt, err = promptText(workspace, []runtimeacp.ContentBlock{{
+		Type: "text",
+		Text: strings.Repeat("x", maxTaskPromptBytes),
+	}})
+	if err != nil || len(prompt) != maxTaskPromptBytes {
+		t.Fatalf("exact generated prompt limit length = %d, err = %v", len(prompt), err)
+	}
+	prompt, err = promptText(workspace, []runtimeacp.ContentBlock{{
+		Type: "text",
+		Text: strings.Repeat("x", maxTaskPromptBytes+1),
+	}})
+	if err == nil || prompt != "" {
+		t.Fatalf("generated prompt overflow length = %d, err = %v", len(prompt), err)
 	}
 }
 
@@ -562,7 +743,7 @@ func TestAgentBoundsClientControlledErrorDetails(t *testing.T) {
 		t.Fatalf("unknown session error reflected client identifier: %#v", unknown.Data)
 	}
 
-	unsupported, err := promptText([]promptBlock{{Type: secret}})
+	unsupported, err := promptText(t.TempDir(), []runtimeacp.ContentBlock{{Type: secret}})
 	if err == nil || unsupported != "" {
 		t.Fatalf("promptText unsupported type = %q, %v", unsupported, err)
 	}
@@ -570,7 +751,7 @@ func TestAgentBoundsClientControlledErrorDetails(t *testing.T) {
 		t.Fatalf("unsupported-type error leaked or exceeded bound: %q", err)
 	}
 
-	unsupported, err = promptText([]promptBlock{{Type: "image" + strings.Repeat(" private", maxRPCErrorDataBytes)}})
+	unsupported, err = promptText(t.TempDir(), []runtimeacp.ContentBlock{{Type: "image" + strings.Repeat(" private", maxRPCErrorDataBytes)}})
 	if err == nil || unsupported != "" {
 		t.Fatalf("promptText padded media type = %q, %v", unsupported, err)
 	}
@@ -684,6 +865,18 @@ func createTestSession(t testing.TB, client *acptest.LiveClient, cwd string) str
 		t.Fatal("session/new returned empty sessionId")
 	}
 	return result.SessionID
+}
+
+func localFileURI(path string) string {
+	return fileURIWithHost(path, "")
+}
+
+func fileURIWithHost(path, host string) string {
+	slashPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(slashPath, "/") {
+		slashPath = "/" + slashPath
+	}
+	return (&url.URL{Scheme: "file", Host: host, Path: slashPath}).String()
 }
 
 func assertPromptResponse(t testing.TB, responses []acptest.Response, id, wantStopReason string) {

@@ -398,11 +398,14 @@ task sandbox/tool policy, approvals, artifacts, and traces in Hecate rather
 than in a new editor-side runtime. ACP V1 does not expose Agent Preset
 selection.
 
-This first slice supports text prompts and safe opaque resource references. It
-does not transfer file/media bodies, attach editor terminals/filesystems, launch
-client-supplied MCP servers, reload ACP sessions, or connect an editor to a
-remote Hecate runtime. See [Hecate as an ACP agent](docs/runtime/acp.md) for
-setup, the exact capability boundary, and local security model.
+This first slice supports text prompts and local workspace file references. File
+links stay inside the ACP session workspace and reach the native task as
+relative paths; the bridge does not copy their bodies. It does not transfer
+image/audio/embedded-resource bodies, attach editor
+terminals/filesystems, launch client-supplied MCP servers, reload ACP sessions,
+or connect an editor to a remote Hecate runtime. See
+[Hecate as an ACP agent](docs/runtime/acp.md) for setup, the exact capability
+boundary, and local security model.
 
 ## Project, Context, And Memory Flow
 
