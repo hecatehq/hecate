@@ -97,7 +97,7 @@ export type ProvidersAndModelsActions = {
   setAgentAdapters: (next: SetStateAction<AgentAdapterRecord[]>) => void;
   setAgentAdapterApprovalMode: (value: string) => void;
   setAgentAdapterHealth: (adapterID: string, record: AgentAdapterHealthRecord) => void;
-  clearAgentAdapterHealth: (adapterID: string) => void;
+  applyAgentAdapterAuthResult: (adapterID: string, authStatus: "ok" | "unauthenticated") => void;
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
   loadModelCatalog: () => Promise<ModelResponse>;
   loadAgentAdapterCatalog: () => Promise<AgentAdapterResponse>;
@@ -124,7 +124,11 @@ type Action =
   | { type: "agentAdapters/catalogSet"; next: AgentAdapterRecord[] }
   | { type: "agentAdapterApprovalMode/set"; value: string }
   | { type: "agentAdapterHealth/set"; adapterID: string; record: AgentAdapterHealthRecord }
-  | { type: "agentAdapterHealth/clear"; adapterID: string }
+  | {
+      type: "agentAdapterAuth/apply";
+      adapterID: string;
+      authStatus: "ok" | "unauthenticated";
+    }
   | { type: "agentAdapterHealthLoading/set"; adapterID: string; loading: boolean }
   | { type: "modelToolSupportLoading/set"; key: string; loading: boolean };
 
@@ -219,11 +223,22 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
       next.set(action.adapterID, action.record);
       return { ...state, agentAdapterHealthByID: next };
     }
-    case "agentAdapterHealth/clear": {
-      if (!state.agentAdapterHealthByID.has(action.adapterID)) return state;
-      const next = new Map(state.agentAdapterHealthByID);
-      next.delete(action.adapterID);
-      return { ...state, agentAdapterHealthByID: next };
+    case "agentAdapterAuth/apply": {
+      const nextHealth = new Map(state.agentAdapterHealthByID);
+      nextHealth.delete(action.adapterID);
+      return {
+        ...state,
+        agentAdapters: state.agentAdapters.map((item) =>
+          item.id === action.adapterID
+            ? { ...item, auth_status: action.authStatus, auth_error: undefined }
+            : item,
+        ),
+        // The explicit auth result supersedes auth evidence from the previous
+        // disposable diagnostic. Publish the row and health invalidation in
+        // one reducer transition so the UI cannot render a contradictory
+        // intermediate state.
+        agentAdapterHealthByID: nextHealth,
+      };
     }
     case "agentAdapterHealthLoading/set": {
       const map = state.agentAdapterHealthLoadingByID;
@@ -308,10 +323,14 @@ export function ProvidersAndModelsProvider({
     }
     return response;
   }, []);
-  const setAgentAdapters = useCallback(
-    (next: SetStateAction<AgentAdapterRecord[]>) => dispatch({ type: "agentAdapters/set", next }),
-    [],
-  );
+  const setAgentAdapters = useCallback((next: SetStateAction<AgentAdapterRecord[]>) => {
+    // This low-level projection setter exists for test fixtures and explicit
+    // local mutations. Fence older catalog reads so even those writes cannot
+    // be rolled back by an in-flight dashboard refresh. Production catalog
+    // reads must use loadAgentAdapterCatalog instead.
+    latestAgentAdaptersRefreshRef.current += 1;
+    dispatch({ type: "agentAdapters/set", next });
+  }, []);
   const setAgentAdapterApprovalMode = useCallback(
     (value: string) => dispatch({ type: "agentAdapterApprovalMode/set", value }),
     [],
@@ -321,8 +340,14 @@ export function ProvidersAndModelsProvider({
       dispatch({ type: "agentAdapterHealth/set", adapterID, record }),
     [],
   );
-  const clearAgentAdapterHealth = useCallback(
-    (adapterID: string) => dispatch({ type: "agentAdapterHealth/clear", adapterID }),
+  const applyAgentAdapterAuthResult = useCallback(
+    (adapterID: string, authStatus: "ok" | "unauthenticated") => {
+      // An auth action starts the adapter and is newer evidence than any
+      // passive read already in flight. A later operator refresh may replace
+      // it with catalog auth=unknown, but an older response must not.
+      latestAgentAdaptersRefreshRef.current += 1;
+      dispatch({ type: "agentAdapterAuth/apply", adapterID, authStatus });
+    },
     [],
   );
   const setAgentAdapterHealthLoading = useCallback(
@@ -504,7 +529,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapters,
       setAgentAdapterApprovalMode,
       setAgentAdapterHealth,
-      clearAgentAdapterHealth,
+      applyAgentAdapterAuthResult,
       setAgentAdapterHealthLoading,
       loadModelCatalog,
       loadAgentAdapterCatalog,
@@ -521,7 +546,7 @@ export function ProvidersAndModelsProvider({
       setAgentAdapters,
       setAgentAdapterApprovalMode,
       setAgentAdapterHealth,
-      clearAgentAdapterHealth,
+      applyAgentAdapterAuthResult,
       setAgentAdapterHealthLoading,
       loadModelCatalog,
       loadAgentAdapterCatalog,

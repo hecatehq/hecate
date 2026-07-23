@@ -1867,28 +1867,35 @@ is data. Shell writes may retain up to 64 KiB of syntactically incomplete input
 before failing closed. This is not hard sandboxing of arbitrary wrappers,
 generated code, custom binaries, or external supervisors.
 
-`config_options` are omitted from the catalog response. Hecate returns
-launch-control options on optional diagnostic responses and prepared chat
-sessions, where it is acceptable to run the adapter's help/model discovery or
-consume the ACP session's own controls. Values prefixed with `__hecate_no_` are explicit
-"not selected" sentinels. Some options are optional; launch-model options can
-be required by the adapter definition and cause `400 chat.model_required` at
-session creation until a real value is selected. Agent-owned ACP model state
-appears on the prepared chat session and is updated with ACP
-`session/set_model`.
+`config_options` are omitted from the passive catalog response. Hecate returns
+Hecate-managed launch controls on optional diagnostic projections and returns
+agent-owned controls on prepared chat sessions, where it is acceptable to run
+the adapter's help/model discovery or consume the ACP session's own controls.
+Values prefixed with `__hecate_no_` are explicit "not selected" sentinels. No
+current built-in requires a pre-session launch control. The request validator
+can return `400 chat.model_required` for a registered required launch option,
+but a built-in must not introduce one until Hecate exposes its schema through a
+passive endpoint; optional diagnostics cannot be a prerequisite for use.
+Agent-owned ACP model state appears on the prepared chat session and is updated
+with ACP `session/set_model`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
 Runs an optional, disposable end-to-end ACP diagnostic. It re-runs discovery
 for one adapter, starts the selected app, performs ACP `Initialize`, and creates
-a temporary session. The response includes the fresh catalog row plus the
-diagnostic result as evidence from that disposable attempt. Hecate's UI then
-re-reads the passive `GET /agent-adapters` catalog before changing any launch
-gate or last-discovered path, so the diagnostic itself never becomes launch
-authority. It can retain diagnostic-only versions, auth/capability evidence,
-and `config_options` beside the cached diagnostic while replacing launch
-availability, path, and remote-credential fields from the passive response.
-Operators can also trigger that passive refresh without starting an agent.
+a temporary session. `data.health` is evidence from that disposable attempt;
+`health.path` is the path that attempt used. `data.adapter` is a separately
+re-resolved diagnostic projection that combines full status, versions, launch
+controls, and the probe's auth/capability classification. Its `path`, `status`,
+or `error` can differ if discovery changes during the request and must not be
+treated as process-bound evidence. Hecate's UI then re-reads the passive catalog
+with `GET /hecate/v1/agent-adapters` before changing any launch gate or
+last-discovered path, so the diagnostic itself never becomes launch authority.
+It can retain diagnostic-only versions, auth/capability evidence, and
+`config_options` beside the cached diagnostic while replacing launch
+availability, status, error, path, and remote-credential fields from the passive
+response. Operators can also trigger that passive refresh without starting an
+agent.
 
 This endpoint is not required before use and its cached result is never launch
 authority. Starting an External Agent chat independently resolves the current
@@ -1991,8 +1998,10 @@ values, not claims that the installed app lacks those features.
 - `not_installed` — the command was absent from `PATH` and recognized standard
   locations, or its launcher form was rejected.
 - `auth_required` — remote-runtime credential policy blocks discovery before
-  execution. Local auth is intentionally unknown until the app is explicitly
-  executed by chat launch, diagnostics, authentication, or logout.
+  execution. Local auth remains intentionally unknown on this passive
+  compatibility response. Chat launch, diagnostics, authentication, and logout
+  classify only their own attempt or session; they do not mutate later passive
+  health reads.
 
 Status codes:
 
@@ -4950,11 +4959,14 @@ For external-agent `agent_id` values, session creation is the authoritative
 launch attempt: Hecate resolves the executable again, starts it, performs a
 fresh ACP `Initialize`, and starts or restores the native ACP session
 immediately. A prior diagnostic probe is neither required nor trusted as launch
-authority. Clients may include `config_options` selected from the agent catalog
-when a catalog row exposes Hecate-managed launch controls; Hecate validates
-required launch options and uses them when starting the agent process. After
-the ACP session exists, agent-owned `config_options` are returned with the
-session so clients can render them before the first prompt. If the agent
+authority. Clients may include `config_options` selected from the latest
+explicit diagnostic projection when it exposes Hecate-managed launch controls;
+the passive catalog does not expose those controls. No current built-in requires
+one before session creation. A future required launch control must have a
+passive schema path before adoption so a diagnostic never becomes prerequisite.
+Hecate validates supplied launch options and uses them when starting the agent
+process. After the ACP session exists, agent-owned `config_options` are returned
+with the session so clients can render them before the first prompt. If the agent
 reports ACP `initialize.agentInfo`, Hecate returns the trimmed implementation
 metadata as `agent_info` on the chat session and on assistant messages produced
 by that session. If the selected provider/runtime command is missing,

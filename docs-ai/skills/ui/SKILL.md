@@ -432,7 +432,14 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   optional disposable diagnostic, not a prerequisite or launch authority. Its
   accessible name/help text must say that it starts the app and opens a
   temporary ACP session.
-  To smoke-test adapter states without uninstalling local tools, use
+- Route every passive External Agent catalog read—dashboard hydration, manual
+  Refresh, and the post-diagnostic re-read—through
+  `loadAgentAdapterCatalog`. That provider/model slice owns request ordering
+  and the merge between catalog-owned `available`/`status`/`error`/`path`/
+  remote-credential fields and cached diagnostic evidence. Never commit an API
+  catalog response through the raw `setAgentAdapters` fixture/projection
+  setter.
+- To smoke-test adapter states without uninstalling local tools, use
   `just dev-no-agent-adapters` or
   `just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'`.
   These fixture env vars are test/development-only and intentionally absent from

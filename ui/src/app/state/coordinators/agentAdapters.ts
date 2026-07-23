@@ -48,7 +48,7 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     }
     try {
       await logoutAgentAdapterRequest(adapterID);
-      providersAndModels.actions.clearAgentAdapterHealth(adapterID);
+      providersAndModels.actions.applyAgentAdapterAuthResult(adapterID, "unauthenticated");
       params.setNoticeMessage("success", "External agent signed out.");
       return true;
     } catch (error) {
@@ -67,7 +67,7 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     }
     try {
       await authenticateAgentAdapterRequest(adapterID);
-      providersAndModels.actions.clearAgentAdapterHealth(adapterID);
+      providersAndModels.actions.applyAgentAdapterAuthResult(adapterID, "ok");
       params.setNoticeMessage("success", "External agent sign-in completed.");
       return true;
     } catch (error) {

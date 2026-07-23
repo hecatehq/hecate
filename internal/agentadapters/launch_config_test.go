@@ -53,6 +53,14 @@ func TestLaunchConfig_DoesNotRequireGrokLaunchModelSelection(t *testing.T) {
 	}
 }
 
+func TestLaunchConfig_BuiltInsDoNotRequireOptionalDiagnosticsBeforeSessionCreation(t *testing.T) {
+	for _, adapter := range BuiltIns() {
+		if err := validateLaunchConfig(adapter, nil); err != nil {
+			t.Fatalf("validateLaunchConfig(%s) = %v; required pre-session controls need a passive schema before a built-in can adopt them", adapter.ID, err)
+		}
+	}
+}
+
 func TestLaunchConfig_IgnoresGrokACPModelInLaunchArgs(t *testing.T) {
 	adapter, ok := BuiltInByID("grok_build")
 	if !ok {
