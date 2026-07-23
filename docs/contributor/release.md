@@ -153,12 +153,13 @@ fast release preflight, then `just verify`, then delegates to
 just release vX.Y.Z
 ```
 
-It performs, in order: clean-worktree check, tag-uniqueness check,
-goreleaser-on-PATH check, Docker-daemon check when the snapshot is enabled,
-the full project verification gate, goreleaser snapshot dry-run, interactive
-confirmation prompt, Tauri version stamp commit (Cargo.toml, package.json,
-tauri.conf.json), annotated tag, and one push containing both the stamped branch
-and the tag.
+It performs, in order: clean-worktree check, strict `master`/`main` check,
+origin/tag refresh, exact local-to-origin commit check, tag-uniqueness check,
+goreleaser-on-PATH check, Docker-daemon check when the snapshot is enabled, the
+full project verification gate, goreleaser snapshot dry-run, interactive
+confirmation prompt, Tauri version stamp commit (desktop configuration plus the
+iOS and Android store-version overlays), annotated tag, and one push containing
+both the stamped default branch and the tag.
 
 Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
@@ -182,7 +183,12 @@ non-version annotation and passes it to GoReleaser as the GitHub Release body:
 ```bash
 TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
 git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
-        tauri/src-tauri/tauri.conf.json tauri/package.json
+        tauri/src-tauri/tauri.conf.json \
+        tauri/src-tauri/tauri.ios.conf.json \
+        tauri/src-tauri/tauri.android.conf.json \
+        tauri/src-tauri/gen/apple/project.yml \
+        tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist \
+        tauri/package.json
 git commit -m "chore(tauri): stamp version X.Y.Z"
 git tag -a --cleanup=verbatim vX.Y.Z -F /tmp/release-notes.md
 git push origin HEAD:master vX.Y.Z
@@ -195,8 +201,8 @@ default cleanup treats lines beginning with `#` as comments and would silently
 strip the release title and section headings.
 
 The version stamp commit stays on `master`. This keeps the visible Tauri
-metadata (`tauri/package.json`, `Cargo.toml`, `tauri.conf.json`) aligned with
-the latest release instead of hiding the release version on the tag only.
+metadata, including the mobile store build numbers, aligned with the latest
+release instead of hiding the release version on the tag only.
 
 ## Snapshot dry-run
 
@@ -241,9 +247,10 @@ Pre-flight checks before the snapshot run (the script enforces these):
 ## Post-release docs refresh
 
 `scripts/release.ts` automatically stamps Tauri version files
-(`Cargo.toml`, `package.json`, `tauri.conf.json`). After the Release bundles
-are uploaded, `.github/workflows/release.yml` automatically refreshes release
-docs via `scripts/update-release-links.ts`.
+(`Cargo.toml`, `package.json`, the base Tauri config, and both mobile
+store-version overlays). After the Release bundles are uploaded,
+`.github/workflows/release.yml` automatically refreshes release docs via
+`scripts/update-release-links.ts`.
 
 The post-release updater covers:
 

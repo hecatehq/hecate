@@ -242,7 +242,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | UI recipes (SSE-driven state field, paired pickers, snapshot refresh)       | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md)                                                                                                                          |
 | Native desktop app (sidecar lifecycle, bundling, Tauri commands)            | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md)                                                                                                                    |
 | Cut a release tag                                                           | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs/contributor/release.md) |
-| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag                                                       |
+| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs desktop and mobile version metadata to the current git tag                                                         |
 
 ## Gotchas
 
