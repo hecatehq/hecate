@@ -106,6 +106,42 @@ change at hand. Keep one ecosystem per commit when practical:
 After dependency changes, run the narrow checks for that ecosystem first, then
 the broader gate that matches the risk.
 
+### Cursor Agent artifact pins
+
+Cursor Agent is not updated from its mutable installer during Docker builds.
+Run:
+
+```bash
+just cursor-agent-update
+```
+
+The updater treats the installer as bounded metadata, downloads and validates
+the official versioned Linux x64 and arm64 archives, prints their exact hashes,
+and changes only `Dockerfile` and `Dockerfile.release`. It refuses an older
+advertised release date, refuses an unordered same-date transition by default,
+and refuses to normalize changed bytes under an already pinned version. Use
+`--allow-same-date-transition` only after confirming that opaque suffix change
+is intentional; scheduled automation never overrides the guard. Never replace
+those failures with an unreviewed checksum.
+
+`.github/workflows/cursor-agent-update.yml` runs the same check weekly and on
+manual dispatch. A repository-scoped GitHub App opens or refreshes one
+deterministic review PR; the workflow never approves or merges it, and the
+normal PR event runs the full affected CI surface. Review the advertised version,
+installer digest, both artifact URLs and hashes, and CI before merging.
+An open proposal is a review boundary: if its version's bytes mutate or the
+installer advances to another version, the workflow fails instead of replacing
+the reviewed release evidence. Merge or close the proposal before asking the
+automation to publish another version. If the proposal, its master parent, and
+its open PR are unchanged, the workflow leaves the commit alone so it does not
+churn CI or dismiss review state.
+
+Do not install the updater App or store its key until `master` has an active
+ruleset requiring a reviewed PR, approval of the latest push, strict status
+checks through `Required checks`, and deletion/force-push protection. The App
+must have no bypass. The workflow verifies effective rules before minting its
+token, but the read-only workflow token cannot audit private bypass metadata.
+
 ## Commit shape
 
 Maintenance commits use the normal Conventional Commits format. Agent-doc-only
