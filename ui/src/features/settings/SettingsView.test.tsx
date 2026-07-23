@@ -500,7 +500,7 @@ describe("Connections external-agent panel", () => {
     expect(within(denyRow).getByText(/always deny/i)).toBeTruthy();
   });
 
-  it("hides logout until a live probe confirms authenticated logout support", async () => {
+  it("shows logout from catalog capabilities without requiring diagnostics", async () => {
     const logoutAgentAdapter = vi.fn(async () => true);
     const { state, actions } = setup(
       {
@@ -533,8 +533,12 @@ describe("Connections external-agent panel", () => {
     );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-    await screen.findByTestId("external-agents-adapter-codex");
-    expect(screen.queryByRole("button", { name: /Sign out Codex/ })).toBeNull();
+    const row = await screen.findByTestId("external-agents-adapter-codex");
+    expect(
+      within(row).getByRole("button", {
+        name: "Sign out Codex; opens a temporary ACP session",
+      }),
+    ).toBeVisible();
     expect(logoutAgentAdapter).not.toHaveBeenCalled();
   });
 
@@ -578,10 +582,13 @@ describe("Connections external-agent panel", () => {
 
     const row = await screen.findByTestId("external-agents-adapter-codex");
     const signOut = within(row).getByRole("button", {
-      name: "Sign out Codex; starts the installed app",
+      name: "Sign out Codex; opens a temporary ACP session",
     });
     expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
-    expect(signOut).toHaveAttribute("title", "Starts Codex and opens an ACP session to sign out");
+    expect(signOut).toHaveAttribute(
+      "title",
+      "Opens a temporary ACP session and invokes Codex sign-out",
+    );
     await user.click(signOut);
 
     expect(logoutAgentAdapter).toHaveBeenCalledWith("codex");
@@ -623,10 +630,13 @@ describe("Connections external-agent panel", () => {
 
     const row = await screen.findByTestId("external-agents-adapter-codex");
     const signIn = within(row).getByRole("button", {
-      name: "Sign in Codex; starts the installed app",
+      name: "Sign in Codex; opens a temporary ACP session",
     });
     expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
-    expect(signIn).toHaveAttribute("title", "Starts Codex and opens an ACP session to sign in");
+    expect(signIn).toHaveAttribute(
+      "title",
+      "Opens a temporary ACP session and invokes Codex sign-in",
+    );
     await user.click(signIn);
 
     expect(authenticateAgentAdapter).toHaveBeenCalledWith("codex");
@@ -1095,10 +1105,12 @@ describe("Connections external-agent panel", () => {
       const row = await screen.findByTestId("external-agents-adapter-codex");
       expect(row).toHaveTextContent("path /Users/alice/.local/bin/codex");
       expect(
-        within(row).getByRole("button", { name: /starts the installed app/i }),
+        within(row).getByRole("button", {
+          name: "Run diagnostics for Codex; opens a temporary ACP session and may execute the agent app",
+        }),
       ).toHaveAttribute(
         "title",
-        "Starts Codex and opens a temporary ACP session without sending a prompt",
+        "Opens a temporary Codex ACP session without sending a prompt and may execute the agent app",
       );
     });
 
@@ -1206,11 +1218,11 @@ describe("Connections external-agent panel", () => {
       const row = await screen.findByTestId("external-agents-adapter-codex");
       expect(row).toHaveTextContent("path /opt/hecate/agents/codex");
       const runDiagnostics = within(row).getByRole("button", {
-        name: "Run diagnostics for Codex; starts the agent runtime",
+        name: "Run diagnostics for Codex; opens a temporary ACP session and may execute the agent app",
       });
       expect(runDiagnostics).toHaveAttribute(
         "title",
-        "Starts Codex and opens a temporary ACP session without sending a prompt",
+        "Opens a temporary Codex ACP session without sending a prompt and may execute the agent app",
       );
 
       await user.click(runDiagnostics);
@@ -1296,11 +1308,11 @@ describe("Connections external-agent panel", () => {
       expect(row).toHaveTextContent("path /usr/local/bin/codex-acp-adapter");
       expect(
         within(row).getByRole("button", {
-          name: "Run diagnostics for Codex; starts the installed app",
+          name: "Run diagnostics for Codex; opens a temporary ACP session and may execute the agent app",
         }),
       ).toHaveAttribute(
         "title",
-        "Starts Codex and opens a temporary ACP session without sending a prompt",
+        "Opens a temporary Codex ACP session without sending a prompt and may execute the agent app",
       );
       expect(row).not.toHaveTextContent("412 ms");
       expect(row).not.toHaveTextContent("auth unknown");
@@ -1443,7 +1455,8 @@ describe("Connections external-agent panel", () => {
       const cursor = await screen.findByTestId("external-agents-adapter-cursor_agent");
       expect(within(cursor).getByText("diagnostic")).toBeTruthy();
       expect(cursor).toHaveTextContent("Last diagnostic: Install Cursor with Agent support");
-      expect(cursor).toHaveTextContent("starting a chat retries the current app");
+      expect(cursor).toHaveTextContent("New chat prepares a fresh ACP session");
+      expect(cursor).toHaveTextContent("first message retries any deferred vendor process");
       expect(cursor).not.toHaveTextContent("error");
       expect(cursor).not.toHaveTextContent("auth unknown");
       expect(cursor).not.toHaveTextContent("dev-override://cursor_agent");
@@ -1621,11 +1634,11 @@ describe("Connections external-agent panel", () => {
       const row = await screen.findByTestId("external-agents-adapter-claude_code");
       expect(row).toHaveTextContent("path /Users/alice/.local/bin/claude");
       const runDiagnostics = within(row).getByRole("button", {
-        name: "Run diagnostics for Claude Code; starts the installed app",
+        name: "Run diagnostics for Claude Code; opens a temporary ACP session and may execute the agent app",
       });
       expect(runDiagnostics).toHaveAttribute(
         "title",
-        "Starts Claude Code and opens a temporary ACP session without sending a prompt",
+        "Opens a temporary Claude Code ACP session without sending a prompt and may execute the agent app",
       );
       await user.click(runDiagnostics);
       expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");

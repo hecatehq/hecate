@@ -278,12 +278,14 @@ Windows executable.
 They do not run `--version`, auth commands, or ACP. When an eligible path is
 found, the app is **Available** to launch; that passive result does not claim
 that its account, version, or ACP implementation will succeed. **New chat** is
-the authoritative launch boundary: Hecate resolves the executable again,
-starts it, performs ACP `Initialize`, and creates the real session. The optional
-**Run diagnostics** action and `POST /hecate/v1/agent-adapters/{id}/probe`
-execute the same selected app but open a disposable session for troubleshooting.
-Authentication and logout also execute it. Opening Chats or Connections never
-starts a newly discovered executable automatically.
+the real-session boundary: Hecate resolves the executable again, performs ACP
+`Initialize`, and creates the session. Direct ACP peers start during that setup;
+the embedded Codex and Claude bridges defer their vendor CLI and auth check
+until the first message. The optional **Run diagnostics** action and `POST
+/hecate/v1/agent-adapters/{id}/probe` open a disposable session and may execute
+the selected app for troubleshooting. Authentication and logout also execute
+it. Opening Chats or Connections never starts a newly discovered executable
+automatically.
 
 ## Hecate ACP Capability Contract
 
@@ -384,9 +386,11 @@ agent runtime, while authentication and billing stay with the provider.
 4. If model, reasoning, or mode controls appear above the message composer,
    choose the values you want. Some controls are launch-time choices and some
    appear after the ACP session is prepared.
-5. Click **New chat**. Hecate starts the agent session immediately. The
-   message input appears after that session exists, while launch controls can be
-   shown earlier so required values can be selected first.
+5. Click **New chat**. Hecate resolves the executable and prepares the real ACP
+   session immediately. Direct ACP peers start during this setup; the embedded
+   Codex and Claude bridges launch their vendor CLI when the first message is
+   sent. The message input appears after the ACP session exists, while launch
+   controls can be shown earlier so required values can be selected first.
 6. Optionally attach up to four non-empty files by choosing, dropping, or
    pasting them. Each file can be up to 5 MiB and one turn can carry up to
    12 MiB combined. Hecate uses the live ACP session's supported inline image
@@ -431,12 +435,12 @@ agent runtime, while authentication and billing stay with the provider.
    resource link. Bounded adapter stderr is retained only for startup failures;
    after initial session and model/config setup succeeds, that buffer is zeroed
    and later stderr is discarded before a prompt can carry file data.
-7. If chat creation fails or the agent row shows a previous diagnostic issue,
-   open **Connections** and optionally choose **Run diagnostics**. It starts the
-   selected ACP runtime and performs a real handshake plus a temporary no-op
-   session to classify common auth, billing/subscription, version, and launch
+7. If chat creation or the first message fails, or the agent row shows a
+   previous diagnostic issue, open **Connections** and optionally choose **Run
+   diagnostics**. It opens a temporary ACP session and may execute the selected
+   app to classify common auth, billing/subscription, version, and launch
    failures. It is a troubleshooting tool, not a prerequisite for **New chat**
-   and not a security verification of the executable.
+   or the first message, and not a security verification of the executable.
 8. Send a small smoke prompt:
 
    ```text
@@ -516,10 +520,13 @@ curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 Discovery reports passive command availability, selected path, static tested
 range, and `auth_status: unknown`; **Available** means Hecate found an eligible
 app to try, not that it has authenticated or completed an ACP handshake. **New
-chat** re-resolves that executable and performs the authoritative ACP
-initialization and session creation. The optional diagnostic response adds a
-disposable session's live auth/capability state. For built-in adapters, that
-response can report `adapter_version` for the compiled Go module and
+chat** re-resolves that executable and prepares the real ACP session. Direct
+peers launch during setup; embedded bridges launch their vendor CLI and verify
+auth when the first message is sent. The optional diagnostic response adds live
+ACP capabilities from its disposable session and separate auth/version
+classification when provider-specific checks can classify them. A ready ACP
+diagnostic alone does not mean vendor auth succeeded. For built-in adapters,
+that response can report `adapter_version` for the compiled Go module and
 `agent_version` for the underlying vendor CLI. Direct ACP CLIs report their
 executable version as the agent version when available.
 
@@ -532,17 +539,19 @@ Manual setup stays in the upstream CLIs:
 | Cursor Agent   | `cursor-agent login` |
 | Grok Build     | `grok login`         |
 
-If chat creation or an optional diagnostic reports an auth failure, run the
-matching command in Terminal, then retry **New chat**. You can run diagnostics
-again when you need a narrower troubleshooting result. If diagnostics report a
-timeout or `context deadline exceeded`, the adapter did not finish startup or
-ACP session creation inside the diagnostic window. Hecate did not send a
-prompt; close any stuck browser or login prompt, fix the CLI if needed, then
-retry the chat.
+If chat creation, the first message, or an optional diagnostic reports an auth
+failure, run the matching command in Terminal, then retry the message in a fresh
+session if needed. You can run diagnostics again when you need a narrower
+troubleshooting result. If diagnostics report a timeout or `context deadline
+exceeded`, the adapter did not finish its diagnostic checks or ACP session
+creation inside the diagnostic window. Hecate did not send a prompt; close any
+stuck browser or login prompt, fix the CLI if needed, then retry the chat.
 
 Connections labels newly discovered eligible apps **Available** without
-executing them. **Run diagnostics** is optional and performs a full spawn + ACP
-handshake + no-op session; the same diagnostic is available through the API:
+executing them. **Run diagnostics** is optional and opens a temporary ACP
+runtime plus a no-prompt session; provider-specific version or auth checks may
+also execute the installed app. The same diagnostic is available through the
+API:
 
 ![Connections — external agent diagnostics and durable approval grants](../screenshots/connections-external-agents.png)
 
@@ -555,15 +564,15 @@ diagnostic row. The catalog tells Hecate what the built-in adapter is expected
 to support; diagnostics tell the UI what the disposable inspected session
 advertised (`supports_authenticate`, `supports_logout`,
 `supports_load_session`, and non-secret `auth_methods`). They do not authorize
-or block a later chat, whose fresh initialization remains authoritative. Hecate
-shows the local **Sign in** action only when the inspected agent advertises ACP
-auth method `agent-login`, which is the method the Hecate `/authenticate`
-endpoint calls. It shows **Sign out** only when the inspected agent advertises
-ACP `auth.logout`; direct API calls enforce the same Initialize capability
-checks before invoking ACP `authenticate` or `logout`. Diagnostics stay short
-so the UI can classify broken adapters quickly, while the managed local
-`authenticate` action allows a longer native sign-in flow because Codex and
-Claude Code may open a browser or terminal login.
+or block a later chat, whose fresh initialization remains authoritative. Before
+a diagnostic runs, Connections may offer **Sign in** or **Sign out** from the
+built-in catalog's expected capabilities. A diagnostic with known live
+capabilities overrides that fallback for its row. The action itself always
+opens a fresh ACP session and enforces the live capability before invoking ACP
+`agent-login` or `auth.logout`, so diagnostics are never a prerequisite.
+Diagnostics stay short so the UI can classify broken adapters quickly, while
+the managed local `authenticate` action allows a longer native sign-in flow
+because Codex and Claude Code may open a browser or terminal login.
 
 Codex and Claude Code use Go ACP adapter libraries compiled into Hecate and
 backed by the operator's local vendor CLI. Cursor and Grok ship ACP mode inside
@@ -612,11 +621,12 @@ Use this order when launching or troubleshooting:
    real launch blocker; an eligible discovered app is **Available**. Use
    **Refresh** in Connections after installing or moving an agent; it repeats
    only this passive discovery and does not start the app.
-2. **New chat** — starting a chat is the authoritative readiness attempt.
-   Hecate resolves the current executable again, starts the adapter, performs
-   ACP `Initialize`, and opens the real session. No earlier diagnostic result
-   is required, and a cached diagnostic failure must not prevent this fresh
-   attempt after the operator fixes the underlying issue.
+2. **New chat** — Hecate resolves the current executable again, performs ACP
+   `Initialize`, and opens the real session. Direct ACP peers start during this
+   setup; embedded bridges may defer vendor CLI execution and auth until the
+   first message. No earlier diagnostic result is required, and a cached
+   diagnostic failure must not prevent this fresh session attempt after the
+   operator fixes the underlying issue.
 3. **Optional diagnostics** — `POST /hecate/v1/agent-adapters/{id}/probe`
    starts the adapter and opens a disposable ACP session to refresh version,
    auth/capability, and launch-control troubleshooting details. It may consume
@@ -627,9 +637,11 @@ Use this order when launching or troubleshooting:
    the cached diagnostic, but availability, status, error, path, and
    remote-credential gates always come from the latest passive catalog
    response.
-4. **Chat turn** — after the real session exists, send a prompt. If a turn
-   fails, open the message's raw diagnostics disclosure; the normalized
-   transcript is for reading, raw ACP output is for debugging.
+4. **Chat turn** — after the real session exists, send a prompt. The first
+   message is authoritative for any vendor CLI launch or auth check deferred by
+   an embedded bridge. If a turn fails, open the message's raw diagnostics
+   disclosure; the normalized transcript is for reading, raw ACP output is for
+   debugging.
    File-bearing turns that use private resource-link staging withhold raw ACP
    diagnostics when present so split temporary paths cannot be reconstructed.
 

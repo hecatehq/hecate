@@ -95,8 +95,8 @@ export function ChatEmptyState({
     : "Ready when you are";
   const readyDetail = isExternalAgentChat
     ? externalAgentSessionPrepared
-      ? "Hecate started the installed app and opened its ACP session in this workspace. Send a message when you're ready."
-      : "Hecate found the installed app. Creating this chat starts it and opens an ACP session in the selected workspace."
+      ? "Hecate prepared the ACP session in this workspace. Send a message to start any deferred vendor process and verify its authentication."
+      : "Hecate found the installed app. New chat re-resolves it and prepares the ACP session; the first message starts any deferred vendor process."
     : "Ask a question, inspect the workspace, or describe the change you want to make.";
   const title =
     isAgentChat && selectedAgentUnavailable
@@ -608,7 +608,8 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     default:
       return {
         label: adapter.command || adapter.id,
-        action: "Install the local agent command, then start a chat to verify its ACP connection.",
+        action:
+          "Install the local agent command, then start a chat and send a message to verify its ACP connection.",
         commands: adapter.command
           ? [{ label: "Check", command: `${adapter.command} --version` }]
           : [],

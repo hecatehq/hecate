@@ -186,15 +186,18 @@ DELETE /hecate/v1/chat/grants/{grant_id}
 The catalog and compatibility health `GET` endpoints are passive: they may
 resolve and inspect an executable path but must not execute it. The explicit
 `POST /agent-adapters/{id}/probe` endpoint is an optional, disposable
-diagnostic boundary that starts the discovered app and performs an ACP
-handshake without sending a prompt. Creating an External Agent chat is the
-independent, authoritative execution boundary: it resolves the current app,
-starts it, and performs a fresh ACP handshake whether or not a diagnostic ran.
-A cached diagnostic result can explain an earlier failure, but cannot authorize
-or block that later launch. Clients refresh the passive catalog independently
-after install/path changes or a diagnostic; only that passive response may
-update pre-launch availability, status, error, remote-credential gates, and
-last-discovered path. Clients may retain process-derived versions,
+diagnostic boundary that starts a temporary ACP runtime and performs a
+handshake without sending a prompt. Its provider-specific version or auth
+classification may execute the discovered app. Creating an External Agent chat is the
+independent real-session boundary: it resolves the current app and performs a
+fresh ACP handshake whether or not a diagnostic ran. Direct ACP peers launch
+during that setup; embedded bridges may defer the vendor CLI and auth check
+until the first message, which is authoritative for that deferred work. A
+cached diagnostic result can explain an earlier failure, but cannot authorize
+or block the real session or first-message attempt. Clients refresh the passive
+catalog independently after install/path changes or a diagnostic; only that
+passive response may update pre-launch availability, status, error,
+remote-credential gates, and last-discovered path. Clients may retain process-derived versions,
 auth/capability evidence, and launch controls with the cached diagnostic for
 troubleshooting.
 

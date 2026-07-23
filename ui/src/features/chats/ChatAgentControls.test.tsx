@@ -42,7 +42,8 @@ describe("NewChatAgentButton", () => {
     expect(status.label).toBe("available");
     expect(status.ready).toBe(true);
     expect(status.title).toContain("config is present");
-    expect(status.title).toContain("Starting a chat launches it");
+    expect(status.title).toContain("New chat re-resolves the executable");
+    expect(status.title).toContain("first message verifies any deferred vendor launch");
   });
 
   it("labels passive discovery available and explains launch-time ACP verification", () => {
@@ -58,8 +59,8 @@ describe("NewChatAgentButton", () => {
     );
     expect(discovered.label).toBe("available");
     expect(discovered.title).toContain("Cursor Agent is available");
-    expect(discovered.title).toContain("Starting a chat launches it");
-    expect(discovered.title).toContain("verifies the ACP connection");
+    expect(discovered.title).toContain("New chat re-resolves the executable");
+    expect(discovered.title).toContain("first message verifies any deferred vendor launch");
     expect(discovered.title).toContain("/Users/test/.local/bin/cursor-agent");
 
     const probed = chatAgentOptionStatus(
@@ -74,8 +75,34 @@ describe("NewChatAgentButton", () => {
       },
     );
     expect(probed.label).toBe("checked");
-    expect(probed.title).toContain("last Cursor Agent diagnostic passed");
-    expect(probed.title).toContain("fresh launch");
+    expect(probed.title).toContain("last Cursor Agent diagnostic completed ACP startup");
+    expect(probed.title).toContain("without sending a prompt");
+    expect(probed.title).toContain("first message checks any deferred vendor launch");
+  });
+
+  it("does not let a ready ACP diagnostic hide an explicit sign-in state", () => {
+    const result = chatAgentOptionStatus(
+      "claude_code",
+      makeAdapter({
+        id: "claude_code",
+        name: "Claude Code",
+        auth_status: "unauthenticated",
+        auth_error: "Run claude /login in Terminal.",
+      }),
+      {
+        adapter_id: "claude_code",
+        status: "ready",
+        stage: "session",
+        duration_ms: 80,
+      },
+    );
+
+    expect(result).toMatchObject({
+      label: "auth",
+      ready: true,
+    });
+    expect(result.title).toContain("Run claude /login");
+    expect(result.title).not.toContain("diagnostic completed ACP startup");
   });
 
   it.each([
@@ -225,11 +252,11 @@ describe("NewChatAgentButton", () => {
 
     const create = screen.getByRole("button", { name: "New Codex chat" });
     expect(create).toHaveAccessibleDescription(
-      "Starts Codex and opens an ACP session. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again at launch.",
+      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any deferred vendor launch and authentication happen when the first message is sent.",
     );
     expect(create).toHaveAttribute(
       "title",
-      "Starts Codex and opens an ACP session. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again at launch",
+      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any deferred vendor launch and authentication happen when the first message is sent",
     );
     expect(screen.getByText("/Applications/Codex.app/Contents/Resources/codex")).toBeVisible();
 
@@ -267,7 +294,7 @@ describe("NewChatAgentButton", () => {
 
     const create = screen.getByRole("button", { name: "New Codex chat" });
     expect(create).toHaveAccessibleDescription(
-      "Starts Codex and opens an ACP session. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again at launch.",
+      "Prepares Codex for an ACP chat. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again during session setup. Any deferred vendor launch and authentication happen when the first message is sent.",
     );
     expect(create).not.toHaveAccessibleDescription(/codex-old/);
   });

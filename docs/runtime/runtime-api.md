@@ -1804,10 +1804,12 @@ When `embedded=false`, `command`, `args`, and `path` identify the direct ACP
 process Hecate supervises.
 
 `auth_status` is `unknown` on the cheap catalog path unless a dev or remote
-runtime override can classify it without spawning a CLI. Starting a chat
-performs the authoritative fresh ACP handshake. Use the optional `POST
+runtime override can classify it without spawning a CLI. **New chat** prepares
+the fresh ACP session; the first message checks vendor auth for an embedded
+bridge that defers its CLI. Use the optional `POST
 /hecate/v1/agent-adapters/{id}/probe` diagnostic when Connections needs a
-standalone login / billing classification.
+standalone login / billing classification, but do not infer verified vendor auth
+from `health.status=ready` alone.
 
 `supports_authenticate` and `supports_logout` tell clients whether Hecate can
 call ACP `authenticate` or `logout` for this adapter. UIs should use these
@@ -1881,9 +1883,12 @@ with ACP `session/set_model`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
-Runs an optional, disposable end-to-end ACP diagnostic. It re-runs discovery
-for one adapter, starts the selected app, performs ACP `Initialize`, and creates
-a temporary session. `data.health` is evidence from that disposable attempt;
+Runs an optional, disposable ACP session diagnostic. It re-runs discovery for
+one adapter, starts a direct peer or embedded bridge, performs ACP `Initialize`,
+and creates a temporary session without sending a prompt. Provider-specific
+version or auth-status classification may also execute the discovered app, but
+an embedded bridge may still defer its vendor prompt process beyond this
+diagnostic. `data.health` is evidence from the disposable ACP attempt;
 `health.path` is the path that attempt used. `data.adapter` is a separately
 re-resolved diagnostic projection that combines full status, versions, launch
 controls, and the probe's auth/capability classification. Its `path`, `status`,
@@ -1899,9 +1904,11 @@ agent.
 
 This endpoint is not required before use and its cached result is never launch
 authority. Starting an External Agent chat independently resolves the current
-executable, starts it, performs a fresh `Initialize`, and creates the real
-session. Clients should invoke the diagnostic only after an explicit operator
-action, label it as optional, and show the catalog `path` before that action.
+executable, performs a fresh `Initialize`, and creates the real session. Direct
+ACP peers start during setup; the first message is authoritative for a vendor
+launch or auth check deferred by an embedded bridge. Clients should invoke the
+diagnostic only after an explicit operator action, label it as optional, and
+show the catalog `path` before that action.
 Treat that path as last-discovered evidence rather than a pinned launch target:
 chat creation resolves the executable again.
 
@@ -1921,7 +1928,8 @@ POST /hecate/v1/agent-adapters/codex/probe
       "status": "available",
       "supports_authenticate": true,
       "supports_logout": true,
-      "auth_status": "ok"
+      "auth_status": "unauthenticated",
+      "auth_error": "Run codex login, or set OPENAI_API_KEY for the adapter environment."
     },
     "health": {
       "adapter_id": "codex",
@@ -1956,7 +1964,12 @@ refresh `data.adapter.supports_authenticate` and
 `data.adapter.supports_logout`. Catalog discovery remains the passive fallback
 before diagnostics run. Hecate only marks `supports_authenticate` true for ACP
 auth method `agent-login`, because that is the method the local
-`/authenticate` endpoint invokes.
+`/authenticate` endpoint invokes. `health.status=ready` means ACP initialization
+and temporary session creation completed; it does not itself promote
+`data.adapter.auth_status` to `ok` or prove that a deferred vendor process can
+authenticate and answer a prompt. Any non-`unknown` auth classification in
+`data.adapter` comes from a separate provider-specific heuristic or status
+check, not from the ready health status.
 
 The probe creates and immediately abandons a fresh ACP session, so agents that
 bill on session creation may record one no-op session per call. Agents that bill
@@ -1966,8 +1979,10 @@ on prompt completion see no prompt from this check.
 
 Compatibility read for one adapter's passive discovery state. It performs the
 same non-executing path inspection as the catalog and never starts the selected
-app. Starting a chat performs the authoritative fresh launch. Use the explicit
-POST probe only for optional live version, auth, and ACP-capability diagnostics.
+app. **New chat** re-resolves it and prepares the real ACP session; the first
+message checks any deferred vendor launch and auth. Use the explicit POST probe
+only for optional live version, auth classification, and ACP-capability
+diagnostics.
 
 ```json
 GET /hecate/v1/agent-adapters/codex/health
@@ -4955,23 +4970,28 @@ directory. Hecate validates and canonicalizes the path before a tool-backed or
 External Agent turn starts, so later turns use the resolved directory instead of
 failing only after execution starts.
 
-For external-agent `agent_id` values, session creation is the authoritative
-launch attempt: Hecate resolves the executable again, starts it, performs a
+For external-agent `agent_id` values, session creation is the authoritative ACP
+session-preparation attempt: Hecate resolves the executable again, performs a
 fresh ACP `Initialize`, and starts or restores the native ACP session
-immediately. A prior diagnostic probe is neither required nor trusted as launch
-authority. Clients may include `config_options` selected from the latest
-explicit diagnostic projection when it exposes Hecate-managed launch controls;
-the passive catalog does not expose those controls. No current built-in requires
-one before session creation. A future required launch control must have a
-passive schema path before adoption so a diagnostic never becomes prerequisite.
-Hecate validates supplied launch options and uses them when starting the agent
-process. After the ACP session exists, agent-owned `config_options` are returned
+immediately. Direct ACP peers launch during this setup; embedded command bridges
+may defer the vendor CLI and auth check until the first message. A prior
+diagnostic probe is neither required nor trusted as launch authority. Clients
+may include `config_options` selected from the latest explicit diagnostic
+projection when it exposes Hecate-managed launch controls; the passive catalog
+does not expose those controls. No current built-in requires one before session
+creation. A future required launch control must have a passive schema path
+before adoption so a diagnostic never becomes prerequisite.
+Hecate validates that any required Hecate-managed launch selection is present,
+then uses matching launch-option values when starting the agent process. After
+the ACP session exists, agent-owned `config_options` are returned
 with the session so clients can render them before the first prompt. If the agent
 reports ACP `initialize.agentInfo`, Hecate returns the trimmed implementation
 metadata as `agent_info` on the chat session and on assistant messages produced
-by that session. If the selected provider/runtime command is missing,
-unauthenticated, missing a required launch option, or fails its ACP handshake,
-session creation fails and Hecate removes the empty chat record.
+by that session. If the selected command is missing, a required launch option is
+absent, or the ACP session handshake fails, session creation fails and Hecate
+removes the empty chat record. For an embedded bridge, vendor-process or auth
+failure can instead surface on the first message because no vendor prompt is
+sent during session creation.
 
 External Agent session creation may also include `mcp_servers`, using the same
 stdio/HTTP server shape as task-create `mcp_servers`. Hecate stores the server

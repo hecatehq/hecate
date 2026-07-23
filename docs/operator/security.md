@@ -79,9 +79,11 @@ handshake do not authenticate its publisher. The latter checks already execute
 the candidate, so they are diagnostics rather than security verification.
 Catalog and compatibility health GETs therefore stay passive. Hecate executes
 the candidate only after an explicit operator action such as **New chat**,
-**Run diagnostics**, authentication, or logout. Starting a chat performs a
-fresh executable resolution and ACP handshake; the optional diagnostic is not
-a security check or a prerequisite for use.
+**Run diagnostics**, authentication, or logout. **New chat** performs a fresh
+executable resolution and prepares the real ACP session. Direct ACP agents are
+started during that setup; embedded bridges may defer the vendor CLI and auth
+check until the first message. The optional diagnostic is not a security check
+or a prerequisite for use.
 
 A locally computed SHA-256 digest proves byte identity and detects later
 replacement. It proves origin only when the expected digest came from an

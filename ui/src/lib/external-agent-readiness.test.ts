@@ -19,7 +19,7 @@ function adapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterRecor
 }
 
 describe("resolveExternalAgentReadiness", () => {
-  it("lets a ready probe override stale auth metadata", () => {
+  it("keeps explicit auth state authoritative over a ready ACP diagnostic", () => {
     const readiness = resolveExternalAgentReadiness(
       adapter({ auth_status: "unauthenticated", auth_error: "old auth error" }),
       {
@@ -31,13 +31,31 @@ describe("resolveExternalAgentReadiness", () => {
     );
 
     expect(readiness).toMatchObject({
+      kind: "sign_in",
+      label: "sign in",
+      needsRepair: true,
+      launchBlocked: false,
+      authStatus: "unauthenticated",
+      authError: "old auth error",
+      checkedByProbe: true,
+    });
+  });
+
+  it("labels a ready ACP diagnostic as checked without claiming verified auth", () => {
+    const readiness = resolveExternalAgentReadiness(adapter({ auth_status: "unknown" }), {
+      adapter_id: "cursor_agent",
+      status: "ready",
+      stage: "session",
+      duration_ms: 200,
+    });
+
+    expect(readiness).toMatchObject({
       kind: "ready",
       label: "checked",
       needsRepair: false,
       launchBlocked: false,
-      authStatus: "ok",
-      authError: "",
-      verifiedByProbe: true,
+      authStatus: "unknown",
+      checkedByProbe: true,
     });
   });
 
@@ -56,7 +74,7 @@ describe("resolveExternalAgentReadiness", () => {
       detail: "Run cursor-agent login.",
       needsRepair: true,
       launchBlocked: false,
-      verifiedByProbe: false,
+      checkedByProbe: false,
     });
   });
 
@@ -94,7 +112,7 @@ describe("resolveExternalAgentReadiness", () => {
         tone: expectedTone,
         needsRepair: true,
         launchBlocked: false,
-        verifiedByProbe: false,
+        checkedByProbe: false,
       });
     },
   );
@@ -152,7 +170,7 @@ describe("resolveExternalAgentReadiness", () => {
       kind: "setup",
       needsRepair: true,
       launchBlocked: true,
-      verifiedByProbe: false,
+      checkedByProbe: false,
     });
     expect(readiness.setupHint).toContain("separately");
     expect(readiness.setupHint).toContain("standard install locations and PATH");
@@ -169,10 +187,10 @@ describe("resolveExternalAgentReadiness", () => {
       tone: "muted",
       needsRepair: false,
       launchBlocked: false,
-      verifiedByProbe: false,
+      checkedByProbe: false,
     });
-    expect(readiness.detail).toContain("Starting a chat launches the installed app");
-    expect(readiness.detail).toContain("verifies its ACP connection");
+    expect(readiness.detail).toContain("New chat re-resolves the executable");
+    expect(readiness.detail).toContain("first message verifies any deferred vendor launch");
     expect(readiness.detail).toContain("Diagnostics are optional");
   });
 
@@ -190,7 +208,7 @@ describe("resolveExternalAgentReadiness", () => {
     expect(readiness).toMatchObject({
       kind: "setup",
       launchBlocked: true,
-      verifiedByProbe: false,
+      checkedByProbe: false,
     });
   });
 
@@ -218,7 +236,7 @@ describe("resolveExternalAgentReadiness", () => {
       label: "credential",
       launchBlocked: true,
       detail: "Set the credential in the runtime environment.",
-      verifiedByProbe: false,
+      checkedByProbe: false,
     });
     expect(readiness.kind).not.toBe("ready");
   });

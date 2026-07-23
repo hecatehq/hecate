@@ -177,7 +177,7 @@ describe("resolveChatSetupRepairState", () => {
         signInHint:
           "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.",
         detail: "Run `claude /login` in Terminal.",
-        verifiedByProbe: false,
+        checkedByProbe: false,
       },
     });
 
@@ -211,7 +211,7 @@ describe("resolveChatSetupRepairState", () => {
         detail: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
         authStatus: "unauthenticated",
         authError: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
-        verifiedByProbe: false,
+        checkedByProbe: false,
       },
     });
 

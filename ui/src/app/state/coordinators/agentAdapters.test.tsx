@@ -8,12 +8,13 @@ import { resolveExternalAgentReadiness } from "../../../lib/external-agent-readi
 
 const authenticateAgentAdapterMock = vi.fn();
 const logoutAgentAdapterMock = vi.fn();
+const probeAgentAdapterMock = vi.fn();
 
 vi.mock("../../../lib/api", () => ({
   getProviders: vi.fn(),
   getModels: vi.fn(),
   getProviderPresets: vi.fn(),
-  probeAgentAdapter: vi.fn(),
+  probeAgentAdapter: (...args: unknown[]) => probeAgentAdapterMock(...args),
   authenticateAgentAdapter: (...args: unknown[]) => authenticateAgentAdapterMock(...args),
   logoutAgentAdapter: (...args: unknown[]) => logoutAgentAdapterMock(...args),
 }));
@@ -93,6 +94,7 @@ function ReadyWrapper({ children }: { children: ReactNode }) {
 beforeEach(() => {
   authenticateAgentAdapterMock.mockReset();
   logoutAgentAdapterMock.mockReset();
+  probeAgentAdapterMock.mockReset();
 });
 
 describe("useAgentAdapterActions", () => {
@@ -160,6 +162,54 @@ describe("useAgentAdapterActions", () => {
       auth_error: "Sign in required.",
     });
     expect(notices).toContainEqual(["error", "authenticate failed"]);
+  });
+
+  it("does not surface a diagnostic failure superseded by successful sign-in", async () => {
+    let rejectProbe: (reason?: unknown) => void = () => {};
+    probeAgentAdapterMock.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectProbe = reject;
+      }),
+    );
+    authenticateAgentAdapterMock.mockResolvedValue({
+      object: "agent_adapter_authenticate",
+      data: {
+        adapter_id: "codex",
+        status: "authenticated",
+        method_id: "agent-login",
+        duration_ms: 12,
+      },
+    });
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () => ({
+        adapterActions: useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+        providersAndModels: useProvidersAndModels(),
+      }),
+      { wrapper: AuthRequiredWrapper },
+    );
+    let diagnostic!: Promise<unknown>;
+
+    act(() => {
+      diagnostic = result.current.adapterActions.probeAgentAdapter("codex");
+    });
+    await act(async () => {
+      await result.current.adapterActions.authenticateAgentAdapter("codex");
+    });
+    let diagnosticResult: unknown;
+    await act(async () => {
+      rejectProbe(new Error("obsolete diagnostic failure"));
+      diagnosticResult = await diagnostic;
+    });
+
+    expect(diagnosticResult).toBeNull();
+    expect(result.current.providersAndModels.state.agentAdapters[0]).toMatchObject({
+      auth_status: "ok",
+    });
+    expect(result.current.providersAndModels.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(notices).toEqual([["success", "External agent sign-in completed."]]);
   });
 
   it("logs out an adapter and atomically replaces stale auth diagnostics", async () => {

@@ -755,7 +755,7 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Hecate finds installed agents without launching them. Refresh only repeats that passive discovery. Starting a chat performs the authoritative ACP launch check; optional diagnostics below start the agent and open a temporary session for troubleshooting."
+        description="Hecate finds installed agents without launching them. Refresh only repeats that passive discovery. New chat re-resolves the app and prepares the real ACP session; the first message verifies any deferred vendor launch and authentication. Optional diagnostics below start a temporary session for troubleshooting."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
         actions={
           <button
@@ -826,10 +826,7 @@ function AdapterStatusRow({
   const readiness = resolveExternalAgentReadiness(adapter, health);
   const loginCommand = readiness.loginCommand;
   const showLocalAuthSetup =
-    !remoteRuntime &&
-    Boolean(loginCommand) &&
-    !readiness.verifiedByProbe &&
-    readiness.kind === "sign_in";
+    !remoteRuntime && Boolean(loginCommand) && readiness.kind === "sign_in";
   const showRemoteCredentialSetup =
     remoteRuntime &&
     adapter.remote_credential_ok !== true &&
@@ -871,7 +868,6 @@ function AdapterStatusRow({
   const showLogoutAction =
     !remoteRuntime &&
     adapter.available &&
-    readiness.verifiedByProbe &&
     readiness.authStatus === "ok" &&
     adapterLogoutSupportedByHecate(adapter, health) &&
     !showAuthenticateAction;
@@ -1098,8 +1094,8 @@ function AdapterStatusRow({
             className="btn btn-ghost btn-sm"
             onClick={() => onProbeAdapter(adapter)}
             disabled={loading}
-            aria-label={`Run diagnostics for ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session without sending a prompt`}
+            aria-label={`Run diagnostics for ${adapter.name || adapter.id}; opens a temporary ACP session and may execute the agent app`}
+            title={`Opens a temporary ${adapter.name || adapter.id} ACP session without sending a prompt and may execute the agent app`}
             data-testid={`external-agents-test-${adapter.id}`}
           >
             <Icon d={Icons.refresh} size={12} /> {loading ? "Running..." : "Run diagnostics"}
@@ -1111,8 +1107,8 @@ function AdapterStatusRow({
             className="btn btn-primary btn-sm"
             onClick={() => onAuthenticateAdapter(adapter)}
             disabled={authenticateLoading}
-            aria-label={`Sign in ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens an ACP session to sign in`}
+            aria-label={`Sign in ${adapter.name || adapter.id}; opens a temporary ACP session`}
+            title={`Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-in`}
           >
             <Icon d={Icons.keys} size={12} /> {authenticateLoading ? "Signing in..." : "Sign in"}
           </button>
@@ -1123,8 +1119,8 @@ function AdapterStatusRow({
             className="btn btn-ghost btn-sm"
             onClick={() => onLogoutAdapter(adapter)}
             disabled={logoutLoading}
-            aria-label={`Sign out ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens an ACP session to sign out`}
+            aria-label={`Sign out ${adapter.name || adapter.id}; opens a temporary ACP session`}
+            title={`Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-out`}
           >
             <Icon d={Icons.x} size={12} /> {logoutLoading ? "Signing out..." : "Sign out"}
           </button>
@@ -1336,8 +1332,8 @@ function AdapterRemoteCredentialSetup({
                 className="btn btn-ghost btn-sm"
                 onClick={onRunDiagnostics}
                 disabled={testing}
-                aria-label={`Run diagnostics for ${adapter.name || adapter.id}; starts the agent runtime`}
-                title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session without sending a prompt`}
+                aria-label={`Run diagnostics for ${adapter.name || adapter.id}; opens a temporary ACP session and may execute the agent app`}
+                title={`Opens a temporary ${adapter.name || adapter.id} ACP session without sending a prompt and may execute the agent app`}
               >
                 {testing ? "Running..." : "Run diagnostics"}
               </button>
@@ -1437,8 +1433,8 @@ function AdapterLocalAuthSetup({
               className="btn btn-ghost btn-sm"
               onClick={onRunDiagnostics}
               disabled={testing}
-              aria-label={`Run diagnostics for ${adapterName}; starts the installed app`}
-              title={`Starts ${adapterName} and opens a temporary ACP session without sending a prompt`}
+              aria-label={`Run diagnostics for ${adapterName}; opens a temporary ACP session and may execute the agent app`}
+              title={`Opens a temporary ${adapterName} ACP session without sending a prompt and may execute the agent app`}
             >
               {testing ? "Running..." : "Run diagnostics"}
             </button>
@@ -1489,7 +1485,7 @@ function adapterStatusDetail(
       tone: readiness.launchBlocked ? "muted" : "amber",
       message: readiness.launchBlocked
         ? `Set up to use: ${detail}`
-        : `Last diagnostic: ${detail} This result is advisory; starting a chat retries the current app.`,
+        : `Last diagnostic: ${detail} This result is advisory; New chat prepares a fresh ACP session and the first message retries any deferred vendor process.`,
     };
   }
 

@@ -76,11 +76,11 @@ export function NewChatAgentButton({
   const executablePath = externalAgentExecutablePath(effectiveAdapter);
   const startsExternalAgent = effectiveSelected.id !== "hecate";
   const externalAgentLaunchDisclosure = startsExternalAgent
-    ? `Starts ${effectiveSelected.label} and opens an ACP session${
+    ? `Prepares ${effectiveSelected.label} for an ACP chat${
         executablePath
-          ? `. Last discovered at ${executablePath}; Hecate resolves the executable again at launch`
+          ? `. Last discovered at ${executablePath}; Hecate resolves the executable again during session setup`
           : ""
-      }`
+      }. Any deferred vendor launch and authentication happen when the first message is sent`
     : "";
   const createActionTitle =
     createTitle ||
@@ -203,15 +203,16 @@ export function NewChatAgentButton({
             overflowWrap: "anywhere",
           }}
         >
-          Starts {effectiveSelected.label} and opens an ACP session.
+          Prepares {effectiveSelected.label} for an ACP chat.
           {executablePath ? (
             <>
               {" "}
               Last discovered at{" "}
               <code style={{ fontFamily: "var(--font-mono)" }}>{executablePath}</code>; Hecate
-              resolves the executable again at launch.
+              resolves the executable again during session setup.
             </>
-          ) : null}
+          ) : null}{" "}
+          Any deferred vendor launch and authentication happen when the first message is sent.
         </div>
       )}
       {open && floatingStyle && (
@@ -439,19 +440,43 @@ export function chatAgentOptionStatus(
       ready: launchReady,
     };
   }
+  if (adapter.auth_status === "billing") {
+    return {
+      label: "billing",
+      color: "var(--amber)",
+      title: adapterDiagnosticTitle(optionID, adapter, adapter.auth_error),
+      ready: launchReady,
+    };
+  }
+  if (health?.status === "auth_required" || adapter.auth_status === "unauthenticated") {
+    return {
+      label: "auth",
+      color: "var(--amber)",
+      title: adapterAuthSetupTitle(
+        optionID,
+        adapter,
+        health?.hint || health?.error || adapter.auth_error,
+      ),
+      ready: launchReady,
+    };
+  }
+  if (adapter.auth_status && adapter.auth_status !== "ok" && adapter.auth_status !== "unknown") {
+    return {
+      label: "issue",
+      color: "var(--amber)",
+      title: adapterDiagnosticTitle(
+        optionID,
+        adapter,
+        adapter.auth_error || `Auth status: ${adapter.auth_status}`,
+      ),
+      ready: launchReady,
+    };
+  }
   if (health?.status === "ready") {
     return {
       label: "checked",
       color: "var(--teal)",
       title: adapterCheckedTitle(optionID, adapter, health.path),
-      ready: launchReady,
-    };
-  }
-  if (health?.status === "auth_required") {
-    return {
-      label: "auth",
-      color: "var(--amber)",
-      title: adapterAuthSetupTitle(optionID, adapter, health.hint || health.error),
       ready: launchReady,
     };
   }
@@ -471,39 +496,11 @@ export function chatAgentOptionStatus(
       ready: launchReady,
     };
   }
-  if (adapter.auth_status === "billing") {
-    return {
-      label: "billing",
-      color: "var(--amber)",
-      title: adapterDiagnosticTitle(optionID, adapter, adapter.auth_error),
-      ready: launchReady,
-    };
-  }
-  if (adapter.auth_status === "unauthenticated") {
-    return {
-      label: "auth",
-      color: "var(--amber)",
-      title: adapterAuthSetupTitle(optionID, adapter, adapter.auth_error),
-      ready: launchReady,
-    };
-  }
   if (adapter.auth_status === "unknown") {
     return {
       label: "available",
       color: "var(--t3)",
       title: adapterAvailableTitle(optionID, adapter, adapter.auth_error),
-      ready: launchReady,
-    };
-  }
-  if (adapter.auth_status && adapter.auth_status !== "ok") {
-    return {
-      label: "issue",
-      color: "var(--amber)",
-      title: adapterDiagnosticTitle(
-        optionID,
-        adapter,
-        adapter.auth_error || `Auth status: ${adapter.auth_status}`,
-      ),
       ready: launchReady,
     };
   }
@@ -621,7 +618,7 @@ function adapterCheckedTitle(
 ): string {
   const name = adapterDisplayName(optionID, adapter);
   const suffix = path ? ` Path: ${path}` : "";
-  return `The last ${name} diagnostic passed startup, auth, and ACP session creation. Starting a chat still performs a fresh launch.${suffix}`;
+  return `The last ${name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred vendor launch and authentication.${suffix}`;
 }
 
 function adapterAvailableTitle(
@@ -636,7 +633,7 @@ function adapterAvailableTitle(
       ? ` Configured command: ${adapter.command}`
       : "";
   const cleanDetail = sanitizedAdapterDetail(detail);
-  const action = `${name} is available. Starting a chat launches it after re-resolving the current executable and verifies the ACP connection.${suffix}`;
+  const action = `${name} is available. New chat re-resolves the executable and prepares its ACP session; the first message verifies any deferred vendor launch and authentication.${suffix}`;
   return cleanDetail ? `${cleanDetail} ${action}` : action;
 }
 
