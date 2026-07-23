@@ -1,0 +1,316 @@
+name: Cursor Agent Update
+
+# Cursor's public installer points at a mutable latest release. This workflow
+# parses that installer as bounded metadata, validates and hashes both official
+# Linux archives, and opens a human-reviewed pin update. It never executes the
+# installer, approves its own PR, or merges it.
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: cursor-agent-update
+  cancel-in-progress: false
+
+env:
+  UPDATE_BRANCH: automation/cursor-agent-update
+
+jobs:
+  update:
+    name: Check versioned artifacts
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare deterministic update branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git ls-remote --exit-code --heads origin "refs/heads/${UPDATE_BRANCH}" >/dev/null; then
+            git fetch origin "refs/heads/${UPDATE_BRANCH}:refs/remotes/origin/${UPDATE_BRANCH}"
+            echo "Fetched existing ${UPDATE_BRANCH} for a safe force-with-lease update."
+            branch_ref="refs/remotes/origin/${UPDATE_BRANCH}"
+            commit_line_file="${RUNNER_TEMP}/cursor-agent-proposal-commit.txt"
+            git rev-list --parents -n 1 "${branch_ref}" >"${commit_line_file}"
+            read -r -a commit_line <"${commit_line_file}"
+            if [ "${#commit_line[@]}" -ne 2 ]; then
+              echo "Existing automation branch must contain one non-merge proposal commit." >&2
+              exit 1
+            fi
+            branch_parent="${commit_line[1]}"
+            if ! git merge-base --is-ancestor "${branch_parent}" origin/master; then
+              echo "Existing automation proposal is not based on master history." >&2
+              exit 1
+            fi
+            branch_changes_file="${RUNNER_TEMP}/cursor-agent-proposal-paths.txt"
+            git diff --name-only "${branch_parent}" "${branch_ref}" >"${branch_changes_file}"
+            unexpected_branch_changes="$(grep -Ev '^Dockerfile(\.release)?$|^$' "${branch_changes_file}" || true)"
+            if [ -n "${unexpected_branch_changes}" ]; then
+              echo "Existing automation proposal contains unrelated tracked changes:" >&2
+              printf '%s\n' "${unexpected_branch_changes}" >&2
+              exit 1
+            fi
+            open_pr_file="${RUNNER_TEMP}/cursor-agent-open-prs.json"
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f state=open \
+              -f base=master \
+              -f "head=${GITHUB_REPOSITORY_OWNER}:${UPDATE_BRANCH}" \
+              -f per_page=2 >"${open_pr_file}"
+            open_pr_count="$(jq 'length' "${open_pr_file}")"
+            if [ "${open_pr_count}" -gt 1 ]; then
+              echo "Multiple open updater PRs target the deterministic branch; refusing ambiguous publication." >&2
+              exit 1
+            elif [ "${open_pr_count}" -eq 1 ]; then
+              open_pr_number="$(jq -r '.[0].number' "${open_pr_file}")"
+              proposal_root="${RUNNER_TEMP}/existing-cursor-agent-proposal"
+              mkdir -p "${proposal_root}"
+              git show "${branch_ref}:Dockerfile" >"${proposal_root}/Dockerfile"
+              git show "${branch_ref}:Dockerfile.release" >"${proposal_root}/Dockerfile.release"
+              echo "EXISTING_PROPOSAL_ROOT=${proposal_root}" >>"${GITHUB_ENV}"
+              echo "EXISTING_PROPOSAL_PR=${open_pr_number}" >>"${GITHUB_ENV}"
+            else
+              echo "Existing ${UPDATE_BRANCH} has no open PR; it is stale branch state, not a review boundary."
+              echo 'EXISTING_PROPOSAL_ROOT=' >>"${GITHUB_ENV}"
+              echo 'EXISTING_PROPOSAL_PR=' >>"${GITHUB_ENV}"
+            fi
+          else
+            ls_remote_status=$?
+            if [ "${ls_remote_status}" -eq 2 ]; then
+              echo "No existing ${UPDATE_BRANCH}; the first update will create it."
+              echo 'EXISTING_PROPOSAL_ROOT=' >>"${GITHUB_ENV}"
+              echo 'EXISTING_PROPOSAL_PR=' >>"${GITHUB_ENV}"
+            else
+              echo "Unable to determine whether ${UPDATE_BRANCH} exists (git ls-remote exit ${ls_remote_status})." >&2
+              exit "${ls_remote_status}"
+            fi
+          fi
+          git switch --force-create "${UPDATE_BRANCH}" origin/master
+
+      - name: Validate artifacts and update pins
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          report="${RUNNER_TEMP}/cursor-agent-update.json"
+          updater_args=()
+          if [ -n "${EXISTING_PROPOSAL_ROOT}" ]; then
+            updater_args+=(--existing-proposal-root "${EXISTING_PROPOSAL_ROOT}")
+          fi
+          go run ./scripts/cursoragentupdate "${updater_args[@]}" >"${report}"
+
+          status="$(git status --porcelain=v1)"
+          unexpected="$(printf '%s\n' "${status}" | grep -Ev '^( M|M ) Dockerfile(\.release)?$|^$' || true)"
+          if [ -n "${unexpected}" ]; then
+            echo "Updater changed files outside its Dockerfile boundary:" >&2
+            printf '%s\n' "${unexpected}" >&2
+            exit 1
+          fi
+
+          changed="$(jq -r '.changed' "${report}")"
+          if [ "${changed}" = "true" ]; then
+            git diff --quiet -- Dockerfile && { echo "Dockerfile was not updated" >&2; exit 1; }
+            git diff --quiet -- Dockerfile.release && { echo "Dockerfile.release was not updated" >&2; exit 1; }
+          elif [ -n "${status}" ]; then
+            echo "Updater reported no change but left a dirty worktree" >&2
+            exit 1
+          fi
+
+          previous_version="$(jq -r '.previous_version' "${report}")"
+          version="$(jq -r '.version' "${report}")"
+          publish="${changed}"
+          if [ "${changed}" = "true" ] && \
+             remote_parent="$(git rev-parse --verify "refs/remotes/origin/${UPDATE_BRANCH}^" 2>/dev/null)" && \
+             [ "${remote_parent}" = "$(git rev-parse origin/master)" ] && \
+             git diff --quiet "refs/remotes/origin/${UPDATE_BRANCH}" -- && \
+             [ -n "${EXISTING_PROPOSAL_PR}" ]; then
+            publish=false
+            echo "Existing PR #${EXISTING_PROPOSAL_PR} already contains this proposal on current master."
+          fi
+          {
+            echo "changed=${changed}"
+            echo "publish=${publish}"
+            echo "previous_version=${previous_version}"
+            echo "version=${version}"
+            echo "installer_sha256=$(jq -r '.installer_sha256' "${report}")"
+            echo "x64_url=$(jq -r '.artifacts[] | select(.architecture == "x64") | .url' "${report}")"
+            echo "x64_sha256=$(jq -r '.artifacts[] | select(.architecture == "x64") | .sha256' "${report}")"
+            echo "arm64_url=$(jq -r '.artifacts[] | select(.architecture == "arm64") | .url' "${report}")"
+            echo "arm64_sha256=$(jq -r '.artifacts[] | select(.architecture == "arm64") | .sha256' "${report}")"
+          } >>"${GITHUB_OUTPUT}"
+
+          {
+            echo '## Cursor Agent artifact check'
+            echo
+            echo "- Previous pin: \`${previous_version}\`"
+            echo "- Advertised version: \`${version}\`"
+            echo "- Changed: \`${changed}\`"
+            echo "- Publish proposal: \`${publish}\`"
+            echo
+            echo 'The installer was parsed as metadata and was not executed.'
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Require protected default branch
+        if: steps.update.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rules="${RUNNER_TEMP}/master-rules.json"
+          gh api --paginate \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/rules/branches/master?per_page=100" >"${rules}"
+
+          if ! jq -e '
+            (any(.[]; .type == "deletion")) and
+            (any(.[]; .type == "non_fast_forward")) and
+            (any(.[];
+              .type == "pull_request" and
+              (.parameters.required_approving_review_count // 0) >= 1 and
+              (.parameters.dismiss_stale_reviews_on_push // false) == true and
+              (.parameters.require_last_push_approval // false) == true
+            )) and
+            (any(.[];
+              .type == "required_status_checks" and
+              (any(.parameters.required_status_checks[]?;
+                .context == "Required checks"
+              )) and
+              (.parameters.strict_required_status_checks_policy // false) == true
+            ))
+          ' "${rules}" >/dev/null; then
+            echo "master must have active rules that block deletion and force-pushes, require a PR with approval of the latest push, dismiss stale approvals, and require strict status checks." >&2
+            echo "Do not install or configure the updater App until that ruleset exists without an App bypass." >&2
+            exit 1
+          fi
+
+      # Mint the write token only after trusted code has validated a real
+      # change. The App is installed only on this repository and grants
+      # Contents and Pull requests read/write. Its PRs trigger normal CI;
+      # the built-in workflow token remains read-only.
+      - name: Create updater App token
+        if: steps.update.outputs.publish == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.CURSOR_UPDATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CURSOR_UPDATE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Resolve updater App identity
+        if: steps.update.outputs.publish == 'true'
+        id: app-user
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          app_user="${APP_SLUG}[bot]"
+          echo "name=${app_user}" >>"${GITHUB_OUTPUT}"
+          echo "id=$(gh api "/users/${app_user}" --jq .id)" >>"${GITHUB_OUTPUT}"
+
+      - name: Commit and push reviewed inputs
+        if: steps.update.outputs.publish == 'true'
+        env:
+          APP_NAME: ${{ steps.app-user.outputs.name }}
+          APP_USER_ID: ${{ steps.app-user.outputs.id }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.update.outputs.version }}
+        run: |
+          git config user.name "${APP_NAME}"
+          git config user.email "${APP_USER_ID}+${APP_NAME}@users.noreply.github.com"
+          gh auth setup-git
+          git add -- Dockerfile Dockerfile.release
+          git commit -m "chore(docker): update Cursor Agent to ${VERSION}"
+
+          if remote_sha="$(git rev-parse --verify "refs/remotes/origin/${UPDATE_BRANCH}" 2>/dev/null)"; then
+            git push \
+              --force-with-lease="refs/heads/${UPDATE_BRANCH}:${remote_sha}" \
+              origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          else
+            git push origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          fi
+
+      - name: Open or refresh review PR
+        if: steps.update.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PREVIOUS_VERSION: ${{ steps.update.outputs.previous_version }}
+          VERSION: ${{ steps.update.outputs.version }}
+          INSTALLER_SHA256: ${{ steps.update.outputs.installer_sha256 }}
+          X64_URL: ${{ steps.update.outputs.x64_url }}
+          X64_SHA256: ${{ steps.update.outputs.x64_sha256 }}
+          ARM64_URL: ${{ steps.update.outputs.arm64_url }}
+          ARM64_SHA256: ${{ steps.update.outputs.arm64_sha256 }}
+        run: |
+          title="chore(docker): update Cursor Agent to ${VERSION}"
+          body="${RUNNER_TEMP}/cursor-agent-update-pr.md"
+          {
+            echo '## Summary'
+            echo
+            echo "- updates the bundled Cursor Agent from \`${PREVIOUS_VERSION}\` to \`${VERSION}\`"
+            echo '- pins and verifies the versioned Linux x64 and arm64 archives'
+            echo '- keeps the update review-only; this PR is never auto-approved or auto-merged'
+            echo
+            echo '## Supply-chain evidence'
+            echo
+            echo "The official installer was downloaded as bounded metadata and **not executed**. Its SHA-256 was \`${INSTALLER_SHA256}\`."
+            echo
+            echo "- Linux x64: [official archive](${X64_URL}) — \`${X64_SHA256}\`"
+            echo "- Linux arm64: [official archive](${ARM64_URL}) — \`${ARM64_SHA256}\`"
+            echo
+            echo 'Both archives passed path-safety, size, entry-count, package-identity, architecture, and executable-shape validation before these hashes were written.'
+            echo
+            echo '## Review'
+            echo
+            echo '- [ ] Confirm the advertised version is expected.'
+            echo '- [ ] Review the installer digest and both artifact hashes.'
+            echo '- [ ] Require the normal Hecate CI checks before merge.'
+          } >"${body}"
+
+          if [ -n "${EXISTING_PROPOSAL_PR}" ]; then
+            pr_number="${EXISTING_PROPOSAL_PR}"
+            gh pr edit "${pr_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body-file "${body}"
+          else
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base master \
+              --head "${UPDATE_BRANCH}" \
+              --title "${title}" \
+              --body-file "${body}"
+            created_pr_file="${RUNNER_TEMP}/cursor-agent-created-pr.json"
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f state=open \
+              -f base=master \
+              -f "head=${GITHUB_REPOSITORY_OWNER}:${UPDATE_BRANCH}" \
+              -f per_page=2 >"${created_pr_file}"
+            if [ "$(jq 'length' "${created_pr_file}")" -ne 1 ]; then
+              echo "Expected exactly one same-repository updater PR after creation." >&2
+              exit 1
+            fi
+            pr_number="$(jq -r '.[0].number' "${created_pr_file}")"
+          fi
+
+          gh pr view "${pr_number}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json url \
+            --jq '"Review PR: " + .url' >>"${GITHUB_STEP_SUMMARY}"

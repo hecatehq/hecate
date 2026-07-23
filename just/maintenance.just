@@ -7,6 +7,10 @@ maintenance: docs-check go-format-check ui-format-check website-format-check vet
 maintenance-nightly:
 	bun scripts/nightly-maintenance.ts
 
+# Check official Cursor Agent artifacts and update both Dockerfile pins.
+cursor-agent-update: _go-cache
+	{{go_env}} go run ./scripts/cursoragentupdate
+
 # Report local branch and worktree cleanup candidates.
 branches-report:
 	git fetch origin --prune

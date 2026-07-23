@@ -44,6 +44,8 @@ const dockerSmokeTimeout = 8 * time.Minute
 //   - the binary starts as nonroot under distroless;
 //   - the bootstrap file is generated and writable on the /data volume;
 //   - /healthz returns 200 (proves the UI embed didn't break the binary);
+//   - the pinned Cursor Agent wrapper and bundled Node runtime execute as the
+//     final nonroot user and report the Dockerfile version;
 //   - /v1/models 200s anonymously (single-user mode is no-auth);
 //   - the bootstrap file is round-trip readable via `docker compose cp`,
 //     so operators can inspect the persisted control-plane secret.
@@ -89,6 +91,25 @@ func TestDockerSmokeImageBootsAndAuthenticates(t *testing.T) {
 		t.Fatalf("healthz never responded 200 within 60s: %v\n--- hecate logs ---\n%s", err, out)
 	}
 
+	expectedCursorVersion := dockerfileArg(t, filepath.Join(composeDir, "Dockerfile"), "CURSOR_AGENT_VERSION")
+	cursorVersion, err := dockerComposeCombined(
+		ctx,
+		composeDir,
+		"exec",
+		"-T",
+		"--user",
+		"hecate:hecate",
+		"hecate",
+		"cursor-agent",
+		"--version",
+	)
+	if err != nil {
+		t.Fatalf("run bundled Cursor Agent as hecate user: %v\n%s", err, cursorVersion)
+	}
+	if got := strings.TrimSpace(string(cursorVersion)); got != expectedCursorVersion {
+		t.Fatalf("cursor-agent --version = %q, want Dockerfile pin %q", got, expectedCursorVersion)
+	}
+
 	// Pull the bootstrap file out of /data via `docker compose cp`. We
 	// copy to a host tempfile rather than to `-` (stdout): `cp ... -`
 	// writes a tar archive, which would force the README quickstart to
@@ -122,6 +143,28 @@ func TestDockerSmokeImageBootsAndAuthenticates(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GET /v1/models = %d, want 200 (single-user mode is no-auth)", resp.StatusCode)
 	}
+}
+
+func dockerfileArg(t testing.TB, filePath string, name string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("read %s: %v", filepath.Base(filePath), err)
+	}
+	prefix := "ARG " + name + "="
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+			if value == "" {
+				t.Fatalf("%s has empty %s", filepath.Base(filePath), name)
+			}
+			return value
+		}
+	}
+	t.Fatalf("%s is missing %s", filepath.Base(filePath), name)
+	return ""
 }
 
 // requireDocker skips the test (rather than failing) when the daemon isn't
