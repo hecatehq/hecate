@@ -69,7 +69,7 @@ End state of a successful tag: the GitHub Release page has goreleaser tarballs +
 
 `just release` / `bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed desktop and mobile version files (`Cargo.toml`, `package.json`, the base and platform Tauri configs, plus generated Apple version metadata), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
 
-The stamp commit remains on the release branch. The script pushes both that
+The stamp commit remains on the default branch. The script pushes both that
 branch and the annotated tag, keeping visible Tauri version metadata aligned
 with the latest release. Release CI may then add updater-manifest and release
 reference commits to `master`; after CI completes, run
