@@ -14,16 +14,18 @@ Default to producing a written plan first ([`../skills/architect/SKILL.md`](../s
 
 Before running the release script, verify:
 
-1. **`just verify` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
-2. **`goreleaser` is installed.** `which goreleaser`. Install via `go install github.com/goreleaser/goreleaser/v2@latest` if missing.
-3. **Docker is reachable unless `--skip-snapshot` is intentional.** `just release` runs this check before the expensive verify gate because the Goreleaser snapshot builds local Docker images.
+1. **The clean checkout is on `master` and exactly matches `origin/master`.** The release helper fetches origin and fails closed before it can stamp or tag a feature-only or stale commit.
+2. **`just verify` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
+3. **`goreleaser` is installed.** `which goreleaser`. Install via `go install github.com/goreleaser/goreleaser/v2@latest` if missing.
+4. **Docker is reachable unless `--skip-snapshot` is intentional.** `just release` runs this check before the expensive verify gate because the Goreleaser snapshot builds local Docker images.
 
 ## Cut the release
 
 Use the release recipe. It runs the release script in preflight-only mode,
-then `just verify`, then the full release script. The script checks clean
-worktree, tag uniqueness, goreleaser on PATH, Docker availability for the
-snapshot, fires a snapshot dry-run, then prompts before tagging:
+then `just verify`, then the full release script. The script checks a clean,
+current default branch, refreshes origin and tags, checks tag uniqueness,
+checks goreleaser on PATH and Docker availability for the snapshot, fires a
+snapshot dry-run, then prompts before tagging:
 
 ```bash
 just release vX.Y.Z
@@ -65,9 +67,9 @@ End state of a successful tag: the GitHub Release page has goreleaser tarballs +
 
 ### Version stamping
 
-`just release` / `bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed files (`Cargo.toml`, `package.json`, `tauri.conf.json`), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
+`just release` / `bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed desktop and mobile version files (`Cargo.toml`, `package.json`, the base and platform Tauri configs, plus generated Apple version metadata), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
 
-The stamp commit remains on the release branch. The script pushes both that
+The stamp commit remains on the default branch. The script pushes both that
 branch and the annotated tag, keeping visible Tauri version metadata aligned
 with the latest release. Release CI may then add updater-manifest and release
 reference commits to `master`; after CI completes, run

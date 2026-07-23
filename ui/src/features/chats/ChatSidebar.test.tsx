@@ -43,6 +43,7 @@ function AtomicCreationHarness({
         }
         onCreateChat(agentID, projectID);
       }}
+      onChooseWorkspace={() => undefined}
       onOpenAgentSetup={() => undefined}
     />
   );
@@ -136,6 +137,7 @@ describe("ChatSidebar new-chat creation", () => {
           isAgentChat
           onSelectSession={async () => true}
           onCreateChat={onCreateChat}
+          onChooseWorkspace={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
         { state: createRuntimeConsoleFixture(), actions: createRuntimeConsoleActions() },
@@ -183,6 +185,7 @@ describe("ChatSidebar new-chat creation", () => {
           isAgentChat
           onSelectSession={async () => true}
           onCreateChat={() => undefined}
+          onChooseWorkspace={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
         { state, actions: createRuntimeConsoleActions() },
@@ -222,6 +225,7 @@ describe("ChatSidebar new-chat creation", () => {
           isAgentChat
           onSelectSession={async () => true}
           onCreateChat={() => undefined}
+          onChooseWorkspace={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
         { state, actions: createRuntimeConsoleActions() },
@@ -240,6 +244,7 @@ describe("ChatSidebar new-chat creation", () => {
           isAgentChat
           onSelectSession={async () => true}
           onCreateChat={() => undefined}
+          onChooseWorkspace={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
         { state, actions: createRuntimeConsoleActions() },
@@ -298,6 +303,7 @@ describe("ChatSidebar new-chat creation", () => {
             isAgentChat
             onSelectSession={async () => true}
             onCreateChat={() => undefined}
+            onChooseWorkspace={() => undefined}
             onOpenAgentSetup={() => undefined}
           />,
           { state, actions: createRuntimeConsoleActions() },
@@ -363,6 +369,7 @@ describe("ChatSidebar new-chat creation", () => {
           isAgentChat
           onSelectSession={async () => true}
           onCreateChat={() => undefined}
+          onChooseWorkspace={() => undefined}
           onOpenAgentSetup={() => undefined}
         />,
         { state, actions: createRuntimeConsoleActions() },

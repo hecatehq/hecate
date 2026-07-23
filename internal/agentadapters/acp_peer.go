@@ -35,9 +35,9 @@ type acpPeer struct {
 
 func resolveAdapterPeerExecutable(ctx context.Context, adapter Adapter, lookup LookupFunc) (string, error) {
 	runtime := runtimeAdapter(adapter)
-	if _, remote := remoteruntime.FromContext(ctx); remote {
-		// Remote execution may use a different filesystem. Never fall back to a
-		// host-personal absolute path when the request is scoped to that runtime.
+	if _, remote := remoteruntime.FromContext(ctx); remote && !remoteRequestUsesPersonalLocalLogin(ctx, adapter) {
+		// Hosted/API-key remote execution may use a different filesystem. Only
+		// explicit personal local-login mode may reuse persistent-home candidates.
 		runtime.CandidatePaths = nil
 	}
 	return resolveExecutable(runtime, lookup)

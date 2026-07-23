@@ -31,6 +31,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 }));
 
 let nativeMenuListener: (() => void) | null = null;
+const originalUserAgent = navigator.userAgent;
 const listenMock = vi.fn(async (_eventName: string, listener: () => void) => {
   nativeMenuListener = listener;
   return () => {
@@ -67,6 +68,14 @@ function exitTauriRuntime() {
   delete (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 }
 
+function enterMobileTauriRuntime() {
+  enterTauriRuntime();
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: "HecateMobile",
+  });
+}
+
 beforeEach(() => {
   checkMock.mockReset();
   logWarnMock.mockReset();
@@ -78,10 +87,12 @@ beforeEach(() => {
   nativeMenuListener = null;
   sessionStorage.clear();
   exitTauriRuntime();
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUserAgent });
 });
 
 afterEach(() => {
   exitTauriRuntime();
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUserAgent });
   vi.useRealTimers();
 });
 
@@ -92,6 +103,17 @@ describe("useDesktopUpdate", () => {
     await waitFor(() => expect(result.current.update).toBeNull());
     expect(checkMock).not.toHaveBeenCalled();
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("stays inert when a mobile-marked Tauri bridge is injected", async () => {
+    enterMobileTauriRuntime();
+
+    const { result } = renderHook(() => useDesktopUpdate());
+
+    await waitFor(() => expect(result.current.update).toBeNull());
+    expect(checkMock).not.toHaveBeenCalled();
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(listenMock).not.toHaveBeenCalled();
   });
 
   it("maps current version, published date, and release notes from Tauri", async () => {

@@ -355,6 +355,7 @@ export function ProjectsView({
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [hoveredProjectID, setHoveredProjectID] = useState("");
+  const [projectIndexOpen, setProjectIndexOpen] = useState(true);
   const [deleteProjectID, setDeleteProjectID] = useState("");
   const [deletePending, setDeletePending] = useState(false);
   const [deleteProjectError, setDeleteProjectError] = useState("");
@@ -655,6 +656,10 @@ export function ProjectsView({
     routeProjectID && controllerSelectedProject?.id !== routeProjectID
       ? null
       : controllerSelectedProject;
+
+  useEffect(() => {
+    setProjectIndexOpen(!selectedProjectID);
+  }, [selectedProjectID]);
   const selectedProjectRecordIDRef = useRef(selectedProject?.id ?? "");
   selectedProjectRecordIDRef.current = selectedProject?.id ?? "";
 
@@ -3716,7 +3721,11 @@ export function ProjectsView({
   const selectedHandoffError = handoffError || selectedHandoffActionError;
 
   return (
-    <div className="projects-cockpit-shell" ref={projectsShellRef} style={shellStyle}>
+    <div
+      className={`projects-cockpit-shell projects-cockpit-shell--${projectIndexOpen ? "index" : "detail"}-open`}
+      ref={projectsShellRef}
+      style={shellStyle}
+    >
       <div aria-atomic="true" aria-live="polite" role="status" style={visuallyHiddenStatusStyle}>
         <span key={navigationAnnouncement.key}>{navigationAnnouncement.message}</span>
       </div>
@@ -3797,7 +3806,9 @@ export function ProjectsView({
                 setDeleteProjectError("");
                 setDeleteProjectID(project.id);
               }}
-              onOpen={() => tryOpenProject(project.id)}
+              onOpen={() => {
+                if (tryOpenProject(project.id)) setProjectIndexOpen(false);
+              }}
             />
           ))}
         </div>
@@ -3810,6 +3821,14 @@ export function ProjectsView({
           healthSummary={projectHealth?.summary}
           memoryCandidates={memoryCandidates}
           project={selectedProject}
+          onOpenProjectIndex={
+            selectedProject
+              ? () => {
+                  setProjectIndexOpen(true);
+                  window.requestAnimationFrame(() => addProjectButtonRef.current?.focus());
+                }
+              : undefined
+          }
           refreshPending={foregroundRefreshPending}
           onAttentionBucket={(bucket) => {
             setActivityBucket(bucket);
@@ -4505,6 +4524,7 @@ function ProjectIndexRow({
             </div>
           </a>
           <div
+            className="project-index-row__actions"
             style={{
               ...projectIndexActionsStyle,
               opacity: actionsVisible ? 1 : 0,
@@ -4563,6 +4583,7 @@ function ProjectHeader({
   onEditDefaults,
   onManagePresets,
   onManageRoles,
+  onOpenProjectIndex,
   onRefresh,
 }: {
   attentionItems: ProjectHealthAttention[];
@@ -4587,6 +4608,7 @@ function ProjectHeader({
   onEditDefaults: () => void;
   onManagePresets: () => void;
   onManageRoles: () => void;
+  onOpenProjectIndex?: () => void;
   onRefresh: () => void;
 }) {
   const workspace = project ? projectDefaultWorkspace(project) : "";
@@ -4594,8 +4616,23 @@ function ProjectHeader({
     ? `${workspace || "No local files attached"}${project.default_model ? ` · ${project.default_model}` : ""}`
     : "";
   return (
-    <div className="project-inline-header" style={projectInlineHeaderStyle}>
-      <div style={projectHeaderAvatarStyle} title="Project">
+    <div
+      className={`project-inline-header${onOpenProjectIndex ? " project-inline-header--has-back" : ""}`}
+      style={projectInlineHeaderStyle}
+    >
+      {onOpenProjectIndex && (
+        <button
+          aria-label="Back to projects"
+          className="btn btn-ghost btn-sm project-index-open"
+          onClick={onOpenProjectIndex}
+          title="Back to projects"
+          type="button"
+        >
+          <Icon d={Icons.chevL} size={13} />
+          Projects
+        </button>
+      )}
+      <div className="project-header-avatar" style={projectHeaderAvatarStyle} title="Project">
         <Icon d={Icons.folder} size={14} strokeWidth={1.7} />
       </div>
       <div className="project-header-identity" style={{ flex: 1, minWidth: 0 }}>

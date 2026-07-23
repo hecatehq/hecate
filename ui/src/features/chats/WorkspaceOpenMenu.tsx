@@ -31,7 +31,7 @@ export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) 
   } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
     onClose: () => setError(""),
   });
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right", "down", 220);
   const workspace = workspacePath.trim();
   const allTargets = workspaceOpenTargets();
   const defaultTarget = allTargets.find((target) => target.id === defaultTargetID) ?? allTargets[0];

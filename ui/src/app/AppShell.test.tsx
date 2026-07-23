@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces, resolveTaskFocusRequest } from "./AppShell";
@@ -458,6 +458,146 @@ describe("ConsoleShell titlebar", () => {
     expect(
       container.querySelector(".hecate-statusbar [data-testid='desktop-update-center']"),
     ).not.toBeNull();
+  });
+});
+
+describe("ConsoleShell mobile instance navigation", () => {
+  const originalUserAgent = navigator.userAgent;
+
+  function setMobileRuntime() {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: `${originalUserAgent} HecateMobile`,
+    });
+  }
+
+  function renderMobileShell(
+    activeWorkspace: Parameters<typeof ConsoleShell>[0]["activeWorkspace"] = "chats",
+    onSelectWorkspace = vi.fn(),
+  ) {
+    setMobileRuntime();
+    const state = createRuntimeConsoleFixture();
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace={activeWorkspace} onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: createRuntimeConsoleActions(),
+        },
+      ),
+    );
+    return { onSelectWorkspace };
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: originalUserAgent,
+    });
+  });
+
+  it("offers a persistent return to the instance chooser in the mobile app", () => {
+    renderMobileShell();
+
+    expect(screen.getByRole("link", { name: "Switch Hecate instance" })).toHaveAttribute(
+      "href",
+      "hecate-mobile://connections/",
+    );
+    expect(document.querySelector(".hecate-statusbar")).toHaveAttribute(
+      "data-mobile-runtime",
+      "true",
+    );
+  });
+
+  it("reduces the phone bar to labelled primary destinations and More", () => {
+    renderMobileShell();
+
+    const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
+    expect(within(navigation).getAllByRole("link")).toHaveLength(3);
+    for (const label of ["Chats", "Projects", "Tasks"]) {
+      expect(within(navigation).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    for (const label of ["Connections", "Observability", "Usage", "Settings"]) {
+      expect(within(navigation).queryByRole("link", { name: label })).toBeNull();
+    }
+    const more = within(navigation).getByRole("button", { name: "More" });
+    expect(more).toHaveAttribute("aria-haspopup", "dialog");
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(within(navigation).queryByRole("button", { name: /switch to .* theme/i })).toBeNull();
+  });
+
+  it("opens secondary screens from More and closes the sheet after selection", () => {
+    const onSelectWorkspace = vi.fn();
+    renderMobileShell("chats", onSelectWorkspace);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const dialog = screen.getByRole("dialog", { name: "More Hecate screens" });
+    for (const label of ["Connections", "Observability", "Usage", "Settings"]) {
+      expect(within(dialog).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(within(dialog).getByRole("link", { name: "Connections" }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("connections");
+    expect(screen.queryByRole("dialog", { name: "More Hecate screens" })).toBeNull();
+  });
+
+  it("dismisses More with Escape and restores focus to its trigger", () => {
+    renderMobileShell();
+    const more = screen.getByRole("button", { name: "More" });
+    more.focus();
+    fireEvent.click(more);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "More Hecate screens" })).toBeNull();
+    expect(more).toHaveFocus();
+  });
+
+  it("marks More and its current secondary screen as active", () => {
+    renderMobileShell("settings");
+    const more = screen.getByRole("button", { name: "More" });
+    expect(more).toHaveAttribute("aria-current", "page");
+
+    fireEvent.click(more);
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the full navigation and no instance switcher in an ordinary browser", () => {
+    const state = createRuntimeConsoleFixture();
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(screen.queryByRole("link", { name: "Switch Hecate instance" })).toBeNull();
+    const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
+    expect(within(navigation).getAllByRole("link")).toHaveLength(7);
+    expect(within(navigation).getByRole("link", { name: "Connections" })).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: /switch to .* theme/i }),
+    ).toBeInTheDocument();
+    expect(within(navigation).queryByRole("button", { name: "More" })).toBeNull();
+  });
+
+  it("keeps mobile controls out of the desktop Tauri shell", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const state = createRuntimeConsoleFixture();
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(screen.queryByRole("link", { name: "Switch Hecate instance" })).toBeNull();
+    const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
+    expect(within(navigation).getAllByRole("link")).toHaveLength(7);
+    expect(within(navigation).queryByRole("button", { name: "More" })).toBeNull();
   });
 });
 

@@ -1,0 +1,127 @@
+name: hecate-app
+options:
+  bundleIdPrefix: sh.hecate.mobile
+  deploymentTarget:
+    iOS: 15.0
+fileGroups: [../../src]
+configs:
+  debug: debug
+  release: release
+settingGroups:
+  app:
+    base:
+      PRODUCT_NAME: "$(TARGET_NAME)"
+      PRODUCT_BUNDLE_IDENTIFIER: sh.hecate.mobile
+      DEVELOPMENT_TEAM: HHRFM4BVMT
+targetTemplates:
+  app:
+    type: application
+    sources:
+      - path: Sources
+    scheme:
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    settings:
+      groups: [app]
+targets:
+  hecate-app_iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Assets.xcassets
+      - path: Externals
+        # The Rust static archive is linked through the dependency below.
+        # Excluding it here prevents XcodeGen from also copying libapp.a into
+        # the application bundle as a resource.
+        excludes:
+          - "**/*.a"
+      - path: hecate-app_iOS
+      - path: assets
+        buildPhase: resources
+        type: folder
+      - path: LaunchScreen.storyboard
+    info:
+      path: hecate-app_iOS/Info.plist
+      properties:
+        LSRequiresIPhoneOS: true
+        UILaunchStoryboardName: LaunchScreen
+        UIRequiredDeviceCapabilities: [arm64, metal]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleDisplayName: Hecate
+        CFBundleURLTypes:
+          - CFBundleURLName: hecate-mobile
+            CFBundleURLSchemes:
+              - hecate-mobile
+        CFBundleShortVersionString: 0.5.0
+        CFBundleVersion: "6.0.3"
+        ITSAppUsesNonExemptEncryption: false
+        NSMicrophoneUsageDescription: Hecate uses the microphone only while you record dictation for a chat draft.
+        NSSpeechRecognitionUsageDescription: "Hecate uses Apple's speech recognition only while you dictate an editable chat draft through the browser-managed speech service."
+        HecateAPNSEnvironment: "$(HECATE_APNS_ENVIRONMENT)"
+    entitlements:
+      path: hecate-app_iOS/hecate-app_iOS.entitlements
+      properties:
+        aps-environment: "$(HECATE_APNS_ENVIRONMENT)"
+    scheme:
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    settings:
+      base:
+        ENABLE_BITCODE: false
+        CODE_SIGN_STYLE: Automatic
+        ARCHS: [arm64]
+        VALID_ARCHS: arm64
+        LIBRARY_SEARCH_PATHS[arch=x86_64]: $(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)
+        LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+        EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
+      configs:
+        debug:
+          HECATE_APNS_ENVIRONMENT: development
+        release:
+          HECATE_APNS_ENVIRONMENT: production
+      groups: [app]
+    dependencies:
+      - framework: libapp.a
+        embed: false
+      - sdk: CoreGraphics.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+      - sdk: UserNotifications.framework
+      - sdk: WebKit.framework
+    # XcodeGen 2.46 serializes nested SystemCapabilities target attributes as
+    # a string. The checked-in pbxproj therefore carries com.apple.Push as a
+    # real dictionary; keep it when regenerating this project.
+    preBuildScripts:
+      - script: |
+          if [ "${PLATFORM_NAME:-}" = "iphoneos" ]; then
+            case "${HECATE_APNS_ENVIRONMENT:-}" in
+              development|production) ;;
+              *)
+                echo "error: Set HECATE_APNS_ENVIRONMENT to the aps-environment issued by the selected provisioning profile (development or production)." >&2
+                exit 1
+                ;;
+            esac
+          fi
+        name: Verify Push Provisioning
+        basedOnDependencyAnalysis: false
+      - script: node "${SRCROOT}/../../../node_modules/@tauri-apps/cli/tauri.js" ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+        name: Build Rust Code
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a
+          - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a

@@ -120,6 +120,48 @@ html[data-tauri-os="macos"] .hecate-shell {
   background: var(--teal-bg);
 }
 
+.hecate-activitybtn__label {
+  display: none;
+}
+
+.mobile-more-navigation {
+  display: grid;
+  margin: -8px;
+}
+
+.mobile-more-navigation__link {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  color: var(--t1);
+  display: flex;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 12px;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.mobile-more-navigation__link:last-child {
+  border-bottom: 0;
+}
+
+.mobile-more-navigation__link:hover,
+.mobile-more-navigation__link[aria-current="page"] {
+  background: var(--bg2);
+  color: var(--teal);
+}
+
+.mobile-more-navigation__link:focus-visible {
+  outline: 2px solid var(--teal-border);
+  outline-offset: -2px;
+}
+
+.mobile-more-theme {
+  justify-content: flex-start;
+  min-height: 44px;
+  width: 100%;
+}
+
 /* Main content area */
 .hecate-content {
   display: flex;
@@ -191,6 +233,37 @@ html[data-tauri-os="macos"] .hecate-shell {
 
 .hecate-statusbar__brand {
   font-weight: 600;
+}
+
+.hecate-statusbar__instances {
+  align-items: center;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 650;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 6px;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.hecate-statusbar__instances > span {
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.hecate-statusbar__instances:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.hecate-statusbar__instances:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
 }
 
 .hecate-statusbar__sep {
@@ -371,6 +444,8 @@ html[data-tauri-os="macos"] .hecate-shell {
   .hecate-content {
     grid-column: 1;
     grid-row: 1;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 
   .console-content {
@@ -389,12 +464,12 @@ html[data-tauri-os="macos"] .hecate-shell {
     border-right: 0;
     border-top: 1px solid var(--border);
     flex-direction: row;
-    gap: 4px;
+    gap: 0;
     justify-content: space-around;
     min-height: calc(52px + env(safe-area-inset-bottom, 0px));
     overflow-x: auto;
-    padding: 4px max(8px, env(safe-area-inset-left, 0px)) max(4px, env(safe-area-inset-bottom, 0px))
-      max(8px, env(safe-area-inset-right, 0px));
+    padding: 4px max(4px, env(safe-area-inset-right, 0px))
+      max(4px, env(safe-area-inset-bottom, 0px)) max(4px, env(safe-area-inset-left, 0px));
     scrollbar-width: none;
   }
 
@@ -412,6 +487,31 @@ html[data-tauri-os="macos"] .hecate-shell {
     height: 44px;
     min-width: 44px;
     touch-action: manipulation;
+  }
+
+  .hecate-activitybar[data-mobile-runtime="true"] {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    justify-content: stretch;
+    overflow: hidden;
+  }
+
+  .hecate-activitybar[data-mobile-runtime="true"] .hecate-activitybtn {
+    flex: initial;
+    height: 52px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .hecate-activitybar[data-mobile-runtime="true"] .hecate-activitybtn__label {
+    display: block;
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .hecate-shell .dialog-close {
+    min-height: 44px;
+    min-width: 44px;
   }
 
   .hecate-statusbar {
@@ -435,6 +535,24 @@ html[data-tauri-os="macos"] .hecate-shell {
     color: var(--teal);
   }
 
+  .hecate-statusbar[data-mobile-runtime="true"] {
+    gap: 10px;
+    min-height: calc(44px + env(safe-area-inset-top, 0px));
+  }
+
+  .hecate-statusbar[data-mobile-runtime="true"] .hecate-statusbar__brand {
+    display: none;
+  }
+
+  .hecate-statusbar[data-mobile-runtime="true"] .hecate-statusbar__instances {
+    color: var(--teal);
+    margin-left: -6px;
+  }
+
+  .hecate-statusbar__runtime {
+    display: none;
+  }
+
   .hecate-statusbar__sep,
   .hecate-statusbar__providers,
   .hecate-statusbar__models {
@@ -447,12 +565,50 @@ html[data-tauri-os="macos"] .hecate-shell {
   }
 
   .hecate-statusbar__session {
+    color: var(--t1);
+    font-weight: 600;
     max-width: 54vw;
   }
 
   .hecate-statusbar__path {
     flex: 1 1 auto;
     max-width: 42vw;
+  }
+}
+
+@media (min-width: 641px) and (hover: none) and (pointer: coarse) {
+  .hecate-workarea {
+    grid-template-columns: calc(48px + env(safe-area-inset-left, 0px)) minmax(0, 1fr);
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .hecate-activitybar {
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-left: env(safe-area-inset-left, 0px);
+    scrollbar-width: none;
+  }
+
+  .hecate-activitybtn {
+    flex: 0 0 44px;
+    height: 44px;
+    min-width: 44px;
+    width: 44px;
+    touch-action: manipulation;
+  }
+
+  .hecate-activitybar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hecate-content {
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  .hecate-statusbar {
+    min-height: calc(22px + env(safe-area-inset-bottom, 0px));
+    padding: 0 max(10px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px)
+      max(10px, env(safe-area-inset-left, 0px));
   }
 }
 
@@ -488,7 +644,7 @@ html[data-tauri-os="macos"] .hecate-shell {
 /* Toast notifications */
 .toast {
   position: fixed;
-  top: 16px;
+  top: max(16px, calc(env(safe-area-inset-top, 0px) + 8px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 9999;
@@ -503,6 +659,11 @@ html[data-tauri-os="macos"] .hecate-shell {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   pointer-events: all;
   animation: toast-in 0.15s ease;
+  max-width: min(
+    520px,
+    calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 24px)
+  );
+  overflow-wrap: anywhere;
 }
 
 .toast--success {
@@ -526,10 +687,28 @@ html[data-tauri-os="macos"] .hecate-shell {
   opacity: 0.6;
   font-size: 10px;
   line-height: 1;
+  min-height: 28px;
+  min-width: 28px;
 }
 
 .toast__dismiss:hover {
   opacity: 1;
+}
+
+@media (max-width: 520px),
+  (max-width: 960px) and (max-height: 520px) and (hover: none) and (pointer: coarse) {
+  .toast {
+    width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 24px);
+  }
+
+  .toast__dismiss {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 44px;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 @keyframes toast-in {

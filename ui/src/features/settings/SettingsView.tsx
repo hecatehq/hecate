@@ -77,7 +77,7 @@ export function SettingsView() {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+      <div className="settings-view__scroll" style={{ flex: 1, overflowY: "auto", padding: 16 }}>
         {canUseDesktopCloudConnection() && <DesktopCloudConnectionSettings />}
         <PluginRegistrySettings
           error={pluginsError}
@@ -187,7 +187,7 @@ function DesktopCloudConnectionSettings() {
     <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-connection">
       <SectionHeader
         title="Remote access"
-        description="Use this Hecate from your phone or another browser."
+        description="Use this Hecate from your phone or another browser. Authenticated remote External Agent work may use this computer's configured CLI sign-ins; credentials stay on this computer."
         meta={status?.running ? "connected" : undefined}
       />
       <div className="card" style={{ overflow: "hidden" }}>
@@ -212,7 +212,7 @@ function DesktopCloudConnectionSettings() {
               </div>
               <div style={{ marginTop: 4, color: "var(--t2)", fontSize: 12, lineHeight: 1.5 }}>
                 {authorizing
-                  ? "Approve this computer in the browser window that opened."
+                  ? "Approve the sign-in request in your browser. This window updates automatically."
                   : "Sign in once to make this computer available on your other devices."}
               </div>
             </div>
@@ -226,7 +226,7 @@ function DesktopCloudConnectionSettings() {
                 {busy === "connect"
                   ? "Opening…"
                   : authorizing
-                    ? "Open sign-in again"
+                    ? "Open browser again"
                     : "Sign in to Hecate Cloud"}
               </button>
             </div>
@@ -419,7 +419,10 @@ function PluginRegistryRow({ plugin }: { plugin: PluginRecord }) {
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--t0)" }}>{plugin.name}</div>
-            <span style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+            <span
+              className="settings-machine-text"
+              style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--font-mono)" }}
+            >
               {plugin.id}@{plugin.version}
             </span>
             <Badge status={plugin.enabled ? "enabled" : "disabled"} />
@@ -443,7 +446,7 @@ function PluginRegistryRow({ plugin }: { plugin: PluginRecord }) {
               color: "var(--t3)",
             }}
           >
-            <span>{sourceLabel(plugin)}</span>
+            <span className="settings-machine-text">{sourceLabel(plugin)}</span>
             <span>{capabilities.length} capabilities</span>
             <span>{permissions.length} permissions</span>
             <span>{auth.length} auth requests</span>
@@ -470,6 +473,7 @@ function PluginRegistryRow({ plugin }: { plugin: PluginRecord }) {
             .map((capability) => (
               <div
                 key={`${capability.id}-mcp`}
+                className="settings-machine-text"
                 style={{
                   color: "var(--t3)",
                   fontFamily: "var(--font-mono)",

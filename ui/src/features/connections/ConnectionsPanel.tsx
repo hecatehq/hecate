@@ -41,6 +41,7 @@ import type {
 } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { DictationReadinessSection } from "./DictationReadinessSection";
+import "./connections-mobile.css";
 
 type Props = {
   onNavigate?: (
@@ -288,7 +289,7 @@ export function ConnectionsPanel({
   }
 
   return (
-    <>
+    <div className="connections-panel">
       {showProviderSummary && (
         <ModelProviderConnectionsSection
           settingsConfig={settingsConfig}
@@ -372,7 +373,7 @@ export function ConnectionsPanel({
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -683,7 +684,7 @@ function AnthropicProviderKeyCard({
         Used by Hecate Chat and direct Anthropic provider calls through{" "}
         {provider.name || "Anthropic"}. This is separate from Claude Code's local CLI sign-in.
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="anthropic-provider-key-controls" style={{ display: "flex", gap: 8 }}>
         <input
           value={key}
           onChange={(event) => setKey(event.target.value)}
@@ -897,6 +898,7 @@ function AdapterStatusRow({
       <BrandAvatar brand={adapter.id} fallback={adapter.name} size={30} />
       <div style={{ minWidth: 0, flex: "1 1 260px" }}>
         <div
+          className="external-agent-heading"
           style={{
             display: "flex",
             alignItems: "center",
@@ -927,6 +929,7 @@ function AdapterStatusRow({
           )}
         </div>
         <div
+          className="external-agent-metadata"
           style={{
             display: "flex",
             flexWrap: "wrap",
@@ -1409,6 +1412,7 @@ function AdapterLocalAuthSetup({
             }}
           >
             <code
+              className="external-agent-login-command"
               style={{
                 border: "1px solid var(--border)",
                 borderRadius: 6,
@@ -1546,6 +1550,7 @@ function GrantRow({
 
   return (
     <div
+      className="external-agent-grant-row"
       data-testid={`external-agents-row-${grant.id}`}
       style={{
         display: "flex",
@@ -1557,7 +1562,10 @@ function GrantRow({
     >
       <BrandAvatar brand={grant.adapter_id} fallback={grant.adapter_id} size={26} />
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+        <div
+          className="external-agent-grant-title"
+          style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}
+        >
           <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>
             {grant.adapter_id}
           </span>
@@ -1580,6 +1588,7 @@ function GrantRow({
           </span>
         </div>
         <div
+          className="external-agent-grant-metadata"
           style={{
             display: "flex",
             flexWrap: "wrap",
@@ -1612,7 +1621,10 @@ function GrantRow({
         </div>
       </div>
       {confirmingRevoke ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div
+          className="external-agent-grant-actions"
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
+        >
           <button
             type="button"
             className="btn btn-danger btn-sm"
@@ -1635,7 +1647,7 @@ function GrantRow({
       ) : (
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm external-agent-grant-action"
           onClick={() => setConfirmingRevoke(true)}
           title="Revoke this grant"
           data-testid={`external-agents-revoke-${grant.id}`}

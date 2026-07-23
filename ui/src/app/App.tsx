@@ -30,7 +30,7 @@ import { RuntimeProvider } from "./state/runtime";
 import { SettingsProvider } from "./state/settings";
 import { UsageProvider } from "./state/usage";
 import { usePersistedState } from "../lib/persistedState";
-import { desktopHost, isTauriRuntime } from "../lib/tauri";
+import { desktopHost, isMobileTauriRuntime, isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace";
 
@@ -57,6 +57,14 @@ export function navigationStateUpdateMode(
   const currentWorkspace = parseNavigationURL(currentURL).workspace ?? preferredWorkspace;
   const nextWorkspace = parseNavigationURL(nextURL).workspace ?? preferredWorkspace;
   return currentWorkspace === nextWorkspace ? "urgent" : "transition";
+}
+
+export function resolveRequestedWorkspace(
+  explicitWorkspace: WorkspaceID | null,
+  preferredWorkspace: WorkspaceID,
+  mobileRuntime: boolean,
+): WorkspaceID {
+  return explicitWorkspace ?? (mobileRuntime ? "chats" : preferredWorkspace);
 }
 
 // Slice providers wrap RootEffects + AppConsole directly. The
@@ -106,7 +114,12 @@ function AppConsole() {
   const parsedNavigation = useMemo(() => parseNavigationURL(navigationURL), [navigationURL]);
 
   const workspaces = getAvailableWorkspaces();
-  const requestedWorkspace = parsedNavigation.workspace ?? preferredWorkspace;
+  const mobileRuntime = isMobileTauriRuntime();
+  const requestedWorkspace = resolveRequestedWorkspace(
+    parsedNavigation.workspace,
+    preferredWorkspace,
+    mobileRuntime,
+  );
   const activeWorkspace: WorkspaceID = workspaces.some((w) => w.id === requestedWorkspace)
     ? requestedWorkspace
     : "overview";
@@ -174,7 +187,11 @@ function AppConsole() {
     const syncFromBrowser = () => {
       const currentURL = readBrowserNavigationURL();
       const parsed = parseNavigationURL(currentURL);
-      const workspace = parsed.workspace ?? preferredWorkspaceRef.current;
+      const workspace = resolveRequestedWorkspace(
+        parsed.workspace,
+        preferredWorkspaceRef.current,
+        mobileRuntime,
+      );
       const canonicalURL = parsed.workspace
         ? parsed.canonicalURL
         : workspaceNavigationURL(currentURL, workspace);
@@ -188,7 +205,7 @@ function AppConsole() {
     syncFromBrowser();
     window.addEventListener("popstate", syncFromBrowser);
     return () => window.removeEventListener("popstate", syncFromBrowser);
-  }, [applyNavigationURL, setPreferredWorkspace]);
+  }, [applyNavigationURL, mobileRuntime, setPreferredWorkspace]);
 
   useEffect(() => {
     return installTauriEditShortcutFallback();

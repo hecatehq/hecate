@@ -14,6 +14,17 @@ import type { TraceSpanRecord } from "../../../types/trace";
 // the centered Modal we used to ship.
 export const DRAWER_BREAKPOINT_PX = 900;
 
+// Below this width the Recent requests heading and controls become a
+// vertical stack. Keeping this independent from DRAWER_BREAKPOINT_PX
+// lets tablet-sized layouts retain the compact Modal without making
+// the filter bar look like a phone layout.
+export const COMPACT_FILTERS_BREAKPOINT_PX = 640;
+
+// The request table carries enough operational context that dropping
+// columns on a phone would make it much less useful. Preserve its
+// desktop geometry and let the feature-owned wrapper scroll instead.
+export const REQUEST_TABLE_MIN_WIDTH_PX = 900;
+
 export type StatusFilter = "all" | "healthy" | "error";
 
 export const PROVIDER_COLORS: Record<string, string> = {

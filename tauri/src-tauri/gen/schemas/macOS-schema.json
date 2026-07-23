@@ -369,6 +369,72 @@
           "markdownDescription": "Enables the cloud_connection_stop command without any pre-configured scope."
         },
         {
+          "description": "Enables the mobile_connections command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-connections",
+          "markdownDescription": "Enables the mobile_connections command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_disable_notifications command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-disable-notifications",
+          "markdownDescription": "Enables the mobile_disable_notifications command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_enable_notifications command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-enable-notifications",
+          "markdownDescription": "Enables the mobile_enable_notifications command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_notification_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-notification-status",
+          "markdownDescription": "Enables the mobile_notification_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_open_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-open-connection",
+          "markdownDescription": "Enables the mobile_open_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_open_notification_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-open-notification-settings",
+          "markdownDescription": "Enables the mobile_open_notification_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_reopen_authorization command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-reopen-authorization",
+          "markdownDescription": "Enables the mobile_reopen_authorization command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-sign-in",
+          "markdownDescription": "Enables the mobile_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_sign_out command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-sign-out",
+          "markdownDescription": "Enables the mobile_sign_out command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_start_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-start-connection",
+          "markdownDescription": "Enables the mobile_start_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-status",
+          "markdownDescription": "Enables the mobile_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables opening the active workspace in a local editor, terminal, or file manager.",
           "type": "string",
           "const": "allow-open-workspace-target",
@@ -409,6 +475,72 @@
           "type": "string",
           "const": "deny-cloud-connection-stop",
           "markdownDescription": "Denies the cloud_connection_stop command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_connections command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-connections",
+          "markdownDescription": "Denies the mobile_connections command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_disable_notifications command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-disable-notifications",
+          "markdownDescription": "Denies the mobile_disable_notifications command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_enable_notifications command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-enable-notifications",
+          "markdownDescription": "Denies the mobile_enable_notifications command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_notification_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-notification-status",
+          "markdownDescription": "Denies the mobile_notification_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_open_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-open-connection",
+          "markdownDescription": "Denies the mobile_open_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_open_notification_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-open-notification-settings",
+          "markdownDescription": "Denies the mobile_open_notification_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_reopen_authorization command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-reopen-authorization",
+          "markdownDescription": "Denies the mobile_reopen_authorization command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-sign-in",
+          "markdownDescription": "Denies the mobile_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_sign_out command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-sign-out",
+          "markdownDescription": "Denies the mobile_sign_out command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_start_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-start-connection",
+          "markdownDescription": "Denies the mobile_start_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-status",
+          "markdownDescription": "Denies the mobile_status command without any pre-configured scope."
         },
         {
           "description": "Denies opening the active workspace in a local editor, terminal, or file manager.",

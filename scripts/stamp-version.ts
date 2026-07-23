@@ -12,6 +12,10 @@
 //   tauri/package.json              mirrors Cargo.toml
 //   tauri/src-tauri/tauri.conf.json mirrors Cargo.toml
 //     (Tauri 2.x removed "version": "package" — must be written explicitly)
+//   tauri/src-tauri/tauri.{ios,android}.conf.json
+//                                  use store-compatible monotonic build numbers
+//   tauri/src-tauri/gen/apple/project.yml and Info.plist
+//                                  use App Store-compatible version fields
 //
 // Usage:
 //   bun scripts/stamp-version.ts                      # from repo root
@@ -19,6 +23,7 @@
 
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { androidVersionCode, appleBuildNumber, windowsVersion } from "./mobile-version";
 import { resolveTauriVersion, tauri } from "./resolve-tauri-version";
 
 // ── 1. Resolve the target version ────────────────────────────────────────────
@@ -35,10 +40,7 @@ const cargo = readFileSync(cargoPath, "utf8");
 // Replace the version line inside [package] only (before the next section).
 // The regex matches `version = "..."` that appears before the first `[` after
 // `[package]`, so dependency version pins are left untouched.
-const updatedCargo = cargo.replace(
-  /(\[package\][^[]*?version\s*=\s*)"[^"]+"/ms,
-  `$1"${version}"`,
-);
+const updatedCargo = cargo.replace(/(\[package\][^[]*?version\s*=\s*)"[^"]+"/ms, `$1"${version}"`);
 
 if (updatedCargo === cargo) {
   console.log(`  Cargo.toml  already at ${version}`);
@@ -95,18 +97,10 @@ if (pkg.version === version) {
 //     is msi-only on Windows); if NSIS is added, it'll hit the same MSI
 //     constraint and require a different upstream fix.
 
-function windowsVersion(semver: string): string {
-  const m = semver.match(/^(\d+)\.(\d+)\.(\d+)(?:-(?:[A-Za-z]+)\.(\d+))?/);
-  if (!m) {
-    throw new Error(
-      `unparseable semver for Windows MSI version: ${semver}. Expected M.m.p or M.m.p-<id>.N.`,
-    );
-  }
-  const [, major, minor, patch, pre] = m;
-  return `${major}.${minor}.${patch}.${pre ?? "0"}`;
-}
-
 const winVersion = windowsVersion(version);
+const iosVersion = version.replace(/-.+$/, "");
+const iosBuildNumber = appleBuildNumber(version);
+const androidBuildNumber = androidVersionCode(version);
 
 const confPath = resolve(tauri, "src-tauri/tauri.conf.json");
 const conf = JSON.parse(readFileSync(confPath, "utf8"));
@@ -133,6 +127,49 @@ if (confChanged) {
   console.log(`  tauri.conf.json → ${version} (wix: ${winVersion})`);
 } else {
   console.log(`  tauri.conf.json already at ${version} (wix: ${winVersion})`);
+}
+
+const iosConfPath = resolve(tauri, "src-tauri/tauri.ios.conf.json");
+const iosConf = JSON.parse(readFileSync(iosConfPath, "utf8"));
+iosConf.bundle ??= {};
+iosConf.bundle.iOS ??= {};
+if (iosConf.bundle.iOS.bundleVersion !== iosBuildNumber) {
+  iosConf.bundle.iOS.bundleVersion = iosBuildNumber;
+  writeFileSync(iosConfPath, JSON.stringify(iosConf, null, 2) + "\n");
+  console.log(`  tauri.ios.conf.json → bundleVersion ${iosBuildNumber}`);
+}
+
+const androidConfPath = resolve(tauri, "src-tauri/tauri.android.conf.json");
+const androidConf = JSON.parse(readFileSync(androidConfPath, "utf8"));
+androidConf.bundle ??= {};
+androidConf.bundle.android ??= {};
+if (androidConf.bundle.android.versionCode !== androidBuildNumber) {
+  androidConf.bundle.android.versionCode = androidBuildNumber;
+  writeFileSync(androidConfPath, JSON.stringify(androidConf, null, 2) + "\n");
+  console.log(`  tauri.android.conf.json → versionCode ${androidBuildNumber}`);
+}
+
+const appleProjectPath = resolve(tauri, "src-tauri/gen/apple/project.yml");
+const appleProject = readFileSync(appleProjectPath, "utf8");
+const updatedAppleProject = appleProject
+  .replace(/(CFBundleShortVersionString:\s*)[^\n]+/, `$1${iosVersion}`)
+  .replace(/(CFBundleVersion:\s*)"[^"]+"/, `$1"${iosBuildNumber}"`);
+if (updatedAppleProject !== appleProject) {
+  writeFileSync(appleProjectPath, updatedAppleProject);
+  console.log(`  gen/apple/project.yml → ${iosVersion} (${iosBuildNumber})`);
+}
+
+const appleInfoPath = resolve(tauri, "src-tauri/gen/apple/hecate-app_iOS/Info.plist");
+const appleInfo = readFileSync(appleInfoPath, "utf8");
+const updatedAppleInfo = appleInfo
+  .replace(
+    /(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]+(<\/string>)/,
+    `$1${iosVersion}$2`,
+  )
+  .replace(/(<key>CFBundleVersion<\/key>\s*<string>)[^<]+(<\/string>)/, `$1${iosBuildNumber}$2`);
+if (updatedAppleInfo !== appleInfo) {
+  writeFileSync(appleInfoPath, updatedAppleInfo);
+  console.log(`  gen/apple/Info.plist → ${iosVersion} (${iosBuildNumber})`);
 }
 
 console.log("done.");

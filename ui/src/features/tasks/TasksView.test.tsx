@@ -877,6 +877,24 @@ describe("TasksView streamed Task summaries", () => {
 });
 
 describe("TasksView selected task", () => {
+  it("switches the compact master-detail workspace back to the task index", async () => {
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [task] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [run] });
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    const { container } = render(
+      withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    expect(await screen.findByRole("heading", { name: task.title })).toBeTruthy();
+    const workspace = container.querySelector(".tasks-workspace");
+    expect(workspace).toHaveClass("tasks-workspace--detail-open");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }));
+
+    expect(workspace).toHaveClass("tasks-workspace--index-open");
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Tasks/ })).toHaveFocus());
+  });
+
   it("keeps a committed first Run selected when the follow-up refresh fails", async () => {
     const notStartedTask: TaskRecord = {
       ...task,

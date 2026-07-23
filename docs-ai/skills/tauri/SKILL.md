@@ -67,14 +67,14 @@ tauri/
 
 ## Just recipes
 
-| Recipe                  | What it does                                                                                                               |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `just tauri-install`    | `bun install` inside `tauri/`                                                                                              |
-| `just tauri-version`    | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
-| `just tauri-sidecar`    | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}`                                             |
-| `just tauri-dev`        | `tauri-sidecar` + `tauri-install` + `bunx tauri dev`                                                                       |
-| `just tauri-build`      | `tauri-sidecar` + `tauri-version` + `bunx tauri build`                                                                     |
-| `just test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits                             |
+| Recipe                  | What it does                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `just tauri-install`    | `bun install` inside `tauri/`                                                                                            |
+| `just tauri-version`    | runs `scripts/stamp-version.ts` — stamps desktop and mobile version metadata to the current git tag (or `TAURI_VERSION`) |
+| `just tauri-sidecar`    | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}`                                           |
+| `just tauri-dev`        | `tauri-sidecar` + `tauri-install` + `bunx tauri dev`                                                                     |
+| `just tauri-build`      | `tauri-sidecar` + `tauri-version` + `bunx tauri build`                                                                   |
+| `just test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits                           |
 
 Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri-build` for cross-compile. With just, env vars go before the command: `TAURI_TARGET=universal-apple-darwin just tauri-build`. Run `just tauri-sidecar` separately when you change Go code but not Rust — it's the fast path.
 
@@ -163,6 +163,12 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   memory. Relay requests must stamp the authenticated Cloud actor, org, and host
   identity after filtering browser-provided headers. Never expose the secret or
   accept remote identity through Tauri IPC.
+- Launch the native sidecar with
+  `HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1`. The first-party Desktop
+  connector is a single-user personal-runtime boundary, so an authenticated
+  remote request may reuse that desktop user's External Agent CLI login state.
+  Keep this posture local to the native Desktop sidecar; do not silently extend
+  it to hosted runtimes or the standalone `hec connect` flow.
 - Rust owns Cloud login, credential storage, reconnect, transport validation,
   body limits, and response streaming. Go owns remote endpoint authorization.
   Do not add a second Hecate route allowlist to `cloud_connection.rs`; every
@@ -345,6 +351,7 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 - **Go sidecar names differ by host and bundle target.** `just tauri-sidecar <target>` reads `go env GOEXE`, then stages `hecate$GOEXE` to `binaries/hecate-<target>$GOEXE`. A missing source fails at `cp`, which usually means the versioned sidecar build failed earlier in the recipe.
 - **`just tauri-build-sidecars` runs `just ui-build` which checks for `ui/node_modules/@vitejs/plugin-react`.** That's the canary file. CI must run `just ui-install` before building Tauri sidecars. Goreleaser handles the normal gateway build via its `before:` hook (`bun install --cwd ui --frozen-lockfile`); the Tauri matrix does it explicitly.
 - **`TAURI_VERSION` may include the `v` prefix.** `scripts/resolve-tauri-version.ts` normalizes either `v0.1.0-alpha.N` or `0.1.0-alpha.N`; both `stamp-version.ts` and `just tauri-build-sidecars` use that shared resolver so Tauri metadata and Go sidecar versions stay aligned.
+- **The release stamp commit includes mobile metadata.** `stamp-version.ts` also writes `tauri.ios.conf.json`, `tauri.android.conf.json`, `gen/apple/project.yml`, and the generated iOS `Info.plist`. Keep the explicit `git add` list in `scripts/release.ts` aligned with every file the stamper can mutate so a release tag never disagrees with its store artifacts.
 - **Windows MSI rejects pre-release identifiers in the version.** WiX requires a four-part numeric `Major.Minor.Build.Revision` (each ≤ 65535). `0.1.0-alpha.8` fails with "optional pre-release identifier in app version must be numeric-only". `stamp-version.ts` writes a derived four-part version to `bundle.windows.wix.version` (e.g. `0.1.0-alpha.8` → `0.1.0.8`); MSI uses that override, every other bundler still sees the canonical semver. NSIS has no version-override field in Tauri's schema — the matrix is MSI-only on Windows for that reason. If NSIS is ever added, expect the same failure mode and find an upstream fix.
 
 ### Code signing — macOS conditional, Windows not yet wired

@@ -21,8 +21,9 @@ import {
 } from "./navigation";
 import type { ChatUsageRecord } from "../types/chat";
 import { DesktopUpdateCenter } from "../features/shared/DesktopUpdateControl";
+import { Modal } from "../features/shared/Overlays";
 import { usePersistedState } from "../lib/persistedState";
-import { isTauriOnMacOS } from "../lib/tauri";
+import { isMobileTauriRuntime, isTauriOnMacOS, MOBILE_INSTANCES_URL } from "../lib/tauri";
 import type { ProviderFilter } from "../types/provider";
 
 // Each workspace view is its own dynamic chunk so the initial
@@ -151,11 +152,13 @@ const IC = {
     "M8 11h8",
     "M8 15h5",
   ],
+  more: "M5 12h.01M12 12h.01M19 12h.01",
 };
 
 function SvgIcon({ d, size = 18 }: { d: string | string[]; size?: number }) {
   return (
     <svg
+      aria-hidden="true"
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -249,6 +252,8 @@ const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   settings: { id: "settings", label: "Settings", icon: <SvgIcon d={IC.settings} /> },
 };
 
+const MOBILE_PRIMARY_WORKSPACES = [WS.chats, WS.projects, WS.tasks];
+const MOBILE_MORE_WORKSPACES = [WS.connections, WS.overview, WS.usage, WS.settings];
 const BARE_WORKSPACES: WorkspaceID[] = ["chats", "projects", "tasks"];
 
 export function getAvailableWorkspaces(): WorkspaceDefinition[] {
@@ -376,6 +381,13 @@ function AuthenticatedShell({
     runID: taskNavigation?.runID ?? null,
   });
   const [theme, toggleTheme] = useTheme();
+  const isMobileRuntime = isMobileTauriRuntime();
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null);
+  const navigationWorkspaces = isMobileRuntime ? MOBILE_PRIMARY_WORKSPACES : workspaces;
+  const mobileMoreIsActive = MOBILE_MORE_WORKSPACES.some(
+    (workspace) => workspace.id === activeWorkspace,
+  );
   const taskNavigationPresent = taskNavigation !== undefined;
   const routedTaskID = taskNavigation?.taskID ?? null;
   const routedRunID = taskNavigation?.runID ?? null;
@@ -471,6 +483,7 @@ function AuthenticatedShell({
 
   const handleWorkspaceSelection = useCallback(
     (workspace: WorkspaceID) => {
+      setMobileMoreOpen(false);
       routedChatSelectionRef.current = null;
       invalidateTaskChatNavigation();
       onSelectWorkspace(workspace);
@@ -686,8 +699,12 @@ function AuthenticatedShell({
       {hasOverlayTitlebar && <div className="hecate-titlebar" data-tauri-drag-region="deep" />}
       <div className="hecate-workarea">
         {/* Activity bar */}
-        <nav className="hecate-activitybar" aria-label="Workspace navigation">
-          {workspaces.map((ws) => (
+        <nav
+          className="hecate-activitybar"
+          aria-label="Workspace navigation"
+          data-mobile-runtime={isMobileRuntime ? "true" : undefined}
+        >
+          {navigationWorkspaces.map((ws) => (
             <a
               key={ws.id}
               aria-label={ws.label}
@@ -702,21 +719,43 @@ function AuthenticatedShell({
               title={ws.label}
             >
               {ws.icon}
+              <span className="hecate-activitybtn__label">{ws.label}</span>
             </a>
           ))}
-          {/* Pin theme toggle to the bottom of the rail. The flex spacer
-              keeps it visually separated from workspace icons regardless
-              of how many workspaces are registered. */}
-          <span style={{ flex: 1 }} />
-          <button
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-            className="hecate-activitybtn"
-            onClick={toggleTheme}
-            title={`Theme: ${theme}`}
-            type="button"
-          >
-            {theme === "dark" ? SunIcon : MoonIcon}
-          </button>
+          {isMobileRuntime ? (
+            <button
+              ref={mobileMoreTriggerRef}
+              aria-controls="mobile-more-navigation-dialog"
+              aria-current={mobileMoreIsActive ? "page" : undefined}
+              aria-expanded={mobileMoreOpen}
+              aria-haspopup="dialog"
+              aria-label="More"
+              className={`hecate-activitybtn${
+                mobileMoreIsActive ? " hecate-activitybtn--active" : ""
+              }`}
+              onClick={() => setMobileMoreOpen(true)}
+              type="button"
+            >
+              <SvgIcon d={IC.more} />
+              <span className="hecate-activitybtn__label">More</span>
+            </button>
+          ) : (
+            <>
+              {/* Pin theme toggle to the bottom of the rail. The flex spacer
+                  keeps it visually separated from workspace icons regardless
+                  of how many workspaces are registered. */}
+              <span style={{ flex: 1 }} />
+              <button
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+                className="hecate-activitybtn"
+                onClick={toggleTheme}
+                title={`Theme: ${theme}`}
+                type="button"
+              >
+                {theme === "dark" ? SunIcon : MoonIcon}
+              </button>
+            </>
+          )}
         </nav>
 
         {/* Main content */}
@@ -772,8 +811,54 @@ function AuthenticatedShell({
         </main>
       </div>
 
+      {isMobileRuntime && mobileMoreOpen && (
+        <Modal
+          id="mobile-more-navigation-dialog"
+          title="More"
+          ariaLabel="More Hecate screens"
+          footer={
+            <button className="btn btn-ghost mobile-more-theme" onClick={toggleTheme} type="button">
+              {theme === "dark" ? SunIcon : MoonIcon}
+              <span>Switch to {theme === "dark" ? "Light" : "Dark"} Theme</span>
+            </button>
+          }
+          onClose={() => setMobileMoreOpen(false)}
+          returnFocusRef={mobileMoreTriggerRef}
+          width={420}
+        >
+          <nav className="mobile-more-navigation" aria-label="More workspaces">
+            {MOBILE_MORE_WORKSPACES.map((workspace) => (
+              <a
+                key={workspace.id}
+                aria-current={activeWorkspace === workspace.id ? "page" : undefined}
+                className="mobile-more-navigation__link"
+                href={workspaceNavigationURL(window.location, workspace.id)}
+                onClick={(event) => {
+                  if (!isPlainNavigationClick(event)) return;
+                  event.preventDefault();
+                  handleWorkspaceSelection(workspace.id);
+                }}
+              >
+                {workspace.icon}
+                <span>{workspace.label}</span>
+              </a>
+            ))}
+          </nav>
+        </Modal>
+      )}
+
       {/* Status bar */}
-      <div className="hecate-statusbar">
+      <div className="hecate-statusbar" data-mobile-runtime={isMobileRuntime ? "true" : undefined}>
+        {isMobileRuntime && (
+          <a
+            aria-label="Switch Hecate instance"
+            className="hecate-statusbar__instances"
+            href={MOBILE_INSTANCES_URL}
+          >
+            <span aria-hidden="true">‹</span>
+            Instances
+          </a>
+        )}
         <span className="hecate-statusbar__brand">hecate</span>
         {runtimeVersion && (
           <>

@@ -510,6 +510,109 @@ func TestRemoteRuntimeStatusCanOptIntoPersonalRemoteLogins(t *testing.T) {
 	}
 }
 
+func TestPersonalRemoteLocalLoginUsesCandidatePathForDiscoveryAndProbe(t *testing.T) {
+	if remoteRuntimeBuild {
+		t.Skip("hecate_remote build omits local-login credential modes")
+	}
+	t.Setenv(adapterDevOverrideEnv, "")
+	t.Setenv(adapterDiscoveryOverrideEnv, "")
+	t.Setenv(adapterTestProcessOverridesEnv, "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CODEX_API_KEY", "")
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+	installDir := t.TempDir()
+	t.Setenv("CODEX_INSTALL_DIR", installDir)
+	candidateName := "codex"
+	if runtime.GOOS == "windows" {
+		candidateName += ".exe"
+	}
+	candidate := filepath.Join(installDir, candidateName)
+	candidateLookups := 0
+	lookup := func(file string) (string, error) {
+		if file == candidate {
+			candidateLookups++
+			return candidate, nil
+		}
+		return "", exec.ErrNotFound
+	}
+	ctx := remoteIdentityContext()
+
+	catalogStatus, ok := CatalogStatusForAdapter(ctx, "codex", lookup)
+	if !ok {
+		t.Fatal("CatalogStatusForAdapter(codex) ok = false")
+	}
+	if !catalogStatus.Available || catalogStatus.Path != candidate {
+		t.Fatalf("personal remote catalog status = %#v, want candidate %q available", catalogStatus, candidate)
+	}
+	if !catalogStatus.RemoteCredentialOK || catalogStatus.RemoteCredentialMode != CredentialModeLocalLogin {
+		t.Fatalf("personal remote catalog credential = %t/%q, want local_login", catalogStatus.RemoteCredentialOK, catalogStatus.RemoteCredentialMode)
+	}
+
+	probeStatus, ok := StatusForAdapterAfterExplicitProbe(ctx, "codex", lookup)
+	if !ok {
+		t.Fatal("StatusForAdapterAfterExplicitProbe(codex) ok = false")
+	}
+	if !probeStatus.Available || probeStatus.Path != candidate {
+		t.Fatalf("personal remote probe status = %#v, want candidate %q available", probeStatus, candidate)
+	}
+
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatal("missing codex adapter")
+	}
+	resolved, err := resolveAdapterPeerExecutable(ctx, adapter, lookup)
+	if err != nil {
+		t.Fatalf("resolveAdapterPeerExecutable: %v", err)
+	}
+	if resolved != candidate {
+		t.Fatalf("resolved peer executable = %q, want %q", resolved, candidate)
+	}
+	if candidateLookups < 3 {
+		t.Fatalf("candidate lookup count = %d, want discovery, probe, and peer resolution", candidateLookups)
+	}
+}
+
+func TestRemoteAPIKeyDoesNotUsePersonalCandidatePaths(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "")
+	t.Setenv(adapterDiscoveryOverrideEnv, "")
+	t.Setenv(adapterTestProcessOverridesEnv, "")
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+	t.Setenv("OPENAI_API_KEY", "sk-remote-test")
+	t.Setenv("CODEX_API_KEY", "")
+	installDir := t.TempDir()
+	t.Setenv("CODEX_INSTALL_DIR", installDir)
+	candidateLookups := 0
+	lookup := func(file string) (string, error) {
+		if file != "codex" {
+			candidateLookups++
+		}
+		return "", exec.ErrNotFound
+	}
+	ctx := remoteIdentityContext()
+
+	status, ok := StatusForAdapterAfterExplicitProbe(ctx, "codex", lookup)
+	if !ok {
+		t.Fatal("StatusForAdapterAfterExplicitProbe(codex) ok = false")
+	}
+	if status.Available {
+		t.Fatalf("API-key remote status = %#v, want unavailable without remote PATH command", status)
+	}
+	if !status.RemoteCredentialOK || status.RemoteCredentialMode != CredentialModeAPIKey {
+		t.Fatalf("API-key remote credential = %t/%q, want selected api_key", status.RemoteCredentialOK, status.RemoteCredentialMode)
+	}
+
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatal("missing codex adapter")
+	}
+	if _, err := resolveAdapterPeerExecutable(ctx, adapter, lookup); err == nil {
+		t.Fatal("resolveAdapterPeerExecutable error = nil, want missing remote PATH command")
+	}
+	if candidateLookups != 0 {
+		t.Fatalf("host-personal candidate lookup count = %d, want 0 for API-key remote mode", candidateLookups)
+	}
+}
+
 func TestListWithLookupReportsAvailability(t *testing.T) {
 	t.Parallel()
 
@@ -1477,6 +1580,18 @@ func TestPrepareAdapterProcessEnvUsesPersistentHomeForPersonalRemoteLogins(t *te
 	if !ok {
 		t.Fatal("missing codex adapter")
 	}
+	runtimeName := "codex-personal-path-test"
+	if runtime.GOOS == "windows" {
+		runtimeName += ".exe"
+	}
+	runtimePath := filepath.Join(t.TempDir(), runtimeName)
+	if err := os.WriteFile(runtimePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write candidate executable: %v", err)
+	}
+	adapter.AgentVersion = VersionProbe{
+		Command:        "codex-personal-path-test",
+		CandidatePaths: []string{runtimePath},
+	}
 	processEnv, err := prepareAdapterProcessEnv(remoteIdentityContext(), adapter, []string{
 		"PATH=/bin",
 		"HOME=/workspace/.hecate/home",
@@ -1499,6 +1614,7 @@ func TestPrepareAdapterProcessEnvUsesPersistentHomeForPersonalRemoteLogins(t *te
 	for _, item := range processEnv.values {
 		got[item] = true
 	}
+	wantPath := filepath.Dir(runtimePath) + string(os.PathListSeparator) + "/bin"
 	for _, want := range []string{
 		"HOME=/workspace/.hecate/home",
 		"USERPROFILE=/workspace/.hecate/home",
@@ -1506,7 +1622,7 @@ func TestPrepareAdapterProcessEnvUsesPersistentHomeForPersonalRemoteLogins(t *te
 		"XDG_CACHE_HOME=/workspace/.hecate/cache",
 		"XDG_DATA_HOME=/workspace/.hecate/share",
 		"NPM_CONFIG_CACHE=/workspace/.hecate/npm-cache",
-		"PATH=/bin",
+		"PATH=" + wantPath,
 	} {
 		if !got[want] {
 			t.Fatalf("missing personal remote login env %q in %#v", want, processEnv.values)
@@ -1519,6 +1635,45 @@ func TestPrepareAdapterProcessEnvUsesPersistentHomeForPersonalRemoteLogins(t *te
 		if got[blocked] {
 			t.Fatalf("blocked personal remote login env %q leaked into %#v", blocked, processEnv.values)
 		}
+	}
+}
+
+func TestPrepareAdapterProcessEnvDoesNotPrependCandidatePathForRemoteAPIKey(t *testing.T) {
+	t.Setenv(personalRemoteExternalAgentLoginsEnv, "1")
+	t.Setenv("OPENAI_API_KEY", "sk-remote-test")
+	t.Setenv("CODEX_API_KEY", "")
+
+	adapter, ok := BuiltInByID("codex")
+	if !ok {
+		t.Fatal("missing codex adapter")
+	}
+	runtimeName := "codex-api-key-path-test"
+	if runtime.GOOS == "windows" {
+		runtimeName += ".exe"
+	}
+	runtimePath := filepath.Join(t.TempDir(), runtimeName)
+	if err := os.WriteFile(runtimePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write candidate executable: %v", err)
+	}
+	adapter.AgentVersion = VersionProbe{
+		Command:        "codex-api-key-path-test",
+		CandidatePaths: []string{runtimePath},
+	}
+
+	processEnv, err := prepareAdapterProcessEnv(remoteIdentityContext(), adapter, []string{
+		"PATH=/bin",
+		"HOME=/workspace/.hecate/home",
+		"OPENAI_API_KEY=sk-remote-test",
+	})
+	if err != nil {
+		t.Fatalf("prepareAdapterProcessEnv: %v", err)
+	}
+	if processEnv.cleanup == nil {
+		t.Fatal("cleanup = nil for API-key remote env, want ephemeral home cleanup")
+	}
+	defer processEnv.cleanup()
+	if got := envValue(processEnv.values, "PATH"); got != "/bin" {
+		t.Fatalf("API-key remote PATH = %q, want host-personal candidate directory excluded", got)
 	}
 }
 

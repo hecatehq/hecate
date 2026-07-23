@@ -1,3 +1,5 @@
+import type { Ref } from "react";
+
 import type { ChatSessionRecord } from "../../types/chat";
 import { EntityDetailHeader } from "../shared/EntityWorkspace";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
@@ -6,6 +8,7 @@ import { WorkspaceOpenMenu } from "./WorkspaceOpenMenu";
 type Props = {
   sidebarOpen: boolean;
   onOpenSidebar: () => void;
+  openSidebarButtonRef?: Ref<HTMLButtonElement>;
 
   // Identity strip (avatar + title + subline).
   brand?: string;
@@ -27,6 +30,7 @@ type Props = {
   workspaceDialogOpen: boolean;
   workspaceChangesOpen: boolean;
   chatSettingsOpen: boolean;
+  rightPanelID?: string;
   onChooseWorkspace: () => void;
   onToggleWorkspaceChanges: () => void;
   onToggleChatSettings: () => void;
@@ -40,6 +44,7 @@ export function ChatHeader(props: Props) {
   const {
     sidebarOpen,
     onOpenSidebar,
+    openSidebarButtonRef,
     brand,
     fallback,
     title,
@@ -55,6 +60,7 @@ export function ChatHeader(props: Props) {
     workspaceDialogOpen,
     workspaceChangesOpen,
     chatSettingsOpen,
+    rightPanelID,
     onChooseWorkspace,
     onToggleWorkspaceChanges,
     onToggleChatSettings,
@@ -65,8 +71,9 @@ export function ChatHeader(props: Props) {
     <EntityDetailHeader aria-label="Chat details">
       {!sidebarOpen && (
         <button
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm chat-header-action"
           onClick={onOpenSidebar}
+          ref={openSidebarButtonRef}
           title="Open chats"
           aria-label="Open chats sidebar"
           type="button"
@@ -211,6 +218,7 @@ export function ChatHeader(props: Props) {
             <button
               className="btn btn-ghost btn-sm chat-header-action"
               type="button"
+              aria-controls={rightPanelID}
               aria-expanded={workspaceChangesOpen}
               aria-label="Workspace changes"
               onClick={onToggleWorkspaceChanges}
@@ -231,6 +239,7 @@ export function ChatHeader(props: Props) {
           <button
             className="btn btn-ghost btn-sm chat-header-action"
             type="button"
+            aria-controls={rightPanelID}
             aria-expanded={chatSettingsOpen}
             aria-label="Chat settings"
             onClick={onToggleChatSettings}

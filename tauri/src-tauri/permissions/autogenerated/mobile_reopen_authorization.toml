@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-reopen-authorization"
+description = "Enables the mobile_reopen_authorization command without any pre-configured scope."
+commands.allow = ["mobile_reopen_authorization"]
+
+[[permission]]
+identifier = "deny-mobile-reopen-authorization"
+description = "Denies the mobile_reopen_authorization command without any pre-configured scope."
+commands.deny = ["mobile_reopen_authorization"]

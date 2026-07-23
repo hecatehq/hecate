@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { modelToolSupportKey, useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import {
@@ -28,6 +28,7 @@ import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { AddProviderModal } from "./AddProviderModal";
+import "./provider-mobile.css";
 
 const PROVIDER_POLL_INTERVAL_MS = 30_000;
 
@@ -78,6 +79,7 @@ function resolveCredentialBadge(
 }
 
 export function ProvidersView() {
+  const editFieldIDPrefix = useId();
   const settings = useSettings();
   const providersAndModels = useProvidersAndModels();
   const dashboardActions = useWiredDashboardActions();
@@ -276,6 +278,7 @@ export function ProvidersView() {
     return (
       <tr
         key={id}
+        className="connections-provider-row"
         onClick={() => setSelectedID((s) => (s === id ? null : id))}
         role="button"
         tabIndex={0}
@@ -295,12 +298,18 @@ export function ProvidersView() {
         }}
       >
         {/* Name */}
-        <td style={{ padding: "8px 12px" }}>
+        <td className="provider-cell-name" style={{ padding: "8px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <BrandAvatar brand={routeKey} fallback={displayName} size={22} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>{displayName}</span>
+            <span
+              className="provider-cell-name-text"
+              style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}
+            >
+              {displayName}
+            </span>
             {cp?.custom_name && (
               <span
+                className="provider-cell-custom-name"
                 style={{
                   fontSize: 11,
                   color: "var(--t3)",
@@ -318,19 +327,31 @@ export function ProvidersView() {
         </td>
 
         {/* Health */}
-        <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+        <td
+          className="provider-cell-health"
+          data-label="Health"
+          style={{ padding: "8px 12px", whiteSpace: "nowrap" }}
+        >
           <Badge status={health.status} label={health.label} />
         </td>
 
         {/* Protocol */}
-        <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+        <td
+          className="provider-cell-detail"
+          data-label="Protocol"
+          style={{ padding: "8px 12px", whiteSpace: "nowrap" }}
+        >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
             {protocol}
           </span>
         </td>
 
         {/* URL */}
-        <td style={{ padding: "8px 12px", maxWidth: 240 }}>
+        <td
+          className="provider-cell-detail provider-cell-endpoint"
+          data-label="Endpoint"
+          style={{ padding: "8px 12px", maxWidth: 240 }}
+        >
           <span
             title={baseURL || undefined}
             style={{
@@ -348,12 +369,18 @@ export function ProvidersView() {
         </td>
 
         {/* Credentials */}
-        <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+        <td
+          className="provider-cell-detail"
+          data-label="Credentials"
+          style={{ padding: "8px 12px", whiteSpace: "nowrap" }}
+        >
           <Badge status={cred.status} label={cred.label} />
         </td>
 
         {/* Models */}
         <td
+          className="provider-cell-detail provider-cell-models"
+          data-label="Models"
           style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}
           title={
             modelCount === 0
@@ -375,7 +402,11 @@ export function ProvidersView() {
         </td>
 
         {/* Last checked */}
-        <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+        <td
+          className="provider-cell-detail"
+          data-label="Last checked"
+          style={{ padding: "8px 12px", whiteSpace: "nowrap" }}
+        >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
             {rt?.last_checked_at ? formatLocaleTime(rt.last_checked_at) : "—"}
           </span>
@@ -383,11 +414,12 @@ export function ProvidersView() {
 
         {/* Delete */}
         <td
+          className="provider-cell-actions"
           style={{ padding: "8px 12px", textAlign: "right" }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm provider-remove-button"
             style={{ padding: "3px 6px", color: "var(--t3)" }}
             title={`Remove ${displayName}`}
             aria-label={`Remove provider ${displayName}`}
@@ -398,6 +430,7 @@ export function ProvidersView() {
             }}
           >
             <Icon d={Icons.trash} size={13} />
+            <span className="provider-remove-label">Remove</span>
           </button>
         </td>
       </tr>
@@ -413,6 +446,7 @@ export function ProvidersView() {
           <span style={{ fontSize: 11, color: "var(--t3)" }}>{subtitle}</span>
         </div>
         <div
+          className="connections-provider-table-wrap"
           style={{
             border: "1px solid var(--border)",
             borderRadius: "var(--radius)",
@@ -423,7 +457,11 @@ export function ProvidersView() {
               widths so the cloud and local tables line up vertically.
               Without this each table sizes its columns by content
               independently and the headers don't align across tables. */}
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <table
+            className="connections-provider-table"
+            data-testid={`connections-provider-table-${title.toLowerCase().replaceAll(" ", "-")}`}
+            style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}
+          >
             <colgroup>
               <col style={{ width: "22%" }} />
               <col style={{ width: "13%" }} />
@@ -456,7 +494,7 @@ export function ProvidersView() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ height: "100%", overflow: "hidden" }}>
+    <div className="providers-view" style={{ height: "100%", overflow: "hidden" }}>
       {/* Provider tables */}
       <div style={{ height: "100%", overflowY: "auto", padding: 16 }}>
         {/* Header row */}
@@ -479,7 +517,10 @@ export function ProvidersView() {
             data-testid="connections-readiness-summary"
             style={{ padding: "14px 16px", marginBottom: 24 }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+            <div
+              className="provider-readiness-header"
+              style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}
+            >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", marginBottom: 4 }}>
                   Model provider readiness
@@ -491,6 +532,7 @@ export function ProvidersView() {
               </div>
               {(nextReadinessStep || readinessAction) && (
                 <div
+                  className="provider-readiness-action"
                   style={{
                     marginLeft: "auto",
                     maxWidth: 460,
@@ -618,7 +660,10 @@ export function ProvidersView() {
           footer={null}
           width={560}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div
+            className="provider-edit-content"
+            style={{ display: "flex", flexDirection: "column", gap: 14 }}
+          >
             {/* Header strip: brand initial + base URL */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <BrandAvatar brand={selectedRouteKey} fallback={selectedDisplayName} size={32} />
@@ -658,6 +703,7 @@ export function ProvidersView() {
 
             {/* Live status grid */}
             <div
+              className="provider-edit-status-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",
@@ -715,8 +761,11 @@ export function ProvidersView() {
                 Custom name field below to disambiguate. */}
             {!selectedConfig.preset_id && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <label className="kicker-lg">Name</label>
+                <label className="kicker-lg" htmlFor={`${editFieldIDPrefix}-provider-name`}>
+                  Name
+                </label>
                 <input
+                  id={`${editFieldIDPrefix}-provider-name`}
                   className="input"
                   type="text"
                   value={pendingName}
@@ -740,13 +789,18 @@ export function ProvidersView() {
                 appears alongside Name in the providers table. Empty
                 clears it. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <label className="kicker-lg" style={{ display: "flex", gap: 6 }}>
+              <label
+                className="kicker-lg"
+                htmlFor={`${editFieldIDPrefix}-provider-custom-name`}
+                style={{ display: "flex", gap: 6 }}
+              >
                 Custom name
                 <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>
                   optional
                 </span>
               </label>
               <input
+                id={`${editFieldIDPrefix}-provider-custom-name`}
                 className="input"
                 type="text"
                 value={pendingCustomName}
@@ -767,8 +821,11 @@ export function ProvidersView() {
 
             {isFireworksProvider(selectedConfig) && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <label className="kicker-lg">Fireworks account ID</label>
+                <label className="kicker-lg" htmlFor={`${editFieldIDPrefix}-provider-account-id`}>
+                  Fireworks account ID
+                </label>
                 <input
+                  id={`${editFieldIDPrefix}-provider-account-id`}
                   className="input"
                   type="text"
                   value={pendingAccountID}
@@ -807,8 +864,11 @@ export function ProvidersView() {
             {/* Editable: API key (cloud) or Endpoint URL (local) */}
             {selectedConfig.kind === "local" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <label className="kicker-lg">Endpoint URL</label>
+                <label className="kicker-lg" htmlFor={`${editFieldIDPrefix}-provider-endpoint`}>
+                  Endpoint URL
+                </label>
                 <input
+                  id={`${editFieldIDPrefix}-provider-endpoint`}
                   className="input"
                   type="text"
                   value={pendingURL}
@@ -832,7 +892,11 @@ export function ProvidersView() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <label className="kicker-lg" style={{ display: "flex", gap: 6 }}>
+                <label
+                  className="kicker-lg"
+                  htmlFor={`${editFieldIDPrefix}-provider-api-key`}
+                  style={{ display: "flex", gap: 6 }}
+                >
                   API Key
                   {selectedConfig.credential_source === "env" && !pendingKey && (
                     <span style={{ color: "var(--teal)", fontWeight: 400, textTransform: "none" }}>
@@ -841,6 +905,7 @@ export function ProvidersView() {
                   )}
                 </label>
                 <input
+                  id={`${editFieldIDPrefix}-provider-api-key`}
                   className="input"
                   type="password"
                   name="hecate-provider-api-key"
@@ -861,7 +926,7 @@ export function ProvidersView() {
                     Stored encrypted at rest. Never logged.
                   </div>
                 )}
-                <div style={{ display: "flex", gap: 8 }}>
+                <div className="provider-edit-actions" style={{ display: "flex", gap: 8 }}>
                   <button
                     className="btn btn-primary btn-sm"
                     disabled={!pendingKey.trim()}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-disable-notifications"
+description = "Enables the mobile_disable_notifications command without any pre-configured scope."
+commands.allow = ["mobile_disable_notifications"]
+
+[[permission]]
+identifier = "deny-mobile-disable-notifications"
+description = "Denies the mobile_disable_notifications command without any pre-configured scope."
+commands.deny = ["mobile_disable_notifications"]

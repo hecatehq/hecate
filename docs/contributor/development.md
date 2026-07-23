@@ -38,6 +38,7 @@ Required only for the native desktop app:
 Optional:
 
 - **Docker** — only required for the docker-smoke test job and container workflows; not needed for the local runtime itself.
+- **Node.js 20+** — required only by the checked-in iOS and Android native build hooks; the UI and website still use Bun.
 - **RTK** — optional local helper used by Hecate Chat's per-chat “compact command output” setting. It is off by default; when the `rtk` command is present in the gateway `PATH`, the UI offers an opt-in hint. Hecate still applies policy validation, env sanitisation, output caps, timeouts, and the OS sandbox wrapper.
 
 Install examples:
@@ -68,6 +69,10 @@ Do not use npm, pnpm, yarn, Corepack, Volta, or Node-specific workflow setup
 for the UI or website. The committed lockfiles are `ui/bun.lock` and
 `website/bun.lock`, the install command is `bun install`, and all scripts run
 through `bun run ...`.
+
+The generated Xcode and Gradle projects are the exception: their native build
+hooks invoke `node` directly, so install Node.js 20 or newer before using the
+mobile build recipes.
 
 The `hecate` runtime embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
 
@@ -183,6 +188,8 @@ just website-build     # Astro website check + production build
 just ui-coverage       # UI coverage report (vitest --coverage)
 just test-docker-smoke # boots the production image and probes /healthz, /v1/models
 just test-tauri-smoke  # macOS native app smoke: build .app, probe /healthz, quit
+just tauri-ios-build-debug # unsigned Apple Silicon iOS Simulator companion
+just tauri-android-build-debug aarch64 # Android arm64 debug APK; requires SDK/NDK/JDK env
 just verify            # full gate: docs/env check, Go, Docker, UI, build
 just verify-desktop    # desktop-specific Rust/Tauri check
 just release vX.Y.Z    # verify, then run the release script
@@ -288,7 +295,7 @@ Top-level entry points:
 cmd/hecate/            # main runtime entry point (gateway service, embedded UI, CLI commands)
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 website/                # Astro homepage for hecate.sh
-tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
+tauri/                  # Tauri 2.x desktop sidecar app plus Cloud-only iOS/Android companion
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)
 scripts/                # release tooling (release.ts, stamp-version.ts) + documentation tooling (capture-screenshots)
 docs/                   # markdown references + screenshots

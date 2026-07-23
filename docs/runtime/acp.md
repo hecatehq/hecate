@@ -94,16 +94,16 @@ defaults and retains its normal cross-provider failover behavior.
 The first implementation deliberately keeps the ACP surface narrow while its
 execution contract is made reliable.
 
-| Capability                               | V1 behavior                                                                                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Text prompts                             | Supported.                                                                                                                                 |
-| ACP resource links                       | Accepted only as opaque references. Hecate uses a safe label and never reads, dereferences, or forwards the supplied URI or file contents. |
-| Images, audio, embedded resources        | Unsupported. The ACP client must not assume file or media transfer.                                                                        |
-| Client-provided MCP server configuration | Unsupported. Hecate does not launch editor-supplied MCP servers through this boundary.                                                     |
-| Editor filesystem and terminal callbacks | Unsupported. Hecate uses its own WorkspaceFS, ProcessRunner, GitRunner, sandbox, and task policy seams.                                    |
-| Agent Preset selection                   | Unsupported. ACP V1 creates native tasks with Hecate's normal task defaults; clients cannot select or alter an Agent Preset through ACP.   |
-| List, load, and resume ACP sessions      | Unsupported. Task history is durable, but the ACP-session mapping is process-local in V1.                                                  |
-| Remote Hecate runtime                    | Unsupported. The editor's local working directory and Hecate's execution boundary must be on the same machine.                             |
+| Capability                               | V1 behavior                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Text prompts                             | Supported.                                                                                                                                                                                                                                                                                                    |
+| ACP resource links                       | Up to 64 per prompt, for existing regular files beneath the session working directory. The bridge accepts `file:` URIs with no authority or `localhost`, rejects symlinks and paths outside the workspace, and gives the native task a workspace-relative reference. It does not copy or embed the file body. |
+| Images, audio, and embedded resources    | Unsupported. The ACP client must not assume media or embedded-body transfer.                                                                                                                                                                                                                                  |
+| Client-provided MCP server configuration | Unsupported. Hecate does not launch editor-supplied MCP servers through this boundary.                                                                                                                                                                                                                        |
+| Editor filesystem and terminal callbacks | Unsupported. Hecate uses its own WorkspaceFS, ProcessRunner, GitRunner, sandbox, and task policy seams.                                                                                                                                                                                                       |
+| Agent Preset selection                   | Unsupported. ACP V1 creates native tasks with Hecate's normal task defaults; clients cannot select or alter an Agent Preset through ACP.                                                                                                                                                                      |
+| List, load, and resume ACP sessions      | Unsupported. Task history is durable, but the ACP-session mapping is process-local in V1.                                                                                                                                                                                                                     |
+| Remote Hecate runtime                    | Unsupported. The editor's local working directory and Hecate's execution boundary must be on the same machine.                                                                                                                                                                                                |
 
 An ACP client should use the Hecate console to inspect runs, review artifacts,
 and resolve approvals. When a run pauses for approval, ACP sends one generic
@@ -123,7 +123,13 @@ runtime's loopback listener or the stdio process to untrusted users.
 The client supplies the workspace directory, but Hecate remains responsible for
 what can execute there. The selected model route, task-level tool and sandbox
 policy, approval gates, and audit trail remain Hecate-owned. ACP V1 does not
-expose Agent Preset selection.
+expose Agent Preset selection. A resource link does not expand that authority:
+the bridge resolves it through WorkspaceFS, requires an existing regular file
+beneath the session working directory, and sends only the workspace-relative
+path to the native task. HTTP(S) resources, missing files, directories,
+symlinks, non-local `file:` authorities, and paths outside that directory fail
+before a task is created. A prompt may contain at most 64 resource links, and
+its translated durable task prompt is capped at 1 MiB.
 
 ## Troubleshooting
 
@@ -135,7 +141,12 @@ expose Agent Preset selection.
   ACP client's environment that the running runtime expects.
 - **Working directory rejected:** configure the client to send an absolute
   directory path. Relative directories are not accepted.
-- **A capability is missing:** V1 intentionally does not transfer media/files,
-  launch client MCP servers, expose editor terminals/filesystems, or reload ACP
-  sessions. Use Hecate Chat or [External Agents](external-agents.md) for the
-  currently supported file-bearing workflows.
+- **A file reference is rejected:** use a `file:` URI with no authority or
+  `localhost` for an existing regular file beneath the session working
+  directory. Remote URLs, non-local authorities, missing files, directories,
+  symlinks, outside-workspace paths, and prompts with more than 64 file links
+  are rejected.
+- **A capability is missing:** V1 intentionally does not transfer image, audio,
+  or embedded-resource bodies, launch client MCP servers, expose editor
+  terminals/filesystems, or reload ACP sessions. Use Hecate Chat or
+  [External Agents](external-agents.md) for richer file-bearing workflows.
