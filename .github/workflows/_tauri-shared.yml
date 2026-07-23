@@ -93,6 +93,9 @@ jobs:
       - name: Set up just
         uses: extractions/setup-just@v4
 
+      - name: Test mobile shell request guards
+        run: cd tauri && bun run test:mobile-shell
+
       # Tauri 2.x prerequisites for Ubuntu 22.04 (per the official docs).
       # webkit2gtk 4.1 is the Tauri 2 requirement; 4.0 ships by default.
       # patchelf is required by the AppImage bundler. libxdo-dev is for
