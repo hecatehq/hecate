@@ -1293,7 +1293,12 @@ export function ChatView({
   }
 
   function closeChatSidebar(restoreFocus: boolean) {
-    if (!restoreFocus) sidebarReturnFocusRef.current = null;
+    if (restoreFocus) {
+      focusComposerAfterNewChatRef.current = false;
+      sidebarFocusedAsReplacementRef.current = true;
+    } else {
+      sidebarReturnFocusRef.current = null;
+    }
     setSidebarOpen(false);
   }
 
@@ -1373,6 +1378,23 @@ export function ChatView({
             onToggleChatSettings={toggleChatSettingsPanel}
             activeChatSession={state.activeChatSession}
           />
+        )}
+        {phoneMasterDetailLayout && composerShellVisible && !selectedChatReady && !sidebarOpen && (
+          <div className="chat-draft-navigation">
+            <button
+              aria-label="Back to chats"
+              className="btn btn-ghost chat-draft-navigation__back"
+              onClick={openChatSidebar}
+              ref={(node) => {
+                sidebarOpenButtonRef.current = node;
+                if (node && sidebarFocusedAsReplacementRef.current) node.focus();
+              }}
+              type="button"
+            >
+              <span aria-hidden="true">‹</span>
+              <span>Chats</span>
+            </button>
+          </div>
         )}
 
         <div

@@ -1095,6 +1095,49 @@ test("system prompt editor opens and closes", async ({ page }) => {
   ).not.toBeVisible();
 });
 
+test("returns to the chat list without losing a pending phone draft", async ({ page }) => {
+  await switchToModel(page);
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await composer.fill("Keep this pending phone draft");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Open chats sidebar" }).click();
+
+  let releaseCreate = () => {};
+  const createReleased = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+  await page.route(/\/hecate\/v1\/chat\/sessions(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/hecate/v1/chat/sessions"
+    ) {
+      await createReleased;
+    }
+    await route.fallback();
+  });
+
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await page.getByRole("button", { name: "Close chats sidebar" }).click();
+
+  const backToChats = page.getByRole("button", { name: "Back to chats" });
+  await expect(backToChats).toBeFocused();
+  await expect(composer).toHaveValue("Keep this pending phone draft");
+
+  await backToChats.click();
+  await expect(page.getByRole("complementary", { name: "Chats" })).toBeVisible();
+  const closeChats = page.getByRole("button", { name: "Close chats sidebar" });
+  await expect(closeChats).toBeFocused();
+
+  await closeChats.click();
+  await expect(composer).toHaveValue("Keep this pending phone draft");
+  await expect(backToChats).toBeFocused();
+
+  releaseCreate();
+  await expect(page.getByRole("button", { name: "Chat settings" })).toBeVisible();
+  await expect(composer).toHaveValue("Keep this pending phone draft");
+});
+
 test("uses a full-width replacement panel and phone-sized chat controls", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await switchToModel(page);

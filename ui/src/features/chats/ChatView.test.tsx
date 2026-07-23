@@ -6605,6 +6605,36 @@ describe("ChatView external-agent target", () => {
     expect(composer).toHaveValue("Keep this phone draft");
   });
 
+  it("returns to the chat list from a phone draft while creation is pending", async () => {
+    stubPhoneViewport();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      agentWorkspace: "",
+      message: "Keep this pending draft",
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatCreating: true,
+      chatLoading: false,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    await user.click(screen.getByRole("button", { name: "Close chats sidebar" }));
+
+    const backToChats = screen.getByRole("button", { name: "Back to chats" });
+    expect(backToChats).toHaveFocus();
+    expect(composer).toHaveValue("Keep this pending draft");
+
+    await user.click(backToChats);
+
+    expect(screen.getByRole("complementary", { name: "Chats" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close chats sidebar" })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Back to chats" })).toBeNull();
+    expect(composer).toHaveValue("Keep this pending draft");
+  });
+
   it("chooses a known Mac folder from the phone before creating a Codex chat", async () => {
     stubPhoneViewport();
     Reflect.set(window, "__TAURI_INTERNALS__", {});

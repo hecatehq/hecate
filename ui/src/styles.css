@@ -399,6 +399,21 @@ textarea {
   display: none;
 }
 
+.chat-draft-navigation {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex: 0 0 auto;
+  min-height: var(--topbar-h);
+  padding: 4px 8px;
+}
+
+.chat-draft-navigation__back {
+  gap: 5px;
+  justify-content: flex-start;
+  min-width: 44px;
+}
+
 .chat-workspace-picker {
   display: grid;
   gap: 18px;
