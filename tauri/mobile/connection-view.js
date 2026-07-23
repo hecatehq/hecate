@@ -6,9 +6,7 @@ function kindLabel(kind) {
 
 function connectionName(connection) {
   const raw =
-    typeof connection?.name === "string" && connection.name.trim()
-      ? connection.name.trim()
-      : "";
+    typeof connection?.name === "string" && connection.name.trim() ? connection.name.trim() : "";
   if (connection?.kind !== "desktop_host") return raw || "Unnamed Hecate";
 
   if (!raw || /^(this mac|hecate desktop app)$/i.test(raw)) {
@@ -31,18 +29,38 @@ function relativeSeen(value, now) {
   return `seen ${Math.floor(hours / 24)}d ago`;
 }
 
-export function connectionView(connection, now = Date.now()) {
+export function connectionView(connection, now = Date.now(), pendingStart = false) {
   const name = connectionName(connection);
   const kind = kindLabel(connection?.kind);
   const remoteDisabled = connection?.kind === "desktop_host" && connection?.remote_enabled !== true;
   const reachable = connection?.reachable === true;
+  const canStart =
+    connection?.kind === "hosted_runtime" &&
+    connection?.can_start === true &&
+    connection?.status !== "starting" &&
+    !pendingStart &&
+    !reachable;
   const canOpen = reachable && !remoteDisabled;
-  const statusLabel = !reachable
-    ? "Offline"
-    : remoteDisabled
-      ? "Remote access off"
-      : "Available";
-  const statusState = !reachable ? "offline" : remoteDisabled ? "attention" : "online";
+  const canAct = canOpen || canStart;
+  const starting =
+    !reachable &&
+    connection?.kind === "hosted_runtime" &&
+    (connection?.status === "starting" || pendingStart);
+  let statusLabel = "Available";
+  let statusState = "online";
+  if (canStart) {
+    statusLabel = "Start";
+    statusState = "attention";
+  } else if (starting) {
+    statusLabel = "Starting";
+    statusState = "attention";
+  } else if (!reachable) {
+    statusLabel = "Offline";
+    statusState = "offline";
+  } else if (remoteDisabled) {
+    statusLabel = "Remote access off";
+    statusState = "attention";
+  }
   const detail = [
     kind,
     typeof connection?.version === "string" && connection.version.trim()
@@ -57,8 +75,11 @@ export function connectionView(connection, now = Date.now()) {
     name,
     detail,
     canOpen,
+    canStart,
+    canAct,
+    action: canOpen ? "open" : canStart ? "start" : "none",
     statusLabel,
     statusState,
-    ariaLabel: canOpen ? `Open ${name}` : `${name}: ${statusLabel}`,
+    ariaLabel: canOpen ? `Open ${name}` : canStart ? `Start ${name}` : `${name}: ${statusLabel}`,
   };
 }

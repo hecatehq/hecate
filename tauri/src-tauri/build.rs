@@ -27,6 +27,7 @@ fn main() {
             "mobile_open_notification_settings",
             "mobile_disable_notifications",
             "mobile_open_connection",
+            "mobile_start_connection",
             "mobile_sign_out",
         ]));
     tauri_build::try_build(attributes).expect("tauri-build failed");

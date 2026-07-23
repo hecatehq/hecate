@@ -7,10 +7,12 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use futures_util::{stream, StreamExt};
 use rand::RngCore;
 use reqwest::redirect::Policy;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 #[cfg(target_os = "ios")]
 use std::ffi::{c_char, CStr};
 use std::fmt;
@@ -33,6 +35,9 @@ const CURRENT_SESSION_PATH: &str = "/api/v1/sessions/current";
 const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_LOGIN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const READINESS_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_READINESS_CONCURRENCY: usize = 4;
+const START_REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const SESSION_STORAGE: &str = "memory_only";
 const PUSH_STATUS_WAIT: Duration = Duration::from_millis(800);
 const PUSH_REGISTRATION_WAIT: Duration = Duration::from_secs(15);
@@ -165,6 +170,20 @@ struct MobileCloudInner {
     http: reqwest::Client,
     session: Mutex<MobileSession>,
     notifications: Mutex<MobileNotificationSession>,
+    connection_starts: Mutex<HashSet<String>>,
+}
+
+struct MobileConnectionStartGuard {
+    inner: Arc<MobileCloudInner>,
+    connection_id: String,
+}
+
+impl Drop for MobileConnectionStartGuard {
+    fn drop(&mut self) {
+        if let Ok(mut starts) = self.inner.connection_starts.lock() {
+            starts.remove(&self.connection_id);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -352,6 +371,8 @@ struct MobileConnection {
     status: String,
     reachable: bool,
     #[serde(default)]
+    can_start: bool,
+    #[serde(default)]
     remote_enabled: bool,
     #[serde(default)]
     version: Option<String>,
@@ -365,10 +386,21 @@ struct MobileConnection {
     browser_open_path: Option<String>,
     #[serde(default, skip_serializing)]
     remote_session_path: Option<String>,
+    #[serde(default, skip_serializing)]
+    start_path: Option<String>,
+    #[serde(default, skip_serializing)]
+    readiness_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct MobileOpenResult {
+    connection_id: String,
+    name: String,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MobileStartResult {
     connection_id: String,
     name: String,
     message: String,
@@ -476,6 +508,7 @@ impl MobileCloud {
                 http,
                 session: Mutex::new(MobileSession::default()),
                 notifications: Mutex::new(MobileNotificationSession::default()),
+                connection_starts: Mutex::new(HashSet::new()),
             }),
         })
     }
@@ -916,13 +949,16 @@ impl MobileCloud {
         Ok(connections)
     }
 
-    async fn connections(&self) -> Result<Vec<MobileConnection>, String> {
-        let (generation, token) = self.authorized_snapshot()?;
+    async fn fetch_connections(
+        &self,
+        generation: u64,
+        token: &str,
+    ) -> Result<Vec<MobileConnection>, String> {
         match self
             .request_data::<Vec<MobileConnection>>(
                 reqwest::Method::GET,
                 CONNECTIONS_PATH,
-                &token,
+                token,
                 None,
             )
             .await
@@ -940,17 +976,137 @@ impl MobileCloud {
         }
     }
 
+    async fn connections(&self) -> Result<Vec<MobileConnection>, String> {
+        let (generation, token) = self.authorized_snapshot()?;
+        let connections = self.fetch_connections(generation, &token).await?;
+        let token = token.as_str();
+        let connections = stream::iter(connections)
+            .map(|connection| async move {
+                if connection.kind != "hosted_runtime"
+                    || connection.status != "starting"
+                    || connection.readiness_path.is_none()
+                    || !valid_connection_id(&connection.id)
+                {
+                    return connection;
+                }
+                match tokio::time::timeout(
+                    READINESS_TIMEOUT,
+                    self.refresh_hosted_connection(generation, token, &connection),
+                )
+                .await
+                {
+                    Ok(Ok(refreshed)) => refreshed,
+                    Ok(Err(error)) => {
+                        log::warn!("Hecate Cloud hosted runtime readiness refresh failed: {error}");
+                        connection
+                    }
+                    Err(_) => {
+                        log::warn!("Hecate Cloud hosted runtime readiness refresh timed out");
+                        connection
+                    }
+                }
+            })
+            .buffered(MAX_READINESS_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+        self.accept_connections_response(generation, connections)
+    }
+
+    async fn refresh_hosted_connection(
+        &self,
+        generation: u64,
+        token: &str,
+        connection: &MobileConnection,
+    ) -> Result<MobileConnection, String> {
+        if !valid_connection_id(&connection.id) {
+            return Err("Hecate Cloud returned an invalid connection identifier.".to_string());
+        }
+        let expected_path = format!("/api/v1/app/runtimes/{}/readiness", connection.id);
+        let path = validated_server_path(
+            connection.readiness_path.as_deref(),
+            &expected_path,
+            "hosted runtime readiness",
+        )?;
+        let refreshed = self
+            .request_data::<MobileConnection>(reqwest::Method::GET, &path, token, None)
+            .await
+            .map_err(|error| {
+                self.expire_if_unauthorized(generation, &error);
+                error.to_string()
+            })?;
+        validate_refreshed_connection(connection, &refreshed)?;
+        self.ensure_authorized_generation(generation)?;
+        Ok(refreshed)
+    }
+
+    async fn start_connection(&self, connection_id: &str) -> Result<MobileConnection, String> {
+        let connection_id = connection_id.trim();
+        if !valid_connection_id(connection_id) {
+            return Err("Choose a valid Hecate connection.".to_string());
+        }
+        let (generation, token) = self.authorized_snapshot()?;
+        let _start_guard = self.begin_connection_start(connection_id)?;
+        let connections = self.fetch_connections(generation, &token).await?;
+        self.ensure_authorized_generation(generation)?;
+        let connection = connections
+            .into_iter()
+            .find(|candidate| candidate.id == connection_id)
+            .ok_or_else(|| "That Hecate connection is no longer available.".to_string())?;
+        if connection.kind != "hosted_runtime" {
+            return Err(
+                "A phone cannot start a desktop Hecate. Open Hecate on that computer first."
+                    .to_string(),
+            );
+        }
+        if connection.reachable {
+            return Ok(connection);
+        }
+        if connection.status == "starting" {
+            return Ok(connection);
+        }
+        if !connection.can_start {
+            return Err(format!(
+                "{} cannot be started from the mobile app.",
+                connection.name
+            ));
+        }
+        let expected_path = format!("/api/v1/app/runtimes/{}/start", connection.id);
+        let path = validated_server_path(
+            connection.start_path.as_deref(),
+            &expected_path,
+            "hosted runtime start",
+        )?;
+        let started = self
+            .request_data_with_timeout::<MobileConnection>(
+                reqwest::Method::POST,
+                &path,
+                &token,
+                None,
+                START_REQUEST_TIMEOUT,
+            )
+            .await
+            .map_err(|error| {
+                self.expire_if_unauthorized(generation, &error);
+                error.to_string()
+            })?;
+        validate_refreshed_connection(&connection, &started)?;
+        self.ensure_authorized_generation(generation)?;
+        Ok(started)
+    }
+
     async fn prepare_open(
         &self,
         connection_id: &str,
     ) -> Result<(u64, MobileConnection, String), String> {
         let connection_id = connection_id.trim();
-        if connection_id.is_empty() || connection_id.len() > 160 {
+        if !valid_connection_id(connection_id) {
             return Err("Choose a valid Hecate connection.".to_string());
         }
 
+        let (generation, token) = self.authorized_snapshot()?;
         // Re-fetch rather than trusting paths that originated in JavaScript.
-        let connections = self.connections().await?;
+        let connections = self.fetch_connections(generation, &token).await?;
+        self.ensure_authorized_generation(generation)?;
         let connection = connections
             .into_iter()
             .find(|candidate| candidate.id == connection_id)
@@ -959,7 +1115,6 @@ impl MobileCloud {
             return Err(format!("{} is currently offline.", connection.name));
         }
 
-        let (generation, token) = self.authorized_snapshot()?;
         let open_url = match connection.kind.as_str() {
             "hosted_runtime" => {
                 let expected_path = format!("/api/v1/app/runtimes/{}/open", connection.id);
@@ -1016,6 +1171,24 @@ impl MobileCloud {
             _ => return Err("This connection type is not supported by the mobile app.".to_string()),
         };
         Ok((generation, connection, open_url))
+    }
+
+    fn begin_connection_start(
+        &self,
+        connection_id: &str,
+    ) -> Result<MobileConnectionStartGuard, String> {
+        let mut starts = self
+            .inner
+            .connection_starts
+            .lock()
+            .map_err(|_| "The mobile connection start state is unavailable.".to_string())?;
+        if !starts.insert(connection_id.to_string()) {
+            return Err("Hecate Cloud is already starting this runtime.".to_string());
+        }
+        Ok(MobileConnectionStartGuard {
+            inner: Arc::clone(&self.inner),
+            connection_id: connection_id.to_string(),
+        })
     }
 
     fn navigate_if_authorized_generation(
@@ -1541,7 +1714,24 @@ impl MobileCloud {
     where
         T: DeserializeOwned,
     {
-        let payload = self.request_bytes(method, path, Some(token), body).await?;
+        self.request_data_with_timeout(method, path, token, body, REQUEST_TIMEOUT)
+            .await
+    }
+
+    async fn request_data_with_timeout<T>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        token: &str,
+        body: Option<serde_json::Value>,
+        timeout: Duration,
+    ) -> Result<T, CloudAPIError>
+    where
+        T: DeserializeOwned,
+    {
+        let payload = self
+            .request_bytes_with_timeout(method, path, Some(token), body, timeout)
+            .await?;
         serde_json::from_slice::<CloudEnvelope<T>>(&payload)
             .map(|envelope| envelope.data)
             .map_err(|error| CloudAPIError {
@@ -1586,6 +1776,18 @@ impl MobileCloud {
         token: Option<&str>,
         body: Option<serde_json::Value>,
     ) -> Result<Vec<u8>, CloudAPIError> {
+        self.request_bytes_with_timeout(method, path, token, body, REQUEST_TIMEOUT)
+            .await
+    }
+
+    async fn request_bytes_with_timeout(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        token: Option<&str>,
+        body: Option<serde_json::Value>,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, CloudAPIError> {
         let url = resolve_same_origin_url(&self.inner.cloud_url, path).map_err(|message| {
             CloudAPIError {
                 status: None,
@@ -1597,7 +1799,7 @@ impl MobileCloud {
             .http
             .request(method, url)
             .header("x-hecate-app-version", env!("CARGO_PKG_VERSION"))
-            .timeout(REQUEST_TIMEOUT);
+            .timeout(timeout);
         if let Some(token) = token {
             request = request.bearer_auth(token);
         }
@@ -1839,6 +2041,28 @@ fn validated_server_path(
             "Hecate Cloud returned an invalid {connection_label} open path."
         )),
     }
+}
+
+fn valid_connection_id(connection_id: &str) -> bool {
+    !connection_id.is_empty()
+        && connection_id.len() <= 160
+        && connection_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+fn validate_refreshed_connection(
+    previous: &MobileConnection,
+    refreshed: &MobileConnection,
+) -> Result<(), String> {
+    if refreshed.id != previous.id
+        || refreshed.kind != previous.kind
+        || refreshed.org_id != previous.org_id
+        || refreshed.project_id != previous.project_id
+    {
+        return Err("Hecate Cloud returned a different hosted runtime.".to_string());
+    }
+    Ok(())
 }
 
 fn valid_apns_token(token: &str) -> bool {
@@ -2287,6 +2511,23 @@ async fn mobile_open_connection(
 }
 
 #[tauri::command]
+async fn mobile_start_connection(
+    cloud: tauri::State<'_, MobileCloud>,
+    connection_id: String,
+) -> Result<MobileStartResult, String> {
+    let connection = cloud.start_connection(&connection_id).await?;
+    Ok(MobileStartResult {
+        connection_id: connection.id,
+        name: connection.name,
+        message: if connection.reachable {
+            "This Hecate runtime is ready to open.".to_string()
+        } else {
+            "Hecate Cloud is starting this runtime.".to_string()
+        },
+    })
+}
+
+#[tauri::command]
 async fn mobile_sign_out(
     app: AppHandle,
     window: tauri::WebviewWindow,
@@ -2372,6 +2613,7 @@ pub fn run() {
             mobile_open_notification_settings,
             mobile_disable_notifications,
             mobile_open_connection,
+            mobile_start_connection,
             mobile_sign_out
         ])
         .setup(|app| {
@@ -2658,18 +2900,24 @@ mod tests {
             "name":"Production",
             "status":"online",
             "reachable":true,
+            "can_start":false,
             "version":"0.5.0",
             "capabilities":["chat","tasks"],
             "last_seen_at":"2026-07-21T10:00:00Z",
-            "browser_open_path":"/api/v1/app/runtimes/runtime_1/open"
+            "browser_open_path":"/api/v1/app/runtimes/runtime_1/open",
+            "start_path":"/api/v1/app/runtimes/runtime_1/start",
+            "readiness_path":"/api/v1/app/runtimes/runtime_1/readiness"
           }]
         }"#;
         let envelope: CloudEnvelope<Vec<MobileConnection>> = serde_json::from_str(body).unwrap();
         let connection = &envelope.data[0];
         assert_eq!(connection.kind, "hosted_runtime");
         assert!(connection.reachable);
+        assert!(!connection.can_start);
         let serialized = serde_json::to_string(connection).unwrap();
         assert!(!serialized.contains("browser_open_path"));
+        assert!(!serialized.contains("start_path"));
+        assert!(!serialized.contains("readiness_path"));
         assert!(!serialized.contains("/api/v1/app/runtimes"));
     }
 
@@ -2692,6 +2940,94 @@ mod tests {
             "hosted runtime"
         )
         .is_err());
+
+        for (actual, expected, label) in [
+            (
+                "/api/v1/app/runtimes/runtime_1/start",
+                "/api/v1/app/runtimes/runtime_1/start",
+                "hosted runtime start",
+            ),
+            (
+                "/api/v1/app/runtimes/runtime_1/readiness",
+                "/api/v1/app/runtimes/runtime_1/readiness",
+                "hosted runtime readiness",
+            ),
+        ] {
+            assert_eq!(
+                validated_server_path(Some(actual), expected, label).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn connection_ids_are_safe_single_path_segments() {
+        for valid in [
+            "runtime_00112233445566778899aabb",
+            "host-01234567-89ab-cdef-0123-456789abcdef",
+            "runtime_1",
+        ] {
+            assert!(valid_connection_id(valid));
+        }
+        for invalid in [
+            "",
+            " runtime_1",
+            "runtime_1 ",
+            "runtime/../admin",
+            "runtime%2Fadmin",
+            "runtime?next=admin",
+            "runtime#fragment",
+        ] {
+            assert!(!valid_connection_id(invalid));
+        }
+        assert!(!valid_connection_id(&"a".repeat(161)));
+    }
+
+    #[test]
+    fn connection_start_guard_admits_one_id_until_drop() {
+        let cloud = MobileCloud::with_cloud_url(DEFAULT_CLOUD_URL).unwrap();
+        let first = cloud.begin_connection_start("runtime_1").unwrap();
+        assert!(cloud.begin_connection_start("runtime_1").is_err());
+        assert!(cloud.begin_connection_start("runtime_2").is_ok());
+        drop(first);
+        assert!(cloud.begin_connection_start("runtime_1").is_ok());
+    }
+
+    #[test]
+    fn hosted_runtime_start_timeout_exceeds_the_cloud_wait_contract() {
+        assert!(START_REQUEST_TIMEOUT > Duration::from_secs(60));
+    }
+
+    #[test]
+    fn hosted_runtime_refresh_cannot_switch_connection_identity() {
+        let previous = MobileConnection {
+            id: "runtime_1".to_string(),
+            kind: "hosted_runtime".to_string(),
+            org_id: "org_1".to_string(),
+            project_id: Some("project_1".to_string()),
+            name: "Production".to_string(),
+            status: "starting".to_string(),
+            reachable: false,
+            can_start: false,
+            remote_enabled: false,
+            version: None,
+            capabilities: Vec::new(),
+            last_seen_at: None,
+            browser_open_path: None,
+            remote_session_path: None,
+            start_path: None,
+            readiness_path: Some("/api/v1/app/runtimes/runtime_1/readiness".to_string()),
+        };
+        let mut refreshed = previous.clone();
+        refreshed.status = "online".to_string();
+        refreshed.reachable = true;
+        assert!(validate_refreshed_connection(&previous, &refreshed).is_ok());
+
+        refreshed.id = "runtime_2".to_string();
+        assert!(validate_refreshed_connection(&previous, &refreshed).is_err());
+        refreshed.id = previous.id.clone();
+        refreshed.org_id = "org_2".to_string();
+        assert!(validate_refreshed_connection(&previous, &refreshed).is_err());
     }
 
     #[test]
@@ -2852,11 +3188,19 @@ mod tests {
             "mobile_open_notification_settings",
             "mobile_disable_notifications",
             "mobile_open_connection",
+            "mobile_start_connection",
             "mobile_sign_out",
         ] {
             assert!(
                 script.contains(command),
                 "missing {command} from mobile shell"
+            );
+            let permission = format!("allow-{}", command.replace('_', "-"));
+            assert!(
+                permissions
+                    .iter()
+                    .any(|candidate| candidate == permission.as_str()),
+                "missing {permission} from mobile capability"
             );
         }
         for config in [&ios, &android] {

@@ -23,6 +23,9 @@ describe("mobile Hecate instance rows", () => {
       name: "Hecate on Mac.home",
       detail: "Desktop app · v0.5.0 · seen now",
       canOpen: true,
+      canStart: false,
+      canAct: true,
+      action: "open",
       statusLabel: "Available",
       statusState: "online",
       ariaLabel: "Open Hecate on Mac.home",
@@ -43,6 +46,9 @@ describe("mobile Hecate instance rows", () => {
     ).toMatchObject({
       detail: "Hosted · seen 2h ago",
       canOpen: false,
+      canStart: false,
+      canAct: false,
+      action: "none",
       statusLabel: "Offline",
       statusState: "offline",
       ariaLabel: "Hosted work: Offline",
@@ -61,6 +67,9 @@ describe("mobile Hecate instance rows", () => {
     ).toMatchObject({
       name: "Hecate on Office Mac",
       canOpen: false,
+      canStart: false,
+      canAct: false,
+      action: "none",
       statusLabel: "Remote access off",
       statusState: "attention",
       ariaLabel: "Hecate on Office Mac: Remote access off",
@@ -97,7 +106,101 @@ describe("mobile Hecate instance rows", () => {
       name: "Unnamed Hecate",
       detail: "Hecate",
       canOpen: true,
+      canStart: false,
+      canAct: true,
+      action: "open",
       ariaLabel: "Open Unnamed Hecate",
+    });
+  });
+
+  it("offers Start only for a startable managed hosted runtime", () => {
+    expect(
+      connectionView(
+        {
+          id: "runtime_1",
+          kind: "hosted_runtime",
+          name: "Dogfood Runtime",
+          status: "offline",
+          reachable: false,
+          can_start: true,
+        },
+        now,
+      ),
+    ).toMatchObject({
+      canOpen: false,
+      canStart: true,
+      canAct: true,
+      action: "start",
+      statusLabel: "Start",
+      statusState: "attention",
+      ariaLabel: "Start Dogfood Runtime",
+    });
+
+    expect(
+      connectionView(
+        {
+          id: "runtime_1",
+          kind: "hosted_runtime",
+          name: "Dogfood Runtime",
+          status: "starting",
+          reachable: false,
+          can_start: true,
+        },
+        now,
+      ),
+    ).toMatchObject({
+      canOpen: false,
+      canStart: false,
+      canAct: false,
+      action: "none",
+      statusLabel: "Starting",
+      statusState: "attention",
+      ariaLabel: "Dogfood Runtime: Starting",
+    });
+
+    expect(
+      connectionView(
+        {
+          id: "runtime_1",
+          kind: "hosted_runtime",
+          name: "Dogfood Runtime",
+          status: "offline",
+          reachable: false,
+          can_start: true,
+        },
+        now,
+        true,
+      ),
+    ).toMatchObject({
+      canOpen: false,
+      canStart: false,
+      canAct: false,
+      action: "none",
+      statusLabel: "Starting",
+      statusState: "attention",
+      ariaLabel: "Dogfood Runtime: Starting",
+    });
+
+    expect(
+      connectionView(
+        {
+          id: "runtime_1",
+          kind: "hosted_runtime",
+          name: "Dogfood Runtime",
+          status: "starting",
+          reachable: true,
+          can_start: true,
+        },
+        now,
+      ),
+    ).toMatchObject({
+      canOpen: true,
+      canStart: false,
+      canAct: true,
+      action: "open",
+      statusLabel: "Available",
+      statusState: "online",
+      ariaLabel: "Open Dogfood Runtime",
     });
   });
 });

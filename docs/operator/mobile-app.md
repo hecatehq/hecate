@@ -21,6 +21,8 @@ The native shell can:
   shell's JavaScript or a URL;
 - list active hosted runtimes and the signed-in owner's remote-enabled desktop
   hosts, refreshing reachability every ten seconds while the app is visible;
+- start a stopped Cloud-managed hosted runtime, then refresh its authenticated
+  health until it becomes available;
 - present those instances as the signed-in home, with account, notification,
   and security details kept in a separate Settings view;
 - request iPhone notification permission only after an explicit in-app action,
@@ -132,7 +134,11 @@ links are intentionally not part of this version.
   client request ID, but other writes and attachment uploads do not yet share a
   safe idempotency contract.
 - A desktop-host connection works only while Hecate desktop remains open and
-  Remote access is enabled.
+  Remote access is enabled. The phone cannot wake a powered-off Mac or launch
+  its desktop app.
+- Only organization owners and admins can start hosted runtimes managed by
+  Hecate Cloud from the app. Manually registered runtimes must be started by
+  their own operator.
 - Store signing is wired but still requires maintainer-owned Apple and Google
   credentials. Store metadata, privacy disclosures, release CI, and real-device
   smoke tests remain release gates.

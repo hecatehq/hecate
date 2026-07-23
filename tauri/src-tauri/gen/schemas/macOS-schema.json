@@ -423,6 +423,12 @@
           "markdownDescription": "Enables the mobile_sign_out command without any pre-configured scope."
         },
         {
+          "description": "Enables the mobile_start_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-start-connection",
+          "markdownDescription": "Enables the mobile_start_connection command without any pre-configured scope."
+        },
+        {
           "description": "Enables the mobile_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-mobile-status",
@@ -523,6 +529,12 @@
           "type": "string",
           "const": "deny-mobile-sign-out",
           "markdownDescription": "Denies the mobile_sign_out command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_start_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-start-connection",
+          "markdownDescription": "Denies the mobile_start_connection command without any pre-configured scope."
         },
         {
           "description": "Denies the mobile_status command without any pre-configured scope.",

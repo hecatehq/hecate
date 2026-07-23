@@ -13,8 +13,7 @@
   --amber: #a66e2d;
   --red: #a54239;
   --radius: 16px;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--paper);
   font-synthesis: none;
@@ -79,8 +78,8 @@ button {
   align-items: center;
   justify-content: space-between;
   min-height: calc(58px + env(safe-area-inset-top, 0px));
-  padding: calc(8px + env(safe-area-inset-top, 0px))
-    max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px
+    max(16px, env(safe-area-inset-left, 0px));
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--paper) 94%, transparent);
   backdrop-filter: blur(18px);
@@ -427,6 +426,22 @@ h1 {
   margin: 0;
   color: var(--ink-soft);
   font-size: 13px;
+}
+
+.home-status {
+  margin: -8px 2px 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.home-status:focus-visible {
+  outline: 3px solid rgba(23, 70, 56, 0.3);
+  outline-offset: 2px;
 }
 
 .connection-list {

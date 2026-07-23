@@ -15,6 +15,7 @@
     "allow-mobile-open-notification-settings",
     "allow-mobile-disable-notifications",
     "allow-mobile-open-connection",
+    "allow-mobile-start-connection",
     "allow-mobile-sign-out",
     "deep-link:default",
     "log:default"

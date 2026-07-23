@@ -15,7 +15,6 @@
 		2EEE03990BFD7A55C30A3492 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EB2CEC0BCDA1EF9151E0DDF7 /* libapp.a */; };
 		54A185B773C72C25D6132742 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AE484BA3F27C5B2E66F32827 /* LaunchScreen.storyboard */; };
 		5AA73C4A7DD2D4C74F8E9106 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 287D8BC98FEFE23C10BEFABC /* Metal.framework */; };
-		6126C0F5D2BBD56561609756 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = A37F32FE1BA75DA3C09A6457 /* libapp.a */; };
 		6B5FA62CA3744E827C633413 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = A56BF9818F2D9CA7EAD0B473 /* main.mm */; };
 		72C5EEE95D46EA50B41619DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B96481FE94F648149E6896D3 /* Assets.xcassets */; };
 		74690C3E16142063B3C07105 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C562A677666B9A7EDC4E5509 /* UserNotifications.framework */; };
@@ -278,7 +277,6 @@
 				54A185B773C72C25D6132742 /* LaunchScreen.storyboard in Resources */,
 				DC1402B718DAA8CF0AA2F49C /* PrivacyInfo.xcprivacy in Resources */,
 				AEA4369DD50A519387A1773B /* assets in Resources */,
-				6126C0F5D2BBD56561609756 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

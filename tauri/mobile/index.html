@@ -118,6 +118,16 @@
           <p>Your chats and projects stay with the Mac or hosted runtime where they run.</p>
         </div>
 
+        <p
+          class="home-status"
+          id="homeStatus"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          tabindex="-1"
+          hidden
+        ></p>
+
         <section
           class="connections"
           id="connectionsSection"
@@ -153,7 +163,12 @@
         </section>
       </section>
 
-      <section class="app-view settings-view" id="settingsView" aria-labelledby="settings-title" hidden>
+      <section
+        class="app-view settings-view"
+        id="settingsView"
+        aria-labelledby="settings-title"
+        hidden
+      >
         <div class="settings-heading">
           <button
             class="back-button"
@@ -230,8 +245,8 @@
           <p class="kicker">Privacy</p>
           <h2 id="security-title">Session security</h2>
           <p>
-            Hecate keeps your app credential in native memory only. Runtime browsing uses a
-            separate HTTP-only session that is cleared on app start and sign-out.
+            Hecate keeps your app credential in native memory only. Runtime browsing uses a separate
+            HTTP-only session that is cleared on app start and sign-out.
           </p>
         </section>
       </section>

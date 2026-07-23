@@ -125,14 +125,25 @@ tauri-rust-test: tauri-test-sidecar
 # generated Xcode project is checked in; this does not require a signing team.
 # Build the unsigned iOS Simulator companion.
 tauri-ios-build-debug: tauri-install
+	rm -rf tauri/src-tauri/gen/apple/build/hecate-app_iOS.xcarchive
+	rm -rf tauri/src-tauri/gen/apple/build/arm64-sim
 	cd tauri && bun run tauri ios build --debug --target aarch64-sim --no-sign --ci
+
+# Build a development-signed iOS IPA that can be installed on a registered
+# physical device without using the App Store export flow.
+tauri-ios-build-device-debug: tauri-install
+	rm -rf tauri/src-tauri/gen/apple/build/hecate-app_iOS.xcarchive
+	rm -rf tauri/src-tauri/gen/apple/build/arm64
+	cd tauri && bun run tauri ios build --debug --target aarch64 --export-method debugging --ci
 
 # Build a signed iOS IPA for TestFlight/App Store Connect. Xcode uses the
 # account configured on this Mac; APPLE_DEVELOPMENT_TEAM can override the
 # checked-in project team when a maintainer signs with another account.
 # Build the signed iOS companion IPA.
 tauri-ios-build-release: tauri-install tauri-version
-	: "${APPLE_DEVELOPMENT_TEAM:?set APPLE_DEVELOPMENT_TEAM to the Apple Developer team ID}"; \
+	: "${APPLE_DEVELOPMENT_TEAM:?set APPLE_DEVELOPMENT_TEAM to the Apple Developer team ID}"
+	rm -rf tauri/src-tauri/gen/apple/build/hecate-app_iOS.xcarchive
+	rm -rf tauri/src-tauri/gen/apple/build/arm64
 	cd tauri && bun run tauri ios build --target aarch64 --export-method app-store-connect --ci
 
 # Build a debug Android APK for one Rust target. JAVA_HOME must point to a JDK

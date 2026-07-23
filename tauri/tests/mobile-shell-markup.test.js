@@ -6,9 +6,7 @@ describe("mobile chat-first shell markup", () => {
   it("puts instance selection before secondary account settings", () => {
     expect(html).toContain('id="home-title">Choose Hecate</h1>');
     expect(html).not.toContain("Cloud companion");
-    expect(html.indexOf('id="connectionsSection"')).toBeLessThan(
-      html.indexOf('id="settingsView"'),
-    );
+    expect(html.indexOf('id="connectionsSection"')).toBeLessThan(html.indexOf('id="settingsView"'));
   });
 
   it("makes each instance one semantic row action", async () => {
@@ -55,6 +53,34 @@ describe("mobile chat-first shell markup", () => {
     expect(controls).toEqual([
       { id: "settings", label: "Open settings", hidden: true },
       { id: "back", label: "Back to Hecate instances", hidden: false },
+    ]);
+  });
+
+  it("announces hosted-runtime start results in the signed-in view", async () => {
+    const statuses = [];
+    const transformed = new HTMLRewriter()
+      .on("#homeStatus", {
+        element(element) {
+          statuses.push({
+            role: element.getAttribute("role"),
+            live: element.getAttribute("aria-live"),
+            atomic: element.getAttribute("aria-atomic"),
+            tabindex: element.getAttribute("tabindex"),
+            hidden: element.hasAttribute("hidden"),
+          });
+        },
+      })
+      .transform(new Response(html));
+
+    await transformed.text();
+    expect(statuses).toEqual([
+      {
+        role: "status",
+        live: "polite",
+        atomic: "true",
+        tabindex: "-1",
+        hidden: true,
+      },
     ]);
   });
 

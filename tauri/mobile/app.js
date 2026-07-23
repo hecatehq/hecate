@@ -1,6 +1,7 @@
 import { createAutoRefreshLoop, shouldAutoRefresh } from "./auto-refresh.js";
 import { authorizationView } from "./authorization-view.js";
 import { shouldApplyConnectionsResponse } from "./connection-request.js";
+import { createConnectionStartState } from "./connection-start-state.js";
 import { connectionView } from "./connection-view.js";
 import { notificationView } from "./notification-state.js";
 
@@ -37,6 +38,7 @@ import { notificationView } from "./notification-state.js";
     enableNotificationsButton: document.querySelector("#enableNotificationsButton"),
     notificationSettingsButton: document.querySelector("#notificationSettingsButton"),
     disableNotificationsButton: document.querySelector("#disableNotificationsButton"),
+    homeStatus: document.querySelector("#homeStatus"),
     connectionsSection: document.querySelector("#connectionsSection"),
     connectionList: document.querySelector("#connectionList"),
     connectionTemplate: document.querySelector("#connectionTemplate"),
@@ -53,6 +55,8 @@ import { notificationView } from "./notification-state.js";
   let connectionsRequestEpoch = 0;
   let activeConnectionsRequestEpoch = 0;
   let activeScreen = "home";
+  const connectionStartState = createConnectionStartState();
+  const announcedConnectionStarts = new Set();
 
   const connectionRefreshLoop = createAutoRefreshLoop({
     refresh: refreshSignedInData,
@@ -88,6 +92,17 @@ import { notificationView } from "./notification-state.js";
   function clearError() {
     elements.errorMessage.textContent = "";
     elements.errorNotice.hidden = true;
+  }
+
+  function showHomeStatus(message, focus = false) {
+    const text = typeof message === "string" ? message.trim() : "";
+    elements.homeStatus.textContent = text;
+    elements.homeStatus.hidden = !text;
+    if (text && focus) {
+      window.requestAnimationFrame(() => {
+        if (!elements.homeStatus.hidden) elements.homeStatus.focus({ preventScroll: true });
+      });
+    }
   }
 
   function setButtonBusy(button, busy, busyLabel) {
@@ -161,6 +176,11 @@ import { notificationView } from "./notification-state.js";
     elements.signOutButton.hidden = !signedIn;
     elements.accountEmail.textContent = status?.account_email || "Signed in";
     elements.connectionsSection.hidden = !signedIn;
+    if (!signedIn) {
+      connectionStartState.reset();
+      announcedConnectionStarts.clear();
+      showHomeStatus("");
+    }
     applyScreen(signedIn);
     applyNotificationStatus(currentNotificationStatus);
     if (status?.last_error) showError(status.last_error);
@@ -321,8 +341,7 @@ import { notificationView } from "./notification-state.js";
 
   async function continueAuthorization() {
     const approvalPageAvailable =
-      currentStatus?.authorizing === true &&
-      currentStatus?.approval_page_available === true;
+      currentStatus?.authorizing === true && currentStatus?.approval_page_available === true;
     if (!approvalPageAvailable || elements.openApprovalButton.disabled) return;
 
     clearError();
@@ -360,7 +379,8 @@ import { notificationView } from "./notification-state.js";
 
     for (const connection of connections) {
       const node = elements.connectionTemplate.content.firstElementChild.cloneNode(true);
-      const view = connectionView(connection);
+      const pendingStart = connectionStartState.reconcile(connection);
+      const view = connectionView(connection, Date.now(), pendingStart);
       const openButton = node.querySelector(".connection-action");
       const health = node.querySelector(".connection-health");
       const healthLabel = node.querySelector(".connection-health-label");
@@ -368,14 +388,28 @@ import { notificationView } from "./notification-state.js";
       const meta = node.querySelector(".connection-meta");
 
       openButton.dataset.kind = connection.kind || "unknown";
-      openButton.disabled = !view.canOpen;
+      openButton.disabled = !view.canAct;
       openButton.setAttribute("aria-label", view.ariaLabel);
       name.textContent = view.name;
       meta.textContent = view.detail;
       health.dataset.state = view.statusState;
       healthLabel.textContent = view.statusLabel;
-      if (view.canOpen) {
+      if (announcedConnectionStarts.has(connection.id) && connection.reachable === true) {
+        announcedConnectionStarts.delete(connection.id);
+        showHomeStatus(`${view.name} is ready to open.`);
+      } else if (
+        announcedConnectionStarts.has(connection.id) &&
+        !pendingStart &&
+        connection.can_start === true &&
+        connection.status !== "starting"
+      ) {
+        announcedConnectionStarts.delete(connection.id);
+        showHomeStatus(`${view.name} is still offline. Try starting it again.`);
+      }
+      if (view.action === "open") {
         openButton.addEventListener("click", () => openConnection(connection, openButton));
+      } else if (view.action === "start") {
+        openButton.addEventListener("click", () => startConnection(connection, openButton));
       }
       fragment.append(node);
     }
@@ -434,6 +468,36 @@ import { notificationView } from "./notification-state.js";
       await refreshStatus();
     } finally {
       setButtonBusy(button, false);
+    }
+  }
+
+  async function startConnection(connection, button) {
+    clearError();
+    connectionStartState.begin(connection.id);
+    announcedConnectionStarts.add(connection.id);
+    const connectionName =
+      typeof connection?.name === "string" && connection.name.trim()
+        ? connection.name.trim()
+        : "Hecate runtime";
+    showHomeStatus(`Starting ${connectionName}…`);
+    setButtonBusy(button, true, "Starting…");
+    try {
+      const result = await command("mobile_start_connection", { connectionId: connection.id });
+      connectionStartState.accepted(connection.id);
+      const message = result?.message || "Hecate Cloud is starting this runtime.";
+      await loadConnections();
+      showHomeStatus(message, true);
+    } catch (error) {
+      const message = errorText(error);
+      connectionStartState.ambiguous(connection.id);
+      announcedConnectionStarts.delete(connection.id);
+      showHomeStatus("");
+      await refreshStatus();
+      await loadConnections();
+      showError(message);
+      window.setTimeout(() => {
+        if (currentStatus?.signed_in) void loadConnections();
+      }, 16_000);
     }
   }
 

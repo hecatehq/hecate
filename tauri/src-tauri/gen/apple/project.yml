@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Hecate
+      PRODUCT_NAME: "$(TARGET_NAME)"
       PRODUCT_BUNDLE_IDENTIFIER: sh.hecate.mobile
       DEVELOPMENT_TEAM: HHRFM4BVMT
 targetTemplates:
@@ -32,6 +32,11 @@ targets:
       - path: Sources
       - path: Assets.xcassets
       - path: Externals
+        # The Rust static archive is linked through the dependency below.
+        # Excluding it here prevents XcodeGen from also copying libapp.a into
+        # the application bundle as a resource.
+        excludes:
+          - "**/*.a"
       - path: hecate-app_iOS
       - path: assets
         buildPhase: resources
@@ -52,6 +57,11 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        CFBundleDisplayName: Hecate
+        CFBundleURLTypes:
+          - CFBundleURLName: hecate-mobile
+            CFBundleURLSchemes:
+              - hecate-mobile
         CFBundleShortVersionString: 0.5.0
         CFBundleVersion: "6.0.3"
         ITSAppUsesNonExemptEncryption: false
