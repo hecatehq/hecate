@@ -750,6 +750,14 @@ func validateRemoteCredentialForRequest(ctx context.Context, adapter Adapter) (C
 	return CredentialMode{}, fmt.Errorf("%w: %s", ErrRemoteCredentialRequired, hint)
 }
 
+func remoteRequestUsesPersonalLocalLogin(ctx context.Context, adapter Adapter) bool {
+	if _, ok := remoteruntime.FromContext(ctx); !ok {
+		return false
+	}
+	mode, ok, _ := remoteCredentialStatus(adapter, os.Getenv)
+	return ok && mode.ID == CredentialModeLocalLogin
+}
+
 func remoteCredentialHint(adapter Adapter) string {
 	_, ok, hint := remoteCredentialStatus(adapter, os.Getenv)
 	if ok {
@@ -862,10 +870,11 @@ const (
 func statusForAdapterWithDiagnostics(ctx context.Context, item Adapter, lookup LookupFunc, diagnostics statusDiagnosticsMode) Status {
 	_, remoteRuntime := remoteruntime.FromContext(ctx)
 	diagnosticItem := item
-	if remoteRuntime {
-		// Remote launches intentionally do not inherit local per-user provider
-		// directories. Apply the same boundary to every status probe, including
-		// the full version diagnostics used after an explicit adapter probe.
+	if remoteRuntime && !remoteRequestUsesPersonalLocalLogin(ctx, item) {
+		// Hosted/API-key remote launches may use a different filesystem, so they
+		// must not inherit host-personal candidate paths. The explicit personal
+		// local-login mode is the exception because its persistent home is the
+		// selected credential boundary.
 		diagnosticItem.AgentVersion.CandidatePaths = nil
 	}
 	status := Status{
@@ -1337,8 +1346,9 @@ func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string
 		if home == "" {
 			return adapterProcessEnv{}, fmt.Errorf("%w: HOME or USERPROFILE is required when %s=1", ErrRemoteCredentialRequired, personalRemoteExternalAgentLoginsEnv)
 		}
+		values := remoteRuntimeLocalLoginAdapterEnv(adapter, mode, env, home)
 		return adapterProcessEnv{
-			values: remoteRuntimeLocalLoginAdapterEnv(adapter, mode, env, home),
+			values: prependResolvedAgentRuntimePath(adapter, values, exec.LookPath),
 		}, nil
 	}
 	home, err := os.MkdirTemp("", "hecate-cloud-agent-home-*")
@@ -1357,8 +1367,9 @@ func prepareAdapterProcessEnv(ctx context.Context, adapter Adapter, env []string
 // the GUI process's often-minimal PATH. The adapter catalog already owns the
 // provider CLI's direct command and allowlisted candidate paths; resolve that same
 // metadata and expose only the selected executable directory to the adapter.
-// Remote runtime environments intentionally use their separate fail-closed
-// credential and PATH policy above.
+// Hosted/API-key remote environments intentionally keep their fail-closed PATH
+// policy; explicit personal local-login mode invokes this helper after applying
+// its persistent-home environment.
 func prependResolvedAgentRuntimePath(adapter Adapter, env []string, lookup LookupFunc) []string {
 	path, ok := resolveVersionProbe(adapter.AgentVersion, lookup)
 	if !ok {
