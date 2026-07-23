@@ -22,6 +22,14 @@ Hecate assumes the operator trusts their own machine, local user account, and se
   remote runtime explicitly sets `HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1`
   and keeps the runtime home/XDG directories on its persistent volume.
   The runtime secret is not public auth; keep the runtime network-private.
+- The native Desktop app explicitly enables that personal External Agent login
+  posture for its own sidecar. Requests forwarded by its authenticated Cloud
+  connector may therefore launch External Agents with the current desktop
+  user's existing CLI login state. The login files remain on the computer, but
+  remote work can use the associated account or subscription. Turning Remote
+  access off stops the connector from accepting those requests; use a separate
+  runtime account instead when the registered computer is not a one-person
+  boundary.
 - Do not put local-only endpoints such as workspace folder selection, "open in editor", local provider discovery, MCP registry discovery, MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can inspect host-local state, open local OS UI, spawn diagnostic subprocesses, or mutate local operator state. Reset-data is additionally reserved and currently returns `409 conflict` before mutation.
 - Plugin registry APIs are also blocked in remote-runtime mode. Plugin rows are
   metadata for operator review: installing a manifest records requested

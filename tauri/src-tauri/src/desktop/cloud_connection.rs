@@ -6,11 +6,11 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, watch, Semaphore};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
@@ -20,13 +20,22 @@ const DEFAULT_CLOUD_URL: &str = "https://console.hecatehq.com";
 const KEYRING_SERVICE: &str = "sh.hecate.app.cloud";
 const SESSION_CREDENTIAL: &str = "account-session";
 const HOST_CREDENTIAL: &str = "desktop-host";
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(3 * 60);
+const MAX_LOGIN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const RELAY_RECONNECT_MAX: Duration = Duration::from_secs(30);
+const RELAY_PING_INTERVAL: Duration = Duration::from_secs(15);
+const RELAY_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const RELAY_MAX_CONCURRENCY: usize = 16;
 const RELAY_MAX_REQUEST_BODY: usize = 64 * 1024;
 const RELAY_MAX_PROXY_BODY: usize = 16 * 1024 * 1024;
 const RELAY_MAX_RESPONSE_BODY: usize = 16 * 1024 * 1024;
+const RUNTIME_EVENT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const RUNTIME_EVENT_ACK_TIMEOUT: Duration = Duration::from_secs(15);
+const RUNTIME_EVENT_PAGE_LIMIT: usize = 500;
+const RUNTIME_EVENT_MAX_RESPONSE_BODY: usize = 512 * 1024;
+const CHAT_APPROVAL_POLL_INTERVAL: Duration = Duration::from_secs(3);
+const CHAT_APPROVAL_ACTIVE_SESSION_LIMIT: usize = 50;
+const CHAT_APPROVAL_PENDING_LIMIT: usize = 100;
 const REMOTE_ACCESS_CANCELLED: &str = "Remote access was cancelled.";
 const REMOTE_ACTOR_ID_HEADER: &str = "x-hecate-remote-actor-id";
 const REMOTE_ORG_ID_HEADER: &str = "x-hecate-remote-org-id";
@@ -69,12 +78,22 @@ struct ConnectionState {
     signed_in: bool,
     message: String,
     last_error: Option<String>,
-    login_url: Option<String>,
+    approval_url: Option<String>,
     base_url: Option<String>,
     cancel: Option<watch::Sender<bool>>,
     generation: u64,
     credential_error: Option<String>,
 }
+
+#[derive(Default)]
+struct RuntimeEventCursorState {
+    after_sequence: i64,
+    initialized: bool,
+    pending_approvals: HashMap<String, RuntimeEventEnvelope>,
+    chat_approval_ids: HashSet<String>,
+}
+
+type RuntimeEventCursor = Arc<Mutex<RuntimeEventCursorState>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConnectionPhase {
@@ -159,7 +178,7 @@ impl CloudConnectionSupervisor {
                     signed_in,
                     message,
                     last_error: credential_error.clone(),
-                    login_url: None,
+                    approval_url: None,
                     base_url: None,
                     cancel: None,
                     generation: 0,
@@ -216,7 +235,7 @@ impl CloudConnectionSupervisor {
         }
     }
 
-    pub fn start(&self, base_url: Option<String>) -> Result<CloudConnectionStatus, String> {
+    pub async fn start(&self, base_url: Option<String>) -> Result<CloudConnectionStatus, String> {
         let base_url = validated_local_base_url(base_url)?;
         {
             let mut state = self
@@ -241,7 +260,7 @@ impl CloudConnectionSupervisor {
                 self.launch_authenticated(Some(base_url), token, true)?;
             }
             Ok(None) => {
-                self.launch_authorization(base_url)?;
+                self.launch_authorization(base_url).await?;
             }
             Err(err) => return Err(err),
         }
@@ -249,12 +268,12 @@ impl CloudConnectionSupervisor {
         Ok(self.status(None))
     }
 
-    pub fn pending_login_url(&self) -> Option<String> {
+    pub fn pending_approval_url(&self) -> Option<String> {
         self.inner
             .state
             .lock()
             .ok()
-            .and_then(|state| state.login_url.clone())
+            .and_then(|state| state.approval_url.clone())
     }
 
     pub fn stop(&self, base_url: Option<String>) -> CloudConnectionStatus {
@@ -270,7 +289,7 @@ impl CloudConnectionSupervisor {
             state.base_url = base_url;
         }
         state.phase = ConnectionPhase::Disconnected;
-        state.login_url = None;
+        state.approval_url = None;
         state.last_error = None;
         state.message = if state.signed_in {
             "Remote access is off.".to_string()
@@ -361,7 +380,7 @@ impl CloudConnectionSupervisor {
         state.signed_in = false;
         state.phase = ConnectionPhase::Disconnected;
         state.base_url = base_url.or_else(|| state.base_url.clone());
-        state.login_url = None;
+        state.approval_url = None;
         state.last_error = revoke_warning;
         state.message = "Signed out of Hecate Cloud.".to_string();
         if let Err(err) = self.persist_preferences(&state.preferences) {
@@ -378,42 +397,125 @@ impl CloudConnectionSupervisor {
         cancel_current(&mut state);
         state.generation = state.generation.wrapping_add(1);
         state.phase = ConnectionPhase::Disconnected;
+        state.approval_url = None;
     }
 
-    fn launch_authorization(&self, base_url: String) -> Result<(), String> {
+    async fn launch_authorization(&self, base_url: String) -> Result<(), String> {
         let token = new_app_token()?;
-        let login_url = format!("{}/desktop-login#token={token}", self.inner.cloud_url);
-        let (generation, cancel_rx) = {
+        let (generation, mut cancel_rx) = {
             let mut state = self
                 .inner
                 .state
                 .lock()
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
-            // Serialize the keyring write with generation changes so an older
-            // connection attempt cannot delete this new pending session.
-            self.inner.credentials.set(SESSION_CREDENTIAL, &token)?;
             cancel_current(&mut state);
             state.generation = state.generation.wrapping_add(1);
             let generation = state.generation;
             let (cancel_tx, cancel_rx) = watch::channel(false);
             state.cancel = Some(cancel_tx);
-            state.preferences.auto_start_enabled = true;
+            state.preferences.auto_start_enabled = false;
             state.phase = ConnectionPhase::Authorizing;
             state.signed_in = false;
             state.base_url = Some(base_url.clone());
-            state.login_url = Some(login_url);
+            state.approval_url = None;
             state.last_error = None;
-            state.message = "Finish signing in in your browser.".to_string();
-            self.persist_preferences(&state.preferences)?;
+            state.message = "Starting secure sign-in...".to_string();
             (generation, cancel_rx)
         };
+
+        let client = CloudClient::new(
+            self.inner.cloud_url.clone(),
+            self.inner.http.clone(),
+            env!("CARGO_PKG_VERSION"),
+        );
+        let authorization = tokio::select! {
+            result = client.create_app_authorization(&token) => result,
+            result = cancel_rx.changed() => {
+                let _ = result;
+                return Ok(());
+            }
+        };
+        if *cancel_rx.borrow() || !self.is_current(generation) {
+            return Ok(());
+        }
+        let authorization = match authorization {
+            Ok(authorization) => authorization,
+            Err(err) => {
+                self.fail_authorization_if_current(
+                    generation,
+                    "Secure sign-in could not be started. Try again.",
+                    Some(err.to_string()),
+                );
+                return Err(err.to_string());
+            }
+        };
+        let validated = match validated_app_authorization(&authorization, &self.inner.cloud_url) {
+            Ok(validated) => validated,
+            Err(err) => {
+                self.fail_authorization_if_current(
+                    generation,
+                    "Hecate Cloud returned an invalid sign-in request.",
+                    Some(err.clone()),
+                );
+                return Err(err);
+            }
+        };
+        if !self.install_authorization_if_current(generation, &token, validated.approval_url)? {
+            return Ok(());
+        }
+
+        let expires_in = validated.expires_in;
         let supervisor = self.clone();
         tauri::async_runtime::spawn(async move {
             supervisor
-                .authorize_then_connect(generation, base_url, token, cancel_rx)
+                .authorize_then_connect(generation, base_url, token, expires_in, cancel_rx)
                 .await;
         });
         Ok(())
+    }
+
+    fn install_authorization_if_current(
+        &self,
+        generation: u64,
+        token: &str,
+        approval_url: String,
+    ) -> Result<bool, String> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Remote access state is unavailable.".to_string())?;
+        if state.generation != generation {
+            return Ok(false);
+        }
+
+        if let Err(err) = self.inner.credentials.set(SESSION_CREDENTIAL, token) {
+            state.phase = ConnectionPhase::Error;
+            state.cancel = None;
+            state.message = "Secure credential storage is unavailable.".to_string();
+            state.last_error = Some(err.clone());
+            return Err(err);
+        }
+        let mut preferences = state.preferences.clone();
+        preferences.auto_start_enabled = true;
+        if let Err(err) = self.persist_preferences(&preferences) {
+            let mut error = Some(err.clone());
+            if let Err(delete_err) = self.inner.credentials.delete(SESSION_CREDENTIAL) {
+                append_warning(&mut error, delete_err);
+            }
+            state.phase = ConnectionPhase::Error;
+            state.cancel = None;
+            state.message = "Secure sign-in could not be saved.".to_string();
+            state.last_error = error;
+            return Err(err);
+        }
+
+        state.preferences = preferences;
+        state.approval_url = Some(approval_url);
+        state.last_error = None;
+        state.message =
+            "Approve sign-in in your browser. This window will update automatically.".to_string();
+        Ok(true)
     }
 
     fn launch_authenticated(
@@ -440,7 +542,7 @@ impl CloudConnectionSupervisor {
             state.phase = ConnectionPhase::Connecting;
             state.signed_in = true;
             state.base_url = Some(base_url.clone());
-            state.login_url = None;
+            state.approval_url = None;
             state.last_error = None;
             state.message = "Connecting this Hecate...".to_string();
             self.persist_preferences(&state.preferences)?;
@@ -460,6 +562,7 @@ impl CloudConnectionSupervisor {
         generation: u64,
         base_url: String,
         token: String,
+        expires_in: Duration,
         mut cancel_rx: watch::Receiver<bool>,
     ) {
         let client = CloudClient::new(
@@ -467,13 +570,20 @@ impl CloudConnectionSupervisor {
             self.inner.http.clone(),
             env!("CARGO_PKG_VERSION"),
         );
-        let deadline = tokio::time::Instant::now() + LOGIN_TIMEOUT;
+        let deadline = tokio::time::Instant::now() + expires_in;
         loop {
             if *cancel_rx.borrow() {
                 return;
             }
             match client.me(&token).await {
-                Ok(_) => {
+                Ok(actor) => {
+                    self.apply_actor(generation, &actor);
+                    self.set_phase_if_current(
+                        generation,
+                        ConnectionPhase::Connecting,
+                        "Connecting this Hecate...",
+                        None,
+                    );
                     self.connect_authenticated(generation, base_url, token, cancel_rx)
                         .await;
                     return;
@@ -573,6 +683,12 @@ impl CloudConnectionSupervisor {
         };
 
         let mut delay = Duration::from_secs(1);
+        // The cursor lives for the authenticated connector generation, rather
+        // than for one WebSocket. A transient relay reconnect can therefore
+        // catch up without replaying every historical event. The first sync is
+        // a baseline-only drain so enabling notifications never alerts for old
+        // approvals or completed runs.
+        let runtime_event_cursor = Arc::new(Mutex::new(RuntimeEventCursorState::default()));
         loop {
             if *cancel_rx.borrow() || !self.is_current(generation) {
                 return;
@@ -590,6 +706,7 @@ impl CloudConnectionSupervisor {
                 &base_url,
                 relay_authorization.clone(),
                 cancel_rx.clone(),
+                Some(runtime_event_cursor.clone()),
                 || {
                     log::info!("remote access relay connected");
                     self.set_phase_if_current(
@@ -741,7 +858,7 @@ impl CloudConnectionSupervisor {
         state.signed_in = true;
         state.preferences.account_email = Some(actor.email.clone());
         state.preferences.org_id = Some(actor.org_id.clone());
-        state.login_url = None;
+        state.approval_url = None;
         state.last_error = None;
         if let Err(err) = self.persist_preferences(&state.preferences) {
             state.last_error = Some(err);
@@ -765,7 +882,7 @@ impl CloudConnectionSupervisor {
         state.phase = ConnectionPhase::Disconnected;
         state.preferences = CloudConnectionPreferences::default();
         state.message = message.to_string();
-        state.login_url = None;
+        state.approval_url = None;
         state.last_error = errors;
         if let Err(err) = self.persist_preferences(&state.preferences) {
             append_warning(&mut state.last_error, err);
@@ -784,9 +901,14 @@ impl CloudConnectionSupervisor {
             append_warning(&mut error, err);
         }
         state.phase = ConnectionPhase::Error;
+        state.preferences.auto_start_enabled = false;
         state.message = message.to_string();
-        state.login_url = None;
+        state.approval_url = None;
+        state.cancel = None;
         state.last_error = error;
+        if let Err(err) = self.persist_preferences(&state.preferences) {
+            append_warning(&mut state.last_error, err);
+        }
     }
 
     fn set_phase_if_current(
@@ -803,6 +925,9 @@ impl CloudConnectionSupervisor {
             return;
         }
         state.phase = phase;
+        if phase != ConnectionPhase::Authorizing {
+            state.approval_url = None;
+        }
         state.message = message.to_string();
         state.last_error = error;
     }
@@ -827,6 +952,7 @@ impl CloudConnectionSupervisor {
             return;
         };
         state.phase = ConnectionPhase::Error;
+        state.approval_url = None;
         state.message = message.to_string();
         state.last_error = error;
     }
@@ -1074,6 +1200,24 @@ impl CloudClient {
             .await
     }
 
+    async fn create_app_authorization(
+        &self,
+        token: &str,
+    ) -> Result<AppAuthorization, CloudAPIError> {
+        self.send(self.app_authorization_request(token)).await
+    }
+
+    fn app_authorization_request(&self, token: &str) -> reqwest::RequestBuilder {
+        self.http
+            .post(format!("{}/api/v1/app/authorizations", self.base_url))
+            .header("x-hecate-app-version", &self.app_version)
+            .timeout(Duration::from_secs(20))
+            .json(&serde_json::json!({
+                "token": token,
+                "client": "desktop",
+            }))
+    }
+
     async fn create_host(
         &self,
         token: &str,
@@ -1144,6 +1288,13 @@ impl CloudClient {
         if let Some(body) = body {
             request = request.json(body);
         }
+        self.send(request).await
+    }
+
+    async fn send<T>(&self, request: reqwest::RequestBuilder) -> Result<T, CloudAPIError>
+    where
+        T: DeserializeOwned,
+    {
         let response = request.send().await.map_err(CloudAPIError::network)?;
         let status = response.status();
         let payload = response.bytes().await.map_err(CloudAPIError::network)?;
@@ -1212,6 +1363,95 @@ struct CloudActor {
     id: String,
     email: String,
     org_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppAuthorization {
+    authorization_id: String,
+    approval_url: String,
+    expires_at: String,
+}
+
+struct ValidatedAppAuthorization {
+    approval_url: String,
+    expires_in: Duration,
+}
+
+fn validated_app_authorization(
+    authorization: &AppAuthorization,
+    cloud_url: &str,
+) -> Result<ValidatedAppAuthorization, String> {
+    authorization
+        .authorization_id
+        .strip_prefix("appauth_")
+        .filter(|suffix| {
+            suffix.len() == 32
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        .ok_or_else(|| "Hecate Cloud returned an invalid authorization id.".to_string())?;
+    let expires_in = authorization_expires_in(&authorization.expires_at)?;
+
+    let cloud = reqwest::Url::parse(cloud_url)
+        .map_err(|_| "The configured Hecate Cloud URL is invalid.".to_string())?;
+    let approval = reqwest::Url::parse(&authorization.approval_url)
+        .map_err(|_| "Hecate Cloud returned an invalid approval URL.".to_string())?;
+    let same_origin = cloud.scheme() == approval.scheme()
+        && cloud.host_str() == approval.host_str()
+        && cloud.port_or_known_default() == approval.port_or_known_default();
+    if !same_origin
+        || !approval.username().is_empty()
+        || approval.password().is_some()
+        || approval.path() != "/desktop-login"
+        || approval.query().is_some()
+    {
+        return Err("Hecate Cloud returned an untrusted approval URL.".to_string());
+    }
+    let fragment = approval
+        .fragment()
+        .ok_or_else(|| "Hecate Cloud returned an invalid approval URL.".to_string())?;
+    let fields = fragment.split('&').collect::<Vec<_>>();
+    let fragment_authorization_id = fields
+        .first()
+        .and_then(|field| field.strip_prefix("authorization_id="));
+    let browser_ticket = fields
+        .get(1)
+        .and_then(|field| field.strip_prefix("browser_ticket="));
+    let valid_browser_ticket = browser_ticket.is_some_and(|ticket| {
+        ticket.len() == 48
+            && ticket.starts_with("hbat_")
+            && ticket[5..]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    });
+    if fields.len() != 3
+        || fragment_authorization_id != Some(authorization.authorization_id.as_str())
+        || !valid_browser_ticket
+        || fields[2] != "client=desktop"
+    {
+        return Err("Hecate Cloud returned an invalid approval URL.".to_string());
+    }
+
+    Ok(ValidatedAppAuthorization {
+        approval_url: authorization.approval_url.clone(),
+        expires_in,
+    })
+}
+
+fn authorization_expires_in(raw: &str) -> Result<Duration, String> {
+    let expires_at = chrono::DateTime::parse_from_rfc3339(raw)
+        .map_err(|_| "Hecate Cloud returned an invalid authorization expiry.".to_string())?;
+    let now_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "The computer clock is unavailable.".to_string())?
+        .as_millis() as i128;
+    let remaining_millis = i128::from(expires_at.timestamp_millis()) - now_millis;
+    if remaining_millis <= 0 || remaining_millis > MAX_LOGIN_TIMEOUT.as_millis() as i128 {
+        return Err("Hecate Cloud returned an invalid authorization expiry.".to_string());
+    }
+    Ok(Duration::from_millis(remaining_millis as u64))
 }
 
 fn saved_host_owner_matches(
@@ -1290,7 +1530,45 @@ async fn run_relay<F>(
     host_token: &str,
     local_base_url: &str,
     authorization: RelayAuthorization,
+    cancel_rx: watch::Receiver<bool>,
+    runtime_event_cursor: Option<RuntimeEventCursor>,
+    on_connected: F,
+) -> Result<(), String>
+where
+    F: FnOnce(),
+{
+    run_relay_with_watchdog(
+        client,
+        host_id,
+        host_token,
+        local_base_url,
+        authorization,
+        cancel_rx,
+        runtime_event_cursor,
+        RelayWatchdog {
+            ping_interval: RELAY_PING_INTERVAL,
+            read_idle_timeout: RELAY_READ_IDLE_TIMEOUT,
+        },
+        on_connected,
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+struct RelayWatchdog {
+    ping_interval: Duration,
+    read_idle_timeout: Duration,
+}
+
+async fn run_relay_with_watchdog<F>(
+    client: &CloudClient,
+    host_id: &str,
+    host_token: &str,
+    local_base_url: &str,
+    authorization: RelayAuthorization,
     mut cancel_rx: watch::Receiver<bool>,
+    runtime_event_cursor: Option<RuntimeEventCursor>,
+    watchdog: RelayWatchdog,
     on_connected: F,
 ) -> Result<(), String>
 where
@@ -1335,7 +1613,32 @@ where
 
     let (mut sink, mut stream) = socket.split();
     let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<String>(64);
+    let (runtime_event_ack_tx, runtime_event_ack_rx) = mpsc::channel::<RuntimeEventAck>(16);
+    if let Some(cursor) = runtime_event_cursor {
+        let http = client.http.clone();
+        let local_base_url = local_base_url.to_string();
+        let authorization = authorization.clone();
+        let outgoing = outgoing_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            forward_runtime_notification_events(
+                &http,
+                &local_base_url,
+                &authorization,
+                cursor,
+                outgoing,
+                runtime_event_ack_rx,
+            )
+            .await;
+        });
+    }
     let permits = Arc::new(Semaphore::new(RELAY_MAX_CONCURRENCY));
+    let mut heartbeat = tokio::time::interval_at(
+        tokio::time::Instant::now() + watchdog.ping_interval,
+        watchdog.ping_interval,
+    );
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let read_idle = tokio::time::sleep(watchdog.read_idle_timeout);
+    tokio::pin!(read_idle);
     loop {
         tokio::select! {
             result = cancel_rx.changed() => {
@@ -1350,9 +1653,24 @@ where
                     .await
                     .map_err(|err| format!("Remote access response failed: {err}"))?;
             }
+            _ = heartbeat.tick() => {
+                sink.send(Message::Ping(Vec::new().into()))
+                    .await
+                    .map_err(|err| format!("Remote access heartbeat failed: {err}"))?;
+            }
+            _ = &mut read_idle => {
+                return Err("Remote access heartbeat timed out.".to_string());
+            }
             incoming = stream.next() => {
+                read_idle
+                    .as_mut()
+                    .reset(tokio::time::Instant::now() + watchdog.read_idle_timeout);
                 match incoming {
                     Some(Ok(Message::Text(payload))) => {
+                        if let Some(ack) = runtime_event_ack(payload.as_str()) {
+                            let _ = runtime_event_ack_tx.try_send(ack);
+                            continue;
+                        }
                         let permit = match permits.clone().try_acquire_owned() {
                             Ok(permit) => permit,
                             Err(_) => {
@@ -1409,6 +1727,105 @@ struct RelayRequest {
     body_base64: String,
 }
 
+#[derive(Deserialize)]
+struct RuntimeEventsResponse {
+    #[serde(default)]
+    data: Vec<RuntimeEventEnvelope>,
+}
+
+#[derive(Clone, Deserialize)]
+struct RuntimeEventEnvelope {
+    #[serde(default)]
+    schema_version: String,
+    #[serde(default)]
+    event_id: String,
+    #[serde(default)]
+    task_id: String,
+    #[serde(default)]
+    run_id: String,
+    #[serde(default)]
+    sequence: i64,
+    #[serde(default)]
+    occurred_at: String,
+    #[serde(default, rename = "type")]
+    kind: String,
+    #[serde(default)]
+    data: RuntimeEventData,
+}
+
+#[derive(Clone, Default, Deserialize)]
+struct RuntimeEventData {
+    #[serde(default)]
+    approval_id: String,
+}
+
+#[derive(Serialize)]
+struct RelayRuntimeEventFrame {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    event: RelayRuntimeEvent,
+}
+
+#[derive(Serialize)]
+struct RelayRuntimeEvent {
+    schema_version: &'static str,
+    event_id: String,
+    #[serde(rename = "type")]
+    kind: String,
+    occurred_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approval_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outcome: Option<&'static str>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeEventAck {
+    #[serde(rename = "type")]
+    kind: String,
+    event_id: String,
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct ChatSessionsResponse {
+    #[serde(default)]
+    data: Vec<ChatSessionSummary>,
+}
+
+#[derive(Deserialize)]
+struct ChatSessionSummary {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct ChatApprovalsResponse {
+    #[serde(default)]
+    data: Vec<ChatPendingApproval>,
+}
+
+#[derive(Clone, Deserialize)]
+struct ChatPendingApproval {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    created_at: String,
+}
+
 #[derive(Serialize)]
 struct RelayResponse {
     id: String,
@@ -1443,6 +1860,432 @@ struct RelayResponseEnd {
     kind: &'static str,
 }
 
+async fn forward_runtime_notification_events(
+    http: &reqwest::Client,
+    local_base_url: &str,
+    authorization: &RelayAuthorization,
+    cursor: RuntimeEventCursor,
+    outgoing: mpsc::Sender<String>,
+    mut acknowledgements: mpsc::Receiver<RuntimeEventAck>,
+) {
+    let mut runtime_poll = tokio::time::interval(RUNTIME_EVENT_POLL_INTERVAL);
+    runtime_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut chat_approval_poll = tokio::time::interval(CHAT_APPROVAL_POLL_INTERVAL);
+    chat_approval_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = outgoing.closed() => return,
+            _ = runtime_poll.tick() => {
+                if sync_runtime_notification_event_page(
+                    http,
+                    local_base_url,
+                    authorization,
+                    &cursor,
+                    &outgoing,
+                    &mut acknowledgements,
+                )
+                .await
+                .is_err()
+                {
+                    // This is a best-effort companion signal. The authenticated HTTP
+                    // relay remains authoritative, and the cursor is left in place so
+                    // the next poll can retry without logging event contents.
+                    log::debug!("runtime notification event sync is waiting for the local feed");
+                }
+            }
+            _ = chat_approval_poll.tick() => {
+                if sync_chat_approval_notifications(
+                    http,
+                    local_base_url,
+                    authorization,
+                    &cursor,
+                    &outgoing,
+                    &mut acknowledgements,
+                )
+                .await
+                .is_err()
+                {
+                    log::debug!("chat approval notification sync is waiting for the local feed");
+                }
+            }
+        }
+    }
+}
+
+async fn sync_chat_approval_notifications(
+    http: &reqwest::Client,
+    local_base_url: &str,
+    authorization: &RelayAuthorization,
+    cursor: &RuntimeEventCursor,
+    outgoing: &mpsc::Sender<String>,
+    acknowledgements: &mut mpsc::Receiver<RuntimeEventAck>,
+) -> Result<(), ()> {
+    // External-agent approvals are durable per session but are not part of the
+    // task event feed. Reconcile only currently actionable rows. We do not
+    // infer Chat completion from mutable session timestamps; a future unified
+    // operator-notification log should own that signal.
+    let sessions = fetch_chat_sessions(http, local_base_url, authorization).await?;
+    let active_sessions = sessions
+        .data
+        .into_iter()
+        .filter(|session| {
+            runtime_event_id_is_safe(&session.id)
+                && matches!(session.status.as_str(), "running" | "awaiting_approval")
+        })
+        .take(CHAT_APPROVAL_ACTIVE_SESSION_LIMIT + 1)
+        .collect::<Vec<_>>();
+    if active_sessions.len() > CHAT_APPROVAL_ACTIVE_SESSION_LIMIT {
+        return Err(());
+    }
+    let mut pending = HashMap::<String, ChatPendingApproval>::new();
+    for session in active_sessions {
+        let approvals =
+            fetch_chat_approvals(http, local_base_url, authorization, &session.id).await?;
+        for approval in approvals.data {
+            if approval.status != "pending"
+                || approval.session_id != session.id
+                || !runtime_event_id_is_safe(&approval.id)
+                || !runtime_event_id_is_safe(&approval.session_id)
+                || !runtime_event_timestamp_is_safe(&approval.created_at)
+            {
+                continue;
+            }
+            if pending.len() >= CHAT_APPROVAL_PENDING_LIMIT {
+                return Err(());
+            }
+            pending.insert(approval.id.clone(), approval);
+        }
+    }
+
+    let seen = cursor
+        .lock()
+        .map(|state| state.chat_approval_ids.clone())
+        .map_err(|_| ())?;
+    let mut new_approvals = pending
+        .values()
+        .filter(|approval| !seen.contains(&approval.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    new_approvals.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+    for approval in new_approvals {
+        if let Some(frame) = chat_approval_notification_frame(&approval) {
+            send_runtime_notification_event(frame, outgoing, acknowledgements).await?;
+            cursor
+                .lock()
+                .map_err(|_| ())?
+                .chat_approval_ids
+                .insert(approval.id);
+        }
+    }
+
+    let current_ids = pending.into_keys().collect::<HashSet<_>>();
+    cursor
+        .lock()
+        .map_err(|_| ())?
+        .chat_approval_ids
+        .retain(|approval_id| current_ids.contains(approval_id));
+    Ok(())
+}
+
+async fn fetch_chat_sessions(
+    http: &reqwest::Client,
+    local_base_url: &str,
+    authorization: &RelayAuthorization,
+) -> Result<ChatSessionsResponse, ()> {
+    let target = local_request_url(local_base_url, "/hecate/v1/chat/sessions").map_err(|_| ())?;
+    let response = authorization
+        .apply(http.get(target))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| ())?;
+    decode_bounded_local_json(response, RUNTIME_EVENT_MAX_RESPONSE_BODY).await
+}
+
+async fn fetch_chat_approvals(
+    http: &reqwest::Client,
+    local_base_url: &str,
+    authorization: &RelayAuthorization,
+    session_id: &str,
+) -> Result<ChatApprovalsResponse, ()> {
+    if !runtime_event_id_is_safe(session_id) {
+        return Err(());
+    }
+    let path = format!("/hecate/v1/chat/sessions/{session_id}/approvals");
+    let mut target = local_request_url(local_base_url, &path).map_err(|_| ())?;
+    target.query_pairs_mut().append_pair("status", "pending");
+    let response = authorization
+        .apply(http.get(target))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| ())?;
+    decode_bounded_local_json(response, RUNTIME_EVENT_MAX_RESPONSE_BODY).await
+}
+
+async fn decode_bounded_local_json<T: DeserializeOwned>(
+    mut response: reqwest::Response,
+    max_body: usize,
+) -> Result<T, ()> {
+    if !response.status().is_success() {
+        return Err(());
+    }
+    let mut body = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) if body.len().saturating_add(chunk.len()) <= max_body => {
+                body.extend_from_slice(&chunk);
+            }
+            Ok(Some(_)) | Err(_) => return Err(()),
+            Ok(None) => break,
+        }
+    }
+    serde_json::from_slice(&body).map_err(|_| ())
+}
+
+fn chat_approval_notification_frame(
+    approval: &ChatPendingApproval,
+) -> Option<RelayRuntimeEventFrame> {
+    if approval.status != "pending"
+        || !runtime_event_id_is_safe(&approval.id)
+        || !runtime_event_id_is_safe(&approval.session_id)
+        || !runtime_event_timestamp_is_safe(&approval.created_at)
+    {
+        return None;
+    }
+    let event_id = format!("chat_{}", approval.id);
+    if !runtime_event_id_is_safe(&event_id) {
+        return None;
+    }
+    Some(RelayRuntimeEventFrame {
+        kind: "runtime_event",
+        event: RelayRuntimeEvent {
+            schema_version: "1",
+            event_id,
+            kind: "approval.requested".to_string(),
+            occurred_at: approval.created_at.clone(),
+            task_id: None,
+            run_id: None,
+            session_id: Some(approval.session_id.clone()),
+            approval_id: Some(approval.id.clone()),
+            outcome: None,
+        },
+    })
+}
+
+async fn sync_runtime_notification_event_page(
+    http: &reqwest::Client,
+    local_base_url: &str,
+    authorization: &RelayAuthorization,
+    cursor: &RuntimeEventCursor,
+    outgoing: &mpsc::Sender<String>,
+    acknowledgements: &mut mpsc::Receiver<RuntimeEventAck>,
+) -> Result<(), ()> {
+    let (after_sequence, initialized) = cursor
+        .lock()
+        .map(|state| (state.after_sequence, state.initialized))
+        .map_err(|_| ())?;
+    let page =
+        fetch_runtime_notification_event_page(http, local_base_url, authorization, after_sequence)
+            .await?;
+
+    if !initialized {
+        let mut pending = Vec::new();
+        {
+            let mut state = cursor.lock().map_err(|_| ())?;
+            for event in page.data {
+                if event.sequence <= state.after_sequence {
+                    continue;
+                }
+                match event.kind.as_str() {
+                    "approval.requested" if runtime_event_id_is_safe(&event.data.approval_id) => {
+                        state
+                            .pending_approvals
+                            .insert(event.data.approval_id.clone(), event.clone());
+                    }
+                    "approval.resolved" if runtime_event_id_is_safe(&event.data.approval_id) => {
+                        state.pending_approvals.remove(&event.data.approval_id);
+                    }
+                    _ => {}
+                }
+                state.after_sequence = event.sequence;
+            }
+            if page.data_len < RUNTIME_EVENT_PAGE_LIMIT {
+                pending.extend(state.pending_approvals.values().cloned());
+            }
+        }
+        if page.data_len >= RUNTIME_EVENT_PAGE_LIMIT {
+            return Ok(());
+        }
+        pending.sort_by_key(|event| event.sequence);
+        for event in pending {
+            if let Some(frame) = runtime_notification_frame(event) {
+                send_runtime_notification_event(frame, outgoing, acknowledgements).await?;
+            }
+        }
+        let mut state = cursor.lock().map_err(|_| ())?;
+        state.initialized = true;
+        state.pending_approvals.clear();
+        return Ok(());
+    }
+
+    for event in page.data {
+        let sequence = event.sequence;
+        if sequence <= after_sequence {
+            continue;
+        }
+        if let Some(frame) = runtime_notification_frame(event) {
+            send_runtime_notification_event(frame, outgoing, acknowledgements).await?;
+        }
+        let mut state = cursor.lock().map_err(|_| ())?;
+        state.after_sequence = state.after_sequence.max(sequence);
+    }
+    Ok(())
+}
+
+async fn send_runtime_notification_event(
+    frame: RelayRuntimeEventFrame,
+    outgoing: &mpsc::Sender<String>,
+    acknowledgements: &mut mpsc::Receiver<RuntimeEventAck>,
+) -> Result<(), ()> {
+    let event_id = frame.event.event_id.clone();
+    let payload = serde_json::to_string(&frame).map_err(|_| ())?;
+    outgoing.send(payload).await.map_err(|_| ())?;
+    let timeout = tokio::time::sleep(RUNTIME_EVENT_ACK_TIMEOUT);
+    tokio::pin!(timeout);
+    loop {
+        tokio::select! {
+            _ = outgoing.closed() => return Err(()),
+            _ = &mut timeout => return Err(()),
+            acknowledgement = acknowledgements.recv() => {
+                let acknowledgement = acknowledgement.ok_or(())?;
+                if acknowledgement.event_id != event_id {
+                    continue;
+                }
+                return match acknowledgement.status.as_str() {
+                    "accepted" | "duplicate" | "permanent_rejection" => Ok(()),
+                    _ => Err(()),
+                };
+            }
+        }
+    }
+}
+
+struct RuntimeEventPage {
+    data: Vec<RuntimeEventEnvelope>,
+    data_len: usize,
+}
+
+async fn fetch_runtime_notification_event_page(
+    http: &reqwest::Client,
+    local_base_url: &str,
+    authorization: &RelayAuthorization,
+    after_sequence: i64,
+) -> Result<RuntimeEventPage, ()> {
+    let mut target = local_request_url(local_base_url, "/hecate/v1/events").map_err(|_| ())?;
+    target
+        .query_pairs_mut()
+        .append_pair(
+            "event_type",
+            "approval.requested,approval.resolved,run.finished,run.failed,run.cancelled",
+        )
+        .append_pair("after_sequence", &after_sequence.max(0).to_string())
+        .append_pair("limit", &RUNTIME_EVENT_PAGE_LIMIT.to_string());
+    let mut response = authorization
+        .apply(http.get(target))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| ())?;
+    if !response.status().is_success() {
+        return Err(());
+    }
+    let mut body = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk))
+                if body.len().saturating_add(chunk.len()) <= RUNTIME_EVENT_MAX_RESPONSE_BODY =>
+            {
+                body.extend_from_slice(&chunk);
+            }
+            Ok(Some(_)) | Err(_) => return Err(()),
+            Ok(None) => break,
+        }
+    }
+    let response: RuntimeEventsResponse = serde_json::from_slice(&body).map_err(|_| ())?;
+    let data_len = response.data.len();
+    Ok(RuntimeEventPage {
+        data: response.data,
+        data_len,
+    })
+}
+
+fn runtime_notification_frame(event: RuntimeEventEnvelope) -> Option<RelayRuntimeEventFrame> {
+    if event.schema_version != "1"
+        || !runtime_event_id_is_safe(&event.event_id)
+        || !runtime_event_id_is_safe(&event.task_id)
+        || !runtime_event_id_is_safe(&event.run_id)
+        || !runtime_event_timestamp_is_safe(&event.occurred_at)
+    {
+        return None;
+    }
+    let (approval_id, outcome) = match event.kind.as_str() {
+        "approval.requested" if runtime_event_id_is_safe(&event.data.approval_id) => {
+            (Some(event.data.approval_id), None)
+        }
+        "run.finished" => (None, Some("completed")),
+        "run.failed" => (None, Some("failed")),
+        "run.cancelled" => (None, Some("cancelled")),
+        _ => return None,
+    };
+    Some(RelayRuntimeEventFrame {
+        kind: "runtime_event",
+        event: RelayRuntimeEvent {
+            schema_version: "1",
+            event_id: event.event_id,
+            kind: event.kind,
+            occurred_at: event.occurred_at,
+            task_id: Some(event.task_id),
+            run_id: Some(event.run_id),
+            session_id: None,
+            approval_id,
+            outcome,
+        },
+    })
+}
+
+fn runtime_event_id_is_safe(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value.len() <= 160
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn runtime_event_timestamp_is_safe(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value.len() <= 64
+        && value.bytes().all(|byte| {
+            byte.is_ascii_digit() || matches!(byte, b'-' | b':' | b'.' | b'+' | b'T' | b'Z')
+        })
+}
+
+fn runtime_event_ack(payload: &str) -> Option<RuntimeEventAck> {
+    let acknowledgement = serde_json::from_str::<RuntimeEventAck>(payload).ok()?;
+    if acknowledgement.kind != "runtime_event_ack"
+        || !runtime_event_id_is_safe(&acknowledgement.event_id)
+        || !matches!(
+            acknowledgement.status.as_str(),
+            "accepted" | "duplicate" | "permanent_rejection"
+        )
+    {
+        return None;
+    }
+    Some(acknowledgement)
+}
+
 async fn handle_relay_payload(
     http: &reqwest::Client,
     local_base_url: &str,
@@ -1468,6 +2311,10 @@ async fn handle_relay_payload(
         "http_proxy_request" => {
             execute_proxy_request(http, local_base_url, authorization, request, outgoing).await;
         }
+        // Cloud may acknowledge a client-originated runtime event. Delivery is
+        // idempotent by event_id and does not block the HTTP relay, so the
+        // desktop currently treats acknowledgements as advisory.
+        "runtime_event_ack" => {}
         _ => {
             let _ = outgoing
                 .send(relay_error_response(
@@ -1849,13 +2696,502 @@ async fn send_json<T: Serialize>(sender: &mpsc::Sender<String>, value: &T) -> Re
 mod tests {
     use super::*;
 
+    fn authorization_expiry_after(duration: Duration) -> String {
+        chrono::DateTime::<chrono::Utc>::from(SystemTime::now() + duration)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+
+    fn desktop_app_authorization() -> AppAuthorization {
+        AppAuthorization {
+            authorization_id: "appauth_0123456789abcdef0123456789abcdef".to_string(),
+            approval_url: format!(
+                "https://console.example.test/desktop-login#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_{}&client=desktop",
+                "a".repeat(43),
+            ),
+            expires_at: authorization_expiry_after(Duration::from_secs(5 * 60)),
+        }
+    }
+
+    fn relay_test_client(address: std::net::SocketAddr) -> CloudClient {
+        CloudClient::new(
+            format!("http://{address}"),
+            reqwest::Client::new(),
+            "0.5.0-test",
+        )
+    }
+
+    fn relay_test_authorization() -> RelayAuthorization {
+        RelayAuthorization::new(
+            "desktop-relay-secret-123456",
+            "actor_test",
+            "org_test",
+            "host_test",
+        )
+        .expect("relay authorization")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn relay_watchdog_sends_pings_and_keeps_a_responsive_peer_connected() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("relay listener");
+        let address = listener.local_addr().expect("relay address");
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("relay connection");
+            let mut websocket = tokio_tungstenite::accept_async(stream)
+                .await
+                .expect("relay handshake");
+            let mut ping_count = 0;
+            while let Some(message) = websocket.next().await {
+                match message.expect("relay frame") {
+                    Message::Ping(payload) => {
+                        ping_count += 1;
+                        websocket
+                            .send(Message::Pong(payload))
+                            .await
+                            .expect("relay pong");
+                        if ping_count == 6 {
+                            cancel_tx.send(true).expect("cancel relay");
+                        }
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+            ping_count
+        });
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            run_relay_with_watchdog(
+                &relay_test_client(address),
+                "host_test",
+                "host-token-test",
+                "http://127.0.0.1:9",
+                relay_test_authorization(),
+                cancel_rx,
+                None,
+                RelayWatchdog {
+                    ping_interval: Duration::from_millis(20),
+                    read_idle_timeout: Duration::from_millis(100),
+                },
+                || {},
+            ),
+        )
+        .await
+        .expect("responsive relay should finish promptly");
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(server.await.expect("relay server"), 6);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn relay_watchdog_reconnects_when_the_peer_stops_sending_frames() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("relay listener");
+        let address = listener.local_addr().expect("relay address");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("relay connection");
+            let _websocket = tokio_tungstenite::accept_async(stream)
+                .await
+                .expect("relay handshake");
+            std::future::pending::<()>().await;
+        });
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            run_relay_with_watchdog(
+                &relay_test_client(address),
+                "host_test",
+                "host-token-test",
+                "http://127.0.0.1:9",
+                relay_test_authorization(),
+                cancel_rx,
+                None,
+                RelayWatchdog {
+                    ping_interval: Duration::from_millis(20),
+                    read_idle_timeout: Duration::from_millis(100),
+                },
+                || {},
+            ),
+        )
+        .await
+        .expect("silent relay should hit its read deadline")
+        .expect_err("silent relay must reconnect");
+
+        assert_eq!(result, "Remote access heartbeat timed out.");
+        server.abort();
+    }
+
+    #[test]
+    fn runtime_notification_frames_are_minimal_and_allowlisted() {
+        let frame = runtime_notification_frame(RuntimeEventEnvelope {
+            schema_version: "1".to_string(),
+            event_id: "evt_01JSAFE".to_string(),
+            task_id: "task_1".to_string(),
+            run_id: "run_1".to_string(),
+            sequence: 42,
+            occurred_at: "2026-07-23T12:34:56.123Z".to_string(),
+            kind: "approval.requested".to_string(),
+            data: RuntimeEventData {
+                approval_id: "approval_1".to_string(),
+            },
+        })
+        .expect("allowlisted approval event");
+        let value = serde_json::to_value(frame).expect("runtime event frame serializes");
+
+        assert_eq!(value["type"], "runtime_event");
+        assert_eq!(value["event"]["type"], "approval.requested");
+        assert_eq!(value["event"]["approval_id"], "approval_1");
+        assert!(value["event"].get("data").is_none());
+        assert!(value["event"].get("title").is_none());
+        assert!(value["event"].get("body").is_none());
+
+        let failed = runtime_notification_frame(RuntimeEventEnvelope {
+            schema_version: "1".to_string(),
+            event_id: "evt_01JFAILED".to_string(),
+            task_id: "task_1".to_string(),
+            run_id: "run_1".to_string(),
+            sequence: 43,
+            occurred_at: "2026-07-23T12:35:56Z".to_string(),
+            kind: "run.failed".to_string(),
+            data: RuntimeEventData::default(),
+        })
+        .expect("allowlisted terminal run event");
+        let failed = serde_json::to_value(failed).expect("terminal frame serializes");
+        assert_eq!(failed["event"]["outcome"], "failed");
+        assert!(failed["event"].get("approval_id").is_none());
+    }
+
+    #[test]
+    fn runtime_notification_frames_reject_untrusted_identifiers_and_types() {
+        let event = |event_id: &str, kind: &str| RuntimeEventEnvelope {
+            schema_version: "1".to_string(),
+            event_id: event_id.to_string(),
+            task_id: "task_1".to_string(),
+            run_id: "run_1".to_string(),
+            sequence: 42,
+            occurred_at: "2026-07-23T12:34:56Z".to_string(),
+            kind: kind.to_string(),
+            data: RuntimeEventData {
+                approval_id: "approval_1".to_string(),
+            },
+        };
+
+        assert!(
+            runtime_notification_frame(event("evt with spaces", "approval.requested")).is_none()
+        );
+        assert!(runtime_notification_frame(event("evt_1", "assistant.final_answer")).is_none());
+    }
+
+    #[test]
+    fn chat_approval_notification_frames_expose_only_opaque_identity() {
+        let frame = chat_approval_notification_frame(&ChatPendingApproval {
+            id: "approval_chat_1".to_string(),
+            session_id: "chat_1".to_string(),
+            status: "pending".to_string(),
+            created_at: "2026-07-23T12:34:56Z".to_string(),
+        })
+        .expect("pending chat approval frame");
+        let value = serde_json::to_value(frame).expect("chat approval frame serializes");
+
+        assert_eq!(value["event"]["event_id"], "chat_approval_chat_1");
+        assert_eq!(value["event"]["session_id"], "chat_1");
+        assert_eq!(value["event"]["approval_id"], "approval_chat_1");
+        assert!(value["event"].get("task_id").is_none());
+        assert!(value["event"].get("run_id").is_none());
+        assert!(value["event"].get("tool_name").is_none());
+        assert!(value["event"].get("workspace").is_none());
+    }
+
+    #[test]
+    fn runtime_event_acknowledgements_are_strictly_validated() {
+        let acknowledgement = runtime_event_ack(
+            r#"{"type":"runtime_event_ack","event_id":"evt_01JSAFE","status":"accepted"}"#,
+        )
+        .expect("valid runtime event acknowledgement");
+        assert_eq!(acknowledgement.event_id, "evt_01JSAFE");
+        assert_eq!(acknowledgement.status, "accepted");
+
+        assert!(runtime_event_ack(
+            r#"{"type":"runtime_event_ack","event_id":"evt_01JSAFE","status":"permanent_rejection"}"#
+        )
+        .is_some());
+
+        assert!(runtime_event_ack(
+            r#"{"type":"runtime_event_ack","event_id":"evt unsafe","status":"accepted"}"#
+        )
+        .is_none());
+        assert!(runtime_event_ack(
+            r#"{"type":"runtime_event_ack","event_id":"evt_01JSAFE","status":"retry"}"#
+        )
+        .is_none());
+        assert!(runtime_event_ack(
+            r#"{"type":"runtime_event_ack","event_id":"evt_01JSAFE","status":"rejected"}"#
+        )
+        .is_none());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_event_delivery_waits_for_a_durable_cloud_acknowledgement() {
+        let frame = runtime_notification_frame(RuntimeEventEnvelope {
+            schema_version: "1".to_string(),
+            event_id: "evt_01JACKED".to_string(),
+            task_id: "task_1".to_string(),
+            run_id: "run_1".to_string(),
+            sequence: 44,
+            occurred_at: "2026-07-23T12:36:56Z".to_string(),
+            kind: "run.finished".to_string(),
+            data: RuntimeEventData::default(),
+        })
+        .expect("terminal runtime event frame");
+        let (outgoing_tx, mut outgoing_rx) = mpsc::channel(1);
+        let (acknowledgement_tx, mut acknowledgement_rx) = mpsc::channel(1);
+        let delivery = tokio::spawn(async move {
+            send_runtime_notification_event(frame, &outgoing_tx, &mut acknowledgement_rx).await
+        });
+
+        let payload = outgoing_rx.recv().await.expect("runtime event payload");
+        assert!(payload.contains("evt_01JACKED"));
+        tokio::task::yield_now().await;
+        assert!(
+            !delivery.is_finished(),
+            "delivery advanced before Cloud ack"
+        );
+
+        acknowledgement_tx
+            .send(RuntimeEventAck {
+                kind: "runtime_event_ack".to_string(),
+                event_id: "evt_01JACKED".to_string(),
+                status: "accepted".to_string(),
+            })
+            .await
+            .expect("send durable ack");
+        assert_eq!(delivery.await.expect("delivery task"), Ok(()));
+    }
+
     #[test]
     fn app_tokens_are_random_bearer_tokens() {
         let first = new_app_token().expect("first token");
         let second = new_app_token().expect("second token");
         assert!(first.starts_with("happ_"));
-        assert!(first.len() >= 40);
+        assert_eq!(first.len(), 48);
+        assert!(first[5..]
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn app_authorization_accepts_only_bound_desktop_approval_urls() {
+        let mut authorization = desktop_app_authorization();
+        let validated = validated_app_authorization(&authorization, "https://console.example.test")
+            .expect("valid authorization");
+        assert_eq!(validated.approval_url, authorization.approval_url);
+        assert!(validated.expires_in > Duration::from_secs(4 * 60));
+
+        authorization.approval_url =
+            authorization
+                .approval_url
+                .replacen("console.example.test", "attacker.example", 1);
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url = authorization.approval_url.replacen(
+            "authorization_id=appauth_0123456789abcdef0123456789abcdef",
+            "authorization_id=appauth_ffffffffffffffffffffffffffffffff",
+            1,
+        );
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url =
+            authorization
+                .approval_url
+                .replacen("&client=desktop", "&client=mobile", 1);
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url = authorization.approval_url.replacen(
+            &format!("hbat_{}", "a".repeat(43)),
+            "hbat_too-short",
+            1,
+        );
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url = authorization.approval_url.replacen(
+            "/desktop-login#",
+            "/desktop-login?next=elsewhere#",
+            1,
+        );
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url.push_str("&extra=field");
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization = desktop_app_authorization();
+        authorization.approval_url = authorization.approval_url.replacen(
+            "#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=",
+            "#browser_ticket=",
+            1,
+        )
+            + "&authorization_id=appauth_0123456789abcdef0123456789abcdef";
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+    }
+
+    #[test]
+    fn app_authorization_rejects_expired_or_excessive_expiry() {
+        let mut authorization = desktop_app_authorization();
+        authorization.expires_at = authorization_expiry_after(Duration::from_secs(0));
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+        authorization.expires_at =
+            authorization_expiry_after(MAX_LOGIN_TIMEOUT + Duration::from_secs(1));
+        assert!(
+            validated_app_authorization(&authorization, "https://console.example.test").is_err()
+        );
+    }
+
+    #[test]
+    fn app_authorization_response_rejects_removed_manual_code_fields() {
+        let response = serde_json::json!({
+            "authorization_id": "appauth_0123456789abcdef0123456789abcdef",
+            "approval_url": format!(
+                "https://console.example.test/desktop-login#authorization_id=appauth_0123456789abcdef0123456789abcdef&browser_ticket=hbat_{}&client=desktop",
+                "a".repeat(43),
+            ),
+            "expires_at": authorization_expiry_after(Duration::from_secs(5 * 60)),
+            "user_code": "ABCD-EFGH",
+        });
+        assert!(serde_json::from_value::<AppAuthorization>(response).is_err());
+    }
+
+    #[test]
+    fn app_authorization_request_posts_the_token_without_an_authorization_header() {
+        let client = CloudClient::new(
+            "https://console.example.test".to_string(),
+            reqwest::Client::new(),
+            "0.5.0",
+        );
+        let request = client
+            .app_authorization_request("happ_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG")
+            .build()
+            .expect("authorization request");
+
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(
+            request.url().as_str(),
+            "https://console.example.test/api/v1/app/authorizations"
+        );
+        assert!(request.headers().get("authorization").is_none());
+        let payload: serde_json::Value = serde_json::from_slice(
+            request
+                .body()
+                .and_then(reqwest::Body::as_bytes)
+                .expect("JSON body"),
+        )
+        .expect("authorization JSON");
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "token": "happ_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
+                "client": "desktop",
+            })
+        );
+    }
+
+    #[test]
+    fn authorization_install_is_generation_owned_and_keeps_approval_url_native() {
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        let supervisor = CloudConnectionSupervisor::with_store(
+            None,
+            credentials.clone(),
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+        );
+        supervisor.inner.state.lock().expect("state").generation = 2;
+
+        assert!(!supervisor
+            .install_authorization_if_current(
+                1,
+                "happ_stale",
+                desktop_app_authorization().approval_url,
+            )
+            .expect("stale authorization"));
+        assert_eq!(
+            credentials.get(SESSION_CREDENTIAL).expect("session read"),
+            None
+        );
+
+        assert!(supervisor
+            .install_authorization_if_current(
+                2,
+                "happ_current",
+                desktop_app_authorization().approval_url,
+            )
+            .expect("current authorization"));
+        assert_eq!(
+            credentials.get(SESSION_CREDENTIAL).expect("session read"),
+            Some("happ_current".to_string())
+        );
+        let status = supervisor.status(None);
+        assert!(status.auto_start_enabled);
+        assert_eq!(
+            status.message,
+            "Approve sign-in in your browser. This window will update automatically."
+        );
+        assert!(serde_json::to_value(&status)
+            .expect("serialize status")
+            .get("verification_code")
+            .is_none());
+        assert_eq!(
+            supervisor.pending_approval_url(),
+            Some(desktop_app_authorization().approval_url)
+        );
+
+        supervisor.apply_actor(
+            2,
+            &CloudActor {
+                id: "actor_1".to_string(),
+                email: "operator@example.com".to_string(),
+                org_id: "org_1".to_string(),
+            },
+        );
+        let approved = supervisor.status(None);
+        assert!(approved.signed_in);
+        assert_eq!(supervisor.pending_approval_url(), None);
+    }
+
+    #[test]
+    fn only_the_current_generation_can_clear_an_approval_url_on_error() {
+        let supervisor = CloudConnectionSupervisor::default();
+        let approval_url = desktop_app_authorization().approval_url;
+        {
+            let mut state = supervisor.inner.state.lock().expect("state");
+            state.generation = 2;
+            state.phase = ConnectionPhase::Authorizing;
+            state.approval_url = Some(approval_url.clone());
+        }
+
+        supervisor.set_error_if_current(1, "stale error", None);
+        assert_eq!(supervisor.pending_approval_url(), Some(approval_url));
+
+        supervisor.set_error_if_current(2, "current error", None);
+        assert_eq!(supervisor.pending_approval_url(), None);
     }
 
     #[test]
@@ -2102,12 +3438,14 @@ mod tests {
             state.signed_in = false;
             state.phase = ConnectionPhase::Authorizing;
             state.preferences.auto_start_enabled = true;
+            state.approval_url = Some(desktop_app_authorization().approval_url);
         }
 
         let status = supervisor.stop(Some("http://127.0.0.1:8765".to_string()));
 
         assert!(!status.auto_start_enabled);
         assert_eq!(status.phase, "disconnected");
+        assert_eq!(supervisor.pending_approval_url(), None);
         assert_eq!(
             credentials.get(SESSION_CREDENTIAL).expect("read session"),
             None

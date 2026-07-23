@@ -1,0 +1,554 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0F6F9C8B7B368301CA88B087 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E17A3621B31B3F1D2B96D106 /* CoreGraphics.framework */; };
+		133F1C51FCBC2474BBB7314F /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49971566DAE92DC45FF5FDF0 /* UIKit.framework */; };
+		1CA351520689BD7DB6B2BDBB /* HecatePushBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 38F23450AC8D4FED4F347427 /* HecatePushBridge.mm */; };
+		278A6413D7D39FD380BEC2EA /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3C8B80C01C457937A6CCC640 /* QuartzCore.framework */; };
+		28906FB1DE18D33B1AAAA05D /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C3113AB05FE71AF3260F6CA8 /* MetalKit.framework */; };
+		2EEE03990BFD7A55C30A3492 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EB2CEC0BCDA1EF9151E0DDF7 /* libapp.a */; };
+		54A185B773C72C25D6132742 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AE484BA3F27C5B2E66F32827 /* LaunchScreen.storyboard */; };
+		5AA73C4A7DD2D4C74F8E9106 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 287D8BC98FEFE23C10BEFABC /* Metal.framework */; };
+		6126C0F5D2BBD56561609756 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = A37F32FE1BA75DA3C09A6457 /* libapp.a */; };
+		6B5FA62CA3744E827C633413 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = A56BF9818F2D9CA7EAD0B473 /* main.mm */; };
+		72C5EEE95D46EA50B41619DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B96481FE94F648149E6896D3 /* Assets.xcassets */; };
+		74690C3E16142063B3C07105 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C562A677666B9A7EDC4E5509 /* UserNotifications.framework */; };
+		83C40E03112856914D0CC257 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E0B0E8F5BD9C9C7C4F65FCE5 /* Security.framework */; };
+		AEA4369DD50A519387A1773B /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 7F673DB48F7B64B9D63E82B4 /* assets */; };
+		C9F3F0D3BD3F4290F3E8B45D /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E43343E31890F32867165F63 /* WebKit.framework */; };
+		DC1402B718DAA8CF0AA2F49C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C584496CD94E1FA378A0D231 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0463B69D4BEAF8222D98E18B /* sidecar.rs */ = {isa = PBXFileReference; path = sidecar.rs; sourceTree = "<group>"; };
+		287D8BC98FEFE23C10BEFABC /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		2FDF20570307F352D3AD02B7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		38F23450AC8D4FED4F347427 /* HecatePushBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = HecatePushBridge.mm; sourceTree = "<group>"; };
+		3C8B80C01C457937A6CCC640 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		433D1B6B11FA82E800EDFB29 /* cloud_connection.rs */ = {isa = PBXFileReference; path = cloud_connection.rs; sourceTree = "<group>"; };
+		49971566DAE92DC45FF5FDF0 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		6DF1B4AFD0B991530A41C0F4 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		7F673DB48F7B64B9D63E82B4 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		847CAC9690A5817C219AF790 /* mobile.rs */ = {isa = PBXFileReference; path = mobile.rs; sourceTree = "<group>"; };
+		96CA963AB6679D3275EB90CD /* hecate-app_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "hecate-app_iOS.entitlements"; sourceTree = "<group>"; };
+		A37F32FE1BA75DA3C09A6457 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		A56BF9818F2D9CA7EAD0B473 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		AE484BA3F27C5B2E66F32827 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		B96481FE94F648149E6896D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BF093607C724C0ED200A7AD1 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		C3113AB05FE71AF3260F6CA8 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		C562A677666B9A7EDC4E5509 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
+		C584496CD94E1FA378A0D231 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D3DD869EACB3BA9D6C56F680 /* HecatePushBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HecatePushBridge.h; sourceTree = "<group>"; };
+		D7965E41071ACB5851404735 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		D882595323E3546DD7272363 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		E0B0E8F5BD9C9C7C4F65FCE5 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		E17A3621B31B3F1D2B96D106 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		E43343E31890F32867165F63 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		EB2CEC0BCDA1EF9151E0DDF7 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		EFF5022DE6F770DE94EBE06C /* webview_media.rs */ = {isa = PBXFileReference; path = webview_media.rs; sourceTree = "<group>"; };
+		FC9BB1DE9ED74771DAB4AD72 /* hecate-app_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "hecate-app_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4C699DCB3C02DEC64404CC22 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2EEE03990BFD7A55C30A3492 /* libapp.a in Frameworks */,
+				0F6F9C8B7B368301CA88B087 /* CoreGraphics.framework in Frameworks */,
+				5AA73C4A7DD2D4C74F8E9106 /* Metal.framework in Frameworks */,
+				28906FB1DE18D33B1AAAA05D /* MetalKit.framework in Frameworks */,
+				278A6413D7D39FD380BEC2EA /* QuartzCore.framework in Frameworks */,
+				83C40E03112856914D0CC257 /* Security.framework in Frameworks */,
+				133F1C51FCBC2474BBB7314F /* UIKit.framework in Frameworks */,
+				74690C3E16142063B3C07105 /* UserNotifications.framework in Frameworks */,
+				C9F3F0D3BD3F4290F3E8B45D /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		05B098FEBD1CF12D7AFDCB6B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FC9BB1DE9ED74771DAB4AD72 /* hecate-app_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		246C2C1153A2383A59DAD465 /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				59E7AEF51EB29977FEDB915F /* debug */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+		280E9F98DACC34702BC49B76 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				E17A3621B31B3F1D2B96D106 /* CoreGraphics.framework */,
+				EB2CEC0BCDA1EF9151E0DDF7 /* libapp.a */,
+				287D8BC98FEFE23C10BEFABC /* Metal.framework */,
+				C3113AB05FE71AF3260F6CA8 /* MetalKit.framework */,
+				3C8B80C01C457937A6CCC640 /* QuartzCore.framework */,
+				E0B0E8F5BD9C9C7C4F65FCE5 /* Security.framework */,
+				49971566DAE92DC45FF5FDF0 /* UIKit.framework */,
+				C562A677666B9A7EDC4E5509 /* UserNotifications.framework */,
+				E43343E31890F32867165F63 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		2EDC9E70FCD391988129D2FA /* src */ = {
+			isa = PBXGroup;
+			children = (
+				D7965E41071ACB5851404735 /* lib.rs */,
+				D882595323E3546DD7272363 /* main.rs */,
+				847CAC9690A5817C219AF790 /* mobile.rs */,
+				6EAA7E668D1FF2B9EAE046C3 /* desktop */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		59E7AEF51EB29977FEDB915F /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				A37F32FE1BA75DA3C09A6457 /* libapp.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
+		6EAA7E668D1FF2B9EAE046C3 /* desktop */ = {
+			isa = PBXGroup;
+			children = (
+				433D1B6B11FA82E800EDFB29 /* cloud_connection.rs */,
+				6DF1B4AFD0B991530A41C0F4 /* mod.rs */,
+				0463B69D4BEAF8222D98E18B /* sidecar.rs */,
+				EFF5022DE6F770DE94EBE06C /* webview_media.rs */,
+			);
+			path = desktop;
+			sourceTree = "<group>";
+		};
+		8A2956B5678BF5E9D4817028 /* hecate-app */ = {
+			isa = PBXGroup;
+			children = (
+				D3DD869EACB3BA9D6C56F680 /* HecatePushBridge.h */,
+				38F23450AC8D4FED4F347427 /* HecatePushBridge.mm */,
+				A56BF9818F2D9CA7EAD0B473 /* main.mm */,
+				D73049A172D7398AF5B40C8C /* bindings */,
+			);
+			path = "hecate-app";
+			sourceTree = "<group>";
+		};
+		C16CF31638B8C5617ED75446 = {
+			isa = PBXGroup;
+			children = (
+				7F673DB48F7B64B9D63E82B4 /* assets */,
+				B96481FE94F648149E6896D3 /* Assets.xcassets */,
+				AE484BA3F27C5B2E66F32827 /* LaunchScreen.storyboard */,
+				F9F6EE2C30F8FE36E634B9EC /* Externals */,
+				EBE84EE50BBA53307EFB6C55 /* hecate-app_iOS */,
+				EFEF139923B3908CB1A223C6 /* Sources */,
+				2EDC9E70FCD391988129D2FA /* src */,
+				280E9F98DACC34702BC49B76 /* Frameworks */,
+				05B098FEBD1CF12D7AFDCB6B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D73049A172D7398AF5B40C8C /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				BF093607C724C0ED200A7AD1 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		EBE84EE50BBA53307EFB6C55 /* hecate-app_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				96CA963AB6679D3275EB90CD /* hecate-app_iOS.entitlements */,
+				2FDF20570307F352D3AD02B7 /* Info.plist */,
+				C584496CD94E1FA378A0D231 /* PrivacyInfo.xcprivacy */,
+			);
+			path = "hecate-app_iOS";
+			sourceTree = "<group>";
+		};
+		EFEF139923B3908CB1A223C6 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				8A2956B5678BF5E9D4817028 /* hecate-app */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		F9F6EE2C30F8FE36E634B9EC /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+				246C2C1153A2383A59DAD465 /* arm64 */,
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		"TEMP_8D0BA134-4180-484B-A789-5A1248946469" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F7E2AB894EA11ED5AEA731E3 /* hecate-app_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9BADD28094577336448F4FF5 /* Build configuration list for PBXNativeTarget "hecate-app_iOS" */;
+			buildPhases = (
+				558E55AF366174A3F5509942 /* Verify Push Provisioning */,
+				E32256EF5906456F086869D8 /* Build Rust Code */,
+				413292803221FAC8AB23C1ED /* Sources */,
+				C73BAD3CC5AB5E6AC880FF6F /* Resources */,
+				4C699DCB3C02DEC64404CC22 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "hecate-app_iOS";
+			packageProductDependencies = (
+			);
+			productName = "hecate-app_iOS";
+			productReference = FC9BB1DE9ED74771DAB4AD72 /* hecate-app_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6535DB4F5267463153198B92 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F7E2AB894EA11ED5AEA731E3 = {
+						DevelopmentTeam = HHRFM4BVMT;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.Push = {
+								enabled = 1;
+							};
+						};
+					};
+				};
+			};
+			buildConfigurationList = 157CEB658B48AE8929D0E381 /* Build configuration list for PBXProject "hecate-app" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = C16CF31638B8C5617ED75446;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 05B098FEBD1CF12D7AFDCB6B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F7E2AB894EA11ED5AEA731E3 /* hecate-app_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C73BAD3CC5AB5E6AC880FF6F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				72C5EEE95D46EA50B41619DD /* Assets.xcassets in Resources */,
+				54A185B773C72C25D6132742 /* LaunchScreen.storyboard in Resources */,
+				DC1402B718DAA8CF0AA2F49C /* PrivacyInfo.xcprivacy in Resources */,
+				AEA4369DD50A519387A1773B /* assets in Resources */,
+				6126C0F5D2BBD56561609756 /* libapp.a in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		558E55AF366174A3F5509942 /* Verify Push Provisioning */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Verify Push Provisioning";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${PLATFORM_NAME:-}\" = \"iphoneos\" ]; then\n  case \"${HECATE_APNS_ENVIRONMENT:-}\" in\n    development|production) ;;\n    *)\n      echo \"error: Set HECATE_APNS_ENVIRONMENT to the aps-environment issued by the selected provisioning profile (development or production).\" >&2\n      exit 1\n      ;;\n  esac\nfi\n";
+		};
+		E32256EF5906456F086869D8 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "node \"${SRCROOT}/../../../node_modules/@tauri-apps/cli/tauri.js\" ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		413292803221FAC8AB23C1ED /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1CA351520689BD7DB6B2BDBB /* HecatePushBridge.mm in Sources */,
+				6B5FA62CA3744E827C633413 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		7C8363A560CF6FD98C921D0F /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "hecate-app_iOS/hecate-app_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "hecate-app_iOS/Info.plist";
+				HECATE_APNS_ENVIRONMENT = development;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = sh.hecate.mobile;
+				PRODUCT_NAME = "Hecate";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+				DEVELOPMENT_TEAM = "HHRFM4BVMT";
+			};
+			name = debug;
+		};
+		ABB68E49454240926262EDCC /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		F6CCCD579A222C32B5944F88 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		FF9744B000A79E5C3281AB6F /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "hecate-app_iOS/hecate-app_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "hecate-app_iOS/Info.plist";
+				HECATE_APNS_ENVIRONMENT = production;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = sh.hecate.mobile;
+				PRODUCT_NAME = "Hecate";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+				DEVELOPMENT_TEAM = "HHRFM4BVMT";
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		157CEB658B48AE8929D0E381 /* Build configuration list for PBXProject "hecate-app" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F6CCCD579A222C32B5944F88 /* debug */,
+				ABB68E49454240926262EDCC /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		9BADD28094577336448F4FF5 /* Build configuration list for PBXNativeTarget "hecate-app_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7C8363A560CF6FD98C921D0F /* debug */,
+				FF9744B000A79E5C3281AB6F /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 6535DB4F5267463153198B92 /* Project object */;
+}

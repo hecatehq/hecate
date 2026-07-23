@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-sign-in"
+description = "Enables the mobile_sign_in command without any pre-configured scope."
+commands.allow = ["mobile_sign_in"]
+
+[[permission]]
+identifier = "deny-mobile-sign-in"
+description = "Denies the mobile_sign_in command without any pre-configured scope."
+commands.deny = ["mobile_sign_in"]

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f3ec" />
+    <meta name="color-scheme" content="light" />
+    <title>Hecate</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="app-bar">
+      <div class="brand" aria-label="Hecate">
+        <span class="brand-mark" aria-hidden="true">H</span>
+        <span class="brand-name">Hecate</span>
+      </div>
+      <div class="app-bar-actions">
+        <div class="network-state" id="networkState" role="status" hidden>
+          <span class="network-dot" aria-hidden="true"></span>
+          <span id="networkLabel">Offline</span>
+        </div>
+        <button
+          class="icon-button"
+          id="settingsButton"
+          type="button"
+          aria-label="Open settings"
+          hidden
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M10.3 4.3c.4-1.7 2.9-1.7 3.4 0a1.7 1.7 0 0 0 2.6 1.1c1.5-.9 3.3.8 2.3 2.4a1.7 1.7 0 0 0 1.1 2.5c1.7.5 1.7 3 0 3.4a1.7 1.7 0 0 0-1.1 2.6c1 1.5-.8 3.3-2.3 2.3a1.7 1.7 0 0 0-2.6 1.1c-.5 1.7-3 1.7-3.4 0a1.7 1.7 0 0 0-2.6-1.1c-1.5 1-3.3-.8-2.3-2.3a1.7 1.7 0 0 0-1.1-2.6c-1.7-.4-1.7-2.9 0-3.4a1.7 1.7 0 0 0 1.1-2.5c-1-1.6.8-3.3 2.3-2.4a1.7 1.7 0 0 0 2.6-1.1Z"
+            />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <div class="notice error-notice" id="errorNotice" role="alert" hidden>
+        <span aria-hidden="true">!</span>
+        <p id="errorMessage"></p>
+      </div>
+
+      <section class="auth-view" id="authView" aria-labelledby="auth-title">
+        <div class="view-heading">
+          <p class="eyebrow">Mobile</p>
+          <h1 id="auth-title">Your Hecate, from anywhere</h1>
+          <p>
+            Start and continue chats on your Mac or a hosted Hecate. The work still runs on the
+            instance you choose.
+          </p>
+        </div>
+
+        <section class="auth-panel" aria-labelledby="account-title">
+          <div class="section-heading">
+            <div>
+              <p class="kicker">Hecate Cloud</p>
+              <h2 id="account-title">Sign in</h2>
+            </div>
+            <span class="status-chip" id="statusChip" data-phase="loading">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="statusChipLabel">Checking</span>
+            </span>
+          </div>
+
+          <div
+            class="status-panel"
+            id="statusRegion"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <div class="status-symbol" id="statusSymbol" aria-hidden="true">···</div>
+            <div>
+              <p class="status-message" id="statusMessage">Checking Hecate Cloud…</p>
+              <p class="status-detail" id="statusDetail">This should only take a moment.</p>
+            </div>
+          </div>
+
+          <div class="authorization-actions" id="authorizationActions" hidden>
+            <button
+              class="button button-primary"
+              id="openApprovalButton"
+              type="button"
+              aria-label="Open browser sign-in again"
+              aria-describedby="statusDetail"
+              disabled
+            >
+              <span data-button-label>Open sign-in again</span>
+              <span class="button-arrow" aria-hidden="true">↗</span>
+            </button>
+          </div>
+
+          <div class="button-row">
+            <button class="button button-primary" id="signInButton" type="button">
+              <span data-button-label>Sign in with Hecate</span>
+              <span class="button-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button class="button button-secondary" id="cancelSignInButton" type="button" hidden>
+              <span data-button-label>Cancel</span>
+            </button>
+          </div>
+        </section>
+
+        <p class="auth-security">
+          Your app credential stays in native memory and is cleared when the app process ends.
+        </p>
+      </section>
+
+      <section class="app-view home-view" id="homeView" aria-labelledby="home-title" hidden>
+        <div class="view-heading">
+          <p class="eyebrow">Chats</p>
+          <h1 id="home-title">Choose Hecate</h1>
+          <p>Your chats and projects stay with the Mac or hosted runtime where they run.</p>
+        </div>
+
+        <section
+          class="connections"
+          id="connectionsSection"
+          aria-labelledby="connections-title"
+          hidden
+        >
+          <div class="section-heading connections-heading">
+            <div>
+              <h2 id="connections-title">Available instances</h2>
+              <p>Select one to open its chats.</p>
+            </div>
+            <button
+              class="icon-button"
+              id="refreshButton"
+              type="button"
+              aria-label="Refresh Hecate instances"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="connection-loading" id="connectionLoading" role="status" hidden>
+            <span class="loading-dot" aria-hidden="true"></span>
+            Looking for Hecate instances…
+          </div>
+          <ul class="connection-list" id="connectionList" aria-busy="false"></ul>
+          <div class="empty-state" id="emptyState" hidden>
+            <h3>No Hecate instances yet</h3>
+            <p>Open Hecate Desktop and turn on Remote access, or start a hosted runtime.</p>
+          </div>
+        </section>
+      </section>
+
+      <section class="app-view settings-view" id="settingsView" aria-labelledby="settings-title" hidden>
+        <div class="settings-heading">
+          <button
+            class="back-button"
+            id="settingsBackButton"
+            type="button"
+            aria-label="Back to Hecate instances"
+          >
+            <span aria-hidden="true">‹</span>
+            Instances
+          </button>
+          <h1 id="settings-title">Settings</h1>
+        </div>
+
+        <section class="settings-group" aria-labelledby="account-settings-title">
+          <p class="kicker">Account</p>
+          <h2 id="account-settings-title">Hecate Cloud</h2>
+          <p class="settings-value" id="accountEmail">Signed in</p>
+          <button class="button button-secondary settings-action" id="signOutButton" type="button">
+            <span data-button-label>Sign out</span>
+          </button>
+        </section>
+
+        <section
+          class="settings-group notification-control"
+          id="notificationSection"
+          aria-labelledby="notification-title"
+          aria-busy="false"
+          hidden
+        >
+          <div class="notification-heading">
+            <div>
+              <p class="kicker">iPhone</p>
+              <h2 id="notification-title">Run notifications</h2>
+            </div>
+            <span class="notification-chip" id="notificationChip" data-state="off">
+              <span class="notification-dot" aria-hidden="true"></span>
+              <span id="notificationChipLabel">Off</span>
+            </span>
+          </div>
+          <p
+            class="notification-message"
+            id="notificationMessage"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            Get an alert when a run needs approval or finishes.
+          </p>
+          <p class="notification-error" id="notificationError" role="alert" hidden></p>
+          <div class="notification-actions">
+            <button class="button button-primary" id="enableNotificationsButton" type="button">
+              <span data-button-label>Turn on notifications</span>
+            </button>
+            <button
+              class="button button-secondary"
+              id="notificationSettingsButton"
+              type="button"
+              hidden
+            >
+              <span data-button-label>Open iPhone Settings</span>
+            </button>
+            <button
+              class="button button-secondary button-quiet"
+              id="disableNotificationsButton"
+              type="button"
+              hidden
+            >
+              <span data-button-label>Turn off</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="settings-group security-note" aria-labelledby="security-title">
+          <p class="kicker">Privacy</p>
+          <h2 id="security-title">Session security</h2>
+          <p>
+            Hecate keeps your app credential in native memory only. Runtime browsing uses a
+            separate HTTP-only session that is cleared on app start and sign-out.
+          </p>
+        </section>
+      </section>
+    </main>
+
+    <template id="connectionTemplate">
+      <li class="connection-row">
+        <button class="connection-action" type="button">
+          <span class="connection-icon" aria-hidden="true">
+            <svg class="connection-icon-desktop" viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="13" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <svg class="connection-icon-hosted" viewBox="0 0 24 24">
+              <path d="M7 18h11a4 4 0 0 0 .7-7.9A7 7 0 0 0 5.2 8.4 4.8 4.8 0 0 0 7 18Z" />
+            </svg>
+          </span>
+          <span class="connection-copy">
+            <span class="connection-name"></span>
+            <span class="connection-meta"></span>
+          </span>
+          <span class="connection-trailing">
+            <span class="connection-health">
+              <span class="connection-health-dot" aria-hidden="true"></span>
+              <span class="connection-health-label" data-button-label></span>
+            </span>
+            <span class="connection-chevron" aria-hidden="true">›</span>
+          </span>
+        </button>
+      </li>
+    </template>
+
+    <noscript>
+      <p class="noscript">Hecate needs JavaScript enabled to connect to the native mobile app.</p>
+    </noscript>
+  </body>
+</html>

@@ -91,6 +91,11 @@ instead of enabling global remote runtime mode. It creates an ephemeral secret
 for the sidecar process, stamps only relayed requests with the authenticated
 Cloud owner identity, and leaves ordinary loopback requests local. Both
 postures enter the same remote endpoint guard after identity validation.
+Because the native companion is a single-user personal runtime, it also enables
+`HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS=1` for its sidecar. Authenticated
+relayed work may use that desktop user's configured External Agent CLI login;
+the login files remain on the desktop and ordinary hosted runtimes keep the
+fail-closed default described below.
 
 Remote deployments using the published image must supply container- or
 VM-level isolation around each instance. The image intentionally includes a

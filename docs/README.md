@@ -15,15 +15,15 @@ Docs are organized by audience and stability:
 
 ## Start Here
 
-| You are...                                  | Read in this order                                                                                                                                                                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Running Hecate locally                      | [Desktop app](operator/desktop-app.md), [Projects](operator/projects.md), [Deployment](operator/deployment.md), [Security](operator/security.md), [Providers](operator/providers.md), [Known limitations](operator/known-limitations.md) |
-| Calling Hecate from a client                | [Runtime API](runtime/runtime-api.md), [Chat sessions](runtime/chat-sessions.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                                                 |
-| Connecting an ACP client to Hecate          | [ACP agent](runtime/acp.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                                                                                                      |
-| Building or using coding-agent integrations | [External Agents](runtime/external-agents.md), [ACP agent](runtime/acp.md), [Runtime API](runtime/runtime-api.md), [Events](runtime/events.md), [MCP integration](runtime/mcp.md)                                                        |
-| Changing the codebase                       | [Architecture](contributor/architecture.md), [Development](contributor/development.md), [Beta roadmap](contributor/beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](contributor/release.md)                               |
-| Planning future behavior                    | [Design records](design/), especially the relevant lifecycle bucket before implementation starts.                                                                                                                                        |
-| Working as an AI agent                      | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md`.                                                                                                                 |
+| You are...                                  | Read in this order                                                                                                                                                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Running or supervising Hecate               | [Desktop app](operator/desktop-app.md), [Mobile companion](operator/mobile-app.md), [Projects](operator/projects.md), [Deployment](operator/deployment.md), [Security](operator/security.md), [Providers](operator/providers.md) |
+| Calling Hecate from a client                | [Runtime API](runtime/runtime-api.md), [Chat sessions](runtime/chat-sessions.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                                         |
+| Connecting an ACP client to Hecate          | [ACP agent](runtime/acp.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                                                                                              |
+| Building or using coding-agent integrations | [External Agents](runtime/external-agents.md), [ACP agent](runtime/acp.md), [Runtime API](runtime/runtime-api.md), [Events](runtime/events.md), [MCP integration](runtime/mcp.md)                                                |
+| Changing the codebase                       | [Architecture](contributor/architecture.md), [Development](contributor/development.md), [Beta roadmap](contributor/beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](contributor/release.md)                       |
+| Planning future behavior                    | [Design records](design/), especially the relevant lifecycle bucket before implementation starts.                                                                                                                                |
+| Working as an AI agent                      | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md`.                                                                                                         |
 
 ## Operator Guides
 
@@ -31,6 +31,7 @@ Docs are organized by audience and stability:
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | [Deployment](operator/deployment.md)                           | Docker, binary install, image pinning, storage backends, rate limits, lost-token recovery.                     |
 | [Desktop app](operator/desktop-app.md)                         | Native bundles, tested-platform status, first-launch warnings, platform data dirs, sidecar lifecycle, roadmap. |
+| [Mobile companion](operator/mobile-app.md)                     | iOS/Android Cloud-client architecture, auth boundary, build commands, and honest alpha limits.                 |
 | [Projects](operator/projects.md)                               | Project setup, roots/worktrees, assignments, reviews, handoffs, evidence, and V1 boundaries.                   |
 | [Security](operator/security.md)                               | Local-first threat model, runtime boundaries, workspace safety, approvals, secrets, and advisory handling.     |
 | [Providers](operator/providers.md)                             | Built-in provider presets, custom endpoints, credentials, model discovery, health, circuit breaking.           |

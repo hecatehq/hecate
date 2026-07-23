@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-open-connection"
+description = "Enables the mobile_open_connection command without any pre-configured scope."
+commands.allow = ["mobile_open_connection"]
+
+[[permission]]
+identifier = "deny-mobile-open-connection"
+description = "Denies the mobile_open_connection command without any pre-configured scope."
+commands.deny = ["mobile_open_connection"]

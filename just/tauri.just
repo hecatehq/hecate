@@ -1,5 +1,5 @@
-# Tauri native desktop app recipes: deps, version stamping, sidecar build,
-# `tauri dev` / `tauri build`, Rust unit tests, packaged-app smoke.
+# Tauri native app recipes: deps, desktop sidecar/build lifecycle, mobile
+# companion builds, Rust unit tests, and packaged-app smoke.
 #
 # The Tauri app bundles hecate as its sidecar binary. The flow:
 #   1. Build the Go binary for the current platform (`just build`).
@@ -118,7 +118,46 @@ tauri-build-app: tauri-sidecar tauri-version
 # without a staged sidecar, even `cargo test` fails before any test runs.
 # Run Tauri Rust unit tests.
 tauri-rust-test: tauri-test-sidecar
+	cd tauri && bun run test:mobile-shell
 	cd tauri/src-tauri && cargo test
+
+# Build the Cloud-only companion for an Apple Silicon iOS Simulator. The
+# generated Xcode project is checked in; this does not require a signing team.
+# Build the unsigned iOS Simulator companion.
+tauri-ios-build-debug: tauri-install
+	cd tauri && bun run tauri ios build --debug --target aarch64-sim --no-sign --ci
+
+# Build a signed iOS IPA for TestFlight/App Store Connect. Xcode uses the
+# account configured on this Mac; APPLE_DEVELOPMENT_TEAM can override the
+# checked-in project team when a maintainer signs with another account.
+# Build the signed iOS companion IPA.
+tauri-ios-build-release: tauri-install tauri-version
+	: "${APPLE_DEVELOPMENT_TEAM:?set APPLE_DEVELOPMENT_TEAM to the Apple Developer team ID}"; \
+	cd tauri && bun run tauri ios build --target aarch64 --export-method app-store-connect --ci
+
+# Build a debug Android APK for one Rust target. JAVA_HOME must point to a JDK
+# supported by Gradle (Java 21 is the maintained local/CI choice), while
+# ANDROID_HOME and NDK_HOME must point to the installed SDK and NDK.
+# Build the Android companion debug APK.
+tauri-android-build-debug target="aarch64": tauri-install
+	: "${JAVA_HOME:?set JAVA_HOME to a supported JDK such as Java 21}"; \
+	: "${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"; \
+	: "${NDK_HOME:?set NDK_HOME to the Android NDK}"; \
+	cd tauri && bun run tauri android build --debug --target "{{target}}" --apk --ci
+
+# Build a signed universal Android App Bundle for Google Play. The upload key
+# lives in the ignored gen/android/keystore.properties file; see the checked-in
+# example and docs/operator/mobile-app.md.
+# Build the signed Android companion AAB.
+tauri-android-build-release: tauri-install tauri-version
+	: "${JAVA_HOME:?set JAVA_HOME to a supported JDK such as Java 21}"; \
+	: "${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"; \
+	: "${NDK_HOME:?set NDK_HOME to the Android NDK}"; \
+	test -f tauri/src-tauri/gen/android/keystore.properties || { \
+	  echo "copy keystore.properties.example to keystore.properties and configure the upload key" >&2; \
+	  exit 1; \
+	}; \
+	cd tauri && bun run tauri android build --aab --ci
 
 # Build the native app bundle, launch it, wait for the hecate sidecar to answer
 # /healthz, quit the app, and verify the sidecar exits. It opens a real desktop

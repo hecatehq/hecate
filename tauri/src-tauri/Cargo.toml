@@ -21,21 +21,32 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 log = "0.4"
-tauri-plugin-clipboard-manager = "2"
-tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
-tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 base64 = "0.22"
-futures-util = "0.3"
 rand = "0.9"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
-tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Mobile browser authorization returns through a fixed, secret-free custom
+# scheme after the operator confirms the connection in Hecate Cloud.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-deep-link = "2"
+
+# The desktop shell owns the local gateway process and native operator tools.
+# These plugins and WebSocket helpers are intentionally absent from iOS and
+# Android builds; the mobile companion talks only to Hecate Cloud.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }

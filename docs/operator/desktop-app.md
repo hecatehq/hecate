@@ -8,6 +8,9 @@ mode on a free loopback port, polls `/healthz`, then navigates a webview to
 
 Code: [`tauri/`](../../tauri/) · agent guide: [`docs-ai/skills/tauri/SKILL.md`](../../docs-ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/test.yml`](../../.github/workflows/test.yml), [`.github/workflows/release.yml`](../../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../../.github/workflows/tauri-build.yml).
 
+The same Tauri crate now has a Cloud-only iOS/Android companion target. It does
+not bundle this desktop sidecar; see [Mobile companion](mobile-app.md).
+
 ## Distribution
 
 Released alongside the rest of the alpha. The release pipeline builds three
@@ -99,19 +102,30 @@ What works:
   Finder/folder via Tauri commands; in the browser UI the local gateway handles
   the same action for loopback clients.
 - Settings has a desktop-only **Remote access** section. Sign in opens Hecate
-  Cloud in the system browser for explicit approval, then the app registers the
-  computer and maintains its outbound connection itself. No separate CLI is
-  required. Leave the app running, then open the computer from Hecate Cloud on
-  a phone or another browser. Turning Remote access off preserves the signed-in
-  account; signing out revokes the app session and computer registration.
+  Cloud in the system browser for one-tap explicit approval; there is no code
+  to copy back into the app. The app then registers the computer and maintains
+  its outbound connection itself. No separate CLI is required. Leave the app
+  running, then open the computer from Hecate Cloud on a phone or another
+  browser. Turning Remote access off preserves the signed-in account; signing
+  out revokes the app session and computer registration.
 - Phone and remote-browser requests execute against this same running Hecate
   and its laptop-local projects, chats, Task Runs, providers, and External
   Agents. Hecate does not copy that state into Cloud or move a live process to
   the phone. The runtime status identifies the laptop being supervised.
+- The desktop companion is a single-user personal runtime: authenticated
+  remote sessions may launch External Agents with the Codex, Claude Code,
+  Cursor Agent, or Grok Build login already configured for this operating
+  system account. Credentials and login files stay on the computer and are
+  never copied to the phone, but remotely supervised work can use the associated
+  account or subscription. Turn Remote access off when you do not want
+  authenticated Cloud sessions to start External Agent work on this computer.
 - Cloud session and computer credentials are stored in the operating system's
   credential store. `<data_dir>/cloud-connection.json` contains only reconnect
   posture and non-secret account/host identifiers. When Remote access remains
   on, the app reconnects after its local runtime is healthy on the next launch.
+  While running, it also sends heartbeat frames and replaces a connection that
+  stops receiving Cloud traffic, so network transitions and Cloud restarts do
+  not leave the computer indefinitely marked offline.
 - Each desktop launch creates an ephemeral connector secret shared only with
   the loopback sidecar. The connector stamps relayed requests with the signed-in
   Cloud owner, organization, and registered-computer identity; browser headers
@@ -211,8 +225,12 @@ the bundle is polished enough to recommend.
   itself. Revisit when the gateway UI grows a CSP.
 - **Crash reporting (Sentry / similar).** Premature for an alpha; the
   `gateway.log` capture covers most diagnostics.
-- **Mobile (iOS/Android).** Tauri 2 supports it; we deleted the icon CLI's
-  mobile output. Off-roadmap.
+- **Mobile store distribution.** Source-buildable iOS/Android companion
+  projects now exist. The iPhone companion can opt in to generic APNs alerts
+  for approvals and terminal runs, while Android notifications, store
+  submission, persistent app sign-in, production APNs credentials, and
+  real-device delivery coverage remain release work. See
+  [Mobile companion](mobile-app.md).
 
 ## Sandbox executor
 
