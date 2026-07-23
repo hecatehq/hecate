@@ -1135,7 +1135,41 @@ test("returns to the chat list without losing a pending phone draft", async ({ p
 
   releaseCreate();
   await expect(page.getByRole("button", { name: "Chat settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open chats sidebar" })).toBeFocused();
   await expect(composer).toHaveValue("Keep this pending phone draft");
+});
+
+test("does not steal focus after leaving pending phone draft navigation", async ({ page }) => {
+  await switchToModel(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Open chats sidebar" }).click();
+
+  let releaseCreate = () => {};
+  const createReleased = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+  await page.route(/\/hecate\/v1\/chat\/sessions(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/hecate/v1/chat/sessions"
+    ) {
+      await createReleased;
+    }
+    await route.fallback();
+  });
+
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await page.getByRole("button", { name: "Close chats sidebar" }).click();
+  const backToChats = page.getByRole("button", { name: "Back to chats" });
+  await expect(backToChats).toBeFocused();
+
+  await page.locator(".chat-main-body").click({ position: { x: 10, y: 10 } });
+  await expect(backToChats).not.toBeFocused();
+
+  releaseCreate();
+  await expect(page.getByRole("button", { name: "Chat settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open chats sidebar" })).not.toBeFocused();
 });
 
 test("uses a full-width replacement panel and phone-sized chat controls", async ({ page }) => {

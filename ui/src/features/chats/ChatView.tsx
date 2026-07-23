@@ -294,6 +294,8 @@ export function ChatView({
   const phoneAutoCollapsedSessionRef = useRef("");
   const sidebarCloseButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarOpenButtonRef = useRef<HTMLButtonElement>(null);
+  const draftNavigationButtonRef = useRef<HTMLButtonElement>(null);
+  const draftNavigationFocusTransferRef = useRef(false);
   const sidebarReturnFocusRef = useRef<HTMLElement | null>(null);
   const sidebarFocusedAsReplacementRef = useRef(false);
   // Bind modal intent to the session that surfaced the approval. A later
@@ -1004,8 +1006,27 @@ export function ChatView({
       target.focus();
       return;
     }
-    sidebarOpenButtonRef.current?.focus();
+    (draftNavigationButtonRef.current ?? sidebarOpenButtonRef.current)?.focus();
   }, [phoneMasterDetailLayout, sidebarOpen]);
+
+  useLayoutEffect(() => {
+    if (
+      !phoneMasterDetailLayout ||
+      sidebarOpen ||
+      !selectedChatReady ||
+      !draftNavigationFocusTransferRef.current
+    ) {
+      return;
+    }
+    draftNavigationFocusTransferRef.current = false;
+    sidebarOpenButtonRef.current?.focus();
+  }, [phoneMasterDetailLayout, selectedChatReady, sidebarOpen]);
+
+  useLayoutEffect(() => {
+    if (!phoneMasterDetailLayout || sidebarOpen || !composerShellVisible) {
+      draftNavigationFocusTransferRef.current = false;
+    }
+  }, [composerShellVisible, phoneMasterDetailLayout, sidebarOpen]);
 
   useLayoutEffect(() => {
     if (rightPanelOpen && phoneMasterDetailLayout && !sidebarOpen) {
@@ -1284,6 +1305,9 @@ export function ChatView({
   }
 
   function openChatSidebar() {
+    if (document.activeElement === draftNavigationButtonRef.current) {
+      draftNavigationFocusTransferRef.current = false;
+    }
     if (phoneMasterDetailLayout) {
       const active = document.activeElement;
       sidebarReturnFocusRef.current =
@@ -1385,10 +1409,18 @@ export function ChatView({
               aria-label="Back to chats"
               className="btn btn-ghost chat-draft-navigation__back"
               onClick={openChatSidebar}
-              ref={(node) => {
-                sidebarOpenButtonRef.current = node;
-                if (node && sidebarFocusedAsReplacementRef.current) node.focus();
+              onBlur={(event) => {
+                const button = event.currentTarget;
+                queueMicrotask(() => {
+                  if (button.isConnected && document.activeElement !== button) {
+                    draftNavigationFocusTransferRef.current = false;
+                  }
+                });
               }}
+              onFocus={() => {
+                draftNavigationFocusTransferRef.current = true;
+              }}
+              ref={draftNavigationButtonRef}
               type="button"
             >
               <span aria-hidden="true">‹</span>

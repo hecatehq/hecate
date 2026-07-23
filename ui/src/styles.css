@@ -404,8 +404,8 @@ textarea {
   border-bottom: 1px solid var(--border);
   display: flex;
   flex: 0 0 auto;
-  min-height: var(--topbar-h);
-  padding: 4px 8px;
+  height: var(--topbar-h);
+  padding: 0 8px;
 }
 
 .chat-draft-navigation__back {
