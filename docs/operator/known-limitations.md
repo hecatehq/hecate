@@ -246,6 +246,13 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.
+- Once its user message and running assistant are durable, an External Agent
+  turn continues if the originating browser/webview or HTTP connection closes.
+  Use **Stop** when it must not keep modifying the workspace. Runtime shutdown,
+  including native desktop app quit, cancels and drains active agents. A Hecate
+  process restart does not resume an in-flight turn; startup reconciliation
+  marks its running assistant interrupted, although a later prompt may restore
+  the stored native ACP session where supported.
 - Hecate does not yet authenticate a discovered provider CLI or persist an
   executable fingerprint approval. Catalog discovery is passive and shows the
   last-discovered path; **Refresh** repeats discovery without execution. **New

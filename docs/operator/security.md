@@ -50,6 +50,13 @@ levels.
 
 If you need a hard isolation boundary, run Hecate and its workspaces inside a VM, container, or dedicated OS user that you are comfortable letting tools modify.
 
+An admitted External Agent turn belongs to the Hecate runtime, not the browser
+tab or remote webview. Reloading or closing that client connection does not stop
+the trusted subprocess, which may continue modifying its selected workspace.
+Use **Stop** before leaving when the work must not continue. Quitting the native
+desktop app follows the separate runtime-shutdown path and cancels and drains
+active agents.
+
 Hecate-owned command execution should go through governed task-runtime tools,
 where WorkspaceFS, ProcessRunner, GitRunner, approvals, timeouts, output caps,
 and sandbox policies can apply. Direct operator shells from the local OS or

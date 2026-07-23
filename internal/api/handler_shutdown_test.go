@@ -5,22 +5,29 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/terminalapp"
 	"github.com/hecatehq/hecate/internal/workspace"
 	"github.com/hecatehq/hecate/internal/workspacecoord"
 	"github.com/hecatehq/hecate/pkg/types"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // newShutdownTestRunner builds a minimal *orchestrator.Runner suitable
@@ -118,6 +125,46 @@ func (t *shutdownProbeTerminal) exit() {
 
 type failingShutdownAgentChatRunner struct {
 	err error
+}
+
+type lifecycleShutdownAgentChatRunner struct {
+	failingShutdownAgentChatRunner
+	started       chan struct{}
+	cancelled     chan struct{}
+	startedOnce   sync.Once
+	cancelledOnce sync.Once
+}
+
+func newLifecycleShutdownAgentChatRunner() *lifecycleShutdownAgentChatRunner {
+	return &lifecycleShutdownAgentChatRunner{
+		started:   make(chan struct{}),
+		cancelled: make(chan struct{}),
+	}
+}
+
+func (r *lifecycleShutdownAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
+	startedAt := time.Now().UTC()
+	r.startedOnce.Do(func() { close(r.started) })
+	if req.OnOutput != nil {
+		req.OnOutput("started")
+	}
+	<-ctx.Done()
+	r.cancelledOnce.Do(func() { close(r.cancelled) })
+	return agentadapters.RunResult{
+		NativeSessionID: "native_" + req.SessionID,
+		Output:          "started",
+		StartedAt:       startedAt,
+		CompletedAt:     time.Now().UTC(),
+	}, ctx.Err()
+}
+
+func (r *lifecycleShutdownAgentChatRunner) Shutdown(ctx context.Context) error {
+	select {
+	case <-r.cancelled:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type recordingTaskScheduleRuntime struct {
@@ -563,6 +610,107 @@ func TestHandler_Shutdown_AgentChatErrorPropagated(t *testing.T) {
 	}
 	if got := cache.Stats().Entries; got != 0 {
 		t.Errorf("cache.Stats.Entries = %d after agent-chat shutdown error, want 0", got)
+	}
+}
+
+func TestHandler_Shutdown_CancelsLiveTurnsBeforeRunnerDrain(t *testing.T) {
+	logger := quietLogger()
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai"}}, config.Config{}, nil)
+	store := chat.NewMemoryStore()
+	apiHandler.SetAgentChatStore(store)
+	runner := newLifecycleShutdownAgentChatRunner()
+	apiHandler.SetAgentChatRunner(runner)
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := telemetry.NewAgentChatMetricsWithMeterProvider(meterProvider)
+	if err != nil {
+		t.Fatalf("NewAgentChatMetricsWithMeterProvider: %v", err)
+	}
+	apiHandler.agentChatMetrics = metrics
+
+	const sessionID = "chat_shutdown_detached_turn"
+	if _, err := store.Create(t.Context(), chat.Session{
+		ID:         sessionID,
+		AgentID:    "codex",
+		DriverKind: agentadapters.DriverKindACP,
+		Workspace:  t.TempDir(),
+	}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+
+	handler := NewServer(logger, apiHandler)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/hecate/v1/chat/sessions/"+sessionID+"/messages",
+		strings.NewReader(`{"execution_mode":"external_agent","content":"wait for shutdown"}`),
+	)
+	recorder := httptest.NewRecorder()
+	messageDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(recorder, request)
+		close(messageDone)
+	}()
+	select {
+	case <-runner.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("external agent turn did not start")
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer shutdownCancel()
+	if err := apiHandler.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	select {
+	case <-messageDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("external agent handler did not settle after shutdown cancellation")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("message status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	session, ok, err := store.Get(t.Context(), sessionID)
+	if err != nil || !ok {
+		t.Fatalf("Get session: found=%v err=%v", ok, err)
+	}
+	if len(session.Messages) != 2 {
+		t.Fatalf("messages = %+v, want user and cancelled assistant", session.Messages)
+	}
+	assistant := session.Messages[1]
+	if assistant.Role != "assistant" || assistant.Status != "cancelled" || assistant.CompletedAt.IsZero() {
+		t.Fatalf("assistant = %+v, want durable cancelled terminal state", assistant)
+	}
+	if session.TurnsUsed != 1 {
+		t.Fatalf("turns_used = %d, want 1", session.TurnsUsed)
+	}
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect metrics: %v", err)
+	}
+	var adapterCancellations, shutdownCancellations int64
+	for _, scope := range collected.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != telemetry.MetricAgentChatCancelledTotal {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("cancel metric type = %T, want int64 sum", metric.Data)
+			}
+			for _, point := range sum.DataPoints {
+				if chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateAgentAdapterID) != "codex" {
+					continue
+				}
+				adapterCancellations += point.Value
+				if chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateChatCancelReason) == "shutdown" {
+					shutdownCancellations += point.Value
+				}
+			}
+		}
+	}
+	if adapterCancellations != 1 || shutdownCancellations != 1 {
+		t.Fatalf("shutdown cancellation metrics = adapter:%d shutdown:%d, want exactly one shutdown cancellation; metrics=%+v", adapterCancellations, shutdownCancellations, collected)
 	}
 }
 

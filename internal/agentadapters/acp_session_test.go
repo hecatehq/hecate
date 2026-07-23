@@ -5003,6 +5003,22 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
+	if releaseFile := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_PROMPT_RELEASE_FILE")); releaseFile != "" {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if _, err := os.Stat(releaseFile); err == nil {
+				break
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return acp.PromptResponse{}, err
+			}
+			select {
+			case <-turnCtx.Done():
+				return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+			case <-ticker.C:
+			}
+		}
+	}
 
 	if prompt == "wait" {
 		if err := conn.SessionUpdate(turnCtx, acp.SessionNotification{
