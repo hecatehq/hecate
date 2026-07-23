@@ -86,7 +86,8 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   "chat.adapter_not_found": {
     title: "External agent is unavailable",
-    action: "Open Connections and test the external agent adapter, or choose another agent.",
+    action:
+      "Refresh agent discovery in Connections, install the selected app if needed, or choose another agent.",
     tone: "warning",
   },
   "chat.session_stopping": {

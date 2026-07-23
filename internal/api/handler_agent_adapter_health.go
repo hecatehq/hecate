@@ -47,8 +47,11 @@ func (h *Handler) SetAgentAdapterAuthenticate(fn AgentAdapterAuthenticate) {
 }
 
 // HandleAgentAdapterHealth returns passive discovery state for compatibility.
-// It intentionally does not execute the discovered app; clients that want a
-// live ACP readiness check must use POST /agent-adapters/{id}/probe.
+// It intentionally does not execute the discovered app. Chat creation resolves
+// it again and prepares the real ACP session; an embedded bridge may defer the
+// prompt-serving vendor invocation and auth result until the first message,
+// although session setup may run bounded provider discovery. POST
+// /agent-adapters/{id}/probe remains an optional disposable diagnostic.
 //
 // GET /hecate/v1/agent-adapters/{id}/health
 //
@@ -87,7 +90,7 @@ func passiveAgentAdapterHealth(status agentadapters.Status) agentadapters.ProbeR
 	if status.Available {
 		result.Status = agentadapters.ProbeStatusUnverified
 		result.Error = ""
-		result.Hint = "App found but not tested. POST to the probe endpoint to start it and run an ACP readiness check."
+		result.Hint = "App found. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. POST to the probe endpoint only for optional diagnostics."
 		return result
 	}
 	if status.AuthStatus == agentadapters.AuthStatusUnauthenticated {

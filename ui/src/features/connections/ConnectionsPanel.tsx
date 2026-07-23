@@ -108,7 +108,7 @@ function SectionHeader({
 //
 // Grants are lazy-loaded on panel mount — operators rarely visit this surface,
 // so we don't fetch them on every dashboard load. Adapter discovery stays
-// passive; the explicit Check actions disclose and own process execution.
+// passive; optional diagnostics disclose that they execute the installed app.
 export function ConnectionsPanel({
   onNavigate,
   onAddProvider,
@@ -139,6 +139,7 @@ export function ConnectionsPanel({
   const [agentAdapterAuthenticateLoadingByID, setAgentAdapterAuthenticateLoadingByID] = useState<
     Map<string, true>
   >(() => new Map());
+  const [agentAdapterCatalogRefreshing, setAgentAdapterCatalogRefreshing] = useState(false);
   const chatGrants = approvals.state.grants;
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
@@ -156,6 +157,7 @@ export function ConnectionsPanel({
   const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
+  const refreshAgentAdapters = agentAdapterActions.refreshAgentAdapters;
   const authenticateAgentAdapter = agentAdapterActions.authenticateAgentAdapter;
   const logoutAgentAdapter = agentAdapterActions.logoutAgentAdapter;
 
@@ -169,6 +171,16 @@ export function ConnectionsPanel({
     // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleRefreshAgentAdapters() {
+    if (agentAdapterCatalogRefreshing) return;
+    setAgentAdapterCatalogRefreshing(true);
+    try {
+      await refreshAgentAdapters();
+    } finally {
+      setAgentAdapterCatalogRefreshing(false);
+    }
+  }
 
   // One-shot scroll, focus, and highlight when the operator arrived here via
   // a setup action on a failed agent turn or unavailable dictation control.
@@ -308,7 +320,9 @@ export function ConnectionsPanel({
         agentAdapterAuthenticateLoadingByID={agentAdapterAuthenticateLoadingByID}
         agentAdapterLogoutLoadingByID={agentAdapterLogoutLoadingByID}
         remoteRuntime={remoteRuntime}
+        catalogRefreshing={agentAdapterCatalogRefreshing}
         copyCommand={copyCommand}
+        onRefreshCatalog={() => void handleRefreshAgentAdapters()}
         onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
         onAuthenticateAdapter={(adapterID) => void handleAuthenticateAdapter(adapterID)}
         onLogoutAdapter={(adapterID) => void handleLogoutAdapter(adapterID)}
@@ -703,15 +717,11 @@ function AnthropicProviderKeyCard({
   );
 }
 
-// AdapterStatusSection lists the configured external agents.
-// Manual checks start the adapter runtime, complete the ACP handshake, and
-// return a typed health classification. That handshake is also the auth check:
-// auth failures surface as `auth_required`.
-//
-// The section is read-only otherwise: agent discovery and
-// availability are still owned by the dashboard fan-out's
-// /hecate/v1/agent-adapters response. We just surface the additional
-// per-agent "can I actually use this?" check here.
+// AdapterStatusSection lists the configured external agents. Optional
+// diagnostics start the runtime, complete an ACP handshake, and classify that
+// disposable session; they annotate this view but never gate a later chat.
+// Passive discovery and launch availability remain owned by the
+// /hecate/v1/agent-adapters catalog, which can be refreshed independently.
 function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
@@ -719,7 +729,9 @@ function AdapterStatusSection({
   agentAdapterAuthenticateLoadingByID,
   agentAdapterLogoutLoadingByID,
   remoteRuntime,
+  catalogRefreshing,
   copyCommand,
+  onRefreshCatalog,
   onProbeAdapter,
   onAuthenticateAdapter,
   onLogoutAdapter,
@@ -730,7 +742,9 @@ function AdapterStatusSection({
   agentAdapterAuthenticateLoadingByID: Map<string, true>;
   agentAdapterLogoutLoadingByID: Map<string, true>;
   remoteRuntime: boolean;
+  catalogRefreshing: boolean;
   copyCommand: (command: string) => Promise<void>;
+  onRefreshCatalog: () => void;
   onProbeAdapter: (adapterID: string) => void;
   onAuthenticateAdapter: (adapterID: string) => void;
   onLogoutAdapter: (adapterID: string) => void;
@@ -742,8 +756,26 @@ function AdapterStatusSection({
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="External agents"
-        description="Checks local agent readiness and auth by starting the agent runtime, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
+        description="Hecate finds installed agents without launching them. Refresh only repeats that passive discovery. New chat re-resolves the app and prepares the real ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. Optional diagnostics below start a temporary session for troubleshooting."
         meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
+        actions={
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onRefreshCatalog}
+            disabled={catalogRefreshing}
+            aria-label={
+              catalogRefreshing
+                ? "Refreshing external-agent discovery"
+                : "Refresh external-agent discovery without starting agents"
+            }
+            aria-live="polite"
+            title="Refresh installed-agent paths without starting an agent"
+          >
+            <Icon d={Icons.refresh} size={13} />
+            {catalogRefreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        }
       />
       <div className="card" style={{ overflow: "hidden" }}>
         {agentAdapters.map((adapter, i) => (
@@ -795,10 +827,7 @@ function AdapterStatusRow({
   const readiness = resolveExternalAgentReadiness(adapter, health);
   const loginCommand = readiness.loginCommand;
   const showLocalAuthSetup =
-    !remoteRuntime &&
-    Boolean(loginCommand) &&
-    !readiness.verifiedByProbe &&
-    readiness.kind === "sign_in";
+    !remoteRuntime && Boolean(loginCommand) && readiness.kind === "sign_in";
   const showRemoteCredentialSetup =
     remoteRuntime &&
     adapter.remote_credential_ok !== true &&
@@ -809,7 +838,11 @@ function AdapterStatusRow({
     );
   const visibleHealthError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
-  const selectedPath = health?.path || adapter.path || "";
+  const selectedPath = adapter.path || "";
+  const diagnosticPath =
+    health?.path && health.path !== selectedPath && !isDevOverridePath(health.path)
+      ? health.path
+      : "";
   const detail = adapterStatusDetail(readiness, visibleHealthError);
   const showHealthDetail = Boolean(
     detail && health && !showLocalAuthSetup && (readiness.detail || visibleHealthError),
@@ -836,7 +869,6 @@ function AdapterStatusRow({
   const showLogoutAction =
     !remoteRuntime &&
     adapter.available &&
-    readiness.verifiedByProbe &&
     readiness.authStatus === "ok" &&
     adapterLogoutSupportedByHecate(adapter, health) &&
     !showAuthenticateAction;
@@ -932,7 +964,12 @@ function AdapterStatusRow({
           )}
           {showSelectedPath && (
             <span>
-              path <span style={{ color: "var(--t1)" }}>{selectedPath}</span>
+              last discovered path <span style={{ color: "var(--t1)" }}>{selectedPath}</span>
+            </span>
+          )}
+          {diagnosticPath && (
+            <span>
+              diagnostic path <span style={{ color: "var(--t1)" }}>{diagnosticPath}</span>
             </span>
           )}
           {showHealthDuration && health?.duration_ms !== undefined && (
@@ -1002,7 +1039,7 @@ function AdapterStatusRow({
             adapterName={adapter.name || adapter.id}
             loginCommand={loginCommand}
             onCopyCommand={onCopyCommand}
-            onTestAgain={() => onProbeAdapter(adapter)}
+            onRunDiagnostics={() => onProbeAdapter(adapter)}
             testing={loading}
           />
         )}
@@ -1010,7 +1047,7 @@ function AdapterStatusRow({
           <AdapterRemoteCredentialSetup
             adapter={adapter}
             onCopyCommand={onCopyCommand}
-            onTestAgain={() => onProbeAdapter(adapter)}
+            onRunDiagnostics={() => onProbeAdapter(adapter)}
             testing={loading}
           />
         )}
@@ -1042,6 +1079,8 @@ function AdapterStatusRow({
         {loading && (
           <span
             data-testid={`external-agents-checking-${adapter.id}`}
+            role="status"
+            aria-live="polite"
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: 11,
@@ -1049,23 +1088,20 @@ function AdapterStatusRow({
               whiteSpace: "nowrap",
             }}
           >
-            checking…
+            diagnosing…
           </span>
         )}
         {showProbeAction && (
           <button
             type="button"
-            className={
-              readiness.kind === "unverified" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
-            }
+            className="btn btn-ghost btn-sm"
             onClick={() => onProbeAdapter(adapter)}
             disabled={loading}
-            aria-label={`Check ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session`}
+            aria-label={`Run diagnostics for ${adapter.name || adapter.id}; opens a temporary ACP session and may execute the agent app`}
+            title={`Opens a temporary ${adapter.name || adapter.id} ACP session without sending a prompt and may execute the agent app`}
             data-testid={`external-agents-test-${adapter.id}`}
           >
-            <Icon d={Icons.refresh} size={12} />{" "}
-            {loading ? "Checking..." : readiness.verifiedByProbe ? "Check again" : "Check"}
+            <Icon d={Icons.refresh} size={12} /> {loading ? "Running..." : "Run diagnostics"}
           </button>
         )}
         {showAuthenticateAction && (
@@ -1074,8 +1110,8 @@ function AdapterStatusRow({
             className="btn btn-primary btn-sm"
             onClick={() => onAuthenticateAdapter(adapter)}
             disabled={authenticateLoading}
-            aria-label={`Sign in ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens an ACP session to sign in`}
+            aria-label={`Sign in ${adapter.name || adapter.id}; opens a temporary ACP session`}
+            title={`Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-in`}
           >
             <Icon d={Icons.keys} size={12} /> {authenticateLoading ? "Signing in..." : "Sign in"}
           </button>
@@ -1086,8 +1122,8 @@ function AdapterStatusRow({
             className="btn btn-ghost btn-sm"
             onClick={() => onLogoutAdapter(adapter)}
             disabled={logoutLoading}
-            aria-label={`Sign out ${adapter.name || adapter.id}; starts the installed app`}
-            title={`Starts ${adapter.name || adapter.id} and opens an ACP session to sign out`}
+            aria-label={`Sign out ${adapter.name || adapter.id}; opens a temporary ACP session`}
+            title={`Opens a temporary ACP session and invokes ${adapter.name || adapter.id} sign-out`}
           >
             <Icon d={Icons.x} size={12} /> {logoutLoading ? "Signing out..." : "Sign out"}
           </button>
@@ -1224,12 +1260,12 @@ function adapterAuthenticateSupportedByHecate(
 function AdapterRemoteCredentialSetup({
   adapter,
   onCopyCommand,
-  onTestAgain,
+  onRunDiagnostics,
   testing,
 }: {
   adapter: AgentAdapterRecord;
   onCopyCommand: (command: string) => void;
-  onTestAgain: () => void;
+  onRunDiagnostics: () => void;
   testing: boolean;
 }) {
   const keys = remoteCredentialKeys(adapter);
@@ -1297,12 +1333,12 @@ function AdapterRemoteCredentialSetup({
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={onTestAgain}
+                onClick={onRunDiagnostics}
                 disabled={testing}
-                aria-label={`Check ${adapter.name || adapter.id} again; starts the agent runtime`}
-                title={`Starts ${adapter.name || adapter.id} and opens a temporary ACP session`}
+                aria-label={`Run diagnostics for ${adapter.name || adapter.id}; opens a temporary ACP session and may execute the agent app`}
+                title={`Opens a temporary ${adapter.name || adapter.id} ACP session without sending a prompt and may execute the agent app`}
               >
-                {testing ? "Testing..." : "Check again"}
+                {testing ? "Running..." : "Run diagnostics"}
               </button>
             </div>
           )}
@@ -1317,14 +1353,14 @@ function AdapterLocalAuthSetup({
   adapterName,
   loginCommand,
   onCopyCommand,
-  onTestAgain,
+  onRunDiagnostics,
   testing,
 }: {
   adapterID: string;
   adapterName: string;
   loginCommand: string;
   onCopyCommand: (command: string) => void;
-  onTestAgain: () => void;
+  onRunDiagnostics: () => void;
   testing: boolean;
 }) {
   const accent = chipColor("amber");
@@ -1363,8 +1399,8 @@ function AdapterLocalAuthSetup({
             Local sign-in
           </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
-            Run in Terminal, then test again. Hecate uses local CLI auth as your OS user and does
-            not store credentials.
+            Run in Terminal, then retry the chat. Hecate uses local CLI auth as your OS user and
+            does not store credentials. Diagnostics are optional.
           </div>
           <div
             style={{
@@ -1399,12 +1435,12 @@ function AdapterLocalAuthSetup({
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              onClick={onTestAgain}
+              onClick={onRunDiagnostics}
               disabled={testing}
-              aria-label={`Test ${adapterName} again; starts the installed app`}
-              title={`Starts ${adapterName} and opens a temporary ACP session`}
+              aria-label={`Run diagnostics for ${adapterName}; opens a temporary ACP session and may execute the agent app`}
+              title={`Opens a temporary ${adapterName} ACP session without sending a prompt and may execute the agent app`}
             >
-              {testing ? "Testing..." : "Test again"}
+              {testing ? "Running..." : "Run diagnostics"}
             </button>
           </div>
         </div>
@@ -1448,9 +1484,12 @@ function adapterStatusDetail(
   if (readiness.kind === "ready" || readiness.kind === "sign_in") return null;
 
   if (readiness.kind === "setup") {
+    const detail = readiness.detail || readiness.setupHint;
     return {
-      tone: "muted",
-      message: `Set up to use: ${readiness.detail || readiness.setupHint}`,
+      tone: readiness.launchBlocked ? "muted" : "amber",
+      message: readiness.launchBlocked
+        ? `Set up to use: ${detail}`
+        : `Last diagnostic: ${detail} This result is advisory; New chat prepares a fresh ACP session and the first message retries any deferred prompt-serving vendor process.`,
     };
   }
 

@@ -3,7 +3,7 @@
 // individual view: dashboard load on mount, approvals catch-up on
 // session change, RTK enabled sync on session change, notice toast
 // auto-dismiss, provider/model defaults cascade, queued-message
-// drain. These effects coordinate across slices, so they stay
+// drain, external-agent session following. These effects coordinate across slices, so they stay
 // outside the views — the AppShell mounts <RootEffects /> once
 // at the top so the effects run for the whole session.
 //
@@ -30,6 +30,13 @@ import { useSettings } from "./settings";
 import { useChatActions } from "./coordinators/chat";
 import { useDashboardActions } from "./coordinators/dashboard";
 import { useSettingsActions } from "./coordinators/settings";
+import {
+  externalAgentObserverFailureIsNonRetryable,
+  externalAgentObserverFailureIsOrphanedTurn,
+  externalAgentObserverRetryDelayMS,
+  waitForExternalAgentObserverRetry,
+} from "./externalAgentObserver";
+import { ApiError, streamChatSession } from "../../lib/api";
 import type { ConfiguredStateResponse } from "../../types/provider";
 
 function chatSessionIsExternal(session: { agent_id?: string } | null): boolean {
@@ -51,6 +58,28 @@ function chatSessionIsBusy(
   return (session.messages ?? []).some(
     (message) => message.role === "assistant" && busy(message.status),
   );
+}
+
+function chatSessionIsTerminal(session: { status?: string } | null): boolean {
+  return (
+    session?.status === "completed" ||
+    session?.status === "failed" ||
+    session?.status === "cancelled"
+  );
+}
+
+function chatSessionHasPendingExternalTurn(
+  session: {
+    messages?: Array<{ role: string }>;
+  } | null,
+): boolean {
+  const messages = session?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const role = messages[index]?.role;
+    if (role === "assistant") return false;
+    if (role === "user") return true;
+  }
+  return false;
 }
 
 export function RootEffects() {
@@ -85,6 +114,28 @@ export function RootEffects() {
     chatTarget,
     setNoticeMessage: settingsActions.setNoticeMessage,
   });
+  const externalAgentObserverActionsRef = useRef({
+    applyChatSession: chatActions.applyChatSession,
+    stopReadTokenAtRequestStart: chat.actions.stopReadTokenAtRequestStart,
+    chatStopFenceProtectsSession: chat.actions.chatStopFenceProtectsSession,
+    upsertPendingApproval: approvals.actions.upsertPending,
+    removePendingApproval: approvals.actions.removePending,
+    invalidatePendingApprovals: approvals.actions.invalidatePendingForSession,
+    refetchPendingApprovals: approvals.actions.refetchPending,
+    fenceDeletedChatSession: chat.actions.fenceDeletedChatSession,
+    setChatErrorState: chat.actions.setChatErrorState,
+  });
+  externalAgentObserverActionsRef.current = {
+    applyChatSession: chatActions.applyChatSession,
+    stopReadTokenAtRequestStart: chat.actions.stopReadTokenAtRequestStart,
+    chatStopFenceProtectsSession: chat.actions.chatStopFenceProtectsSession,
+    upsertPendingApproval: approvals.actions.upsertPending,
+    removePendingApproval: approvals.actions.removePending,
+    invalidatePendingApprovals: approvals.actions.invalidatePendingForSession,
+    refetchPendingApprovals: approvals.actions.refetchPending,
+    fenceDeletedChatSession: chat.actions.fenceDeletedChatSession,
+    setChatErrorState: chat.actions.setChatErrorState,
+  };
   const queuedMessageAttemptSignatureRef = useRef("");
 
   const setSettingsConfig = useMemo(
@@ -128,6 +179,8 @@ export function RootEffects() {
     activeChatSessionID,
     chatCreating,
     chatLoading,
+    chatTurnActive,
+    chatTurnSessionID,
     chatCancelling,
     chatOwnershipMutationInFlight,
     chatAttachmentTurnDraftCount,
@@ -158,6 +211,23 @@ export function RootEffects() {
   const { dismissNoticeIfMatching } = settings.actions;
   const settingsConfig = settings.state.config;
   const projectCatalogOwnershipBlocked = Boolean(chatOwnershipMutationBlockReason());
+  const selectedObservableExternalSessionID =
+    activeChatSession?.id === activeChatSessionID &&
+    chatSessionIsExternal(activeChatSession) &&
+    (chatSessionIsBusy(activeChatSession) || chatSessionHasPendingExternalTurn(activeChatSession))
+      ? activeChatSessionID
+      : "";
+  const localSubmitOwnsSelectedExternalSession =
+    chatTurnActive &&
+    chatTurnSessionID !== "" &&
+    chatTurnSessionID === selectedObservableExternalSessionID;
+  const selectedExternalObservationStartsBusyRef = useRef(false);
+  selectedExternalObservationStartsBusyRef.current =
+    selectedObservableExternalSessionID !== "" && chatSessionIsBusy(activeChatSession);
+  const selectedExternalObservationStartsPendingRef = useRef(false);
+  selectedExternalObservationStartsPendingRef.current =
+    selectedObservableExternalSessionID !== "" &&
+    chatSessionHasPendingExternalTurn(activeChatSession);
   const projectCatalogOwnershipWasBlockedRef = useRef(projectCatalogOwnershipBlocked);
   const recoverProjectCatalogAfterOwnership = useCallback(
     async function recoverProjectCatalogAfterOwnership(): Promise<void> {
@@ -285,6 +355,131 @@ export function RootEffects() {
     // refetchPending is a stable callback from the slice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatSessionID]);
+
+  useEffect(() => {
+    const sessionID = selectedObservableExternalSessionID;
+    if (!sessionID || localSubmitOwnsSelectedExternalSession) return;
+
+    const abortController = new AbortController();
+    let disposed = false;
+
+    const observe = async () => {
+      let retryAttempt = 0;
+      let observedCurrentTurn = selectedExternalObservationStartsBusyRef.current;
+      const beganFromAdmissionGap = selectedExternalObservationStartsPendingRef.current;
+      let catchUpApprovalsOnNextEvent = false;
+      while (!disposed && !abortController.signal.aborted) {
+        let acceptedTerminalSnapshot = false;
+        const actions = externalAgentObserverActionsRef.current;
+        const stopToken = actions.stopReadTokenAtRequestStart(sessionID);
+        const snapshotSource =
+          stopToken === null
+            ? ({ kind: "unscoped" } as const)
+            : ({ kind: "stop_read", stopToken } as const);
+
+        try {
+          await streamChatSession(
+            sessionID,
+            (event) => {
+              if (disposed || abortController.signal.aborted) return;
+              const currentActions = externalAgentObserverActionsRef.current;
+              if (catchUpApprovalsOnNextEvent) {
+                catchUpApprovalsOnNextEvent = false;
+                void currentActions.refetchPendingApprovals(
+                  sessionID,
+                  () =>
+                    !disposed &&
+                    !abortController.signal.aborted &&
+                    !currentActions.chatStopFenceProtectsSession(sessionID),
+                );
+              }
+              switch (event.type) {
+                case "session_update": {
+                  if (event.payload.data.id !== sessionID) return;
+                  const busy = chatSessionIsBusy(event.payload.data);
+                  if (busy) observedCurrentTurn = true;
+                  const terminal =
+                    chatSessionIsTerminal(event.payload.data) &&
+                    (observedCurrentTurn || beganFromAdmissionGap);
+                  const applied = currentActions.applyChatSession(
+                    event.payload.data,
+                    snapshotSource,
+                  );
+                  if (terminal && applied) {
+                    // A terminal session cannot retain an actionable approval.
+                    // Resolve events are deliberately droppable under SSE
+                    // backpressure, so the accepted terminal snapshot is the
+                    // authoritative fallback. An unaccepted Stop-fenced
+                    // snapshot cannot clear approval state.
+                    currentActions.invalidatePendingApprovals(sessionID);
+                    acceptedTerminalSnapshot = true;
+                  }
+                  return;
+                }
+                case "approval.requested":
+                  if (
+                    event.payload.session_id !== sessionID ||
+                    currentActions.chatStopFenceProtectsSession(sessionID)
+                  ) {
+                    return;
+                  }
+                  currentActions.upsertPendingApproval(event.payload);
+                  return;
+                case "approval.resolved":
+                  if (event.payload.session_id !== sessionID) return;
+                  currentActions.removePendingApproval(
+                    event.payload.session_id,
+                    event.payload.approval_id,
+                  );
+                  return;
+              }
+            },
+            abortController.signal,
+          );
+        } catch (error) {
+          if (disposed || abortController.signal.aborted) return;
+          if (error instanceof ApiError && error.status === 404) {
+            const currentActions = externalAgentObserverActionsRef.current;
+            currentActions.invalidatePendingApprovals(sessionID);
+            if (!currentActions.fenceDeletedChatSession(sessionID)) {
+              currentActions.setChatErrorState(
+                new Error(
+                  "This chat no longer exists on the runtime, but Hecate could not safely remove its queued prompts from browser storage. Free browser storage or clear Hecate site data before continuing.",
+                ),
+              );
+            }
+            return;
+          }
+          if (externalAgentObserverFailureIsOrphanedTurn(error)) {
+            externalAgentObserverActionsRef.current.setChatErrorState(
+              error,
+              "This External Agent turn is no longer active.",
+            );
+            return;
+          }
+          if (externalAgentObserverFailureIsNonRetryable(error)) {
+            externalAgentObserverActionsRef.current.setChatErrorState(
+              error,
+              "Failed to follow the External Agent chat.",
+            );
+            return;
+          }
+        }
+
+        if (disposed || abortController.signal.aborted || acceptedTerminalSnapshot) return;
+        const retryDelay = externalAgentObserverRetryDelayMS(retryAttempt);
+        retryAttempt += 1;
+        if (!(await waitForExternalAgentObserverRetry(abortController.signal, retryDelay))) return;
+        catchUpApprovalsOnNextEvent = true;
+      }
+    };
+
+    void observe();
+    return () => {
+      disposed = true;
+      abortController.abort();
+    };
+  }, [localSubmitOwnsSelectedExternalSession, selectedObservableExternalSessionID]);
 
   useEffect(() => {
     if (!activeChatSession || chatSessionIsExternal(activeChatSession)) {

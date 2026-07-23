@@ -4158,20 +4158,19 @@ test("Claude Code setup is cleared after a ready probe", async ({ page }) => {
   await expect(page.locator("textarea")).toBeVisible();
 });
 
-test("Claude Code setup stays visible when the probe requires local auth", async ({ page }) => {
+test("Claude Code cached auth guidance does not block a prepared session", async ({ page }) => {
   await openClaudeExternalAgent(page, {
     available: true,
     authStatus: "unauthenticated",
     healthStatus: "auth_required",
   });
 
-  await expect(page.getByText("Set up Claude Code")).toBeVisible();
-  await expect(page.getByText(/claude \/login/)).toBeVisible();
+  await expect(page.getByText("Set up Claude Code")).toHaveCount(0);
   await page.locator("textarea").fill("hello from Claude Code");
-  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
 });
 
-test("Cursor Agent setup explains CLI sign-in without launching the CLI", async ({ page }) => {
+test("Cursor Agent cached auth guidance does not block a prepared session", async ({ page }) => {
   await openExternalAgentReadinessFixture(page, {
     id: "cursor_agent",
     name: "Cursor Agent",
@@ -4181,13 +4180,12 @@ test("Cursor Agent setup explains CLI sign-in without launching the CLI", async 
     healthStatus: "auth_required",
   });
 
-  await expect(page.getByText("Set up Cursor Agent")).toBeVisible();
-  await expect(page.getByText(/cursor-agent login/)).toBeVisible();
+  await expect(page.getByText("Set up Cursor Agent")).toHaveCount(0);
   await page.locator("textarea").fill("hello from Cursor Agent");
-  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
 });
 
-test("Grok Build setup mentions CLI sign-in without launching the CLI", async ({ page }) => {
+test("Grok Build cached auth guidance does not block a prepared session", async ({ page }) => {
   await openExternalAgentReadinessFixture(page, {
     id: "grok_build",
     name: "Grok Build",
@@ -4198,10 +4196,9 @@ test("Grok Build setup mentions CLI sign-in without launching the CLI", async ({
     healthStatus: "auth_required",
   });
 
-  await expect(page.getByText("Set up Grok Build")).toBeVisible();
-  await expect(page.getByText(/grok login/)).toBeVisible();
+  await expect(page.getByText("Set up Grok Build")).toHaveCount(0);
   await page.locator("textarea").fill("hello from Grok Build");
-  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
 });
 
 test("Claude Code chat is enabled when local CLI auth is verified", async ({ page }) => {

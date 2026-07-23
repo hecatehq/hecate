@@ -1,4 +1,4 @@
-// Agent-adapter coordinator: readiness probes for external agent adapters.
+// Agent-adapter coordinator: optional diagnostics for external agent adapters.
 
 import { useContext } from "react";
 
@@ -18,12 +18,20 @@ export type UseAgentAdapterActionsParams = {
 export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
   const providersAndModels = useProvidersAndModels();
 
-  // probeAgentAdapter exercises the configured adapter and caches the
-  // typed result keyed by adapter id. Operators trigger this via the
-  // readiness probe in Connections; the result drives
-  // the status chip + the picker dropdown's inline diagnostic. The
-  // loading map is keyed by id so two adapters can be probing
-  // concurrently without confusing the UI.
+  async function refreshAgentAdapters(): Promise<boolean> {
+    const result = await providersAndModels.actions.refreshAgentAdapters();
+    if (!result.ok) {
+      params.setNoticeMessage("error", result.error);
+      return false;
+    }
+    return true;
+  }
+
+  // probeAgentAdapter exercises the configured adapter and caches the typed
+  // diagnostic keyed by adapter id. Operators trigger it explicitly in
+  // Connections; it annotates status chips but never gates a later chat. The
+  // loading map is keyed by id so two adapters can run concurrently without
+  // confusing the UI.
   async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
     const result = await providersAndModels.actions.probeAgentAdapter(adapterID);
     if (!result.ok) {
@@ -40,7 +48,7 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     }
     try {
       await logoutAgentAdapterRequest(adapterID);
-      providersAndModels.actions.clearAgentAdapterHealth(adapterID);
+      providersAndModels.actions.applyAgentAdapterAuthResult(adapterID, "unauthenticated");
       params.setNoticeMessage("success", "External agent signed out.");
       return true;
     } catch (error) {
@@ -59,7 +67,7 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     }
     try {
       await authenticateAgentAdapterRequest(adapterID);
-      providersAndModels.actions.clearAgentAdapterHealth(adapterID);
+      providersAndModels.actions.applyAgentAdapterAuthResult(adapterID, "ok");
       params.setNoticeMessage("success", "External agent sign-in completed.");
       return true;
     } catch (error) {
@@ -73,7 +81,7 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
 
   const overrides = useContext(CoordinatorOverridesContext);
   return applyOverride(
-    { probeAgentAdapter, authenticateAgentAdapter, logoutAgentAdapter },
+    { refreshAgentAdapters, probeAgentAdapter, authenticateAgentAdapter, logoutAgentAdapter },
     overrides?.agentAdapters,
   );
 }

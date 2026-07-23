@@ -13,7 +13,7 @@ import {
 import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
 import type { ConfiguredStateResponse, ProviderStatusResponse } from "../types/provider";
-import type { AgentAdapterRecord } from "../types/agent-adapter";
+import type { AgentAdapterRecord, AgentAdapterResponse } from "../types/agent-adapter";
 import type { ChatSessionRecord, ChatSessionsResponse } from "../types/chat";
 
 export type SessionState = {
@@ -71,7 +71,7 @@ type DashboardResults = {
   session: PromiseSettledResult<SessionResponse>;
   models: PromiseSettledResult<ModelResponse>;
   providers: PromiseSettledResult<ProviderStatusResponse>;
-  agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }>;
+  agentAdapters: PromiseSettledResult<AgentAdapterResponse>;
   chatSessions: PromiseSettledResult<ChatSessionsResponse>;
   settingsConfig: PromiseSettledResult<ConfiguredStateResponse>;
   runtimeStats: PromiseSettledResult<RuntimeStatsResponse>;
@@ -87,6 +87,12 @@ export async function resolveDashboardSnapshot(args: {
    */
   loadModels?: () => Promise<ModelResponse>;
   /**
+   * Optional passive external-agent catalog loader. The providers/models
+   * slice supplies this in production so dashboard hydration and explicit
+   * refreshes share one request-order fence.
+   */
+  loadAgentAdapters?: () => Promise<AgentAdapterResponse>;
+  /**
    * Fires once the essentials wave (health + session + settingsConfig)
    * resolves, before the secondary wave starts.
    * The hook uses this to commit just enough state to clear the
@@ -101,6 +107,7 @@ export async function resolveDashboardSnapshot(args: {
     onEssentials: args.onEssentials ? (essentials) => args.onEssentials!(essentials) : undefined,
     onChatSessionsReadStart: args.onChatSessionsReadStart,
     loadModels: args.loadModels,
+    loadAgentAdapters: args.loadAgentAdapters,
     previousSettingsConfig: args.previous.settingsConfig,
   });
   const health = requireFulfilledDashboardResult(results.health);
@@ -177,6 +184,7 @@ async function loadDashboardResults(opts: {
   onEssentials?: (essentials: DashboardEssentials) => void;
   onChatSessionsReadStart?: () => void;
   loadModels?: () => Promise<ModelResponse>;
+  loadAgentAdapters?: () => Promise<AgentAdapterResponse>;
   previousSettingsConfig: ConfiguredStateResponse["data"] | null;
 }): Promise<DashboardResults> {
   // Wave 1 — essentials. Three parallel calls drive everything the
@@ -217,8 +225,7 @@ async function loadDashboardResults(opts: {
   });
   let models: PromiseSettledResult<ModelResponse> = initialReject();
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
-  let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> =
-    initialReject();
+  let agentAdapters: PromiseSettledResult<AgentAdapterResponse> = initialReject();
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
@@ -232,6 +239,7 @@ async function loadDashboardResults(opts: {
   );
   const configured = resolvedSettingsConfig?.providers ?? [];
   const loadModels = opts.loadModels ?? getModels;
+  const loadAgentAdapters = opts.loadAgentAdapters ?? getAgentAdapters;
   opts.onChatSessionsReadStart?.();
   const chatSessionsRequest = getChatSessions();
   const secondary: Promise<unknown>[] = [
@@ -243,7 +251,7 @@ async function loadDashboardResults(opts: {
         models = { status: "rejected", reason: e };
       },
     ),
-    getAgentAdapters().then(
+    loadAgentAdapters().then(
       (r) => {
         agentAdapters = { status: "fulfilled", value: r };
       },

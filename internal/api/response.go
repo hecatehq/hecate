@@ -331,7 +331,7 @@ func defaultErrorAction(code string) string {
 	case errCodeRuntimeMismatch:
 		return "Start a new chat or switch back to the runtime that created this session."
 	case errCodeAgentAdapterNotFound:
-		return "Open Connections and test the external agent adapter, or choose another agent."
+		return "Refresh agent discovery in Connections, install the selected app if needed, or choose another agent."
 	case errCodeSessionStopping:
 		return "Wait a moment, then retry the action."
 	case errCodeSessionNotRunning:

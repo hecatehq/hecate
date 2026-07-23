@@ -5508,7 +5508,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Codex found")).toBeTruthy();
     expect(
       screen.getByText(
-        "Hecate found the installed app. Creating this chat starts it and opens an ACP session in the selected workspace.",
+        "Hecate found the installed app. New chat re-resolves it and prepares the ACP session; the first message starts any deferred prompt-serving vendor process.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("/Users/alice/.local/bin/codex")).toBeVisible();
@@ -5549,17 +5549,19 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Codex session ready")).toBeTruthy();
     expect(
       screen.getByText(
-        "Hecate started the installed app and opened its ACP session in this workspace. Send a message when you're ready.",
+        "Hecate prepared the ACP session in this workspace. Send a message to start any deferred prompt-serving vendor process and verify its authentication.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText(/Sending a message starts it/)).toBeNull();
+    expect(
+      screen.getByText(/Send a message to start any deferred prompt-serving vendor process/),
+    ).toBeTruthy();
   });
 
-  it("shows Claude Code local auth repair when the agent reports auth required", async () => {
-    const onNavigate = vi.fn();
+  it("keeps a discovered agent launchable when the last diagnostic reports auth required", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
+      newChatAgentID: "claude_code",
       agentWorkspace: "/tmp/hecate",
       message: "inspect repo",
       agentAdapters: [
@@ -5588,23 +5590,18 @@ describe("ChatView external-agent target", () => {
         ],
       ]),
     });
-    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeTruthy();
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Open setup" }));
-    expect(onNavigate).toHaveBeenCalledWith("connections");
-    expect(sessionStorage.getItem("hecate.connectionsFocus")).toBe(
-      "external-agent-auth-setup-claude_code",
-    );
+    expect(screen.queryByText("Set up Claude Code")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
-  it("shows Claude Code setup repair in empty sessions without a token form", () => {
+  it("does not block a prepared session with stale local auth metadata", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
+      newChatAgentID: "claude_code",
       agentWorkspace: "/tmp/hecate",
       activeChatSessionID: "chat_1",
       activeChatSession: {
@@ -5634,16 +5631,19 @@ describe("ChatView external-agent target", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeTruthy();
+    expect(screen.queryByText("Set up Claude Code")).toBeNull();
+    expect(screen.getByText("Claude Code session ready")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
-  it("shows Claude Code setup until the adapter probe verifies auth", () => {
+  it("treats a cached missing-app diagnostic as advisory before creating a session", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
+      newChatAgentID: "claude_code",
       agentWorkspace: "/tmp/hecate",
+      message: "inspect repo",
       agentAdapters: [
         {
           id: "claude_code",
@@ -5652,23 +5652,30 @@ describe("ChatView external-agent target", () => {
           command: "claude-code-acp-adapter",
           available: true,
           status: "available",
-          auth_status: "unauthenticated",
+          auth_status: "unknown",
           cost_mode: "external",
         },
       ],
       agentAdapterHealthByID: new Map([
         [
           "claude_code",
-          { adapter_id: "claude_code", status: "auth_required", stage: "ready", duration_ms: 120 },
+          {
+            adapter_id: "claude_code",
+            status: "not_installed",
+            stage: "resolve",
+            duration_ms: 120,
+          },
         ],
       ]),
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText("Set up Claude Code")).toBeTruthy();
+    expect(screen.queryByText("Set up Claude Code")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
-  it("does not show Claude Code setup after the adapter probe verifies auth", () => {
+  it("does not show Claude Code setup after the ACP diagnostic completes", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
@@ -5695,6 +5702,35 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByText("Set up Claude Code")).toBeNull();
+  });
+
+  it("blocks a hosted launch while its required remote credential is missing", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      newChatAgentID: "claude_code",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "acp",
+          command: "claude-code-acp-adapter",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+          auth_status: "unauthenticated",
+          auth_error: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+          remote_credential_ok: false,
+          remote_credential_hint: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("Set up Claude Code")).toBeTruthy();
+    expect(screen.getByText("Configure ANTHROPIC_API_KEY for this hosted runtime.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });
 
   it("shows a waiting state for a running agent before transcript output arrives", () => {

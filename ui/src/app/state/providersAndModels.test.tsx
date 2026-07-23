@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 const getProvidersMock = vi.fn();
 const getModelsMock = vi.fn();
 const getProviderPresetsMock = vi.fn();
+const getAgentAdaptersMock = vi.fn();
 const probeAgentAdapterMock = vi.fn();
 const verifyModelToolSupportMock = vi.fn();
 const warnMock = vi.fn();
@@ -20,6 +21,7 @@ vi.mock("../../lib/api", () => ({
   getProviders: (...args: unknown[]) => getProvidersMock(...args),
   getModels: (...args: unknown[]) => getModelsMock(...args),
   getProviderPresets: (...args: unknown[]) => getProviderPresetsMock(...args),
+  getAgentAdapters: (...args: unknown[]) => getAgentAdaptersMock(...args),
   probeAgentAdapter: (...args: unknown[]) => probeAgentAdapterMock(...args),
   verifyModelToolSupport: (...args: unknown[]) => verifyModelToolSupportMock(...args),
 }));
@@ -38,6 +40,8 @@ beforeEach(() => {
   getProvidersMock.mockReset();
   getModelsMock.mockReset();
   getProviderPresetsMock.mockReset();
+  getAgentAdaptersMock.mockReset();
+  getAgentAdaptersMock.mockResolvedValue({ object: "agent_adapters", data: [] });
   probeAgentAdapterMock.mockReset();
   verifyModelToolSupportMock.mockReset();
   warnMock.mockReset();
@@ -206,6 +210,493 @@ describe("probeAgentAdapter", () => {
       status: "ready",
     });
     expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+  });
+
+  it("keeps passive launch discovery when a disposable diagnostic cannot resolve the app", async () => {
+    getAgentAdaptersMock.mockResolvedValueOnce({
+      object: "agent_adapters",
+      data: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex",
+          available: true,
+          status: "available",
+          path: "/Applications/Codex.app/Contents/Resources/codex",
+          auth_status: "unknown",
+          supports_authenticate: false,
+          supports_logout: false,
+        },
+      ],
+    });
+    probeAgentAdapterMock.mockResolvedValueOnce({
+      object: "agent_adapter_probe",
+      data: {
+        adapter: {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex",
+          available: false,
+          status: "missing",
+          error: "codex command was not found",
+          auth_status: "unknown",
+          supports_authenticate: false,
+          supports_logout: false,
+        },
+        health: {
+          adapter_id: "codex",
+          status: "not_installed",
+          stage: "resolve",
+          error: "codex command was not found",
+          duration_ms: 12,
+        },
+      },
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider
+          initialState={{
+            agentAdapters: [
+              {
+                id: "codex",
+                name: "Codex",
+                kind: "acp",
+                command: "codex",
+                available: true,
+                status: "available",
+                path: "/Applications/Codex.app/Contents/Resources/codex",
+                auth_status: "unknown",
+                supports_authenticate: false,
+                supports_logout: false,
+              },
+            ],
+          }}
+        >
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+
+    await act(async () => {
+      await result.current.actions.probeAgentAdapter("codex");
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+    });
+    expect(result.current.state.agentAdapters[0]?.error).toBeUndefined();
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "not_installed",
+      stage: "resolve",
+    });
+  });
+
+  it("recovers a stale missing catalog row through a fresh passive read after diagnostics", async () => {
+    const discovered = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+      auth_status: "unknown",
+      supports_authenticate: false,
+      supports_logout: false,
+    };
+    const diagnostic = {
+      ...discovered,
+      adapter_version: "0.5.0",
+      agent_version: "1.2.3",
+      version_outside_range: true,
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+      config_options: [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          current_value: "sonnet",
+          options: [{ value: "sonnet", name: "Sonnet" }],
+        },
+      ],
+    };
+    probeAgentAdapterMock.mockResolvedValueOnce({
+      object: "agent_adapter_probe",
+      data: {
+        adapter: diagnostic,
+        health: {
+          adapter_id: "codex",
+          status: "ready",
+          stage: "ready",
+          path: discovered.path,
+          duration_ms: 42,
+        },
+      },
+    });
+    getAgentAdaptersMock.mockResolvedValueOnce({
+      object: "agent_adapters",
+      data: [discovered],
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider
+          initialState={{
+            agentAdapters: [
+              {
+                ...discovered,
+                available: false,
+                status: "missing",
+                path: undefined,
+                error: "codex command was not found",
+              },
+            ],
+          }}
+        >
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+
+    await act(async () => {
+      await result.current.actions.probeAgentAdapter("codex");
+    });
+
+    expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1);
+    expect(result.current.state.agentAdapters[0]).toMatchObject({
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+      adapter_version: "0.5.0",
+      agent_version: "1.2.3",
+      version_outside_range: true,
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+      config_options: [expect.objectContaining({ id: "model", current_value: "sonnet" })],
+    });
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "ready",
+    });
+  });
+
+  it("discards a pre-sign-in diagnostic and lets a fresh diagnostic start", async () => {
+    let resolveOldProbe: (value: unknown) => void = () => {};
+    let resolveFreshProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOldProbe = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFreshProbe = resolve;
+        }),
+      );
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      auth_status: "unauthenticated",
+      auth_error: "Sign in required.",
+      supports_authenticate: true,
+      supports_logout: true,
+    };
+    getAgentAdaptersMock.mockResolvedValue({
+      object: "agent_adapters",
+      data: [{ ...adapter, auth_status: "unknown", auth_error: undefined }],
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let oldProbe!: Promise<unknown>;
+    let freshProbe!: Promise<unknown>;
+
+    act(() => {
+      oldProbe = result.current.actions.probeAgentAdapter("codex");
+    });
+    act(() => {
+      result.current.actions.applyAgentAdapterAuthResult("codex", "ok");
+      freshProbe = result.current.actions.probeAgentAdapter("codex");
+    });
+
+    expect(probeAgentAdapterMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveOldProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter,
+          health: {
+            adapter_id: "codex",
+            status: "auth_required",
+            stage: "authenticate",
+            error: "Sign in required.",
+            duration_ms: 42,
+          },
+        },
+      });
+      await oldProbe;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({ auth_status: "ok" });
+    expect(result.current.state.agentAdapters[0]?.auth_error).toBeUndefined();
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(true);
+    expect(getAgentAdaptersMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFreshProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter: { ...adapter, auth_status: "ok", auth_error: undefined },
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 12,
+          },
+        },
+      });
+      await freshProbe;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({ auth_status: "ok" });
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "ready",
+    });
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+    expect(getAgentAdaptersMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a pre-logout diagnostic restore ready evidence", async () => {
+    let resolveProbe: (value: unknown) => void = () => {};
+    probeAgentAdapterMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+    };
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let probe!: Promise<unknown>;
+
+    act(() => {
+      probe = result.current.actions.probeAgentAdapter("codex");
+    });
+    act(() => {
+      result.current.actions.applyAgentAdapterAuthResult("codex", "unauthenticated");
+    });
+    await act(async () => {
+      resolveProbe({
+        object: "agent_adapter_probe",
+        data: {
+          adapter,
+          health: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            duration_ms: 42,
+          },
+        },
+      });
+      await probe;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({
+      auth_status: "unauthenticated",
+    });
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
+    expect(result.current.state.agentAdapterHealthLoadingByID.has("codex")).toBe(false);
+    expect(getAgentAdaptersMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshAgentAdapters", () => {
+  it("keeps the newest passive discovery response when refreshes finish out of order", async () => {
+    let resolveFirst: (value: unknown) => void = () => {};
+    let resolveSecond: (value: unknown) => void = () => {};
+    getAgentAdaptersMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+      );
+    const missing = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: false,
+      status: "missing",
+      supports_authenticate: false,
+      supports_logout: false,
+    };
+    const available = {
+      ...missing,
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+    };
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
+    let first: Promise<unknown> | undefined;
+    let second: Promise<unknown> | undefined;
+
+    act(() => {
+      first = result.current.actions.refreshAgentAdapters();
+      second = result.current.actions.refreshAgentAdapters();
+    });
+    await act(async () => {
+      resolveSecond({ object: "agent_adapters", data: [available] });
+      await second;
+      resolveFirst({ object: "agent_adapters", data: [missing] });
+      await first;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+    });
+  });
+
+  it("does not let an in-flight catalog overwrite an explicit local projection", async () => {
+    let resolveCatalog: (value: unknown) => void = () => {};
+    getAgentAdaptersMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCatalog = resolve;
+      }),
+    );
+    const missing = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: false,
+      status: "missing",
+      supports_authenticate: false,
+      supports_logout: false,
+    };
+    const available = {
+      ...missing,
+      available: true,
+      status: "available",
+      path: "/Applications/Codex.app/Contents/Resources/codex",
+    };
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: Wrapper });
+    let refresh: Promise<unknown> | undefined;
+
+    act(() => {
+      refresh = result.current.actions.refreshAgentAdapters();
+    });
+    act(() => {
+      result.current.actions.setAgentAdapters([available]);
+    });
+    await act(async () => {
+      resolveCatalog({ object: "agent_adapters", data: [missing] });
+      await refresh;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject(available);
+  });
+
+  it("does not let an older passive read overwrite a completed auth action", async () => {
+    let resolveCatalog: (value: unknown) => void = () => {};
+    getAgentAdaptersMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCatalog = resolve;
+      }),
+    );
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      auth_status: "unauthenticated",
+      auth_error: "Sign in required.",
+      supports_authenticate: true,
+      supports_logout: true,
+    };
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider
+          initialState={{
+            agentAdapters: [adapter],
+            agentAdapterHealthByID: new Map([
+              [
+                "codex",
+                {
+                  adapter_id: "codex",
+                  status: "auth_required",
+                  stage: "authenticate",
+                  duration_ms: 42,
+                },
+              ],
+            ]),
+          }}
+        >
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+    let refresh: Promise<unknown> | undefined;
+
+    act(() => {
+      refresh = result.current.actions.refreshAgentAdapters();
+    });
+    act(() => {
+      result.current.actions.applyAgentAdapterAuthResult("codex", "ok");
+    });
+    await act(async () => {
+      resolveCatalog({
+        object: "agent_adapters",
+        data: [{ ...adapter, auth_status: "unknown", auth_error: undefined }],
+      });
+      await refresh;
+    });
+
+    expect(result.current.state.agentAdapters[0]).toMatchObject({ auth_status: "ok" });
+    expect(result.current.state.agentAdapters[0]?.auth_error).toBeUndefined();
+    expect(result.current.state.agentAdapterHealthByID.has("codex")).toBe(false);
   });
 });
 

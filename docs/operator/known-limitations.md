@@ -246,10 +246,19 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.
+- Once its user message and running assistant are durable, an External Agent
+  turn continues if the originating browser/webview or HTTP connection closes.
+  Use **Stop** when it must not keep modifying the workspace. Runtime shutdown,
+  including native desktop app quit, cancels and drains active agents. A Hecate
+  process restart does not resume an in-flight turn; startup reconciliation
+  marks its running assistant interrupted, although a later prompt may restore
+  the stored native ACP session where supported.
 - Hecate does not yet authenticate a discovered provider CLI or persist an
   executable fingerprint approval. Catalog discovery is passive and shows the
-  selected path, but **Check**, auth/logout, setup discovery, and session launch
-  execute that path. A local SHA-256 digest alone would detect changed bytes;
+  last-discovered path; **Refresh** repeats discovery without execution. **New
+  chat**, **Run diagnostics**, auth/logout, setup discovery, and session launch
+  resolve the executable again, so the executed path can differ from earlier
+  discovery. A local SHA-256 digest alone would detect changed bytes;
   without a signed publisher manifest or attestation it would not prove origin
   or that the program is malware-free. Prefer vendor installers and pinned
   platform publisher signatures or vendor-signed manifests when available;
@@ -279,11 +288,15 @@ shipping `v0.x.y-alpha.N` releases from reviewed PRs merged into `master`.
   evasive agent can transform a path or split it into unrelated short message
   or activity records that are not individually recognizable as that alias.
 - Agent auth and billing state belongs to the underlying CLI account. Hecate
-  can probe common failures and surface friendly hints, but operators still
-  need to use each agent's own login/status flow when credentials expire.
-- Readiness fixtures are diagnostic only. They can force Connections and Chats
-  status states for UI testing, but real External Agent chats still require the
-  underlying CLI and ACP adapter to start successfully.
+  can classify common failures during a fresh chat launch or optional
+  diagnostics and surface friendly hints, but operators still need to use each
+  agent's own login/status flow when credentials expire.
+- Cached diagnostics and readiness fixtures are advisory only. They can force
+  Connections and Chats status states for UI testing, but they do not authorize
+  or block a later launch. Real External Agent chats re-resolve the executable
+  and require the underlying CLI and ACP adapter to start successfully. A
+  missing or rejected executable and absent required remote credentials remain
+  actual launch gates.
 - Patch review is alpha-grade: Hecate keeps captured per-turn Git diffs as
   read-only evidence and can discard selected paths from a separately refreshed,
   revision-bound live unstaged tracked workspace patch. Staged and untracked

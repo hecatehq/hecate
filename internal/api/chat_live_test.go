@@ -1,6 +1,11 @@
 package api
 
-import "testing"
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 func TestAgentChatLiveSessionReplacementPreservesApprovalEvents(t *testing.T) {
 	t.Parallel()
@@ -96,4 +101,93 @@ func TestAgentChatLiveExclusiveMutationInvalidatesStaleTurnsWithoutBecomingCance
 		t.Fatalf("registerTurn after mutation = %v, want accepted", got)
 	}
 	live.clearTurn("s")
+}
+
+func TestAgentChatLiveShutdownCancellationClosesTurnAdmission(t *testing.T) {
+	t.Parallel()
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	turnCtx, turnCancel := context.WithCancel(context.Background())
+	snapshot := live.snapshotLifecycle("s")
+	defer snapshot.release()
+	if got := live.registerTurn(snapshot, turnCancel); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn before shutdown = %v, want accepted", got)
+	}
+	defer live.clearTurn("s")
+
+	live.cancelAllTurns("shutdown")
+
+	select {
+	case <-turnCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not cancel the turn admitted before its snapshot")
+	}
+	if got := live.turnCancelReason("s"); got != "shutdown" {
+		t.Fatalf("turn cancellation reason = %q, want shutdown", got)
+	}
+	afterShutdown := live.snapshotLifecycle("after_shutdown")
+	defer afterShutdown.release()
+	if got := live.registerTurn(afterShutdown, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn after shutdown = %v, want admission closed", got)
+	}
+
+	// Shutdown is idempotent and its admission fence is permanent.
+	live.cancelAllTurns("shutdown")
+	afterSecondShutdown := live.snapshotLifecycle("after_second_shutdown")
+	defer afterSecondShutdown.release()
+	if got := live.registerTurn(afterSecondShutdown, func() {}); got != agentChatTurnAdmissionClosed {
+		t.Fatalf("registerTurn after second shutdown = %v, want admission closed", got)
+	}
+}
+
+func TestAgentChatLiveOperatorReasonSurvivesOverlappingShutdown(t *testing.T) {
+	t.Parallel()
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	cancelEntered := make(chan struct{})
+	releaseCancel := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseCancel:
+		default:
+			close(releaseCancel)
+		}
+	}()
+	var firstCancel atomic.Bool
+	snapshot := live.snapshotLifecycle("s")
+	defer snapshot.release()
+	if got := live.registerTurn(snapshot, func() {
+		if firstCancel.CompareAndSwap(false, true) {
+			close(cancelEntered)
+			<-releaseCancel
+		}
+	}); got != agentChatTurnAccepted {
+		t.Fatalf("registerTurn = %v, want accepted", got)
+	}
+	defer live.clearTurn("s")
+
+	operatorDone := make(chan bool, 1)
+	go func() {
+		operatorDone <- live.cancelTurn("s")
+	}()
+	select {
+	case <-cancelEntered:
+	case <-time.After(time.Second):
+		t.Fatal("operator cancellation did not reach the turn callback")
+	}
+
+	// Stop has already selected the turn and committed its reason. Shutdown
+	// overlaps the still-running callback and must preserve that first writer.
+	live.cancelAllTurns("shutdown")
+	reason := live.turnCancelReason("s")
+	close(releaseCancel)
+	select {
+	case ok := <-operatorDone:
+		if !ok {
+			t.Fatal("cancelTurn = false, want true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("operator cancellation did not return")
+	}
+	if reason != "operator" {
+		t.Fatalf("overlapping cancellation reason = %q, want operator", reason)
+	}
 }

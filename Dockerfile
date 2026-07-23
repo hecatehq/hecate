@@ -78,8 +78,9 @@ RUN apt-get update \
 ARG OPENAI_CODEX_VERSION=0.139.0
 ARG CLAUDE_CODE_VERSION=2.1.177
 ARG GROK_VERSION=0.2.51
-ARG CURSOR_INSTALL_SHA256=113bd5068597904810a94daf6056fa2f3f45829e1c4e52937dfe3b3d009d2a23
-ARG CURSOR_INSTALL_URL=https://cursor.com/install
+ARG CURSOR_AGENT_VERSION=2026.07.20-8cc9c0b
+ARG CURSOR_AGENT_LINUX_X64_SHA256=6e9f17247ffeb5f8f7e2246b4bcd6bb26cb2d5a9f9a4b0012c9a80d868ed25b4
+ARG CURSOR_AGENT_LINUX_ARM64_SHA256=2986152b283c70a666b015035b2e99a96d13afd2660a587b8639417cfdd147fb
 
 RUN npm install -g \
       @openai/codex@${OPENAI_CODEX_VERSION} \
@@ -87,18 +88,26 @@ RUN npm install -g \
       @xai-official/grok@${GROK_VERSION} \
     && npm cache clean --force
 
-RUN mkdir -p /opt/cursor-agent \
-    && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "${CURSOR_INSTALL_URL}" -o /tmp/cursor-install.sh \
-    && printf '%s  %s\n' "${CURSOR_INSTALL_SHA256}" /tmp/cursor-install.sh | sha256sum -c - \
-    && for attempt in 1 2 3; do \
-      HOME=/opt/cursor-agent PATH=/opt/cursor-agent/.local/bin:$PATH \
-        bash /tmp/cursor-install.sh && break; \
-      if [ "$attempt" = "3" ]; then exit 1; fi; \
-      sleep 3; \
-    done \
-    && rm -f /tmp/cursor-install.sh \
-    && ln -sf /opt/cursor-agent/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
-    && ln -sf /opt/cursor-agent/.local/bin/agent /usr/local/bin/agent
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) cursor_arch=x64; cursor_sha256="${CURSOR_AGENT_LINUX_X64_SHA256}" ;; \
+      arm64) cursor_arch=arm64; cursor_sha256="${CURSOR_AGENT_LINUX_ARM64_SHA256}" ;; \
+      *) echo "unsupported Cursor Agent architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    cursor_archive=/tmp/cursor-agent.tar.gz; \
+    cursor_dir="/opt/cursor-agent/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}"; \
+    cursor_url="https://downloads.cursor.com/lab/${CURSOR_AGENT_VERSION}/linux/${cursor_arch}/agent-cli-package.tar.gz"; \
+    curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "${cursor_url}" -o "${cursor_archive}"; \
+    printf '%s  %s\n' "${cursor_sha256}" "${cursor_archive}" | sha256sum -c -; \
+    mkdir -p "${cursor_dir}" /opt/cursor-agent/.local/bin; \
+    tar --no-same-owner --no-same-permissions --strip-components=1 -xzf "${cursor_archive}" -C "${cursor_dir}"; \
+    rm -f "${cursor_archive}"; \
+    test -x "${cursor_dir}/cursor-agent"; \
+    test -x "${cursor_dir}/node"; \
+    ln -sf "${cursor_dir}/cursor-agent" /opt/cursor-agent/.local/bin/agent; \
+    ln -sf "${cursor_dir}/cursor-agent" /opt/cursor-agent/.local/bin/cursor-agent; \
+    ln -sf /opt/cursor-agent/.local/bin/cursor-agent /usr/local/bin/cursor-agent; \
+    ln -sf /opt/cursor-agent/.local/bin/agent /usr/local/bin/agent
 
 RUN groupadd --system --gid 65532 hecate \
     && useradd --system --uid 65532 --gid hecate --home-dir /home/hecate --create-home hecate \

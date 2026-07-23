@@ -190,9 +190,9 @@ func (c *chatStreamCoalescer) close() {
 }
 
 // closeWithFlush is close with an optional final-flush override. The external
-// chat handler uses it after Run returns so a request disconnect cannot cancel
-// the last durable activity batch; live flushes keep using the request-bound
-// callback and do not extend ACP execution.
+// chat handler uses it after Run returns so the last durable activity batch
+// shares the terminal persistence window; live flushes each use their own
+// bounded persistence window.
 func (c *chatStreamCoalescer) closeWithFlush(flush func(content string, haveContent bool, activities []agentadapters.Activity)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

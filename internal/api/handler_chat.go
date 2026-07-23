@@ -43,12 +43,18 @@ const (
 )
 
 // newAgentChatPersistenceContext gives already-admitted transcript work a
-// short, server-owned window to settle without extending model or ACP
-// execution beyond its existing cancellation boundary. Callers create a fresh
-// context for each immediate or terminal persistence window; never hold one
-// across a long-running turn.
+// short, server-owned window to settle independently of the caller's
+// cancellation boundary. Callers create a fresh context for each immediate or
+// terminal persistence window; never hold one across a long-running turn.
 func newAgentChatPersistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), agentChatTerminalWriteTimeout)
+}
+
+// newAgentChatTurnPersistenceContext bounds an in-flight write while preserving
+// the admitted turn's Stop/close/delete cancellation. The turn context is
+// already independent of the HTTP request after durable admission.
+func newAgentChatTurnPersistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, agentChatTerminalWriteTimeout)
 }
 
 const (
@@ -387,7 +393,17 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "streaming not supported by server")
 		return
 	}
-	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	sessionID := r.PathValue("id")
+	// Subscribe before loading the authoritative snapshot. Every live publisher
+	// commits its store mutation before publishing, so a transition that wins
+	// before this subscription is visible in Get, while a transition that wins
+	// after it is queued for the projector. Reversing those operations leaves a
+	// gap where a terminal turn can be missed and a stale running stream can
+	// heartbeat forever.
+	updates, observedLiveTurn, unsubscribe := h.agentChatLive.subscribeWithTurnState(sessionID)
+	defer unsubscribe()
+
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -396,15 +412,84 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	updates, unsubscribe := h.agentChatLive.subscribe(session.ID)
-	defer unsubscribe()
+	// Admission can begin after subscribeWithTurnState snapshots the registry
+	// but before the durable read observes the appended user row. Recheck only
+	// in the positive direction so that window is live, while a trailing user
+	// with no turn at either boundary is authoritative orphan evidence.
+	observedLiveTurn = observedLiveTurn || h.agentChatLive.hasTurn(sessionID)
+	if isExternalChatSession(session) && chatSessionHasTrailingUserMessage(session) && !observedLiveTurn {
+		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, "external agent turn is no longer active", ErrorDetails{
+			UserMessage:    "This external-agent turn did not finish starting.",
+			OperatorAction: "Retry the message after reviewing the last user entry.",
+		})
+		return
+	}
 
 	writeSSEHeaders(w)
-	projector := newAgentChatStreamProjector(session, h.agentChatSnapshotConfig())
-	initial := projector.initialFrame(session)
-	sendAgentChatSSE(w, flusher, initial.Event, initial.Data)
-	heartbeat := time.NewTicker(15 * time.Second)
-	defer heartbeat.Stop()
+	snapshotConfig := h.agentChatSnapshotConfig()
+	projector := newAgentChatStreamProjector(session, snapshotConfig)
+	if observedLiveTurn {
+		projector.observeTurn()
+	}
+	externalSettlementPending := isExternalChatSession(session) && observedLiveTurn
+	if !(externalSettlementPending && isTerminalAgentChatStatus(session.Status)) {
+		initial := projector.initialFrame(session)
+		sendAgentChatSSE(w, flusher, initial.Event, initial.Data)
+	}
+	projectAndSend := func(payload AgentChatLiveEvent) bool {
+		for _, frame := range projector.project(payload) {
+			sendAgentChatSSE(w, flusher, frame.Event, frame.Data)
+			if frame.Done {
+				return true
+			}
+		}
+		return false
+	}
+	readAuthoritativeUpdate := func(payload AgentChatLiveEvent) (AgentChatLiveEvent, bool) {
+		authoritative, found, reconcileErr := h.agentChat.Get(r.Context(), sessionID)
+		if reconcileErr != nil {
+			if r.Context().Err() != nil {
+				return AgentChatLiveEvent{}, false
+			}
+			if h.logger != nil {
+				h.logger.WarnContext(r.Context(), "chat.session_stream_reconcile_failed",
+					"session_id", sessionID,
+					"error", reconcileErr,
+				)
+			}
+			sendAgentChatSSE(w, flusher, "error", map[string]any{
+				"error": map[string]any{
+					"type":    errCodeGatewayError,
+					"message": "failed to reconcile chat session",
+				},
+			})
+			return AgentChatLiveEvent{}, false
+		}
+		if !found {
+			sendAgentChatSSE(w, flusher, "error", map[string]any{
+				"error": map[string]any{
+					"type":    errCodeNotFound,
+					"message": "chat session no longer exists",
+				},
+			})
+			return AgentChatLiveEvent{}, false
+		}
+		reconciled := ChatSessionResponse{
+			Object: "chat_session",
+			Data:   renderChatSession(authoritative, snapshotConfig),
+		}
+		payload.Type = AgentChatLiveEventSessionUpdate
+		payload.SessionUpdate = &reconciled
+		return payload, true
+	}
+
+	heartbeatC := h.agentChatStreamHeartbeatC
+	var heartbeat *time.Ticker
+	if heartbeatC == nil {
+		heartbeat = time.NewTicker(15 * time.Second)
+		heartbeatC = heartbeat.C
+		defer heartbeat.Stop()
+	}
 
 	for {
 		select {
@@ -414,13 +499,65 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				return
 			}
-			for _, frame := range projector.project(payload) {
-				sendAgentChatSSE(w, flusher, frame.Event, frame.Data)
-				if frame.Done {
+			if payload.Type == AgentChatLiveEventSessionUpdate && payload.SessionUpdate != nil {
+				hintStatus := payload.SessionUpdate.Data.Status
+				reconciled, read := readAuthoritativeUpdate(payload)
+				if !read {
 					return
 				}
+				payload = reconciled
+				status := payload.SessionUpdate.Data.Status
+				settledCurrentTurn := payload.turnSettled &&
+					payload.settledMessageID != "" &&
+					payload.settledMessageID == chatSessionTerminalAssistantMessageID(payload.SessionUpdate.Data)
+				if isExternalChatSession(session) &&
+					(hintStatus == "running" || status == "running" || settledCurrentTurn || h.agentChatLive.hasTurn(sessionID)) {
+					externalSettlementPending = true
+					projector.observeTurn()
+				}
+				if externalSettlementPending && isTerminalAgentChatStatus(status) && !settledCurrentTurn {
+					continue
+				}
+				if settledCurrentTurn && isTerminalAgentChatStatus(status) {
+					externalSettlementPending = false
+				}
 			}
-		case <-heartbeat.C:
+			if projectAndSend(payload) {
+				return
+			}
+		case <-heartbeatC:
+			// The live bus is a low-latency hint, not the durability
+			// authority. Re-read on every bounded heartbeat so a committed
+			// terminal state still closes the stream if its final publish was
+			// dropped or the publishing handler lost its post-commit read.
+			reconciled, read := readAuthoritativeUpdate(AgentChatLiveEvent{
+				Type: AgentChatLiveEventSessionUpdate,
+			})
+			if !read {
+				return
+			}
+			rendered := reconciled.SessionUpdate.Data
+			if isExternalChatSession(session) && rendered.Status == "running" {
+				externalSettlementPending = true
+				projector.observeTurn()
+			}
+			if externalSettlementPending &&
+				isTerminalAgentChatStatus(rendered.Status) &&
+				h.agentChatLive.hasTurn(sessionID) {
+				// The assistant terminal row is committed before session-level
+				// metadata and turn counters finish settling. Its normal live
+				// publication is deliberately delayed until those writes are
+				// complete; a heartbeat must preserve the same boundary.
+				fmt.Fprint(w, ": heartbeat\n\n")
+				flusher.Flush()
+				continue
+			}
+			if externalSettlementPending && isTerminalAgentChatStatus(rendered.Status) {
+				externalSettlementPending = false
+			}
+			if projectAndSend(reconciled) {
+				return
+			}
 			fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
 		}
@@ -840,7 +977,7 @@ func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err e
 	if errors.Is(err, context.DeadlineExceeded) {
 		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
 			UserMessage:    "The external agent did not respond while starting the session.",
-			OperatorAction: "Try again, or test the adapter from Settings if it keeps hanging.",
+			OperatorAction: "Retry New chat. If it keeps hanging, optionally run diagnostics in Connections; diagnostics start the app and open a temporary ACP session without sending a prompt.",
 		})
 		return
 	}
@@ -881,6 +1018,33 @@ func isExternalChatSession(session chat.Session) bool {
 
 func isHecateChatSession(session chat.Session) bool {
 	return !isExternalChatSession(session)
+}
+
+func chatSessionHasTrailingUserMessage(session chat.Session) bool {
+	for index := len(session.Messages) - 1; index >= 0; index-- {
+		switch session.Messages[index].Role {
+		case "assistant":
+			return false
+		case "user":
+			return true
+		}
+	}
+	return false
+}
+
+func chatSessionTerminalAssistantMessageID(session ChatSessionItem) string {
+	for index := len(session.Messages) - 1; index >= 0; index-- {
+		switch session.Messages[index].Role {
+		case "user":
+			return ""
+		case "assistant":
+			if isTerminalAgentChatStatus(session.Messages[index].Status) {
+				return session.Messages[index].ID
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Session) (types.TaskRun, bool, error) {
@@ -1083,14 +1247,20 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	trace, traceCtx := h.startAgentChatTrace(w, r)
 	defer trace.Finalize()
 
-	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
-	switch h.agentChatLive.registerTurn(lifecycle, cancel) {
+	turnDeadline := time.Now().Add(agentChatTimeout)
+	admissionCtx, admissionCancel := context.WithDeadline(traceCtx, turnDeadline)
+	runCtx, runCancel := context.WithDeadline(context.WithoutCancel(traceCtx), turnDeadline)
+	cancelTurn := func() {
+		admissionCancel()
+		runCancel()
+	}
+	switch h.agentChatLive.registerTurn(lifecycle, cancelTurn) {
 	case agentChatTurnAdmissionClosed:
-		cancel()
+		cancelTurn()
 		writeChatSessionStopping(w)
 		return
 	case agentChatTurnBusy:
-		cancel()
+		cancelTurn()
 		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "agent chat session is already running", ErrorDetails{
 			UserMessage:    "This chat is already running.",
 			OperatorAction: "Wait for the active turn to finish or stop it before sending another message.",
@@ -1098,7 +1268,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		return
 	}
 	defer h.agentChatLive.clearTurn(session.ID)
-	defer cancel()
+	defer cancelTurn()
 	settlementTurn, settlementErr := h.agentChatSettlements.acquireTurn(h, session.ID, assistantID)
 	if settlementErr != nil {
 		if r.Context().Err() == nil {
@@ -1107,7 +1277,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		return
 	}
 	defer settlementTurn.finish()
-	workspaceLease, admitted := h.acquireWorkspaceWriter(w, runCtx, session.Workspace)
+	workspaceLease, admitted := h.acquireWorkspaceWriter(w, admissionCtx, session.Workspace)
 	if !admitted {
 		return
 	}
@@ -1242,6 +1412,10 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		return
 	}
 	h.agentChatLive.publishSession(updated)
+	// Admission and durable-running persistence are complete. Release the
+	// request-bound timer; the live turn's composite cancel hook still owns the
+	// server-bound run context for Stop, close, and delete paths.
+	admissionCancel()
 
 	outputSeen := false
 	nativeSessionReplaced := false
@@ -1263,10 +1437,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	// applied in arrival order via the same per-record merge the
 	// adapter callbacks used to do inline.
 	//
-	// Timer-driven flushes remain request-bound while ACP execution is active.
-	// After Run returns, closeWithFlush explicitly switches the last buffered
-	// batch to the fresh bounded terminal context; neither path extends ACP
-	// execution beyond runCtx.
+	// Every flush gets its own bounded persistence context. The admitted ACP
+	// turn is server-owned after the running assistant row is durable, so a
+	// browser disconnect cannot stop streaming persistence or the runner.
 	streamFlush := func(writeCtx context.Context, display string, haveContent bool, activities []agentadapters.Activity) {
 		_, updateErr := settlementTurn.updateMessage(writeCtx, true, func(message *chat.Message) {
 			if haveContent {
@@ -1303,7 +1476,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	// one persist+publish per window. close() after Run flushes the
 	// trailing batch so buffered activities land before the finalize.
 	streamCoalescer := newChatStreamCoalescer(agentChatStreamCoalesceInterval, func(display string, haveContent bool, activities []agentadapters.Activity) {
-		streamFlush(r.Context(), display, haveContent, activities)
+		persistCtx, persistCancel := newAgentChatTurnPersistenceContext(runCtx)
+		defer persistCancel()
+		streamFlush(persistCtx, display, haveContent, activities)
 	})
 	result, runErr := runner.Run(runCtx, agentadapters.RunRequest{
 		SessionID:               session.ID,
@@ -1325,7 +1500,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		OnTerminalClosed:              settlementTurn.terminalClosed,
 		AllowNativeSessionReplacement: h.chatApplication().AuthorizeNativeSessionReplacement(session),
 		OnNativeSessionReplaced: func(replacement agentadapters.NativeSessionReplacement) error {
-			persistCtx, persistCancel := newAgentChatPersistenceContext(r.Context())
+			persistCtx, persistCancel := newAgentChatTurnPersistenceContext(runCtx)
 			defer persistCancel()
 			replaced, persistErr := settlementTurn.replaceNativeSession(persistCtx, chatapp.ReplaceNativeSessionCommand{
 				SessionID:               session.ID,
@@ -1349,6 +1524,11 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 			return nil
 		},
 	})
+	// Classify the execution at the instant the runner returns. Cleanup and
+	// terminal persistence have their own bounded windows and must not turn a
+	// just-completed run into a timeout merely because the turn deadline passes
+	// while those writes settle.
+	runCtxErr := runCtx.Err()
 	// Drop Hecate's hydrated body references before another External file turn
 	// is admitted. The synchronous runner owns any private copies it retains.
 	resolvedAttachments = nil
@@ -1356,12 +1536,12 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		h.chatExternalFileTurnAdmission.Release()
 		externalFileTurnPermitHeld = false
 	}
-	terminalCtx, terminalCancel := newAgentChatPersistenceContext(r.Context())
+	terminalCtx, terminalCancel := newAgentChatPersistenceContext(runCtx)
 	defer terminalCancel()
 	streamCoalescer.closeWithFlush(func(display string, haveContent bool, activities []agentadapters.Activity) {
 		streamFlush(terminalCtx, display, haveContent, activities)
 	})
-	outcome := newExternalAgentTurnOutcome(adapter.Name, result, runErr, runCtx.Err(), startedAt, time.Now().UTC())
+	outcome := newExternalAgentTurnOutcome(adapter.Name, result, runErr, runCtxErr, startedAt, time.Now().UTC())
 	status := outcome.Status
 	output := outcome.Output
 	errorText := outcome.ErrorText
@@ -1389,8 +1569,8 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	if nativeSessionReplaced {
 		terminalAttrs[telemetry.AttrHecateAgentNativeSessionReplaced] = true
 	}
-	if runErr != nil {
-		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
+	terminalAttrs[telemetry.AttrHecateResult] = outcome.ResultLabel
+	if outcome.DisplayErr != "" {
 		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
 		terminalAttrs[telemetry.AttrErrorType] = "agent_adapter_failed"
 		terminalAttrs[telemetry.AttrErrorMessage] = outcome.DisplayErr
@@ -1400,7 +1580,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	if driverKind == "" {
 		driverKind = adapter.Kind
 	}
-	h.agentChatMetrics.RecordTurn(traceCtx, telemetry.AgentChatTurnMetricsRecord{
+	h.agentChatMetrics.RecordTurn(terminalCtx, telemetry.AgentChatTurnMetricsRecord{
 		AdapterID:  adapter.ID,
 		DriverKind: driverKind,
 		Status:     status,
@@ -1409,15 +1589,16 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	})
 	if status == "cancelled" {
 		// Reason classification: cancelTurn / cancelTurnAndWait stamp
-		// "operator" before tripping the cancel func; if nothing was
-		// stamped, the parent r.Context() died first, which we label
-		// "request_cancelled". Shutdown-path cancels fire from
-		// SessionManager.Shutdown directly and don't reach this branch.
+		// "operator" before tripping the cancel func. HTTP disconnects no
+		// longer cancel an admitted ACP turn. Handler shutdown stamps
+		// "shutdown" through cancelAllTurns before draining the adapter
+		// runtime, so the same terminal path emits exactly one attributed
+		// cancellation.
 		reason := h.agentChatLive.turnCancelReason(session.ID)
 		if reason == "" {
 			reason = "request_cancelled"
 		}
-		h.agentChatMetrics.RecordChatCancelled(traceCtx, telemetry.AgentChatCancelledRecord{
+		h.agentChatMetrics.RecordChatCancelled(terminalCtx, telemetry.AgentChatCancelledRecord{
 			AdapterID: adapter.ID,
 			Reason:    reason,
 		})
@@ -1505,7 +1686,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		h.logger.WarnContext(terminalCtx, "chat.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
 	h.reconcileProjectAssignmentsForChat(terminalCtx, updated)
-	if current, publishErr := settlementTurn.currentSession(terminalCtx, true); publishErr == nil {
+	if current, publishErr := settlementTurn.settledSession(terminalCtx); publishErr == nil {
 		updated = current
 	} else if terminalCtx.Err() == nil {
 		h.logger.WarnContext(terminalCtx, "chat.external_agent.final_publish_failed", "session_id", session.ID, "error", publishErr)

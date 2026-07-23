@@ -31,9 +31,9 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 			return AuthStatusUnauthenticated, adapterSignInHint(adapter)
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
-			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate has not verified CLI auth yet. Open Connections and test Claude Code."
+			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate verifies CLI auth when Claude Code handles the first message; Connections diagnostics are optional."
 		}
-		return AuthStatusUnknown, "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
+		return AuthStatusUnknown, "Send a message in a Claude Code chat to verify it. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -60,7 +60,7 @@ func adapterSignInHint(adapter Adapter) string {
 	case "grok_build":
 		return "Run grok login, or set XAI_API_KEY for the adapter environment."
 	default:
-		return fmt.Sprintf("Sign in to %s, then test the adapter again.", adapter.Name)
+		return fmt.Sprintf("Sign in to %s, then retry the chat.", adapter.Name)
 	}
 }
 
@@ -75,7 +75,7 @@ func adapterAppMissingHint(adapter Adapter) string {
 	case "grok_build":
 		return "Install Grok Build, then sign in with Grok."
 	default:
-		return fmt.Sprintf("Install %s, then test the adapter again.", adapter.Name)
+		return fmt.Sprintf("Install %s, then start a chat to verify it.", adapter.Name)
 	}
 }
 
@@ -87,7 +87,7 @@ func adapterAppMissingHint(adapter Adapter) string {
 // trailing marker from visible copy; ChatView uses it to decide whether to show
 // the button.
 func claudeCodeAuthErrorMessage() string {
-	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and uses the operator's local Claude auth. Run `claude /login`, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then test Claude Code in Connections. (claude_code_auth_required)"
+	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and uses the operator's local Claude auth. Run `claude /login`, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then retry the chat. (claude_code_auth_required)"
 }
 
 var runClaudeAuthStatus = defaultRunClaudeAuthStatus

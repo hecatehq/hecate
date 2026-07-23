@@ -10,12 +10,10 @@ on:
   pull_request:
     branches: [master]
     # The desktop matrix skips draft PRs, so becoming ready must start a fresh
-    # run even when no commit is pushed after the draft checks complete.
+    # run even when no commit is pushed after the draft checks complete. Run
+    # the lightweight detector and stable required-check aggregator for every
+    # PR so branch rules never wait on a path-skipped required context.
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - '**/*.md'
-      - 'website/**'
-      - '.github/workflows/website.yml'
   # merge_group fires for PRs in a GitHub merge queue. Listing it here is a
   # no-op until queues are enabled, but adding it now means turning queues on
   # later is a one-line setting flip rather than a workflow edit.
@@ -539,3 +537,28 @@ jobs:
       # manual desktop rebuilds still use the full app,dmg matrix.
       uploadArtifacts: false
       unsignedMacosBundles: app
+
+  required:
+    name: Required checks
+    if: always()
+    needs:
+      - changes
+      - test-tauri-rust
+      - lint-go
+      - test-go-linux-race
+      - test-go-windows-bootstrap
+      - test-go-macos-bootstrap
+      - build-hecate
+      - e2e
+      - e2e-ollama
+      - docker-smoke
+      - typescript
+      - typescript-e2e
+      - tauri-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every selected check to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<<"${NEEDS_JSON}"

@@ -37,6 +37,7 @@ import {
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
+  getAgentAdapters,
   getProviders,
   getModels,
   getProviderPresets,
@@ -44,7 +45,11 @@ import {
   verifyModelToolSupport as verifyModelToolSupportRequest,
 } from "../../lib/api";
 import { warn } from "../../lib/log";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import type {
+  AgentAdapterHealthRecord,
+  AgentAdapterRecord,
+  AgentAdapterResponse,
+} from "../../types/agent-adapter";
 import type { ModelResponse, ModelToolCapabilityProbeResponse } from "../../types/model";
 import type { ProviderPresetRecord, ProviderStatusResponse } from "../../types/provider";
 
@@ -69,7 +74,11 @@ export type ProvidersAndModelsState = {
 type SetStateAction<T> = T | ((prev: T) => T);
 
 export type ProbeAdapterResult =
-  | { ok: true; health: AgentAdapterHealthRecord }
+  | { ok: true; health: AgentAdapterHealthRecord | null }
+  | { ok: false; error: string };
+
+export type RefreshAgentAdaptersResult =
+  | { ok: true; adapters: AgentAdapterRecord[] }
   | { ok: false; error: string };
 
 export type VerifyModelToolSupportResult =
@@ -88,10 +97,12 @@ export type ProvidersAndModelsActions = {
   setAgentAdapters: (next: SetStateAction<AgentAdapterRecord[]>) => void;
   setAgentAdapterApprovalMode: (value: string) => void;
   setAgentAdapterHealth: (adapterID: string, record: AgentAdapterHealthRecord) => void;
-  clearAgentAdapterHealth: (adapterID: string) => void;
+  applyAgentAdapterAuthResult: (adapterID: string, authStatus: "ok" | "unauthenticated") => void;
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
   loadModelCatalog: () => Promise<ModelResponse>;
+  loadAgentAdapterCatalog: () => Promise<AgentAdapterResponse>;
   refreshProviders: () => Promise<void>;
+  refreshAgentAdapters: () => Promise<RefreshAgentAdaptersResult>;
   probeAgentAdapter: (adapterID: string) => Promise<ProbeAdapterResult>;
   verifyModelToolSupport: (
     provider: string,
@@ -110,9 +121,14 @@ type Action =
   | { type: "providerPresetsLoaded/mark" }
   | { type: "models/set"; next: SetStateAction<ModelResponse["data"]> }
   | { type: "agentAdapters/set"; next: SetStateAction<AgentAdapterRecord[]> }
+  | { type: "agentAdapters/catalogSet"; next: AgentAdapterRecord[] }
   | { type: "agentAdapterApprovalMode/set"; value: string }
   | { type: "agentAdapterHealth/set"; adapterID: string; record: AgentAdapterHealthRecord }
-  | { type: "agentAdapterHealth/clear"; adapterID: string }
+  | {
+      type: "agentAdapterAuth/apply";
+      adapterID: string;
+      authStatus: "ok" | "unauthenticated";
+    }
   | { type: "agentAdapterHealthLoading/set"; adapterID: string; loading: boolean }
   | { type: "modelToolSupportLoading/set"; key: string; loading: boolean };
 
@@ -132,6 +148,53 @@ function resolve<T>(prev: T, next: SetStateAction<T>): T {
   return typeof next === "function" ? (next as (prev: T) => T)(prev) : next;
 }
 
+function applyAgentAdapterDiagnostic(
+  current: AgentAdapterRecord,
+  diagnostic: AgentAdapterRecord,
+): AgentAdapterRecord {
+  return {
+    ...diagnostic,
+    // A probe can enrich auth, version, and capability metadata, but its
+    // disposable process result must not replace the passive catalog fields
+    // that control and disclose a later launch. Chat creation resolves these
+    // fields again and performs the authoritative ACP handshake.
+    available: current.available,
+    status: current.status,
+    path: current.path,
+    error: current.error,
+    remote_credential_mode: current.remote_credential_mode,
+    remote_credential_ok: current.remote_credential_ok,
+    remote_credential_hint: current.remote_credential_hint,
+  };
+}
+
+function applyAgentAdapterCatalog(
+  current: AgentAdapterRecord[],
+  catalog: AgentAdapterRecord[],
+  healthByID: Map<string, AgentAdapterHealthRecord>,
+): AgentAdapterRecord[] {
+  const currentByID = new Map(current.map((item) => [item.id, item]));
+  return catalog.map((item) => {
+    const diagnostic = currentByID.get(item.id);
+    if (!diagnostic || !healthByID.has(item.id)) return item;
+    return {
+      ...item,
+      // Passive discovery owns the adapter catalog and every field that can
+      // gate or describe a future launch. Keep only evidence produced by the
+      // operator's last explicit diagnostic; the cheap catalog deliberately
+      // omits these process-derived fields.
+      adapter_version: diagnostic.adapter_version,
+      agent_version: diagnostic.agent_version,
+      version_outside_range: diagnostic.version_outside_range,
+      auth_status: diagnostic.auth_status,
+      auth_error: diagnostic.auth_error,
+      supports_authenticate: diagnostic.supports_authenticate,
+      supports_logout: diagnostic.supports_logout,
+      config_options: diagnostic.config_options,
+    };
+  });
+}
+
 function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndModelsState {
   switch (action.type) {
     case "providers/set":
@@ -144,6 +207,15 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
       return { ...state, models: resolve(state.models, action.next) };
     case "agentAdapters/set":
       return { ...state, agentAdapters: resolve(state.agentAdapters, action.next) };
+    case "agentAdapters/catalogSet":
+      return {
+        ...state,
+        agentAdapters: applyAgentAdapterCatalog(
+          state.agentAdapters,
+          action.next,
+          state.agentAdapterHealthByID,
+        ),
+      };
     case "agentAdapterApprovalMode/set":
       return { ...state, agentAdapterApprovalMode: action.value };
     case "agentAdapterHealth/set": {
@@ -151,11 +223,22 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
       next.set(action.adapterID, action.record);
       return { ...state, agentAdapterHealthByID: next };
     }
-    case "agentAdapterHealth/clear": {
-      if (!state.agentAdapterHealthByID.has(action.adapterID)) return state;
-      const next = new Map(state.agentAdapterHealthByID);
-      next.delete(action.adapterID);
-      return { ...state, agentAdapterHealthByID: next };
+    case "agentAdapterAuth/apply": {
+      const nextHealth = new Map(state.agentAdapterHealthByID);
+      nextHealth.delete(action.adapterID);
+      return {
+        ...state,
+        agentAdapters: state.agentAdapters.map((item) =>
+          item.id === action.adapterID
+            ? { ...item, auth_status: action.authStatus, auth_error: undefined }
+            : item,
+        ),
+        // The explicit auth result supersedes auth evidence from the previous
+        // disposable diagnostic. Publish the row and health invalidation in
+        // one reducer transition so the UI cannot render a contradictory
+        // intermediate state.
+        agentAdapterHealthByID: nextHealth,
+      };
     }
     case "agentAdapterHealthLoading/set": {
       const map = state.agentAdapterHealthLoadingByID;
@@ -198,6 +281,7 @@ export function ProvidersAndModelsProvider({
     seededState ? { ...initialState, ...seededState } : initialState,
   );
   const probeAgentAdapterInFlightRef = useRef(new Map<string, Promise<ProbeAdapterResult>>());
+  const agentAdapterEvidenceRevisionByIDRef = useRef(new Map<string, number>());
   const verifyModelToolSupportInFlightRef = useRef(
     new Map<string, Promise<VerifyModelToolSupportResult>>(),
   );
@@ -207,6 +291,7 @@ export function ProvidersAndModelsProvider({
   // nor prevent a newer refresh from replacing an older refresh.
   const modelsMutationRevisionRef = useRef(0);
   const latestModelsRefreshRef = useRef(0);
+  const latestAgentAdaptersRefreshRef = useRef(0);
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) =>
@@ -239,10 +324,14 @@ export function ProvidersAndModelsProvider({
     }
     return response;
   }, []);
-  const setAgentAdapters = useCallback(
-    (next: SetStateAction<AgentAdapterRecord[]>) => dispatch({ type: "agentAdapters/set", next }),
-    [],
-  );
+  const setAgentAdapters = useCallback((next: SetStateAction<AgentAdapterRecord[]>) => {
+    // This low-level projection setter exists for test fixtures and explicit
+    // local mutations. Fence older catalog reads so even those writes cannot
+    // be rolled back by an in-flight dashboard refresh. Production catalog
+    // reads must use loadAgentAdapterCatalog instead.
+    latestAgentAdaptersRefreshRef.current += 1;
+    dispatch({ type: "agentAdapters/set", next });
+  }, []);
   const setAgentAdapterApprovalMode = useCallback(
     (value: string) => dispatch({ type: "agentAdapterApprovalMode/set", value }),
     [],
@@ -252,8 +341,24 @@ export function ProvidersAndModelsProvider({
       dispatch({ type: "agentAdapterHealth/set", adapterID, record }),
     [],
   );
-  const clearAgentAdapterHealth = useCallback(
-    (adapterID: string) => dispatch({ type: "agentAdapterHealth/clear", adapterID }),
+  const applyAgentAdapterAuthResult = useCallback(
+    (adapterID: string, authStatus: "ok" | "unauthenticated") => {
+      // An auth action starts the adapter and is newer evidence than any
+      // passive read or disposable diagnostic already in flight. A later
+      // operator refresh may replace it with catalog auth=unknown, but an
+      // older response must not.
+      latestAgentAdaptersRefreshRef.current += 1;
+      agentAdapterEvidenceRevisionByIDRef.current.set(
+        adapterID,
+        (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) + 1,
+      );
+      // A new explicit diagnostic after auth must not dedupe onto the older
+      // request. The old request remains bounded by its HTTP lifecycle, and
+      // its generation check below prevents it from publishing evidence.
+      probeAgentAdapterInFlightRef.current.delete(adapterID);
+      dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+      dispatch({ type: "agentAdapterAuth/apply", adapterID, authStatus });
+    },
     [],
   );
   const setAgentAdapterHealthLoading = useCallback(
@@ -293,34 +398,92 @@ export function ProvidersAndModelsProvider({
     }
   }, [loadModelCatalog]);
 
-  const probeAgentAdapter = useCallback(async (adapterID: string): Promise<ProbeAdapterResult> => {
-    if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
-    const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
-    if (inFlight) return inFlight;
-    const probe: Promise<ProbeAdapterResult> = (async (): Promise<ProbeAdapterResult> => {
-      dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
-      try {
-        const payload = await probeAgentAdapterRequest(adapterID);
-        dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
-        dispatch({
-          type: "agentAdapters/set",
-          next: (current) =>
-            current.map((item) => (item.id === adapterID ? payload.data.adapter : item)),
-        });
-        return { ok: true, health: payload.data.health };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : "Failed to probe adapter.",
-        };
-      } finally {
-        probeAgentAdapterInFlightRef.current.delete(adapterID);
-        dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
-      }
-    })();
-    probeAgentAdapterInFlightRef.current.set(adapterID, probe);
-    return probe;
+  const loadAgentAdapterCatalog = useCallback(async (): Promise<AgentAdapterResponse> => {
+    const refreshID = ++latestAgentAdaptersRefreshRef.current;
+    const response = await getAgentAdapters();
+    if (latestAgentAdaptersRefreshRef.current === refreshID) {
+      dispatch({ type: "agentAdapters/catalogSet", next: response.data ?? [] });
+    }
+    return response;
   }, []);
+
+  const refreshAgentAdapters = useCallback(async (): Promise<RefreshAgentAdaptersResult> => {
+    try {
+      const payload = await loadAgentAdapterCatalog();
+      return { ok: true, adapters: payload.data ?? [] };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Failed to refresh external-agent discovery.",
+      };
+    }
+  }, [loadAgentAdapterCatalog]);
+
+  const probeAgentAdapter = useCallback(
+    async (adapterID: string): Promise<ProbeAdapterResult> => {
+      if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
+      const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
+      if (inFlight) return inFlight;
+      const evidenceRevision = agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0;
+      const probe = (async (): Promise<ProbeAdapterResult> => {
+        dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: true });
+        try {
+          const payload = await probeAgentAdapterRequest(adapterID);
+          if (
+            (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) !== evidenceRevision
+          ) {
+            // A successful authenticate/logout completed after this disposable
+            // diagnostic began. Its explicit result owns the current auth
+            // projection, so discard every field from the older probe and do
+            // not start the probe's automatic catalog merge.
+            return { ok: true, health: null };
+          }
+          dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
+          dispatch({
+            type: "agentAdapters/set",
+            next: (current) =>
+              current.map((item) =>
+                item.id === adapterID
+                  ? applyAgentAdapterDiagnostic(item, payload.data.adapter)
+                  : item,
+              ),
+          });
+          const catalogRefresh = await refreshAgentAdapters();
+          if (!catalogRefresh.ok) {
+            warn("agentAdapters.refreshAfterDiagnostic.failed", {
+              adapterID,
+              err: catalogRefresh.error,
+            });
+          }
+          return { ok: true, health: payload.data.health };
+        } catch (error) {
+          if (
+            (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) !== evidenceRevision
+          ) {
+            // The failure belongs to an operation superseded by a successful
+            // auth mutation. Do not replace the newer success notice with an
+            // obsolete diagnostic transport or process error.
+            return { ok: true, health: null };
+          }
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : "Failed to probe adapter.",
+          };
+        } finally {
+          if (
+            (agentAdapterEvidenceRevisionByIDRef.current.get(adapterID) ?? 0) === evidenceRevision
+          ) {
+            probeAgentAdapterInFlightRef.current.delete(adapterID);
+            dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
+          }
+        }
+      })();
+      probeAgentAdapterInFlightRef.current.set(adapterID, probe);
+      return probe;
+    },
+    [refreshAgentAdapters],
+  );
 
   const verifyModelToolSupport = useCallback(
     async (provider: string, model: string): Promise<VerifyModelToolSupportResult> => {
@@ -399,10 +562,12 @@ export function ProvidersAndModelsProvider({
       setAgentAdapters,
       setAgentAdapterApprovalMode,
       setAgentAdapterHealth,
-      clearAgentAdapterHealth,
+      applyAgentAdapterAuthResult,
       setAgentAdapterHealthLoading,
       loadModelCatalog,
+      loadAgentAdapterCatalog,
       refreshProviders,
+      refreshAgentAdapters,
       probeAgentAdapter,
       verifyModelToolSupport,
     }),
@@ -414,10 +579,12 @@ export function ProvidersAndModelsProvider({
       setAgentAdapters,
       setAgentAdapterApprovalMode,
       setAgentAdapterHealth,
-      clearAgentAdapterHealth,
+      applyAgentAdapterAuthResult,
       setAgentAdapterHealthLoading,
       loadModelCatalog,
+      loadAgentAdapterCatalog,
       refreshProviders,
+      refreshAgentAdapters,
       probeAgentAdapter,
       verifyModelToolSupport,
     ],

@@ -91,6 +91,12 @@ import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
 import { useSettings } from "../settings";
 import { useUsage } from "../usage";
+import {
+  externalAgentObserverFailureIsNonRetryable,
+  externalAgentObserverRetryDelayMS,
+  waitForExternalAgentObserverRetry,
+} from "../externalAgentObserver";
+import type { SettingsActions } from "./settings";
 import type { RuntimeHeaders } from "../../../types/runtime";
 import type {
   ConfiguredStateResponse,
@@ -110,6 +116,7 @@ import type {
   ChatResponse,
   ChatSessionSummaryRecord,
   ChatSessionRecord,
+  ChatStreamEvent,
   ChatWorkspaceMode,
 } from "../../../types/chat";
 
@@ -126,8 +133,6 @@ type ChatSessionAfterCancellation = {
   session: ChatSessionRecord;
   source: ChatSessionSnapshotSource;
 };
-
-import type { SettingsActions } from "./settings";
 
 export type UseChatActionsParams = {
   chatTarget: ChatTarget;
@@ -146,6 +151,14 @@ function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
   if ((session.segments ?? []).some((segment) => busy(segment.status))) return true;
   return (session.messages ?? []).some(
     (message) => message.role === "assistant" && busy(message.status),
+  );
+}
+
+function chatSessionIsTerminal(session: ChatSessionRecord | null): boolean {
+  return (
+    session?.status === "completed" ||
+    session?.status === "failed" ||
+    session?.status === "cancelled"
   );
 }
 
@@ -492,7 +505,7 @@ export type SelectChatSessionOptions = {
 };
 
 type ChatActionsReturn = {
-  applyChatSession: (session: ChatSessionRecord) => void;
+  applyChatSession: (session: ChatSessionRecord, source?: ChatSessionSnapshotSource) => boolean;
   syncHecateSelectionFromSession: (session: ChatSessionRecord | null) => void;
   refreshRuntimeState: (isCurrent?: () => boolean) => Promise<void>;
   refreshChatSession: (sessionID: string) => Promise<void>;
@@ -700,6 +713,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     currentQueuedChatMessage,
     hasDurableQueuedChatSubmittingFence,
     tombstoneDeletedChatSession,
+    fenceDeletedChatSession,
     isChatSessionDeleted,
   } = chat.actions;
   const upsertPendingApproval = approvals.actions.upsertPending;
@@ -2009,6 +2023,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     let optimisticMessageID = "";
     let messagePostStarted = false;
     let messageRequestSucceeded = false;
+    let submittedTurnBaselineMessageIDs = new Set<string>();
     let sourceSessionTitle =
       (activeChatSession?.id === submitSessionID ? activeChatSession.title : "") ||
       chat.state.chatSessions.find((entry) => entry.id === submitSessionID)?.title ||
@@ -2288,6 +2303,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       if (preAdmissionCancelled) throw preAdmissionCancellation;
 
       const pendingContent = content;
+      submittedTurnBaselineMessageIDs = new Set(
+        (sessionForSubmit?.messages ?? []).map((candidate) => candidate.id),
+      );
       optimisticMessageID = `pending-agent-user-${Date.now()}`;
       setActiveChatSession((prev) =>
         prev
@@ -2316,67 +2334,145 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       );
 
       streamAbort = new AbortController();
-      streamPromise = streamChatSession(
-        sessionID,
-        (event) => {
-          if (!submitRequestIsFresh() || queuedReplayFollowSettled) return;
-          switch (event.type) {
-            case "session_update": {
-              submitProjectID = event.payload.data.project_id ?? submitProjectID;
-              if (!submitRequestIsFresh()) return;
-              if (messagePostStarted && chatSessionIsBusy(event.payload.data)) {
-                confirmChatTurnServerCancellation(turnGeneration);
-              }
-              latestStreamSession = event.payload.data;
-              if (
-                queuedReplayCommittedMessageID &&
-                queuedCommittedTurnIsTerminal(event.payload.data, queuedReplayCommittedMessageID)
-              ) {
-                queuedReplayTerminalSeen = true;
-              }
-              if (!applyChatSession(event.payload.data, { kind: "turn", turnGeneration })) return;
-              const last = [...(event.payload.data.messages ?? [])]
-                .reverse()
-                .find((m) => m.role === "assistant");
-              if (last?.status === "running") {
-                setStreamingContent(
-                  last.content ||
-                    (isExternalAgent
-                      ? "External agent is running..."
-                      : isDirectModelTurn
-                        ? "Model is responding..."
-                        : "Hecate Chat tools are running..."),
-                );
-              }
+      const streamSignal = streamAbort.signal;
+      let streamObservedCurrentTurn = false;
+      let streamObservedTerminalSnapshot = false;
+      let catchUpApprovalsOnNextEvent = false;
+      const handleStreamEvent = (event: ChatStreamEvent) => {
+        if (!submitRequestIsFresh() || queuedReplayFollowSettled) return;
+        if (catchUpApprovalsOnNextEvent) {
+          catchUpApprovalsOnNextEvent = false;
+          void refetchPendingApprovals(
+            sessionID,
+            () =>
+              !streamSignal.aborted &&
+              submitRequestIsFresh() &&
+              !queuedReplayFollowSettled &&
+              !chatStopFenceSuppressesApproval(sessionID, turnGeneration),
+          );
+        }
+        switch (event.type) {
+          case "session_update": {
+            submitProjectID = event.payload.data.project_id ?? submitProjectID;
+            if (!submitRequestIsFresh()) return;
+            const busy = chatSessionIsBusy(event.payload.data);
+            const containsSubmittedUser = (event.payload.data.messages ?? []).some(
+              (candidate) =>
+                candidate.role === "user" && !submittedTurnBaselineMessageIDs.has(candidate.id),
+            );
+            if (messagePostStarted && (busy || containsSubmittedUser)) {
+              streamObservedCurrentTurn = true;
+            }
+            if (messagePostStarted && busy) {
+              confirmChatTurnServerCancellation(turnGeneration);
+            }
+            latestStreamSession = event.payload.data;
+            if (
+              streamObservedCurrentTurn &&
+              messagePostStarted &&
+              chatSessionIsTerminal(event.payload.data)
+            ) {
+              streamObservedTerminalSnapshot = true;
+              invalidatePendingApprovals(sessionID);
+            }
+            if (
+              queuedReplayCommittedMessageID &&
+              queuedCommittedTurnIsTerminal(event.payload.data, queuedReplayCommittedMessageID)
+            ) {
+              queuedReplayTerminalSeen = true;
+            }
+            if (!applyChatSession(event.payload.data, { kind: "turn", turnGeneration })) return;
+            const last = [...(event.payload.data.messages ?? [])]
+              .reverse()
+              .find((m) => m.role === "assistant");
+            if (last?.status === "running") {
+              setStreamingContent(
+                last.content ||
+                  (isExternalAgent
+                    ? "External agent is running..."
+                    : isDirectModelTurn
+                      ? "Model is responding..."
+                      : "Hecate Chat tools are running..."),
+              );
+            }
+            return;
+          }
+          case "approval.requested": {
+            if (chatStopFenceSuppressesApproval(event.payload.session_id, turnGeneration)) {
               return;
             }
-            case "approval.requested": {
-              if (chatStopFenceSuppressesApproval(event.payload.session_id, turnGeneration)) {
+            upsertPendingApproval(event.payload);
+            return;
+          }
+          case "approval.resolved": {
+            removePendingApproval(event.payload.session_id, event.payload.approval_id);
+            return;
+          }
+        }
+      };
+      if (isExternalAgent) {
+        streamPromise = (async () => {
+          let retryAttempt = 0;
+          while (
+            !streamSignal.aborted &&
+            submitRequestIsFresh() &&
+            !queuedReplayFollowSettled &&
+            !streamObservedTerminalSnapshot
+          ) {
+            let failureMessage = "agent chat stream closed unexpectedly";
+            try {
+              await streamChatSession(sessionID, handleStreamEvent, streamSignal);
+            } catch (streamError) {
+              if (streamSignal.aborted || !submitRequestIsFresh()) return;
+              if (streamError instanceof ApiError && streamError.status === 404) {
+                invalidatePendingApprovals(sessionID);
+                if (!fenceDeletedChatSession(sessionID)) {
+                  setChatErrorState(
+                    new Error(
+                      "This chat no longer exists on the runtime, but Hecate could not safely remove its queued prompts from browser storage. Free browser storage or clear Hecate site data before continuing.",
+                    ),
+                  );
+                }
                 return;
               }
-              upsertPendingApproval(event.payload);
+              if (externalAgentObserverFailureIsNonRetryable(streamError)) {
+                setChatErrorState(streamError, "Failed to follow the External Agent chat.");
+                return;
+              }
+              failureMessage =
+                streamError instanceof Error ? streamError.message : "agent chat stream failed";
+            }
+            if (
+              streamSignal.aborted ||
+              !submitRequestIsFresh() ||
+              queuedReplayFollowSettled ||
+              streamObservedTerminalSnapshot
+            ) {
               return;
             }
-            case "approval.resolved": {
-              removePendingApproval(event.payload.session_id, event.payload.approval_id);
-              return;
-            }
+            if (queued) queuedStreamFailureMessage = failureMessage;
+            const retryDelay = externalAgentObserverRetryDelayMS(retryAttempt);
+            retryAttempt += 1;
+            if (!(await waitForExternalAgentObserverRetry(streamSignal, retryDelay))) return;
+            catchUpApprovalsOnNextEvent = true;
           }
-        },
-        streamAbort.signal,
-      ).catch((streamError) => {
-        if (streamAbort?.signal.aborted) {
-          return;
-        }
-        if (!submitRequestIsFresh()) return;
-        if (currentActiveChatSessionID() !== sessionID) return;
-        const msg = streamError instanceof Error ? streamError.message : "agent chat stream failed";
-        if (queued) {
-          queuedStreamFailureMessage = msg;
-          return;
-        }
-        setChatError((current) => current || msg);
-      });
+        })();
+      } else {
+        streamPromise = streamChatSession(sessionID, handleStreamEvent, streamSignal).catch(
+          (streamError) => {
+            if (streamSignal.aborted) return;
+            if (!submitRequestIsFresh()) return;
+            if (currentActiveChatSessionID() !== sessionID) return;
+            const msg =
+              streamError instanceof Error ? streamError.message : "agent chat stream failed";
+            if (queued) {
+              queuedStreamFailureMessage = msg;
+              return;
+            }
+            setChatError((current) => current || msg);
+          },
+        );
+      }
       if (!startChatTurnAdmission(turnGeneration)) {
         if (preAdmissionCancelled) throw preAdmissionCancellation;
         return;
@@ -2400,6 +2496,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       messageRequestSucceeded = true;
       if (chatSessionIsBusy(updated.data)) {
         confirmChatTurnServerCancellation(turnGeneration);
+      } else {
+        invalidatePendingApprovals(sessionID);
       }
       submitProjectID = updated.data.project_id ?? submitProjectID;
       if (!submitRequestIsFresh()) return;

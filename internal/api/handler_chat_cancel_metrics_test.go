@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
@@ -61,6 +62,71 @@ func TestHecateAgentChatCancellationReason(t *testing.T) {
 				t.Fatalf("hecateAgentChatCancellationReason() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExternalAgentRuntimeCancellationRecordsRequestCancelledMetric(t *testing.T) {
+	logger := quietLogger()
+	handler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai", response: &types.ChatResponse{}}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{err: context.Canceled}
+	handler.SetAgentChatRunner(runner)
+
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := telemetry.NewAgentChatMetricsWithMeterProvider(meterProvider)
+	if err != nil {
+		t.Fatalf("NewAgentChatMetricsWithMeterProvider: %v", err)
+	}
+	handler.agentChatMetrics = metrics
+
+	const sessionID = "chat_external_runtime_cancel_metric"
+	if _, err := handler.agentChat.Create(t.Context(), chat.Session{
+		ID:         sessionID,
+		AgentID:    "claude_code",
+		DriverKind: agentadapters.DriverKindACP,
+		Workspace:  t.TempDir(),
+	}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	server := NewServer(logger, handler)
+	response := performRequest(t, server, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/messages",
+		`{"execution_mode":"external_agent","content":"cancel at the adapter"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("message status = %d, want 200; body=%s", response.Code, response.Body.String())
+	}
+	stored, ok, err := handler.agentChat.Get(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("Get session: %v", err)
+	}
+	if !ok || len(stored.Messages) != 2 || stored.Messages[1].Status != "cancelled" {
+		t.Fatalf("stored session = %+v, want a cancelled external-agent assistant", stored)
+	}
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect metrics: %v", err)
+	}
+	found := false
+	for _, scope := range collected.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != telemetry.MetricAgentChatCancelledTotal {
+				continue
+			}
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("cancel metric type = %T, want int64 sum", metric.Data)
+			}
+			for _, point := range sum.DataPoints {
+				if chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateAgentAdapterID) == "claude_code" &&
+					chatMetricStringAttribute(point.Attributes, telemetry.AttrHecateChatCancelReason) == "request_cancelled" &&
+					point.Value == 1 {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing external-agent request_cancelled metric: %+v", collected)
 	}
 }
 

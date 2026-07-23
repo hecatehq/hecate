@@ -95,12 +95,27 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   `message_request.replay` plus the committed user-message id; never render the
   key, fingerprint, copied payload, or internal lease token. Once admission
   reaches a keyed commit, give that atomic user-row/key write its own fresh
-  bounded `context.WithoutCancel` window; unkeyed writes remain request-bound.
-  A SQL commit must materialize its return value before `Commit` succeeds, not
-  issue a request-bound post-commit read that can report a false failure. After
-  commit, use fresh bounded persistence windows for the initial assistant row,
-  Hecate task/run ownership links, and terminal assistant/session state; never
-  hold one across a long turn. Direct model and ACP execution stay request-bound.
+  bounded `context.WithoutCancel` window. An unkeyed user-row write remains
+  request-bound until it succeeds. A SQL commit must materialize its return
+  value before `Commit` succeeds, not issue a request-bound post-commit read that
+  can report a false failure. After commit, use fresh bounded persistence
+  windows for the initial assistant row, Hecate task/run ownership links, and
+  terminal assistant/session state; never hold one across a long turn.
+  Direct-model execution stays request-bound.
+
+  Once an External Agent user row and running assistant are durable, execute ACP
+  under a bounded server-owned context detached from `r.Context()`. Keep the
+  registered live-turn cancel hook authoritative for Stop, close/delete, and
+  shutdown. Keep the 30-minute turn deadline, which terminalizes an expired turn
+  as failed rather than operator-cancelled. Stream flushes, native-session
+  replacement, approval waits, and terminal settlement must use that turn owner
+  or fresh bounded persistence contexts; an HTTP/SSE disconnect ends only its
+  waiter. Treat the per-session live bus as a latency hint: subscribe before the
+  initial authoritative read and reread durable state on the stream heartbeat so
+  a committed terminal update cannot be lost with its best-effort publication.
+  Do not claim process-restart resume: startup reconciliation still terminalizes
+  an interrupted running assistant.
+
   The task-backed Hecate Chat watcher is server-owned after commit and waits on
   its own bounded context plus the explicit live-turn cancel hook, so browser
   disconnect does not abandon a queued/running task or strand its transcript.
@@ -108,6 +123,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   turn; it does not cancel the orchestrator-owned Task. A Task that remains
   active, including one awaiting approval, stays visible and independently
   cancellable through the Task runtime.
+
 - **Cross-store destructive cleanup has one admission gate.** Every
   Hecate-owned chat-session creation path reserves the project-existence check
   through durable creation and ownership linking, including External Agent
@@ -382,12 +398,19 @@ path after callback success must carry the committed replacement id, including
 shutdown, so terminal settlement cannot restore stale durable state.
 
 Adapter action visibility uses a two-step contract. The built-in registry is
-the offline fallback for expected support; after an explicit probe,
-ACP `Initialize` capabilities are authoritative for that adapter row. Keep
-`ProbeResult.CapabilitiesKnown` explicit so a successful initialize with no
-auth/logout support can override stale static flags. Hecate's local
-`authenticate` endpoint calls ACP method `agent-login` after Initialize, so only
-that agent auth method should set `supports_authenticate=true`; other auth
+the offline fallback for expected support; after optional diagnostics, that
+disposable session's ACP `Initialize` capabilities are authoritative for its
+Connections row only. They never authorize or block a later chat, whose fresh
+initialization is authoritative for the real ACP session. Direct peers launch
+during session setup. Embedded command bridges may run bounded provider
+discovery during setup while deferring their prompt-serving vendor invocation
+and prompt-time auth result until the first message, which owns that deferred
+readiness result. A ready probe must not promote separate auth evidence to `ok`.
+Keep `ProbeResult.CapabilitiesKnown` explicit so a successful diagnostic
+initialize with no auth/logout support can override stale static flags in that
+row. Hecate's local `authenticate` endpoint calls ACP method `agent-login` after
+Initialize, so only that agent auth method should set
+`supports_authenticate=true`; other auth
 methods may be surfaced as non-secret health diagnostics without enabling the
 button. Keep action execution aligned with the same live capability contract:
 do not call ACP `authenticate` unless `agent-login` was advertised, and do not
@@ -897,7 +920,7 @@ When changing this path:
    consent, cooldown, and operator-control design.
 3. Keep `docs/runtime/external-agents.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
-   guardrails, auth/readiness probes, and troubleshooting.
+   guardrails, optional adapter diagnostics, and troubleshooting.
 4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
    persistence behavior. Guardrail changes should cover both the HTTP 422

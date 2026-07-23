@@ -1646,8 +1646,10 @@ External coding-agent catalog. This is the first discovery surface for
 External Agent chats: it reports the agent runtimes Hecate knows how to
 supervise and whether their command can be found. This endpoint is deliberately
 cheap so the app can render startup state without spawning coding-agent CLIs.
-Use `POST /hecate/v1/agent-adapters/{id}/probe` for live version, auth,
-capability, and launch-control discovery.
+An eligible discovered command is available for an explicit chat launch; this
+does not claim that auth or ACP initialization will succeed. Use the optional
+`POST /hecate/v1/agent-adapters/{id}/probe` diagnostic for live version, auth,
+capability, and launch-control troubleshooting without creating a durable chat.
 
 Discovery checks the Hecate process's `PATH` followed by allowlisted standard
 vendor, Homebrew, Volta, npm, pnpm, and WinGet locations for the selected
@@ -1792,9 +1794,9 @@ GET /hecate/v1/agent-adapters
 ```
 
 `adapter_version` and `agent_version` are omitted from the catalog response.
-They are populated by the explicit probe response after Hecate starts the ACP
-adapter and runs the live diagnostics. `version_outside_range` remains `false`
-until a probed version is known to fall outside `supported_range`.
+They are populated by the optional diagnostic response after Hecate starts the
+ACP adapter. `version_outside_range` remains `false` until a diagnostic version
+is known to fall outside `supported_range`.
 
 `embedded=true` means the ACP server implementation is compiled into Hecate;
 `command` and `path` then identify the vendor CLI that implementation launches.
@@ -1802,9 +1804,13 @@ When `embedded=false`, `command`, `args`, and `path` identify the direct ACP
 process Hecate supervises.
 
 `auth_status` is `unknown` on the cheap catalog path unless a dev or remote
-runtime override can classify it without spawning a CLI. Use `POST
-/hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake and login /
-billing classification.
+runtime override can classify it without spawning a CLI. **New chat** prepares
+the fresh ACP session. An embedded bridge may run bounded provider discovery
+during setup; the first message checks prompt-time auth when the bridge defers
+its prompt-serving vendor invocation. Use the optional `POST
+/hecate/v1/agent-adapters/{id}/probe` diagnostic when Connections needs a
+standalone login / billing classification, but do not infer verified vendor auth
+from `health.status=ready` alone.
 
 `supports_authenticate` and `supports_logout` tell clients whether Hecate can
 call ACP `authenticate` or `logout` for this adapter. UIs should use these
@@ -1824,9 +1830,11 @@ handoff, config options, terminal callbacks, authenticate, and logout. Capabilit
 | `operator_opt_in`   | Hecate supports the surface only behind an explicit operator setting.     |
 | `not_supported`     | Hecate should not show or invoke this surface.                            |
 
-Probe results remain authoritative for live ACP Initialize features. For
-example, a probed adapter can turn `supports_authenticate` or `supports_logout`
-off even when the catalog expected them.
+Diagnostic results describe the live ACP `Initialize` features of the
+disposable session they created. For example, a diagnostic can turn
+`supports_authenticate` or `supports_logout` off for its result even when the
+catalog expected them. It does not authorize or block a later chat; the real
+session's fresh initialization is authoritative for that session.
 
 `credential_modes` describes how the adapter can authenticate. `local_login`
 means operator-local CLI/browser login state and is not sufficient for remote
@@ -1862,27 +1870,49 @@ is data. Shell writes may retain up to 64 KiB of syntactically incomplete input
 before failing closed. This is not hard sandboxing of arbitrary wrappers,
 generated code, custom binaries, or external supervisors.
 
-`config_options` are omitted from the catalog response. Hecate returns
-launch-control options on explicit probe responses and prepared chat sessions,
-where it is acceptable to run the adapter's help/model discovery or consume the
-ACP session's own controls. Values prefixed with `__hecate_no_` are explicit
-"not selected" sentinels. Some options are optional; launch-model options can
-be required by the adapter definition and cause `400 chat.model_required` at
-session creation until a real value is selected. Agent-owned ACP model state
-appears on the prepared chat session and is updated with ACP
-`session/set_model`.
+`config_options` are omitted from the passive catalog response. Hecate returns
+Hecate-managed launch controls on optional diagnostic projections and returns
+agent-owned controls on prepared chat sessions, where it is acceptable to run
+the adapter's help/model discovery or consume the ACP session's own controls.
+Values prefixed with `__hecate_no_` are explicit "not selected" sentinels. No
+current built-in requires a pre-session launch control. The request validator
+can return `400 chat.model_required` for a registered required launch option,
+but a built-in must not introduce one until Hecate exposes its schema through a
+passive endpoint; optional diagnostics cannot be a prerequisite for use.
+Agent-owned ACP model state appears on the prepared chat session and is updated
+with ACP `session/set_model`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
-Re-runs discovery for one adapter, then performs an end-to-end ACP probe. The
-response includes the fresh catalog row plus the health result, so UIs can
-update a single Connections row after the operator logs in or installs a
-missing dependency.
+Runs an optional, disposable ACP session diagnostic. It re-runs discovery for
+one adapter, starts a direct peer or embedded bridge, performs ACP `Initialize`,
+and creates a temporary session without sending a prompt. Provider-specific
+version or auth-status classification may also execute the discovered app, but
+an embedded bridge may still defer its prompt-serving vendor invocation beyond
+this diagnostic. `data.health` is evidence from the disposable ACP attempt;
+`health.path` is the path that attempt used. `data.adapter` is a separately
+re-resolved diagnostic projection that combines full status, versions, launch
+controls, and the probe's auth/capability classification. Its `path`, `status`,
+or `error` can differ if discovery changes during the request and must not be
+treated as process-bound evidence. Hecate's UI then re-reads the passive catalog
+with `GET /hecate/v1/agent-adapters` before changing any launch gate or
+last-discovered path, so the diagnostic itself never becomes launch authority.
+It can retain diagnostic-only versions, auth/capability evidence, and
+`config_options` beside the cached diagnostic while replacing launch
+availability, status, error, path, and remote-credential fields from the passive
+response. Operators can also trigger that passive refresh without starting an
+agent.
 
-Unlike catalog discovery, this endpoint executes the selected external app. It
-starts the ACP runtime, performs `Initialize`, and creates a temporary session.
-Clients should invoke it only after an explicit operator action and should show
-the catalog `path` before that action.
+This endpoint is not required before use and its cached result is never launch
+authority. Starting an External Agent chat independently resolves the current
+executable, performs a fresh `Initialize`, and creates the real session. Direct
+ACP peers start during setup. An embedded bridge may run bounded provider
+discovery, while the first message remains authoritative for a prompt-serving
+vendor invocation or auth result deferred by that bridge. Clients should invoke
+the diagnostic only after an explicit operator action, label it as optional,
+and show the catalog `path` before that action.
+Treat that path as last-discovered evidence rather than a pinned launch target:
+chat creation resolves the executable again.
 
 ```json
 POST /hecate/v1/agent-adapters/codex/probe
@@ -1900,7 +1930,8 @@ POST /hecate/v1/agent-adapters/codex/probe
       "status": "available",
       "supports_authenticate": true,
       "supports_logout": true,
-      "auth_status": "ok"
+      "auth_status": "unauthenticated",
+      "auth_error": "Run codex login, or set OPENAI_API_KEY for the adapter environment."
     },
     "health": {
       "adapter_id": "codex",
@@ -1930,11 +1961,17 @@ Status codes:
 - `404 not_found` when the adapter id is not registered.
 
 When ACP `Initialize` succeeds, `health.capabilities_known` is true and the
-probe response uses the live capabilities advertised by the adapter to refresh
-`data.adapter.supports_authenticate` and `data.adapter.supports_logout`.
-Catalog discovery remains the offline fallback before a probe runs. Hecate only
-marks `supports_authenticate` true for ACP auth method `agent-login`, because
-that is the method the local `/authenticate` endpoint invokes.
+diagnostic response uses the live capabilities advertised by that session to
+refresh `data.adapter.supports_authenticate` and
+`data.adapter.supports_logout`. Catalog discovery remains the passive fallback
+before diagnostics run. Hecate only marks `supports_authenticate` true for ACP
+auth method `agent-login`, because that is the method the local
+`/authenticate` endpoint invokes. `health.status=ready` means ACP initialization
+and temporary session creation completed; it does not itself promote
+`data.adapter.auth_status` to `ok` or prove that a deferred prompt-serving
+vendor process can authenticate and answer a prompt. Any non-`unknown` auth
+classification in `data.adapter` comes from a separate provider-specific
+heuristic or status check, not from the ready health status.
 
 The probe creates and immediately abandons a fresh ACP session, so agents that
 bill on session creation may record one no-op session per call. Agents that bill
@@ -1944,8 +1981,10 @@ on prompt completion see no prompt from this check.
 
 Compatibility read for one adapter's passive discovery state. It performs the
 same non-executing path inspection as the catalog and never starts the selected
-app. Use the explicit POST probe for live version, auth, ACP capabilities, and
-session readiness.
+app. **New chat** re-resolves it and prepares the real ACP session; the first
+message checks any deferred prompt-serving vendor invocation and auth. Use the
+explicit POST probe only for optional live version, auth classification, and
+ACP-capability diagnostics.
 
 ```json
 GET /hecate/v1/agent-adapters/codex/health
@@ -1957,7 +1996,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "status": "unverified",
     "stage": "lookup",
     "path": "/Users/alice/.local/bin/codex",
-    "hint": "App found but not tested. POST to the probe endpoint to start it and run an ACP readiness check.",
+    "hint": "App found. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. POST to the probe endpoint only for optional diagnostics.",
     "supports_authenticate": false,
     "supports_logout": false,
     "supports_load_session": false,
@@ -1976,7 +2015,10 @@ values, not claims that the installed app lacks those features.
 - `not_installed` — the command was absent from `PATH` and recognized standard
   locations, or its launcher form was rejected.
 - `auth_required` — remote-runtime credential policy blocks discovery before
-  execution. Local auth is intentionally unknown until an explicit probe.
+  execution. Local auth remains intentionally unknown on this passive
+  compatibility response. Chat launch, diagnostics, authentication, and logout
+  classify only their own attempt or session; they do not mutate later passive
+  health reads.
 
 Status codes:
 
@@ -4768,10 +4810,12 @@ Frontends switch on the `path` field of `approval.resolved` to render the
 disposition: `operator` (explicit decision), `grant` (pre-existing grant
 short-circuited the prompt), `default_mode` (`auto`/`deny` mode resolved
 without operator), `timeout` (prompt-mode timeout fired), or
-`request_cancelled` (the request context died — session shutdown, adapter
-teardown, HTTP context cancellation, process stop). `request_cancelled` is
-operationally distinct from `operator`: nobody clicked anything, the request
-just died.
+`request_cancelled` (the owning approval/turn context ended through Stop,
+session shutdown, adapter teardown, or process stop). `request_cancelled` is
+operationally distinct from an explicit approval decision. Losing the
+originating message POST or session SSE connection does not resolve an approval
+for an already-admitted External Agent turn; a reconnecting client refetches
+pending approvals.
 
 Backpressure: per-subscriber buffers are bounded (16 events). On overflow,
 approval events are **dropped** rather than blocking the coordinator. A
@@ -4930,17 +4974,29 @@ directory. Hecate validates and canonicalizes the path before a tool-backed or
 External Agent turn starts, so later turns use the resolved directory instead of
 failing only after execution starts.
 
-For external-agent `agent_id` values, session creation also starts or restores
-the native ACP session immediately. Clients may include `config_options`
-selected from the agent catalog when a catalog row exposes Hecate-managed
-launch controls; Hecate validates required launch options and uses them when
-starting the agent process. After the ACP session exists, agent-owned
-`config_options` are returned with the session so clients can render them before
-the first prompt. If the agent reports ACP `initialize.agentInfo`, Hecate returns
-the trimmed implementation metadata as `agent_info` on the chat session and on
-assistant messages produced by that session. If the selected provider/runtime command is missing,
-unauthenticated, missing a required launch option, or fails its ACP handshake,
-session creation fails and Hecate removes the empty chat record.
+For external-agent `agent_id` values, session creation is the authoritative ACP
+session-preparation attempt: Hecate resolves the executable again, performs a
+fresh ACP `Initialize`, and starts or restores the native ACP session
+immediately. Direct ACP peers launch during this setup. Embedded command bridges
+may run bounded provider discovery while deferring their prompt-serving vendor
+invocation and prompt-time auth result until the first message. A prior
+diagnostic probe is neither required nor trusted as launch authority. Clients
+may include `config_options` selected from the latest explicit diagnostic
+projection when it exposes Hecate-managed launch controls; the passive catalog
+does not expose those controls. No current built-in requires one before session
+creation. A future required launch control must have a passive schema path
+before adoption so a diagnostic never becomes prerequisite.
+Hecate validates that any required Hecate-managed launch selection is present,
+then uses matching launch-option values when starting the agent process. After
+the ACP session exists, agent-owned `config_options` are returned
+with the session so clients can render them before the first prompt. If the agent
+reports ACP `initialize.agentInfo`, Hecate returns the trimmed implementation
+metadata as `agent_info` on the chat session and on assistant messages produced
+by that session. If the selected command is missing, a required launch option is
+absent, or the ACP session handshake fails, session creation fails and Hecate
+removes the empty chat record. For an embedded bridge, prompt-serving vendor
+process or auth failure can instead surface on the first message because no
+vendor prompt is sent during session creation.
 
 External Agent session creation may also include `mcp_servers`, using the same
 stdio/HTTP server shape as task-create `mcp_servers`. Hecate stores the server
@@ -5467,21 +5523,35 @@ the user message and assistant output.
   internal lease token.
 
   Once admission reaches that atomic keyed commit, Hecate gives the user-row/key
-  write a bounded server-owned persistence window; unkeyed sends retain ordinary
-  request cancellation. Immediate assistant creation, task/run linkage, and
-  terminal assistant/session updates then use separate bounded persistence
-  windows. A client disconnect therefore cannot turn a successful keyed commit
-  into an apparent failure or leave the committed turn permanently `running`.
-  Direct model and External Agent execution remain tied to the request and
-  terminalize as `cancelled` after a disconnect. The tools-on Hecate task
-  watcher is server-owned after commit and continues across browser disconnect
-  until the Task reaches a terminal state, the operator cancels it, or the
-  30-minute Chat Turn watcher ceiling expires. That ceiling ends the chat
-  watcher and terminalizes the Chat Turn; it does not cancel the
-  orchestrator-owned Task.
-  A Task that remains active, including one awaiting approval, stays visible and
-  independently cancellable through the Task API. Same-key replay only reads
-  the resulting durable turn; it never redispatches it.
+  write a bounded server-owned persistence window. An unkeyed user-message write
+  retains ordinary request cancellation until it succeeds. Immediate assistant
+  creation, task/run linkage, and terminal assistant/session updates then use
+  separate bounded persistence windows. A client disconnect therefore cannot
+  turn a successful keyed commit into an apparent failure or leave the committed
+  turn permanently `running`.
+
+  Direct-model execution remains tied to the request and terminalizes as
+  `cancelled` after a disconnect. An External Agent turn becomes server-owned
+  once its user message and running assistant are durable. The connected `POST`
+  still waits for the terminal result, but losing that response or the session
+  SSE connection ends only the client waiter: ACP execution, prompt-mode
+  approvals, partial-output persistence, and terminal settlement continue. The
+  operator can still cancel through the Chat API; chat close/delete, Hecate
+  shutdown also cancel the ACP turn. The 30-minute Chat Turn ceiling instead
+  ends and terminalizes the turn as failed. Reconnecting clients read the
+  authoritative snapshot through this API and subscribe to the session stream
+  without dispatching another prompt.
+
+  The tools-on Hecate task watcher is server-owned after commit and continues
+  across browser disconnect until the Task reaches a terminal state, the
+  operator cancels it, or the 30-minute Chat Turn watcher ceiling expires. That
+  ceiling ends the chat watcher and terminalizes the Chat Turn; it does not
+  cancel the orchestrator-owned Task. A Task that remains active, including one
+  awaiting approval, stays visible and independently cancellable through the
+  Task API. In-flight External Agent turns are not resumed after a Hecate process
+  restart; startup reconciliation marks the running assistant interrupted.
+  Same-key replay only reads the resulting durable turn; it never redispatches
+  it.
 
   The operator UI keeps a replayed queue item at the FIFO head until the exact
   committed user message is followed, before the next user turn, by a terminal
@@ -6305,8 +6375,36 @@ data: {"object":"chat_session","data":{"status":"completed",...}}
 ```
 
 Clients should subscribe before sending a message so they can receive live
-updates. For External Agent sessions, snapshots include partial ACP output from
-the adapter. For task-backed Hecate Chat turns, snapshots can include partial
+updates. A client that loads or reconnects to an authoritatively busy External
+Agent session should subscribe again, apply the stream's initial full snapshot,
+and follow later updates until the exact turn is terminal. Losing an SSE
+connection does not cancel an admitted External Agent turn; clients may reopen
+the stream with bounded backoff and poll the session snapshot as a fallback.
+The server treats live notifications as low-latency hints and rereads the
+durable session for every session notification and on its 15-second heartbeat.
+A delayed buffered notification therefore cannot overwrite a newer durable
+snapshot, and a committed terminal state still emits the final snapshot and
+`done` if its immediate publication was lost. During an External Agent turn,
+the assistant's terminal row may commit before session metadata and turn
+counters finish settling; a reconnecting stream and heartbeat defer unmarked
+terminal notifications until a final settlement publication bound to the exact
+terminal assistant message, or until the live turn clears and a later heartbeat
+confirms the fully settled durable state. A delayed settlement marker from an
+older turn cannot authorize a newer terminal row. A stream that attaches inside
+that narrow settlement window can
+therefore receive a heartbeat comment before its first full snapshot.
+If an External Agent session has a durable trailing user message but no live
+turn, the stream request returns `409 chat.session_not_running`. Passive
+observers should surface the interrupted admission rather than reconnecting
+indefinitely. A stream paired with a replacement message submit should retry
+until that POST is admitted or settles, because the stream can observe the
+previous orphan immediately before the new POST registers its turn.
+If that reconciliation fails after streaming headers were sent, the server
+emits a fixed operator-safe `error` event and closes the stream; clients should
+reconnect or use the session GET rather than treating the last snapshot as
+terminal.
+For External Agent sessions, snapshots include partial ACP output from the
+adapter. For task-backed Hecate Chat turns, snapshots can include partial
 assistant text from the backing task's streamed model call plus projected task
 activity.
 Projected task activity uses the same compact vocabulary as Task Detail:

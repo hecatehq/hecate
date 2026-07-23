@@ -171,12 +171,13 @@ describe("resolveChatSetupRepairState", () => {
         tone: "amber",
         label: "sign in",
         needsRepair: true,
+        launchBlocked: true,
         loginCommand: "claude /login",
         setupHint: "Install Claude Code and ensure claude is on PATH.",
         signInHint:
           "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.",
         detail: "Run `claude /login` in Terminal.",
-        verifiedByProbe: false,
+        checkedByProbe: false,
       },
     });
 
@@ -185,6 +186,39 @@ describe("resolveChatSetupRepairState", () => {
       title: "Set up Claude Code",
       message:
         "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.",
+      action: "open_agent_setup",
+    });
+  });
+
+  it("routes the hosted missing-credential wire shape before generic unavailability", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentID: "claude_code",
+      selectedAgentName: "Claude Code",
+      selectedAgentAvailable: false,
+      anyAgentAvailable: false,
+      externalAgentSetupRequired: true,
+      selectedAgentReadiness: {
+        kind: "sign_in",
+        tone: "amber",
+        label: "credential",
+        needsRepair: true,
+        launchBlocked: true,
+        loginCommand: "claude /login",
+        setupHint: "Install Claude Code separately.",
+        signInHint: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        detail: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        authStatus: "unauthenticated",
+        authError: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
+        checkedByProbe: false,
+      },
+    });
+
+    expect(repair).toMatchObject({
+      kind: "external_agent_setup",
+      title: "Set up Claude Code",
+      message: "Configure ANTHROPIC_API_KEY for this hosted runtime.",
       action: "open_agent_setup",
     });
   });

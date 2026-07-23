@@ -260,9 +260,12 @@ Remote runtime mode also requires `HECATE_REMOTE_ALLOW_ACP_TERMINALS=1`.
 
 The bundled External Agent CLIs are pinned by Docker build args so a Hecate
 release does not silently move to a newer top-level agent package. The Cursor
-Agent installer is fetched from Cursor's official install URL and checked
-against a pinned SHA-256 before it runs; update the checksum only after
-reviewing the new installer contents.
+Agent package is downloaded directly from Cursor's official versioned archive
+for the image architecture and verified against an architecture-specific
+SHA-256 before extraction. Hecate's image build does not execute Cursor's
+mutable installer. A scheduled review-only workflow checks for newer Cursor
+Agent artifacts; Hecate releases stay on the reviewed pin until its PR is
+approved and merged.
 
 If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `just dev` / `just run` / `./hecate serve` is still listening from another shell. Free the port with `just stop` and retry; `just dev`, `just run`, and `just serve` also auto-run `stop` before starting so successive launches don't pile up.
 
@@ -361,9 +364,13 @@ Codex and Claude Code use Hecate's built-in Go ACP adapter libraries, which
 launch their vendor CLIs as supervised child processes. Cursor Agent and Grok
 Build expose ACP modes directly in their vendor CLIs.
 Opening Connections performs passive path discovery only. The operator-owned
-**Check** action calls `POST /hecate/v1/agent-adapters/{id}/probe`, which starts
-the discovered app and performs the ACP handshake so login/billing problems are
-visible before a chat fails.
+**Run diagnostics** action calls `POST
+/hecate/v1/agent-adapters/{id}/probe`, which starts the discovered app and opens
+a disposable ACP session for troubleshooting. It is optional: **New chat**
+re-resolves the executable and prepares the real ACP session. Direct ACP peers
+start during setup. Embedded bridges may run bounded provider discovery during
+setup while deferring their prompt-serving vendor invocation and prompt-time
+auth result until the first message.
 
 ## Resetting state
 

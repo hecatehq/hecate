@@ -339,6 +339,29 @@ textarea {
   opacity: 1;
 }
 
+.transcript-message-actions {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.transcript-message-row:hover .transcript-message-actions,
+.transcript-message-row:focus-within .transcript-message-actions,
+.transcript-message-actions[data-active="true"] {
+  opacity: 1;
+}
+
+@media (hover: none), (any-pointer: coarse) {
+  .transcript-message-actions {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcript-message-actions {
+    transition: none;
+  }
+}
+
 .project-support-details > summary,
 .project-support-collection > summary {
   cursor: pointer;

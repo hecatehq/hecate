@@ -149,6 +149,7 @@ sequenceDiagram
     participant Tasks as Task state
     participant Recovery as Startup reconciler
     participant Gateway as Gateway/router
+    participant Turn as Server-owned External turn
     participant ACP as External Agent ACP session
     participant Cleanup as Process ACP stage janitor
     UI->>API: POST multipart file
@@ -171,19 +172,24 @@ sequenceDiagram
         Gateway-->>API: provider response with tools available
         API->>API: replace image blocks with artifact omission markers
     else External Agent file turn
-        API->>ACP: inline image/embedded resource only when live capability allows
-        API->>API: otherwise verify retained stage handles + register body-free namespace/redactor
-        API->>ACP: private staged resource_link
-        ACP-->>API: supervised agent response
-        API->>API: clear bodies + keep namespace denied through removal proof
+        API->>Turn: admit after durable user + running assistant
+        opt browser/webview connection closes
+            UI--xAPI: response or SSE waiter ends
+            Note over Turn,ACP: admitted ACP turn continues
+        end
+        Turn->>ACP: inline image/embedded resource only when live capability allows
+        Turn->>Turn: otherwise verify retained stage handles + register body-free namespace/redactor
+        Turn->>ACP: private staged resource_link
+        ACP-->>Turn: supervised agent response
+        Turn->>Turn: clear bodies + keep namespace denied through removal proof
         opt synchronous cleanup exhausts
-            API->>Cleanup: transfer exact stage identities (4/session, 16/process)
+            Turn->>Cleanup: transfer exact stage identities (4/session, 16/process)
             Cleanup->>Cleanup: retry after readers/process release
         end
         opt ACP session shutdown
-            API->>ACP: close turn admission, cancel active full-turn owner
-            API->>ACP: terminate provider process after bounded cancel wait
-            API->>API: drain registered turn again before backlog snapshot
+            API->>Turn: close admission and cancel active full-turn owner
+            Turn->>ACP: terminate provider process after bounded cancel wait
+            API->>Turn: drain registered turn again before backlog snapshot
             API->>Cleanup: wake janitor and wait bounded cleanup
         end
     end

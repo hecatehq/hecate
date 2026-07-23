@@ -3908,7 +3908,8 @@ func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
 	}
 	var payload struct {
 		Error struct {
-			Type string `json:"type"`
+			Type           string `json:"type"`
+			OperatorAction string `json:"operator_action"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
@@ -3916,6 +3917,9 @@ func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
 	}
 	if payload.Error.Type != errCodeAgentAdapterUnavailable {
 		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
+	}
+	if payload.Error.OperatorAction != "Retry New chat. If it keeps hanging, optionally run diagnostics in Connections; diagnostics start the app and open a temporary ACP session without sending a prompt." {
+		t.Fatalf("operator action = %q, want optional Connections diagnostic guidance", payload.Error.OperatorAction)
 	}
 	if !runner.prepareHasDeadline {
 		t.Fatal("prepare context did not have a deadline")
@@ -4361,8 +4365,7 @@ func TestAgentChatLiveTurnAdmissionClosureIsRefcounted(t *testing.T) {
 // TestAgentChatLiveTurnCancelReasonForOperatorPath pins the reason
 // classification used by the agent-chat-cancelled counter:
 // cancelTurn and cancelTurnAndWait both stamp "operator", and a
-// session that never had cancel called against it surfaces empty
-// (the handler maps empty -> "request_cancelled").
+// session that never had cancel called against it surfaces empty.
 func TestAgentChatLiveTurnCancelReasonForOperatorPath(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
 	live.registerTurn(live.snapshotLifecycle("session_explicit_cancel"), func() {})
@@ -4387,12 +4390,42 @@ func TestAgentChatLiveTurnCancelReasonForOperatorPath(t *testing.T) {
 
 	live.registerTurn(live.snapshotLifecycle("session_never_cancelled"), func() {})
 	if got := live.turnCancelReason("session_never_cancelled"); got != "" {
-		t.Errorf("turnCancelReason on uncancelled session = %q, want empty (handler maps to request_cancelled)", got)
+		t.Errorf("turnCancelReason on uncancelled session = %q, want empty", got)
 	}
 
 	// Unknown session: empty, not a panic.
 	if got := live.turnCancelReason("session_unknown"); got != "" {
 		t.Errorf("turnCancelReason for unknown session = %q, want empty", got)
+	}
+}
+
+func TestAgentChatLiveCancelAllTurnsPreservesFirstReason(t *testing.T) {
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	var firstCancelled, secondCancelled bool
+	if got := live.registerTurn(live.snapshotLifecycle("session_operator"), func() {
+		firstCancelled = true
+	}); got != agentChatTurnAccepted {
+		t.Fatalf("register operator turn = %v, want accepted", got)
+	}
+	if got := live.registerTurn(live.snapshotLifecycle("session_shutdown"), func() {
+		secondCancelled = true
+	}); got != agentChatTurnAccepted {
+		t.Fatalf("register shutdown turn = %v, want accepted", got)
+	}
+	if !live.cancelTurn("session_operator") {
+		t.Fatal("operator cancel = false, want true")
+	}
+
+	live.cancelAllTurns("shutdown")
+
+	if !firstCancelled || !secondCancelled {
+		t.Fatalf("cancelled turns = operator:%v shutdown:%v, want both true", firstCancelled, secondCancelled)
+	}
+	if got := live.turnCancelReason("session_operator"); got != "operator" {
+		t.Fatalf("operator reason = %q, want first reason preserved", got)
+	}
+	if got := live.turnCancelReason("session_shutdown"); got != "shutdown" {
+		t.Fatalf("shutdown reason = %q, want shutdown", got)
 	}
 }
 

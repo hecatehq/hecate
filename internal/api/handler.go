@@ -97,11 +97,15 @@ type Handler struct {
 	browserEvidenceReadiness          BrowserEvidenceRuntimeReadinessResponse
 	agentChatRunner                   agentadapters.Runner
 	agentChatLive                     *agentChatLive
-	agentChatSettlements              agentChatSettlementRegistry
-	chatWorkspaceGit                  chatWorkspaceGitRunner
-	agentChatIdleSweepCancel          context.CancelFunc
-	operatorTerminals                 *terminalapp.Application
-	rateLimiter                       *ratelimit.Store
+	// agentChatStreamHeartbeatC is a deterministic test seam for the
+	// authoritative stream reconciliation tick. Production leaves it nil and
+	// uses the fixed 15-second heartbeat.
+	agentChatStreamHeartbeatC <-chan time.Time
+	agentChatSettlements      agentChatSettlementRegistry
+	chatWorkspaceGit          chatWorkspaceGitRunner
+	agentChatIdleSweepCancel  context.CancelFunc
+	operatorTerminals         *terminalapp.Application
+	rateLimiter               *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
 	// when no settings key is configured — values are stored as-is
@@ -294,16 +298,6 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// site) would change a stable signature. Setter is atomic.Pointer
 	// so it's safe to install after handlers are already serving.
 	agentadapters.SetProbeMetrics(agentAdapterMetrics)
-	// Shutdown-path cancellations route through the same package-level
-	// setter pattern: SessionManager.Shutdown fires this once per
-	// active session being torn down so the agent-chat-cancelled
-	// counter labels them reason="shutdown".
-	agentadapters.SetShutdownCancelHook(func(adapterID string) {
-		agentChatMetrics.RecordChatCancelled(context.Background(), telemetry.AgentChatCancelledRecord{
-			AdapterID: adapterID,
-			Reason:    "shutdown",
-		})
-	})
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
 	//   1. global default — operator's HECATE_TASK_AGENT_SYSTEM_PROMPT
@@ -758,6 +752,9 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 
 	if h.agentChatIdleSweepCancel != nil {
 		h.agentChatIdleSweepCancel()
+	}
+	if h.agentChatLive != nil {
+		h.agentChatLive.cancelAllTurns("shutdown")
 	}
 
 	var agentChatDone <-chan error

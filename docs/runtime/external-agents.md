@@ -275,18 +275,28 @@ Windows executable.
 
 `GET /hecate/v1/agent-adapters` and the compatibility `GET
 /hecate/v1/agent-adapters/{id}/health` only resolve and inspect these paths.
-They do not run `--version`, auth commands, or ACP. The explicit **Check**
-action and `POST /hecate/v1/agent-adapters/{id}/probe` execute the selected app,
-perform ACP `Initialize`, and open a temporary session. Authentication, logout,
-session preparation, and Chat turns also execute it. Opening Chats or
-Connections no longer starts a newly discovered executable automatically.
+They do not run `--version`, auth commands, or ACP. When an eligible path is
+found, the app is **Available** to launch; that passive result does not claim
+that its account, version, or ACP implementation will succeed. **New chat** is
+the real-session boundary: Hecate resolves the executable again, performs ACP
+`Initialize`, and creates the session. Direct ACP peers start during that setup;
+embedded bridges may run bounded provider discovery without sending a prompt.
+In particular, the Claude bridge can start a short-lived `--bare` command-catalog
+process during session setup. The prompt-serving vendor invocation and
+prompt-time auth result can remain deferred until the first message. The
+optional **Run diagnostics** action and `POST
+/hecate/v1/agent-adapters/{id}/probe` open a disposable session and may execute
+the selected app for troubleshooting. Authentication and logout also execute
+it. Opening Chats or Connections never starts a newly discovered executable
+automatically.
 
 ## Hecate ACP Capability Contract
 
 `GET /hecate/v1/agent-adapters` includes a `capabilities` array for each
 adapter. This is Hecate's contract for the surfaces it knows how to supervise;
-the explicit probe still decides which live ACP Initialize features are
-available from the installed adapter today.
+each real chat session's fresh ACP `Initialize` decides which live features are
+available to that session. An optional diagnostic probe reports what its own
+disposable session advertised, but it is not launch authority for a later chat.
 
 | Capability          | Catalog status                                                       | What Hecate does                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -301,9 +311,10 @@ available from the installed adapter today.
 | `logout`            | `supported` for Codex and Claude Code, otherwise `adapter_dependent` | Calls ACP `auth.logout` only when the live adapter advertises logout.                                                                                                      |
 
 Connections renders this matrix as compact chips on each adapter row. If a
-probe succeeds, live ACP Initialize capabilities override the static login and
-logout expectation for that row so the UI does not show actions the installed
-adapter did not advertise.
+diagnostic probe succeeds, its ACP `Initialize` capabilities override the
+static login and logout expectation for that diagnostic row so the UI does not
+show actions the inspected session did not advertise. A subsequent chat still
+uses the capabilities from its own fresh initialization.
 
 The Docker runtime image includes the supported agent CLIs, while the
 Hecate-owned ACP adapters are compiled into the Hecate binary. Local/self-host
@@ -378,9 +389,14 @@ agent runtime, while authentication and billing stay with the provider.
 4. If model, reasoning, or mode controls appear above the message composer,
    choose the values you want. Some controls are launch-time choices and some
    appear after the ACP session is prepared.
-5. Click **New chat**. Hecate starts the agent session immediately. The
-   message input appears after that session exists, while launch controls can be
-   shown earlier so required values can be selected first.
+5. Click **New chat**. Hecate resolves the executable and prepares the real ACP
+   session immediately. Direct ACP peers start during this setup. Embedded
+   bridges may run bounded provider discovery; the Claude bridge uses a
+   short-lived `--bare` process to discover commands. No user prompt is sent
+   during setup. The first message starts any deferred prompt-serving vendor
+   invocation and provides the authoritative prompt-time auth result. The
+   message input appears after the ACP session exists, while launch controls can
+   be shown earlier so required values can be selected first.
 6. Optionally attach up to four non-empty files by choosing, dropping, or
    pasting them. Each file can be up to 5 MiB and one turn can carry up to
    12 MiB combined. Hecate uses the live ACP session's supported inline image
@@ -425,11 +441,12 @@ agent runtime, while authentication and billing stay with the provider.
    resource link. Bounded adapter stderr is retained only for startup failures;
    after initial session and model/config setup succeeds, that buffer is zeroed
    and later stderr is discarded before a prompt can carry file data.
-7. If the agent row is amber/red, open **Connections**. The probe starts the
-   selected ACP runtime and performs a real handshake plus a temporary
-   no-op session, so it catches missing auth, billing/subscription issues,
-   unsupported versions, and missing or unsupported binaries before a prompt
-   fails.
+7. If chat creation or the first message fails, or the agent row shows a
+   previous diagnostic issue, open **Connections** and optionally choose **Run
+   diagnostics**. It opens a temporary ACP session and may execute the selected
+   app to classify common auth, billing/subscription, version, and launch
+   failures. It is a troubleshooting tool, not a prerequisite for **New chat**
+   or the first message, and not a security verification of the executable.
 8. Send a small smoke prompt:
 
    ```text
@@ -443,9 +460,14 @@ guardrails, and Git diff review.
 
 External Agent controls have two sources:
 
-- **Launch controls** come from Hecate's agent catalog and can appear before a
-  concrete chat session exists. Hecate passes the selected values as process
-  arguments when it starts or restarts the external agent.
+- **Launch controls** are owned by Hecate's adapter integration and can appear
+  in the separately resolved projection returned by optional diagnostics before
+  a concrete chat session exists. Generating them may execute bounded
+  help/model discovery, so the passive catalog omits them. Hecate passes
+  selected values as process arguments when it starts or restarts the external
+  agent. No current built-in requires one before session creation; a future
+  required control must first have a passive schema path so diagnostics remain
+  optional.
 - **ACP session controls** come from the agent during `session/new`,
   `session/load`, or `session/set_config_option`. Hecate surfaces model,
   reasoning, mode, and similar selectors in the composer after the External
@@ -495,17 +517,25 @@ The composer picker labels ACP-advertised commands as **External Agent**.
 Hecate-owned local shortcuts use **Project** for proposal-oriented project
 commands and **Hecate** for local navigation/runtime commands.
 
-Check discovery:
+Inspect passive discovery:
 
 ```sh
 curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 ```
 
 Discovery reports passive command availability, selected path, static tested
-range, and `auth_status: unknown`; it does not claim the app is ready. The
-explicit probe response adds live auth/capability state. For built-in adapters,
-that response can report `adapter_version` for the compiled Go module and
-`agent_version` for the underlying vendor CLI. Direct ACP CLIs report their
+range, and `auth_status: unknown`; **Available** means Hecate found an eligible
+app to try, not that it has authenticated or completed an ACP handshake. **New
+chat** re-resolves that executable and prepares the real ACP session. Direct
+peers launch during setup. Embedded bridges may run bounded provider discovery
+during setup without sending a prompt; their prompt-serving vendor invocation
+and prompt-time auth result can remain deferred until the first message. The
+optional diagnostic response adds live ACP capabilities from its disposable
+session and separate auth/version classification when provider-specific checks
+can classify them. A ready ACP diagnostic alone does not mean vendor auth
+succeeded. For built-in adapters, that response can report `adapter_version`
+for the compiled Go module and `agent_version` for the underlying vendor CLI.
+Direct ACP CLIs report their
 executable version as the agent version when available.
 
 Manual setup stays in the upstream CLIs:
@@ -517,35 +547,40 @@ Manual setup stays in the upstream CLIs:
 | Cursor Agent   | `cursor-agent login` |
 | Grok Build     | `grok login`         |
 
-If an agent readiness check reports an auth failure, run the matching command
-in Terminal, then return to Connections and test the agent again.
-If it reports a timeout or `context deadline exceeded`, the adapter did not
-finish startup or ACP session creation inside the probe window. Hecate did not
-send a prompt; close any stuck browser or login prompt, fix the CLI if needed,
-then retry from Connections.
+If chat creation, the first message, or an optional diagnostic reports an auth
+failure, run the matching command in Terminal, then retry the message in a fresh
+session if needed. You can run diagnostics again when you need a narrower
+troubleshooting result. If diagnostics report a timeout or `context deadline
+exceeded`, the adapter did not finish its diagnostic checks or ACP session
+creation inside the diagnostic window. Hecate did not send a prompt; close any
+stuck browser or login prompt, fix the CLI if needed, then retry the chat.
 
-Connections leaves newly discovered apps untested until the operator chooses
-**Check**. The same explicit probe is available through the API for a full
-spawn + ACP handshake + no-op session check:
+Connections labels newly discovered eligible apps **Available** without
+executing them. **Run diagnostics** is optional and opens a temporary ACP
+runtime plus a no-prompt session; provider-specific version or auth checks may
+also execute the installed app. The same diagnostic is available through the
+API:
 
-![Connections — external agent readiness checks and durable approval grants](../screenshots/connections-external-agents.png)
+![Connections — external agent diagnostics and durable approval grants](../screenshots/connections-external-agents.png)
 
 ```sh
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
 ```
 
-Probe results make ACP `Initialize` capabilities authoritative for the tested
-adapter row. The catalog tells Hecate what the built-in adapter is expected to
-support; the probe tells the UI what this installed agent actually advertised
-today (`supports_authenticate`, `supports_logout`, `supports_load_session`, and
-non-secret `auth_methods`). Hecate shows the local **Sign in** action only when
-the live agent advertises ACP auth method `agent-login`, which is the method the
-Hecate `/authenticate` endpoint calls. It shows **Sign out** only when the live
-agent advertises ACP `auth.logout`; direct API calls enforce the same Initialize
-capability checks before invoking ACP `authenticate` or `logout`. Probes stay
-short so the UI can classify broken adapters quickly, while the managed local
-`authenticate` action allows a longer native sign-in flow because Codex and
-Claude Code may open a browser or terminal login.
+Diagnostic results make ACP `Initialize` capabilities authoritative for that
+diagnostic row. The catalog tells Hecate what the built-in adapter is expected
+to support; diagnostics tell the UI what the disposable inspected session
+advertised (`supports_authenticate`, `supports_logout`,
+`supports_load_session`, and non-secret `auth_methods`). They do not authorize
+or block a later chat, whose fresh initialization remains authoritative. Before
+a diagnostic runs, Connections may offer **Sign in** or **Sign out** from the
+built-in catalog's expected capabilities. A diagnostic with known live
+capabilities overrides that fallback for its row. The action itself always
+opens a fresh ACP session and enforces the live capability before invoking ACP
+`agent-login` or `auth.logout`, so diagnostics are never a prerequisite.
+Diagnostics stay short so the UI can classify broken adapters quickly, while
+the managed local `authenticate` action allows a longer native sign-in flow
+because Codex and Claude Code may open a browser or terminal login.
 
 Codex and Claude Code use Go ACP adapter libraries compiled into Hecate and
 backed by the operator's local vendor CLI. Cursor and Grok ship ACP mode inside
@@ -579,24 +614,43 @@ session preparation, sends a minimal text turn, then verifies that the same
 prepared native session can read a privately staged text-file input. It uses
 local vendor authentication and may consume provider quota.
 
-## Setup checks
+## Launch and troubleshooting
 
 External Agent chat does not use Hecate model providers. It needs the selected
 coding-agent to be authenticated, and the direct ACP command to be visible to
 Hecate.
 
-Use this order when troubleshooting:
+Use this order when launching or troubleshooting:
 
 1. **Discovery** — `GET /hecate/v1/agent-adapters` tells you whether Hecate can
    find the selected vendor CLI. This catalog path is intentionally cheap: it
-   does not start ACP runtimes or run CLIs for auth or capability discovery.
-2. **Probe** — `POST /hecate/v1/agent-adapters/{id}/probe` actually starts the
-   adapter runtime and opens a temporary ACP session. This refreshes version,
-   auth/capability, and launch-control details and is the best "will it run?"
-   check.
-3. **Chat turn** — send a real prompt only after discovery/probe are green. If
-   the agent still fails, open the message's raw diagnostics disclosure; the
-   normalized transcript is for reading, raw ACP output is for debugging.
+   does not start ACP runtimes or run CLIs for auth or capability discovery. A
+   missing app, rejected launcher, or absent required remote credential is a
+   real launch blocker; an eligible discovered app is **Available**. Use
+   **Refresh** in Connections after installing or moving an agent; it repeats
+   only this passive discovery and does not start the app.
+2. **New chat** — Hecate resolves the current executable again, performs ACP
+   `Initialize`, and opens the real session. Direct ACP peers start during this
+   setup. Embedded bridges may run bounded provider discovery while deferring
+   their prompt-serving vendor invocation and prompt-time auth result until the
+   first message. No earlier diagnostic result is required, and a cached
+   diagnostic failure must not prevent this fresh session attempt after the
+   operator fixes the underlying issue.
+3. **Optional diagnostics** — `POST /hecate/v1/agent-adapters/{id}/probe`
+   starts the adapter and opens a disposable ACP session to refresh version,
+   auth/capability, and launch-control troubleshooting details. It may consume
+   a no-op session and is advisory rather than a launch gate. Hecate re-reads
+   passive discovery after it completes so repaired installs become selectable
+   without treating the diagnostic result itself as authority. The UI may keep
+   process-derived version, auth, capability, and launch-control details beside
+   the cached diagnostic, but availability, status, error, path, and
+   remote-credential gates always come from the latest passive catalog
+   response.
+4. **Chat turn** — after the real session exists, send a prompt. The first
+   message is authoritative for any vendor CLI launch or auth check deferred by
+   an embedded bridge. If a turn fails, open the message's raw diagnostics
+   disclosure; the normalized transcript is for reading, raw ACP output is for
+   debugging.
    File-bearing turns that use private resource-link staging withhold raw ACP
    diagnostics when present so split temporary paths cannot be reconstructed.
 
@@ -709,6 +763,23 @@ The visible chat title can be renamed from the Chats sidebar without changing
 the ACP native session, workspace, or agent selection.
 Hecate-owned chats are different: their provider/model selection can change
 between direct model turns and new task-backed segments in one transcript.
+
+Before ACP dispatch, Hecate persists the user message. A keyed user-row/key
+commit may use its own bounded server-owned persistence window, while an unkeyed
+user-message write remains request-bound until it succeeds. Hecate then creates
+the running assistant in a fresh bounded persistence window. Once both rows are
+durable, the External Agent turn belongs to the Hecate runtime rather than the
+browser or desktop webview connection. Reloading, navigating away, or losing the
+message POST/session SSE connection ends only that client waiter; ACP execution,
+approvals, streamed transcript persistence, and terminal settlement continue.
+Reopen the chat to read the authoritative snapshot and follow its stream.
+**Stop**, chat close/delete, and Hecate shutdown remain cancellation
+authorities. The 30-minute turn timeout instead ends and terminalizes the turn as
+failed. Quitting the native desktop app requests Hecate shutdown, so it cancels
+and drains active agents rather than leaving them running. A Hecate process
+restart does not resume an in-flight turn: startup reconciliation marks its
+running assistant interrupted, while a later prompt may still restore the
+stored native ACP session where the adapter supports it.
 
 Project assignments can also prepare External Agent sessions. Starting a
 `driver_kind="external_agent"` assignment from Projects creates and prepares the
@@ -903,8 +974,8 @@ that live self-reported agent name/version alongside the static binary version
 checks so operators can confirm which ACP implementation answered the handshake.
 When a chat session is prepared or a turn runs, Hecate stores the same
 `agent_info` snapshot on the External Agent chat session and assistant message.
-This keeps transcript/project views explainable after restart even if no fresh
-health probe is available.
+This keeps transcript/project views explainable after restart even if no recent
+diagnostic result is available.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](../screenshots/chat-agent-approval.png)
 

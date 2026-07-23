@@ -58,6 +58,24 @@ export function resolveChatSetupRepairState({
   selectedAgentReadiness?: ExternalAgentReadiness;
 }): ChatSetupRepairState | null {
   if (target === "external_agent") {
+    // A hosted missing-credential response is also `available: false`. Route
+    // that real wire shape to its credential repair before the generic local
+    // executable/install fallback.
+    if (
+      externalAgentSetupRequired &&
+      selectedAgentReadiness?.kind === "sign_in" &&
+      selectedAgentReadiness.launchBlocked
+    ) {
+      const agent = selectedAgentName || "Selected agent";
+      return {
+        kind: "external_agent_setup",
+        title: externalAgentSetupTitle(agent, selectedAgentReadiness),
+        message: externalAgentSetupMessage(selectedAgentID, agent, selectedAgentReadiness),
+        action: "open_agent_setup",
+        actionLabel: "Open setup",
+        tone: "amber",
+      };
+    }
     if (!anyAgentAvailable || !selectedAgentAvailable) {
       const agent = selectedAgentName || "Selected agent";
       return {
@@ -153,10 +171,10 @@ function externalAgentSetupMessage(
       case "billing":
         return (
           readiness.detail ||
-          `Check ${agent}'s billing or subscription, then test the adapter again in Connections.`
+          `Check ${agent}'s billing or subscription, then retry the chat. Diagnostics in Connections are optional.`
         );
       case "issue":
-        return readiness.detail || `Open Connections and test ${agent} again.`;
+        return readiness.detail || `Retry the chat, or use Connections diagnostics for details.`;
       default:
         break;
     }

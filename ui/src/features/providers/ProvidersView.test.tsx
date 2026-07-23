@@ -1327,11 +1327,14 @@ describe("ProvidersView table renders", () => {
     await user.click(screen.getByRole("button", { name: "OPENAI_API_KEY" }));
     expect(copyCommand).toHaveBeenCalledWith("OPENAI_API_KEY");
 
-    const checkAgain = screen.getByRole("button", {
-      name: "Check Codex again; starts the agent runtime",
+    const runDiagnostics = screen.getByRole("button", {
+      name: "Run diagnostics for Codex; opens a temporary ACP session and may execute the agent app",
     });
-    expect(checkAgain).toHaveAttribute("title", "Starts Codex and opens a temporary ACP session");
-    await user.click(checkAgain);
+    expect(runDiagnostics).toHaveAttribute(
+      "title",
+      "Opens a temporary Codex ACP session without sending a prompt and may execute the agent app",
+    );
+    await user.click(runDiagnostics);
     expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
   });
 

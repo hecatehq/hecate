@@ -58,6 +58,13 @@ levels.
 
 If you need a hard isolation boundary, run Hecate and its workspaces inside a VM, container, or dedicated OS user that you are comfortable letting tools modify.
 
+An admitted External Agent turn belongs to the Hecate runtime, not the browser
+tab or remote webview. Reloading or closing that client connection does not stop
+the trusted subprocess, which may continue modifying its selected workspace.
+Use **Stop** before leaving when the work must not continue. Quitting the native
+desktop app follows the separate runtime-shutdown path and cancels and drains
+active agents.
+
 Hecate-owned command execution should go through governed task-runtime tools,
 where WorkspaceFS, ProcessRunner, GitRunner, approvals, timeouts, output caps,
 and sandbox policies can apply. Direct operator shells from the local OS or
@@ -85,8 +92,14 @@ discovery can establish an absolute invocation path and inspect its canonical
 regular target, but path shape, filename, `--version`, auth output, and an ACP
 handshake do not authenticate its publisher. The latter checks already execute
 the candidate, so they are diagnostics rather than security verification.
-Catalog and compatibility health GETs therefore stay passive; Hecate runs a
-readiness probe only after an explicit operator action.
+Catalog and compatibility health GETs therefore stay passive. Hecate executes
+the candidate only after an explicit operator action such as **New chat**,
+**Run diagnostics**, authentication, or logout. **New chat** performs a fresh
+executable resolution and prepares the real ACP session. Direct ACP agents are
+started during that setup. Embedded bridges may run bounded provider discovery
+during setup while deferring their prompt-serving vendor invocation and
+prompt-time auth result until the first message. The optional diagnostic is not
+a security check or a prerequisite for use.
 
 A locally computed SHA-256 digest proves byte identity and detects later
 replacement. It proves origin only when the expected digest came from an
@@ -223,7 +236,12 @@ Hecate stores local configuration and operational state on disk.
   traces, artifacts, or screenshots.
 - Do not commit `.env`, SQLite databases, Postgres dumps or DSNs, release keys,
   update signing keys, or platform credential files.
-- External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own, proxy, or pool those accounts. See [External Agents](../runtime/external-agents.md#credential-and-account-boundaries) for credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok Build.
+- External agent credentials belong to the underlying CLI account. A fresh
+  chat launch and optional diagnostics can surface auth failures, but Hecate
+  does not own, proxy, or pool those accounts. See [External
+  Agents](../runtime/external-agents.md#credential-and-account-boundaries) for
+  credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok
+  Build.
 - Stdio MCP servers inherit only runtime-essential environment variables from the gateway. Server credentials must be configured explicitly on that MCP server entry.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach an unprotected inference path may be able to spend those credentials. Use your own network access control; set `HECATE_INFERENCE_TOKEN` for provider-compatible `/v1/*` clients and `HECATE_RUNTIME_TOKEN` for Hecate-native chat, task, and control-plane clients.
 - On self-hosted non-loopback starts, Hecate logs warnings when configured
@@ -281,8 +299,28 @@ active sidecar origin while the owned gateway child is still running; it denies
 camera, mismatched-origin, stale-sidecar, and pre-readiness requests. macOS
 declares native Microphone and Speech Recognition purpose strings; denied
 browser-managed recognition may require enabling Hecate in both macOS privacy
-panes. Windows retains WebView2's site permission prompt. Text-to-speech/read-aloud is separate from these input
-routes.
+panes. Windows retains WebView2's site permission prompt.
+Text-to-speech/read-aloud is separate from these input routes.
+
+### Read-aloud speech output
+
+Read aloud is operator-triggered client playback, not a model or provider
+route. Hecate requires a browser-reported voice with `localService=true`,
+assigns that voice explicitly, and refuses remote-only/default voices. Response
+text does not cross the Hecate API, Tauri IPC, model gateway, or External Agent
+adapter for synthesis.
+
+The speech queue derives only from settled assistant `content`. It excludes
+attachments, tools and activity, diffs, raw output, context packets, and debug
+bundles; announces fenced code as omitted; suppresses Markdown destinations;
+replaces URI-shaped visible values with “link”; and bounds both source parsing
+and spoken output. For labelled Markdown links, Hecate speaks the non-URI label.
+Literal JSX/HTML-like examples and entity spelling outside URI candidates
+remain audible because Hecate renders them as ordinary visible text rather than
+HTML.
+Navigation, message mutation, voice loss, errors, and replacement reads cancel
+the prior queue. These controls reduce accidental disclosure but do not make
+audio private from people or recording devices near the operator.
 
 ### Chat attachment data
 

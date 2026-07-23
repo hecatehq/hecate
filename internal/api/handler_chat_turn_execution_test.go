@@ -81,6 +81,55 @@ func TestExternalAgentTurnOutcomeCancelledDoesNotInventOutput(t *testing.T) {
 	}
 }
 
+func TestExternalAgentTurnOutcomeRuntimeCancellationIsCancelled(t *testing.T) {
+	t.Parallel()
+
+	outcome := newExternalAgentTurnOutcome(
+		"Claude Code",
+		agentadapters.RunResult{Output: "partial output"},
+		context.Canceled,
+		nil,
+		time.Unix(10, 0).UTC(),
+		time.Unix(11, 0).UTC(),
+	)
+
+	if outcome.Status != "cancelled" {
+		t.Fatalf("status = %q, want cancelled", outcome.Status)
+	}
+	if outcome.Output != "partial output" {
+		t.Fatalf("output = %q, want partial output preserved", outcome.Output)
+	}
+	if outcome.ErrorText != "" {
+		t.Fatalf("error text = %q, want empty for cancellation", outcome.ErrorText)
+	}
+}
+
+func TestExternalAgentTurnOutcomeDeadlineExceededWinsOverRuntimeCancellation(t *testing.T) {
+	t.Parallel()
+
+	outcome := newExternalAgentTurnOutcome(
+		"Claude Code",
+		agentadapters.RunResult{Output: "partial output"},
+		context.Canceled,
+		context.DeadlineExceeded,
+		time.Unix(10, 0).UTC(),
+		time.Unix(11, 0).UTC(),
+	)
+
+	if outcome.Status != "failed" {
+		t.Fatalf("status = %q, want failed", outcome.Status)
+	}
+	if outcome.Output != "partial output\n\ncontext deadline exceeded" {
+		t.Fatalf("output = %q, want partial output plus normalized timeout failure", outcome.Output)
+	}
+	if outcome.ErrorText != "context deadline exceeded" {
+		t.Fatalf("error text = %q, want normalized runtime failure", outcome.ErrorText)
+	}
+	if outcome.ResultLabel != telemetry.ResultError {
+		t.Fatalf("result label = %q, want error", outcome.ResultLabel)
+	}
+}
+
 func TestDirectModelTurnOutcomeCompletedUsesChoiceOrPlaceholder(t *testing.T) {
 	t.Parallel()
 

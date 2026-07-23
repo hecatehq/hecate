@@ -119,7 +119,10 @@ func appendLaunchConfigOptions(ctx context.Context, command string, adapter Adap
 }
 
 // LaunchConfigOptions returns Hecate-managed adapter options that can be
-// selected before a concrete ACP session exists.
+// selected before a concrete ACP session exists. It may execute bounded
+// help/model discovery and therefore belongs only behind an explicit operator
+// action, never passive catalog discovery. Built-ins must not require one of
+// these options until a separate passive schema path exists.
 func LaunchConfigOptions(ctx context.Context, status Status) []agentcontrols.ConfigOption {
 	if !launchConfigEnabled(status.Adapter) {
 		return nil

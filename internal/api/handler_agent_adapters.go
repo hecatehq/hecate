@@ -205,8 +205,6 @@ func renderAgentAdapterCredentialModes(modes []agentadapters.CredentialMode) []A
 
 func authStatusFromProbe(result agentadapters.ProbeResult, fallbackStatus, fallbackError string) (string, string) {
 	switch result.Status {
-	case agentadapters.ProbeStatusReady:
-		return agentadapters.AuthStatusOK, ""
 	case agentadapters.ProbeStatusAuthRequired:
 		return agentadapters.AuthStatusUnauthenticated, firstNonEmptyString(result.Hint, result.Error, fallbackError)
 	case agentadapters.ProbeStatusError:

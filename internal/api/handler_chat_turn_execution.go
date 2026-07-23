@@ -24,20 +24,29 @@ type externalAgentTurnOutcome struct {
 }
 
 func newExternalAgentTurnOutcome(adapterName string, result agentadapters.RunResult, runErr, ctxErr error, startedAt, completedAt time.Time) externalAgentTurnOutcome {
+	deadlineExceeded := errors.Is(ctxErr, context.DeadlineExceeded)
 	status := "completed"
-	if runErr != nil {
+	if runErr != nil || deadlineExceeded {
 		status = "failed"
 	}
-	if errors.Is(ctxErr, context.Canceled) {
+	// The turn deadline is a failed execution even when a runner reports the
+	// parent deadline as context.Canceled. Explicit runtime cancellation is
+	// only authoritative when the owning turn itself did not expire.
+	if !deadlineExceeded &&
+		(errors.Is(ctxErr, context.Canceled) || errors.Is(runErr, context.Canceled)) {
 		status = "cancelled"
 	}
 
 	output := strings.TrimSpace(result.Output)
 	displayErr := ""
-	if runErr != nil {
-		displayErr = agentadapters.NormalizeError(adapterName, runErr)
+	failureErr := runErr
+	if deadlineExceeded && (failureErr == nil || errors.Is(failureErr, context.Canceled)) {
+		failureErr = ctxErr
 	}
-	if status != "cancelled" && runErr != nil {
+	if failureErr != nil {
+		displayErr = agentadapters.NormalizeError(adapterName, failureErr)
+	}
+	if status != "cancelled" && failureErr != nil {
 		if output == "" {
 			output = displayErr
 		} else {
@@ -55,11 +64,11 @@ func newExternalAgentTurnOutcome(adapterName string, result agentadapters.RunRes
 		completedAt = result.CompletedAt
 	}
 	errorText := ""
-	if runErr != nil && status != "cancelled" {
+	if failureErr != nil && status != "cancelled" {
 		errorText = displayErr
 	}
 	resultLabel := telemetry.ResultSuccess
-	if runErr != nil || status == "cancelled" {
+	if status != "completed" {
 		resultLabel = telemetry.ResultError
 	}
 

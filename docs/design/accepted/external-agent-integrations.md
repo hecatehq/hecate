@@ -185,8 +185,22 @@ DELETE /hecate/v1/chat/grants/{grant_id}
 
 The catalog and compatibility health `GET` endpoints are passive: they may
 resolve and inspect an executable path but must not execute it. The explicit
-`POST /agent-adapters/{id}/probe` endpoint is the first compatibility-check
-boundary that starts the discovered app and performs an ACP handshake.
+`POST /agent-adapters/{id}/probe` endpoint is an optional, disposable
+diagnostic boundary that starts a temporary ACP runtime and performs a
+handshake without sending a prompt. Its provider-specific version or auth
+detection may execute the discovered app. Creating an External Agent chat is
+the independent real-session boundary: it resolves the current app and performs
+a fresh ACP handshake whether or not a diagnostic ran. Direct ACP peers launch
+during that setup. Embedded bridges may run bounded provider discovery during
+setup while deferring their prompt-serving vendor invocation and prompt-time
+auth result until the first message, which is authoritative for that deferred
+work. A cached diagnostic result can explain an earlier failure, but cannot
+authorize or block the real session or first-message attempt. Clients refresh
+the passive catalog independently after install/path changes or a diagnostic;
+only that passive response may update pre-launch availability, status, error,
+remote-credential gates, and last-discovered path. Clients may retain
+process-derived versions, auth/capability evidence, and launch controls with the
+cached diagnostic for troubleshooting.
 
 Stored message diffs are read-only historical evidence. The current
 `workspace-diff` response carries an opaque revision for the complete scoped
@@ -195,11 +209,19 @@ endpoint is the only chat surface allowed to discard workspace files. Staged
 index changes and untracked files are outside that authority. A message-scoped
 captured diff can be stale and therefore cannot authorize mutation.
 
-Message creation is still a blocking POST for the submitted prompt, but clients
-can subscribe to the session SSE stream first to receive partial output while
-the external process is running. History follows `HECATE_BACKEND`; `sqlite`
-persists sessions across restarts. The store also keeps the native ACP session
-id. On the next prompt after a gateway restart, Hecate passes that id to the
+Message creation remains a blocking POST while the submitting client stays
+connected, and clients can subscribe to the session SSE stream first to receive
+partial output while the external process is running. Once the user message and
+running assistant are durable, Hecate owns the ACP turn independently of that
+POST and stream: a client disconnect ends its waiters but does not cancel the
+admitted turn. Explicit Stop, chat close/delete, and runtime shutdown remain
+cancellation authorities. The turn timeout instead ends and terminalizes the
+turn as failed.
+
+History follows `HECATE_BACKEND`; `sqlite` persists sessions across restarts.
+The store also keeps the native ACP session id. An in-flight turn is not resumed
+after a gateway restart; startup reconciliation marks its running assistant
+interrupted. On the next prompt, Hecate passes the stored native id to the
 adapter through ACP `session/load` when the adapter advertises load-session
 support; otherwise it creates a fresh native session and keeps the Hecate
 transcript intact.

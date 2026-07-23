@@ -6,6 +6,7 @@ import { useDashboardActions } from "./dashboard";
 import { ChatProvider } from "../chat";
 import { ProvidersAndModelsProvider, useProvidersAndModels } from "../providersAndModels";
 import { RuntimeProvider } from "../runtime";
+import type { AgentAdapterResponse } from "../../../types/agent-adapter";
 import type { ModelResponse } from "../../../types/model";
 
 vi.mock("../../../lib/api", async () => {
@@ -53,7 +54,7 @@ function useDashboardHarness() {
     settingsConfig: null,
     setSettingsConfig: () => {},
     setSettingsError: () => {},
-    applyChatSession: () => {},
+    applyChatSession: () => true,
     syncHecateSelectionFromSession: () => {},
     refreshRuntimeState: async () => {},
   });
@@ -200,5 +201,69 @@ describe("useDashboardActions model catalog ownership", () => {
         tool_verification: { status: "supported" },
       },
     );
+  });
+
+  it("does not let a stale dashboard adapter catalog overwrite a newer refresh", async () => {
+    let resolveDashboardAdapters: (value: AgentAdapterResponse) => void = () => {};
+    let resolveRefreshAdapters: (value: AgentAdapterResponse) => void = () => {};
+    vi.mocked(api.getModels).mockResolvedValue({ object: "list", data: initialModels });
+    vi.mocked(api.getAgentAdapters)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveDashboardAdapters = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRefreshAdapters = resolve;
+        }),
+      );
+    const missing = {
+      id: "claude_code",
+      name: "Claude Code",
+      kind: "acp",
+      command: "claude",
+      available: false,
+      status: "missing",
+      supports_authenticate: false,
+      supports_logout: false,
+    };
+    const available = {
+      ...missing,
+      available: true,
+      status: "available",
+      path: "/Applications/Claude.app/Contents/MacOS/claude",
+    };
+    const { result } = renderHook(() => useDashboardHarness(), { wrapper: Wrapper });
+
+    let dashboardLoad: Promise<void> | undefined;
+    act(() => {
+      dashboardLoad = result.current.dashboard.loadDashboard();
+    });
+    await waitFor(() => {
+      expect(api.getAgentAdapters).toHaveBeenCalledTimes(1);
+    });
+
+    let refresh: ReturnType<
+      typeof result.current.providersAndModels.actions.refreshAgentAdapters
+    > | null = null;
+    act(() => {
+      refresh = result.current.providersAndModels.actions.refreshAgentAdapters();
+    });
+    await waitFor(() => {
+      expect(api.getAgentAdapters).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      resolveRefreshAdapters({ object: "agent_adapters", data: [available] });
+      await refresh;
+    });
+    expect(result.current.providersAndModels.state.agentAdapters[0]).toMatchObject(available);
+
+    await act(async () => {
+      resolveDashboardAdapters({ object: "agent_adapters", data: [missing] });
+      await dashboardLoad;
+    });
+    expect(result.current.providersAndModels.state.agentAdapters[0]).toMatchObject(available);
   });
 });

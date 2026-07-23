@@ -349,11 +349,38 @@ files; otherwise local dev and the published image diverge silently.
 
 The bundled External Agent packages are pinned with Docker build args in both
 Dockerfiles. When bumping Codex, Claude Code, Cursor Agent, or Grok Build
-support, update the package version args in both files. Cursor's official
-installer does not expose a version flag, so the Dockerfiles verify the
-installer script against `CURSOR_INSTALL_SHA256` before running it; refresh the
-checksum only after reviewing the new script and confirming the hardcoded
-Cursor Agent package it installs.
+support, update the package version args in both files. Cursor Agent is fetched
+from its official versioned Linux archives instead of executing Cursor's
+mutable installer. The Dockerfiles pin separate x64 and arm64 SHA-256 values,
+verify the selected archive before extraction, and fail on an unsupported
+architecture.
+
+Run `just cursor-agent-update` to prepare a Cursor Agent pin update. The command
+downloads the installer as bounded metadata but never executes it, requires one
+strict official artifact URL, validates both archives' paths, size, package
+identity, architecture, and executable shape, then rewrites both Dockerfiles
+together. It refuses advertised release dates older than the current pin and
+fails closed if an existing version's archive bytes change in place. Review the
+JSON report and Dockerfile diff before committing; these hashes establish the
+reviewed bytes but are not a vendor signature or attestation.
+
+Version suffixes are opaque, so two distinct versions with the same date have
+no trustworthy ordering. The updater rejects that transition by default. After
+confirming the same-day release is intentional, rerun
+`go run ./scripts/cursoragentupdate --allow-same-date-transition`; scheduled
+automation never supplies this override.
+
+The weekly `cursor-agent-update.yml` workflow performs the same check and opens
+or refreshes a PR from `automation/cursor-agent-update` when a new version is
+available. Generated PRs go through normal CI and are never auto-approved or
+auto-merged. An open proposal is immutable release evidence: neither changed
+bytes for the same version nor a later advertised version may replace it.
+Review and merge or close that PR before automation can propose another
+release. An identical proposal on the same `master` parent is not rewritten,
+avoiding needless CI and review-state churn. The updater refuses to mint its
+write token unless active `master` rules require reviewed PRs, latest-push
+approval, strict status checks, and protection from deletion and force-pushes;
+the dedicated App must also be absent from every bypass list.
 
 For published images, pin by tag in deployment examples and release notes.
 Avoid recommending `latest` for anything beyond quick experiments.

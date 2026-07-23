@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -149,25 +148,6 @@ func (m *SessionManager) SetWorkspaceCoordinator(registry *workspacecoord.Regist
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.workspaceCoordinator = registry
-}
-
-// shutdownCancelHook is invoked once per adapter id torn down via
-// Shutdown so the handler can fire the agent-chat-cancelled counter
-// with reason="shutdown". atomic.Pointer to keep Shutdown lock-free
-// on the hot path; nil is the no-op default.
-var shutdownCancelHook atomic.Pointer[func(adapterID string)]
-
-// SetShutdownCancelHook installs the callback fired once per active
-// session being torn down via SessionManager.Shutdown. The handler
-// wires this so the agent-chat-cancelled counter fires with
-// reason="shutdown" without coupling the agentadapters package to
-// the handler's metrics struct directly.
-func SetShutdownCancelHook(hook func(adapterID string)) {
-	if hook == nil {
-		shutdownCancelHook.Store(nil)
-		return
-	}
-	shutdownCancelHook.Store(&hook)
 }
 
 // Coordinator returns the installed approval coordinator (or nil).
@@ -722,18 +702,6 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 	}
 	m.closed = true
 	m.mu.Unlock()
-
-	// Fire the shutdown cancellation hook once per active session
-	// before tearing each down so dashboards see the operator-vs
-	// shutdown split. No-op when no hook is installed.
-	if hook := shutdownCancelHook.Load(); hook != nil {
-		callback := *hook
-		for _, session := range items {
-			if session != nil {
-				callback(session.adapter.ID)
-			}
-		}
-	}
 
 	for _, start := range starts {
 		if start.cancel != nil {

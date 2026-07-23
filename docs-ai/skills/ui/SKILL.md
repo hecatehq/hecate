@@ -177,6 +177,27 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Treat missing metadata, missing exact-turn terminal proof, timeout, or stale
   destructive-mutation ownership as `reconcile_required`; never let later
   queued work overtake it.
+- An admitted External Agent turn is server-owned after its running assistant is
+  durable. When app hydration or chat selection finds an authoritatively busy
+  External Agent session, or a session whose durable tail is a user message,
+  without a locally owned submit, follow that session from the app lifetime:
+  subscribe to its typed stream, apply the initial and live snapshots, reconcile
+  approval events, and retry an unexpected stream close with bounded backoff.
+  Treat an initial idle snapshot after a trailing user message as an admission
+  gap, not terminal proof. The locally owned submit stream must use the same
+  bounded reconnect behavior rather than leaving ownership with a dead stream.
+  After every reconnect, refetch pending approvals because approval events are
+  not replayed. Abort that local observer on terminal state, chat switch, or
+  unmount without calling the cancellation endpoint. Do not create a second
+  observer while the local submit already owns one, and preserve accepted-Stop
+  fences so a reordered snapshot or approval cannot restore cancelled work.
+  A passive observer treats `409 chat.session_not_running` for a trailing-user
+  admission gap as authoritative interruption and stops reconnecting. A local
+  observer paired with a replacement submit retries that response until its
+  POST is admitted or settles, because the stream can inspect the previous
+  orphan immediately before the new POST registers its turn.
+  Treat a session GET `404` as authoritative deletion: install the durable
+  deletion fence and remove the ghost session instead of retrying indefinitely.
 - Treat `POST /chat/sessions/{id}/cancel` `202` as a signal acknowledgement,
   not a terminal session snapshot. Keep a session/turn-scoped fence after the
   acknowledgement, suppress reordered busy snapshots and approval requests,
@@ -415,15 +436,33 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Render only `http`/`https` locators as links; show every other locator as
   plain escaped text. Source notes are metadata, not project memory, until the
   operator promotes or rewrites them as memory.
-- External Agent readiness belongs in Connections and in the picker
-  diagnostics: distinguish missing binaries, auth/billing problems, unsupported
-  versions, and managed-launcher issues without sending users to raw logs first.
-  Catalog discovery means only that an app path was found: render it as
-  **Found** or **Not tested**, never **Ready**. Opening Chats or Connections
-  must not probe, start, authenticate, or otherwise execute a discovered app.
-  Keep execution behind an explicit action whose accessible name or help text
-  says it starts the app; `POST /agent-adapters/{id}/probe` is that boundary.
-  To smoke-test adapter states without uninstalling local tools, use
+- External Agent availability belongs in the picker; optional launch
+  diagnostics belong in Connections and can also inform picker detail.
+  Distinguish missing binaries, required remote credentials, auth/billing
+  problems, unsupported versions, and managed-launcher issues without sending
+  users to raw logs first. Catalog discovery means only that an eligible app
+  path was found: render it as **Available**, never **Ready**. Missing/rejected
+  executables and absent required remote credentials are launch blockers.
+  Cached auth, billing, version, or probe failures are advisory and must not
+  disable agent selection, **New chat**, attachments, or Send; the operator may
+  have repaired the app since that diagnostic ran.
+- Opening Chats or Connections must not probe, start, authenticate, or otherwise
+  execute a discovered app. **New chat** re-resolves the current executable and
+  prepares a fresh ACP session for the real chat. Direct ACP peers start during
+  that setup. Embedded bridges may run bounded provider discovery during setup
+  while deferring their prompt-serving vendor invocation and prompt-time auth
+  result until the first message, which is authoritative for that deferred work.
+  `POST /agent-adapters/{id}/probe` is an optional disposable diagnostic, not a
+  prerequisite or launch authority. Its accessible name/help text must say that
+  it starts a temporary ACP session and may execute the app for diagnostics.
+- Route every passive External Agent catalog read—dashboard hydration, manual
+  Refresh, and the post-diagnostic re-read—through
+  `loadAgentAdapterCatalog`. That provider/model slice owns request ordering
+  and the merge between catalog-owned `available`/`status`/`error`/`path`/
+  remote-credential fields and cached diagnostic evidence. Never commit an API
+  catalog response through the raw `setAgentAdapters` fixture/projection
+  setter.
+- To smoke-test adapter states without uninstalling local tools, use
   `just dev-no-agent-adapters` or
   `just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'`.
   These fixture env vars are test/development-only and intentionally absent from
@@ -666,6 +705,58 @@ The API owns real media sniffing, size/read/concurrency limits, and the provider
 generation fence for the provider branch only. Client Web Speech routes do not
 call it. The UI disclosure copy must not claim a `kind=local` custom URL is
 enforced loopback egress.
+
+## Chat read-aloud ownership
+
+`useReadAloud` owns the browser speech-synthesis lifecycle for Chat;
+`ChatTranscript` owns the single active response and
+`TranscriptMessageRow` only renders the accessible action. Keep these
+boundaries when changing text-to-speech:
+
+- treat read aloud as client playback, not a model, provider, preset, ACP, or
+  External Agent capability. Every settled assistant response reaches the same
+  shared transcript path;
+- require both Web Speech synthesis and an explicit voice whose
+  `localService` property is `true`. Never leave `utterance.voice` unset or
+  silently select a remote voice. Explain how to install or enable a system
+  voice when none is available;
+- revalidate the selected local voice before every chunk and after
+  `voiceschanged`. If that exact voice identity disappears, stop and report it;
+  never switch an active response to another voice or browser default;
+- start only from the operator's **Read aloud** action. Do not auto-read a new
+  response, mutable streaming text, tool activity, or status changes;
+- derive speech text from the persisted visible assistant `content`, not DOM
+  `textContent`. Flatten Markdown deterministically, speak link labels rather
+  than destinations, retain inline code and literal JSX/HTML-like source and
+  entity spelling, replace URI-shaped visible values—including labels, inline
+  code, and tag-like attribute values—with “link,” mark fenced code as omitted,
+  and exclude attachments, MCP Apps, activities, diffs, raw output, timing,
+  usage, context packets, and debug bundles. Keep link parsing in the shared
+  Markdown parser; do not add a speech-only Markdown grammar or interpret
+  visible tag-like source as HTML;
+- keep one controller for the transcript because `speechSynthesis` has a
+  page-global queue. Starting another response cancels the old generation;
+  ignore late completion/error events from cancelled utterances and cancel on
+  chat switch, message invalidation, or unmount;
+- bound source parsing, total speech text, and each utterance. If a source bound
+  cuts a Markdown destination, omit from that unmatched link start. Preserve
+  the audible truncation notice rather than silently stopping a long answer;
+- keep the stable Read aloud toggle label, `aria-pressed`, Stop tooltip/icon, a
+  polite status announcement, keyboard-visible message actions, touch
+  visibility, and reduced-motion behavior aligned. Text-to-speech needs no
+  microphone permission;
+- route host/voice failures through the existing visible Hecate notice. When
+  that alert handles the error, clear the read-aloud polite live region so
+  assistive technology receives exactly one announcement;
+- mock both `speechSynthesis` and `SpeechSynthesisUtterance` in focused tests.
+  Cover remote-only/unsupported hosts, voice refresh, replacement, Stop,
+  generation races, chat changes, Markdown normalization, and Hecate plus
+  External Agent integration. Native real-machine voice smoke remains a
+  separate platform check.
+
+Voice/rate selection, pause/resume, word highlighting, automatic playback,
+Task Detail narration, and native Rust fallbacks are outside the initial Chat
+control. Add them only with explicit UX and platform contracts.
 
 ## Build / test commands
 

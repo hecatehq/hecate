@@ -554,7 +554,7 @@ func TestAgentChatSettlementAbortedClaimRelinquishesOwnerAndReaps(t *testing.T) 
 	}
 }
 
-func TestAgentChatSettlementFinalReadPublishesAuthoritativeSnapshot(t *testing.T) {
+func TestAgentChatSettlementFinalReadPublishesAuthoritativeSettledSnapshot(t *testing.T) {
 	t.Parallel()
 
 	store := chat.NewMemoryStore()
@@ -576,9 +576,9 @@ func TestAgentChatSettlementFinalReadPublishesAuthoritativeSnapshot(t *testing.T
 		t.Fatal("pre-interleaving snapshot unexpectedly contains terminal activity")
 	}
 	turn.terminalActivity(agentadapters.Activity{ID: "terminal:publish", Type: "terminal", Status: "completed", Title: "Terminal command"})
-	current, err := turn.currentSession(context.Background(), true)
+	current, err := turn.settledSession(context.Background())
 	if err != nil {
-		t.Fatalf("currentSession: %v", err)
+		t.Fatalf("settledSession: %v", err)
 	}
 	turn.finish()
 	if activity := findChatActivity(current.Messages[0].Activities, "terminal:publish"); activity == nil || activity.Status != "completed" {
@@ -596,6 +596,12 @@ func TestAgentChatSettlementFinalReadPublishesAuthoritativeSnapshot(t *testing.T
 drained:
 	if last.SessionUpdate == nil {
 		t.Fatal("final authoritative session publish missing")
+	}
+	if !last.turnSettled {
+		t.Fatal("final authoritative session publish was not marked settled")
+	}
+	if last.settledMessageID != "msg_origin" {
+		t.Fatalf("settled message id = %q, want msg_origin", last.settledMessageID)
 	}
 	activity := findChatActivityByType(last.SessionUpdate.Data.Messages[0], "terminal")
 	if activity.ID != "terminal:publish" || activity.Status != "completed" {

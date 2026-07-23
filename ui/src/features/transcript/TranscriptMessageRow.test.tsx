@@ -352,6 +352,126 @@ describe("TranscriptMessageRow", () => {
     expect(onCopy).toHaveBeenCalledWith("m1", "hello");
   });
 
+  it("offers settled assistant responses to the read-aloud controller", async () => {
+    const onToggle = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="completed"
+        readAloud={{ active: false, onToggle }}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Read response aloud" });
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    await user.click(button);
+    expect(onToggle).toHaveBeenCalledWith("m1", "hello");
+  });
+
+  it("keeps the active stop control visible and exposes its pressed state", () => {
+    const { container } = render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="completed"
+        readAloud={{ active: true, onToggle: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Read response aloud" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(container.querySelector(".transcript-message-actions")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+  });
+
+  it("keeps unavailable system-voice guidance accessible on keyboard and touch", async () => {
+    const onToggle = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="completed"
+        readAloud={{
+          active: false,
+          disabledReason: "Install or enable a local system voice to use read aloud.",
+          onToggle,
+        }}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Read response aloud" });
+    expect(button).not.toBeDisabled();
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).not.toHaveAttribute("aria-pressed");
+    expect(button).toHaveAccessibleDescription(
+      "Install or enable a local system voice to use read aloud.",
+    );
+    expect(button).toHaveAttribute(
+      "title",
+      "Install or enable a local system voice to use read aloud.",
+    );
+    await user.click(button);
+    expect(onToggle).toHaveBeenCalledWith("m1", "hello");
+  });
+
+  it("keeps Stop operable if availability changes during active speech", async () => {
+    const onToggle = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="completed"
+        readAloud={{
+          active: true,
+          disabledReason: "Install or enable a local system voice to use read aloud.",
+          onToggle,
+        }}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Read response aloud" });
+    expect(button).not.toHaveAttribute("aria-disabled");
+    await user.click(button);
+    expect(onToggle).toHaveBeenCalledWith("m1", "hello");
+  });
+
+  it("does not offer read aloud for user, empty, running, or failed rows", () => {
+    const readAloud = { active: false, onToggle: vi.fn() };
+    const { rerender } = render(
+      <TranscriptMessageRow {...baseProps} role="user" readAloud={readAloud} />,
+    );
+    expect(screen.queryByRole("button", { name: "Read response aloud" })).toBeNull();
+
+    rerender(<TranscriptMessageRow {...baseProps} content="  " readAloud={readAloud} />);
+    expect(screen.queryByRole("button", { name: "Read response aloud" })).toBeNull();
+
+    rerender(<TranscriptMessageRow {...baseProps} badge="running" readAloud={readAloud} />);
+    expect(screen.queryByRole("button", { name: "Read response aloud" })).toBeNull();
+
+    rerender(<TranscriptMessageRow {...baseProps} badge="failed" readAloud={readAloud} />);
+    expect(screen.queryByRole("button", { name: "Read response aloud" })).toBeNull();
+  });
+
+  it("keeps message actions keyboard reachable without pointer hover", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="completed"
+        readAloud={{ active: false, onToggle: vi.fn() }}
+      />,
+    );
+
+    await user.tab();
+    expect(container.querySelector(".transcript-message-actions")).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+  });
+
   it("copies a quiet turn debug bundle for assistant messages", async () => {
     const onCopy = vi.fn();
     const user = userEvent.setup();

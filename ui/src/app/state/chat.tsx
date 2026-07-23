@@ -376,6 +376,7 @@ export type ChatActions = {
   chatAttachmentTurnSessionID: () => string;
   currentActiveChatSessionID: () => string;
   tombstoneDeletedChatSession: (sessionID: string) => void;
+  fenceDeletedChatSession: (sessionID: string) => boolean;
   isChatSessionDeleted: (sessionID: string, projectID?: string) => boolean;
   chatOwnershipMutationBlockReason: () => string;
   fenceDeletedChatProject: (projectID: string) => boolean;
@@ -1615,6 +1616,21 @@ export function ChatProvider({
     [chatStopFenceAllowsOmission, clearDeletedSessionState],
   );
 
+  const fenceDeletedChatSession = useCallback(
+    (sessionID: string) => {
+      const id = sessionID.trim();
+      if (!id) return true;
+      return clearDeletedSessionState(
+        new Set([id]),
+        activeChatSessionIDRef.current === id || activeChatSessionRef.current?.id === id,
+        () => false,
+        "",
+        true,
+      );
+    },
+    [clearDeletedSessionState],
+  );
+
   const fenceDeletedChatProject = useCallback(
     (projectID: string) => {
       const id = projectID.trim();
@@ -1882,6 +1898,7 @@ export function ChatProvider({
       chatAttachmentTurnSessionID,
       currentActiveChatSessionID,
       tombstoneDeletedChatSession,
+      fenceDeletedChatSession,
       isChatSessionDeleted,
       chatOwnershipMutationBlockReason,
       fenceDeletedChatProject,
@@ -1979,6 +1996,7 @@ export function ChatProvider({
       chatAttachmentTurnSessionID,
       currentActiveChatSessionID,
       tombstoneDeletedChatSession,
+      fenceDeletedChatSession,
       isChatSessionDeleted,
       chatOwnershipMutationBlockReason,
       fenceDeletedChatProject,

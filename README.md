@@ -81,8 +81,8 @@ The short version:
 - **Native runtime:** queued task runs, tool-calling `agent_loop`, approvals,
   per-call sandbox policy, artifacts, retries, resumes, and event streams.
 - **External Agent supervision:** long-lived local ACP sessions for coding-agent
-  CLIs, with readiness checks, approvals, adapter diagnostics, and Git diff
-  review.
+  CLIs, with passive discovery, fresh ACP session setup, first-message vendor
+  readiness, optional diagnostics, approvals, and Git diff review.
 - **ACP agent:** a local stdio endpoint that lets an ACP-capable editor use
   Hecate's native task runtime without bypassing its policy or evidence trail.
 - **Agent orchestration:** project work, roles, assignments, handoffs, review
@@ -181,12 +181,12 @@ matters.
 | Surface              | What works today                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Model gateway**    | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                                                                                                                                                                                                                                                                                                     |
-| **Connections**      | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, dictation-route readiness, external-agent readiness, and durable approval grants.                                                                                                                                                                                                                                                                                                                                    |
-| **Chats**            | Provider-routed dictation, Hecate turns with image attachments, External Agent turns with arbitrary file inputs, Hecate Chat selection of a frozen named runtime preset, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                                                                                        |
+| **Connections**      | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, dictation-route readiness, external-agent availability and optional diagnostics, and durable approval grants.                                                                                                                                                                                                                                                                                                        |
+| **Chats**            | Provider-routed dictation, client-side read aloud through browser-reported local voices, Hecate turns with image attachments, External Agent turns with arbitrary file inputs, Hecate Chat selection of a frozen named runtime preset, tools-on task-backed turns with managed-workspace or current-folder execution, queued prompts, task/run/trace links, inline approvals, inline MCP Apps views, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                          |
 | **Projects**         | Cairnline-backed project identity, roots, context and skill metadata, roles, work items, assignments, handoffs, project memory, review artifacts, and memory candidates, presented through Hecate's native operator cockpit and execution links.                                                                                                                                                                                                                                                                                               |
 | **Tasks**            | Native `agent_loop` Runs, one-time and cron Schedules with durable occurrence history, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-Run recovery, MCP tool/App integration, MCP probe, MCP registry discovery, and a built-in report-only `qa` workflow that records its read-only contract and clearly labels agent-reported findings separately from Hecate-observed posture/evidence.                                                                                                       |
 | **Browser evidence** | Optional, local native-browser inspection for native project-assignment tasks: script-disabled, exact-origin `GET`/`HEAD` static loads in a fresh profile, explicit approval for every call, a single wall-clock timeout, cancellation after 4 MiB of observed aggregate response data (with possible buffered overshoot), and a bounded text-only evidence artifact. It requires an operator-configured executable and does not expose scripts, clicks, typing, downloads, screenshots, saved browser state, Hecate Chat, or External Agents. |
-| **External Agent**   | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including file inputs, readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.                                                                                                                                                                                                                                                                  |
+| **External Agent**   | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including file inputs, passive executable discovery, fresh session handshakes, prompt-time vendor readiness, optional version/auth diagnostics, prompt-first approvals, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing.                                                                                                                                                                                        |
 | **ACP agent**        | `hecate acp serve` exposes Hecate's native `agent_loop` to local ACP-capable editors and clients. Text prompts map to durable tasks and runs; Hecate retains provider routing, policy, approvals, artifacts, and observability. [See the ACP agent contract.](docs/runtime/acp.md)                                                                                                                                                                                                                                                             |
 | **Observability**    | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                                                                                                                                                                                                                                                                                                    |
 | **Desktop app**      | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -364,6 +364,17 @@ desktop provider capture remain experimental until they have real-machine audio
 smoke coverage. Dictation never sends the chat message automatically, and
 text-to-speech/read-aloud is a separate capability.
 
+Settled assistant responses also expose **Read aloud** when the current browser
+or desktop webview reports an installed local text-to-speech voice. Hecate uses
+that explicit device voice without calling a model, adapter, or Hecate backend
+speech route, so the same control works for Hecate and every External Agent.
+Only the visible response text is spoken: Markdown formatting is flattened,
+literal JSX/HTML-like examples and entity spellings remain audible, URI-shaped
+text—including link labels, inline code, and tag-like attribute values—becomes
+“link,” fenced code is announced as omitted, and attachments, tool activity,
+diffs, raw output, context packets, and debug data stay out of the speech queue.
+A new read stops the previous one, and changing chats stops playback.
+
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 
 ### Review workspace changes
@@ -379,6 +390,10 @@ files without digging through transcript noise.
 External Agent sessions use Hecate's built-in ACP adapters for owned
 integrations and direct local ACP CLIs for Cursor and Grok. Hecate supervises
 the session but does not proxy or pool those vendors' credentials.
+After Hecate durably admits a turn, reloading or closing its browser/webview
+connection does not stop the agent; reopen the chat to follow it, or use
+**Stop** when it should not continue. Quitting the desktop app is different:
+the app shuts down the Hecate runtime and cancels and drains active agents.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
