@@ -1,6 +1,10 @@
 # Release recipes: cut a tag, preflight-only validation, docker-stack reset
 # (paired with release verification flows that exercise the production image).
 
+# Check protected-branch release delivery and updater artifact selection.
+release-workflow-check:
+	bun scripts/check-release-workflows.ts
+
 # Validate release-only dependencies without running the full verification
 # gate. Optional args pass through to scripts/release.ts.
 # Check release-only dependencies.

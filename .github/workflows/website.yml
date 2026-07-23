@@ -24,8 +24,26 @@ jobs:
   build:
     name: Build website
     runs-on: ubuntu-latest
+    outputs:
+      release_manifest_version: ${{ steps.release-manifest.outputs.version }}
+      release_manifest_sha256: ${{ steps.release-manifest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Read updater manifest version
+        id: release-manifest
+        run: |
+          set -euo pipefail
+          manifest=website/public/releases/alpha/latest.json
+          if [ ! -f "$manifest" ]; then
+            echo 'version=' >>"$GITHUB_OUTPUT"
+            echo 'sha256=' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version=$(jq -er '.version | select(type == "string" and length > 0)' "$manifest")
+          sha256=$(sha256sum "$manifest" | awk '{print $1}')
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -52,7 +70,7 @@ jobs:
         working-directory: website
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v5
         with:
           path: website/dist
@@ -60,7 +78,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -76,3 +94,36 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5
+
+      # The protected delivery PR merge triggers this workflow through an
+      # ordinary master push. Keep the public updater channel in the deploy
+      # gate so a green Website run proves both Pages publication and CDN
+      # propagation for the committed manifest.
+      - name: Verify updater manifest is live
+        if: needs.build.outputs.release_manifest_sha256 != ''
+        env:
+          WANT_SHA256: ${{ needs.build.outputs.release_manifest_sha256 }}
+          WANT_VERSION: ${{ needs.build.outputs.release_manifest_version }}
+        run: |
+          set -euo pipefail
+          live_manifest="${RUNNER_TEMP}/live-alpha-latest.json"
+          deadline=$(( $(date +%s) + 600 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            if curl -sf \
+              "https://hecate.sh/releases/alpha/latest.json?cb=$(date +%s)" \
+              --output "${live_manifest}"; then
+              live_sha256=$(sha256sum "${live_manifest}" | awk '{print $1}')
+              live_version=$(jq -r '.version // ""' "${live_manifest}" || true)
+              if [ "$live_sha256" = "$WANT_SHA256" ]; then
+                echo "manifest live at hecate.sh, version=$live_version sha256=$live_sha256"
+                exit 0
+              fi
+            else
+              live_sha256=''
+              live_version=''
+            fi
+            echo "waiting for exact updater manifest (saw version=${live_version:-(none)} sha256=${live_sha256:-(none)}, want version=$WANT_VERSION sha256=$WANT_SHA256)"
+            sleep 15
+          done
+          echo "::error::manifest at hecate.sh did not advance to version=$WANT_VERSION sha256=$WANT_SHA256 within 10 min"
+          exit 1

@@ -34,9 +34,9 @@ Practical consequences:
   "latest" semantics explicitly skip pre-releases.
 - In-app auto-update therefore cannot rely on
   `/releases/latest/download/latest.json`. The desktop app instead
-  reads `https://hecate.sh/releases/alpha/latest.json`, which CI
-  publishes after every successful release via the
-  `publish-updater-website` job in `_tauri-shared.yml`. See
+  reads `https://hecate.sh/releases/alpha/latest.json`. CI prepares
+  that update in a protected-branch release-delivery PR; merging the
+  reviewed PR triggers the Website deploy and live-version check. See
   [`desktop-updater-signing.md`](../operator/desktop-updater-signing.md) for the
   pipeline and troubleshooting.
 - Once `v1.0.0` ships, that release lands without the pre-release
@@ -62,8 +62,8 @@ channel endpoint.
 
 ## What a release produces
 
-Every `v*` tag fires `.github/workflows/release.yml`, which expands into these
-ordered stages:
+Every `v*` tag fires `.github/workflows/release.yml`, which packages the
+release through these ordered packaging and protected-delivery stages:
 
 1. **Release ref and mobile preflight** — rejects non-tag manual dispatches,
    then compiles the unsigned iOS Simulator app and Android arm64 debug APK.
@@ -83,20 +83,29 @@ ordered stages:
    manually exercised on real machines yet.
 4. **`tauri / publish updater manifest`** — stitches signed updater payloads
    into `latest.json` and uploads the GitHub Release copy.
-5. **`tauri / publish updater manifest to website`** — commits the same
-   manifest to `website/public/releases/alpha/`, dispatches the website
-   deploy, and blocks until `https://hecate.sh/releases/alpha/latest.json`
-   serves the new version.
-6. **`update-release-docs`** — reads the actual uploaded Release assets and
-   refreshes the README Desktop app table plus pinned Docker/tarball examples.
-   This runs only after the Tauri matrix succeeds, so it never links to bundles
-   that were not published.
+5. **`Prepare release delivery proposal`** — reads the canonical manifest and
+   actual
+   uploaded assets, validates their provenance, refreshes
+   `website/public/releases/alpha/latest.json`, the README Desktop app table,
+   and pinned Docker/tarball examples, validates the website, then uploads an
+   allowlisted patch, canonical manifest, diff stat, and provenance JSON as
+   `release-delivery-<tag>`. The release workflow has read-only repository
+   access: a maintainer applies the patch on current `master` and opens the PR,
+   which triggers ordinary CI without an App/PAT secret or ruleset bypass.
+6. **Post-merge Website deploy** — after a maintainer approves the latest push
+   and merges the delivery PR, the ordinary `master` push runs `website.yml`.
+   Its deploy job blocks until `https://hecate.sh/releases/alpha/latest.json`
+   matches the committed manifest's exact SHA-256.
 
 Acceptance after the run:
 
-- All release jobs green.
+- The release workflow is green and reports one delivery proposal artifact (or
+  proves the exact delivery already exists on `master`).
 - The unsigned iOS Simulator and Android arm64 debug compile gates are green.
   They deliberately do not attach mobile binaries to the GitHub Release.
+- The delivery PR's Required checks, Website, and Links runs are green; a
+  maintainer approves its latest push and merges it through protected
+  `master`.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Release entry has non-empty notes: the annotated tag's Markdown for a
   substantive release, otherwise GoReleaser's generated changelog. The desktop
@@ -111,10 +120,12 @@ Acceptance after the run:
   macOS Apple Silicon is launch-tested; Linux and Windows desktop bundles are
   experimental until real-machine smoke coverage exists.
 - README Desktop app table and pinned install examples point at the release
-  tag. The workflow commits this docs-only refresh to `master` with `[skip ci]`.
-- `https://hecate.sh/releases/alpha/latest.json` serves the same version as
-  the release tag. This is the updater endpoint bundled into alpha.28+ desktop
-  apps; the GitHub Release `latest.json` asset is a backup/source artifact.
+  tag through the reviewed delivery PR.
+- `https://hecate.sh/releases/alpha/latest.json` matches the committed
+  manifest's exact SHA-256. Version remains a useful diagnostic, but cannot
+  prove that corrected signatures or URLs for the same tag propagated. This is
+  the updater endpoint bundled into alpha.28+ desktop apps; the GitHub Release
+  `latest.json` asset is the canonical source artifact.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains
   `/usr/local/bin/hecate`; the entrypoint is `/usr/local/bin/hecate`.
@@ -256,7 +267,8 @@ Pre-flight checks before the snapshot run (the script enforces these):
 (`Cargo.toml`, `package.json`, the base Tauri config, and both mobile
 store-version overlays). After the Release bundles are uploaded,
 `.github/workflows/release.yml` automatically refreshes release docs via
-`scripts/update-release-links.ts`.
+`scripts/update-release-links.ts` in the same protected delivery PR as the
+updater website manifest.
 
 The post-release updater covers:
 
@@ -271,7 +283,8 @@ in the same change so future releases do not drift.
 
 ## Recovery
 
-If the CI run fails after pushing the tag:
+If artifact packaging or signing fails before the GitHub Release has a valid
+three-platform `latest.json`, clean up and retag:
 
 ```bash
 git push --delete origin vX.Y.Z
@@ -290,6 +303,63 @@ mostly idempotent — a clean retag at a fixed commit produces the same artifact
 For Tauri-side failures, the `.dmg` / `.deb` / `.AppImage` / `.msi` may be
 partially uploaded. `tauri-action` uploads with `--clobber`, so a retag
 re-uploads cleanly without manual cleanup.
+
+Do **not** delete or move a valid release tag because only the post-release
+delivery proposal failed. When the Release entry, bundles, signatures, and
+`latest.json` are complete, recover from current `master` without rebuilding:
+
+```bash
+gh workflow run release-delivery.yml \
+  --repo hecatehq/hecate \
+  --ref master \
+  -f tag=vX.Y.Z
+```
+
+Download the `release-delivery-vX.Y.Z` artifact, verify `provenance.json`, apply
+`release-delivery.patch` on current `master`, and open the delivery PR. Require
+the Website run for that merge to verify the live manifest's exact SHA-256. A
+release-delivery failure is a protected-branch publication issue, not
+permission to delete a valid public release.
+
+Given the Actions run ID that produced the proposal, the bounded handoff is:
+
+```bash
+proposal_dir=$(mktemp -d)
+gh run download RUN_ID \
+  --repo hecatehq/hecate \
+  --name release-delivery-vX.Y.Z \
+  --dir "$proposal_dir"
+expected_patch_sha=$(jq -r .patch_sha256 "$proposal_dir/provenance.json")
+actual_patch_sha=$(shasum -a 256 "$proposal_dir/release-delivery.patch" | awk '{print $1}')
+test "$actual_patch_sha" = "$expected_patch_sha"
+
+git fetch origin master
+git switch -c release/delivery-vX.Y.Z origin/master
+git apply --check "$proposal_dir/release-delivery.patch"
+git apply --index "$proposal_dir/release-delivery.patch"
+git diff --cached --check
+git diff --cached --name-only
+git commit -m "chore(release): deliver vX.Y.Z"
+git push --set-upstream origin HEAD
+gh pr create --base master --fill
+```
+
+The staged path list must exactly match `allowed_paths` in `provenance.json`.
+If `git apply --check` fails because `master` moved, do not force it: dispatch
+`release-delivery.yml` again from current `master` and use the fresh proposal.
+
+Older runs may have attached Debian package internals named `control.tar.gz`
+and `data.tar.gz` because the updater upload walked every `*.tar.gz` below the
+bundle directory. They are not updater payloads and are not listed in
+`checksums.txt` or `latest.json`. After verifying those two facts for the
+specific release, remove only those named assets:
+
+```bash
+gh release delete-asset vX.Y.Z control.tar.gz \
+  --repo hecatehq/hecate --yes
+gh release delete-asset vX.Y.Z data.tar.gz \
+  --repo hecatehq/hecate --yes
+```
 
 If the macOS leg fails during Apple notarization with HTTP 403 and wording like
 "a required agreement is missing or has expired", the repository state is not

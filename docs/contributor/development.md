@@ -217,15 +217,16 @@ Oxfmt for formatting; lychee still validates links and fragments.
 GitHub Actions is split by surface so small changes do not wake the whole
 project:
 
-| Workflow                  | Trigger                                                                    | Purpose                                                                                                  |
-| ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `test.yml`                | Every PR; pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation.     |
-| `website.yml`             | Website changes and release-manifest updates                               | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh).                            |
-| `links.yml`               | PRs and pushes                                                             | Markdown formatting, link, fragment, and Mermaid validation.                                             |
-| `maintenance.yml`         | Nightly and manual dispatch                                                | Repeatable maintenance and race-test report, with external link drift kept informational.                |
-| `cursor-agent-update.yml` | Weekly and manual dispatch                                                 | Validate official Cursor Agent artifacts and open a human-reviewed two-Dockerfile pin update.            |
-| `release.yml`             | `v*` tags and manual dispatch                                              | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, website manifest publish. |
-| `tauri-build.yml`         | Manual dispatch only                                                       | Explicit desktop bundle rebuild/debug run from the Actions tab.                                          |
+| Workflow                  | Trigger                                                                    | Purpose                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `test.yml`                | Every PR; pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation. |
+| `website.yml`             | Website changes and release-manifest updates                               | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh).                        |
+| `links.yml`               | PRs and pushes                                                             | Markdown formatting, link, fragment, and Mermaid validation.                                         |
+| `maintenance.yml`         | Nightly and manual dispatch                                                | Repeatable maintenance and race-test report, with external link drift kept informational.            |
+| `cursor-agent-update.yml` | Weekly and manual dispatch                                                 | Validate official Cursor Agent artifacts and open a human-reviewed two-Dockerfile pin update.        |
+| `release.yml`             | `v*` tags and manual dispatch                                              | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, delivery proposal.    |
+| `release-delivery.yml`    | Release workflow call and manual recovery                                  | Validate a published manifest and upload a bounded website/docs patch for review.                    |
+| `tauri-build.yml`         | Manual dispatch only                                                       | Explicit desktop bundle rebuild/debug run from the Actions tab.                                      |
 
 The main `Test` workflow starts every PR with a path filter. Go, TypeScript,
 Docker, and Tauri Rust jobs run only when their inputs changed, while workflow
@@ -266,6 +267,15 @@ to the current repository, checks out and validates with the read-only workflow
 token, mints the write token only when a real update exists, pins every action
 in that privileged workflow to an immutable commit, and never approves or
 merges its generated PR.
+
+Release delivery deliberately does not reuse that privileged shape. The
+repository-wide setting that lets `GITHUB_TOKEN` create or approve pull
+requests remains disabled, and `release-delivery.yml` has read-only repository
+permission. It validates the canonical Release asset and website, then uploads
+an allowlisted patch plus checksummed provenance. A maintainer applies the
+proposal on current `master` and opens the PR, which preserves ordinary
+Required checks, Website, Links, and human latest-push review without another
+App/PAT secret or ruleset bypass.
 
 Desktop packaging is intentionally gated inside `test.yml`: the
 `Tauri desktop bundles` matrix waits for the cheaper Go, TypeScript, e2e,

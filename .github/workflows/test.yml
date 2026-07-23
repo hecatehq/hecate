@@ -47,6 +47,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ui/package.json
+
+      - name: Validate release workflows
+        run: bun scripts/check-release-workflows.ts
+
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -580,7 +587,6 @@ jobs:
     uses: ./.github/workflows/_tauri-shared.yml
     permissions:
       contents: write
-      actions: write
     with:
       # Desktop PR validation runs after the cheaper test matrix so failing
       # unit/e2e checks don't burn macOS/Windows/Linux packaging minutes.

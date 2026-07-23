@@ -12,13 +12,12 @@ concurrency:
   group: tauri-build-${{ github.ref }}
   cancel-in-progress: true
 
-# Caller permissions must cover the maximum requested by the shared workflow.
-# GitHub validates reusable-workflow permissions at startup, before `if:` gates
-# can skip release-only jobs. PR builds still do not inherit repository secrets,
-# and fork PRs receive a read-only token regardless of this declaration.
+# The caller must grant the contents permission requested by the shared workflow.
+# GitHub validates reusable-workflow permissions at startup, before release-only
+# gates can skip writes. This manual build does not inherit repository secrets
+# and sets uploadArtifacts=false, so it cannot publish bundles.
 permissions:
   contents: write
-  actions: write
 
 jobs:
   tauri:
@@ -39,7 +38,6 @@ jobs:
     # secret access.
     permissions:
       contents: write
-      actions: write
     with:
       # PR validation only needs to prove every desktop bundle can be built.
       # Uploading the large unsigned bundles as workflow artifacts has proved
