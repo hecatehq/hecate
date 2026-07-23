@@ -617,7 +617,10 @@ Use this order when launching or troubleshooting:
    auth/capability, and launch-control troubleshooting details. It may consume
    a no-op session and is advisory rather than a launch gate. Hecate re-reads
    passive discovery after it completes so repaired installs become selectable
-   without treating the diagnostic result itself as authority.
+   without treating the diagnostic result itself as authority. The UI may keep
+   process-derived version, auth, capability, and launch-control details beside
+   the cached diagnostic, but availability, path, and remote-credential gates
+   always come from the latest passive catalog response.
 4. **Chat turn** — after the real session exists, send a prompt. If a turn
    fails, open the message's raw diagnostics disclosure; the normalized
    transcript is for reading, raw ACP output is for debugging.

@@ -158,6 +158,34 @@ describe("resolveDashboardSnapshot", () => {
     expect(snapshot.activeChatSessionMissing).toBe(false);
   });
 
+  it("uses the supplied external-agent catalog loader", async () => {
+    const loadAgentAdapters = vi.fn().mockResolvedValue({
+      object: "agent_adapters",
+      data: [
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "acp",
+          command: "claude",
+          available: true,
+          status: "available",
+          supports_authenticate: true,
+          supports_logout: true,
+        },
+      ],
+    });
+
+    const snapshot = await resolveDashboardSnapshot({
+      activeChatSessionID: "",
+      previous: emptyPrev,
+      loadAgentAdapters,
+    });
+
+    expect(loadAgentAdapters).toHaveBeenCalledTimes(1);
+    expect(api.getAgentAdapters).not.toHaveBeenCalled();
+    expect(snapshot.agentAdapters[0]?.id).toBe("claude_code");
+  });
+
   it("falls back to previous state when an endpoint rejects", async () => {
     vi.mocked(api.getAgentAdapters).mockRejectedValue(new Error("network"));
     const previous = {
