@@ -21,10 +21,9 @@ permissions:
   packages: write   # push images to ghcr.io
 
 jobs:
-  goreleaser:
+  validate-release-ref:
+    name: Validate release ref
     runs-on: ubuntu-latest
-    outputs:
-      release_body_sha256: ${{ steps.release-body.outputs.sha256 }}
     steps:
       - name: Validate release ref
         env:
@@ -37,6 +36,23 @@ jobs:
             exit 1
           fi
 
+  # Compile both native mobile targets before creating any public release
+  # assets. Store signing and upload remain separate credentialed operations.
+  mobile:
+    name: Tauri mobile builds
+    needs: validate-release-ref
+    uses: ./.github/workflows/_tauri-mobile-shared.yml
+    permissions:
+      contents: read
+    with:
+      uploadArtifacts: false
+
+  goreleaser:
+    needs: [validate-release-ref, mobile]
+    runs-on: ubuntu-latest
+    outputs:
+      release_body_sha256: ${{ steps.release-body.outputs.sha256 }}
+    steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:

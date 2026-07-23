@@ -69,7 +69,7 @@ tauri/
 
 | Recipe                  | What it does                                                                                                             |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `just tauri-install`    | `bun install` inside `tauri/`                                                                                            |
+| `just tauri-install`    | `bun install --frozen-lockfile` inside `tauri/`                                                                          |
 | `just tauri-version`    | runs `scripts/stamp-version.ts` — stamps desktop and mobile version metadata to the current git tag (or `TAURI_VERSION`) |
 | `just tauri-sidecar`    | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}`                                           |
 | `just tauri-dev`        | `tauri-sidecar` + `tauri-install` + `bunx tauri dev`                                                                     |
@@ -310,14 +310,16 @@ not part of `verify` because it opens a GUI window.
 
 ## CI pipeline
 
-Three workflow files split responsibilities:
+Six workflow files split responsibilities:
 
-| File                                  | Trigger              | What it does                                                                                                 |
-| ------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `.github/workflows/_tauri-shared.yml` | `workflow_call` only | Reusable matrix build. Single source of truth for Tauri build steps.                                         |
-| `.github/workflows/release.yml`       | tag push (`v*`)      | Goreleaser job, then calls `_tauri-shared.yml` with `tagName` set → bundles upload to the GitHub Release.    |
-| `.github/workflows/test.yml`          | PR / `master` push   | Main test gate. Its `Tauri desktop bundles` job calls `_tauri-shared.yml` after cheaper checks pass or skip. |
-| `.github/workflows/tauri-build.yml`   | manual dispatch      | Explicit desktop rebuild/debug run from the Actions tab.                                                     |
+| File                                         | Trigger              | What it does                                                                                 |
+| -------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- |
+| `.github/workflows/_tauri-shared.yml`        | `workflow_call` only | Reusable desktop matrix and signed updater publication.                                      |
+| `.github/workflows/_tauri-mobile-shared.yml` | `workflow_call` only | Reusable unsigned iOS Simulator and Android debug compilation.                               |
+| `.github/workflows/release.yml`              | tag push (`v*`)      | Runs the mobile preflight, Goreleaser, then `_tauri-shared.yml` for desktop Release uploads. |
+| `.github/workflows/test.yml`                 | PR / `master` push   | Main test gate. Required desktop and mobile callers start after cheaper checks pass or skip. |
+| `.github/workflows/tauri-build.yml`          | manual dispatch      | Explicit desktop rebuild/debug run from the Actions tab.                                     |
+| `.github/workflows/tauri-mobile-build.yml`   | manual dispatch      | Uploads a short-lived simulator archive and Android debug APK for testing.                   |
 
 **Matrix** (same for both callers):
 
@@ -327,21 +329,35 @@ Three workflow files split responsibilities:
 | `ubuntu-22.04`   | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
 | `windows-latest` | `x86_64-pc-windows-msvc`   | `.msi`              |
 
+**Mobile compile matrix:**
+
+| Runner         | Target                          | Output                                    |
+| -------------- | ------------------------------- | ----------------------------------------- |
+| `macos-latest` | `aarch64-apple-ios-sim`         | unsigned iOS Simulator `Hecate.app`       |
+| `ubuntu-24.04` | `aarch64-linux-android` / arm64 | runner-debug-signed Android universal APK |
+
 **Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `just ui-install` → `just tauri-sidecar <matrix-target>` (builds `hecate` with the tag injected, then stages it as `binaries/hecate-{triple}[.exe]`) → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
 
-**PR-run behaviour:** `test.yml` owns PR validation. Its path filter scopes the
-desktop matrix to changes that could plausibly break a Tauri build (`tauri/**`,
-`cmd/hecate/**`, `Justfile`, `just/**`, version scripts, release
-packaging files, and `.github/workflows/*.yml`). UI-only PRs do not trigger the
-desktop matrix; they are covered by the TypeScript jobs and by `build-hecate`,
-which rebuilds the embedded UI. The desktop matrix waits for the cheaper Go,
-TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or skip by path
-filter) before it starts, and it does not upload unsigned bundles.
+**PR-run behaviour:** `test.yml` owns PR validation. Its path filters scope the
+desktop and mobile matrices to changes that could plausibly break their Tauri
+builds (`tauri/**`, `cmd/hecate/**`, `Justfile`, `just/**`, version scripts,
+release packaging files, and `.github/workflows/*.yml`). UI-only PRs do not
+trigger either matrix; they are covered by the TypeScript jobs and by
+`build-hecate`, which rebuilds the embedded UI. Both native matrices wait for
+the cheaper Go, TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or
+skip by path filter) before they start. They run in parallel and do not upload
+PR artifacts.
 `concurrency: cancel-in-progress: true` cancels older runs on the same ref.
 `tauri-build.yml` is manual-only for explicit desktop reruns/debugging; dispatch
 it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
+`tauri-mobile-build.yml` is the equivalent mobile workflow and preserves the
+iOS app in a `ditto` archive so its executable modes survive artifact download.
 
-**Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
+**Release-run behaviour:** `concurrency: cancel-in-progress: false` — a
+half-cancelled release is worse than waiting. Release ref validation runs first,
+then the unsigned mobile matrix. `goreleaser` cannot publish until both mobile
+targets compile. The desktop `tauri` job still has `needs: goreleaser` so the
+GitHub Release entry exists before tauri-action's upload tries to attach to it.
 
 ### Pipeline footguns
 

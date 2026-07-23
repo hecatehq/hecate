@@ -1,0 +1,22 @@
+name: tauri-mobile-build
+
+# Manual unsigned mobile build. This is useful for simulator testing and
+# Android sideloading without exposing store signing credentials.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tauri-mobile-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mobile:
+    uses: ./.github/workflows/_tauri-mobile-shared.yml
+    permissions:
+      contents: read
+    with:
+      uploadArtifacts: true

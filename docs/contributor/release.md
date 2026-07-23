@@ -62,28 +62,32 @@ channel endpoint.
 
 ## What a release produces
 
-Every `v*` tag fires `.github/workflows/release.yml`, which expands into
-five Actions jobs:
+Every `v*` tag fires `.github/workflows/release.yml`, which expands into these
+ordered stages:
 
-1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
+1. **Release ref and mobile preflight** — rejects non-tag manual dispatches,
+   then compiles the unsigned iOS Simulator app and Android arm64 debug APK.
+   Both native targets must compile before any public artifact is created.
+   These are validation builds, not signed TestFlight or Google Play uploads.
+2. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
    `linux+darwin × amd64+arm64`; each tarball includes `hecate`. It also
    publishes multi-arch Docker images on
    `ghcr.io/hecatehq/hecate`, source tarball, checksums, GitHub Release
    entry.
-2. **`tauri / build`** (matrix, ~10–15 min, runs after goreleaser) —
+3. **`tauri / build`** (matrix, ~10–15 min, runs after goreleaser) —
    three legs building native desktop bundles and uploading them to the same
    Release entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64),
    `.msi` (Windows x86_64). This is packaging validation, not platform
    confidence: maintainers currently launch-test the macOS Apple Silicon
    desktop path only. Linux and Windows desktop bundles are CI-built but not
    manually exercised on real machines yet.
-3. **`tauri / publish updater manifest`** — stitches signed updater payloads
+4. **`tauri / publish updater manifest`** — stitches signed updater payloads
    into `latest.json` and uploads the GitHub Release copy.
-4. **`tauri / publish updater manifest to website`** — commits the same
+5. **`tauri / publish updater manifest to website`** — commits the same
    manifest to `website/public/releases/alpha/`, dispatches the website
    deploy, and blocks until `https://hecate.sh/releases/alpha/latest.json`
    serves the new version.
-5. **`update-release-docs`** — reads the actual uploaded Release assets and
+6. **`update-release-docs`** — reads the actual uploaded Release assets and
    refreshes the README Desktop app table plus pinned Docker/tarball examples.
    This runs only after the Tauri matrix succeeds, so it never links to bundles
    that were not published.
@@ -91,6 +95,8 @@ five Actions jobs:
 Acceptance after the run:
 
 - All release jobs green.
+- The unsigned iOS Simulator and Android arm64 debug compile gates are green.
+  They deliberately do not attach mobile binaries to the GitHub Release.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Release entry has non-empty notes: the annotated tag's Markdown for a
   substantive release, otherwise GoReleaser's generated changelog. The desktop
@@ -215,8 +221,8 @@ goreleaser release --snapshot --clean
 Builds Go binaries for `linux+darwin × amd64+arm64` and per-arch Docker
 images into `./dist`, skips publishing to GHCR, skips the GitHub release.
 ~2–3 minutes; surfaces almost every config issue you'd otherwise hit on
-the real tag push. **Does not exercise the Tauri matrix** — that's
-GitHub-Actions-only.
+the real tag push. **Does not exercise the desktop or mobile Tauri matrices** —
+those are GitHub-Actions-only.
 
 `bun scripts/release.ts` runs this for you unless you pass
 `--skip-snapshot`.
