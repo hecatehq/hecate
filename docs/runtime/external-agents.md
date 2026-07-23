@@ -604,7 +604,9 @@ Use this order when launching or troubleshooting:
    find the selected vendor CLI. This catalog path is intentionally cheap: it
    does not start ACP runtimes or run CLIs for auth or capability discovery. A
    missing app, rejected launcher, or absent required remote credential is a
-   real launch blocker; an eligible discovered app is **Available**.
+   real launch blocker; an eligible discovered app is **Available**. Use
+   **Refresh** in Connections after installing or moving an agent; it repeats
+   only this passive discovery and does not start the app.
 2. **New chat** — starting a chat is the authoritative readiness attempt.
    Hecate resolves the current executable again, starts the adapter, performs
    ACP `Initialize`, and opens the real session. No earlier diagnostic result
@@ -613,7 +615,9 @@ Use this order when launching or troubleshooting:
 3. **Optional diagnostics** — `POST /hecate/v1/agent-adapters/{id}/probe`
    starts the adapter and opens a disposable ACP session to refresh version,
    auth/capability, and launch-control troubleshooting details. It may consume
-   a no-op session and is advisory rather than a launch gate.
+   a no-op session and is advisory rather than a launch gate. Hecate re-reads
+   passive discovery after it completes so repaired installs become selectable
+   without treating the diagnostic result itself as authority.
 4. **Chat turn** — after the real session exists, send a prompt. If a turn
    fails, open the message's raw diagnostics disclosure; the normalized
    transcript is for reading, raw ACP output is for debugging.

@@ -225,11 +225,11 @@ describe("NewChatAgentButton", () => {
 
     const create = screen.getByRole("button", { name: "New Codex chat" });
     expect(create).toHaveAccessibleDescription(
-      "Starts Codex from /Applications/Codex.app/Contents/Resources/codex and opens an ACP session.",
+      "Starts Codex and opens an ACP session. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again at launch.",
     );
     expect(create).toHaveAttribute(
       "title",
-      "Starts Codex from /Applications/Codex.app/Contents/Resources/codex and opens an ACP session",
+      "Starts Codex and opens an ACP session. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again at launch",
     );
     expect(screen.getByText("/Applications/Codex.app/Contents/Resources/codex")).toBeVisible();
 
@@ -267,7 +267,7 @@ describe("NewChatAgentButton", () => {
 
     const create = screen.getByRole("button", { name: "New Codex chat" });
     expect(create).toHaveAccessibleDescription(
-      "Starts Codex from /Applications/Codex.app/Contents/Resources/codex and opens an ACP session.",
+      "Starts Codex and opens an ACP session. Last discovered at /Applications/Codex.app/Contents/Resources/codex; Hecate resolves the executable again at launch.",
     );
     expect(create).not.toHaveAccessibleDescription(/codex-old/);
   });

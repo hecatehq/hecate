@@ -18,6 +18,15 @@ export type UseAgentAdapterActionsParams = {
 export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
   const providersAndModels = useProvidersAndModels();
 
+  async function refreshAgentAdapters(): Promise<boolean> {
+    const result = await providersAndModels.actions.refreshAgentAdapters();
+    if (!result.ok) {
+      params.setNoticeMessage("error", result.error);
+      return false;
+    }
+    return true;
+  }
+
   // probeAgentAdapter exercises the configured adapter and caches the typed
   // diagnostic keyed by adapter id. Operators trigger it explicitly in
   // Connections; it annotates status chips but never gates a later chat. The
@@ -72,7 +81,7 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
 
   const overrides = useContext(CoordinatorOverridesContext);
   return applyOverride(
-    { probeAgentAdapter, authenticateAgentAdapter, logoutAgentAdapter },
+    { refreshAgentAdapters, probeAgentAdapter, authenticateAgentAdapter, logoutAgentAdapter },
     overrides?.agentAdapters,
   );
 }

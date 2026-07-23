@@ -144,9 +144,12 @@ function adapterCheckedTitle(adapter: AgentAdapterRecord, path: string | undefin
 }
 
 function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): string {
-  const command = adapter.path || adapter.command;
-  const suffix = command ? ` Command: ${command}` : "";
-  const action = `${adapter.name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+  const suffix = adapter.path
+    ? ` Last discovered path: ${adapter.path}`
+    : adapter.command
+      ? ` Configured command: ${adapter.command}`
+      : "";
+  const action = `${adapter.name} is available. Starting a chat launches it after re-resolving the current executable and verifies the ACP connection.${suffix}`;
   return detail ? `${detail} ${action}` : action;
 }
 

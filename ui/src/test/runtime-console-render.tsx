@@ -279,6 +279,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       deletePolicyRule: actions.deletePolicyRule,
     },
     agentAdapters: {
+      refreshAgentAdapters: actions.refreshAgentAdapters,
       probeAgentAdapter: actions.probeAgentAdapter,
       authenticateAgentAdapter: actions.authenticateAgentAdapter,
       logoutAgentAdapter: actions.logoutAgentAdapter,

@@ -1882,14 +1882,19 @@ appears on the prepared chat session and is updated with ACP
 Runs an optional, disposable end-to-end ACP diagnostic. It re-runs discovery
 for one adapter, starts the selected app, performs ACP `Initialize`, and creates
 a temporary session. The response includes the fresh catalog row plus the
-diagnostic result, so UIs can update a single Connections row after the
-operator logs in or installs a missing dependency.
+diagnostic result as evidence from that disposable attempt. Hecate's UI then
+re-reads the passive `GET /agent-adapters` catalog before changing any launch
+gate or last-discovered path, so the diagnostic itself never becomes launch
+authority. Operators can also trigger that passive refresh without starting an
+agent.
 
 This endpoint is not required before use and its cached result is never launch
 authority. Starting an External Agent chat independently resolves the current
 executable, starts it, performs a fresh `Initialize`, and creates the real
 session. Clients should invoke the diagnostic only after an explicit operator
 action, label it as optional, and show the catalog `path` before that action.
+Treat that path as last-discovered evidence rather than a pinned launch target:
+chat creation resolves the executable again.
 
 ```json
 POST /hecate/v1/agent-adapters/codex/probe

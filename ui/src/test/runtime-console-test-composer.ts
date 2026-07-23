@@ -715,6 +715,7 @@ export function useRuntimeConsole() {
       setChatConfigOption: chatActions.setChatConfigOption,
       setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
       setHecateWorkspaceMode: chatActions.setHecateWorkspaceMode,
+      refreshAgentAdapters: adapterActions.refreshAgentAdapters,
       probeAgentAdapter: adapterActions.probeAgentAdapter,
       dismissNotice: () => setNotice(null),
     },

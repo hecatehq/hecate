@@ -1102,6 +1102,28 @@ describe("Connections external-agent panel", () => {
       );
     });
 
+    it("refreshes passive agent discovery without running diagnostics", async () => {
+      const refreshAgentAdapters = vi.fn(async () => true);
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup(withAdapter(), {
+        refreshAgentAdapters,
+        probeAgentAdapter,
+      });
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const refresh = await screen.findByRole("button", {
+        name: "Refresh external-agent discovery without starting agents",
+      });
+      expect(refresh).toHaveAttribute(
+        "title",
+        "Refresh installed-agent paths without starting an agent",
+      );
+      await user.click(refresh);
+
+      expect(refreshAgentAdapters).toHaveBeenCalledTimes(1);
+      expect(probeAgentAdapter).not.toHaveBeenCalled();
+    });
+
     it("distinguishes current launch discovery from a stale diagnostic path", async () => {
       const { state, actions } = setup(
         withAdapter({

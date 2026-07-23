@@ -76,7 +76,11 @@ export function NewChatAgentButton({
   const executablePath = externalAgentExecutablePath(effectiveAdapter);
   const startsExternalAgent = effectiveSelected.id !== "hecate";
   const externalAgentLaunchDisclosure = startsExternalAgent
-    ? `Starts ${effectiveSelected.label}${executablePath ? ` from ${executablePath}` : ""} and opens an ACP session`
+    ? `Starts ${effectiveSelected.label} and opens an ACP session${
+        executablePath
+          ? `. Last discovered at ${executablePath}; Hecate resolves the executable again at launch`
+          : ""
+      }`
     : "";
   const createActionTitle =
     createTitle ||
@@ -199,14 +203,15 @@ export function NewChatAgentButton({
             overflowWrap: "anywhere",
           }}
         >
-          Starts {effectiveSelected.label}
+          Starts {effectiveSelected.label} and opens an ACP session.
           {executablePath ? (
             <>
               {" "}
-              from <code style={{ fontFamily: "var(--font-mono)" }}>{executablePath}</code>
+              Last discovered at{" "}
+              <code style={{ fontFamily: "var(--font-mono)" }}>{executablePath}</code>; Hecate
+              resolves the executable again at launch.
             </>
-          ) : null}{" "}
-          and opens an ACP session.
+          ) : null}
         </div>
       )}
       {open && floatingStyle && (
@@ -625,10 +630,13 @@ function adapterAvailableTitle(
   detail?: string,
 ): string {
   const name = adapterDisplayName(optionID, adapter);
-  const command = adapter.path || adapter.command;
-  const suffix = command ? ` Command: ${command}` : "";
+  const suffix = adapter.path
+    ? ` Last discovered path: ${adapter.path}`
+    : adapter.command
+      ? ` Configured command: ${adapter.command}`
+      : "";
   const cleanDetail = sanitizedAdapterDetail(detail);
-  const action = `${name} is available. Starting a chat launches it and verifies the ACP connection.${suffix}`;
+  const action = `${name} is available. Starting a chat launches it after re-resolving the current executable and verifies the ACP connection.${suffix}`;
   return cleanDetail ? `${cleanDetail} ${action}` : action;
 }
 
