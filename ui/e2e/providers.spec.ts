@@ -6,11 +6,17 @@ import type { Page } from "@playwright/test";
 // they can pin row-level interactions (delete, edit) without first having
 // to run the create flow.
 
+async function expectConnectionsWorkspace(page: Page) {
+  await expect(
+    page.getByRole("main").getByRole("heading", { level: 1, name: "Connections", exact: true }),
+  ).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
-  await page.waitForSelector("text=Connections");
+  await expectConnectionsWorkspace(page);
 });
 
 // Locator helpers — the preset cards' accessible names include the brand

@@ -699,7 +699,12 @@ test("New external-agent chat asks for workspace without flashing an inline erro
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await expect(page.getByRole("button", { name: "New Codex chat", exact: true })).toBeDisabled();
+  const chooseFolder = page.getByRole("button", {
+    name: "Choose folder for Codex",
+    exact: true,
+  });
+  await expect(chooseFolder).toBeVisible();
+  await expect(chooseFolder).toBeEnabled();
 
   await expect(page.getByText("Choose a workspace", { exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);

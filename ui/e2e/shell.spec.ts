@@ -315,6 +315,7 @@ test("workspace navigation keeps the current view visible while the next chunk l
 }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
+  const main = page.getByRole("main");
   await expect(page.getByText("Connect a model or agent")).toBeVisible();
 
   let releaseUsageChunk: (() => void) | null = null;
@@ -335,7 +336,7 @@ test("workspace navigation keeps the current view visible while the next chunk l
   await expect(page.getByText("Loading workspace…")).toHaveCount(0);
 
   releaseUsageChunk?.();
-  await expect(page.getByText("Usage", { exact: true })).toBeVisible();
+  await expect(main.getByText("Usage", { exact: true })).toBeVisible();
 });
 
 test("cold workspace loading fallback is centered in the content area", async ({ page }) => {
@@ -353,9 +354,10 @@ test("cold workspace loading fallback is centered in the content area", async ({
 
   await page.goto("/");
 
-  const content = page.locator(".console-content");
-  const fallback = page.locator(".workspace-fallback");
-  const label = page.locator(".workspace-fallback__label");
+  const main = page.getByRole("main");
+  const content = main.locator(".console-content");
+  const fallback = main.getByRole("status");
+  const label = fallback.getByText("Loading workspace…", { exact: true });
   await expect(label).toHaveText("Loading workspace…");
   await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
 
@@ -373,7 +375,7 @@ test("cold workspace loading fallback is centered in the content area", async ({
 
   releaseUsageChunk?.();
   await expect(fallback).toHaveCount(0);
-  await expect(page.getByText("Usage", { exact: true })).toBeVisible();
+  await expect(main.getByText("Usage", { exact: true })).toBeVisible();
 });
 
 test("number keys do not switch workspaces while the app is focused", async ({ page }) => {
