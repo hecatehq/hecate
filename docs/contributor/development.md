@@ -195,6 +195,10 @@ just verify-desktop    # desktop-specific Rust/Tauri check
 just release vX.Y.Z    # verify, then run the release script
 ```
 
+Pull-request CI runs both mobile recipes on their native hosted runners after
+the cheaper checks pass. The manual `tauri-mobile-build` Actions workflow also
+uploads a simulator bundle and debug APK for short-lived testing.
+
 The race detector is the strongest correctness check (and the slowest); CI runs it on every push. The Go e2e suite also includes binary-level External Agent approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. Gateway e2e helpers auto-set `PROVIDER_<NAME>_PRECONFIGURED=1` for providers described with `PROVIDER_<NAME>_*` vars; when a test posts an explicit model that the fake `/v1/models` endpoint does not advertise, seed it with `PROVIDER_<NAME>_MODELS` instead of reintroducing provider default-model env vars. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `verify-desktop` runs the Tauri Rust test suite and requires Rust/Cargo. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits. The native smoke is opt-in because it opens a real GUI window.
 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).

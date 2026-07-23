@@ -143,8 +143,10 @@ links are intentionally not part of this version.
   Hecate Cloud from the app. Manually registered runtimes must be started by
   their own operator.
 - Store signing is wired but still requires maintainer-owned Apple and Google
-  credentials. Store metadata, privacy disclosures, release CI, and real-device
-  smoke tests remain release gates.
+  credentials. Store metadata, privacy disclosures, signed store-delivery CI,
+  and real-device smoke tests remain release gates. Unsigned iOS Simulator and
+  Android debug compilation already run in pull-request CI and before a tagged
+  release publishes public artifacts.
 
 ## Build prerequisites
 
@@ -188,6 +190,23 @@ Outputs:
 
 These commands build only the mobile Cloud companion. They do not build or
 stage the desktop Go sidecar.
+
+## Mobile CI
+
+Relevant pull requests must pass both mobile compilation jobs in
+`.github/workflows/_tauri-mobile-shared.yml`:
+
+- an unsigned Apple Silicon iOS Simulator `.app` on macOS;
+- an arm64 Android debug APK on Ubuntu.
+
+The same reusable workflow runs as the first tagged-release preflight. A broken
+mobile target therefore blocks Go, Docker, and desktop artifacts from being
+published. Neither job receives Apple or Google signing credentials.
+
+For a downloadable test build, dispatch `tauri-mobile-build` from the Actions
+tab. Its artifacts are retained for seven days. The iOS artifact is
+simulator-only; the Android artifact is debug-signed by the ephemeral CI runner
+and may be sideloaded, but neither is a store-release artifact.
 
 ## Store identity and signed builds
 

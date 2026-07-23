@@ -40,6 +40,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       typescript: ${{ steps.filter.outputs.typescript }}
       tauri: ${{ steps.filter.outputs.tauri }}
+      mobile: ${{ steps.filter.outputs.mobile }}
       desktop: ${{ steps.filter.outputs.desktop }}
       workflow: ${{ steps.filter.outputs.workflow }}
       docker: ${{ steps.filter.outputs.docker }}
@@ -82,6 +83,11 @@ jobs:
               - 'ui/e2e/**'
             tauri:
               - 'tauri/**'
+            mobile:
+              - 'tauri/**'
+              - 'scripts/mobile-version.ts'
+              - 'scripts/resolve-tauri-version.ts'
+              - 'scripts/stamp-version.ts'
             desktop:
               - 'tauri/**'
               - 'scripts/resolve-tauri-version.ts'
@@ -102,7 +108,10 @@ jobs:
   test-tauri-rust:
     name: Tauri Rust tests
     needs: changes
-    if: needs.changes.outputs.tauri == 'true' || needs.changes.outputs.workflow == 'true'
+    if: |
+      needs.changes.outputs.tauri == 'true' ||
+      needs.changes.outputs.mobile == 'true' ||
+      needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -486,6 +495,48 @@ jobs:
       - name: E2E tests
         run: bun run test:e2e
 
+  tauri-mobile:
+    name: Tauri mobile builds
+    # Mobile target compilation is intentionally last, alongside the desktop
+    # matrix, so cheap failures do not consume macOS/Android build minutes.
+    needs:
+      - changes
+      - test-tauri-rust
+      - lint-go
+      - test-go-linux-race
+      - test-go-windows-bootstrap
+      - test-go-macos-bootstrap
+      - build-hecate
+      - e2e
+      - e2e-ollama
+      - docker-smoke
+      - typescript
+      - typescript-e2e
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      (
+        needs.changes.outputs.workflow == 'true' ||
+        needs.changes.outputs.mobile == 'true'
+      ) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go-linux-race.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go-windows-bootstrap.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go-macos-bootstrap.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.build-hecate.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.e2e.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.e2e-ollama.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.docker-smoke.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.typescript.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.typescript-e2e.result)
+    uses: ./.github/workflows/_tauri-mobile-shared.yml
+    permissions:
+      contents: read
+    with:
+      uploadArtifacts: false
+
   tauri-desktop:
     name: Tauri desktop bundles
     # Keep this explicit list in sync with every cheap/required PR check. The
@@ -554,6 +605,7 @@ jobs:
       - docker-smoke
       - typescript
       - typescript-e2e
+      - tauri-mobile
       - tauri-desktop
     runs-on: ubuntu-latest
     steps:

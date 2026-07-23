@@ -17,7 +17,7 @@
 
 # Install native app dependencies.
 tauri-install:
-	cd tauri && bun install
+	cd tauri && bun install --frozen-lockfile
 
 # Stamp Cargo.toml, package.json, and tauri.conf.json with the current release
 # version. Resolution order: TAURI_VERSION env var -> latest git tag ->
