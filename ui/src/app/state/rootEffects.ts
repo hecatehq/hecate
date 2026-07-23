@@ -30,12 +30,14 @@ import { useSettings } from "./settings";
 import { useChatActions } from "./coordinators/chat";
 import { useDashboardActions } from "./coordinators/dashboard";
 import { useSettingsActions } from "./coordinators/settings";
+import {
+  externalAgentObserverFailureIsNonRetryable,
+  externalAgentObserverFailureIsOrphanedTurn,
+  externalAgentObserverRetryDelayMS,
+  waitForExternalAgentObserverRetry,
+} from "./externalAgentObserver";
 import { ApiError, streamChatSession } from "../../lib/api";
 import type { ConfiguredStateResponse } from "../../types/provider";
-
-const externalAgentObserverRetryBaseMS = 250;
-const externalAgentObserverRetryMaxMS = 2_000;
-const externalAgentObserverNonRetryableHTTPStatuses = new Set([401, 403, 404]);
 
 function chatSessionIsExternal(session: { agent_id?: string } | null): boolean {
   return Boolean(session?.agent_id && session.agent_id !== "hecate");
@@ -58,34 +60,26 @@ function chatSessionIsBusy(
   );
 }
 
-function externalAgentObserverRetryDelayMS(attempt: number): number {
-  const exponent = Math.min(Math.max(attempt, 0), 4);
-  return Math.min(
-    externalAgentObserverRetryBaseMS * 2 ** exponent,
-    externalAgentObserverRetryMaxMS,
-  );
-}
-
-function externalAgentObserverFailureIsNonRetryable(error: unknown): error is ApiError {
+function chatSessionIsTerminal(session: { status?: string } | null): boolean {
   return (
-    error instanceof ApiError && externalAgentObserverNonRetryableHTTPStatuses.has(error.status)
+    session?.status === "completed" ||
+    session?.status === "failed" ||
+    session?.status === "cancelled"
   );
 }
 
-function waitForExternalAgentObserverRetry(signal: AbortSignal, delayMS: number): Promise<boolean> {
-  if (signal.aborted) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const timeout = window.setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve(true);
-    }, delayMS);
-    const onAbort = () => {
-      window.clearTimeout(timeout);
-      resolve(false);
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-  });
+function chatSessionHasPendingExternalTurn(
+  session: {
+    messages?: Array<{ role: string }>;
+  } | null,
+): boolean {
+  const messages = session?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const role = messages[index]?.role;
+    if (role === "assistant") return false;
+    if (role === "user") return true;
+  }
+  return false;
 }
 
 export function RootEffects() {
@@ -128,6 +122,7 @@ export function RootEffects() {
     removePendingApproval: approvals.actions.removePending,
     invalidatePendingApprovals: approvals.actions.invalidatePendingForSession,
     refetchPendingApprovals: approvals.actions.refetchPending,
+    fenceDeletedChatSession: chat.actions.fenceDeletedChatSession,
     setChatErrorState: chat.actions.setChatErrorState,
   });
   externalAgentObserverActionsRef.current = {
@@ -138,6 +133,7 @@ export function RootEffects() {
     removePendingApproval: approvals.actions.removePending,
     invalidatePendingApprovals: approvals.actions.invalidatePendingForSession,
     refetchPendingApprovals: approvals.actions.refetchPending,
+    fenceDeletedChatSession: chat.actions.fenceDeletedChatSession,
     setChatErrorState: chat.actions.setChatErrorState,
   };
   const queuedMessageAttemptSignatureRef = useRef("");
@@ -215,16 +211,23 @@ export function RootEffects() {
   const { dismissNoticeIfMatching } = settings.actions;
   const settingsConfig = settings.state.config;
   const projectCatalogOwnershipBlocked = Boolean(chatOwnershipMutationBlockReason());
-  const selectedBusyExternalSessionID =
+  const selectedObservableExternalSessionID =
     activeChatSession?.id === activeChatSessionID &&
     chatSessionIsExternal(activeChatSession) &&
-    chatSessionIsBusy(activeChatSession)
+    (chatSessionIsBusy(activeChatSession) || chatSessionHasPendingExternalTurn(activeChatSession))
       ? activeChatSessionID
       : "";
   const localSubmitOwnsSelectedExternalSession =
     chatTurnActive &&
     chatTurnSessionID !== "" &&
-    chatTurnSessionID === selectedBusyExternalSessionID;
+    chatTurnSessionID === selectedObservableExternalSessionID;
+  const selectedExternalObservationStartsBusyRef = useRef(false);
+  selectedExternalObservationStartsBusyRef.current =
+    selectedObservableExternalSessionID !== "" && chatSessionIsBusy(activeChatSession);
+  const selectedExternalObservationStartsPendingRef = useRef(false);
+  selectedExternalObservationStartsPendingRef.current =
+    selectedObservableExternalSessionID !== "" &&
+    chatSessionHasPendingExternalTurn(activeChatSession);
   const projectCatalogOwnershipWasBlockedRef = useRef(projectCatalogOwnershipBlocked);
   const recoverProjectCatalogAfterOwnership = useCallback(
     async function recoverProjectCatalogAfterOwnership(): Promise<void> {
@@ -354,7 +357,7 @@ export function RootEffects() {
   }, [activeChatSessionID]);
 
   useEffect(() => {
-    const sessionID = selectedBusyExternalSessionID;
+    const sessionID = selectedObservableExternalSessionID;
     if (!sessionID || localSubmitOwnsSelectedExternalSession) return;
 
     const abortController = new AbortController();
@@ -362,6 +365,9 @@ export function RootEffects() {
 
     const observe = async () => {
       let retryAttempt = 0;
+      let observedCurrentTurn = selectedExternalObservationStartsBusyRef.current;
+      const beganFromAdmissionGap = selectedExternalObservationStartsPendingRef.current;
+      let catchUpApprovalsOnNextEvent = false;
       while (!disposed && !abortController.signal.aborted) {
         let acceptedTerminalSnapshot = false;
         const actions = externalAgentObserverActionsRef.current;
@@ -377,10 +383,24 @@ export function RootEffects() {
             (event) => {
               if (disposed || abortController.signal.aborted) return;
               const currentActions = externalAgentObserverActionsRef.current;
+              if (catchUpApprovalsOnNextEvent) {
+                catchUpApprovalsOnNextEvent = false;
+                void currentActions.refetchPendingApprovals(
+                  sessionID,
+                  () =>
+                    !disposed &&
+                    !abortController.signal.aborted &&
+                    !currentActions.chatStopFenceProtectsSession(sessionID),
+                );
+              }
               switch (event.type) {
                 case "session_update": {
                   if (event.payload.data.id !== sessionID) return;
-                  const terminal = !chatSessionIsBusy(event.payload.data);
+                  const busy = chatSessionIsBusy(event.payload.data);
+                  if (busy) observedCurrentTurn = true;
+                  const terminal =
+                    chatSessionIsTerminal(event.payload.data) &&
+                    (observedCurrentTurn || beganFromAdmissionGap);
                   const applied = currentActions.applyChatSession(
                     event.payload.data,
                     snapshotSource,
@@ -418,6 +438,25 @@ export function RootEffects() {
           );
         } catch (error) {
           if (disposed || abortController.signal.aborted) return;
+          if (error instanceof ApiError && error.status === 404) {
+            const currentActions = externalAgentObserverActionsRef.current;
+            currentActions.invalidatePendingApprovals(sessionID);
+            if (!currentActions.fenceDeletedChatSession(sessionID)) {
+              currentActions.setChatErrorState(
+                new Error(
+                  "This chat no longer exists on the runtime, but Hecate could not safely remove its queued prompts from browser storage. Free browser storage or clear Hecate site data before continuing.",
+                ),
+              );
+            }
+            return;
+          }
+          if (externalAgentObserverFailureIsOrphanedTurn(error)) {
+            externalAgentObserverActionsRef.current.setChatErrorState(
+              error,
+              "This External Agent turn is no longer active.",
+            );
+            return;
+          }
           if (externalAgentObserverFailureIsNonRetryable(error)) {
             externalAgentObserverActionsRef.current.setChatErrorState(
               error,
@@ -431,14 +470,7 @@ export function RootEffects() {
         const retryDelay = externalAgentObserverRetryDelayMS(retryAttempt);
         retryAttempt += 1;
         if (!(await waitForExternalAgentObserverRetry(abortController.signal, retryDelay))) return;
-        const retryActions = externalAgentObserverActionsRef.current;
-        void retryActions.refetchPendingApprovals(
-          sessionID,
-          () =>
-            !disposed &&
-            !abortController.signal.aborted &&
-            !retryActions.chatStopFenceProtectsSession(sessionID),
-        );
+        catchUpApprovalsOnNextEvent = true;
       }
     };
 
@@ -447,7 +479,7 @@ export function RootEffects() {
       disposed = true;
       abortController.abort();
     };
-  }, [localSubmitOwnsSelectedExternalSession, selectedBusyExternalSessionID]);
+  }, [localSubmitOwnsSelectedExternalSession, selectedObservableExternalSessionID]);
 
   useEffect(() => {
     if (!activeChatSession || chatSessionIsExternal(activeChatSession)) {

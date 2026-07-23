@@ -20,6 +20,10 @@ func newAgentChatStreamProjector(session chat.Session, snapshot agentChatSnapsho
 	}
 }
 
+func (p *agentChatStreamProjector) observeTurn() {
+	p.observedTurn = true
+}
+
 func (p *agentChatStreamProjector) initialFrame(session chat.Session) agentChatStreamFrame {
 	return agentChatStreamFrame{
 		Event: "snapshot",

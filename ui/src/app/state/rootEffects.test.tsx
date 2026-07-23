@@ -17,7 +17,7 @@ import type { ProjectCatalogLoadOptions, ProjectCatalogLoadResult } from "./proj
 const sseEncoder = new TextEncoder();
 
 function externalSession(
-  status: "running" | "awaiting_approval" | "completed" | "cancelled",
+  status: "idle" | "running" | "awaiting_approval" | "completed" | "cancelled",
   content: string,
 ): ChatSessionRecord {
   return {
@@ -63,6 +63,12 @@ function ExternalSessionObserverStatus() {
         {chat.state.chatErrorStatus === null
           ? "none"
           : `${chat.state.chatErrorStatus}:${chat.state.chatError}`}
+      </output>
+      <output aria-label="Observed session list">
+        {chat.state.chatSessions.map((candidate) => candidate.id).join(",") || "none"}
+      </output>
+      <output aria-label="Observed deletion">
+        {chat.actions.isChatSessionDeleted("chat_external") ? "deleted" : "present"}
       </output>
     </>
   );
@@ -488,6 +494,166 @@ describe("RootEffects", () => {
     ).toHaveLength(0);
   });
 
+  it("follows an External Agent admission gap after the durable user row appears", async () => {
+    let streamRequests = 0;
+    const pendingSession: ChatSessionRecord = {
+      id: "chat_external",
+      title: "External chat",
+      agent_id: "claude_code",
+      status: "idle",
+      workspace: "/workspace",
+      messages: [
+        {
+          id: "user_1",
+          role: "user",
+          content: "Continue after reload",
+          status: "completed",
+        },
+      ],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/hecate/v1/chat/sessions/chat_external/stream")) {
+        streamRequests += 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              if (streamRequests === 1) {
+                controller.enqueue(chatSessionSSEFrame(pendingSession));
+                controller.enqueue(
+                  chatSSEFrame("approval.requested", {
+                    approval_id: "approval_during_admission",
+                    session_id: "chat_external",
+                    adapter_id: "claude_code",
+                    tool_kind: "shell",
+                    tool_name: "run",
+                    created_at: "2026-07-23T10:00:00Z",
+                    expires_at: "2026-07-23T10:05:00Z",
+                  }),
+                );
+              } else {
+                controller.enqueue(chatSessionSSEFrame(externalSession("completed", "Recovered")));
+              }
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      }
+      if (url.includes("/hecate/v1/chat/sessions/chat_external/approvals")) {
+        return new Response(JSON.stringify({ object: "chat_approvals", data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      loadDashboard: vi.fn(async () => undefined),
+      loadProjects: vi.fn(async () => ({ status: "applied" as const })),
+    };
+
+    render(
+      withRuntimeConsole(
+        <>
+          <RootEffects />
+          <ExternalSessionObserverStatus />
+        </>,
+        {
+          state: createRuntimeConsoleFixture({
+            activeChatSessionID: "chat_external",
+            activeChatSession: pendingSession,
+            chatSessions: [{ ...pendingSession, message_count: 1 }],
+            chatTarget: "external_agent",
+          }),
+          actions,
+        },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Observed session")).toHaveTextContent("completed:Recovered"),
+    );
+    expect(screen.getByLabelText("Observed approvals")).toHaveTextContent("none");
+    expect(streamRequests).toBe(2);
+  });
+
+  it("stops observing an orphaned External Agent admission gap", async () => {
+    let streamRequests = 0;
+    const pendingSession: ChatSessionRecord = {
+      id: "chat_external",
+      title: "External chat",
+      agent_id: "claude_code",
+      status: "idle",
+      workspace: "/workspace",
+      messages: [
+        {
+          id: "user_orphaned",
+          role: "user",
+          content: "Persisted without a live turn",
+          status: "completed",
+        },
+      ],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/hecate/v1/chat/sessions/chat_external/stream")) {
+        streamRequests += 1;
+        return new Response(
+          JSON.stringify({
+            error: {
+              type: "chat.session_not_running",
+              message: "external agent turn is no longer active",
+              user_message: "This external-agent turn did not finish starting.",
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/hecate/v1/chat/sessions/chat_external/approvals")) {
+        return new Response(JSON.stringify({ object: "chat_approvals", data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      loadDashboard: vi.fn(async () => undefined),
+      loadProjects: vi.fn(async () => ({ status: "applied" as const })),
+    };
+
+    render(
+      withRuntimeConsole(
+        <>
+          <RootEffects />
+          <ExternalSessionObserverStatus />
+        </>,
+        {
+          state: createRuntimeConsoleFixture({
+            activeChatSessionID: "chat_external",
+            activeChatSession: pendingSession,
+            chatSessions: [{ ...pendingSession, message_count: 1 }],
+            chatTarget: "external_agent",
+          }),
+          actions,
+        },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Observed error")).toHaveTextContent(
+        "409:This external-agent turn did not finish starting.",
+      ),
+    );
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(streamRequests).toBe(1);
+  });
+
   it("reconnects with bounded backoff when a busy external-session stream closes", async () => {
     let streamRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -616,7 +782,6 @@ describe("RootEffects", () => {
   it.each([
     { status: 401, code: "unauthorized" },
     { status: 403, code: "forbidden" },
-    { status: 404, code: "not_found" },
   ])("surfaces terminal stream status $status without retrying", async ({ status, code }) => {
     let streamRequests = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -671,6 +836,66 @@ describe("RootEffects", () => {
         `${status}:stream rejected with ${status}`,
       ),
     );
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(streamRequests).toBe(1);
+  });
+
+  it("fences a selected External Agent chat when its observer receives 404", async () => {
+    let streamRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/hecate/v1/chat/sessions/chat_external/stream")) {
+        streamRequests += 1;
+        return new Response(
+          JSON.stringify({
+            error: {
+              type: "not_found",
+              message: "chat session not found",
+            },
+          }),
+          { status: 404, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/hecate/v1/chat/sessions/chat_external/approvals")) {
+        return new Response(JSON.stringify({ object: "chat_approvals", data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      loadDashboard: vi.fn(async () => undefined),
+      loadProjects: vi.fn(async () => ({ status: "applied" as const })),
+    };
+    const session = externalSession("running", "Hydrated");
+
+    render(
+      withRuntimeConsole(
+        <>
+          <RootEffects />
+          <ExternalSessionObserverStatus />
+        </>,
+        {
+          state: createRuntimeConsoleFixture({
+            activeChatSessionID: "chat_external",
+            activeChatSession: session,
+            chatSessions: [{ ...session, message_count: 1 }],
+            chatTarget: "external_agent",
+          }),
+          actions,
+        },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Observed session")).toHaveTextContent("none"),
+    );
+    expect(screen.getByLabelText("Observed session list")).toHaveTextContent("none");
+    expect(screen.getByLabelText("Observed deletion")).toHaveTextContent("deleted");
+    expect(screen.getByLabelText("Observed error")).toHaveTextContent("none");
     await new Promise((resolve) => window.setTimeout(resolve, 350));
     expect(streamRequests).toBe(1);
   });
