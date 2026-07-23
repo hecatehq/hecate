@@ -54,7 +54,7 @@ function useDashboardHarness() {
     settingsConfig: null,
     setSettingsConfig: () => {},
     setSettingsError: () => {},
-    applyChatSession: () => {},
+    applyChatSession: () => true,
     syncHecateSelectionFromSession: () => {},
     refreshRuntimeState: async () => {},
   });

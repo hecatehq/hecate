@@ -177,6 +177,16 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Treat missing metadata, missing exact-turn terminal proof, timeout, or stale
   destructive-mutation ownership as `reconcile_required`; never let later
   queued work overtake it.
+- An admitted External Agent turn is server-owned after its running assistant is
+  durable. When app hydration or chat selection finds an authoritatively busy
+  External Agent session without a locally owned submit, follow that session
+  from the app lifetime: subscribe to its typed stream, apply the initial and
+  live snapshots, reconcile approval events, and retry an unexpected stream
+  close with bounded backoff while the session remains busy. Abort that local
+  observer on terminal state, chat switch, or unmount without calling the
+  cancellation endpoint. Do not create a second observer while the local submit
+  already owns one, and preserve accepted-Stop fences so a reordered snapshot or
+  approval cannot restore cancelled work.
 - Treat `POST /chat/sessions/{id}/cancel` `202` as a signal acknowledgement,
   not a terminal session snapshot. Keep a session/turn-scoped fence after the
   acknowledgement, suppress reordered busy snapshots and approval requests,

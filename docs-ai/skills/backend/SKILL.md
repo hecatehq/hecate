@@ -95,12 +95,27 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   `message_request.replay` plus the committed user-message id; never render the
   key, fingerprint, copied payload, or internal lease token. Once admission
   reaches a keyed commit, give that atomic user-row/key write its own fresh
-  bounded `context.WithoutCancel` window; unkeyed writes remain request-bound.
-  A SQL commit must materialize its return value before `Commit` succeeds, not
-  issue a request-bound post-commit read that can report a false failure. After
-  commit, use fresh bounded persistence windows for the initial assistant row,
-  Hecate task/run ownership links, and terminal assistant/session state; never
-  hold one across a long turn. Direct model and ACP execution stay request-bound.
+  bounded `context.WithoutCancel` window. An unkeyed user-row write remains
+  request-bound until it succeeds. A SQL commit must materialize its return
+  value before `Commit` succeeds, not issue a request-bound post-commit read that
+  can report a false failure. After commit, use fresh bounded persistence
+  windows for the initial assistant row, Hecate task/run ownership links, and
+  terminal assistant/session state; never hold one across a long turn.
+  Direct-model execution stays request-bound.
+
+  Once an External Agent user row and running assistant are durable, execute ACP
+  under a bounded server-owned context detached from `r.Context()`. Keep the
+  registered live-turn cancel hook authoritative for Stop, close/delete, and
+  shutdown. Keep the 30-minute turn deadline, which terminalizes an expired turn
+  as failed rather than operator-cancelled. Stream flushes, native-session
+  replacement, approval waits, and terminal settlement must use that turn owner
+  or fresh bounded persistence contexts; an HTTP/SSE disconnect ends only its
+  waiter. Treat the per-session live bus as a latency hint: subscribe before the
+  initial authoritative read and reread durable state on the stream heartbeat so
+  a committed terminal update cannot be lost with its best-effort publication.
+  Do not claim process-restart resume: startup reconciliation still terminalizes
+  an interrupted running assistant.
+
   The task-backed Hecate Chat watcher is server-owned after commit and waits on
   its own bounded context plus the explicit live-turn cancel hook, so browser
   disconnect does not abandon a queued/running task or strand its transcript.
@@ -108,6 +123,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
   turn; it does not cancel the orchestrator-owned Task. A Task that remains
   active, including one awaiting approval, stays visible and independently
   cancellable through the Task runtime.
+
 - **Cross-store destructive cleanup has one admission gate.** Every
   Hecate-owned chat-session creation path reserves the project-existence check
   through durable creation and ownership linking, including External Agent

@@ -856,19 +856,28 @@ instead of split across two execution-mode values:
   fingerprint, payload copy, or internal lease token in this metadata.
   Once admission reaches the keyed commit, Hecate gives the atomic user-row/key
   write a short bounded server-owned persistence window, so a disconnect cannot
-  turn a successful durable commit into an apparent failure. Unkeyed sends keep
-  ordinary request cancellation. After commit, separate bounded windows create
-  the running assistant, attach task/run ownership, and settle terminal
-  assistant/session state even if the browser disconnects. Direct model and ACP
-  execution remain request-bound and persist a cancelled terminal assistant
-  after disconnect. The tools-on Hecate task watcher is server-owned after
-  commit and continues across browser disconnect until the task finishes, the
-  operator stops it, or the 30-minute Chat-turn ceiling expires. That ceiling
-  ends the chat watcher and terminalizes the chat turn; it does not cancel the
+  turn a successful durable commit into an apparent failure. An unkeyed
+  user-message write remains request-bound until it succeeds. After the user row
+  commits, separate bounded windows create the running assistant, attach
+  task/run ownership, and settle terminal assistant/session state.
+  Direct-model execution remains request-bound and persists a cancelled terminal
+  assistant after disconnect. An External Agent turn becomes server-owned once
+  its running assistant row is durable: losing the message POST or session SSE
+  connection ends only that response/stream, while ACP execution, approvals,
+  streaming persistence, and terminal settlement continue. The operator can
+  still stop the turn, while chat close/delete and Hecate shutdown also cancel
+  it. The 30-minute Chat-turn ceiling instead ends and terminalizes the turn as
+  failed.
+  The tools-on Hecate task watcher is likewise server-owned after commit and
+  continues across browser disconnect until the task finishes, the operator
+  stops it, or the 30-minute Chat-turn ceiling expires. That ceiling ends the
+  chat watcher and terminalizes the chat turn; it does not cancel the
   orchestrator-owned Task. A Task that remains active, including one awaiting
-  approval, stays visible and independently cancellable in Tasks. Replaying the
-  key observes that durable turn and never launches another provider, task, or
-  ACP dispatch.
+  approval, stays visible and independently cancellable in Tasks. In-flight
+  External Agent turns are not resumed after a Hecate process restart; startup
+  reconciliation marks their running assistant interrupted. Replaying the key
+  observes the durable turn and never launches another provider, task, or ACP
+  dispatch.
   The browser keeps a replayed queue item at the FIFO head until the exact
   committed user message has a terminal assistant before the next user message,
   with the same exact `turn_id`. Missing or mismatched Turn identity fails

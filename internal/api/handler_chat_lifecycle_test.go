@@ -47,6 +47,184 @@ func (s *staleFirstAgentChatGetStore) Get(ctx context.Context, id string) (chat.
 	}
 }
 
+func TestAgentChatStreamCannotMissTerminalPublishDuringInitialSnapshot(t *testing.T) {
+	const sessionID = "chat_stream_snapshot_race"
+	baseStore := chat.NewMemoryStore()
+	store := &staleFirstAgentChatGetStore{
+		Store:     baseStore,
+		sessionID: sessionID,
+		captured:  make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	handler := NewServer(logger, apiHandler)
+	session, err := baseStore.Create(t.Context(), chat.Session{
+		ID:         sessionID,
+		Title:      "Stream snapshot race",
+		AgentID:    "claude_code",
+		DriverKind: agentadapters.DriverKindACP,
+		Workspace:  t.TempDir(),
+		Status:     "running",
+		Messages: []chat.Message{{
+			ID:        "msg_running",
+			Role:      "assistant",
+			Status:    "running",
+			CreatedAt: time.Now().UTC(),
+		}},
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	store.armed.Store(true)
+
+	requestCtx, cancelRequest := context.WithCancel(t.Context())
+	defer cancelRequest()
+	request := httptest.NewRequest(http.MethodGet, "/hecate/v1/chat/sessions/"+session.ID+"/stream", nil).WithContext(requestCtx)
+	recorder := httptest.NewRecorder()
+	streamDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(recorder, request)
+		close(streamDone)
+	}()
+
+	select {
+	case <-store.captured:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream did not capture its initial running snapshot")
+	}
+	apiHandler.agentChatLive.mu.Lock()
+	subscriberCount := len(apiHandler.agentChatLive.subscribers[session.ID])
+	apiHandler.agentChatLive.mu.Unlock()
+	if subscriberCount != 1 {
+		t.Fatalf("subscribers during blocked snapshot = %d, want 1", subscriberCount)
+	}
+	terminal, err := baseStore.UpdateSession(t.Context(), session.ID, func(item *chat.Session) {
+		item.Status = "completed"
+		item.Messages[0].Status = "completed"
+		item.Messages[0].Content = "finished while the initial read was blocked"
+		item.Messages[0].CompletedAt = time.Now().UTC()
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession() terminal state error = %v", err)
+	}
+	apiHandler.agentChatLive.publishSession(terminal)
+	close(store.release)
+
+	select {
+	case <-streamDone:
+	case <-time.After(3 * time.Second):
+		cancelRequest()
+		select {
+		case <-streamDone:
+		case <-time.After(3 * time.Second):
+			t.Fatal("stream did not stop after its request was cancelled")
+		}
+		t.Fatalf("stream missed the terminal publication and did not emit done; body=%q", recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: snapshot\n") {
+		t.Fatalf("stream body = %q, want initial snapshot", body)
+	}
+	if !strings.Contains(body, "event: done\n") {
+		t.Fatalf("stream body = %q, want terminal done event", body)
+	}
+	if !strings.Contains(body, `"status":"completed"`) ||
+		!strings.Contains(body, "finished while the initial read was blocked") {
+		t.Fatalf("stream body = %q, want authoritative terminal snapshot", body)
+	}
+}
+
+func TestAgentChatStreamHeartbeatReconcilesUnpublishedTerminalCommit(t *testing.T) {
+	const sessionID = "chat_stream_unpublished_terminal"
+	baseStore := chat.NewMemoryStore()
+	store := &staleFirstAgentChatGetStore{
+		Store:     baseStore,
+		sessionID: sessionID,
+		captured:  make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	heartbeat := make(chan time.Time, 1)
+	apiHandler.agentChatStreamHeartbeatC = heartbeat
+	handler := NewServer(logger, apiHandler)
+	session, err := baseStore.Create(t.Context(), chat.Session{
+		ID:         sessionID,
+		Title:      "Unpublished terminal",
+		AgentID:    "claude_code",
+		DriverKind: agentadapters.DriverKindACP,
+		Workspace:  t.TempDir(),
+		Status:     "running",
+		Messages: []chat.Message{{
+			ID:        "msg_running",
+			Role:      "assistant",
+			Status:    "running",
+			CreatedAt: time.Now().UTC(),
+		}},
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	store.armed.Store(true)
+
+	requestCtx, cancelRequest := context.WithCancel(t.Context())
+	defer cancelRequest()
+	request := httptest.NewRequest(http.MethodGet, "/hecate/v1/chat/sessions/"+session.ID+"/stream", nil).WithContext(requestCtx)
+	recorder := httptest.NewRecorder()
+	streamDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(recorder, request)
+		close(streamDone)
+	}()
+
+	select {
+	case <-store.captured:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream did not capture its initial running snapshot")
+	}
+	_, err = baseStore.UpdateSession(t.Context(), session.ID, func(item *chat.Session) {
+		item.Status = "completed"
+		item.Messages[0].Status = "completed"
+		item.Messages[0].Content = "recovered from durable state"
+		item.Messages[0].CompletedAt = time.Now().UTC()
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession() terminal state error = %v", err)
+	}
+	// Deliberately omit agentChatLive.publishSession: this is the failed final
+	// publish/read condition that heartbeat reconciliation must recover.
+	close(store.release)
+	heartbeat <- time.Now()
+
+	select {
+	case <-streamDone:
+	case <-time.After(3 * time.Second):
+		cancelRequest()
+		select {
+		case <-streamDone:
+		case <-time.After(3 * time.Second):
+			t.Fatal("stream did not stop after its request was cancelled")
+		}
+		t.Fatalf("stream did not reconcile the unpublished terminal commit; body=%q", recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: snapshot\n") {
+		t.Fatalf("stream body = %q, want snapshots", body)
+	}
+	if !strings.Contains(body, "event: done\n") {
+		t.Fatalf("stream body = %q, want terminal done event", body)
+	}
+	if !strings.Contains(body, `"status":"completed"`) ||
+		!strings.Contains(body, "recovered from durable state") {
+		t.Fatalf("stream body = %q, want reconciled durable terminal snapshot", body)
+	}
+}
+
 func TestAgentChatLiveLifecycleSnapshotsStayStaleAcrossClose(t *testing.T) {
 	live := newAgentChatLive(agentChatSnapshotConfig{})
 	beforeClose := live.snapshotLifecycle("session_1")

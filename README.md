@@ -389,6 +389,10 @@ files without digging through transcript noise.
 External Agent sessions use Hecate's built-in ACP adapters for owned
 integrations and direct local ACP CLIs for Cursor and Grok. Hecate supervises
 the session but does not proxy or pool those vendors' credentials.
+After Hecate durably admits a turn, reloading or closing its browser/webview
+connection does not stop the agent; reopen the chat to follow it, or use
+**Stop** when it should not continue. Quitting the desktop app is different:
+the app shuts down the Hecate runtime and cancels and drains active agents.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 

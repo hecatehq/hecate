@@ -4810,10 +4810,12 @@ Frontends switch on the `path` field of `approval.resolved` to render the
 disposition: `operator` (explicit decision), `grant` (pre-existing grant
 short-circuited the prompt), `default_mode` (`auto`/`deny` mode resolved
 without operator), `timeout` (prompt-mode timeout fired), or
-`request_cancelled` (the request context died — session shutdown, adapter
-teardown, HTTP context cancellation, process stop). `request_cancelled` is
-operationally distinct from `operator`: nobody clicked anything, the request
-just died.
+`request_cancelled` (the owning approval/turn context ended through Stop,
+session shutdown, adapter teardown, or process stop). `request_cancelled` is
+operationally distinct from an explicit approval decision. Losing the
+originating message POST or session SSE connection does not resolve an approval
+for an already-admitted External Agent turn; a reconnecting client refetches
+pending approvals.
 
 Backpressure: per-subscriber buffers are bounded (16 events). On overflow,
 approval events are **dropped** rather than blocking the coordinator. A
@@ -5521,21 +5523,35 @@ the user message and assistant output.
   internal lease token.
 
   Once admission reaches that atomic keyed commit, Hecate gives the user-row/key
-  write a bounded server-owned persistence window; unkeyed sends retain ordinary
-  request cancellation. Immediate assistant creation, task/run linkage, and
-  terminal assistant/session updates then use separate bounded persistence
-  windows. A client disconnect therefore cannot turn a successful keyed commit
-  into an apparent failure or leave the committed turn permanently `running`.
-  Direct model and External Agent execution remain tied to the request and
-  terminalize as `cancelled` after a disconnect. The tools-on Hecate task
-  watcher is server-owned after commit and continues across browser disconnect
-  until the Task reaches a terminal state, the operator cancels it, or the
-  30-minute Chat Turn watcher ceiling expires. That ceiling ends the chat
-  watcher and terminalizes the Chat Turn; it does not cancel the
-  orchestrator-owned Task.
-  A Task that remains active, including one awaiting approval, stays visible and
-  independently cancellable through the Task API. Same-key replay only reads
-  the resulting durable turn; it never redispatches it.
+  write a bounded server-owned persistence window. An unkeyed user-message write
+  retains ordinary request cancellation until it succeeds. Immediate assistant
+  creation, task/run linkage, and terminal assistant/session updates then use
+  separate bounded persistence windows. A client disconnect therefore cannot
+  turn a successful keyed commit into an apparent failure or leave the committed
+  turn permanently `running`.
+
+  Direct-model execution remains tied to the request and terminalizes as
+  `cancelled` after a disconnect. An External Agent turn becomes server-owned
+  once its user message and running assistant are durable. The connected `POST`
+  still waits for the terminal result, but losing that response or the session
+  SSE connection ends only the client waiter: ACP execution, prompt-mode
+  approvals, partial-output persistence, and terminal settlement continue. The
+  operator can still cancel through the Chat API; chat close/delete, Hecate
+  shutdown also cancel the ACP turn. The 30-minute Chat Turn ceiling instead
+  ends and terminalizes the turn as failed. Reconnecting clients read the
+  authoritative snapshot through this API and subscribe to the session stream
+  without dispatching another prompt.
+
+  The tools-on Hecate task watcher is server-owned after commit and continues
+  across browser disconnect until the Task reaches a terminal state, the
+  operator cancels it, or the 30-minute Chat Turn watcher ceiling expires. That
+  ceiling ends the chat watcher and terminalizes the Chat Turn; it does not
+  cancel the orchestrator-owned Task. A Task that remains active, including one
+  awaiting approval, stays visible and independently cancellable through the
+  Task API. In-flight External Agent turns are not resumed after a Hecate process
+  restart; startup reconciliation marks the running assistant interrupted.
+  Same-key replay only reads the resulting durable turn; it never redispatches
+  it.
 
   The operator UI keeps a replayed queue item at the FIFO head until the exact
   committed user message is followed, before the next user turn, by a terminal
@@ -6359,8 +6375,20 @@ data: {"object":"chat_session","data":{"status":"completed",...}}
 ```
 
 Clients should subscribe before sending a message so they can receive live
-updates. For External Agent sessions, snapshots include partial ACP output from
-the adapter. For task-backed Hecate Chat turns, snapshots can include partial
+updates. A client that loads or reconnects to an authoritatively busy External
+Agent session should subscribe again, apply the stream's initial full snapshot,
+and follow later updates until the exact turn is terminal. Losing an SSE
+connection does not cancel an admitted External Agent turn; clients may reopen
+the stream with bounded backoff and poll the session snapshot as a fallback.
+The server treats live notifications as low-latency hints and rereads the
+durable session on its 15-second heartbeat, so a committed terminal state still
+emits the final snapshot and `done` if its immediate publication was lost.
+If that reconciliation fails after streaming headers were sent, the server
+emits a fixed operator-safe `error` event and closes the stream; clients should
+reconnect or use the session GET rather than treating the last snapshot as
+terminal.
+For External Agent sessions, snapshots include partial ACP output from the
+adapter. For task-backed Hecate Chat turns, snapshots can include partial
 assistant text from the backing task's streamed model call plus projected task
 activity.
 Projected task activity uses the same compact vocabulary as Task Detail:

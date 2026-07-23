@@ -764,6 +764,23 @@ the ACP native session, workspace, or agent selection.
 Hecate-owned chats are different: their provider/model selection can change
 between direct model turns and new task-backed segments in one transcript.
 
+Before ACP dispatch, Hecate persists the user message. A keyed user-row/key
+commit may use its own bounded server-owned persistence window, while an unkeyed
+user-message write remains request-bound until it succeeds. Hecate then creates
+the running assistant in a fresh bounded persistence window. Once both rows are
+durable, the External Agent turn belongs to the Hecate runtime rather than the
+browser or desktop webview connection. Reloading, navigating away, or losing the
+message POST/session SSE connection ends only that client waiter; ACP execution,
+approvals, streamed transcript persistence, and terminal settlement continue.
+Reopen the chat to read the authoritative snapshot and follow its stream.
+**Stop**, chat close/delete, and Hecate shutdown remain cancellation
+authorities. The 30-minute turn timeout instead ends and terminalizes the turn as
+failed. Quitting the native desktop app requests Hecate shutdown, so it cancels
+and drains active agents rather than leaving them running. A Hecate process
+restart does not resume an in-flight turn: startup reconciliation marks its
+running assistant interrupted, while a later prompt may still restore the
+stored native ACP session where the adapter supports it.
+
 Project assignments can also prepare External Agent sessions. Starting a
 `driver_kind="external_agent"` assignment from Projects creates and prepares the
 linked External Agent chat session, records assignment/profile/workspace context,

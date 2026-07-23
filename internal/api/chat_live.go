@@ -127,10 +127,10 @@ const (
 type agentChatTurnControl struct {
 	cancel context.CancelFunc
 	done   chan struct{}
-	// reason records the trigger for an operator-driven cancel
-	// (cancelTurn / cancelTurnAndWait). The handler reads this when
-	// the turn terminates so the cancellation counter can label
-	// "operator" vs "request_cancelled" (parent ctx died first).
+	// reason records the trigger for a runtime-controlled cancel
+	// (operator Stop/close/delete or handler shutdown). The handler reads
+	// this when the turn terminates so the cancellation counter can label
+	// the first cancellation authority.
 	// Stored as an atomic *string so the cancel and complete paths
 	// can race without locking the live struct.
 	reason atomic.Pointer[string]
@@ -583,11 +583,10 @@ func (l *agentChatLive) hasTurn(sessionID string) bool {
 	return ok
 }
 
-// turnCancelReason reports the cancellation reason recorded for the
-// given session (operator-driven via cancelTurn*) or empty if either
-// no turn is registered or no operator action was taken. The handler
-// uses this on the turn-completion path to distinguish operator
-// cancels from a request_cancelled (parent ctx died first).
+// turnCancelReason reports the first cancellation reason recorded for the
+// given session (operator-driven via cancelTurn* or handler shutdown) or empty
+// if no turn is registered or no runtime authority cancelled it. The handler
+// uses this on the turn-completion path for closed-set metric attribution.
 func (l *agentChatLive) turnCancelReason(sessionID string) string {
 	l.mu.Lock()
 	turn, ok := l.activeTurns[sessionID]
@@ -624,5 +623,25 @@ func (l *agentChatLive) cancelTurnAndWait(ctx context.Context, sessionID string)
 		return true
 	case <-ctx.Done():
 		return false
+	}
+}
+
+// cancelAllTurns marks and cancels every registered turn without waiting for
+// settlement. First reason wins, so an operator Stop racing shutdown keeps its
+// more specific attribution. Handler.Shutdown calls this before draining the
+// adapter runtime so custom runners cannot leave detached turn contexts alive.
+func (l *agentChatLive) cancelAllTurns(reason string) {
+	l.mu.Lock()
+	turns := make([]*agentChatTurnControl, 0, len(l.activeTurns))
+	for _, turn := range l.activeTurns {
+		if turn == nil {
+			continue
+		}
+		turn.markCancelReason(reason)
+		turns = append(turns, turn)
+	}
+	l.mu.Unlock()
+	for _, turn := range turns {
+		turn.cancel()
 	}
 }

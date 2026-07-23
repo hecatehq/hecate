@@ -492,7 +492,7 @@ export type SelectChatSessionOptions = {
 };
 
 type ChatActionsReturn = {
-  applyChatSession: (session: ChatSessionRecord) => void;
+  applyChatSession: (session: ChatSessionRecord, source?: ChatSessionSnapshotSource) => boolean;
   syncHecateSelectionFromSession: (session: ChatSessionRecord | null) => void;
   refreshRuntimeState: (isCurrent?: () => boolean) => Promise<void>;
   refreshChatSession: (sessionID: string) => Promise<void>;

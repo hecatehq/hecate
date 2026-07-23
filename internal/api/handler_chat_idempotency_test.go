@@ -61,6 +61,82 @@ func (provider *blockingSemanticCompactionProvider) Chat(ctx context.Context, re
 	}, nil
 }
 
+type controlledDisconnectAgentChatRunner struct {
+	*fakeAgentChatRunner
+
+	started          chan struct{}
+	progress         chan struct{}
+	progressEmitted  chan struct{}
+	complete         chan struct{}
+	cancelled        chan error
+	startedOnce      sync.Once
+	progressOnce     sync.Once
+	progressEmitOnce sync.Once
+	completeOnce     sync.Once
+	cancellationOnce sync.Once
+	runCalls         atomic.Int32
+}
+
+func newControlledDisconnectAgentChatRunner() *controlledDisconnectAgentChatRunner {
+	return &controlledDisconnectAgentChatRunner{
+		fakeAgentChatRunner: &fakeAgentChatRunner{},
+		started:             make(chan struct{}),
+		progress:            make(chan struct{}),
+		progressEmitted:     make(chan struct{}),
+		complete:            make(chan struct{}),
+		cancelled:           make(chan error, 1),
+	}
+}
+
+func (runner *controlledDisconnectAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
+	startedAt := time.Now().UTC()
+	runner.runCalls.Add(1)
+	runner.startedOnce.Do(func() { close(runner.started) })
+
+	select {
+	case <-ctx.Done():
+		runner.recordCancellation(ctx.Err())
+		return runner.fakeAgentChatRunner.result(req, "", startedAt, 1), ctx.Err()
+	case <-runner.progress:
+	}
+
+	const progress = "continued after disconnect"
+	if req.OnOutput != nil {
+		req.OnOutput(progress)
+	}
+	if req.OnActivity != nil {
+		req.OnActivity(agentadapters.Activity{
+			ID:     "tool:detached",
+			Type:   "tool_call",
+			Status: "completed",
+			Kind:   "execute",
+			Title:  "Detached progress",
+		})
+	}
+	runner.progressEmitOnce.Do(func() { close(runner.progressEmitted) })
+
+	select {
+	case <-ctx.Done():
+		runner.recordCancellation(ctx.Err())
+		return runner.fakeAgentChatRunner.result(req, progress, startedAt, 1), ctx.Err()
+	case <-runner.complete:
+		return runner.fakeAgentChatRunner.result(req, "completed after disconnect", startedAt, 0), nil
+	}
+}
+
+func (runner *controlledDisconnectAgentChatRunner) requestProgress() {
+	runner.progressOnce.Do(func() { close(runner.progress) })
+}
+
+func (runner *controlledDisconnectAgentChatRunner) completeRun() {
+	runner.requestProgress()
+	runner.completeOnce.Do(func() { close(runner.complete) })
+}
+
+func (runner *controlledDisconnectAgentChatRunner) recordCancellation(err error) {
+	runner.cancellationOnce.Do(func() { runner.cancelled <- err })
+}
+
 type shortMessageRequestLeaseStore struct {
 	chat.Store
 	renewed chan struct{}
@@ -109,10 +185,25 @@ type cancelAfterKeyedCommitStore struct {
 	once   sync.Once
 
 	mu                      sync.Mutex
-	userCommitContext       time.Time
-	runningAssistantContext time.Time
-	terminalContext         time.Time
-	terminalSessionContext  time.Time
+	userCommitContext       persistenceContextObservation
+	runningAssistantContext persistenceContextObservation
+	terminalContext         persistenceContextObservation
+	terminalSessionContext  persistenceContextObservation
+}
+
+type persistenceContextObservation struct {
+	err        error
+	observedAt time.Time
+	deadline   time.Time
+}
+
+func observePersistenceContext(ctx context.Context) persistenceContextObservation {
+	deadline, _ := ctx.Deadline()
+	return persistenceContextObservation{
+		err:        ctx.Err(),
+		observedAt: time.Now(),
+		deadline:   deadline,
+	}
 }
 
 type cancelBeforeUnkeyedAppendStore struct {
@@ -136,9 +227,8 @@ func (store *cancelAfterKeyedCommitStore) CommitMessageRequest(ctx context.Conte
 	if err != nil {
 		return chat.Session{}, err
 	}
-	deadline, _ := ctx.Deadline()
 	store.mu.Lock()
-	store.userCommitContext = deadline
+	store.userCommitContext = observePersistenceContext(ctx)
 	store.mu.Unlock()
 	store.once.Do(store.cancel)
 	// Model the SQL store's former post-commit load: cancellation after the
@@ -155,9 +245,8 @@ func (store *cancelAfterKeyedCommitStore) AppendMessage(ctx context.Context, ses
 	}
 	updated, err := store.Store.AppendMessage(ctx, sessionID, message)
 	if err == nil && message.Role == "assistant" && message.Status == "running" {
-		deadline, _ := ctx.Deadline()
 		store.mu.Lock()
-		store.runningAssistantContext = deadline
+		store.runningAssistantContext = observePersistenceContext(ctx)
 		store.mu.Unlock()
 	}
 	return updated, err
@@ -175,9 +264,8 @@ func (store *cancelAfterKeyedCommitStore) UpdateMessage(ctx context.Context, ses
 		if message.ID != messageID || message.Role != "assistant" || message.CompletedAt.IsZero() || !isTerminalAgentChatMessageStatus(message.Status) {
 			continue
 		}
-		deadline, _ := ctx.Deadline()
 		store.mu.Lock()
-		store.terminalContext = deadline
+		store.terminalContext = observePersistenceContext(ctx)
 		store.mu.Unlock()
 		break
 	}
@@ -190,15 +278,14 @@ func (store *cancelAfterKeyedCommitStore) UpdateSession(ctx context.Context, ses
 	}
 	updated, err := store.Store.UpdateSession(ctx, sessionID, update)
 	if err == nil && updated.TurnsUsed > 0 {
-		deadline, _ := ctx.Deadline()
 		store.mu.Lock()
-		store.terminalSessionContext = deadline
+		store.terminalSessionContext = observePersistenceContext(ctx)
 		store.mu.Unlock()
 	}
 	return updated, err
 }
 
-func (store *cancelAfterKeyedCommitStore) persistenceDeadlines() (time.Time, time.Time, time.Time, time.Time) {
+func (store *cancelAfterKeyedCommitStore) persistenceContexts() (persistenceContextObservation, persistenceContextObservation, persistenceContextObservation, persistenceContextObservation) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	return store.userCommitContext, store.runningAssistantContext, store.terminalContext, store.terminalSessionContext
@@ -624,7 +711,7 @@ func TestUnkeyedUserAppendRemainsRequestBound(t *testing.T) {
 	}
 }
 
-func TestKeyedExternalAgentTurnCancelsAndFinalizesAfterRequestDisconnect(t *testing.T) {
+func TestKeyedExternalAgentTurnContinuesAndReplaysAfterRequestDisconnect(t *testing.T) {
 	logger := quietLogger()
 	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai", response: &types.ChatResponse{}}}, config.Config{}, nil)
 	baseStore := chat.NewMemoryStore()
@@ -640,17 +727,104 @@ func TestKeyedExternalAgentTurnCancelsAndFinalizesAfterRequestDisconnect(t *test
 	requestCtx, cancelRequest := context.WithCancel(t.Context())
 	store := &cancelAfterKeyedCommitStore{Store: baseStore, cancel: cancelRequest}
 	apiHandler.SetAgentChatStore(store)
-	runner := &fakeAgentChatRunner{waitForCancel: true}
+	runner := newControlledDisconnectAgentChatRunner()
 	apiHandler.SetAgentChatRunner(runner)
 	handler := NewServer(logger, apiHandler)
 	body := `{"execution_mode":"external_agent","content":"cancel after commit","client_request_id":"queued-external-disconnect"}`
-	serveCancelledKeyedChatRequest(t, handler, requestCtx, sessionID, body)
+	recorder, done := startCancelledKeyedChatRequest(handler, requestCtx, sessionID, body)
+	t.Cleanup(func() {
+		runner.completeRun()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
 
-	assertDisconnectedKeyedTurnTerminal(t, baseStore, store, sessionID, "cancelled", "started")
-	if got := len(runner.runRequests); got != 1 {
+	awaitSignal(t, runner.started, "external agent runner did not start after request disconnect")
+	assertRequestDisconnected(t, requestCtx)
+	select {
+	case err := <-runner.cancelled:
+		t.Fatalf("external agent run context cancelled with request: %v", err)
+	default:
+	}
+
+	replay := assertKeyedChatReplayDoesNotDispatch(t, handler, sessionID, body, func() int { return int(runner.runCalls.Load()) })
+	if len(replay.Data.Messages) != 2 {
+		t.Fatalf("active replay messages = %+v, want exactly one user and one assistant", replay.Data.Messages)
+	}
+	assistant := replay.Data.Messages[1]
+	if assistant.Role != "assistant" || assistant.Status != "running" || assistant.CompletedAt != "" {
+		t.Fatalf("active replay assistant = %+v, want running authoritative transcript", assistant)
+	}
+
+	runner.requestProgress()
+	awaitSignal(t, runner.progressEmitted, "external agent runner did not emit progress")
+	waitForDisconnectedExternalAgentProgress(t, baseStore, sessionID)
+	select {
+	case err := <-runner.cancelled:
+		t.Fatalf("external agent run context cancelled while persisting detached progress: %v", err)
+	default:
+	}
+
+	runner.completeRun()
+	awaitDisconnectedChatHandler(t, done, recorder)
+	assertDisconnectedKeyedTurnTerminal(t, baseStore, store, sessionID, "completed", "completed after disconnect")
+	if got := runner.runCalls.Load(); got != 1 {
 		t.Fatalf("ACP run requests = %d, want one dispatch", got)
 	}
-	assertKeyedChatReplayDoesNotDispatch(t, handler, sessionID, body, func() int { return len(runner.runRequests) })
+	assertKeyedChatReplayDoesNotDispatch(t, handler, sessionID, body, func() int { return int(runner.runCalls.Load()) })
+}
+
+func TestKeyedExternalAgentTurnOperatorStopAfterRequestDisconnect(t *testing.T) {
+	logger := quietLogger()
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{name: "openai", response: &types.ChatResponse{}}}, config.Config{}, nil)
+	baseStore := chat.NewMemoryStore()
+	const sessionID = "chat_keyed_external_stop_after_disconnect"
+	if _, err := baseStore.Create(t.Context(), chat.Session{
+		ID:         sessionID,
+		AgentID:    "codex",
+		DriverKind: agentadapters.DriverKindACP,
+		Workspace:  t.TempDir(),
+	}); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	requestCtx, cancelRequest := context.WithCancel(t.Context())
+	store := &cancelAfterKeyedCommitStore{Store: baseStore, cancel: cancelRequest}
+	apiHandler.SetAgentChatStore(store)
+	runner := newControlledDisconnectAgentChatRunner()
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+	body := `{"execution_mode":"external_agent","content":"stop after disconnect","client_request_id":"queued-external-stop-after-disconnect"}`
+	recorder, done := startCancelledKeyedChatRequest(handler, requestCtx, sessionID, body)
+	t.Cleanup(func() {
+		runner.completeRun()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	awaitSignal(t, runner.started, "external agent runner did not start after request disconnect")
+	assertRequestDisconnected(t, requestCtx)
+	stop := performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/cancel", `{}`)
+	if stop.Code != http.StatusAccepted {
+		t.Fatalf("operator Stop status = %d, want 202; body=%s", stop.Code, stop.Body.String())
+	}
+	select {
+	case err := <-runner.cancelled:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("external agent Stop context error = %v, want context cancellation", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("operator Stop did not cancel detached external agent run")
+	}
+	awaitDisconnectedChatHandler(t, done, recorder)
+
+	assertDisconnectedKeyedTurnTerminal(t, baseStore, store, sessionID, "cancelled", "")
+	if got := runner.runCalls.Load(); got != 1 {
+		t.Fatalf("ACP run requests = %d, want one dispatch", got)
+	}
+	assertKeyedChatReplayDoesNotDispatch(t, handler, sessionID, body, func() int { return int(runner.runCalls.Load()) })
 }
 
 func TestKeyedDirectModelTurnFinalizesWhenRequestDisconnectsAfterCommit(t *testing.T) {
@@ -687,6 +861,12 @@ func TestKeyedDirectModelTurnFinalizesWhenRequestDisconnectsAfterCommit(t *testi
 
 func serveCancelledKeyedChatRequest(t *testing.T, handler http.Handler, requestCtx context.Context, sessionID, body string) {
 	t.Helper()
+	recorder, done := startCancelledKeyedChatRequest(handler, requestCtx, sessionID, body)
+	awaitDisconnectedChatHandler(t, done, recorder)
+	assertRequestDisconnected(t, requestCtx)
+}
+
+func startCancelledKeyedChatRequest(handler http.Handler, requestCtx context.Context, sessionID, body string) (*httptest.ResponseRecorder, <-chan struct{}) {
 	request := httptest.NewRequest(http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/messages", strings.NewReader(body)).WithContext(requestCtx)
 	recorder := httptest.NewRecorder()
 	done := make(chan struct{})
@@ -694,16 +874,66 @@ func serveCancelledKeyedChatRequest(t *testing.T, handler http.Handler, requestC
 		handler.ServeHTTP(recorder, request)
 		close(done)
 	}()
+	return recorder, done
+}
+
+func awaitDisconnectedChatHandler(t *testing.T, done <-chan struct{}, recorder *httptest.ResponseRecorder) {
+	t.Helper()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("message handler did not settle after request disconnect")
 	}
-	if requestCtx.Err() == nil {
-		t.Fatal("test store did not cancel the request after keyed user commit")
-	}
 	if recorder.Body.Len() != 0 {
 		t.Fatalf("disconnected response body = %q, want no response", recorder.Body.String())
+	}
+}
+
+func assertRequestDisconnected(t *testing.T, requestCtx context.Context) {
+	t.Helper()
+	if !errors.Is(requestCtx.Err(), context.Canceled) {
+		t.Fatalf("request context error = %v, want cancellation after keyed user commit", requestCtx.Err())
+	}
+}
+
+func awaitSignal(t *testing.T, signal <-chan struct{}, failure string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(3 * time.Second):
+		t.Fatal(failure)
+	}
+}
+
+func waitForDisconnectedExternalAgentProgress(t *testing.T, store chat.Store, sessionID string) chat.Session {
+	t.Helper()
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		stored, ok, err := store.Get(t.Context(), sessionID)
+		if err != nil {
+			t.Fatalf("Get session while waiting for detached progress: %v", err)
+		}
+		if ok && len(stored.Messages) == 2 {
+			assistant := stored.Messages[1]
+			activityFound := false
+			for _, activity := range assistant.Activities {
+				if activity.ID == "tool:detached" && activity.Status == "completed" && activity.Title == "Detached progress" {
+					activityFound = true
+					break
+				}
+			}
+			if assistant.Status == "running" && strings.Contains(assistant.Content, "continued after disconnect") && activityFound {
+				return stored
+			}
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("detached external agent progress was not persisted for session %q", sessionID)
+		}
 	}
 }
 
@@ -723,21 +953,26 @@ func assertDisconnectedKeyedTurnTerminal(t *testing.T, baseStore chat.Store, sto
 	if stored.TurnsUsed != 1 {
 		t.Fatalf("turns_used = %d, want 1", stored.TurnsUsed)
 	}
-	commitDeadline, runningDeadline, terminalDeadline, sessionDeadline := store.persistenceDeadlines()
-	for name, deadline := range map[string]time.Time{
-		"keyed user commit":  commitDeadline,
-		"running assistant":  runningDeadline,
-		"terminal assistant": terminalDeadline,
-		"terminal session":   sessionDeadline,
+	commitContext, runningContext, terminalContext, sessionContext := store.persistenceContexts()
+	for name, observed := range map[string]persistenceContextObservation{
+		"keyed user commit":  commitContext,
+		"running assistant":  runningContext,
+		"terminal assistant": terminalContext,
+		"terminal session":   sessionContext,
 	} {
-		if deadline.IsZero() || time.Until(deadline) <= 0 || time.Until(deadline) > agentChatTerminalWriteTimeout+time.Second {
-			t.Fatalf("%s persistence deadline = %s, want live bounded detached context", name, deadline)
+		remaining := observed.deadline.Sub(observed.observedAt)
+		if observed.err != nil ||
+			observed.observedAt.IsZero() ||
+			observed.deadline.IsZero() ||
+			remaining <= 0 ||
+			remaining > agentChatTerminalWriteTimeout+time.Second {
+			t.Fatalf("%s persistence context = %+v (remaining %s), want live bounded detached context at call time", name, observed, remaining)
 		}
 	}
 	return stored
 }
 
-func assertKeyedChatReplayDoesNotDispatch(t *testing.T, handler http.Handler, sessionID, body string, dispatchCount func() int) {
+func assertKeyedChatReplayDoesNotDispatch(t *testing.T, handler http.Handler, sessionID, body string, dispatchCount func() int) ChatSessionResponse {
 	t.Helper()
 	before := dispatchCount()
 	replay := performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/messages", body)
@@ -754,4 +989,5 @@ func assertKeyedChatReplayDoesNotDispatch(t *testing.T, handler http.Handler, se
 	if got := dispatchCount(); got != before {
 		t.Fatalf("dispatches after replay = %d, want unchanged %d", got, before)
 	}
+	return response
 }
