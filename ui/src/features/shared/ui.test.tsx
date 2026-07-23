@@ -267,8 +267,9 @@ describe("Modal", () => {
     renderModal();
     const dialog = screen.getByRole("dialog", { name: "Test modal" });
     expect(dialog).toBeTruthy();
-    expect(dialog.style.maxWidth).toBe("calc(100vw - 24px)");
-    expect(dialog.style.maxHeight).toBe("min(80vh, calc(100dvh - 24px))");
+    expect(dialog.style.maxWidth).toContain("safe-area-inset-left");
+    expect(dialog.style.maxHeight).toContain("safe-area-inset-top");
+    expect(dialog).toHaveClass("dialog-surface--modal");
     const content = within(dialog).getByTestId("content");
     expect(content).toBeTruthy();
     expect(content.parentElement?.style.overscrollBehavior).toBe("contain");
@@ -515,7 +516,10 @@ describe("SlideOver", () => {
         <div>panel body</div>
       </SlideOver>,
     );
-    expect(screen.getByRole("dialog", { name: "Side panel" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Side panel" });
+    expect(dialog).toHaveClass("dialog-surface--slide-over");
+    expect(dialog.style.maxWidth).toContain("safe-area-inset-left");
+    expect(dialog.style.height).toContain("safe-area-inset-bottom");
     await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
   });

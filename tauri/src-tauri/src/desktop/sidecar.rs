@@ -304,21 +304,7 @@ pub async fn spawn_and_wait(
     // Use std::process::Command (not tokio) so the returned Child::kill()
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
-    let mut child = std::process::Command::new(&bin)
-        .arg("serve")
-        .env("HECATE_ADDRESS", &addr)
-        .env("HECATE_BACKEND", "sqlite")
-        .env("HECATE_PUBLIC_URL", &base_url)
-        .env("HECATE_DATA_DIR", &paths.data_dir)
-        .env("HECATE_SQLITE_PATH", &paths.sqlite_path)
-        // The desktop runtime remains local. Only connector-tagged requests
-        // enter the remote boundary authenticated by the per-launch secret.
-        .env("HECATE_REMOTE_RUNTIME_MODE", "0")
-        .env("HECATE_REMOTE_RUNTIME_SECRET", remote_runtime_secret)
-        // Suppress inherited terminal so the gateway doesn't fight the Tauri
-        // process for stdin/stdout in dev mode.
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
+    let mut child = gateway_command(&bin, &addr, &base_url, &paths, remote_runtime_secret)
         .stderr(std::process::Stdio::from(stderr_log))
         .spawn()
         .map_err(|e| format!("failed to spawn {bin:?}: {e}"))?;
@@ -379,12 +365,44 @@ pub async fn spawn_and_wait(
     }
 }
 
+fn gateway_command(
+    bin: &Path,
+    addr: &str,
+    base_url: &str,
+    paths: &GatewayPaths,
+    remote_runtime_secret: &str,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(bin);
+    command
+        .arg("serve")
+        .env("HECATE_ADDRESS", addr)
+        .env("HECATE_BACKEND", "sqlite")
+        .env("HECATE_PUBLIC_URL", base_url)
+        .env("HECATE_DATA_DIR", &paths.data_dir)
+        .env("HECATE_SQLITE_PATH", &paths.sqlite_path)
+        // The desktop runtime remains local. Only connector-tagged requests
+        // enter the remote boundary authenticated by the per-launch secret.
+        .env("HECATE_REMOTE_RUNTIME_MODE", "0")
+        .env("HECATE_REMOTE_RUNTIME_SECRET", remote_runtime_secret)
+        // The native Cloud connector is a single-user personal-runtime
+        // boundary. Authenticated remote requests may use this OS user's
+        // existing External Agent login state without copying credentials to
+        // the remote browser.
+        .env("HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS", "1")
+        // Suppress inherited terminal so the gateway doesn't fight the Tauri
+        // process for stdin/stdout in dev mode.
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null());
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        free_port, paths_for_data_dir, resolve_env_binary_path, sidecar_binary_names,
-        startup_failure_details,
+        free_port, gateway_command, paths_for_data_dir, resolve_env_binary_path,
+        sidecar_binary_names, startup_failure_details,
     };
+    use std::ffi::OsStr;
     use std::fs;
     use std::net::TcpListener;
     use std::path::PathBuf;
@@ -434,6 +452,43 @@ mod tests {
         assert_eq!(paths.sqlite_path, paths.data_dir.join("hecate.db"));
         assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
         assert_eq!(paths.state_path, paths.data_dir.join("hecate.runtime.json"));
+    }
+
+    #[test]
+    fn test_sidecar_gateway_command_enables_personal_remote_agent_logins() {
+        let data_dir = temp_path("gateway-command-data");
+        let paths = paths_for_data_dir(data_dir);
+        let command = gateway_command(
+            PathBuf::from("hecate-test").as_path(),
+            "127.0.0.1:54321",
+            "http://127.0.0.1:54321",
+            &paths,
+            "desktop-remote-secret-123456789",
+        );
+        let command_env = |key: &str| {
+            command
+                .get_envs()
+                .find(|(name, _)| *name == OsStr::new(key))
+                .and_then(|(_, value)| value)
+        };
+
+        assert_eq!(
+            command_env("HECATE_REMOTE_RUNTIME_MODE"),
+            Some(OsStr::new("0"))
+        );
+        assert_eq!(
+            command_env("HECATE_REMOTE_RUNTIME_SECRET"),
+            Some(OsStr::new("desktop-remote-secret-123456789"))
+        );
+        assert_eq!(
+            command_env("HECATE_PERSONAL_REMOTE_EXTERNAL_AGENT_LOGINS"),
+            Some(OsStr::new("1"))
+        );
+        assert_eq!(command_env("HECATE_BACKEND"), Some(OsStr::new("sqlite")));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![OsStr::new("serve")]
+        );
     }
 
     #[test]

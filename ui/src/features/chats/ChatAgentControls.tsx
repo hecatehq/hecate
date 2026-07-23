@@ -32,6 +32,7 @@ export function NewChatAgentButton({
   adapters,
   healthByID,
   disableUnavailable = false,
+  createLabel,
   createTitle,
   createDisabled,
   selectionDisabled = false,
@@ -43,6 +44,7 @@ export function NewChatAgentButton({
   adapters: AgentAdapterRecord[];
   healthByID: Map<string, AgentAdapterHealthRecord>;
   disableUnavailable?: boolean;
+  createLabel?: string;
   createTitle?: string;
   createDisabled?: boolean;
   selectionDisabled?: boolean;
@@ -60,7 +62,7 @@ export function NewChatAgentButton({
   // the menu width matches the visual button group, not just the
   // narrow caret.
   const anchorRef = useRef<HTMLDivElement>(null);
-  const floatingStyle = useFloatingDropdownStyle(anchorRef, open, "left");
+  const floatingStyle = useFloatingDropdownStyle(anchorRef, open, "left", "down", 230);
   const selected = chatAgentOption(value, adapters);
   const selectedAdapter =
     selected.id === "hecate" ? undefined : adapters.find((item) => item.id === selected.id);
@@ -161,13 +163,13 @@ export function NewChatAgentButton({
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            New {effectiveSelected.label} chat
+            {createLabel || `New ${effectiveSelected.label} chat`}
           </span>
         </button>
         <button
           ref={triggerRef}
           type="button"
-          className="btn btn-primary btn-sm"
+          className="btn btn-primary btn-sm new-chat-agent-picker-trigger"
           aria-label="Choose agent for new chat"
           aria-expanded={open}
           aria-haspopup="listbox"
@@ -542,6 +544,10 @@ function adapterAuthSetupTitle(
   detail: string | undefined,
 ): string {
   const name = adapterDisplayName(optionID, adapter);
+  const remoteCredentialHint = sanitizedAdapterDetail(adapter?.remote_credential_hint);
+  if (remoteCredentialHint) {
+    return `Open Connections to enable ${name} for remote access. ${remoteCredentialHint}`;
+  }
   const command = adapterLoginCommand(optionID);
   const action = command
     ? `Run ${command} in Terminal, then retry the chat. Diagnostics in Connections are optional.`

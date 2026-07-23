@@ -277,7 +277,7 @@ export function ChatAttachmentDrafts({
         <button
           ref={addButtonRef}
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm chat-composer-touch-action"
           disabled={!canAdd}
           aria-describedby={attachmentDescriptionIDs || undefined}
           onClick={() => inputRef.current?.click()}

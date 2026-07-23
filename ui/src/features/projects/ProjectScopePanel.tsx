@@ -484,7 +484,7 @@ function SidebarSectionHeader({
       <div style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm project-scope-header-action"
           aria-label={actionLabel}
           title={actionLabel}
           onClick={onAction}
@@ -494,7 +494,7 @@ function SidebarSectionHeader({
         </button>
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm project-scope-header-action"
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse projects" : "Expand projects"}
           title={expanded ? "Collapse projects" : "Expand projects"}

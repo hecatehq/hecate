@@ -5,6 +5,7 @@ import {
   installTauriDocumentMarkers,
   installTauriEditShortcutFallback,
   navigationStateUpdateMode,
+  resolveRequestedWorkspace,
 } from "./App";
 
 describe("navigation state ownership", () => {
@@ -24,6 +25,12 @@ describe("navigation state ownership", () => {
     expect(
       navigationStateUpdateMode("/projects?project=proj_a", "/chats?chat=chat_a", "projects"),
     ).toBe("transition");
+  });
+
+  it("opens Chats from the mobile runtime root without overriding explicit deep links", () => {
+    expect(resolveRequestedWorkspace(null, "settings", true)).toBe("chats");
+    expect(resolveRequestedWorkspace("tasks", "settings", true)).toBe("tasks");
+    expect(resolveRequestedWorkspace(null, "settings", false)).toBe("settings");
   });
 });
 

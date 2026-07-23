@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 
 	kitacp "github.com/hecatehq/acp-adapter-kit/acp"
 	"github.com/hecatehq/acp-adapter-kit/runtimeacp"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
 const (
@@ -34,10 +37,18 @@ const (
 	// of the inbound message cap because quoted control characters can expand
 	// severalfold during encoding.
 	maxRPCErrorDataBytes = 8 * 1024
-	approvalWaitMessage  = "Hecate is awaiting operator approval. Resolve it in the Hecate console to continue."
+	// Resource links become durable task-prompt text. Bound even valid paths
+	// independently of the transport envelope.
+	maxWorkspaceResourcePathBytes = 4 * 1024
+	maxResourceLinksPerPrompt     = 64
+	maxTaskPromptBytes            = 1024 * 1024
+	approvalWaitMessage           = "Hecate is awaiting operator approval. Resolve it in the Hecate console to continue."
 )
 
-var errTurnCancelled = errors.New("ACP turn cancelled")
+var (
+	errTurnCancelled                = errors.New("ACP turn cancelled")
+	errInvalidWorkspaceResourceLink = errors.New("resource link must reference an existing regular file inside the session workspace")
+)
 
 // Config controls the ACP bridge's bounded local behavior. It intentionally
 // has no provider or workspace knobs: those belong to the Hecate runtime and
@@ -252,14 +263,13 @@ func (a *Agent) prompt(method *kitacp.MethodContext, raw json.RawMessage) (any, 
 	if strings.TrimSpace(request.SessionID) == "" {
 		return nil, invalidParams(errors.New("sessionId is required"))
 	}
-	prompt, err := promptText(request.Prompt)
-	if err != nil {
-		return nil, invalidParams(err)
-	}
-
 	session := a.lookupSession(request.SessionID)
 	if session == nil {
 		return nil, unknownSession(request.SessionID)
+	}
+	prompt, err := promptText(session.cwd, request.Prompt)
+	if err != nil {
+		return nil, invalidParams(err)
 	}
 
 	session.turnMu.Lock()
@@ -954,29 +964,52 @@ func boundedToolCallID(value string) string {
 	return "hecate_tool_" + hex.EncodeToString(sum[:])
 }
 
-func promptText(blocks []promptBlock) (string, error) {
+func promptText(workspaceRoot string, blocks []runtimeacp.ContentBlock) (string, error) {
 	if blocks == nil {
 		return "", errors.New("prompt is required")
 	}
 	parts := make([]string, 0, len(blocks))
+	promptBytes := 0
+	resourceLinks := 0
+	appendPart := func(part string) error {
+		addedBytes := len(part)
+		if len(parts) > 0 {
+			addedBytes += len("\n\n")
+		}
+		if addedBytes > maxTaskPromptBytes-promptBytes {
+			return errors.New("ACP prompt exceeds the 1 MiB task-prompt limit")
+		}
+		parts = append(parts, part)
+		promptBytes += addedBytes
+		return nil
+	}
 	for _, block := range blocks {
 		contentType := strings.TrimSpace(block.Type)
 		switch contentType {
 		case "text":
 			if strings.TrimSpace(block.Text) != "" {
-				parts = append(parts, block.Text)
+				if err := appendPart(block.Text); err != nil {
+					return "", err
+				}
 			}
 		case "resource_link":
-			// ACP's baseline resource link has a URI, but this bridge never
-			// dereferences editor-owned paths. Preserve only an opaque display
-			// label so neither the URI nor its contents leak into Hecate.
-			name := truncateText(strings.TrimSpace(block.Name), 256)
-			if name == "" {
-				name = "unnamed resource"
+			resourceLinks++
+			if resourceLinks > maxResourceLinksPerPrompt {
+				return "", errors.New("ACP prompt exceeds the 64 resource-link limit")
 			}
-			parts = append(parts, fmt.Sprintf("[Editor resource %q was referenced; its contents were not transferred.]", name))
+			relativePath, err := workspaceResourceRelativePath(workspaceRoot, block.URI)
+			if err != nil {
+				return "", err
+			}
+			reference := fmt.Sprintf(
+				"[Workspace file reference: %q. Read it through Hecate's workspace tools if needed.]",
+				relativePath,
+			)
+			if err := appendPart(reference); err != nil {
+				return "", err
+			}
 		case "image", "audio", "resource":
-			return "", errors.New("media or embedded-resource prompt content is not supported by Hecate ACP yet")
+			return "", errors.New("image, audio, and embedded-resource prompt content is not supported by Hecate ACP yet")
 		default:
 			// Content type is client-controlled. Keep the protocol error stable
 			// and bounded rather than reflecting an arbitrarily large or
@@ -986,9 +1019,54 @@ func promptText(blocks []promptBlock) (string, error) {
 	}
 	prompt := strings.TrimSpace(strings.Join(parts, "\n\n"))
 	if prompt == "" {
-		return "", errors.New("prompt must include text or a resource link")
+		return "", errors.New("prompt must include text or a workspace file link")
 	}
 	return prompt, nil
+}
+
+func workspaceResourceRelativePath(workspaceRoot, rawURI string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURI))
+	if err != nil ||
+		!strings.EqualFold(parsed.Scheme, "file") ||
+		parsed.Opaque != "" ||
+		parsed.User != nil ||
+		(parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost")) ||
+		parsed.RawQuery != "" ||
+		parsed.ForceQuery ||
+		parsed.Fragment != "" {
+		return "", errInvalidWorkspaceResourceLink
+	}
+
+	path := filepath.FromSlash(parsed.Path)
+	if goruntime.GOOS == "windows" &&
+		len(path) >= 3 &&
+		(path[0] == '\\' || path[0] == '/') &&
+		path[2] == ':' {
+		path = path[1:]
+	}
+	if path == "" ||
+		len(path) > maxWorkspaceResourcePathBytes ||
+		strings.ContainsRune(path, '\x00') ||
+		!filepath.IsAbs(path) {
+		return "", errInvalidWorkspaceResourceLink
+	}
+
+	relativePath, err := filepath.Rel(filepath.Clean(workspaceRoot), filepath.Clean(path))
+	if err != nil ||
+		relativePath == "." ||
+		len(relativePath) > maxWorkspaceResourcePathBytes ||
+		!filepath.IsLocal(relativePath) {
+		return "", errInvalidWorkspaceResourceLink
+	}
+	fsys, err := workspacefs.New(workspaceRoot)
+	if err != nil {
+		return "", errInvalidWorkspaceResourceLink
+	}
+	info, _, err := fsys.Stat(relativePath)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", errInvalidWorkspaceResourceLink
+	}
+	return filepath.ToSlash(relativePath), nil
 }
 
 func promptResult(reason runtimeacp.StopReason) map[string]any {
@@ -1091,14 +1169,8 @@ type newSessionRequest struct {
 }
 
 type promptRequest struct {
-	SessionID string        `json:"sessionId"`
-	Prompt    []promptBlock `json:"prompt"`
-}
-
-type promptBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-	Name string `json:"name"`
+	SessionID string                    `json:"sessionId"`
+	Prompt    []runtimeacp.ContentBlock `json:"prompt"`
 }
 
 type sessionReference struct {

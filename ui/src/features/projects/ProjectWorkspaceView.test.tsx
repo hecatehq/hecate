@@ -499,6 +499,24 @@ describe("ProjectWorkspaceView", () => {
     expect(handlers.onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps onboarding usable when an older runtime omits setup checks", async () => {
+    const readiness = setupReadiness();
+    Reflect.deleteProperty(readiness, "checks");
+
+    renderWorkspace({
+      project: project({ name: "Legacy project" }),
+      projectNeedsOnboarding: true,
+      projectSetupReadiness: readiness,
+    });
+
+    const onboarding = screen.getByRole("region", { name: "Project onboarding" });
+    expect(
+      within(onboarding).getByRole("heading", { name: "Create the first work item" }),
+    ).toBeTruthy();
+    await userEvent.click(within(onboarding).getByText("Setup details"));
+    expect(within(onboarding).getByText("0/0 covered")).toBeTruthy();
+  });
+
   it("starts a rootless project with the server-backed first-work action", async () => {
     const { handlers } = renderWorkspace({
       project: project({ name: "Research notes" }),

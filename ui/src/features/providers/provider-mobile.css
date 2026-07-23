@@ -1,0 +1,189 @@
+.providers-view .provider-remove-label {
+  display: none;
+}
+
+.add-provider-content,
+.provider-edit-content {
+  min-width: 0;
+}
+
+@media (max-width: 720px),
+  (max-width: 960px) and (max-height: 520px) and (hover: none) and (pointer: coarse) {
+  .connections-provider-table-wrap {
+    border: 0 !important;
+    overflow: visible !important;
+  }
+
+  .connections-provider-table {
+    display: block;
+    table-layout: auto !important;
+    width: 100% !important;
+  }
+
+  .connections-provider-table colgroup {
+    display: none;
+  }
+
+  .connections-provider-table thead {
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  .connections-provider-table tbody {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .connections-provider-row {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius);
+    display: grid;
+    gap: 0 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .connections-provider-row > td {
+    border: 0;
+    min-width: 0;
+    padding: 5px 0 !important;
+  }
+
+  .provider-cell-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .provider-cell-name > div {
+    min-width: 0;
+  }
+
+  .provider-cell-name-text,
+  .provider-cell-custom-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .provider-cell-health {
+    align-self: start;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .provider-cell-detail {
+    align-items: start;
+    display: grid;
+    gap: 10px;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(84px, 0.38fr) minmax(0, 1fr);
+    text-align: left !important;
+  }
+
+  .provider-cell-detail::before {
+    color: var(--t3);
+    content: attr(data-label);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .provider-cell-endpoint span {
+    overflow-wrap: anywhere;
+    white-space: normal !important;
+  }
+
+  .provider-cell-actions {
+    border-top: 1px solid var(--border) !important;
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    margin-top: 5px;
+    padding-top: 10px !important;
+  }
+
+  .provider-remove-button {
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 12px !important;
+    touch-action: manipulation;
+  }
+
+  .providers-view .provider-remove-label {
+    display: inline;
+  }
+
+  .provider-readiness-header {
+    flex-wrap: wrap;
+  }
+
+  .provider-readiness-action {
+    align-items: stretch !important;
+    flex-basis: 100%;
+    flex-direction: column;
+    margin-left: 0 !important;
+    max-width: none !important;
+  }
+
+  .provider-readiness-action > div {
+    text-align: left !important;
+  }
+
+  .provider-readiness-action button {
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .provider-edit-status-grid {
+    gap: 8px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .provider-edit-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 520px) {
+  .add-provider-picker-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .add-provider-picker-card {
+    min-width: 0;
+    white-space: normal !important;
+  }
+
+  .add-provider-preset-heading {
+    align-items: flex-start !important;
+    flex-direction: column;
+    gap: 3px !important;
+  }
+}
+
+@media (max-width: 520px),
+  (max-width: 960px) and (max-height: 520px) and (hover: none) and (pointer: coarse) {
+  .providers-view .btn,
+  .add-provider-content button,
+  .provider-edit-content button {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .providers-view .input,
+  .add-provider-content input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .provider-edit-content input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+}

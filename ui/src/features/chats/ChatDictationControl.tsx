@@ -388,7 +388,7 @@ export function ChatDictationControl({
     >
       <button
         type="button"
-        className="btn btn-ghost btn-sm"
+        className="btn btn-ghost btn-sm chat-composer-touch-action"
         aria-label={phase === "recording" ? "Stop dictation recording" : "Start dictation"}
         aria-describedby={statusID}
         disabled={disabled || unavailable || phase === "requesting" || phase === "processing"}

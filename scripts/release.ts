@@ -53,7 +53,11 @@ function fail(msg: string): never {
 }
 
 function commandErrorOutput(error: unknown): string {
-  const maybeError = error as { stderr?: { toString(): string }; stdout?: { toString(): string }; message?: string };
+  const maybeError = error as {
+    stderr?: { toString(): string };
+    stdout?: { toString(): string };
+    message?: string;
+  };
   const stderr = maybeError.stderr?.toString().trim();
   if (stderr) return stderr;
   const stdout = maybeError.stdout?.toString().trim();
@@ -68,18 +72,20 @@ function sep(label: string) {
 // ── Args ──────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
-const version = args.find(a => !a.startsWith("--")) ?? "";
+const version = args.find((a) => !a.startsWith("--")) ?? "";
 const skipSnapshot = args.includes("--skip-snapshot");
 const preflightOnly = args.includes("--preflight-only");
 
 if (!version) {
-  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only] [--yes]");
+  console.error(
+    "usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only] [--yes]",
+  );
   console.error("       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.9)");
   process.exit(1);
 }
 
 const allowedFlags = new Set(["--skip-snapshot", "--preflight-only", "--yes"]);
-const unknownFlags = args.filter(a => a.startsWith("--") && !allowedFlags.has(a));
+const unknownFlags = args.filter((a) => a.startsWith("--") && !allowedFlags.has(a));
 if (unknownFlags.length > 0) {
   fail(`unknown option${unknownFlags.length === 1 ? "" : "s"}: ${unknownFlags.join(", ")}`);
 }
@@ -105,16 +111,53 @@ if (dirty) {
 }
 console.log("  worktree  : clean");
 
-// 2. Branch check — warn when releasing from non-master.
+// 2. Releases must start from the default branch. Allowing a feature branch
+// here is unsafe because the stamp commit and tag would be pushed together
+// while master remained unchanged.
 const branch = run("git rev-parse --abbrev-ref HEAD", { silent: true });
 if (branch !== "master" && branch !== "main") {
-  console.warn(`warning: releasing from branch '${branch}' (not master/main)`);
-  if (!confirm("  Continue?")) abort("cancelled by user");
+  fail(
+    `releases must be cut from master/main (current branch: '${branch}').\n` +
+      "  Merge the candidate, then use a clean, current default-branch worktree.",
+  );
 }
 console.log(`  branch    : ${branch}`);
-console.log(`  commit    : ${run("git rev-parse --short HEAD", { silent: true })}`);
+const localCommit = run("git rev-parse HEAD", { silent: true });
+console.log(`  commit    : ${localCommit.slice(0, 7)}`);
 
-// 3. Tag must not already exist.
+// 3. Refresh origin before checking the candidate. This makes the local tag
+// uniqueness check authoritative for existing remote tags and prevents a
+// stale or locally-ahead default branch from publishing an unreviewed commit.
+try {
+  execFileSync("git", ["fetch", "--tags", "origin"], {
+    cwd: root,
+    stdio: "inherit",
+  });
+} catch (error) {
+  fail(`could not refresh origin before release.\n  Git said: ${commandErrorOutput(error)}`);
+}
+const upstream = `origin/${branch}`;
+let upstreamCommit = "";
+try {
+  upstreamCommit = execFileSync("git", ["rev-parse", upstream], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+} catch (error) {
+  fail(`could not resolve ${upstream}.\n  Git said: ${commandErrorOutput(error)}`);
+}
+if (localCommit !== upstreamCommit) {
+  fail(
+    `local ${branch} does not exactly match ${upstream}.\n` +
+      `  local:    ${localCommit}\n` +
+      `  upstream: ${upstreamCommit}\n` +
+      "  Pull or push the reviewed commit before cutting a release.",
+  );
+}
+console.log(`  upstream  : ${upstream} (exact match)`);
+
+// 4. Tag must not already exist locally or on the just-fetched origin.
 try {
   // execFileSync to avoid the same shell-injection class CodeQL flags on
   // line 156 — version is regex-validated upstream, but defense in depth.
@@ -124,26 +167,25 @@ try {
   });
   fail(
     `tag ${version} already exists locally.\n` +
-    `  To delete: git tag -d ${version}  ` +
-    `(and git push --delete origin ${version} if already pushed)`,
+      `  To delete: git tag -d ${version}  ` +
+      `(and git push --delete origin ${version} if already pushed)`,
   );
 } catch {
   // expected — tag does not exist yet
 }
 console.log(`  tag       : ${version} (new)`);
 
-// 4. goreleaser must be on PATH.
+// 5. goreleaser must be on PATH.
 try {
   const gr = run("goreleaser --version 2>&1", { silent: true }).split("\n")[0];
   console.log(`  goreleaser: ${gr}`);
 } catch {
   fail(
-    "goreleaser not found.\n" +
-    "  Install: go install github.com/goreleaser/goreleaser/v2@latest",
+    "goreleaser not found.\n" + "  Install: go install github.com/goreleaser/goreleaser/v2@latest",
   );
 }
 
-// 5. Bun must be available (needed for Tauri version stamp).
+// 6. Bun must be available (needed for Tauri version stamp).
 try {
   run("bun --version", { silent: true });
   console.log(`  bun       : ${run("bun --version", { silent: true })}`);
@@ -151,7 +193,7 @@ try {
   fail("bun not found — required for Tauri version stamping.");
 }
 
-// 6. Docker must be reachable when the local snapshot will build images.
+// 7. Docker must be reachable when the local snapshot will build images.
 // `just release` runs this preflight before `just verify`, so a stopped
 // Docker Desktop fails in seconds instead of after the full release gate.
 if (!skipSnapshot) {
@@ -165,8 +207,8 @@ if (!skipSnapshot) {
   } catch (error) {
     fail(
       "Docker is required for the Goreleaser snapshot dry-run, but the Docker daemon is not reachable.\n" +
-      "  Start Docker Desktop and retry, or pass --skip-snapshot only after just verify has already passed.\n" +
-      `  Docker said: ${commandErrorOutput(error)}`,
+        "  Start Docker Desktop and retry, or pass --skip-snapshot only after just verify has already passed.\n" +
+        `  Docker said: ${commandErrorOutput(error)}`,
     );
   }
 } else {
@@ -194,8 +236,11 @@ if (!skipSnapshot) {
 
 sep("Confirm");
 const remote = (() => {
-  try { return run("git remote get-url origin", { silent: true }); }
-  catch { return "(unknown)"; }
+  try {
+    return run("git remote get-url origin", { silent: true });
+  } catch {
+    return "(unknown)";
+  }
 })();
 console.log(`  tag    : ${version}`);
 console.log(`  remote : ${remote}`);
@@ -218,10 +263,26 @@ if (existsSync(stampScript)) {
     env: { ...process.env, TAURI_VERSION: semver },
   });
 
-  // If stamping dirtied the tree, commit it before tagging.
+  // If stamping dirtied the tree, commit every desktop and mobile version
+  // surface before tagging. Leaving the platform overlays untracked would
+  // make the tag disagree with the store artifacts that CI builds from it.
   const stampDirty = run("git status --porcelain", { silent: true });
   if (stampDirty) {
-    run("git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock tauri/src-tauri/tauri.conf.json tauri/package.json");
+    execFileSync(
+      "git",
+      [
+        "add",
+        "tauri/src-tauri/Cargo.toml",
+        "tauri/src-tauri/Cargo.lock",
+        "tauri/src-tauri/tauri.conf.json",
+        "tauri/src-tauri/tauri.ios.conf.json",
+        "tauri/src-tauri/tauri.android.conf.json",
+        "tauri/src-tauri/gen/apple/project.yml",
+        "tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist",
+        "tauri/package.json",
+      ],
+      { cwd: root, stdio: "inherit" },
+    );
     execFileSync("git", ["commit", "-m", `chore(tauri): stamp version ${semver}`], {
       cwd: root,
       stdio: "inherit",

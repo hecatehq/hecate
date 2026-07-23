@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Least-privilege capability for the static iOS and Android Cloud companion shell",
+  "windows": ["main"],
+  "platforms": ["iOS", "android"],
+  "permissions": [
+    "core:default",
+    "allow-mobile-status",
+    "allow-mobile-sign-in",
+    "allow-mobile-reopen-authorization",
+    "allow-mobile-connections",
+    "allow-mobile-notification-status",
+    "allow-mobile-enable-notifications",
+    "allow-mobile-open-notification-settings",
+    "allow-mobile-disable-notifications",
+    "allow-mobile-open-connection",
+    "allow-mobile-start-connection",
+    "allow-mobile-sign-out",
+    "deep-link:default",
+    "log:default"
+  ]
+}

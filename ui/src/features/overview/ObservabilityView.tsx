@@ -5,6 +5,8 @@
 // `./observability/`; this file is orchestration only — state, polling
 // effects, filter computation, and layout.
 
+/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- A horizontally scrollable labelled region must be keyboard-focusable. */
+
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -41,7 +43,14 @@ import {
 import { RecentActivityStrip } from "./observability/RecentActivityStrip";
 import { StatCard } from "./observability/StatCard";
 import { TraceDetail } from "./observability/TraceDetail";
-import { DRAWER_BREAKPOINT_PX, type StatusFilter, tdBase, thStyle } from "./observability/styles";
+import {
+  COMPACT_FILTERS_BREAKPOINT_PX,
+  DRAWER_BREAKPOINT_PX,
+  REQUEST_TABLE_MIN_WIDTH_PX,
+  type StatusFilter,
+  tdBase,
+  thStyle,
+} from "./observability/styles";
 
 type Props = {
   // Optional escape hatch the empty-state "Open Chats" button uses.
@@ -77,6 +86,7 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
   const [tracesLoaded, setTracesLoaded] = useState(false);
   const [liveMode, setLiveMode] = useState(true);
   const [selectedID, setSelectedID] = useState<string | null>(null);
+  const [focusedRequestID, setFocusedRequestID] = useState<string | null>(null);
   // drawerOpen is intentionally decoupled from selectedID so live mode
   // can advance the highlight without slamming the drawer open.
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -109,6 +119,20 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
   const [useDrawer] = useState<boolean>(() =>
     typeof window === "undefined" ? true : window.innerWidth >= DRAWER_BREAKPOINT_PX,
   );
+  const [compactFilters, setCompactFilters] = useState<boolean>(() =>
+    typeof window === "undefined" ? false : window.innerWidth <= COMPACT_FILTERS_BREAKPOINT_PX,
+  );
+
+  // Filter layout can safely follow orientation/window changes: unlike
+  // switching between the inline drawer and Modal, it does not replace
+  // an active inspection surface or move focus out from under the user.
+  useEffect(() => {
+    const updateCompactFilters = () => {
+      setCompactFilters(window.innerWidth <= COMPACT_FILTERS_BREAKPOINT_PX);
+    };
+    window.addEventListener("resize", updateCompactFilters);
+    return () => window.removeEventListener("resize", updateCompactFilters);
+  }, []);
 
   // Filter pickers
   const [providerFilter, setProviderFilter] = useState<string>("auto");
@@ -465,13 +489,25 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
     null;
 
   return (
-    <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div
+      style={{
+        height: "100%",
+        minWidth: 0,
+        maxWidth: "100%",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <div
         style={{
           flex: drawerActive ? "1 1 50%" : "1 1 100%",
           minHeight: 0,
+          minWidth: 0,
           overflowY: "auto",
+          overflowX: "hidden",
           padding: 16,
+          boxSizing: "border-box",
         }}
       >
         {/* Header */}
@@ -570,9 +606,11 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
 
         {/* Recent requests filters */}
         <div
+          data-testid="recent-request-filters"
           style={{
             display: "flex",
-            alignItems: "center",
+            flexDirection: compactFilters ? "column" : "row",
+            alignItems: compactFilters ? "stretch" : "center",
             gap: 10,
             justifyContent: "space-between",
             marginBottom: 10,
@@ -580,12 +618,15 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
         >
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Recent requests</div>
           <div
+            data-testid="recent-request-filter-controls"
             style={{
               display: "flex",
               alignItems: "center",
               gap: 8,
               flexWrap: "wrap",
-              justifyContent: "flex-end",
+              justifyContent: compactFilters ? "flex-start" : "flex-end",
+              width: compactFilters ? "100%" : undefined,
+              minWidth: 0,
             }}
           >
             <ProviderPicker
@@ -596,6 +637,7 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
               }}
               options={providerOptions}
               includeAuto
+              triggerWidth={compactFilters ? 180 : undefined}
             />
             <ModelPicker
               value={modelFilter}
@@ -625,13 +667,30 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
         {/* Table */}
         {filteredTraces.length > 0 ? (
           <div
+            className="horizontal-scroll-region"
+            role="region"
+            aria-label="Recent requests table"
+            tabIndex={0}
+            data-testid="recent-requests-table-scroll"
             style={{
               border: "1px solid var(--border)",
               borderRadius: "var(--radius)",
-              overflow: "hidden",
+              maxWidth: "100%",
+              minWidth: 0,
+              overflowX: "auto",
+              overflowY: "hidden",
+              overscrollBehaviorX: "contain",
+              WebkitOverflowScrolling: "touch",
             }}
           >
-            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <table
+              style={{
+                width: "100%",
+                minWidth: REQUEST_TABLE_MIN_WIDTH_PX,
+                borderCollapse: "collapse",
+                tableLayout: "fixed",
+              }}
+            >
               <colgroup>
                 <col style={{ width: "9%" }} />
                 <col style={{ width: "9%" }} />
@@ -690,11 +749,35 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
                   return (
                     <tr
                       key={t.request_id}
+                      tabIndex={0}
+                      aria-label={`Request ${t.request_id}. Press Enter to view details.`}
                       onClick={() => openTraceForRow(t.request_id)}
+                      onKeyDown={(event) => {
+                        // Nested controls, such as CopyableID, own their
+                        // keyboard events and must not also open the row.
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openTraceForRow(t.request_id);
+                        }
+                      }}
+                      onFocus={() => setFocusedRequestID(t.request_id)}
+                      onBlur={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                          setFocusedRequestID((current) =>
+                            current === t.request_id ? null : current,
+                          );
+                        }
+                      }}
                       style={{
                         cursor: "pointer",
                         background: isSel ? "var(--teal-bg)" : "transparent",
                         borderBottom: isLast ? undefined : "1px solid var(--border)",
+                        outline:
+                          focusedRequestID === t.request_id
+                            ? "2px solid var(--teal-border)"
+                            : undefined,
+                        outlineOffset: focusedRequestID === t.request_id ? -2 : undefined,
                       }}
                     >
                       <td
@@ -942,7 +1025,7 @@ function StatusFilterPicker({
     triggerRef,
     menuRef,
   } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right", "down", 110);
   const label = STATUS_FILTER_OPTIONS.find((option) => option.value === value)?.label ?? "All";
 
   useEffect(() => {

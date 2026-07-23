@@ -315,6 +315,9 @@ function buildStartGuideItems({
   const modelNeedsAttention =
     !hasConfiguredProviders || modelRouteUnavailable || Boolean(selectedModelIssue);
   const agentFound = agentAdapters.some((adapter) => adapter.available);
+  const personalRemoteAgentLogin = agentAdapters.some(
+    (adapter) => adapter.remote_credential_ok && adapter.remote_credential_mode === "local_login",
+  );
   const workspaceNeedsAttention = setupRepair?.action === "choose_workspace";
   return [
     {
@@ -335,7 +338,9 @@ function buildStartGuideItems({
     },
     {
       detail: isRemoteRuntime
-        ? "Use supported external agents after API-key setup."
+        ? personalRemoteAgentLogin
+          ? "Use this Mac's configured CLI sign-ins; credentials stay on the Mac."
+          : "Configure a remote-safe agent credential in Connections."
         : "Use Codex, Claude Code, Cursor, or Grok Build once ready.",
       icon: Icons.terminal,
       label: "Agents",

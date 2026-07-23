@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Capability granted to the main application window",
   "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows"],
   "remote": {
     "urls": ["http://127.0.0.1:*/*"]
   },

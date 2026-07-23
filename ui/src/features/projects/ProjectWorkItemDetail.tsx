@@ -21,6 +21,7 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { ContextInspectorModalTrigger, ContextInspectorPanel } from "../shared/ContextInspector";
+import { MarkdownContent } from "../shared/MarkdownContent";
 import { Badge, Icon, Icons, InlineError, Modal } from "../shared/ui";
 import {
   toProjectAssignmentEvidenceViewModel,
@@ -778,16 +779,11 @@ export function ProjectWorkItemDetail({
                           </div>
                         )}
                       </div>
-                      <div
-                        style={{
-                          marginTop: 6,
-                          fontSize: 12,
-                          color: "var(--t2)",
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        {artifact.body}
-                      </div>
+                      <MarkdownContent
+                        content={artifact.body}
+                        headingStartLevel={3}
+                        style={artifactBodyStyle}
+                      />
                       {artifact.kind === "evidence_link" && (
                         <EvidenceArtifactMetadata artifact={artifact} />
                       )}
@@ -2929,6 +2925,13 @@ const artifactTitleStyle: CSSProperties = {
   overflowWrap: "anywhere",
   textOverflow: "clip",
   whiteSpace: "normal",
+};
+
+const artifactBodyStyle: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  marginTop: 6,
 };
 
 const artifactActionsStyle: CSSProperties = {

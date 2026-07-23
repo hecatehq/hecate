@@ -12,18 +12,20 @@ export type MarkdownContentProps = {
   content: string;
   headingStartLevel?: MarkdownHeadingStartLevel;
   renderCodeBlock?: (code: string, language: string | undefined) => React.ReactNode;
+  style?: React.CSSProperties;
 };
 
 export function MarkdownContent({
   content,
   headingStartLevel,
   renderCodeBlock,
+  style,
 }: MarkdownContentProps) {
   // Parsing is the per-row hot cost in streamed transcripts. Memoizing on
   // content also keeps release-note dialog re-renders inexpensive.
   const blocks = useMemo(() => parseMarkdownBlocks(content), [content]);
   return (
-    <div style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7 }}>
+    <div style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7, ...style }}>
       {blocks.map((block, i) => {
         if (block.type === "code") {
           const rendered = renderCodeBlock?.(block.text, block.lang);

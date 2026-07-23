@@ -1,13 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { desktopHost, isTauriOnMacOS, isTauriRuntime } from "./tauri";
+import {
+  desktopHost,
+  isMobileTauriRuntime,
+  isTauriOnMacOS,
+  isTauriRuntime,
+  MOBILE_TAURI_USER_AGENT_MARKER,
+} from "./tauri";
 
 const originalPlatform = navigator.platform;
+const originalUserAgent = navigator.userAgent;
 
 afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   Reflect.deleteProperty(window, "__TAURI__");
   Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUserAgent });
 });
 
 describe("isTauriRuntime", () => {
@@ -23,6 +31,18 @@ describe("isTauriRuntime", () => {
 
   it("returns false in a regular browser tab", () => {
     expect(isTauriRuntime()).toBe(false);
+  });
+
+  it("does not classify a mobile-marked injected bridge as desktop Tauri", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: `WebView ${MOBILE_TAURI_USER_AGENT_MARKER}`,
+    });
+
+    expect(isMobileTauriRuntime()).toBe(true);
+    expect(isTauriRuntime()).toBe(false);
+    expect(desktopHost()).toBeNull();
   });
 });
 

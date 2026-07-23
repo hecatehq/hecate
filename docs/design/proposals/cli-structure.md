@@ -273,11 +273,12 @@ approvals, artifacts, and observability. It reads `HECATE_BASE_URL` (default
 runtime when configured. Its logs stay on stderr and stdout is ACP JSON-RPC
 only.
 
-V1 accepts text prompts and opaque resource references. It requires an absolute
-client working directory and uses `workspace_mode: in_place`; it intentionally
-does not offer media/file transfer, editor filesystem/terminal callbacks,
-client-provided MCP servers, Agent Preset selection, remote runtimes, or ACP
-session list/load/resume.
+V1 accepts text prompts and `file:` references to existing regular files inside
+the ACP session workspace. It requires an absolute client working directory and
+uses `workspace_mode: in_place`; it intentionally does not offer
+image/audio/embedded-resource transfer, editor
+filesystem/terminal callbacks, client-provided MCP servers, Agent Preset
+selection, remote runtimes, or ACP session list/load/resume.
 The full runtime contract and security boundary live in
 [`docs/runtime/acp.md`](../../runtime/acp.md).
 

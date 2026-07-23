@@ -22,12 +22,16 @@ import { useEffect, useState } from "react";
 import type React from "react";
 
 const FLOATING_DROPDOWN_Z_INDEX = 1000;
+const VIEWPORT_GUTTER = 8;
+const MENU_GAP = 4;
+const PREFERRED_MENU_HEIGHT = 120;
 
 export function useFloatingDropdownStyle(
   triggerRef: React.RefObject<HTMLElement | null>,
   open: boolean,
   align: "left" | "right" = "left",
   placement: "down" | "up" = "down",
+  menuWidth = 220,
 ): React.CSSProperties | undefined {
   const [style, setStyle] = useState<React.CSSProperties | undefined>(undefined);
   useEffect(() => {
@@ -53,22 +57,48 @@ export function useFloatingDropdownStyle(
         // sibling form controls while staying in the dialog subtree for
         // focus-trap and outside-click behavior.
         zIndex: FLOATING_DROPDOWN_Z_INDEX,
+        maxWidth: `calc(100vw - ${VIEWPORT_GUTTER * 2}px)`,
       };
-      if (placement === "up") {
-        next.bottom = window.innerHeight - r.top + 4;
+      const availableAbove = Math.max(0, r.top - MENU_GAP - VIEWPORT_GUTTER);
+      const availableBelow = Math.max(
+        0,
+        window.innerHeight - r.bottom - MENU_GAP - VIEWPORT_GUTTER,
+      );
+      const resolvedPlacement =
+        placement === "up"
+          ? availableAbove < PREFERRED_MENU_HEIGHT && availableBelow > availableAbove
+            ? "down"
+            : "up"
+          : availableBelow < PREFERRED_MENU_HEIGHT && availableAbove > availableBelow
+            ? "up"
+            : "down";
+
+      if (resolvedPlacement === "up") {
+        next.bottom = window.innerHeight - r.top + MENU_GAP;
         next.top = "auto";
-        next.maxHeight = Math.max(120, r.top - 12);
+        next.maxHeight = availableAbove;
       } else {
-        next.top = r.bottom + 4;
+        next.top = r.bottom + MENU_GAP;
         next.bottom = "auto";
-        next.maxHeight = Math.max(120, window.innerHeight - r.bottom - 12);
+        next.maxHeight = availableBelow;
       }
       next.overflowY = "auto";
+
+      const boundedMenuWidth = Math.min(
+        Math.max(0, menuWidth),
+        Math.max(0, window.innerWidth - VIEWPORT_GUTTER * 2),
+      );
       if (align === "right") {
-        next.right = window.innerWidth - r.right;
+        next.right = Math.min(
+          Math.max(VIEWPORT_GUTTER, window.innerWidth - r.right),
+          Math.max(VIEWPORT_GUTTER, window.innerWidth - VIEWPORT_GUTTER - boundedMenuWidth),
+        );
         next.left = "auto";
       } else {
-        next.left = r.left;
+        next.left = Math.min(
+          Math.max(VIEWPORT_GUTTER, r.left),
+          Math.max(VIEWPORT_GUTTER, window.innerWidth - VIEWPORT_GUTTER - boundedMenuWidth),
+        );
         next.right = "auto";
       }
       setStyle(next);
@@ -82,6 +112,6 @@ export function useFloatingDropdownStyle(
       window.removeEventListener("scroll", compute, true);
       window.removeEventListener("resize", compute);
     };
-  }, [open, triggerRef, align, placement]);
+  }, [open, triggerRef, align, placement, menuWidth]);
   return style;
 }

@@ -15,6 +15,7 @@
 .data/
 .maintenance/
 .gocache/
+.gocache-windows/
 .gomodcache/
 .gopath/
 
@@ -53,6 +54,10 @@ website/.netlify/
 
 # Tauri desktop app
 tauri/node_modules/
+
+# Browser-driven local verification artifacts.
+.playwright-cli/
+/output/
 
 # Rust build output is large and fully reproducible.
 tauri/src-tauri/target/

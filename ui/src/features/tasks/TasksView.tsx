@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   applyTaskRunPatch,
@@ -204,6 +204,7 @@ export function TasksView({
   const [scheduleHistoryState, setScheduleHistoryState] = useState<ScheduleHistoryState>("idle");
   const [scheduleHistoryError, setScheduleHistoryError] = useState("");
   const [selectedTaskID, setSelectedTaskID] = useState("");
+  const [taskIndexOpen, setTaskIndexOpen] = useState(true);
   const [runs, setRuns] = useState<TaskRunRecord[]>([]);
   const [selectedRunID, setSelectedRunID] = useState("");
   const [approvals, setApprovals] = useState<TaskApprovalRecord[]>([]);
@@ -268,6 +269,10 @@ export function TasksView({
     () => tasks.filter((task) => taskMatchesFilter(task, effectiveTaskFilter, schedulesByTaskID)),
     [effectiveTaskFilter, tasks, schedulesByTaskID],
   );
+
+  useLayoutEffect(() => {
+    setTaskIndexOpen(!selectedTaskID);
+  }, [selectedTaskID]);
 
   useEffect(() => {
     if (scheduleLoadState !== "error") return;
@@ -675,6 +680,7 @@ export function TasksView({
   }, [loadTaskDetail, selectedRunID, selectedTaskID]);
 
   async function handleSelectTask(taskID: string) {
+    setTaskIndexOpen(false);
     selectTaskRun(taskID, "");
     setNotice(null);
     setTaskDetailLoadError("");
@@ -1146,7 +1152,9 @@ export function TasksView({
   }
 
   return (
-    <MasterDetailWorkspace>
+    <MasterDetailWorkspace
+      className={`tasks-workspace tasks-workspace--${taskIndexOpen ? "index" : "detail"}-open`}
+    >
       <TaskList
         tasks={filteredTasks}
         selectedTaskID={selectedTaskID}
@@ -1246,6 +1254,10 @@ export function TasksView({
           notice={notice}
           onSelectRun={(id) => void handleSelectRun(id)}
           onOpenChat={onOpenChat}
+          onOpenTaskList={() => {
+            setTaskIndexOpen(true);
+            window.requestAnimationFrame(() => taskIndexHeadingRef.current?.focus());
+          }}
           onFocusRequestHandled={onFocusRequestHandled}
           onResolveApproval={(approval, decision) => void handleResolveApproval(approval, decision)}
           onCancelRun={() => void handleCancelRun()}

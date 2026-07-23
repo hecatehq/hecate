@@ -64,6 +64,23 @@ describe("desktop cloud connection bridge", () => {
     expect(invokeMock).toHaveBeenCalledWith("cloud_connection_status", undefined);
   });
 
+  it("does not expose removed browser verification-code fields", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockResolvedValueOnce({
+      available: true,
+      phase: "authorizing",
+      authorizing: true,
+      verification_code: "ABCD-EFGH",
+    });
+
+    const status = await getDesktopCloudConnectionStatus();
+    expect(status).toMatchObject({
+      phase: "authorizing",
+      authorizing: true,
+    });
+    expect(status).not.toHaveProperty("verification_code");
+  });
+
   it("starts, stops, and signs out through fixed native commands", async () => {
     Reflect.set(window, "__TAURI__", {});
     invokeMock

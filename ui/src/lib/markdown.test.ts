@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   incompleteMarkdownDestinationStart,
+  markdownToPlainText,
   parseInlineNodes,
   parseMarkdownBlocks,
 } from "./markdown";
@@ -271,5 +272,42 @@ describe("parseInlineNodes", () => {
 
   it("returns empty array for empty string", () => {
     expect(parseInlineNodes("")).toEqual([]);
+  });
+});
+
+describe("markdownToPlainText", () => {
+  it("removes block and inline syntax while preserving readable content", () => {
+    expect(
+      markdownToPlainText(
+        [
+          "# Outcome",
+          "",
+          "- **PASS** with `MarkdownContent`",
+          "- Read the [docs](https://example.com)",
+          "",
+          "| Check | Result |",
+          "| --- | --- |",
+          "| Tests | Green |",
+          "",
+          "- [x] Shipped",
+          "- [ ] Follow up",
+          "",
+          "```ts",
+          'const literal = "**keep** [syntax](literal)";',
+          "```",
+        ].join("\n"),
+      ),
+    ).toBe(
+      [
+        "Outcome",
+        "PASS with MarkdownContent",
+        "Read the docs",
+        "Check | Result",
+        "Tests | Green",
+        "[x] Shipped",
+        "[ ] Follow up",
+        'const literal = "**keep** [syntax](literal)";',
+      ].join("\n"),
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,7 @@ import type {
   ProjectActivityItemRecord,
   ProjectAssignmentRecord,
   ProjectCollaborationArtifactRecord,
+  ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -160,6 +161,23 @@ function memoryEntry(overrides: Partial<ProjectMemoryRecord> = {}): ProjectMemor
   };
 }
 
+function memoryCandidate(
+  overrides: Partial<ProjectMemoryCandidateRecord> = {},
+): ProjectMemoryCandidateRecord {
+  return {
+    id: "memory_candidate_1",
+    project_id: "proj_1",
+    title: "Review posture",
+    body: "# Candidate guidance\n\n- Verify with `bun run test`",
+    suggested_trust_label: "generated_summary",
+    suggested_source_kind: "task_output",
+    status: "pending",
+    created_at: "2026-06-13T07:30:00Z",
+    updated_at: "2026-06-13T07:30:00Z",
+    ...overrides,
+  };
+}
+
 describe("ProjectTimelinePanel", () => {
   it("renders projected timeline rows and delegates row actions", async () => {
     const handlers = {
@@ -266,6 +284,48 @@ describe("ProjectTimelinePanel", () => {
         draft: expect.stringContaining("Launch context"),
       }),
     );
+  });
+
+  it("renders Markdown-aware story and decision previews without hidden interactive content", () => {
+    render(
+      <ProjectTimelinePanel
+        activity={null}
+        artifacts={[
+          decisionArtifact({
+            body: [
+              "# Outcome",
+              "",
+              "- **PASS** with `MarkdownContent`",
+              "- Keep the preview compact",
+              "- Preserve the line clamp",
+              "- Read the [details](https://example.com/details)",
+            ].join("\n"),
+          }),
+        ]}
+        handoffs={[]}
+        memoryCandidates={[memoryCandidate()]}
+        memoryEntries={[]}
+        onEditMemory={vi.fn()}
+        onSelectWorkItem={vi.fn()}
+        project={project()}
+        roles={[]}
+        workItems={[workItem()]}
+      />,
+    );
+
+    const story = screen.getByRole("region", { name: "Project timeline" });
+    expect(story).toHaveTextContent("Outcome PASS with MarkdownContent");
+    expect(story).toHaveTextContent("Candidate guidance Verify with bun run test");
+    expect(story).not.toHaveTextContent("# Outcome");
+    expect(within(story).queryByRole("heading", { level: 3 })).toBeNull();
+    expect(within(story).queryByRole("link", { name: "details" })).toBeNull();
+    expect(story.querySelector("code")).toBeNull();
+
+    const decisions = screen.getByRole("region", { name: "Decision log" });
+    expect(decisions).toHaveTextContent("Outcome PASS with MarkdownContent");
+    expect(within(decisions).queryByRole("heading", { level: 3 })).toBeNull();
+    expect(within(decisions).queryByRole("link", { name: "details" })).toBeNull();
+    expect(decisions.querySelector("code")).toBeNull();
   });
 
   it("keeps a missing linked chat as evidence without offering navigation", () => {

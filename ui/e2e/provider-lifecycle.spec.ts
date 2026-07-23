@@ -11,6 +11,12 @@ async function expectComposerNotRunnable(page: Page) {
   }
 }
 
+async function expectConnectionsWorkspace(page: Page) {
+  await expect(
+    page.getByRole("main").getByRole("heading", { level: 1, name: "Connections", exact: true }),
+  ).toBeVisible();
+}
+
 test("adding and deleting a provider keeps chat available", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.project", "proj_e2e");
@@ -29,7 +35,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
 
   // Move to Connections and add Ollama.
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
-  await page.waitForSelector("text=Connections");
+  await expectConnectionsWorkspace(page);
   await page
     .getByRole("button", { name: /add provider/i })
     .first()
@@ -50,7 +56,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
 
   // Back to Connections, delete the row.
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
-  await page.waitForSelector("text=Connections");
+  await expectConnectionsWorkspace(page);
   await page.getByTitle("Remove Ollama").click();
   await expect(page.getByRole("dialog", { name: "Remove provider?" })).toBeVisible();
   await page

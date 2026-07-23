@@ -190,6 +190,7 @@ matters.
 | **ACP agent**        | `hecate acp serve` exposes Hecate's native `agent_loop` to local ACP-capable editors and clients. Text prompts map to durable tasks and runs; Hecate retains provider routing, policy, approvals, artifacts, and observability. [See the ACP agent contract.](docs/runtime/acp.md)                                                                                                                                                                                                                                                             |
 | **Observability**    | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                                                                                                                                                                                                                                                                                                    |
 | **Desktop app**      | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Mobile companion** | Source-buildable iOS and Android apps sign in through Hecate Cloud, list hosted/desktop connections, and open the selected remote-safe Hecate UI in-app. They do not run agents or a local Hecate sidecar on the phone. [See current limits and build steps.](docs/operator/mobile-app.md)                                                                                                                                                                                                                                                     |
 | **Sandbox policy**   | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                                                                                                                                                                                                                                                                                                  |
 
 Design direction that is not yet a runtime contract:
@@ -413,11 +414,14 @@ task sandbox/tool policy, approvals, artifacts, and traces in Hecate rather
 than in a new editor-side runtime. ACP V1 does not expose Agent Preset
 selection.
 
-This first slice supports text prompts and safe opaque resource references. It
-does not transfer file/media bodies, attach editor terminals/filesystems, launch
-client-supplied MCP servers, reload ACP sessions, or connect an editor to a
-remote Hecate runtime. See [Hecate as an ACP agent](docs/runtime/acp.md) for
-setup, the exact capability boundary, and local security model.
+This first slice supports text prompts and local workspace file references. File
+links stay inside the ACP session workspace and reach the native task as
+relative paths; the bridge does not copy their bodies. It does not transfer
+image/audio/embedded-resource bodies, attach editor
+terminals/filesystems, launch client-supplied MCP servers, reload ACP sessions,
+or connect an editor to a remote Hecate runtime. See
+[Hecate as an ACP agent](docs/runtime/acp.md) for setup, the exact capability
+boundary, and local security model.
 
 ## Project, Context, And Memory Flow
 

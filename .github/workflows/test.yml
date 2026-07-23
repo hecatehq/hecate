@@ -70,6 +70,8 @@ jobs:
             typescript:
               - 'ui/**/*.ts'
               - 'ui/**/*.tsx'
+              - 'ui/**/*.css'
+              - 'ui/index.html'
               - 'ui/package.json'
               - 'ui/bun.lock'
               - 'ui/tsconfig.json'
@@ -79,10 +81,7 @@ jobs:
               - 'ui/playwright.config.*'
               - 'ui/e2e/**'
             tauri:
-              - 'tauri/src-tauri/**/*.rs'
-              - 'tauri/src-tauri/Cargo.toml'
-              - 'tauri/src-tauri/Cargo.lock'
-              - 'tauri/src-tauri/tauri.conf.json'
+              - 'tauri/**'
             desktop:
               - 'tauri/**'
               - 'scripts/resolve-tauri-version.ts'
@@ -110,6 +109,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: tauri/package.json
+
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -136,7 +139,15 @@ jobs:
           printf '#!/bin/sh\nexit 0\n' > "tauri/src-tauri/binaries/hecate-x86_64-unknown-linux-gnu"
           chmod +x "tauri/src-tauri/binaries/hecate-x86_64-unknown-linux-gnu"
 
-      - name: Test
+      - name: Install Tauri dependencies
+        run: bun install --frozen-lockfile
+        working-directory: tauri
+
+      - name: Test mobile shell
+        run: bun run test:mobile-shell
+        working-directory: tauri
+
+      - name: Test Rust
         run: cargo test
         working-directory: tauri/src-tauri
 

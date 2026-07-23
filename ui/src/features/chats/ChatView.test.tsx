@@ -29,6 +29,25 @@ const originalNavigatorClipboardDescriptor = Object.getOwnPropertyDescriptor(
   navigator,
   "clipboard",
 );
+const originalNavigatorUserAgent = navigator.userAgent;
+
+function stubPhoneViewport() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(
+      (query: string) =>
+        ({
+          matches:
+            query ===
+            "(max-width: 720px), (max-width: 960px) and (max-height: 520px) and (hover: none) and (pointer: coarse)",
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }) as unknown as MediaQueryList,
+    ),
+  );
+}
 
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
@@ -93,6 +112,12 @@ vi.mock("../../lib/api", async (importOriginal) => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: originalNavigatorUserAgent,
+  });
   localStorage.removeItem("hecate.chat.rightPanelWidth");
   sessionStorage.removeItem("hecate.projectAssistant.chatDraft");
   sessionStorage.removeItem("hecate.connectionsFocus");
@@ -465,7 +490,7 @@ describe("ChatView input", () => {
     expect(selectChatSession).toHaveBeenCalledWith("");
   });
 
-  it("keeps external-agent chat creation blocked until a workspace is selected", async () => {
+  it("opens folder selection before creating an external-agent chat", async () => {
     const createChatSession = vi.fn(async () => undefined);
     const chooseAgentWorkspace = vi.fn(async () => true);
     const { state, actions } = setup(
@@ -493,14 +518,13 @@ describe("ChatView input", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    const newChatButton = screen.getByRole("button", { name: "New Grok Build chat" });
-    expect(newChatButton).toBeDisabled();
+    const newChatButton = screen.getByRole("button", {
+      name: "Choose folder for Grok Build",
+    });
+    expect(newChatButton).not.toBeDisabled();
     await user.click(newChatButton);
 
-    expect(
-      screen.getByText("Choose a workspace in the chat view before starting agent chats."),
-    ).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Choose workspace" }));
+    expect(screen.getByText(/Projects are optional.*Grok Build needs a folder/s)).toBeTruthy();
     expect(chooseAgentWorkspace).toHaveBeenCalled();
     expect(createChatSession).not.toHaveBeenCalled();
   });
@@ -2552,9 +2576,56 @@ describe("ChatView input", () => {
 
     expect(await screen.findByText("Hosted runtime")).toBeTruthy();
     expect(screen.getByText(/Add an API-key provider or agent credential/i)).toBeTruthy();
+    expect(
+      screen.getByText("Configure a remote-safe agent credential in Connections."),
+    ).toBeTruthy();
     expect(screen.queryByText("Detected locally")).toBeNull();
     expect(screen.queryByText(/request was blocked/i)).toBeNull();
     expect(discoverLocalProviders).not.toHaveBeenCalled();
+  });
+
+  it("explains personal Mac CLI sign-ins in the remote start checklist", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp-adapter",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+          remote_credential_mode: "local_login",
+          remote_credential_ok: true,
+        },
+      ],
+      sessionInfo: {
+        role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
+        remote_identity: {
+          actor_id: "actor_1",
+          org_id: "org_1",
+          project_id: "proj_1",
+          runtime_id: "rt_1",
+        },
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(
+      await screen.findByText(
+        "Use this Mac's configured CLI sign-ins; credentials stay on the Mac.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/external agents after API-key setup/i)).toBeNull();
   });
 
   it("enables Hecate Chat tools when tools are not explicitly disabled for the model", async () => {
@@ -4498,6 +4569,7 @@ describe("ChatView input", () => {
   });
 
   it("opens chat settings with /model without sending chat", () => {
+    stubPhoneViewport();
     const setMessage = vi.fn();
     const submitChat = vi.fn(async () => undefined);
     const { state, actions } = setup(
@@ -4522,11 +4594,18 @@ describe("ChatView input", () => {
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    fireEvent.submit(screen.getByRole("textbox", { name: "Message" }).closest("form")!);
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    composer.focus();
+    fireEvent.submit(composer.closest("form")!);
 
-    expect(screen.getByLabelText("Chat settings panel")).toBeTruthy();
+    const panel = screen.getByLabelText("Chat settings panel");
+    expect(panel).toHaveFocus();
     expect(setMessage).toHaveBeenCalledWith("");
     expect(submitChat).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Chat settings" }));
+    expect(screen.queryByLabelText("Chat settings panel")).toBeNull();
+    expect(composer).toHaveFocus();
   });
 
   it("opens chat context with /context without sending chat", () => {
@@ -6525,6 +6604,151 @@ describe("ChatView external-agent target", () => {
     expect(await screen.findByText("The current workspace is clean.")).toBeTruthy();
   });
 
+  it("uses a focus-safe master-detail chat index on phone layouts", async () => {
+    stubPhoneViewport();
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentWorkspace: "/tmp/hecate",
+      message: "Keep this phone draft",
+      activeChatSessionID: "a1",
+      activeChatSession: {
+        id: "a1",
+        title: "Phone chat",
+        agent_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    const openSidebar = screen.getByRole("button", { name: "Open chats sidebar" });
+    expect(screen.queryByRole("complementary", { name: "Chats" })).toBeNull();
+
+    await user.click(openSidebar);
+
+    expect(document.querySelector(".chat-view")).toHaveClass("chat-view--sidebar-open");
+    expect(screen.getByRole("complementary", { name: "Chats" })).toBeInTheDocument();
+    const closeSidebar = screen.getByRole("button", { name: "Close chats sidebar" });
+    expect(closeSidebar).toHaveFocus();
+
+    await user.click(closeSidebar);
+
+    expect(screen.queryByRole("complementary", { name: "Chats" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open chats sidebar" })).toHaveFocus();
+    expect(composer).toHaveValue("Keep this phone draft");
+  });
+
+  it("returns to the chat list from a phone draft while creation is pending", async () => {
+    stubPhoneViewport();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      agentWorkspace: "",
+      message: "Keep this pending draft",
+      activeChatSessionID: "",
+      activeChatSession: null,
+      chatCreating: true,
+      chatLoading: false,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    await user.click(screen.getByRole("button", { name: "Close chats sidebar" }));
+
+    const backToChats = screen.getByRole("button", { name: "Back to chats" });
+    expect(backToChats).toHaveFocus();
+    expect(composer).toHaveValue("Keep this pending draft");
+
+    await user.click(backToChats);
+
+    expect(screen.getByRole("complementary", { name: "Chats" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close chats sidebar" })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Back to chats" })).toBeNull();
+    expect(composer).toHaveValue("Keep this pending draft");
+  });
+
+  it("chooses a known Mac folder from the phone before creating a Codex chat", async () => {
+    stubPhoneViewport();
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: `${originalNavigatorUserAgent} HecateMobile`,
+    });
+    const chooseAgentWorkspace = vi.fn(async () => true);
+    const setAgentWorkspace = vi.fn();
+    const createChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        sessionInfo: {
+          role: "operator",
+          runtime_host: createRuntimeHostFixture({ label: "Mac.home" }),
+        },
+        chatTarget: "external_agent",
+        agentAdapterID: "codex",
+        newChatAgentID: "codex",
+        agentWorkspace: "",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        chatSessions: [
+          {
+            id: "recent_in_place",
+            title: "Hecate repo",
+            agent_id: "codex",
+            workspace: "/Users/alice/dev/hecate",
+            workspace_mode: "in_place",
+            status: "idle",
+            message_count: 1,
+          },
+          {
+            id: "managed_task",
+            title: "Managed task",
+            agent_id: "hecate",
+            workspace: "/private/tmp/hecate-workspaces/task/run",
+            workspace_mode: "persistent",
+            status: "completed",
+            message_count: 2,
+          },
+        ],
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp-adapter",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { chooseAgentWorkspace, createChatSession, setAgentWorkspace },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const chooseFolder = screen.getByRole("button", { name: "Choose folder for Codex" });
+    expect(chooseFolder).not.toBeDisabled();
+    await user.click(chooseFolder);
+
+    expect(chooseAgentWorkspace).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Choose a folder on Mac.home" })).toBeInTheDocument();
+    expect(screen.getByText(/A Hecate project is optional/)).toBeInTheDocument();
+    expect(screen.queryByText("/private/tmp/hecate-workspaces/task/run")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Hecate repo: /Users/alice/dev/hecate",
+      }),
+    );
+
+    expect(setAgentWorkspace).toHaveBeenCalledWith("/Users/alice/dev/hecate");
+    expect(createChatSession).not.toHaveBeenCalled();
+  });
+
   it("keeps settings and workspace changes in the same resizable right panel", async () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
@@ -6538,6 +6762,7 @@ describe("ChatView external-agent target", () => {
       {
         chatTarget: "external_agent",
         agentWorkspace: "/tmp/hecate",
+        message: "Keep this phone draft",
         activeChatSessionID: "a1",
         activeChatSession: {
           id: "a1",
@@ -6553,8 +6778,12 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
+    const composer = screen.getByRole("textbox", { name: "Message" });
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
     const settingsPanel = screen.getByLabelText("Chat settings panel");
+    const mainBody = settingsPanel.closest(".chat-main-body");
+    expect(mainBody).toHaveClass("chat-main-body--right-panel-open");
+    expect(mainBody?.querySelector(".chat-main-content")).not.toBeNull();
     expect(settingsPanel).toHaveStyle({ width: "380px" });
 
     const handle = screen.getByRole("separator", { name: "Resize right panel" });
@@ -6567,6 +6796,11 @@ describe("ChatView external-agent target", () => {
     expect(await screen.findByLabelText("Workspace changes panel")).toHaveStyle({
       width: "440px",
     });
+    expect(mainBody).toHaveClass("chat-main-body--right-panel-open");
+
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+    expect(mainBody).not.toHaveClass("chat-main-body--right-panel-open");
+    expect(composer).toHaveValue("Keep this phone draft");
   });
 
   it("restores the saved right panel width", async () => {
@@ -7285,7 +7519,7 @@ describe("ChatView external-agent target", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTitle("Choose workspace folder"));
     await user.type(screen.getByPlaceholderText("/Users/alice/dev/project"), "/workspaces/hecate");
-    await user.click(screen.getByRole("button", { name: "Use" }));
+    await user.click(screen.getByRole("button", { name: "Use folder" }));
 
     expect(setAgentWorkspace).toHaveBeenCalledWith("/workspaces/hecate");
   });
@@ -7331,11 +7565,10 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByTitle("Set workspace path"));
     expect(chooseAgentWorkspace).not.toHaveBeenCalled();
 
-    const input = screen.getByPlaceholderText("/workspace") as HTMLInputElement;
-    expect(input.value).toBe("/workspace");
-    await user.clear(input);
+    const input = screen.getByPlaceholderText("/path/on/runtime/project") as HTMLInputElement;
+    expect(input.value).toBe("");
     await user.type(input, "/workspace/project");
-    await user.click(screen.getByRole("button", { name: "Use" }));
+    await user.click(screen.getByRole("button", { name: "Use folder" }));
 
     expect(setAgentWorkspace).toHaveBeenCalledWith("/workspace/project");
   });

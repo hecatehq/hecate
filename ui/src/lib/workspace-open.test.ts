@@ -18,11 +18,13 @@ vi.mock("./api", () => ({
 }));
 
 const originalPlatform = navigator.platform;
+const originalUserAgent = navigator.userAgent;
 
 afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   Reflect.deleteProperty(window, "__TAURI__");
   Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUserAgent });
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(undefined);
   vi.mocked(openWorkspaceTargetViaAPI).mockReset();
@@ -84,6 +86,19 @@ describe("workspace open targets", () => {
   });
 
   it("calls the local gateway outside the desktop runtime", async () => {
+    await openWorkspaceTarget("/Users/alice/dev/hecate", "vscode");
+
+    expect(openWorkspaceTargetViaAPI).toHaveBeenCalledWith("/Users/alice/dev/hecate", "vscode");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps gateway workspace behavior when the mobile Tauri bridge is injected", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "HecateMobile",
+    });
+
     await openWorkspaceTarget("/Users/alice/dev/hecate", "vscode");
 
     expect(openWorkspaceTargetViaAPI).toHaveBeenCalledWith("/Users/alice/dev/hecate", "vscode");
