@@ -450,9 +450,14 @@ guardrails, and Git diff review.
 
 External Agent controls have two sources:
 
-- **Launch controls** come from Hecate's agent catalog and can appear before a
-  concrete chat session exists. Hecate passes the selected values as process
-  arguments when it starts or restarts the external agent.
+- **Launch controls** are owned by Hecate's adapter integration and can appear
+  in the separately resolved projection returned by optional diagnostics before
+  a concrete chat session exists. Generating them may execute bounded
+  help/model discovery, so the passive catalog omits them. Hecate passes
+  selected values as process arguments when it starts or restarts the external
+  agent. No current built-in requires one before session creation; a future
+  required control must first have a passive schema path so diagnostics remain
+  optional.
 - **ACP session controls** come from the agent during `session/new`,
   `session/load`, or `session/set_config_option`. Hecate surfaces model,
   reasoning, mode, and similar selectors in the composer after the External
@@ -619,8 +624,9 @@ Use this order when launching or troubleshooting:
    passive discovery after it completes so repaired installs become selectable
    without treating the diagnostic result itself as authority. The UI may keep
    process-derived version, auth, capability, and launch-control details beside
-   the cached diagnostic, but availability, path, and remote-credential gates
-   always come from the latest passive catalog response.
+   the cached diagnostic, but availability, status, error, path, and
+   remote-credential gates always come from the latest passive catalog
+   response.
 4. **Chat turn** — after the real session exists, send a prompt. If a turn
    fails, open the message's raw diagnostics disclosure; the normalized
    transcript is for reading, raw ACP output is for debugging.
