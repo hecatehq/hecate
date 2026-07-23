@@ -309,10 +309,28 @@ describe("probeAgentAdapter", () => {
       supports_authenticate: false,
       supports_logout: false,
     };
+    const diagnostic = {
+      ...discovered,
+      adapter_version: "0.5.0",
+      agent_version: "1.2.3",
+      version_outside_range: true,
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+      config_options: [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          current_value: "sonnet",
+          options: [{ value: "sonnet", name: "Sonnet" }],
+        },
+      ],
+    };
     probeAgentAdapterMock.mockResolvedValueOnce({
       object: "agent_adapter_probe",
       data: {
-        adapter: discovered,
+        adapter: diagnostic,
         health: {
           adapter_id: "codex",
           status: "ready",
@@ -356,6 +374,13 @@ describe("probeAgentAdapter", () => {
       available: true,
       status: "available",
       path: "/Applications/Codex.app/Contents/Resources/codex",
+      adapter_version: "0.5.0",
+      agent_version: "1.2.3",
+      version_outside_range: true,
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+      config_options: [expect.objectContaining({ id: "model", current_value: "sonnet" })],
     });
     expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
       status: "ready",

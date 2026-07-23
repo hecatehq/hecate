@@ -46,7 +46,7 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     setHecateRTKPath,
   } = runtime.actions;
   const { providers, agentAdapters } = providersAndModels.state;
-  const { setProviders, loadModelCatalog, setAgentAdapters, setAgentAdapterApprovalMode } =
+  const { setProviders, loadModelCatalog, loadAgentAdapterCatalog, setAgentAdapterApprovalMode } =
     providersAndModels.actions;
   const { activeChatSession, chatSessions } = chat.state;
   const {
@@ -98,6 +98,10 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
         // The dashboard still receives the data for its snapshot contract but
         // must not publish a second, unfenced model write below.
         loadModels: loadModelCatalog,
+        // External-agent discovery has the same single-writer contract: all
+        // passive catalog reads share the provider/model slice's freshness
+        // fence and diagnostic-evidence merge.
+        loadAgentAdapters: loadAgentAdapterCatalog,
         previous: {
           providers,
           agentAdapters,
@@ -126,7 +130,9 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       setHealth(snapshot.health);
       setSessionInfo(snapshot.sessionInfo);
       setProviders(snapshot.providers);
-      setAgentAdapters(snapshot.agentAdapters);
+      // Models and External Agent adapters were already committed by their
+      // generation-aware catalog loaders above. Do not publish unfenced
+      // snapshot copies here.
       const liveChatSessions = snapshot.chatSessions.filter(
         (session: ChatSessionRecord) => !isChatSessionDeleted(session.id, session.project_id),
       );

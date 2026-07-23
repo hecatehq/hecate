@@ -193,7 +193,9 @@ starts it, and performs a fresh ACP handshake whether or not a diagnostic ran.
 A cached diagnostic result can explain an earlier failure, but cannot authorize
 or block that later launch. Clients refresh the passive catalog independently
 after install/path changes or a diagnostic; only that passive response may
-update pre-launch availability and last-discovered path.
+update pre-launch availability, remote-credential gates, and last-discovered
+path. Clients may retain process-derived versions, auth/capability evidence,
+and launch controls with the cached diagnostic for troubleshooting.
 
 Stored message diffs are read-only historical evidence. The current
 `workspace-diff` response carries an opaque revision for the complete scoped

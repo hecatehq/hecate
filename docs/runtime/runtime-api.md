@@ -1885,8 +1885,10 @@ a temporary session. The response includes the fresh catalog row plus the
 diagnostic result as evidence from that disposable attempt. Hecate's UI then
 re-reads the passive `GET /agent-adapters` catalog before changing any launch
 gate or last-discovered path, so the diagnostic itself never becomes launch
-authority. Operators can also trigger that passive refresh without starting an
-agent.
+authority. It can retain diagnostic-only versions, auth/capability evidence,
+and `config_options` beside the cached diagnostic while replacing launch
+availability, path, and remote-credential fields from the passive response.
+Operators can also trigger that passive refresh without starting an agent.
 
 This endpoint is not required before use and its cached result is never launch
 authority. Starting an External Agent chat independently resolves the current

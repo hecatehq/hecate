@@ -763,7 +763,12 @@ function AdapterStatusSection({
             className="btn btn-ghost btn-sm"
             onClick={onRefreshCatalog}
             disabled={catalogRefreshing}
-            aria-label="Refresh external-agent discovery without starting agents"
+            aria-label={
+              catalogRefreshing
+                ? "Refreshing external-agent discovery"
+                : "Refresh external-agent discovery without starting agents"
+            }
+            aria-live="polite"
             title="Refresh installed-agent paths without starting an agent"
           >
             <Icon d={Icons.refresh} size={13} />
