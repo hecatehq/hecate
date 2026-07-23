@@ -71,9 +71,11 @@ End state of a successful tag: the GitHub Release page has goreleaser tarballs +
 
 The stamp commit remains on the default branch. The script pushes both that
 branch and the annotated tag, keeping visible Tauri version metadata aligned
-with the latest release. Release CI may then add updater-manifest and release
-reference commits to `master`; after CI completes, run
-`git pull --ff-only origin master` to pick up those post-release commits.
+with the latest release. Release CI then uploads one bounded delivery proposal
+containing the updater website manifest and refreshed release references. After
+a maintainer applies it on current `master`, opens the PR, and the proposal is
+reviewed, checked, and merged, run
+`git pull --ff-only origin master` to pick up the post-release commit.
 
 The Tauri matrix doesn't need any local action — pushing the tag fires the workflow.
 
@@ -118,14 +120,15 @@ Outputs land in `tauri/src-tauri/target/release/bundle/`. Use this for iterating
 
   With the secrets configured on the repo, a release-workflow `.dmg` is signed with Developer ID Application and notarized — first launch on a clean Mac shows no Gatekeeper warning. Notarization adds ~5–15 minutes to the macOS leg per release (longer if Apple's notary service is backed up). PR builds always produce unsigned bundles (intentional — they're throwaway artifacts for "does the build still produce a `.dmg`?" verification, not for distribution). Operator setup checklist for the secrets is in [`../../docs/operator/macos-signing.md`](../../docs/operator/macos-signing.md). Windows code signing (Authenticode + EV cert) is not yet configured at all, and Linux/Windows desktop bundles are still CI-built-only; document that they are untested and likely buggy until real-machine smoke coverage lands.
 
-- **Auto-update emits `latest.json` per release.** The three-stage `_tauri-shared.yml` pipeline keeps platform signing and manifest publication separate:
+- **Auto-update emits `latest.json` per release.** The packaging and protected-branch delivery pipeline keeps platform signing and manifest publication separate:
   1. Each matrix leg gives `tauri-action` the gated `TAURI_UPDATER_PRIVATE_KEY` + `TAURI_UPDATER_PRIVATE_KEY_PASSWORD`, signs its platform payload, and uploads its `.sig` file plus macOS `Hecate.app.tar.gz`.
   2. `publish-updater-manifest` downloads those signatures, stitches a `latest.json` manifest that references the signed platform payloads, fetches bounded GitHub Release body/date as advisory `notes` / `pub_date`, and uploads it to the GitHub Release without logging the full notes body.
-  3. `publish-updater-website` commits the same manifest to `website/public/releases/alpha/latest.json`, explicitly dispatches `website.yml`, and waits (up to 10 minutes) for the new version to be live at `https://hecate.sh/releases/alpha/latest.json`. The explicit dispatch is required because pushes made with `github.token` do not trigger downstream push workflows.
+  3. `release-delivery.yml` downloads that canonical release asset, validates its version, signatures, and referenced assets, refreshes the release-linked docs, validates the website, and uploads an allowlisted patch plus provenance as a review artifact. The repository intentionally prevents the built-in Actions token from creating pull requests, so a maintainer applies the patch on current `master` and opens the delivery PR. No App/PAT secret or branch-rules bypass is required.
+  4. Merging the protected delivery PR triggers `website.yml` through an ordinary `master` push. That workflow builds and deploys Pages, then waits (up to 10 minutes) for the bytes at `https://hecate.sh/releases/alpha/latest.json` to match the committed manifest's SHA-256. Version is diagnostic only because a same-tag manifest may contain corrected signatures or URLs.
 
   The website channel exists because releases remain GitHub pre-releases until v1.0.0 and GitHub's `/releases/latest/` does not resolve pre-releases. Existing desktop installs check the manifest on launch; a newer release illuminates the compact status-bar **Updates** control, and an explicit check opens its details dialog. Manifest notes are advisory metadata—the downloaded payload is what Hecate verifies before installation. The pipeline requires `bundle.createUpdaterArtifacts: "v1Compatible"` and both `TAURI_UPDATER_*` secrets; otherwise the stitch job fails at `missing updater signature(s)`. Maintainer-side keypair custody and rotation: [`../../docs/operator/desktop-updater-signing.md`](../../docs/operator/desktop-updater-signing.md).
 
-- **Pre-release policy.** Every release is a GitHub pre-release until v1.0.0; see [`../../docs/contributor/release.md#pre-release-policy`](../../docs/contributor/release.md#pre-release-policy). Consequence: do **not** run `gh release edit <tag> --prerelease=false --latest` on a regular release — `release.yml` and the `publish-updater-website` job route auto-update through `hecate.sh` independent of GitHub's "latest" semantics, so the flag has no effect on auto-update routing.
+- **Pre-release policy.** Every release is a GitHub pre-release until v1.0.0; see [`../../docs/contributor/release.md#pre-release-policy`](../../docs/contributor/release.md#pre-release-policy). Consequence: do **not** run `gh release edit <tag> --prerelease=false --latest` on a regular release — the protected delivery PR and post-merge Website job route auto-update through `hecate.sh` independent of GitHub's "latest" semantics, so the flag has no effect on auto-update routing.
 - **Historical auto-update channel switch.** Alpha.28 moved the bundled updater endpoint from `https://github.com/.../releases/latest/download/latest.json` to `https://hecate.sh/releases/alpha/latest.json`. Because Hecate had no real installed alpha cohort to migrate, alpha.28 is now a pre-release like the rest of the alpha line. Old alpha.21–27 installs are expected to reinstall manually from the current alpha; alpha.28+ installs update through `hecate.sh`.
 - **`tauri/src-tauri/target/` is large** (~1–2 GB after a release build). Don't accidentally `git add` it — it's gitignored, but be specific with paths anyway.
 - **Icons must be format-correct.** A `.png` renamed to `.ico` will pass macOS but fail Windows `RC.EXE`. Regenerate via `bunx @tauri-apps/cli icon source.png` if changing artwork.
@@ -137,13 +140,19 @@ Push triggers `.github/workflows/release.yml` with these jobs:
 1. `goreleaser` (~5–10 min, Docker buildx multi-arch dominates) — multi-arch binaries + Docker images on `ghcr.io/hecatehq/hecate` + GitHub Release entry.
 2. `tauri / build` (`needs: goreleaser`, ~10–15 min, three platforms in parallel) — desktop bundles attached to the same release entry. Cold rust-cache adds ~5 min on first run; subsequent runs at the same dep set are warm.
 3. `tauri / publish updater manifest` (`needs: build`) — stitches per-platform `.sig` files into `latest.json` and uploads to the GitHub Release. Seconds.
-4. `tauri / publish updater manifest to website` (`needs: publish-updater-manifest`) — commits `latest.json` to `website/public/releases/alpha/` on master (retries on non-FF if master moved), then dispatches `website.yml` via `workflow_dispatch` (because `github.token` pushes don't auto-trigger downstream workflows on push events), then polls `https://hecate.sh/releases/alpha/latest.json` until the new version is live. Total time including the website rebuild + Pages redeploy is typically 2–5 min, capped at 10 min before the job fails.
+4. `Prepare release delivery proposal` (`needs: goreleaser, tauri`) — verifies the release body and canonical manifest, refreshes release docs, validates the website, and uploads `release-delivery-<tag>` with an allowlisted patch and provenance. A maintainer applies it on current `master` and opens the PR, which triggers normal Required checks, Website, and Links workflows.
+5. The delivery PR's `master` merge triggers `website.yml`, which builds and deploys Pages and polls `https://hecate.sh/releases/alpha/latest.json` until its exact SHA-256 matches the committed manifest. The propagation check is capped at 10 minutes.
 
-Total wall-clock: ~20–35 min (the website publish + verification adds 2–5 min to the post-matrix tail).
+Packaging plus proposal preparation typically takes ~20–30 minutes. Public
+updater delivery completes only after review/merge and the 2–5 minute Website
+deployment.
 
 Acceptance:
 
-- Both workflow jobs are green.
+- The release workflow is green and reports one release-delivery proposal
+  artifact (or that the exact delivery is already present on `master`).
+- The release-delivery PR has an approving review of its latest push, Required
+  checks, Website, and Links are green, and it is merged normally.
 - GitHub Releases page has the entry, is marked **Pre-release** for `-alpha.N`
   tags, and has non-empty notes from either a substantive tag annotation or
   GoReleaser's generated changelog. The Tauri matrix must attach bundles through
@@ -152,7 +161,7 @@ Acceptance:
 - Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate`.
 - Tauri-side artifacts attached: one `.dmg`, one `.deb`, one `.AppImage`, one `.msi`. If any is missing, the matrix leg silently skipped upload — open the run, find the leg, see what failed.
 - `latest.json` is attached as a release asset (the auto-updater manifest, GitHub Release copy). Missing means the `publish-updater-manifest` job failed — most likely on its `missing updater signature(s)` check. Look there first; common causes are `bundle.createUpdaterArtifacts` being unset in `tauri.conf.json` (bundler produced no sigs) or the `TAURI_UPDATER_*` secrets having been removed from repo settings.
-- `https://hecate.sh/releases/alpha/latest.json` serves the new version's manifest. This is the URL bundles actually read; the GitHub Release copy is a backup. If `publish-updater-website` succeeded, this is automatic — the job blocks until propagation completes. If `publish-updater-website` failed at "Verify manifest is live at hecate.sh", check the website workflow run for the master commit `publish updater manifest for vX.Y.Z`.
+- `https://hecate.sh/releases/alpha/latest.json` byte-matches the committed manifest. This is the URL bundles actually read; the GitHub Release copy is the canonical source for the delivery PR. The post-merge Website job checks SHA-256 rather than version so a same-tag signature or URL correction cannot be mistaken for successful propagation.
 - Bundle sizes look right: `.dmg` ~20–40 MB, `.deb` ~15–25 MB, `.AppImage` ~80–120 MB (bundles its own libs), `.msi` ~15–25 MB. A 1 MB `.dmg` means the sidecar didn't embed — investigate before announcing.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix — see footgun below).
 - `docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then `curl :8765/healthz` returns `version: "X.Y.Z"`.
@@ -172,7 +181,8 @@ Acceptance:
 
 ## Recovery
 
-If CI fails:
+If artifact packaging or signing fails before the canonical `latest.json` is
+valid, clean up and retag:
 
 ```bash
 git push --delete origin vX.Y.Z
@@ -181,3 +191,22 @@ git tag -d vX.Y.Z
 ```
 
 Tag deletion on GitHub also clears the dangling Release entry (if one was created before the failure step). Goreleaser's release pipeline is mostly idempotent — a clean retag at a fixed commit produces the same artifacts.
+
+Do **not** delete or move a valid published tag merely because protected-branch
+delivery failed. If the GitHub Release, platform assets, signatures, and
+`latest.json` are complete, recover from current `master`:
+
+```bash
+gh workflow run release-delivery.yml \
+  --repo hecatehq/hecate \
+  --ref master \
+  -f tag=vX.Y.Z
+```
+
+Download the `release-delivery-vX.Y.Z` artifact from that run, verify
+`provenance.json`, apply `release-delivery.patch` on current `master`, and open
+the delivery PR. Then require the post-merge Website run to verify the live
+`hecate.sh` version. This recovery reuses the canonical release asset and does
+not rebuild, delete, or retag the release. The exact checksum, apply, and PR
+handoff commands live in
+[`../../docs/contributor/release.md`](../../docs/contributor/release.md).

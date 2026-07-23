@@ -1,0 +1,290 @@
+name: Release Delivery
+
+# Artifact publication and protected-branch delivery are separate concerns.
+# A release tag may call this workflow after every package is uploaded, while
+# workflow_dispatch lets an operator recover an already-published release
+# without deleting or moving its tag.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Published v* release tag whose manifest and docs should be delivered.'
+        type: string
+        required: true
+      expected_release_body_sha256:
+        description: 'Optional release-body digest recorded before desktop packaging.'
+        type: string
+        required: false
+        default: ''
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published v* release tag to deliver.'
+        type: string
+        required: true
+      expected_release_body_sha256:
+        description: 'Optional expected SHA-256 of the published release body.'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-delivery-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release delivery proposal
+    # Reusable workflows retain the caller's github context: a normal release
+    # call is still a push on refs/tags/v*, not a workflow_call event. Manual
+    # recovery must select the trusted default branch.
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ARTIFACT_NAME: release-delivery-${{ inputs.tag }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Validate release input
+        env:
+          EXPECTED_RELEASE_BODY_SHA256: ${{ inputs.expected_release_body_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Release delivery requires a semantic v* tag; got ${TAG}." >&2
+            exit 1
+          fi
+          if [ -n "$EXPECTED_RELEASE_BODY_SHA256" ] && \
+             [[ ! "$EXPECTED_RELEASE_BODY_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Expected release-body digest must be empty or a lowercase SHA-256." >&2
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+            >"${RUNNER_TEMP}/release.json"
+
+      - name: Prepare canonical manifest and release docs
+        id: prepare
+        env:
+          EXPECTED_RELEASE_BODY_SHA256: ${{ inputs.expected_release_body_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_body="${RUNNER_TEMP}/release-body.md"
+          jq -r '.body // ""' "${RUNNER_TEMP}/release.json" >"${release_body}"
+          if ! grep -q '[^[:space:]]' "${release_body}"; then
+            echo "GitHub Release ${TAG} has no release notes." >&2
+            exit 1
+          fi
+          actual_release_body_sha256=$(sha256sum "${release_body}" | awk '{print $1}')
+          if [ -n "$EXPECTED_RELEASE_BODY_SHA256" ] && \
+             [ "$actual_release_body_sha256" != "$EXPECTED_RELEASE_BODY_SHA256" ]; then
+            echo "GitHub Release ${TAG} body changed during desktop packaging." >&2
+            echo "expected sha256: ${EXPECTED_RELEASE_BODY_SHA256}" >&2
+            echo "actual sha256:   ${actual_release_body_sha256}" >&2
+            exit 1
+          fi
+
+          manifest_dir="${RUNNER_TEMP}/release-manifest"
+          mkdir -p "${manifest_dir}"
+          gh release download "${TAG}" \
+            --pattern latest.json \
+            --dir "${manifest_dir}" \
+            --repo "${GITHUB_REPOSITORY}"
+          manifest="${manifest_dir}/latest.json"
+          version="${TAG#v}"
+          asset_prefix="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/"
+          if ! jq -e \
+            --arg version "$version" \
+            --arg asset_prefix "$asset_prefix" \
+            '
+              .version == $version and
+              (.pub_date | type == "string" and length > 0) and
+              (.notes | type == "string") and
+              (.platforms | keys | sort) ==
+                ["darwin-aarch64", "linux-x86_64", "windows-x86_64"] and
+              all(.platforms[];
+                (.signature | type == "string" and length > 0) and
+                (.url | type == "string" and startswith($asset_prefix))
+              ) and
+              (.platforms["darwin-aarch64"].url | endswith(".app.tar.gz")) and
+              (.platforms["linux-x86_64"].url | endswith(".AppImage")) and
+              (.platforms["windows-x86_64"].url | endswith(".msi"))
+            ' "${manifest}" >/dev/null; then
+            echo "Release ${TAG} latest.json is incomplete or references an unexpected payload." >&2
+            exit 1
+          fi
+          release_notes=$(jq -r '.body // ""' "${RUNNER_TEMP}/release.json")
+          expected_release_notes="${release_notes:0:12000}"
+          if ! jq -e \
+            --arg expected_notes "${expected_release_notes}" \
+            --slurpfile release "${RUNNER_TEMP}/release.json" \
+            '
+              . as $manifest |
+              ($release[0].assets | map(.browser_download_url)) as $asset_urls |
+              $manifest.pub_date ==
+                ($release[0].published_at // $release[0].created_at) and
+              $manifest.notes == $expected_notes and
+              all($manifest.platforms[];
+                .url as $url | $asset_urls | index($url) != null
+              )
+            ' "${manifest}" >/dev/null; then
+            echo "Release ${TAG} latest.json does not match its Release metadata or assets." >&2
+            exit 1
+          fi
+
+          mkdir -p website/public/releases/alpha
+          cp "${manifest}" website/public/releases/alpha/latest.json
+          GITHUB_TOKEN="${GH_TOKEN}" bun scripts/update-release-links.ts "${TAG}"
+
+          changed_paths="${RUNNER_TEMP}/release-delivery-generated-paths.txt"
+          {
+            git diff --name-only origin/master --
+            git ls-files --others --exclude-standard
+          } | sort -u >"${changed_paths}"
+          unexpected="$(
+            grep -Ev \
+              '^README\.md$|^docs/operator/(deployment|desktop-app)\.md$|^website/public/releases/alpha/latest\.json$|^$' \
+              "${changed_paths}" || true
+          )"
+          if [ -n "${unexpected}" ]; then
+            echo "Release delivery changed files outside its allowlist:" >&2
+            printf '%s\n' "${unexpected}" >&2
+            exit 1
+          fi
+          if ! cmp -s "${manifest}" website/public/releases/alpha/latest.json; then
+            echo "Workspace updater manifest differs from the canonical release asset." >&2
+            exit 1
+          fi
+          git diff --check
+
+          manifest_sha256=$(sha256sum "${manifest}" | awk '{print $1}')
+          {
+            echo "manifest_sha256=${manifest_sha256}"
+            echo "release_body_sha256=${actual_release_body_sha256}"
+          } >>"${GITHUB_OUTPUT}"
+
+          if [ ! -s "${changed_paths}" ]; then
+            echo "publish=false" >>"${GITHUB_OUTPUT}"
+            echo "Release ${TAG} is already delivered on master."
+            exit 0
+          fi
+
+          echo "publish=true" >>"${GITHUB_OUTPUT}"
+
+      - name: Validate website with the proposed manifest
+        if: steps.prepare.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          cd website
+          bun install --frozen-lockfile
+          bun --bun run lint
+          bun --bun run format:check
+          bun --bun run check
+          bun --bun run build
+
+      - name: Build review proposal
+        if: steps.prepare.outputs.publish == 'true'
+        id: proposal
+        env:
+          MANIFEST_SHA256: ${{ steps.prepare.outputs.manifest_sha256 }}
+          RELEASE_BODY_SHA256: ${{ steps.prepare.outputs.release_body_sha256 }}
+        run: |
+          set -euo pipefail
+          proposal_dir="${RUNNER_TEMP}/release-delivery-proposal"
+          mkdir -p "${proposal_dir}"
+          git diff --binary --full-index origin/master -- \
+            README.md \
+            docs/operator/deployment.md \
+            docs/operator/desktop-app.md \
+            website/public/releases/alpha/latest.json \
+            >"${proposal_dir}/release-delivery.patch"
+          cp website/public/releases/alpha/latest.json \
+            "${proposal_dir}/latest.json"
+          patch_sha256=$(
+            sha256sum "${proposal_dir}/release-delivery.patch" | awk '{print $1}'
+          )
+          jq -n \
+            --arg tag "${TAG}" \
+            --arg base_sha "$(git rev-parse origin/master)" \
+            --arg release_url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
+            --arg manifest_sha256 "${MANIFEST_SHA256}" \
+            --arg release_body_sha256 "${RELEASE_BODY_SHA256}" \
+            --arg patch_sha256 "${patch_sha256}" \
+            '{
+              tag: $tag,
+              base_sha: $base_sha,
+              release_url: $release_url,
+              manifest_sha256: $manifest_sha256,
+              release_body_sha256: $release_body_sha256,
+              patch_sha256: $patch_sha256,
+              allowed_paths: [
+                "README.md",
+                "docs/operator/deployment.md",
+                "docs/operator/desktop-app.md",
+                "website/public/releases/alpha/latest.json"
+              ]
+            }' >"${proposal_dir}/provenance.json"
+          git diff --stat origin/master -- >"${proposal_dir}/stat.txt"
+          echo "patch_sha256=${patch_sha256}" >>"${GITHUB_OUTPUT}"
+
+      - name: Upload review proposal
+        if: steps.prepare.outputs.publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/release-delivery-proposal
+          if-no-files-found: error
+          retention-days: 30
+
+      # The repository intentionally disallows GITHUB_TOKEN from creating or
+      # approving pull requests. A maintainer applies this bounded patch and
+      # opens the PR: that human event starts ordinary required checks without
+      # adding an App/PAT secret or weakening master rules.
+      - name: Report review handoff
+        if: steps.prepare.outputs.publish == 'true'
+        env:
+          MANIFEST_SHA256: ${{ steps.prepare.outputs.manifest_sha256 }}
+          PATCH_SHA256: ${{ steps.proposal.outputs.patch_sha256 }}
+        run: |
+          set -euo pipefail
+          run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "## Release delivery proposal ready"
+            echo
+            echo "Download \`${ARTIFACT_NAME}\` from [this run](${run_url}), apply it on current \`master\`, and open a review PR."
+            echo "The release workflow deliberately cannot push, open, approve, or merge the PR."
+            echo "Follow the [bounded handoff](https://github.com/${GITHUB_REPOSITORY}/blob/master/docs/contributor/release.md#recovery)."
+            echo
+            echo "### Provenance"
+            echo
+            echo "- release manifest SHA-256: \`${MANIFEST_SHA256}\`"
+            echo "- proposal patch SHA-256: \`${PATCH_SHA256}\`"
+            echo
+            echo "### Review"
+            echo
+            echo "- [ ] Verify \`provenance.json\` and the patch checksum."
+            echo "- [ ] Apply only the four allowlisted paths and open a PR against \`master\`."
+            echo "- [ ] Confirm \`Required checks\`, Website, and Links are green."
+            echo "- [ ] Approve the latest push and merge through the protected branch."
+            echo "- [ ] Confirm the post-merge Website run verifies the exact manifest SHA-256 at \`hecate.sh\` (version ${TAG#v})."
+          } >>"${GITHUB_STEP_SUMMARY}"
+          echo "::notice title=Release delivery review required::Download ${ARTIFACT_NAME} from ${run_url}"
+
+      - name: Report completed delivery
+        if: steps.prepare.outputs.publish != 'true'
+        run: echo "Release ${TAG} delivery is already present on master." >>"${GITHUB_STEP_SUMMARY}"

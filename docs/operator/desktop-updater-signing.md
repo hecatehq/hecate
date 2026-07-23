@@ -66,31 +66,28 @@ repository secret**. Add two:
 
 The release workflow's tauri-action step picks these up and uses
 them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
-`.msi` and their wrapped variants). Then two follow-on jobs in
-`_tauri-shared.yml` ship the manifest:
+`.msi` and their wrapped variants). Packaging and protected-branch
+delivery then proceed separately:
 
 1. **`publish-updater-manifest`** — stitches the per-platform
    `.sig` files into a single `latest.json` and uploads it to the
    GitHub Release. tauri-action itself can't build the manifest in
    matrix mode because each leg only sees its own signature; this
    job runs once after the matrix completes.
-2. **`publish-updater-website`** — drops the same `latest.json`
-   into `website/public/releases/alpha/latest.json`, commits to
-   master, then explicitly dispatches `website.yml` via
-   `workflow_dispatch`. The explicit dispatch is required because
-   pushes made with the workflow's `github.token` deliberately do
-   NOT trigger downstream workflows (GitHub's anti-loop guard);
-   `workflow_dispatch` IS allowed for `github.token`, which is the
-   documented workaround. `website.yml` rebuilds Astro and deploys
-   to GitHub Pages, and the manifest is then served at
-   `https://hecate.sh/releases/alpha/latest.json`, which is the URL
-   the in-app updater is configured to read. A verification step
-   blocks until the new manifest is live on `hecate.sh` (cap 10
-   min; CI fails loud if it overruns). The commit step retries on
-   non-fast-forward errors (master may move between the workflow's
-   fetch and push); the dispatch runs unconditionally so a re-run
-   can recover from a stuck Pages deploy even when the manifest
-   commit itself is a no-op.
+2. **`release-delivery.yml`** — downloads that canonical Release
+   asset, validates the version, platform signatures, referenced
+   assets, and release-body digest, then uploads an allowlisted
+   patch plus provenance containing
+   `website/public/releases/alpha/latest.json` and refreshed release
+   links. A maintainer applies it on current `master` and opens the
+   human-reviewed PR, so normal checks run without an App/PAT secret
+   or branch-rules bypass.
+3. **`website.yml` after merge** — the reviewed PR's ordinary
+   `master` push rebuilds Astro and deploys GitHub Pages. The deploy
+   job then waits for `https://hecate.sh/releases/alpha/latest.json`
+   to match the committed manifest's exact SHA-256; the version is
+   diagnostic only (cap 10 minutes; CI fails loudly if propagation
+   stalls).
 
 This verifies signed updater artifact production and manifest publication. It
 does not prove the Linux or Windows desktop updater path works on a real
@@ -149,12 +146,13 @@ After the next tagged release with both secrets configured and
 2. After `goreleaser` and `tauri` jobs finish, the GitHub Release
    page should have `latest.json` listed as an asset alongside
    the platform bundles.
-3. Watch the `publish-updater-website` job. Its final step polls
-   `https://hecate.sh/releases/alpha/latest.json` and only exits
-   green once the manifest at that URL matches the version being
-   released. If the job fails on that step, the website
-   redeploy didn't propagate within 10 minutes — see the
-   troubleshooting section below.
+3. Download the release workflow's `release-delivery-<tag>` artifact,
+   verify its provenance, apply the patch on current `master`, and
+   open the delivery PR. Require latest-push approval plus green
+   Required checks, Website, and Links runs before merge. After
+   merge, watch the Website deploy; its final step polls
+   `https://hecate.sh/releases/alpha/latest.json` and only exits green
+   once the live bytes match the committed manifest's SHA-256.
 4. Inspect the manifest at the canonical URL:
    ```bash
    curl -sL https://hecate.sh/releases/alpha/latest.json | jq .
@@ -229,25 +227,38 @@ modes, in rough order of likelihood:
   intentionally skip signing and manifest publishing — that's working as
   designed.
 
-**`publish-updater-website` failed at "Verify manifest is live at
-hecate.sh".** The release published, the GitHub Release has its
-`latest.json`, but the website didn't propagate the new content
-within 10 minutes. Walk down:
+**The release-delivery proposal was not merged.** The release may still be valid:
+confirm the GitHub Release has its platform bundles, signatures, and
+three-platform `latest.json`. If those are complete, do not delete or retag.
+From `master`, dispatch the recovery workflow:
 
-- Check the website workflow run for the master commit
-  `publish updater manifest for vX.Y.Z`. If it failed, fix the
-  failure (Astro build error, Pages deploy permission issue,
-  etc.) and re-run.
+```bash
+gh workflow run release-delivery.yml \
+  --repo hecatehq/hecate \
+  --ref master \
+  -f tag=vX.Y.Z
+```
+
+Download `release-delivery-vX.Y.Z` from the resulting run, verify its
+`provenance.json`, apply `release-delivery.patch` on current `master`, and open
+and merge the resulting PR normally.
+
+**The post-merge Website job failed at "Verify updater manifest is live".**
+The delivery PR merged, but the website did not propagate the committed
+manifest within 10 minutes. Walk down:
+
+- Check the Website workflow run for the delivery PR's merge commit. If an
+  earlier build/deploy step failed, fix that failure and re-run.
 - If the website workflow succeeded but
   `https://hecate.sh/releases/alpha/latest.json` still serves
   stale content, the Fastly cache is stuck. Force a cache
   invalidation via **Settings → Pages → Visit site** in the GitHub
-  UI (it triggers a CDN purge). Re-run `publish-updater-website`
-  in the release workflow to re-poll.
+  UI (it triggers a CDN purge). Re-run the Website workflow on
+  `master` to rebuild and re-poll.
 - If both succeeded but the file content on `hecate.sh` doesn't
-  match the release tag, the master commit wasn't created or was
-  reverted. Inspect master's history; the commit should appear in
-  the release tag's wake.
+  match the release tag, inspect
+  `website/public/releases/alpha/latest.json` on `master`; the
+  reviewed delivery PR may have been reverted or superseded.
 
 **Update control never shows an update on a known-old install.** Possible
 causes, in rough order:
