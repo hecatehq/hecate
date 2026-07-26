@@ -1702,6 +1702,7 @@ export function ChatView({
                 activeTurnKind={activeTurnKind}
                 activeSessionID={activeSessionID}
                 textareaRef={textareaRef}
+                compactLayout={phoneMasterDetailLayout}
                 composerVisible={composerVisible}
                 composerInputDisabled={implicitSessionAllocation}
                 workspaceModePending={workspaceModePending}

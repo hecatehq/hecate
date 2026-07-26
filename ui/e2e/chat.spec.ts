@@ -1236,6 +1236,93 @@ test("uses a full-width replacement panel and phone-sized chat controls", async 
   await expect(settingsButton).toBeFocused();
 });
 
+test("keeps the phone composer controls contained when dictation needs setup", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("/hecate/v1/dictation/options", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "dictation_options",
+        data: [
+          {
+            provider: "openai",
+            provider_kind: "cloud",
+            default_model: "gpt-4o-mini-transcribe",
+            available: false,
+            unavailable_reason: "provider credentials are missing",
+          },
+        ],
+      }),
+    }),
+  );
+  await page.evaluate(() => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  await switchToModel(page);
+
+  const textarea = page.getByRole("textbox", { name: "Message" });
+  const form = textarea.locator("xpath=ancestor::form");
+  const messageComposer = page.getByRole("group", { name: "Message composer" });
+  const composerActions = page.getByRole("group", { name: "Composer actions" });
+  const controls = [
+    page.getByRole("button", { name: /Provider picker:/ }),
+    page.getByRole("button", { name: /Model picker:/ }),
+    page.getByRole("button", { name: "Image" }),
+    page.getByRole("button", { name: "Start dictation" }),
+    page.getByRole("button", { name: "Set up dictation provider" }),
+    page.getByRole("button", { name: "Send message" }),
+  ];
+
+  await expect(textarea).toHaveAttribute("placeholder", "Message…");
+  const dictationRouteLabel = page.getByText("Dictation route", { exact: true });
+  await expect(dictationRouteLabel).toHaveClass("sr-only");
+  await expect(dictationRouteLabel).toHaveCSS("position", "absolute");
+  const dictationRouteLabelBox = await dictationRouteLabel.boundingBox();
+  expect(dictationRouteLabelBox).not.toBeNull();
+  expect(dictationRouteLabelBox!.width).toBeLessThanOrEqual(1);
+  expect(dictationRouteLabelBox!.height).toBeLessThanOrEqual(1);
+  for (const control of controls) await expect(control).toBeVisible();
+
+  for (const surface of [form, messageComposer, composerActions]) {
+    const geometry = await surface.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+  }
+
+  const actionsBox = await composerActions.boundingBox();
+  expect(actionsBox).not.toBeNull();
+  const actionControls = controls.slice(2);
+  const actionBoxes = [];
+  for (const control of actionControls) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.x).toBeGreaterThanOrEqual(actionsBox!.x - 1);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(actionsBox!.x + actionsBox!.width + 1);
+    actionBoxes.push(box!);
+  }
+  for (let left = 0; left < actionBoxes.length; left += 1) {
+    for (let right = left + 1; right < actionBoxes.length; right += 1) {
+      const a = actionBoxes[left]!;
+      const b = actionBoxes[right]!;
+      const horizontalOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1;
+      const verticalOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
+      expect(horizontalOverlap && verticalOverlap).toBe(false);
+    }
+  }
+});
+
 test("moves focus into and back from a phone replacement panel opened by slash command", async ({
   page,
 }) => {

@@ -370,17 +370,14 @@ export function ChatDictationControl({
             ? "Transcribing…"
             : "Finishing dictation…"
           : "";
+  const statusNeedsVisualAttention = Boolean(error || phaseLabel || unavailable);
 
   return (
     <div
+      className="chat-composer-dictation"
       role="group"
       aria-label="Dictation"
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 28,
-        minWidth: 0,
         color: "var(--t3)",
         fontFamily: "var(--font-mono)",
         fontSize: 10,
@@ -388,7 +385,7 @@ export function ChatDictationControl({
     >
       <button
         type="button"
-        className="btn btn-ghost btn-sm chat-composer-touch-action"
+        className="btn btn-ghost btn-sm chat-composer-touch-action chat-composer-dictation-toggle"
         aria-label={phase === "recording" ? "Stop dictation recording" : "Start dictation"}
         aria-describedby={statusID}
         disabled={disabled || unavailable || phase === "requesting" || phase === "processing"}
@@ -409,9 +406,10 @@ export function ChatDictationControl({
         <Icon d={phase === "recording" ? Icons.stop : Icons.microphone} size={13} />
       </button>
       {!routeChecksLoading && routes.length > 0 && (
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+        <label className="chat-composer-dictation-route">
           <span className="sr-only">Dictation route</span>
           <select
+            className="chat-composer-dictation-select"
             value={selectedRouteValue}
             disabled={disabled || active}
             onChange={(event) => {
@@ -419,8 +417,6 @@ export function ChatDictationControl({
               setError("");
             }}
             style={{
-              maxWidth: 220,
-              minWidth: 92,
               background: "transparent",
               border: "none",
               borderRadius: "var(--radius-sm)",
@@ -443,16 +439,15 @@ export function ChatDictationControl({
         </label>
       )}
       <span
+        className={`chat-composer-dictation-status${
+          statusNeedsVisualAttention ? " chat-composer-dictation-status--active" : ""
+        }`}
         id={statusID}
         aria-live="polite"
         role="status"
         title={error || phaseLabel || undefined}
         style={{
-          minWidth: 0,
           color: error ? "var(--red)" : undefined,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
         }}
       >
         {error ||
@@ -461,6 +456,7 @@ export function ChatDictationControl({
       </span>
       {phase === "recording" && (
         <span
+          className="chat-composer-dictation-duration"
           aria-label={`${selectedRoute?.kind === "provider" ? "Recording" : "Dictation"} duration ${formatElapsed(elapsedSeconds)}`}
           aria-live="off"
           style={{ flexShrink: 0 }}
@@ -472,7 +468,7 @@ export function ChatDictationControl({
       {routeStatusRetryNeeded && (
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm chat-composer-dictation-action"
           aria-label="Retry dictation route check"
           disabled={disabled || active}
           onClick={retryRoutes}
@@ -485,7 +481,7 @@ export function ChatDictationControl({
       {providerSetupNeeded && onOpenConnections && (
         <button
           type="button"
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm chat-composer-dictation-action"
           aria-label="Set up dictation provider"
           onClick={onOpenConnections}
           style={{ padding: "3px 5px", flexShrink: 0 }}
