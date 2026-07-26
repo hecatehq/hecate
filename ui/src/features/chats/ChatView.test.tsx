@@ -4932,6 +4932,19 @@ describe("ChatView Enter switch", () => {
     );
     expect(hasEnterToggle).toBe(true);
   });
+
+  it("uses a concise phone placeholder without the desktop Enter shortcut", () => {
+    stubPhoneViewport();
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup({ message: "First line" }, { submitChat });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    expect(composer).toHaveAttribute("placeholder", "Message…");
+    expect(screen.queryByRole("button", { name: /↵ to send/ })).toBeNull();
+    expect(fireEvent.keyDown(composer, { key: "Enter" })).toBe(true);
+    expect(submitChat).not.toHaveBeenCalled();
+  });
 });
 
 describe("ChatView chats sidebar", () => {

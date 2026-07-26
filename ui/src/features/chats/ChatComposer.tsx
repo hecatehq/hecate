@@ -163,6 +163,7 @@ export type ChatComposerProps = {
   // Cross-region ref. ChatView owns creation so onSelectSession can
   // focus the textarea without reaching into composer internals.
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  compactLayout?: boolean;
 
   // Composer gating.
   composerVisible: boolean;
@@ -262,6 +263,7 @@ export function ChatComposer(props: ChatComposerProps) {
     activeTurnKind,
     activeSessionID,
     textareaRef,
+    compactLayout = false,
     composerVisible,
     composerInputDisabled,
     workspaceModePending,
@@ -365,6 +367,10 @@ export function ChatComposer(props: ChatComposerProps) {
     : "";
   const composerStatusText =
     workspaceModeStatusText || activeTurnStatusText || baselineComposerStatus;
+  const compactComposerStatusText = workspaceModeStatusText || activeTurnStatusText;
+  const composerFooterVisible =
+    !compactLayout ||
+    Boolean(compactComposerStatusText || rawChatCancelling || projectProposalAvailable);
 
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -658,6 +664,18 @@ export function ChatComposer(props: ChatComposerProps) {
     if (e.key !== "Enter") return;
     const modPressed = isMac ? e.metaKey : e.ctrlKey;
 
+    if (compactLayout) {
+      // Mobile Return is a newline. A hardware keyboard can still submit
+      // explicitly, while the visible Send button remains the primary action.
+      if (modPressed) {
+        e.preventDefault();
+        if (!workspaceModePending && !attachmentTurnInFlight) {
+          formRef.current?.requestSubmit();
+        }
+      }
+      return;
+    }
+
     if (workspaceModePending) {
       const sendGesture = modEnterMode ? modPressed : !e.shiftKey && !modPressed;
       if (sendGesture) e.preventDefault();
@@ -821,6 +839,7 @@ export function ChatComposer(props: ChatComposerProps) {
   return (
     <form
       ref={formRef}
+      className="chat-composer"
       onSubmit={handleSubmit}
       style={{
         borderTop: "1px solid var(--border)",
@@ -1257,9 +1276,11 @@ export function ChatComposer(props: ChatComposerProps) {
                   if (files.length > 0) addPendingFiles(files);
                 }}
                 placeholder={
-                  modEnterMode
-                    ? `Message… (${modKey}+Enter to send)`
-                    : "Message… (Shift+Enter for newline)"
+                  compactLayout
+                    ? "Message…"
+                    : modEnterMode
+                      ? `Message… (${modKey}+Enter to send)`
+                      : "Message… (Shift+Enter for newline)"
                 }
                 rows={1}
                 style={{
@@ -1282,17 +1303,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 onInput={(e) => adjustComposerTextareaHeight(e.target as HTMLTextAreaElement)}
               />
             </div>
-            <div
-              aria-label="Composer actions"
-              role="group"
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 6,
-                minWidth: 0,
-                padding: "0 7px 7px",
-              }}
-            >
+            <div className="chat-composer-actions" aria-label="Composer actions" role="group">
               <ChatAttachmentDrafts
                 attachments={chat.state.pendingChatAttachments}
                 acceptance={attachmentAcceptance}
@@ -1310,7 +1321,6 @@ export function ChatComposer(props: ChatComposerProps) {
                 onOpenConnections={onNavigate ? openDictationSetup : undefined}
                 onTranscript={insertDictationTranscript}
               />
-              <span aria-hidden="true" style={{ flex: 1 }} />
               <button
                 className="chat-composer-touch-action chat-composer-send"
                 type="submit"
@@ -1418,124 +1428,112 @@ export function ChatComposer(props: ChatComposerProps) {
                 : "Another chat is stopping. Wait for that request to finish."}
             </div>
           )}
-          <div
-            style={{
-              maxWidth: 820,
-              margin: "3px auto 0",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              justifyContent: "space-between",
-              minHeight: 22,
-            }}
-          >
-            <span
-              id={workspaceModePending ? workspaceModeStatusID : undefined}
-              aria-atomic={workspaceModePending || undefined}
-              aria-label={
-                workspaceModePending
-                  ? "Workspace execution status"
-                  : agentBusy
-                    ? "Current work status"
-                    : undefined
-              }
-              aria-live={workspaceModePending ? "polite" : undefined}
-              role={workspaceModePending ? "status" : undefined}
-              style={{
-                minWidth: 0,
-                color: agentBusy ? "var(--amber)" : "var(--t3)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {composerStatusText}
-              </span>
-              {agentBusy && onOpenTask && activeHecateTaskID && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
-                  style={{
-                    flexShrink: 0,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    padding: "2px 6px",
-                    color: "var(--amber)",
-                  }}
-                >
-                  Open task
-                </button>
-              )}
-              {(agentBusy || chatCancelling) &&
-                (activeTurnCancellationAvailable || chatCancelling) && (
+          {composerFooterVisible && (
+            <div className="chat-composer-status-row">
+              <span
+                className="chat-composer-status"
+                id={workspaceModePending ? workspaceModeStatusID : undefined}
+                aria-atomic={workspaceModePending || undefined}
+                aria-label={
+                  workspaceModePending
+                    ? "Workspace execution status"
+                    : agentBusy
+                      ? "Current work status"
+                      : undefined
+                }
+                aria-live={workspaceModePending ? "polite" : undefined}
+                role={workspaceModePending ? "status" : undefined}
+                style={{
+                  color: agentBusy ? "var(--amber)" : "var(--t3)",
+                }}
+              >
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {compactLayout ? compactComposerStatusText : composerStatusText}
+                </span>
+                {agentBusy && onOpenTask && activeHecateTaskID && (
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    aria-label={chatCancelling ? stoppingStatusText : stopActionLabel}
-                    title={
-                      chatCancelling
-                        ? stoppingStatusText
-                        : anotherChatCancelling
-                          ? "Another chat is stopping. Wait for that request to finish."
-                          : stopActionLabel
-                    }
-                    onClick={chatActions.cancelAgentChat}
-                    disabled={rawChatCancelling}
+                    onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
                     style={{
                       flexShrink: 0,
                       fontFamily: "var(--font-mono)",
                       fontSize: 10,
                       padding: "2px 6px",
-                      color: "var(--danger)",
+                      color: "var(--amber)",
                     }}
                   >
-                    Stop
+                    Open task
                   </button>
                 )}
-              {projectProposalAvailable && onDraftProjectProposal && (
+                {(agentBusy || chatCancelling) &&
+                  (activeTurnCancellationAvailable || chatCancelling) && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      aria-label={chatCancelling ? stoppingStatusText : stopActionLabel}
+                      title={
+                        chatCancelling
+                          ? stoppingStatusText
+                          : anotherChatCancelling
+                            ? "Another chat is stopping. Wait for that request to finish."
+                            : stopActionLabel
+                      }
+                      onClick={chatActions.cancelAgentChat}
+                      disabled={rawChatCancelling}
+                      style={{
+                        flexShrink: 0,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        padding: "2px 6px",
+                        color: "var(--danger)",
+                      }}
+                    >
+                      Stop
+                    </button>
+                  )}
+                {projectProposalAvailable && onDraftProjectProposal && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label="Draft Project Assistant proposal from message"
+                    disabled={projectProposalDrafting}
+                    title="Draft a Project Assistant proposal from this message"
+                    onClick={() => onDraftProjectProposal()}
+                    style={{
+                      flexShrink: 0,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      color: "var(--teal)",
+                    }}
+                  >
+                    <Icon d={Icons.projects} size={12} />
+                    {projectProposalDrafting ? "Drafting..." : "Draft proposal"}
+                  </button>
+                )}
+              </span>
+              {!compactLayout && (
                 <button
                   type="button"
-                  className="btn btn-ghost btn-sm"
-                  aria-label="Draft Project Assistant proposal from message"
-                  disabled={projectProposalDrafting}
-                  title="Draft a Project Assistant proposal from this message"
-                  onClick={() => onDraftProjectProposal()}
+                  onClick={toggleModEnterMode}
                   style={{
-                    flexShrink: 0,
                     fontFamily: "var(--font-mono)",
                     fontSize: 10,
-                    padding: "2px 6px",
-                    color: "var(--teal)",
+                    color: "var(--t3)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}
                 >
-                  <Icon d={Icons.projects} size={12} />
-                  {projectProposalDrafting ? "Drafting..." : "Draft proposal"}
+                  {modEnterMode ? `${modKey}+↵ to send` : "↵ to send"}
                 </button>
               )}
-            </span>
-            <button
-              type="button"
-              onClick={toggleModEnterMode}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: "var(--t3)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
-              {modEnterMode ? `${modKey}+↵ to send` : "↵ to send"}
-            </button>
-          </div>
+            </div>
+          )}
         </>
       )}
     </form>

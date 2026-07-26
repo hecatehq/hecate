@@ -7,6 +7,19 @@ body {
   margin: 0;
 }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 :root {
   color-scheme: dark;
 
@@ -741,6 +754,69 @@ textarea {
   }
 }
 
+.chat-composer-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 7px 7px;
+}
+
+.chat-composer-send {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.chat-composer-dictation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  min-width: 0;
+}
+
+.chat-composer-dictation-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.chat-composer-dictation-select {
+  max-width: 220px;
+  min-width: 92px;
+}
+
+.chat-composer-dictation-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-composer-status-row {
+  max-width: 820px;
+  min-height: 22px;
+  margin: 3px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.chat-composer-status {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--t3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 520px), (hover: none) and (pointer: coarse) {
   button:not([aria-hidden="true"]),
   .btn,
@@ -965,6 +1041,114 @@ textarea {
     overflow-y: auto;
     padding-bottom: 10px;
     padding-right: 0 !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .chat-composer {
+    padding: 8px !important;
+  }
+
+  .chat-composer-actions {
+    align-items: flex-end;
+    flex-wrap: wrap;
+    overflow: hidden;
+  }
+
+  .chat-composer-attachments {
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+
+  .chat-composer-attachments[data-has-attachments="true"],
+  .chat-composer-attachments[data-needs-attention="true"] {
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .chat-composer-attachment-controls {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .chat-composer-attachment-copy:not(.chat-composer-attachment-copy--active),
+  .chat-composer-dictation-status:not(.chat-composer-dictation-status--active) {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
+  .chat-composer-attachment-copy--active {
+    flex: 1 1 auto;
+    max-width: none !important;
+    min-width: 0;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
+
+  .chat-composer-dictation {
+    flex: 1 1 130px;
+    display: grid;
+    grid-template-areas:
+      "toggle route action"
+      "status status status";
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 6px;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .chat-composer-dictation-toggle {
+    grid-area: toggle;
+  }
+
+  .chat-composer-dictation-route {
+    grid-area: route;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  .chat-composer-dictation-select {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .chat-composer-dictation-status--active {
+    grid-area: status;
+    line-height: 1.35;
+    margin: 2px 4px 0;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .chat-composer-dictation-duration,
+  .chat-composer-dictation-action {
+    grid-area: action;
+    min-width: 44px;
+  }
+
+  .chat-composer-status-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .chat-composer-status {
+    align-items: center;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
   }
 }
 

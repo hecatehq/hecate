@@ -212,6 +212,9 @@ export function ChatAttachmentDrafts({
 
   return (
     <div
+      className="chat-composer-attachments"
+      data-has-attachments={attachments.length > 0 || undefined}
+      data-needs-attention={dragging || !canAdd || Boolean(error) || undefined}
       aria-label={acceptsFiles ? "File attachments" : "Image attachments"}
       role="group"
       onDragEnter={(event) => {
@@ -257,7 +260,10 @@ export function ChatAttachmentDrafts({
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22 }}>
+      <div
+        className="chat-composer-attachment-controls"
+        style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22 }}
+      >
         <input
           ref={inputRef}
           type="file"
@@ -298,6 +304,9 @@ export function ChatAttachmentDrafts({
           <Icon d={Icons.plus} size={11} /> {acceptsFiles ? "Files" : "Image"}
         </button>
         <span
+          className={`chat-composer-attachment-copy${
+            dragging || !canAdd ? " chat-composer-attachment-copy--active" : ""
+          }`}
           ref={unavailableStatusRef}
           id={!canAdd && unavailableReason ? reasonID : undefined}
           tabIndex={!canAdd && unavailableReason ? -1 : undefined}
