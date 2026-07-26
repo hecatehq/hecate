@@ -1332,7 +1332,7 @@ test("moves focus into and back from a phone replacement panel opened by slash c
   const composer = page.getByRole("textbox", { name: "Message" });
   await composer.fill("/settings");
   await composer.press("Escape");
-  await composer.press("Enter");
+  await page.getByRole("button", { name: "Send message" }).click();
 
   const settingsPanel = page.getByLabel("Chat settings panel");
   await expect(settingsPanel).toBeFocused();

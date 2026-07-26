@@ -1304,7 +1304,11 @@ export function ChatView({
   }
 
   function openChatSettingsPanel() {
-    rememberRightPanelFocusOrigin();
+    if (phoneMasterDetailLayout) {
+      rightPanelReturnFocusRef.current = textareaRef.current;
+    } else {
+      rememberRightPanelFocusOrigin();
+    }
     setWorkspaceChangesOpen(false);
     setChatSettingsOpen(true);
   }
