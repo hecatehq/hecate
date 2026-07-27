@@ -23,7 +23,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
     "@types/node": "^26.0.0",
-    "oxfmt": "^0.59.0",
+    "oxfmt": "^0.61.0",
     "oxlint": "^1.65.0",
     "oxlint-tsgolint": "0.25.0",
     "typescript": "^6.0.3"
