@@ -217,6 +217,12 @@ commit changelog. Keep `--cleanup=verbatim` on Markdown annotations: Git's
 default cleanup treats lines beginning with `#` as comments and would silently
 strip the release title and section headings.
 
+Signed annotated tags follow the same rules. The release workflow reads Git's
+signature as a separate byte range and removes only that exact suffix before
+classifying or publishing the annotation. A signed version-only tag therefore
+still uses the generated changelog, while substantive Markdown is passed to
+GoReleaser byte-for-byte without the public signature block.
+
 The version stamp commit stays on `master`. This keeps the visible Tauri
 metadata, including the mobile store build numbers, aligned with the latest
 release instead of hiding the release version on the tag only.

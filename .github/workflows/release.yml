@@ -93,34 +93,17 @@ jobs:
       # keep GoReleaser's generated changelog. A maintainer may instead create
       # an annotated tag with substantive Markdown notes; preserve that public
       # release contract by passing the annotation to GoReleaser explicitly.
+      # The helper removes Git's separately reported signature bytes without
+      # normalizing the Markdown through shell command substitution.
       - name: Prepare release notes
         id: release-notes
         env:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          tag_ref="refs/tags/${TAG}"
-          tag_type=$(git cat-file -t "$tag_ref")
-          if [[ "$tag_type" == "commit" ]]; then
-            echo "args=release --clean" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ "$tag_type" != "tag" ]]; then
-            echo "Release ref ${TAG} points to unsupported object type ${tag_type}." >&2
-            exit 1
-          fi
-          tag_notes=$(git for-each-ref --format='%(contents)' "$tag_ref")
-          if [[ "$tag_notes" == "$TAG" ]]; then
-            echo "args=release --clean" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -z "${tag_notes//[[:space:]]/}" ]]; then
-            echo "Release tag ${TAG} has an empty annotation." >&2
-            exit 1
-          fi
           notes_path="$RUNNER_TEMP/release-notes.md"
-          printf '%s\n' "$tag_notes" > "$notes_path"
-          echo "args=release --clean --release-notes=$notes_path" >> "$GITHUB_OUTPUT"
+          release_args=$(bun scripts/prepare-release-notes.ts "$TAG" "$notes_path")
+          printf 'args=%s\n' "$release_args" >> "$GITHUB_OUTPUT"
 
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7

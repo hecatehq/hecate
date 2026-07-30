@@ -38,6 +38,8 @@ const deliveryPath = ".github/workflows/release-delivery.yml";
 const websitePath = ".github/workflows/website.yml";
 const testPath = ".github/workflows/test.yml";
 const tauriBuildPath = ".github/workflows/tauri-build.yml";
+const releaseNotesHelperPath = "scripts/prepare-release-notes.ts";
+const releaseJustPath = "just/release.just";
 
 const tauri = read(tauriPath);
 const release = read(releasePath);
@@ -45,6 +47,8 @@ const delivery = read(deliveryPath);
 const website = read(websitePath);
 const test = read(testPath);
 const tauriBuild = read(tauriBuildPath);
+const releaseNotesHelper = read(releaseNotesHelperPath);
+const releaseJust = read(releaseJustPath);
 
 forbidText(tauriPath, tauri, "publish-updater-website:");
 forbidText(tauriPath, tauri, "actions: write");
@@ -61,6 +65,17 @@ forbidText(releasePath, release, "git push origin master");
 requireText(releasePath, release, "uses: ./.github/workflows/release-delivery.yml");
 requireText(releasePath, release, "expected_release_body_sha256:");
 forbidText(releasePath, release, "actions: write");
+requireText(
+  releasePath,
+  release,
+  'release_args=$(bun scripts/prepare-release-notes.ts "$TAG" "$notes_path")',
+);
+forbidText(releasePath, release, "tag_notes=$(git for-each-ref");
+requireText(releaseNotesHelperPath, releaseNotesHelper, "%(contents:size)");
+requireText(releaseNotesHelperPath, releaseNotesHelper, "%(contents:signature)");
+requireText(releaseNotesHelperPath, releaseNotesHelper, "writeFileSync(notesPath, annotation)");
+requireText(testPath, test, "bun test scripts/prepare-release-notes.test.ts");
+requireText(releaseJustPath, releaseJust, "bun test scripts/prepare-release-notes.test.ts");
 
 const deliveryCallerStart = release.indexOf("  prepare-release-delivery:");
 if (deliveryCallerStart < 0) {
@@ -145,5 +160,5 @@ if (normalizedSyntheticNotes !== "alpha.4 notes") {
 }
 
 console.log(
-  "release-workflow-check: read-only delivery proposal, scoped updater uploads, and post-merge website verification OK",
+  "release-workflow-check: signed tag notes, read-only delivery proposal, scoped updater uploads, and post-merge website verification OK",
 );
