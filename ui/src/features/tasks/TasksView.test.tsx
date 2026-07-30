@@ -794,6 +794,209 @@ describe("TasksView streamed Task summaries", () => {
     );
   });
 
+  it("reconnects from the latest sequence and catches up authoritative Run detail", async () => {
+    const activeTask: TaskRecord = { ...task, status: "running" };
+    const activeRun: TaskRunRecord = {
+      ...run,
+      status: "running",
+      finished_at: undefined,
+    };
+    const streamStarts: number[] = [];
+    let emitReconnect: (() => void) | undefined;
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [activeTask] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [activeRun] });
+    vi.mocked(streamTaskRun).mockImplementation(
+      (_taskID, _runID, onEvent, afterSequence = 0, signal) => {
+        streamStarts.push(afterSequence);
+        if (streamStarts.length === 1) {
+          onEvent({
+            event: "snapshot",
+            payload: {
+              object: "task_run_stream_event",
+              data: { sequence: 7, run: activeRun },
+            },
+          });
+          return Promise.reject(new Error("relay restarted"));
+        }
+
+        emitReconnect = () =>
+          onEvent({
+            event: "snapshot",
+            payload: {
+              object: "task_run_stream_event",
+              data: { sequence: 8, run: activeRun },
+            },
+          });
+        return new Promise<void>((_resolve, reject) => {
+          const abort = () => reject(new DOMException("Aborted", "AbortError"));
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) abort();
+        });
+      },
+    );
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    const view = render(
+      withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    expect(await screen.findByText("Reconnecting live updates")).toBeTruthy();
+    await waitFor(() => expect(streamStarts).toEqual([0, 7]), { timeout: 1_500 });
+
+    act(() => emitReconnect?.());
+
+    expect(await screen.findByText("Live updates")).toBeTruthy();
+    await waitFor(() => {
+      expect(getTaskRuns).toHaveBeenCalledTimes(2);
+      expect(getTaskApprovals).toHaveBeenCalledTimes(2);
+      expect(getTaskRunSteps).toHaveBeenCalledTimes(2);
+      expect(getTaskRunArtifacts).toHaveBeenCalledTimes(2);
+      expect(getTaskRunEvents).toHaveBeenCalledTimes(2);
+    });
+
+    view.unmount();
+  });
+
+  it("finishes authoritative catch-up before a recovered stream can apply newer state", async () => {
+    const activeTask: TaskRecord = { ...task, status: "running" };
+    const activeRun: TaskRunRecord = {
+      ...run,
+      status: "running",
+      step_count: 1,
+      finished_at: undefined,
+    };
+    const staleCatchUpRun: TaskRunRecord = { ...activeRun, step_count: 3 };
+    const recoveredRun: TaskRunRecord = { ...activeRun, step_count: 9 };
+    const catchUpRuns = deferred<Awaited<ReturnType<typeof getTaskRuns>>>();
+    const streamStarts: number[] = [];
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [activeTask] });
+    vi.mocked(getTaskRuns)
+      .mockResolvedValueOnce({ object: "list", data: [activeRun] })
+      .mockReturnValueOnce(catchUpRuns.promise);
+    vi.mocked(streamTaskRun).mockImplementation(
+      (_taskID, _runID, onEvent, afterSequence = 0, signal) => {
+        streamStarts.push(afterSequence);
+        if (streamStarts.length === 1) {
+          onEvent({
+            event: "snapshot",
+            payload: {
+              object: "task_run_stream_event",
+              data: { sequence: 7, run: activeRun },
+            },
+          });
+          return Promise.reject(new Error("relay restarted"));
+        }
+        onEvent({
+          event: "snapshot",
+          payload: {
+            object: "task_run_stream_event",
+            data: { sequence: 9, run: recoveredRun },
+          },
+        });
+        return new Promise<void>((_resolve, reject) => {
+          const abort = () => reject(new DOMException("Aborted", "AbortError"));
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) abort();
+        });
+      },
+    );
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    const view = render(
+      withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    expect(await screen.findByText("Reconnecting live updates")).toBeTruthy();
+    await waitFor(() => expect(getTaskRuns).toHaveBeenCalledTimes(2), { timeout: 1_500 });
+    expect(streamStarts).toEqual([0]);
+
+    await act(async () => {
+      catchUpRuns.resolve({ object: "list", data: [staleCatchUpRun] });
+      await catchUpRuns.promise;
+    });
+
+    await waitFor(() => expect(streamStarts).toEqual([0, 7]));
+    expect(await screen.findByText("Latest Run · 9 steps")).toBeTruthy();
+
+    view.unmount();
+  });
+
+  it("stops reconnecting when authoritative catch-up finds the Run terminal", async () => {
+    const activeTask: TaskRecord = { ...task, status: "running" };
+    const activeRun: TaskRunRecord = {
+      ...run,
+      status: "running",
+      finished_at: undefined,
+    };
+    const completedRun: TaskRunRecord = { ...activeRun, status: "completed" };
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [activeTask] });
+    vi.mocked(getTaskRuns)
+      .mockResolvedValueOnce({ object: "list", data: [activeRun] })
+      .mockResolvedValueOnce({ object: "list", data: [completedRun] });
+    vi.mocked(streamTaskRun).mockRejectedValue(new Error("relay restarted"));
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Reconnecting live updates")).toBeTruthy();
+    await waitFor(() => expect(getTaskRuns).toHaveBeenCalledTimes(2), { timeout: 1_500 });
+    await waitFor(() => expect(screen.queryByText("Reconnecting live updates")).toBeNull());
+    expect(streamTaskRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts a pending reconnect when the Task view unmounts", async () => {
+    const activeTask: TaskRecord = { ...task, status: "running" };
+    const activeRun: TaskRunRecord = {
+      ...run,
+      status: "running",
+      finished_at: undefined,
+    };
+    let streamSignal: AbortSignal | undefined;
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [activeTask] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [activeRun] });
+    vi.mocked(streamTaskRun).mockImplementation(
+      (_taskID, _runID, _onEvent, _afterSequence, signal) => {
+        streamSignal = signal;
+        return Promise.reject(new Error("relay restarted"));
+      },
+    );
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    const view = render(
+      withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }),
+    );
+
+    expect(await screen.findByText("Reconnecting live updates")).toBeTruthy();
+    expect(streamTaskRun).toHaveBeenCalledTimes(1);
+    expect(streamSignal?.aborted).toBe(false);
+
+    view.unmount();
+
+    expect(streamSignal?.aborted).toBe(true);
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(streamTaskRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a non-retryable stream failure instead of reconnecting indefinitely", async () => {
+    const activeTask: TaskRecord = { ...task, status: "running" };
+    const activeRun: TaskRunRecord = {
+      ...run,
+      status: "running",
+      finished_at: undefined,
+    };
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [activeTask] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [activeRun] });
+    vi.mocked(streamTaskRun).mockRejectedValue(
+      new ApiError("This Run is unavailable.", 404, "not_found"),
+    );
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Live updates unavailable")).toHaveAttribute("role", "alert");
+    expect(streamTaskRun).toHaveBeenCalledTimes(1);
+  });
+
   it("updates latest-Run summary fields from the latest Run stream", async () => {
     const listedTask: TaskRecord = {
       ...task,

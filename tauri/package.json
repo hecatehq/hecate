@@ -6,7 +6,8 @@
   "homepage": "https://hecate.sh",
   "scripts": {
     "tauri": "tauri",
-    "test:mobile-shell": "bun test tests"
+    "check:mobile-shell-bundle": "bun build mobile/app.js --target=browser --outdir=node_modules/.cache/hecate-mobile-shell",
+    "test:mobile-shell": "bun test tests && bun run check:mobile-shell-bundle"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2"

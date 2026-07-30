@@ -76,6 +76,7 @@ jobs:
               - 'go.mod'
               - 'go.sum'
             typescript:
+              - 'tauri/mobile/**'
               - 'ui/**/*.ts'
               - 'ui/**/*.tsx'
               - 'ui/**/*.css'
