@@ -58,9 +58,43 @@ import { formatProjectDeleteSummary } from "../projects/projectDisplay";
 import { EntityDetailPane, MasterDetailWorkspace } from "../shared/EntityWorkspace";
 import { ConfirmModal } from "../shared/ui";
 
-type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
+type StreamState = "idle" | "connecting" | "reconnecting" | "live" | "closed" | "error";
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TaskSelection = { taskID: string; runID: string };
+
+const taskRunStreamRetryBaseMS = 250;
+const taskRunStreamRetryMaxMS = 2_000;
+const taskRunStreamNonRetryableHTTPStatuses = new Set([400, 401, 403, 404]);
+
+function taskRunStatusIsTerminal(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function taskRunStreamRetryDelayMS(attempt: number): number {
+  const exponent = Math.min(Math.max(attempt, 0), 4);
+  return Math.min(taskRunStreamRetryBaseMS * 2 ** exponent, taskRunStreamRetryMaxMS);
+}
+
+function taskRunStreamFailureIsNonRetryable(error: unknown): boolean {
+  return error instanceof ApiError && taskRunStreamNonRetryableHTTPStatuses.has(error.status);
+}
+
+function waitForTaskRunStreamRetry(signal: AbortSignal, delayMS: number): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, delayMS);
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      resolve(false);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
 
 export function taskMatchesFilter(
   task: TaskRecord,
@@ -241,6 +275,7 @@ export function TasksView({
   const defaultTaskWorkspace = projectDefaultWorkspace(projects.activeProject);
 
   const streamCursorRef = useRef(0);
+  const selectedRunStatusRef = useRef("");
   const taskLoadGenerationRef = useRef(0);
   const scheduleMutationGenerationRef = useRef(0);
   const scheduleHistoryGenerationRef = useRef(0);
@@ -255,6 +290,7 @@ export function TasksView({
     () => runs.find((r) => r.id === selectedRunID) ?? null,
     [runs, selectedRunID],
   );
+  selectedRunStatusRef.current = selectedRun?.status ?? "";
   const schedulesByTaskID = useMemo(
     () => new Map(schedules.map((schedule) => [schedule.task_id, schedule])),
     [schedules],
@@ -341,6 +377,8 @@ export function TasksView({
         (preferredRunID && nextRuns.some((r) => r.id === preferredRunID) ? preferredRunID : "") ||
         nextRuns[0]?.id ||
         "";
+      selectedRunStatusRef.current =
+        nextRuns.find((candidate) => candidate.id === nextRunID)?.status ?? "";
       selectTaskRun(taskID, nextRunID);
       setRuns(nextRuns);
       setApprovals(approvalsRes.data ?? []);
@@ -577,106 +615,193 @@ export function TasksView({
       return;
     }
     const controller = new AbortController();
+    let disposed = false;
     setStreamState("connecting");
 
-    void streamTaskRun(
-      selectedTaskID,
-      selectedRunID,
-      ({ payload }) => {
-        const currentSelection = selectedTaskRunRef.current;
-        if (
-          currentSelection.taskID !== selectedTaskID ||
-          currentSelection.runID !== selectedRunID
-        ) {
+    const selectionIsCurrent = () => {
+      const currentSelection = selectedTaskRunRef.current;
+      return (
+        !disposed &&
+        !controller.signal.aborted &&
+        currentSelection.taskID === selectedTaskID &&
+        currentSelection.runID === selectedRunID
+      );
+    };
+
+    const catchUpAuthoritativeDetail = async () => {
+      try {
+        const loadedRunID = await loadTaskDetail(selectedTaskID, selectedRunID);
+        if (selectionIsCurrent() && loadedRunID !== null) {
+          setTaskDetailLoadError("");
+        }
+      } catch (error) {
+        if (selectionIsCurrent()) {
+          setTaskDetailLoadError(error instanceof Error ? error.message : "unknown error");
+        }
+      }
+    };
+
+    const observe = async () => {
+      let retryAttempt = 0;
+      let reconnecting = false;
+      let lastObservedRunStatus = selectedRunStatusRef.current;
+
+      while (selectionIsCurrent()) {
+        if (reconnecting) {
+          const currentRunStatus = selectedRunStatusRef.current;
+          if (currentRunStatus) lastObservedRunStatus = currentRunStatus;
+          if (taskRunStatusIsTerminal(lastObservedRunStatus)) {
+            setStreamState("closed");
+            return;
+          }
+
+          setStreamState("reconnecting");
+          await catchUpAuthoritativeDetail();
+          if (!selectionIsCurrent()) return;
+
+          const caughtUpRunStatus = selectedRunStatusRef.current;
+          if (caughtUpRunStatus) lastObservedRunStatus = caughtUpRunStatus;
+          if (taskRunStatusIsTerminal(lastObservedRunStatus)) {
+            setStreamState("closed");
+            return;
+          }
+        }
+
+        let terminalRunObserved = taskRunStatusIsTerminal(lastObservedRunStatus);
+        const attemptStartSequence = streamCursorRef.current;
+
+        try {
+          await streamTaskRun(
+            selectedTaskID,
+            selectedRunID,
+            ({ payload }) => {
+              if (!selectionIsCurrent()) return;
+              lastObservedRunStatus = payload.data.run.status;
+              terminalRunObserved =
+                payload.data.terminal === true || taskRunStatusIsTerminal(lastObservedRunStatus);
+              setStreamState(terminalRunObserved ? "closed" : "live");
+              if (payload.data.sequence > attemptStartSequence) {
+                retryAttempt = 0;
+              }
+              streamCursorRef.current = Math.max(
+                streamCursorRef.current,
+                payload.data.sequence ?? 0,
+              );
+              setRuns((cur) => {
+                const others = cur.filter((r) => r.id !== payload.data.run.id);
+                return [payload.data.run, ...others];
+              });
+              setSteps(payload.data.steps ?? []);
+              setArtifacts(payload.data.artifacts ?? []);
+              setActivity(payload.data.activity ?? []);
+              // Capture per-model-call cost when the snapshot was driven by a
+              // `model.call.completed` event. Dedup by model-call number — the
+              // SSE may replay the same event on reconnect, and we don't
+              // want a duplicate to wipe the entry. A `0` cost keeps the
+              // entry (legitimate free tier / cached model call).
+              const modelCallCostKey = streamModelCallCostKey(
+                payload.data.model_call?.model_call_index,
+              );
+              if (payload.data.model_call && modelCallCostKey !== null) {
+                setStreamModelCallCosts((prev) => {
+                  const next = new Map(prev);
+                  next.set(modelCallCostKey, payload.data.model_call!.cost_micros_usd ?? 0);
+                  return next;
+                });
+              }
+              // Approvals ride along in every snapshot now (server-side
+              // change in TaskRunStreamEventData). Treat the SSE as the
+              // source of truth so the banner stays in sync — without
+              // this, an approval created mid-stream wouldn't surface
+              // until a manual refresh, and a server-resolved one would
+              // linger in the UI for the same reason. We only overwrite
+              // when the payload actually carries the field, so older
+              // gateways that don't include it don't blank the banner.
+              if (payload.data.approvals !== undefined) {
+                setApprovals(payload.data.approvals);
+              }
+              const eventType = payload.data.event_type;
+              if (eventType && payload.data.sequence > 0) {
+                setRunEvents((cur) => {
+                  if (cur.some((event) => event.sequence === payload.data.sequence)) {
+                    return cur;
+                  }
+                  return [
+                    ...cur,
+                    {
+                      schema_version: "1",
+                      event_id: `stream-${payload.data.sequence}`,
+                      task_id: selectedTaskID,
+                      run_id: selectedRunID,
+                      sequence: payload.data.sequence,
+                      occurred_at: new Date().toISOString(),
+                      type: eventType,
+                      data: {},
+                    },
+                  ];
+                });
+              }
+              const streamedRun = payload.data.run;
+              setTasks((cur) =>
+                cur.map((task) => {
+                  if (task.id !== selectedTaskID || task.latest_run_id !== streamedRun.id) {
+                    return task;
+                  }
+                  return {
+                    ...task,
+                    status: streamedRun.status,
+                    latest_model: streamedRun.model,
+                    latest_provider: streamedRun.provider,
+                    latest_run_step_count: streamedRun.step_count ?? 0,
+                    latest_run_artifact_count: streamedRun.artifact_count ?? 0,
+                    last_error: streamedRun.last_error,
+                  };
+                }),
+              );
+            },
+            streamCursorRef.current,
+            controller.signal,
+          );
+        } catch (error) {
+          if (!selectionIsCurrent()) return;
+          if (terminalRunObserved) {
+            setStreamState("closed");
+            await catchUpAuthoritativeDetail();
+            return;
+          }
+          if (taskRunStreamFailureIsNonRetryable(error)) {
+            setStreamState("error");
+            return;
+          }
+        }
+
+        if (!selectionIsCurrent()) return;
+        if (terminalRunObserved) {
+          setStreamState("closed");
+          await catchUpAuthoritativeDetail();
           return;
         }
-        setStreamState("live");
-        streamCursorRef.current = payload.data.sequence ?? streamCursorRef.current;
-        setRuns((cur) => {
-          const others = cur.filter((r) => r.id !== payload.data.run.id);
-          return [payload.data.run, ...others];
-        });
-        setSteps(payload.data.steps ?? []);
-        setArtifacts(payload.data.artifacts ?? []);
-        setActivity(payload.data.activity ?? []);
-        // Capture per-model-call cost when the snapshot was driven by a
-        // `model.call.completed` event. Dedup by model-call number — the
-        // SSE may replay the same event on reconnect, and we don't
-        // want a duplicate to wipe the entry. A `0` cost keeps the
-        // entry (legitimate free tier / cached model call).
-        const modelCallCostKey = streamModelCallCostKey(payload.data.model_call?.model_call_index);
-        if (payload.data.model_call && modelCallCostKey !== null) {
-          setStreamModelCallCosts((prev) => {
-            const next = new Map(prev);
-            next.set(modelCallCostKey, payload.data.model_call!.cost_micros_usd ?? 0);
-            return next;
-          });
-        }
-        // Approvals ride along in every snapshot now (server-side
-        // change in TaskRunStreamEventData). Treat the SSE as the
-        // source of truth so the banner stays in sync — without
-        // this, an approval created mid-stream wouldn't surface
-        // until a manual refresh, and a server-resolved one would
-        // linger in the UI for the same reason. We only overwrite
-        // when the payload actually carries the field, so older
-        // gateways that don't include it don't blank the banner.
-        if (payload.data.approvals !== undefined) {
-          setApprovals(payload.data.approvals);
-        }
-        const eventType = payload.data.event_type;
-        if (eventType && payload.data.sequence > 0) {
-          setRunEvents((cur) => {
-            if (cur.some((event) => event.sequence === payload.data.sequence)) {
-              return cur;
-            }
-            return [
-              ...cur,
-              {
-                schema_version: "1",
-                event_id: `stream-${payload.data.sequence}`,
-                task_id: selectedTaskID,
-                run_id: selectedRunID,
-                sequence: payload.data.sequence,
-                occurred_at: new Date().toISOString(),
-                type: eventType,
-                data: {},
-              },
-            ];
-          });
-        }
-        const streamedRun = payload.data.run;
-        setTasks((cur) =>
-          cur.map((task) => {
-            if (task.id !== selectedTaskID || task.latest_run_id !== streamedRun.id) return task;
-            return {
-              ...task,
-              status: streamedRun.status,
-              latest_model: streamedRun.model,
-              latest_provider: streamedRun.provider,
-              latest_run_step_count: streamedRun.step_count ?? 0,
-              latest_run_artifact_count: streamedRun.artifact_count ?? 0,
-              last_error: streamedRun.last_error,
-            };
-          }),
-        );
-      },
-      streamCursorRef.current,
-      controller.signal,
-    )
-      .then(() => {
-        if (!controller.signal.aborted) {
-          setStreamState("closed");
-          void loadTaskDetail(selectedTaskID, selectedRunID);
-        }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setStreamState("error");
-          console.error(err);
-        }
-      });
 
-    return () => controller.abort();
+        const currentRunStatus = selectedRunStatusRef.current;
+        if (currentRunStatus) lastObservedRunStatus = currentRunStatus;
+        if (taskRunStatusIsTerminal(lastObservedRunStatus)) {
+          setStreamState("closed");
+          return;
+        }
+
+        setStreamState("reconnecting");
+        const retryDelay = taskRunStreamRetryDelayMS(retryAttempt);
+        retryAttempt += 1;
+        if (!(await waitForTaskRunStreamRetry(controller.signal, retryDelay))) return;
+        reconnecting = true;
+      }
+    };
+
+    void observe();
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
   }, [loadTaskDetail, selectedRunID, selectedTaskID]);
 
   async function handleSelectTask(taskID: string) {
