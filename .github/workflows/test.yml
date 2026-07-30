@@ -52,7 +52,9 @@ jobs:
           bun-version-file: ui/package.json
 
       - name: Validate release workflows
-        run: bun scripts/check-release-workflows.ts
+        run: |
+          bun test scripts/prepare-release-notes.test.ts
+          bun scripts/check-release-workflows.ts
 
       - uses: dorny/paths-filter@v4
         id: filter
