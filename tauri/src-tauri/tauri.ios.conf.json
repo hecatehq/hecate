@@ -25,7 +25,7 @@
     "icon": [],
     "iOS": {
       "minimumSystemVersion": "15.0",
-      "bundleVersion": "6.0.4"
+      "bundleVersion": "6.0.5"
     }
   },
   "plugins": {
