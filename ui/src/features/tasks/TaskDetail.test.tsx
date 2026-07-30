@@ -1148,6 +1148,16 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.queryByText("— stderr —")).toBeNull();
   });
 
+  it.each([
+    ["reconnecting", "Reconnecting live updates", "status"],
+    ["error", "Live updates unavailable", "alert"],
+  ] as const)("shows the %s Run stream state", (streamState, label, role) => {
+    const { render } = setup({ streamState });
+    render();
+
+    expect(screen.getByText(label)).toHaveAttribute("role", role);
+  });
+
   it("marks object-backed stderr artifacts as available when they have bytes", () => {
     const { render } = setup({
       artifacts: [

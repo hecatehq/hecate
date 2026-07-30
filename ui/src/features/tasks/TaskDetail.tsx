@@ -68,7 +68,7 @@ import {
   taskSource,
 } from "./taskDetailHelpers";
 
-type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
+type StreamState = "idle" | "connecting" | "reconnecting" | "live" | "closed" | "error";
 
 // RunCostBadge shows this run's cost — and, when prior runs exist
 // in the resume chain, the task-cumulative figure too. Operators
@@ -716,6 +716,16 @@ export function TaskDetail({
   );
   const visibleEvents = events.filter(isVisibleRunEvent);
   const runOutcome = run ? taskRunOutcome(run.status, run.last_error) : null;
+  const streamStatus =
+    streamState === "live"
+      ? { color: "green" as const, label: "Live updates", pulse: true }
+      : streamState === "connecting"
+        ? { color: "amber" as const, label: "Connecting live updates", pulse: true }
+        : streamState === "reconnecting"
+          ? { color: "amber" as const, label: "Reconnecting live updates", pulse: true }
+          : streamState === "error"
+            ? { color: "red" as const, label: "Live updates unavailable", pulse: false }
+            : null;
   const scheduledRunTimezone =
     run?.schedule_id && run.schedule_id === schedule?.id ? schedule.timezone : browserTimezone();
 
@@ -1668,8 +1678,23 @@ export function TaskDetail({
                 stdout{stdoutArtifact.size_bytes ? ` ${stdoutArtifact.size_bytes}b` : ""}
               </span>
             )}
-            {streamState === "live" && <Dot color="green" pulse />}
-            {streamState === "connecting" && <Dot color="amber" pulse />}
+            {streamStatus && (
+              <span
+                aria-live={streamState === "error" ? "assertive" : "polite"}
+                role={streamState === "error" ? "alert" : "status"}
+                style={{
+                  alignItems: "center",
+                  color: streamState === "error" ? "var(--red)" : "var(--t2)",
+                  display: "inline-flex",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  gap: 5,
+                }}
+              >
+                <Dot color={streamStatus.color} pulse={streamStatus.pulse} />
+                {streamStatus.label}
+              </span>
+            )}
             {stderrArtifact && (
               <span
                 style={{
