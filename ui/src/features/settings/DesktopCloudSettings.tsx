@@ -297,15 +297,15 @@ function DesktopCloudConnectionSettings() {
           )}
         </div>
       </section>
-      {signedIn && <DesktopCloudRuntimeSettings onAccountStatusChange={setStatus} />}
+      {signedIn && <DesktopCloudRuntimeSettings onAccountStatusRefresh={loadStatus} />}
     </>
   );
 }
 
 function DesktopCloudRuntimeSettings({
-  onAccountStatusChange,
+  onAccountStatusRefresh,
 }: {
-  onAccountStatusChange: (status: DesktopCloudConnectionStatus) => void;
+  onAccountStatusRefresh: () => Promise<void>;
 }) {
   const [connections, setConnections] = useState<DesktopCloudRuntimeConnection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -315,14 +315,6 @@ function DesktopCloudRuntimeSettings({
   const requestGenerationRef = useRef(0);
   const requestInFlightRef = useRef<Promise<void> | null>(null);
   const mutationInFlightRef = useRef(false);
-
-  const refreshAccountStatus = useCallback(async () => {
-    try {
-      onAccountStatusChange(await getDesktopCloudConnectionStatus());
-    } catch {
-      // Preserve the actionable instance error when status refresh also fails.
-    }
-  }, [onAccountStatusChange]);
 
   const loadConnections = useCallback(
     (background = false) => {
@@ -339,7 +331,7 @@ function DesktopCloudRuntimeSettings({
         .catch(async (err) => {
           if (requestGeneration !== requestGenerationRef.current) return;
           setError(err instanceof Error ? err.message : "Cloud instances could not be loaded.");
-          await refreshAccountStatus();
+          await onAccountStatusRefresh();
         })
         .finally(() => {
           if (!background && requestGeneration === requestGenerationRef.current) setLoading(false);
@@ -348,7 +340,7 @@ function DesktopCloudRuntimeSettings({
       requestInFlightRef.current = request;
       return request;
     },
-    [refreshAccountStatus],
+    [onAccountStatusRefresh],
   );
 
   useEffect(() => {
@@ -392,7 +384,7 @@ function DesktopCloudRuntimeSettings({
       setNotice(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : `${connection.name} could not be started.`);
-      await refreshAccountStatus();
+      await onAccountStatusRefresh();
     } finally {
       mutationInFlightRef.current = false;
       setBusy(null);
@@ -408,7 +400,7 @@ function DesktopCloudRuntimeSettings({
       setNotice(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : `${connection.name} could not be opened.`);
-      await refreshAccountStatus();
+      await onAccountStatusRefresh();
     } finally {
       setBusy(null);
     }
