@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,8 +41,10 @@ function capability(id: string, name: string, status = "supported") {
 }
 
 beforeEach(() => {
+  vi.useRealTimers();
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   Reflect.deleteProperty(window, "__TAURI__");
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   tauriInvokeMock.mockReset();
   vi.mocked(getDictationOptions).mockReset();
   vi.mocked(getDictationOptions).mockResolvedValue({ object: "dictation_options", data: [] });
@@ -214,7 +216,7 @@ describe("SettingsView", () => {
         authorizing: true,
         signed_in: false,
         gateway_ready: true,
-        auto_start_enabled: true,
+        auto_start_enabled: false,
         account_email: null,
         cloud_url: "https://console.hecatehq.com",
         base_url: "http://127.0.0.1:54321",
@@ -225,19 +227,17 @@ describe("SettingsView", () => {
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     const section = await screen.findByTestId("desktop-cloud-connection");
-    expect(within(section).getAllByText("Remote access").length).toBeGreaterThan(0);
-    expect(within(section).getByText(/Sign in once/i)).toBeTruthy();
+    expect(within(section).getByText("Hecate Cloud account")).toBeTruthy();
     expect(
-      within(section).getByText(
-        /External Agent work may use this computer's configured CLI sign-ins/i,
-      ),
+      within(section).getByText(/Sign in to manage Cloud instances from this app/i),
     ).toBeTruthy();
+    expect(within(section).getByText(/Remote access to this computer stays off/i)).toBeTruthy();
     expect(within(section).queryByText(/hec CLI/i)).toBeNull();
 
     await user.click(within(section).getByRole("button", { name: "Sign in to Hecate Cloud" }));
 
     expect(tauriInvokeMock).toHaveBeenNthCalledWith(1, "cloud_connection_status", undefined);
-    expect(tauriInvokeMock).toHaveBeenNthCalledWith(2, "cloud_connection_start", undefined);
+    expect(tauriInvokeMock).toHaveBeenNthCalledWith(2, "cloud_account_sign_in", undefined);
     expect(await within(section).findByText("Finish signing in")).toBeTruthy();
     expect(
       within(section).getByText(
@@ -256,63 +256,372 @@ describe("SettingsView", () => {
 
   it("lets a signed-in user enable remote access and sign out", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
-    tauriInvokeMock
-      .mockResolvedValueOnce({
-        available: true,
-        phase: "disconnected",
-        running: false,
-        authorizing: false,
-        signed_in: true,
-        gateway_ready: true,
-        auto_start_enabled: false,
-        account_email: "alice@example.com",
-        cloud_url: "https://console.hecatehq.com",
-        base_url: "http://127.0.0.1:54321",
-        message: "Remote access is off.",
-        last_error: null,
-      })
-      .mockResolvedValueOnce({
-        available: true,
-        phase: "connected",
-        running: true,
-        authorizing: false,
-        signed_in: true,
-        gateway_ready: true,
-        auto_start_enabled: true,
-        account_email: "alice@example.com",
-        cloud_url: "https://console.hecatehq.com",
-        base_url: "http://127.0.0.1:54321",
-        message: "Remote access is on.",
-        last_error: null,
-      })
-      .mockResolvedValueOnce({
-        available: true,
-        phase: "disconnected",
-        running: false,
-        authorizing: false,
-        signed_in: false,
-        gateway_ready: true,
-        auto_start_enabled: false,
-        account_email: null,
-        cloud_url: "https://console.hecatehq.com",
-        base_url: "http://127.0.0.1:54321",
-        message: "Signed out of Hecate Cloud.",
-        last_error: null,
-      });
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        return Promise.resolve({
+          available: true,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: true,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: "alice@example.com",
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: "Remote access is off.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_runtime_connections") return Promise.resolve([]);
+      if (command === "cloud_connection_start") {
+        return Promise.resolve({
+          available: true,
+          phase: "connected",
+          running: true,
+          authorizing: false,
+          signed_in: true,
+          gateway_ready: true,
+          auto_start_enabled: true,
+          account_email: "alice@example.com",
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: "Remote access is on.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_connection_sign_out") {
+        return Promise.resolve({
+          available: true,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: false,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: null,
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: "Signed out of Hecate Cloud.",
+          last_error: null,
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
     const { state, actions, user } = setup();
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     const section = await screen.findByTestId("desktop-cloud-connection");
     expect(within(section).getByText("alice@example.com")).toBeTruthy();
-    await user.click(within(section).getByRole("switch", { name: "Remote access" }));
-    expect(tauriInvokeMock).toHaveBeenNthCalledWith(2, "cloud_connection_start", undefined);
+    await user.click(
+      within(section).getByRole("switch", { name: "Remote access for this computer" }),
+    );
+    expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_connection_start", undefined);
     expect(await within(section).findByText("Connected")).toBeTruthy();
 
     await user.click(within(section).getByRole("button", { name: "Sign out" }));
-    expect(tauriInvokeMock).toHaveBeenNthCalledWith(3, "cloud_connection_sign_out", undefined);
+    expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_connection_sign_out", undefined);
     expect(
       await within(section).findByRole("button", { name: "Sign in to Hecate Cloud" }),
     ).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull());
+  });
+
+  it("lists Cloud instances and starts or opens only eligible targets", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        return Promise.resolve({
+          available: true,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: true,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: "alice@example.com",
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: "Remote access is off.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_runtime_connections") {
+        return Promise.resolve([
+          {
+            id: "runtime_online",
+            kind: "hosted_runtime",
+            org_id: "org_1",
+            project_id: "project_1",
+            name: "Production",
+            status: "online",
+            reachable: true,
+            can_start: false,
+            remote_enabled: false,
+            version: "0.5.0-alpha.5",
+            capabilities: ["browser_proxy"],
+            last_seen_at: "2026-07-31T12:00:00Z",
+          },
+          {
+            id: "runtime_offline",
+            kind: "hosted_runtime",
+            org_id: "org_1",
+            project_id: null,
+            name: "Staging",
+            status: "offline",
+            reachable: false,
+            can_start: true,
+            remote_enabled: false,
+            version: null,
+            capabilities: [],
+            last_seen_at: null,
+          },
+          {
+            id: "host_online",
+            kind: "desktop_host",
+            org_id: "org_1",
+            project_id: null,
+            name: "Studio Mac",
+            status: "online",
+            reachable: true,
+            can_start: false,
+            remote_enabled: true,
+            version: "0.5.0-alpha.5",
+            capabilities: ["browser_proxy"],
+            last_seen_at: "2026-07-31T12:00:00Z",
+          },
+          {
+            id: "host_remote_off",
+            kind: "desktop_host",
+            org_id: "org_1",
+            project_id: null,
+            name: "Travel Mac",
+            status: "online",
+            reachable: false,
+            can_start: false,
+            remote_enabled: false,
+            version: "0.5.0-alpha.5",
+            capabilities: [],
+            last_seen_at: null,
+          },
+        ]);
+      }
+      if (command === "cloud_runtime_start") {
+        return Promise.resolve({
+          connection_id: "runtime_offline",
+          name: "Staging",
+          status: "starting",
+          reachable: false,
+          message: "Hecate Cloud is starting this runtime.",
+        });
+      }
+      if (command === "cloud_runtime_open") {
+        return Promise.resolve({
+          connection_id: "runtime_online",
+          name: "Production",
+          message: "A secure Hecate session was opened in a separate window.",
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-runtimes");
+    expect(await within(section).findByText("Production")).toBeTruthy();
+    expect(within(section).getAllByText("Version 0.5.0-alpha.5")).toHaveLength(3);
+    expect(within(section).getByRole("button", { name: "Open Production" })).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Start Staging" })).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Open Studio Mac" })).toBeTruthy();
+    expect(within(section).getByText("remote off")).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: "Open Travel Mac" })).toBeNull();
+    expect(within(section).queryByRole("button", { name: "Start Travel Mac" })).toBeNull();
+
+    await user.click(within(section).getByRole("button", { name: "Start Staging" }));
+    expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_runtime_start", {
+      connectionId: "runtime_offline",
+    });
+    expect(await within(section).findByText("starting")).toBeTruthy();
+    expect(within(section).getByRole("status")).toHaveTextContent(
+      "Hecate Cloud is starting this runtime.",
+    );
+
+    await user.click(within(section).getByRole("button", { name: "Open Production" }));
+    expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_runtime_open", {
+      connectionId: "runtime_online",
+    });
+    expect(within(section).getByRole("status")).toHaveTextContent(
+      "A secure Hecate session was opened in a separate window.",
+    );
+  });
+
+  it("does not let a stale background list overwrite a runtime start", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const offlineConnection = {
+      id: "runtime_offline",
+      kind: "hosted_runtime",
+      org_id: "org_1",
+      project_id: null,
+      name: "Staging",
+      status: "offline",
+      reachable: false,
+      can_start: true,
+      remote_enabled: false,
+      version: null,
+      capabilities: [],
+      last_seen_at: null,
+    };
+    let connectionReads = 0;
+    let resolveStaleRefresh: ((value: unknown[]) => void) | undefined;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        return Promise.resolve({
+          available: true,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: true,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: "alice@example.com",
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: "Remote access is off.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_runtime_connections") {
+        connectionReads += 1;
+        if (connectionReads === 1) return Promise.resolve([offlineConnection]);
+        return new Promise<unknown[]>((resolve) => {
+          resolveStaleRefresh = resolve;
+        });
+      }
+      if (command === "cloud_runtime_start") {
+        return Promise.resolve({
+          connection_id: "runtime_offline",
+          name: "Staging",
+          status: "starting",
+          reachable: false,
+          message: "Hecate Cloud is starting this runtime.",
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-runtimes");
+    const start = await within(section).findByRole("button", { name: "Start Staging" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(connectionReads).toBe(2));
+
+    await user.click(start);
+    expect(await within(section).findByText("starting")).toBeTruthy();
+    await act(async () => {
+      resolveStaleRefresh?.([offlineConnection]);
+      await Promise.resolve();
+    });
+
+    expect(within(section).getByText("starting")).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: "Start Staging" })).toBeNull();
+  });
+
+  it("returns to account sign-in when an instance request expires the native session", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    let statusReads = 0;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        statusReads += 1;
+        const signedIn = statusReads === 1;
+        return Promise.resolve({
+          available: true,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: signedIn,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: signedIn ? "alice@example.com" : null,
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: signedIn ? "Remote access is off." : "Sign in to Hecate Cloud.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_runtime_connections") {
+        return Promise.reject(new Error("Your Hecate Cloud session expired."));
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(await screen.findByRole("button", { name: "Sign in to Hecate Cloud" })).toBeTruthy();
+    expect(statusReads).toBe(2);
+    expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull();
+  });
+
+  it("polls instances only while visible and coalesces an in-flight refresh", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    let resolveRefresh: ((value: unknown[]) => void) | undefined;
+    let connectionReads = 0;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        return Promise.resolve({
+          available: true,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: true,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: "alice@example.com",
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: "Remote access is off.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_runtime_connections") {
+        connectionReads += 1;
+        if (connectionReads === 1) return Promise.resolve([]);
+        return new Promise<unknown[]>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(connectionReads).toBe(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(connectionReads).toBe(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(connectionReads).toBe(2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(connectionReads).toBe(2);
+
+    await act(async () => {
+      resolveRefresh?.([]);
+      await Promise.resolve();
+    });
   });
 });
 
