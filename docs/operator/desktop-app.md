@@ -108,13 +108,33 @@ What works:
   desktop app it launches common local editors, Terminal/iTerm2, or
   Finder/folder via Tauri commands; in the browser UI the local gateway handles
   the same action for loopback clients.
-- Settings has a desktop-only **Remote access** section. Sign in opens Hecate
-  Cloud in the system browser for one-tap explicit approval; there is no code
-  to copy back into the app. The app then registers the computer and maintains
-  its outbound connection itself. No separate CLI is required. Leave the app
-  running, then open the computer from Hecate Cloud on a phone or another
-  browser. Turning Remote access off preserves the signed-in account; signing
+- Settings has a desktop-only **Hecate Cloud** section. Account sign-in opens
+  Hecate Cloud in the system browser for one-tap explicit approval; there is no
+  code to copy back into the app. Signing in alone does not register or expose
+  this computer. The separate **Remote access** toggle registers it and
+  maintains the outbound relay when the operator explicitly enables that
+  access. Turning Remote access off preserves the signed-in account; signing
   out revokes the app session and computer registration.
+- The same section lists **Cloud instances** available to the signed-in
+  account: hosted runtimes and the owner's registered desktop Hecates. A
+  desktop with remote access off remains visible but cannot be opened. A
+  Cloud-managed stopped runtime can be started from the list. Opening an
+  available entry creates a short-lived browser session and shows that
+  runtime's normal Hecate UI in a separate native window. Chats, Tasks, and
+  Projects created there remain owned by that selected runtime; opening it is
+  remote supervision, not process, workspace, or session migration.
+- A remote runtime window is incognito and receives no Tauri command
+  capability. The native layer keeps the Cloud account bearer, one-time
+  bootstrap URL, desktop relay ticket, and server-authored navigation paths out
+  of JavaScript. Navigation is limited to the configured Cloud origin and the
+  selected connection's exact browser origin returned by Cloud. A window that
+  does not reach its expected final origin/path within 30 seconds closes so
+  **Open** can establish a fresh session. Some WebView backends report a
+  final-origin network error as a completed load; if an error document remains,
+  close that window and choose **Open** again. Closing the window discards its
+  browser-local state, including unsent drafts or queued prompts, but admitted
+  work continues on the selected runtime. Signing out or native account expiry
+  closes every remote runtime window and invalidates its parent Cloud session.
 - Phone and remote-browser requests execute against this same running Hecate
   and its laptop-local projects, chats, Task Runs, providers, and External
   Agents. Hecate does not copy that state into Cloud or move a live process to

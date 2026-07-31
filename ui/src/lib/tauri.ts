@@ -4,6 +4,7 @@
 // user agent with this stable marker.
 
 export const MOBILE_TAURI_USER_AGENT_MARKER = "HecateMobile";
+export const REMOTE_DESKTOP_TAURI_USER_AGENT_MARKER = "HecateRemoteDesktop";
 export const MOBILE_INSTANCES_URL = "hecate-mobile://connections/";
 
 function hasTauriBridge(): boolean {
@@ -22,11 +23,20 @@ export function isMobileTauriRuntime(): boolean {
   );
 }
 
-// Returns true only for the desktop Tauri shell. Mobile companion pages use
-// ordinary web/gateway behavior for updater, opener, and workspace actions.
+export function isRemoteDesktopTauriRuntime(): boolean {
+  return (
+    hasTauriBridge() &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes(REMOTE_DESKTOP_TAURI_USER_AGENT_MARKER)
+  );
+}
+
+// Returns true only for the privileged local desktop Tauri shell. Mobile and
+// remote desktop pages use ordinary web/gateway behavior for updater, opener,
+// workspace, and Cloud account actions even if the platform injects a bridge.
 
 export function isTauriRuntime(): boolean {
-  return hasTauriBridge() && !isMobileTauriRuntime();
+  return hasTauriBridge() && !isMobileTauriRuntime() && !isRemoteDesktopTauriRuntime();
 }
 
 export type DesktopHost = "linux" | "macos" | "windows";

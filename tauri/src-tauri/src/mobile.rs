@@ -2026,6 +2026,10 @@ fn normalize_cloud_url(raw: &str) -> Result<String, String> {
     let is_loopback = url
         .host_str()
         .map(|host| {
+            let host = host
+                .strip_prefix('[')
+                .and_then(|value| value.strip_suffix(']'))
+                .unwrap_or(host);
             host == "localhost"
                 || host
                     .parse::<std::net::IpAddr>()
@@ -2839,6 +2843,10 @@ mod tests {
         assert_eq!(
             normalize_cloud_url("http://127.0.0.1:8787/").unwrap(),
             "http://127.0.0.1:8787"
+        );
+        assert_eq!(
+            normalize_cloud_url("http://[::1]:8787/").unwrap(),
+            "http://[::1]:8787"
         );
         assert!(normalize_cloud_url("http://example.com").is_err());
         assert!(normalize_cloud_url("https://example.com/path").is_err());

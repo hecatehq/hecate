@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloud-runtime-connections"
+description = "Enables the cloud_runtime_connections command without any pre-configured scope."
+commands.allow = ["cloud_runtime_connections"]
+
+[[permission]]
+identifier = "deny-cloud-runtime-connections"
+description = "Denies the cloud_runtime_connections command without any pre-configured scope."
+commands.deny = ["cloud_runtime_connections"]
