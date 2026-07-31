@@ -36,15 +36,15 @@ ui-test: _ui-deps
 ui-test-e2e: _ui-deps
 	cd ui && bun run test:e2e
 
-# The full gate reaches UI tests after race and Docker work. Bound its workers
-# and allow a modest local timing budget so host-wide pressure cannot turn
-# unchanged assertions into timeouts; direct runs and CI retain their stricter
-# normal settings.
+# The full gate reaches UI tests after race and Docker work. Cap its adaptive
+# worker counts and allow a modest local timing budget so host-wide pressure
+# cannot turn unchanged assertions into timeouts; direct runs and CI retain
+# their stricter normal settings.
 _ui-test-verify: _ui-deps
-	cd ui && bun run test -- --maxWorkers=2 --testTimeout=20000
+	cd ui && workers="$(bun -e 'const { availableParallelism } = require("node:os"); console.log(Math.max(1, Math.min(2, availableParallelism() - 1)))')" && bun run test -- --maxWorkers="$workers" --testTimeout=20000
 
 _ui-test-e2e-verify: _ui-deps
-	cd ui && bun run test:e2e -- --workers=4
+	cd ui && workers="$(bun -e 'const { availableParallelism } = require("node:os"); console.log(Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))))')" && bun run test:e2e -- --workers="$workers"
 
 # Generate UI coverage.
 ui-coverage: _ui-deps
