@@ -36,6 +36,16 @@ ui-test: _ui-deps
 ui-test-e2e: _ui-deps
 	cd ui && bun run test:e2e
 
+# The full gate reaches UI tests after race and Docker work. Bound its workers
+# and allow a modest local timing budget so host-wide pressure cannot turn
+# unchanged assertions into timeouts; direct runs and CI retain their stricter
+# normal settings.
+_ui-test-verify: _ui-deps
+	cd ui && bun run test -- --maxWorkers=2 --testTimeout=20000
+
+_ui-test-e2e-verify: _ui-deps
+	cd ui && bun run test:e2e -- --workers=4
+
 # Generate UI coverage.
 ui-coverage: _ui-deps
 	cd ui && bun run test:coverage
