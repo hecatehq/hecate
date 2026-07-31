@@ -1,6 +1,6 @@
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{stream, SinkExt, StreamExt};
 use rand::RngCore;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
@@ -17,11 +17,17 @@ use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
 const DEFAULT_CLOUD_URL: &str = "https://console.hecatehq.com";
+const INVALID_CLOUD_URL: &str = "https://invalid.hecate.invalid";
+const CONNECTIONS_PATH: &str = "/api/v1/app/connections";
+const BROWSER_SESSIONS_PATH: &str = "/api/v1/app/browser-sessions";
 const KEYRING_SERVICE: &str = "sh.hecate.app.cloud";
 const SESSION_CREDENTIAL: &str = "account-session";
 const HOST_CREDENTIAL: &str = "desktop-host";
 const MAX_LOGIN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const READINESS_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_READINESS_CONCURRENCY: usize = 4;
+const START_REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const AUTHENTICATED_BOOTSTRAP_RETRY_INITIAL: Duration = Duration::from_secs(1);
 const AUTHENTICATED_BOOTSTRAP_RETRY_MAX: Duration = Duration::from_secs(30);
 const RELAY_RECONNECT_MAX: Duration = Duration::from_secs(30);
@@ -60,6 +66,63 @@ pub struct CloudConnectionStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CloudRuntimeConnection {
+    pub id: String,
+    pub kind: String,
+    pub org_id: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    pub name: String,
+    pub status: String,
+    pub reachable: bool,
+    #[serde(default)]
+    pub can_start: bool,
+    #[serde(default)]
+    pub remote_enabled: bool,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub last_seen_at: Option<String>,
+    #[serde(default, skip_serializing)]
+    browser_open_path: Option<String>,
+    #[serde(default, skip_serializing)]
+    remote_session_path: Option<String>,
+    #[serde(default, skip_serializing)]
+    start_path: Option<String>,
+    #[serde(default, skip_serializing)]
+    readiness_path: Option<String>,
+    #[serde(default, skip_serializing)]
+    browser_origin: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CloudRuntimeStartResult {
+    pub connection_id: String,
+    pub name: String,
+    pub status: String,
+    pub reachable: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CloudRuntimeOpenResult {
+    pub connection_id: String,
+    pub name: String,
+    pub message: String,
+}
+
+pub(super) struct PreparedCloudRuntimeOpen {
+    pub(super) generation: u64,
+    pub(super) connection: CloudRuntimeConnection,
+    pub(super) open_url: String,
+    pub(super) allowed_origins: Vec<reqwest::Url>,
+    pub(super) ready_origin: reqwest::Url,
+    pub(super) ready_path_prefix: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct CloudConnectionSupervisor {
     inner: Arc<SupervisorInner>,
@@ -72,19 +135,22 @@ struct SupervisorInner {
     http: reqwest::Client,
     cloud_url: String,
     remote_runtime_secret: String,
+    connection_starts: Mutex<HashSet<String>>,
+    on_account_expired: Arc<dyn Fn() + Send + Sync>,
 }
 
 struct ConnectionState {
     preferences: CloudConnectionPreferences,
     phase: ConnectionPhase,
     signed_in: bool,
+    signing_out: bool,
     message: String,
     last_error: Option<String>,
     approval_url: Option<String>,
     base_url: Option<String>,
     cancel: Option<watch::Sender<bool>>,
     generation: u64,
-    credential_error: Option<String>,
+    availability_error: Option<String>,
 }
 
 #[derive(Default)]
@@ -105,6 +171,25 @@ enum ConnectionPhase {
     Connected,
     Reconnecting,
     Error,
+}
+
+#[derive(Clone)]
+enum AuthorizationMode {
+    AccountOnly,
+    RemoteAccess { base_url: String },
+}
+
+struct CloudRuntimeStartGuard {
+    inner: Arc<SupervisorInner>,
+    connection_id: String,
+}
+
+impl Drop for CloudRuntimeStartGuard {
+    fn drop(&mut self) {
+        if let Ok(mut starts) = self.inner.connection_starts.lock() {
+            starts.remove(&self.connection_id);
+        }
+    }
 }
 
 impl ConnectionPhase {
@@ -132,17 +217,22 @@ impl Default for CloudConnectionSupervisor {
 }
 
 impl CloudConnectionSupervisor {
-    pub fn new(preferences_path: PathBuf, remote_runtime_secret: String) -> Self {
+    pub fn new(
+        preferences_path: PathBuf,
+        remote_runtime_secret: String,
+        on_account_expired: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
         let cloud_url = std::env::var("HECATE_CLOUD_URL")
             .ok()
             .map(|value| value.trim().trim_end_matches('/').to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| DEFAULT_CLOUD_URL.to_string());
-        Self::with_store(
+        Self::with_store_and_hook(
             Some(preferences_path),
             Arc::new(KeyringCredentialStore),
             &cloud_url,
             remote_runtime_secret,
+            on_account_expired,
         )
     }
 
@@ -152,23 +242,46 @@ impl CloudConnectionSupervisor {
         cloud_url: &str,
         remote_runtime_secret: String,
     ) -> Self {
+        Self::with_store_and_hook(
+            preferences_path,
+            credentials,
+            cloud_url,
+            remote_runtime_secret,
+            Arc::new(|| {}),
+        )
+    }
+
+    fn with_store_and_hook(
+        preferences_path: Option<PathBuf>,
+        credentials: Arc<dyn CredentialStore>,
+        cloud_url: &str,
+        remote_runtime_secret: String,
+        on_account_expired: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
         let preferences = preferences_path
             .as_deref()
             .map(read_preferences)
             .unwrap_or_default();
-        let (signed_in, credential_error) = match credentials.get(SESSION_CREDENTIAL) {
+        let (configured_cloud_url, cloud_url_error) = match parse_configured_cloud_origin(cloud_url)
+        {
+            Ok(url) => (url.as_str().trim_end_matches('/').to_string(), None),
+            Err(error) => (INVALID_CLOUD_URL.to_string(), Some(error)),
+        };
+        let (has_session, credential_error) = match credentials.get(SESSION_CREDENTIAL) {
             Ok(token) => (token.is_some(), None),
             Err(err) => (false, Some(err)),
         };
-        let phase = if credential_error.is_some() {
+        let availability_error = cloud_url_error.or(credential_error);
+        let signed_in = has_session && availability_error.is_none();
+        let phase = if availability_error.is_some() {
             ConnectionPhase::Error
         } else {
             ConnectionPhase::Disconnected
         };
         let message = if signed_in {
             "Remote access is off.".to_string()
-        } else if credential_error.is_some() {
-            "Secure credential storage is unavailable.".to_string()
+        } else if availability_error.is_some() {
+            "Hecate Cloud is unavailable.".to_string()
         } else {
             "Sign in to use this Hecate from another device.".to_string()
         };
@@ -178,13 +291,14 @@ impl CloudConnectionSupervisor {
                     preferences,
                     phase,
                     signed_in,
+                    signing_out: false,
                     message,
-                    last_error: credential_error.clone(),
+                    last_error: availability_error.clone(),
                     approval_url: None,
                     base_url: None,
                     cancel: None,
                     generation: 0,
-                    credential_error,
+                    availability_error,
                 }),
                 preferences_path,
                 credentials,
@@ -193,8 +307,10 @@ impl CloudConnectionSupervisor {
                     .redirect(Policy::none())
                     .build()
                     .expect("native Cloud HTTP client configuration is valid"),
-                cloud_url: cloud_url.trim_end_matches('/').to_string(),
+                cloud_url: configured_cloud_url,
                 remote_runtime_secret,
+                connection_starts: Mutex::new(HashSet::new()),
+                on_account_expired,
             }),
         }
     }
@@ -214,7 +330,7 @@ impl CloudConnectionSupervisor {
             .inner
             .state
             .lock()
-            .map(|state| state.preferences.auto_start_enabled)
+            .map(|state| state.preferences.auto_start_enabled && state.availability_error.is_none())
             .unwrap_or(false);
         if !should_start {
             return;
@@ -245,6 +361,12 @@ impl CloudConnectionSupervisor {
                 .state
                 .lock()
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            if state.signing_out {
+                return Err("Hecate Cloud sign-out is still finishing.".to_string());
+            }
+            if let Some(error) = state.availability_error.as_ref() {
+                return Err(error.clone());
+            }
             state.base_url = Some(base_url.clone());
             if matches!(
                 state.phase,
@@ -262,12 +384,444 @@ impl CloudConnectionSupervisor {
                 self.launch_authenticated(Some(base_url), token, true)?;
             }
             Ok(None) => {
-                self.launch_authorization(base_url).await?;
+                self.launch_authorization(AuthorizationMode::RemoteAccess { base_url })
+                    .await?;
             }
             Err(err) => return Err(err),
         }
         log::info!("remote access start requested");
         Ok(self.status(None))
+    }
+
+    pub async fn account_sign_in(
+        &self,
+        base_url: Option<String>,
+    ) -> Result<CloudConnectionStatus, String> {
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+            if base_url.is_some() {
+                state.base_url = base_url;
+            }
+            if state.signed_in || state.phase == ConnectionPhase::Authorizing || state.signing_out {
+                return Ok(status_from_state(&state, &self.inner.cloud_url));
+            }
+            if let Some(error) = state.availability_error.as_ref() {
+                return Err(error.clone());
+            }
+        }
+
+        match self.inner.credentials.get(SESSION_CREDENTIAL) {
+            Ok(Some(token)) => {
+                let generation = self.begin_account_verification()?;
+                let client = self.client();
+                match client.me(&token).await {
+                    Ok(actor) => self.complete_account_sign_in_if_current(generation, &actor),
+                    Err(err) if err.status == Some(401) => {
+                        self.expire_account_if_current(
+                            generation,
+                            "Your Hecate Cloud session expired. Sign in again.",
+                        );
+                        return Err("Your Hecate Cloud session expired. Sign in again.".to_string());
+                    }
+                    Err(err) => {
+                        self.set_error_if_current(
+                            generation,
+                            "Hecate Cloud sign-in could not be verified.",
+                            Some(err.to_string()),
+                        );
+                        return Err(err.to_string());
+                    }
+                }
+            }
+            Ok(None) => {
+                self.launch_authorization(AuthorizationMode::AccountOnly)
+                    .await?;
+            }
+            Err(err) => return Err(err),
+        }
+        log::info!("Hecate Cloud account sign-in requested");
+        Ok(self.status(None))
+    }
+
+    pub async fn runtime_connections(&self) -> Result<Vec<CloudRuntimeConnection>, String> {
+        let (generation, token) = self.authorized_snapshot()?;
+        let connections = self.fetch_runtime_connections(generation, &token).await?;
+        let token = token.as_str();
+        let connections = stream::iter(connections)
+            .map(|connection| async move {
+                if connection.kind != "hosted_runtime"
+                    || connection.status != "starting"
+                    || connection.readiness_path.is_none()
+                {
+                    return connection;
+                }
+                match tokio::time::timeout(
+                    READINESS_TIMEOUT,
+                    self.refresh_hosted_runtime(generation, token, &connection),
+                )
+                .await
+                {
+                    Ok(Ok(refreshed)) => refreshed,
+                    Ok(Err(error)) => {
+                        log::warn!(
+                            "Hecate Cloud desktop hosted runtime readiness refresh failed: {error}"
+                        );
+                        connection
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "Hecate Cloud desktop hosted runtime readiness refresh timed out"
+                        );
+                        connection
+                    }
+                }
+            })
+            .buffered(MAX_READINESS_CONCURRENCY)
+            .collect::<Vec<_>>()
+            .await;
+        self.ensure_authorized_generation(generation)?;
+        Ok(connections)
+    }
+
+    pub async fn start_runtime(
+        &self,
+        connection_id: &str,
+    ) -> Result<CloudRuntimeStartResult, String> {
+        let connection_id = connection_id.trim();
+        if !valid_connection_id(connection_id) {
+            return Err("Choose a valid Hecate connection.".to_string());
+        }
+        let _guard = self.begin_runtime_start(connection_id)?;
+        let (generation, token) = self.authorized_snapshot()?;
+        let connections = self.fetch_runtime_connections(generation, &token).await?;
+        let connection = connections
+            .into_iter()
+            .find(|candidate| candidate.id == connection_id)
+            .ok_or_else(|| "That Hecate connection is no longer available.".to_string())?;
+        if connection.kind != "hosted_runtime" {
+            return Err(
+                "A desktop host cannot be started remotely. Open Hecate on that computer first."
+                    .to_string(),
+            );
+        }
+
+        let connection = if connection.reachable || connection.status == "starting" {
+            connection
+        } else {
+            if !connection.can_start {
+                return Err(format!(
+                    "{} cannot be started from the desktop app.",
+                    connection.name
+                ));
+            }
+            let expected_path = format!("/api/v1/app/runtimes/{}/start", connection.id);
+            let path = validated_server_path(
+                connection.start_path.as_deref(),
+                &expected_path,
+                "hosted runtime start",
+            )?;
+            let started = self
+                .client()
+                .request_with_timeout::<CloudRuntimeConnection, serde_json::Value>(
+                    reqwest::Method::POST,
+                    &path,
+                    &token,
+                    None,
+                    START_REQUEST_TIMEOUT,
+                )
+                .await
+                .map_err(|error| {
+                    self.expire_if_unauthorized(generation, &error);
+                    error.to_string()
+                })?;
+            validate_connection_summary(&started)?;
+            validate_refreshed_connection(&connection, &started)?;
+            self.ensure_authorized_generation(generation)?;
+            started
+        };
+
+        Ok(CloudRuntimeStartResult {
+            connection_id: connection.id,
+            name: connection.name,
+            status: connection.status,
+            reachable: connection.reachable,
+            message: if connection.reachable {
+                "This Hecate runtime is ready to open.".to_string()
+            } else {
+                "Hecate Cloud is starting this runtime.".to_string()
+            },
+        })
+    }
+
+    pub async fn prepare_runtime_open(
+        &self,
+        connection_id: &str,
+    ) -> Result<PreparedCloudRuntimeOpen, String> {
+        let connection_id = connection_id.trim();
+        if !valid_connection_id(connection_id) {
+            return Err("Choose a valid Hecate connection.".to_string());
+        }
+        let (generation, token) = self.authorized_snapshot()?;
+        // Re-fetch so JavaScript can select only an opaque id, never a
+        // server-authored continuation path or browser origin.
+        let connections = self.fetch_runtime_connections(generation, &token).await?;
+        let connection = connections
+            .into_iter()
+            .find(|candidate| candidate.id == connection_id)
+            .ok_or_else(|| "That Hecate connection is no longer available.".to_string())?;
+        if !connection.reachable {
+            return Err(format!("{} is currently offline.", connection.name));
+        }
+
+        let cloud_origin = parse_configured_cloud_origin(&self.inner.cloud_url)?;
+        let (open_url, allowed_origins, ready_origin, ready_path_prefix) =
+            match connection.kind.as_str() {
+                "hosted_runtime" => {
+                    let browser_origin =
+                        validated_hosted_browser_origin(connection.browser_origin.as_deref())?;
+                    let ready_origin = browser_origin.clone();
+                    let expected_path = format!("/api/v1/app/runtimes/{}/open", connection.id);
+                    let next = validated_server_path(
+                        connection.browser_open_path.as_deref(),
+                        &expected_path,
+                        "hosted runtime",
+                    )?;
+                    let browser_session = self
+                        .client()
+                        .request::<BrowserSession, serde_json::Value>(
+                            reqwest::Method::POST,
+                            BROWSER_SESSIONS_PATH,
+                            &token,
+                            Some(&serde_json::json!({ "next": next })),
+                        )
+                        .await
+                        .map_err(|error| {
+                            self.expire_if_unauthorized(generation, &error);
+                            error.to_string()
+                        })?;
+                    if browser_session.expires_at.trim().is_empty() {
+                        return Err("Hecate Cloud returned an invalid browser session.".to_string());
+                    }
+                    (
+                        resolve_same_origin_url(&self.inner.cloud_url, &browser_session.open_url)?,
+                        vec![cloud_origin, browser_origin],
+                        ready_origin,
+                        None,
+                    )
+                }
+                "desktop_host" => {
+                    if !connection.remote_enabled {
+                        return Err(format!("Remote access is off on {}.", connection.name));
+                    }
+                    let browser_origin = validated_desktop_browser_origin(
+                        connection.browser_origin.as_deref(),
+                        &cloud_origin,
+                    )?;
+                    let ready_path_prefix = exact_url_origins_match(&browser_origin, &cloud_origin)
+                        .then(|| format!("/api/v1/hosts/{}/proxy/", connection.id));
+                    let ready_origin = browser_origin.clone();
+                    let expected_path = format!("/api/v1/hosts/{}/remote-session", connection.id);
+                    let path = validated_server_path(
+                        connection.remote_session_path.as_deref(),
+                        &expected_path,
+                        "desktop host",
+                    )?;
+                    let browser_session = self
+                        .client()
+                        .request::<RemoteBrowserSession, serde_json::Value>(
+                            reqwest::Method::POST,
+                            &path,
+                            &token,
+                            Some(&serde_json::json!({
+                                "org_id": connection.org_id,
+                                "mode": "full_control"
+                            })),
+                        )
+                        .await
+                        .map_err(|error| {
+                            self.expire_if_unauthorized(generation, &error);
+                            error.to_string()
+                        })?;
+                    if !browser_session
+                        .expires_at
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+                    {
+                        return Err("Hecate Cloud returned an invalid browser session.".to_string());
+                    }
+                    (
+                        resolve_same_origin_url(&self.inner.cloud_url, &browser_session.open_url)?,
+                        vec![cloud_origin, browser_origin],
+                        ready_origin,
+                        ready_path_prefix,
+                    )
+                }
+                _ => {
+                    return Err(
+                        "This Hecate connection type is not supported by the desktop app."
+                            .to_string(),
+                    )
+                }
+            };
+        self.ensure_authorized_generation(generation)?;
+        Ok(PreparedCloudRuntimeOpen {
+            generation,
+            connection,
+            open_url,
+            allowed_origins,
+            ready_origin,
+            ready_path_prefix,
+        })
+    }
+
+    pub(super) fn with_authorized_generation<T>(
+        &self,
+        generation: u64,
+        action: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        // The caller's action must stay synchronous. Holding the account
+        // generation lock through native focus/window creation gives sign-out
+        // one linearization point without carrying a mutex across an await.
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+        if state.generation != generation || !state.signed_in {
+            return Err(
+                "Your Hecate Cloud session changed before the connection opened.".to_string(),
+            );
+        }
+        action()
+    }
+
+    pub(super) fn authorized_generation(&self) -> Result<u64, String> {
+        self.authorized_snapshot().map(|(generation, _)| generation)
+    }
+
+    fn client(&self) -> CloudClient {
+        CloudClient::new(
+            self.inner.cloud_url.clone(),
+            self.inner.http.clone(),
+            env!("CARGO_PKG_VERSION"),
+        )
+    }
+
+    fn authorized_snapshot(&self) -> Result<(u64, String), String> {
+        let generation = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+            if let Some(error) = state.availability_error.as_ref() {
+                return Err(error.clone());
+            }
+            if !state.signed_in {
+                return Err("Sign in to Hecate Cloud first.".to_string());
+            }
+            state.generation
+        };
+        let token = self
+            .inner
+            .credentials
+            .get(SESSION_CREDENTIAL)?
+            .ok_or_else(|| "Sign in to Hecate Cloud first.".to_string())?;
+        self.ensure_authorized_generation(generation)?;
+        Ok((generation, token))
+    }
+
+    fn ensure_authorized_generation(&self, generation: u64) -> Result<(), String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+        if state.generation != generation || !state.signed_in {
+            return Err(
+                "Your Hecate Cloud session changed while connections were loading.".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    async fn fetch_runtime_connections(
+        &self,
+        generation: u64,
+        token: &str,
+    ) -> Result<Vec<CloudRuntimeConnection>, String> {
+        let connections = self
+            .client()
+            .request::<Vec<CloudRuntimeConnection>, ()>(
+                reqwest::Method::GET,
+                CONNECTIONS_PATH,
+                token,
+                None,
+            )
+            .await
+            .map_err(|error| {
+                self.expire_if_unauthorized(generation, &error);
+                error.to_string()
+            })?;
+        for connection in &connections {
+            validate_connection_summary(connection)?;
+        }
+        self.ensure_authorized_generation(generation)?;
+        Ok(connections)
+    }
+
+    async fn refresh_hosted_runtime(
+        &self,
+        generation: u64,
+        token: &str,
+        connection: &CloudRuntimeConnection,
+    ) -> Result<CloudRuntimeConnection, String> {
+        let expected_path = format!("/api/v1/app/runtimes/{}/readiness", connection.id);
+        let path = validated_server_path(
+            connection.readiness_path.as_deref(),
+            &expected_path,
+            "hosted runtime readiness",
+        )?;
+        let refreshed = self
+            .client()
+            .request::<CloudRuntimeConnection, ()>(reqwest::Method::GET, &path, token, None)
+            .await
+            .map_err(|error| {
+                self.expire_if_unauthorized(generation, &error);
+                error.to_string()
+            })?;
+        validate_connection_summary(&refreshed)?;
+        validate_refreshed_connection(connection, &refreshed)?;
+        self.ensure_authorized_generation(generation)?;
+        Ok(refreshed)
+    }
+
+    fn begin_runtime_start(&self, connection_id: &str) -> Result<CloudRuntimeStartGuard, String> {
+        let mut starts = self
+            .inner
+            .connection_starts
+            .lock()
+            .map_err(|_| "Hecate Cloud runtime start state is unavailable.".to_string())?;
+        if !starts.insert(connection_id.to_string()) {
+            return Err("Hecate Cloud is already starting this runtime.".to_string());
+        }
+        Ok(CloudRuntimeStartGuard {
+            inner: Arc::clone(&self.inner),
+            connection_id: connection_id.to_string(),
+        })
+    }
+
+    fn expire_if_unauthorized(&self, generation: u64, error: &CloudAPIError) {
+        if error.status == Some(401) {
+            self.expire_account_if_current(
+                generation,
+                "Your Hecate Cloud session expired. Sign in again.",
+            );
+        }
     }
 
     pub fn pending_approval_url(&self) -> Option<String> {
@@ -282,6 +836,9 @@ impl CloudConnectionSupervisor {
         let Ok(mut state) = self.inner.state.lock() else {
             return unavailable_status(base_url, &self.inner.cloud_url);
         };
+        if state.signing_out {
+            return status_from_state(&state, &self.inner.cloud_url);
+        }
         let clear_pending_credential =
             state.phase == ConnectionPhase::Authorizing && !state.signed_in;
         cancel_current(&mut state);
@@ -310,36 +867,67 @@ impl CloudConnectionSupervisor {
         status_from_state(&state, &self.inner.cloud_url)
     }
 
-    pub async fn sign_out(&self, base_url: Option<String>) -> CloudConnectionStatus {
-        let (generation, session_token, host_id, host_org_id) = {
+    pub async fn sign_out_with_fence(
+        &self,
+        base_url: Option<String>,
+        on_fenced: impl FnOnce(),
+    ) -> CloudConnectionStatus {
+        let (generation, session_token, host_id, host_org_id, local_warning) = {
             let mut state = match self.inner.state.lock() {
                 Ok(state) => state,
                 Err(_) => return unavailable_status(base_url, &self.inner.cloud_url),
             };
             cancel_current(&mut state);
             state.generation = state.generation.wrapping_add(1);
+            let session_token = self
+                .inner
+                .credentials
+                .get(SESSION_CREDENTIAL)
+                .ok()
+                .flatten();
+            let host_id = state.preferences.host_id.clone();
+            let host_org_id = state
+                .preferences
+                .host_org_id
+                .clone()
+                .or_else(|| state.preferences.org_id.clone());
+            state.signing_out = true;
+            state.signed_in = false;
+            state.phase = ConnectionPhase::Disconnected;
+            state.preferences = CloudConnectionPreferences::default();
+            state.approval_url = None;
+            state.message = "Signing out of Hecate Cloud...".to_string();
+            let mut local_warning = None;
+            // Clear durable reconnect state before any network cleanup. If the
+            // app exits while Cloud revocation is in flight, the next launch
+            // must still remain signed out with local remote access disabled.
+            if let Err(err) = self.persist_preferences(&state.preferences) {
+                append_warning(&mut local_warning, err);
+            }
+            for (credential, label) in [
+                (SESSION_CREDENTIAL, "account session"),
+                (HOST_CREDENTIAL, "computer credential"),
+            ] {
+                if let Err(err) = self.inner.credentials.delete(credential) {
+                    append_warning(
+                        &mut local_warning,
+                        format!("Could not remove the local {label}: {err}"),
+                    );
+                }
+            }
+            state.last_error = local_warning.clone();
             (
                 state.generation,
-                self.inner
-                    .credentials
-                    .get(SESSION_CREDENTIAL)
-                    .ok()
-                    .flatten(),
-                state.preferences.host_id.clone(),
-                state
-                    .preferences
-                    .host_org_id
-                    .clone()
-                    .or_else(|| state.preferences.org_id.clone()),
+                session_token,
+                host_id,
+                host_org_id,
+                local_warning,
             )
         };
+        on_fenced();
 
-        let client = CloudClient::new(
-            self.inner.cloud_url.clone(),
-            self.inner.http.clone(),
-            env!("CARGO_PKG_VERSION"),
-        );
-        let mut revoke_warning = None;
+        let client = self.client();
+        let mut revoke_warning = local_warning;
         if let (Some(session), Some(host), Some(org)) = (
             session_token.as_deref(),
             host_id.as_deref(),
@@ -367,27 +955,13 @@ impl CloudConnectionSupervisor {
         if state.generation != generation {
             return status_from_state(&state, &self.inner.cloud_url);
         }
-        for (credential, label) in [
-            (SESSION_CREDENTIAL, "account session"),
-            (HOST_CREDENTIAL, "computer credential"),
-        ] {
-            if let Err(err) = self.inner.credentials.delete(credential) {
-                append_warning(
-                    &mut revoke_warning,
-                    format!("Could not remove the local {label}: {err}"),
-                );
-            }
-        }
-        state.preferences = CloudConnectionPreferences::default();
+        state.signing_out = false;
         state.signed_in = false;
         state.phase = ConnectionPhase::Disconnected;
         state.base_url = base_url.or_else(|| state.base_url.clone());
         state.approval_url = None;
         state.last_error = revoke_warning;
         state.message = "Signed out of Hecate Cloud.".to_string();
-        if let Err(err) = self.persist_preferences(&state.preferences) {
-            append_warning(&mut state.last_error, err);
-        }
         log::info!("Hecate Cloud account signed out");
         status_from_state(&state, &self.inner.cloud_url)
     }
@@ -402,7 +976,46 @@ impl CloudConnectionSupervisor {
         state.approval_url = None;
     }
 
-    async fn launch_authorization(&self, base_url: String) -> Result<(), String> {
+    fn begin_account_verification(&self) -> Result<u64, String> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+        cancel_current(&mut state);
+        state.generation = state.generation.wrapping_add(1);
+        state.phase = ConnectionPhase::Authorizing;
+        state.signed_in = false;
+        state.approval_url = None;
+        state.last_error = None;
+        state.message = "Verifying Hecate Cloud sign-in...".to_string();
+        Ok(state.generation)
+    }
+
+    fn complete_account_sign_in_if_current(&self, generation: u64, actor: &CloudActor) {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return;
+        };
+        if state.generation != generation {
+            return;
+        }
+        state.signed_in = true;
+        state.signing_out = false;
+        state.phase = ConnectionPhase::Disconnected;
+        state.preferences.auto_start_enabled = false;
+        state.preferences.account_email = Some(actor.email.clone());
+        state.preferences.org_id = Some(actor.org_id.clone());
+        state.approval_url = None;
+        state.cancel = None;
+        state.last_error = None;
+        state.message = "Signed in. Choose a Hecate connection to continue.".to_string();
+        if let Err(err) = self.persist_preferences(&state.preferences) {
+            state.last_error = Some(err);
+        }
+        log::info!("Hecate Cloud account signed in without enabling local remote access");
+    }
+
+    async fn launch_authorization(&self, mode: AuthorizationMode) -> Result<(), String> {
         let token = new_app_token()?;
         let (generation, mut cancel_rx) = {
             let mut state = self
@@ -418,18 +1031,17 @@ impl CloudConnectionSupervisor {
             state.preferences.auto_start_enabled = false;
             state.phase = ConnectionPhase::Authorizing;
             state.signed_in = false;
-            state.base_url = Some(base_url.clone());
+            state.signing_out = false;
+            if let AuthorizationMode::RemoteAccess { base_url } = &mode {
+                state.base_url = Some(base_url.clone());
+            }
             state.approval_url = None;
             state.last_error = None;
             state.message = "Starting secure sign-in...".to_string();
             (generation, cancel_rx)
         };
 
-        let client = CloudClient::new(
-            self.inner.cloud_url.clone(),
-            self.inner.http.clone(),
-            env!("CARGO_PKG_VERSION"),
-        );
+        let client = self.client();
         let authorization = tokio::select! {
             result = client.create_app_authorization(&token) => result,
             result = cancel_rx.changed() => {
@@ -462,7 +1074,13 @@ impl CloudConnectionSupervisor {
                 return Err(err);
             }
         };
-        if !self.install_authorization_if_current(generation, &token, validated.approval_url)? {
+        let enable_remote_access = matches!(mode, AuthorizationMode::RemoteAccess { .. });
+        if !self.install_authorization_if_current(
+            generation,
+            &token,
+            validated.approval_url,
+            enable_remote_access,
+        )? {
             return Ok(());
         }
 
@@ -470,7 +1088,7 @@ impl CloudConnectionSupervisor {
         let supervisor = self.clone();
         tauri::async_runtime::spawn(async move {
             supervisor
-                .authorize_then_connect(generation, base_url, token, expires_in, cancel_rx)
+                .authorize_then_complete(generation, mode, token, expires_in, cancel_rx)
                 .await;
         });
         Ok(())
@@ -481,6 +1099,7 @@ impl CloudConnectionSupervisor {
         generation: u64,
         token: &str,
         approval_url: String,
+        enable_remote_access: bool,
     ) -> Result<bool, String> {
         let mut state = self
             .inner
@@ -499,7 +1118,7 @@ impl CloudConnectionSupervisor {
             return Err(err);
         }
         let mut preferences = state.preferences.clone();
-        preferences.auto_start_enabled = true;
+        preferences.auto_start_enabled = enable_remote_access;
         if let Err(err) = self.persist_preferences(&preferences) {
             let mut error = Some(err.clone());
             if let Err(delete_err) = self.inner.credentials.delete(SESSION_CREDENTIAL) {
@@ -543,6 +1162,7 @@ impl CloudConnectionSupervisor {
             }
             state.phase = ConnectionPhase::Connecting;
             state.signed_in = true;
+            state.signing_out = false;
             state.base_url = Some(base_url.clone());
             state.approval_url = None;
             state.last_error = None;
@@ -559,19 +1179,15 @@ impl CloudConnectionSupervisor {
         Ok(())
     }
 
-    async fn authorize_then_connect(
+    async fn authorize_then_complete(
         &self,
         generation: u64,
-        base_url: String,
+        mode: AuthorizationMode,
         token: String,
         expires_in: Duration,
         mut cancel_rx: watch::Receiver<bool>,
     ) {
-        let client = CloudClient::new(
-            self.inner.cloud_url.clone(),
-            self.inner.http.clone(),
-            env!("CARGO_PKG_VERSION"),
-        );
+        let client = self.client();
         let deadline = tokio::time::Instant::now() + expires_in;
         loop {
             if *cancel_rx.borrow() {
@@ -579,15 +1195,22 @@ impl CloudConnectionSupervisor {
             }
             match client.me(&token).await {
                 Ok(actor) => {
-                    self.apply_actor(generation, &actor);
-                    self.set_phase_if_current(
-                        generation,
-                        ConnectionPhase::Connecting,
-                        "Connecting this Hecate...",
-                        None,
-                    );
-                    self.connect_authenticated(generation, base_url, token, cancel_rx)
-                        .await;
+                    match mode {
+                        AuthorizationMode::AccountOnly => {
+                            self.complete_account_sign_in_if_current(generation, &actor);
+                        }
+                        AuthorizationMode::RemoteAccess { base_url } => {
+                            self.apply_actor(generation, &actor);
+                            self.set_phase_if_current(
+                                generation,
+                                ConnectionPhase::Connecting,
+                                "Connecting this Hecate...",
+                                None,
+                            );
+                            self.connect_authenticated(generation, base_url, token, cancel_rx)
+                                .await;
+                        }
+                    }
                     return;
                 }
                 Err(err) if err.status == Some(401) && tokio::time::Instant::now() < deadline => {}
@@ -921,6 +1544,7 @@ impl CloudConnectionSupervisor {
             return;
         }
         state.signed_in = true;
+        state.signing_out = false;
         state.preferences.account_email = Some(actor.email.clone());
         state.preferences.org_id = Some(actor.org_id.clone());
         state.approval_url = None;
@@ -931,26 +1555,35 @@ impl CloudConnectionSupervisor {
     }
 
     fn expire_account_if_current(&self, generation: u64, message: &str) {
-        let Ok(mut state) = self.inner.state.lock() else {
-            return;
-        };
-        if state.generation != generation {
-            return;
-        }
-        let mut errors = None;
-        for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
-            if let Err(err) = self.inner.credentials.delete(credential) {
-                append_warning(&mut errors, err);
+        let expired = {
+            let Ok(mut state) = self.inner.state.lock() else {
+                return;
+            };
+            if state.generation != generation {
+                return;
             }
-        }
-        state.signed_in = false;
-        state.phase = ConnectionPhase::Disconnected;
-        state.preferences = CloudConnectionPreferences::default();
-        state.message = message.to_string();
-        state.approval_url = None;
-        state.last_error = errors;
-        if let Err(err) = self.persist_preferences(&state.preferences) {
-            append_warning(&mut state.last_error, err);
+            cancel_current(&mut state);
+            state.generation = state.generation.wrapping_add(1);
+            let mut errors = None;
+            for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
+                if let Err(err) = self.inner.credentials.delete(credential) {
+                    append_warning(&mut errors, err);
+                }
+            }
+            state.signed_in = false;
+            state.signing_out = false;
+            state.phase = ConnectionPhase::Disconnected;
+            state.preferences = CloudConnectionPreferences::default();
+            state.message = message.to_string();
+            state.approval_url = None;
+            state.last_error = errors;
+            if let Err(err) = self.persist_preferences(&state.preferences) {
+                append_warning(&mut state.last_error, err);
+            }
+            true
+        };
+        if expired {
+            (self.inner.on_account_expired)();
         }
     }
 
@@ -966,6 +1599,7 @@ impl CloudConnectionSupervisor {
             append_warning(&mut error, err);
         }
         state.phase = ConnectionPhase::Error;
+        state.signing_out = false;
         state.preferences.auto_start_enabled = false;
         state.message = message.to_string();
         state.approval_url = None;
@@ -1040,7 +1674,7 @@ impl CloudConnectionSupervisor {
 
 fn status_from_state(state: &ConnectionState, cloud_url: &str) -> CloudConnectionStatus {
     CloudConnectionStatus {
-        available: state.credential_error.is_none(),
+        available: state.availability_error.is_none(),
         phase: state.phase.as_str().to_string(),
         running: state.phase == ConnectionPhase::Connected,
         authorizing: state.phase == ConnectionPhase::Authorizing,
@@ -1237,11 +1871,170 @@ fn validated_local_base_url(base_url: Option<String>) -> Result<String, String> 
     if url.scheme() != "http" {
         return Err("The desktop app only connects to its loopback Hecate runtime.".to_string());
     }
-    let host = url.host_str().unwrap_or_default();
-    if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+    if !url_host_is_loopback(&url) {
         return Err("The desktop app only connects to its loopback Hecate runtime.".to_string());
     }
     Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+fn parse_configured_cloud_origin(raw: &str) -> Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| "The configured Hecate Cloud origin is invalid.".to_string())?;
+    let is_loopback = url_host_is_loopback(&url);
+    if url.scheme() != "https" && !(url.scheme() == "http" && is_loopback) {
+        return Err(
+            "Hecate Cloud must use HTTPS (HTTP is allowed only for loopback development)."
+                .to_string(),
+        );
+    }
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || (url.path() != "/" && !url.path().is_empty())
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("The configured Hecate Cloud origin is invalid.".to_string());
+    }
+    Ok(url)
+}
+
+fn url_host_is_loopback(url: &reqwest::Url) -> bool {
+    url.host_str()
+        .map(|host| {
+            let host = host
+                .strip_prefix('[')
+                .and_then(|value| value.strip_suffix(']'))
+                .unwrap_or(host);
+            host == "localhost"
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+        .unwrap_or(false)
+}
+
+fn validated_hosted_browser_origin(actual: Option<&str>) -> Result<reqwest::Url, String> {
+    let raw = actual.ok_or_else(|| {
+        "Hecate Cloud must be upgraded before hosted runtimes can open safely in the desktop app."
+            .to_string()
+    })?;
+    let url = reqwest::Url::parse(raw)
+        .map_err(|_| "Hecate Cloud returned an invalid hosted runtime origin.".to_string())?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Hecate Cloud returned an invalid hosted runtime origin.".to_string());
+    }
+    Ok(url)
+}
+
+fn validated_desktop_browser_origin(
+    actual: Option<&str>,
+    cloud_origin: &reqwest::Url,
+) -> Result<reqwest::Url, String> {
+    let raw = actual.ok_or_else(|| {
+        "Hecate Cloud must be upgraded before remote desktops can open safely in the desktop app."
+            .to_string()
+    })?;
+    let url = reqwest::Url::parse(raw)
+        .map_err(|_| "Hecate Cloud returned an invalid desktop browser origin.".to_string())?;
+    let is_cloud_origin = url.scheme() == cloud_origin.scheme()
+        && url.host_str() == cloud_origin.host_str()
+        && url.port_or_known_default() == cloud_origin.port_or_known_default();
+    if (url.scheme() != "https" && !is_cloud_origin)
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Hecate Cloud returned an invalid desktop browser origin.".to_string());
+    }
+    Ok(url)
+}
+
+pub(super) fn navigation_matches_allowed_origins(
+    url: &tauri::Url,
+    allowed_origins: &[reqwest::Url],
+) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && allowed_origins
+            .iter()
+            .any(|allowed| exact_url_origins_match(url, allowed))
+}
+
+fn exact_url_origins_match(left: &reqwest::Url, right: &reqwest::Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+fn resolve_same_origin_url(base: &str, candidate: &str) -> Result<String, String> {
+    let base_url = parse_configured_cloud_origin(base)?;
+    let resolved = base_url
+        .join(candidate)
+        .map_err(|_| "Hecate Cloud returned an invalid browser URL.".to_string())?;
+    if !navigation_matches_allowed_origins(&resolved, std::slice::from_ref(&base_url)) {
+        return Err(
+            "Hecate Cloud returned a browser URL outside the configured origin.".to_string(),
+        );
+    }
+    Ok(resolved.to_string())
+}
+
+fn validated_server_path(
+    actual: Option<&str>,
+    expected: &str,
+    connection_label: &str,
+) -> Result<String, String> {
+    match actual {
+        Some(path) if path == expected => Ok(path.to_string()),
+        _ => Err(format!(
+            "Hecate Cloud returned an invalid {connection_label} open path."
+        )),
+    }
+}
+
+pub(super) fn valid_connection_id(connection_id: &str) -> bool {
+    !connection_id.is_empty()
+        && connection_id.len() <= 160
+        && connection_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+fn validate_connection_summary(connection: &CloudRuntimeConnection) -> Result<(), String> {
+    if !valid_connection_id(&connection.id)
+        || !matches!(connection.kind.as_str(), "hosted_runtime" | "desktop_host")
+        || connection.org_id.trim().is_empty()
+        || connection.name.trim().is_empty()
+    {
+        return Err("Hecate Cloud returned an invalid connection summary.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_refreshed_connection(
+    previous: &CloudRuntimeConnection,
+    refreshed: &CloudRuntimeConnection,
+) -> Result<(), String> {
+    if refreshed.id != previous.id
+        || refreshed.kind != previous.kind
+        || refreshed.org_id != previous.org_id
+        || refreshed.project_id != previous.project_id
+    {
+        return Err("Hecate Cloud returned a different hosted runtime.".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -1344,12 +2137,33 @@ impl CloudClient {
         T: DeserializeOwned,
         B: Serialize + ?Sized,
     {
+        self.request_with_timeout(method, path, token, body, Duration::from_secs(20))
+            .await
+    }
+
+    async fn request_with_timeout<T, B>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        token: &str,
+        body: Option<&B>,
+        timeout: Duration,
+    ) -> Result<T, CloudAPIError>
+    where
+        T: DeserializeOwned,
+        B: Serialize + ?Sized,
+    {
+        let url =
+            resolve_same_origin_url(&self.base_url, path).map_err(|message| CloudAPIError {
+                status: None,
+                message,
+            })?;
         let mut request = self
             .http
-            .request(method, format!("{}{}", self.base_url, path))
+            .request(method, url)
             .bearer_auth(token)
             .header("x-hecate-app-version", &self.app_version)
-            .timeout(Duration::from_secs(20));
+            .timeout(timeout);
         if let Some(body) = body {
             request = request.json(body);
         }
@@ -1680,6 +2494,19 @@ struct CreatedHost {
 #[derive(Deserialize)]
 struct CloudHost {
     id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserSession {
+    open_url: String,
+    expires_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoteBrowserSession {
+    open_url: String,
+    #[serde(default)]
+    expires_at: Option<String>,
 }
 
 async fn run_relay<F>(
@@ -3495,6 +4322,7 @@ mod tests {
                 1,
                 "happ_stale",
                 desktop_app_authorization().approval_url,
+                true,
             )
             .expect("stale authorization"));
         assert_eq!(
@@ -3507,6 +4335,7 @@ mod tests {
                 2,
                 "happ_current",
                 desktop_app_authorization().approval_url,
+                true,
             )
             .expect("current authorization"));
         assert_eq!(
@@ -3539,6 +4368,111 @@ mod tests {
         let approved = supervisor.status(None);
         assert!(approved.signed_in);
         assert_eq!(supervisor.pending_approval_url(), None);
+    }
+
+    #[test]
+    fn account_only_authorization_never_enables_local_remote_access() {
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        let supervisor = CloudConnectionSupervisor::with_store(
+            None,
+            credentials,
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+        );
+        supervisor.inner.state.lock().expect("state").generation = 4;
+
+        assert!(supervisor
+            .install_authorization_if_current(
+                4,
+                "happ_account_only",
+                desktop_app_authorization().approval_url,
+                false,
+            )
+            .expect("account authorization"));
+        assert!(!supervisor.status(None).auto_start_enabled);
+
+        supervisor.complete_account_sign_in_if_current(
+            4,
+            &CloudActor {
+                id: "actor_1".to_string(),
+                email: "operator@example.com".to_string(),
+                org_id: "org_1".to_string(),
+            },
+        );
+        let status = supervisor.status(None);
+        assert!(status.signed_in);
+        assert!(!status.running);
+        assert!(!status.auto_start_enabled);
+        assert_eq!(status.phase, "disconnected");
+        assert_eq!(
+            status.message,
+            "Signed in. Choose a Hecate connection to continue."
+        );
+        assert!(supervisor
+            .inner
+            .state
+            .lock()
+            .expect("state")
+            .cancel
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn sign_out_fences_runtime_operations_before_remote_cleanup() {
+        let preferences_path =
+            std::env::temp_dir().join(format!("hecate-cloud-sign-out-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&preferences_path);
+        let preferences = CloudConnectionPreferences {
+            auto_start_enabled: true,
+            host_actor_id: Some("actor_1".to_string()),
+            host_org_id: Some("org_1".to_string()),
+            account_email: Some("operator@example.com".to_string()),
+            org_id: Some("org_1".to_string()),
+            host_id: Some("host_1".to_string()),
+        };
+        write_preferences(&preferences_path, &preferences).expect("initial preferences");
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        credentials
+            .set(HOST_CREDENTIAL, "host_token")
+            .expect("host credential");
+        let supervisor = CloudConnectionSupervisor::with_store(
+            Some(preferences_path.clone()),
+            credentials.clone(),
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+        );
+        {
+            let mut state = supervisor.inner.state.lock().expect("state");
+            state.generation = 7;
+            state.signed_in = true;
+        }
+        let observed = Arc::new(Mutex::new(false));
+        let observed_in_fence = Arc::clone(&observed);
+        let supervisor_in_fence = supervisor.clone();
+        let preferences_in_fence = preferences_path.clone();
+        let credentials_in_fence = credentials.clone();
+
+        let status = supervisor
+            .sign_out_with_fence(None, move || {
+                let fenced = supervisor_in_fence.status(None);
+                assert!(!fenced.signed_in);
+                assert!(!fenced.auto_start_enabled);
+                assert!(supervisor_in_fence.authorized_snapshot().is_err());
+                assert!(!read_preferences(&preferences_in_fence).auto_start_enabled);
+                assert_eq!(
+                    credentials_in_fence
+                        .get(HOST_CREDENTIAL)
+                        .expect("host credential read"),
+                    None
+                );
+                *observed_in_fence.lock().expect("observation") = true;
+            })
+            .await;
+
+        assert!(*observed.lock().expect("observation"));
+        assert!(!status.signed_in);
+        assert_eq!(supervisor.inner.state.lock().expect("state").generation, 8);
+        let _ = std::fs::remove_file(preferences_path);
     }
 
     #[test]
@@ -3614,8 +4548,210 @@ mod tests {
     fn local_runtime_url_must_be_loopback_http() {
         assert!(validated_local_base_url(Some("http://127.0.0.1:8765".to_string())).is_ok());
         assert!(validated_local_base_url(Some("http://localhost:8765".to_string())).is_ok());
+        assert!(validated_local_base_url(Some("http://[::1]:8765".to_string())).is_ok());
         assert!(validated_local_base_url(Some("https://example.com".to_string())).is_err());
         assert!(validated_local_base_url(Some("http://192.0.2.1:8765".to_string())).is_err());
+    }
+
+    #[test]
+    fn configured_cloud_origin_requires_https_except_for_loopback_development() {
+        for valid in [
+            "https://console.example.test",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://[::1]:3000",
+        ] {
+            assert!(parse_configured_cloud_origin(valid).is_ok(), "{valid}");
+        }
+        for invalid in [
+            "http://console.example.test",
+            "http://192.0.2.1:3000",
+            "https://operator@console.example.test",
+            "https://console.example.test/path",
+            "https://console.example.test?next=evil",
+        ] {
+            assert!(parse_configured_cloud_origin(invalid).is_err(), "{invalid}");
+        }
+
+        let supervisor = CloudConnectionSupervisor::with_store(
+            None,
+            Arc::new(MemoryCredentialStore::default()),
+            "http://console.example.test",
+            new_remote_runtime_secret(),
+        );
+        let status = supervisor.status(None);
+        assert!(!status.available);
+        assert!(!status.signed_in);
+        assert_eq!(status.cloud_url, INVALID_CLOUD_URL);
+        assert!(supervisor.authorized_snapshot().is_err());
+    }
+
+    fn hosted_runtime_connection() -> CloudRuntimeConnection {
+        CloudRuntimeConnection {
+            id: "runtime_1".to_string(),
+            kind: "hosted_runtime".to_string(),
+            org_id: "org_1".to_string(),
+            project_id: Some("project_1".to_string()),
+            name: "Production".to_string(),
+            status: "online".to_string(),
+            reachable: true,
+            can_start: false,
+            remote_enabled: false,
+            version: Some("0.5.0".to_string()),
+            capabilities: vec!["chat".to_string(), "tasks".to_string()],
+            last_seen_at: Some("2026-07-21T10:00:00Z".to_string()),
+            browser_open_path: Some("/api/v1/app/runtimes/runtime_1/open".to_string()),
+            remote_session_path: None,
+            start_path: Some("/api/v1/app/runtimes/runtime_1/start".to_string()),
+            readiness_path: Some("/api/v1/app/runtimes/runtime_1/readiness".to_string()),
+            browser_origin: Some("https://runtime-1.hecate.example/".to_string()),
+        }
+    }
+
+    #[test]
+    fn connection_summary_serialization_never_exposes_native_continuations() {
+        let serialized =
+            serde_json::to_string(&hosted_runtime_connection()).expect("connection JSON");
+        for secret_field in [
+            "browser_open_path",
+            "remote_session_path",
+            "start_path",
+            "readiness_path",
+            "browser_origin",
+            "/api/v1/app/runtimes",
+            "runtime-1.hecate.example",
+        ] {
+            assert!(
+                !serialized.contains(secret_field),
+                "serialized native-only field {secret_field}"
+            );
+        }
+        assert!(serialized.contains("\"kind\":\"hosted_runtime\""));
+        assert!(serialized.contains("\"id\":\"runtime_1\""));
+    }
+
+    #[test]
+    fn hosted_runtime_navigation_is_limited_to_exact_https_origins() {
+        let cloud = parse_configured_cloud_origin("https://console.example.test").unwrap();
+        let runtime =
+            validated_hosted_browser_origin(Some("https://runtime-1.hecate.example/")).unwrap();
+        let allowed = vec![cloud, runtime];
+        for candidate in [
+            "https://console.example.test/api/v1/app/browser-sessions/open?t=secret",
+            "https://runtime-1.hecate.example/",
+            "https://runtime-1.hecate.example/hecate/v1/chat/sessions",
+        ] {
+            assert!(navigation_matches_allowed_origins(
+                &tauri::Url::parse(candidate).unwrap(),
+                &allowed
+            ));
+        }
+        for candidate in [
+            "https://evil.example/",
+            "https://sub.runtime-1.hecate.example/",
+            "http://runtime-1.hecate.example/",
+            "https://runtime-1.hecate.example:444/",
+            "https://operator@runtime-1.hecate.example/",
+        ] {
+            assert!(!navigation_matches_allowed_origins(
+                &tauri::Url::parse(candidate).unwrap(),
+                &allowed
+            ));
+        }
+        for invalid in [
+            None,
+            Some("http://runtime-1.hecate.example/"),
+            Some("https://runtime-1.hecate.example/path"),
+            Some("https://runtime-1.hecate.example/?next=evil"),
+            Some("https://runtime-1.hecate.example/#fragment"),
+            Some("https://operator@runtime-1.hecate.example/"),
+        ] {
+            assert!(validated_hosted_browser_origin(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn desktop_navigation_accepts_only_its_server_authored_origin() {
+        let cloud = parse_configured_cloud_origin("https://console.example.test").unwrap();
+        assert_eq!(
+            validated_desktop_browser_origin(
+                Some("https://dh-abc123.app.hecate.example/"),
+                &cloud,
+            )
+            .unwrap()
+            .as_str(),
+            "https://dh-abc123.app.hecate.example/"
+        );
+        assert!(validated_desktop_browser_origin(
+            Some("http://dh-abc123.app.hecate.example/"),
+            &cloud,
+        )
+        .is_err());
+        assert!(validated_desktop_browser_origin(None, &cloud).is_err());
+
+        let loopback_cloud = parse_configured_cloud_origin("http://127.0.0.1:3000").unwrap();
+        assert!(
+            validated_desktop_browser_origin(Some("http://127.0.0.1:3000/"), &loopback_cloud,)
+                .is_ok()
+        );
+        assert!(
+            validated_desktop_browser_origin(Some("http://localhost:3000/"), &loopback_cloud,)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn server_paths_and_refreshed_identity_are_connection_bound() {
+        let connection = hosted_runtime_connection();
+        assert_eq!(
+            validated_server_path(
+                connection.browser_open_path.as_deref(),
+                "/api/v1/app/runtimes/runtime_1/open",
+                "hosted runtime",
+            )
+            .unwrap(),
+            "/api/v1/app/runtimes/runtime_1/open"
+        );
+        assert!(validated_server_path(
+            Some("/api/v1/app/runtimes/runtime_2/open"),
+            "/api/v1/app/runtimes/runtime_1/open",
+            "hosted runtime",
+        )
+        .is_err());
+        let mut refreshed = connection.clone();
+        refreshed.status = "starting".to_string();
+        refreshed.reachable = false;
+        assert!(validate_refreshed_connection(&connection, &refreshed).is_ok());
+        refreshed.project_id = Some("project_2".to_string());
+        assert!(validate_refreshed_connection(&connection, &refreshed).is_err());
+        refreshed.project_id = connection.project_id.clone();
+        refreshed.name.clear();
+        assert!(validate_connection_summary(&refreshed).is_err());
+    }
+
+    #[test]
+    fn runtime_start_guard_and_connection_ids_are_bounded() {
+        let supervisor = CloudConnectionSupervisor::default();
+        let first = supervisor.begin_runtime_start("runtime_1").unwrap();
+        assert!(supervisor.begin_runtime_start("runtime_1").is_err());
+        assert!(supervisor.begin_runtime_start("runtime_2").is_ok());
+        drop(first);
+        assert!(supervisor.begin_runtime_start("runtime_1").is_ok());
+
+        for valid in ["runtime_1", "host-01234567-89ab-cdef"] {
+            assert!(valid_connection_id(valid));
+        }
+        for invalid in [
+            "",
+            " runtime_1",
+            "runtime/../admin",
+            "runtime%2Fadmin",
+            "runtime?next=admin",
+        ] {
+            assert!(!valid_connection_id(invalid));
+        }
+        assert!(!valid_connection_id(&"a".repeat(161)));
+        assert!(START_REQUEST_TIMEOUT > Duration::from_secs(60));
     }
 
     #[test]
@@ -3758,6 +4894,36 @@ mod tests {
             .get(HOST_CREDENTIAL)
             .expect("host read")
             .is_some());
+    }
+
+    #[test]
+    fn current_session_expiry_notifies_native_window_cleanup_once() {
+        let notifications = Arc::new(Mutex::new(0usize));
+        let notifications_for_hook = Arc::clone(&notifications);
+        let supervisor = CloudConnectionSupervisor::with_store_and_hook(
+            None,
+            Arc::new(MemoryCredentialStore::default()),
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+            Arc::new(move || {
+                *notifications_for_hook.lock().expect("notifications") += 1;
+            }),
+        );
+        {
+            let mut state = supervisor.inner.state.lock().expect("state");
+            state.generation = 2;
+            state.signed_in = true;
+        }
+
+        supervisor.expire_account_if_current(1, "stale");
+        assert_eq!(*notifications.lock().expect("notifications"), 0);
+
+        supervisor.expire_account_if_current(2, "expired");
+        assert_eq!(*notifications.lock().expect("notifications"), 1);
+        assert!(!supervisor.status(None).signed_in);
+
+        supervisor.expire_account_if_current(2, "stale again");
+        assert_eq!(*notifications.lock().expect("notifications"), 1);
     }
 
     #[test]

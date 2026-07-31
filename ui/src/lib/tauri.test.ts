@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   desktopHost,
   isMobileTauriRuntime,
+  isRemoteDesktopTauriRuntime,
   isTauriOnMacOS,
   isTauriRuntime,
   MOBILE_TAURI_USER_AGENT_MARKER,
+  REMOTE_DESKTOP_TAURI_USER_AGENT_MARKER,
 } from "./tauri";
 
 const originalPlatform = navigator.platform;
@@ -41,6 +43,19 @@ describe("isTauriRuntime", () => {
     });
 
     expect(isMobileTauriRuntime()).toBe(true);
+    expect(isTauriRuntime()).toBe(false);
+    expect(desktopHost()).toBeNull();
+  });
+
+  it("does not classify a remote-window injected bridge as privileged desktop Tauri", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: `WebView ${REMOTE_DESKTOP_TAURI_USER_AGENT_MARKER}`,
+    });
+
+    expect(isRemoteDesktopTauriRuntime()).toBe(true);
+    expect(isMobileTauriRuntime()).toBe(false);
     expect(isTauriRuntime()).toBe(false);
     expect(desktopHost()).toBeNull();
   });

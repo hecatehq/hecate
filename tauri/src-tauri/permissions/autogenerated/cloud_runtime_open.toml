@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cloud-runtime-open"
+description = "Enables the cloud_runtime_open command without any pre-configured scope."
+commands.allow = ["cloud_runtime_open"]
+
+[[permission]]
+identifier = "deny-cloud-runtime-open"
+description = "Denies the cloud_runtime_open command without any pre-configured scope."
+commands.deny = ["cloud_runtime_open"]

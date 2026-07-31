@@ -16,9 +16,14 @@ mod cloud_connection;
 mod sidecar;
 mod webview_media;
 
-use cloud_connection::{CloudConnectionStatus, CloudConnectionSupervisor};
+use cloud_connection::{
+    navigation_matches_allowed_origins, valid_connection_id, CloudConnectionStatus,
+    CloudConnectionSupervisor, CloudRuntimeConnection, CloudRuntimeOpenResult,
+    CloudRuntimeStartResult,
+};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
@@ -34,6 +39,12 @@ use tauri_plugin_opener::OpenerExt;
 /// menu handler that opens the file uses the same name the plugin
 /// writes to.
 const APP_LOG_FILE: &str = "app";
+const CLOUD_RUNTIME_WINDOW_PREFIX: &str = "hecate-cloud-runtime-";
+const REMOTE_DESKTOP_USER_AGENT: &str = "HecateRemoteDesktop";
+const CLOUD_RUNTIME_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
+const CLOUD_RUNTIME_LOAD_PENDING: u8 = 0;
+const CLOUD_RUNTIME_LOAD_READY: u8 = 1;
+const CLOUD_RUNTIME_LOAD_TIMED_OUT: u8 = 2;
 
 /// JS-invocable command: surface or clear the dock / taskbar
 /// "update available" badge. useDesktopUpdate calls this when its
@@ -101,6 +112,85 @@ fn cloud_connection_status(
     cloud_connection.status(gateway_base_url.snapshot())
 }
 
+fn require_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err(
+            "This native command is available only from the main Hecate window.".to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn cloud_runtime_window_label(connection_id: &str) -> String {
+    format!("{CLOUD_RUNTIME_WINDOW_PREFIX}{connection_id}")
+}
+
+#[derive(Default)]
+struct CloudRuntimeWindowRegistry(Mutex<HashMap<String, Arc<AtomicU8>>>);
+
+impl CloudRuntimeWindowRegistry {
+    fn track(&self, label: String, load_state: Arc<AtomicU8>) {
+        if let Ok(mut windows) = self.0.lock() {
+            windows.insert(label, load_state);
+        }
+    }
+
+    fn is_tracked(&self, label: &str) -> bool {
+        self.0
+            .lock()
+            .map(|windows| windows.contains_key(label))
+            .unwrap_or(false)
+    }
+
+    fn remove_if_current(&self, label: &str, load_state: &Arc<AtomicU8>) -> bool {
+        let Ok(mut windows) = self.0.lock() else {
+            return false;
+        };
+        if windows
+            .get(label)
+            .is_some_and(|current| Arc::ptr_eq(current, load_state))
+        {
+            windows.remove(label);
+            return true;
+        }
+        false
+    }
+
+    fn clear(&self) {
+        if let Ok(mut windows) = self.0.lock() {
+            windows.clear();
+        }
+    }
+}
+
+fn close_cloud_runtime_windows(app: &AppHandle) {
+    if let Some(registry) = app.try_state::<CloudRuntimeWindowRegistry>() {
+        registry.clear();
+    }
+    for (label, window) in app.webview_windows() {
+        if label.starts_with(CLOUD_RUNTIME_WINDOW_PREFIX) {
+            if let Err(error) = window.close() {
+                log::warn!("close Hecate Cloud runtime window failed: {error}");
+            }
+        }
+    }
+}
+
+fn remote_runtime_page_finished(
+    initial_url: &tauri::Url,
+    current_url: &tauri::Url,
+    event: tauri::webview::PageLoadEvent,
+    ready_origin: &reqwest::Url,
+    ready_path_prefix: Option<&str>,
+) -> bool {
+    matches!(event, tauri::webview::PageLoadEvent::Finished)
+        && current_url != initial_url
+        && navigation_matches_allowed_origins(current_url, std::slice::from_ref(ready_origin))
+        && ready_path_prefix
+            .map(|prefix| current_url.path().starts_with(prefix))
+            .unwrap_or(true)
+}
+
 #[tauri::command]
 async fn cloud_connection_start(
     app: AppHandle,
@@ -120,6 +210,207 @@ async fn cloud_connection_start(
 }
 
 #[tauri::command]
+async fn cloud_account_sign_in(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    gateway_base_url: tauri::State<'_, GatewayBaseURL>,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+) -> Result<CloudConnectionStatus, String> {
+    require_main_window(&window)?;
+    let supervisor = (*cloud_connection).clone();
+    let base_url = gateway_base_url.snapshot();
+    let status = supervisor.account_sign_in(base_url.clone()).await?;
+    if let Some(approval_url) = supervisor.pending_approval_url() {
+        if app.opener().open_url(approval_url, None::<&str>).is_err() {
+            supervisor.stop(base_url);
+            return Err("Could not open Hecate Cloud sign-in in the system browser.".to_string());
+        }
+    }
+    Ok(status)
+}
+
+#[tauri::command]
+async fn cloud_runtime_connections(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+) -> Result<Vec<CloudRuntimeConnection>, String> {
+    require_main_window(&window)?;
+    let supervisor = (*cloud_connection).clone();
+    let result = supervisor.runtime_connections().await;
+    if result.is_err() && !supervisor.status(None).signed_in {
+        close_cloud_runtime_windows(&app);
+    }
+    result
+}
+
+#[tauri::command]
+async fn cloud_runtime_start(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+    connection_id: String,
+) -> Result<CloudRuntimeStartResult, String> {
+    require_main_window(&window)?;
+    let supervisor = (*cloud_connection).clone();
+    let result = supervisor.start_runtime(&connection_id).await;
+    if result.is_err() && !supervisor.status(None).signed_in {
+        close_cloud_runtime_windows(&app);
+    }
+    result
+}
+
+#[tauri::command]
+async fn cloud_runtime_open(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
+    connection_id: String,
+) -> Result<CloudRuntimeOpenResult, String> {
+    require_main_window(&window)?;
+    let supervisor = (*cloud_connection).clone();
+    let connection_id = connection_id.trim();
+    if !valid_connection_id(connection_id) {
+        return Err("Choose a valid Hecate connection.".to_string());
+    }
+    let label = cloud_runtime_window_label(connection_id);
+    if let Some(existing) = app.get_webview_window(&label) {
+        let tracked = app
+            .try_state::<CloudRuntimeWindowRegistry>()
+            .is_some_and(|registry| registry.is_tracked(&label));
+        if !tracked {
+            if let Err(error) = existing.close() {
+                log::warn!("reset failed Hecate Cloud runtime window failed: {error}");
+            }
+            return Err(
+                "The previous secure Hecate window did not finish loading and is being reset. Open it again."
+                    .to_string(),
+            );
+        }
+        let generation = supervisor.authorized_generation()?;
+        let name = "Hecate runtime".to_string();
+        supervisor.with_authorized_generation(generation, || {
+            existing
+                .show()
+                .map_err(|_| format!("Could not show {name}. Try again."))?;
+            existing
+                .set_focus()
+                .map_err(|_| format!("Could not focus {name}. Try again."))
+        })?;
+        return Ok(CloudRuntimeOpenResult {
+            connection_id: connection_id.to_string(),
+            name,
+            message: "The existing secure Hecate window was focused.".to_string(),
+        });
+    }
+    let prepared = match supervisor.prepare_runtime_open(connection_id).await {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            if !supervisor.status(None).signed_in {
+                close_cloud_runtime_windows(&app);
+            }
+            return Err(error);
+        }
+    };
+    let label = cloud_runtime_window_label(&prepared.connection.id);
+    let target = tauri::Url::parse(&prepared.open_url)
+        .map_err(|_| "Hecate Cloud returned an invalid secure session URL.".to_string())?;
+    let allowed_origins = prepared.allowed_origins.clone();
+    let ready_origin = prepared.ready_origin.clone();
+    let ready_path_prefix = prepared.ready_path_prefix.clone();
+    let title = format!("{} — Hecate", prepared.connection.name);
+    supervisor.with_authorized_generation(prepared.generation, || {
+        // Re-check after the network round trip. A concurrent Open may have
+        // created the window while this command obtained its native-only
+        // bootstrap/session ticket. That rare race wastes only that ticket;
+        // ordinary repeat Open calls are handled above without allocating one.
+        if let Some(existing) = app.get_webview_window(&label) {
+            existing
+                .show()
+                .map_err(|_| format!("Could not show {}. Try again.", prepared.connection.name))?;
+            return existing
+                .set_focus()
+                .map_err(|_| format!("Could not focus {}. Try again.", prepared.connection.name));
+        }
+        let load_state = Arc::new(AtomicU8::new(CLOUD_RUNTIME_LOAD_PENDING));
+        let load_state_on_page = Arc::clone(&load_state);
+        let initial_url = target.clone();
+        let initial_url_on_load = initial_url.clone();
+        let ready_origin_on_load = ready_origin.clone();
+        let ready_path_prefix_on_load = ready_path_prefix.clone();
+        let registry = app
+            .try_state::<CloudRuntimeWindowRegistry>()
+            .ok_or_else(|| "Secure Hecate window state is unavailable.".to_string())?;
+        tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target))
+            .title(title)
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(760.0, 540.0)
+            .center()
+            .incognito(true)
+            .user_agent(REMOTE_DESKTOP_USER_AGENT)
+            .on_navigation(move |url| navigation_matches_allowed_origins(url, &allowed_origins))
+            .on_page_load(move |_, payload| {
+                if remote_runtime_page_finished(
+                    &initial_url_on_load,
+                    payload.url(),
+                    payload.event(),
+                    &ready_origin_on_load,
+                    ready_path_prefix_on_load.as_deref(),
+                ) {
+                    let _ = load_state_on_page.compare_exchange(
+                        CLOUD_RUNTIME_LOAD_PENDING,
+                        CLOUD_RUNTIME_LOAD_READY,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    );
+                }
+            })
+            .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+            .on_download(|_, _| false)
+            .build()
+            .map_err(|error| {
+                log::warn!("create Hecate Cloud runtime window failed: {error}");
+                format!("Could not open {}. Try again.", prepared.connection.name)
+            })?;
+        registry.track(label.clone(), Arc::clone(&load_state));
+        let timeout_app = app.clone();
+        let timeout_label = label.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(CLOUD_RUNTIME_LOAD_TIMEOUT).await;
+            if load_state
+                .compare_exchange(
+                    CLOUD_RUNTIME_LOAD_PENDING,
+                    CLOUD_RUNTIME_LOAD_TIMED_OUT,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_err()
+            {
+                return;
+            }
+            let Some(registry) = timeout_app.try_state::<CloudRuntimeWindowRegistry>() else {
+                return;
+            };
+            if !registry.remove_if_current(&timeout_label, &load_state) {
+                return;
+            }
+            if let Some(window) = timeout_app.get_webview_window(&timeout_label) {
+                log::warn!("closing Hecate Cloud runtime window after secure navigation timed out");
+                if let Err(error) = window.close() {
+                    log::warn!("close timed out Hecate Cloud runtime window failed: {error}");
+                }
+            }
+        });
+        Ok(())
+    })?;
+    Ok(CloudRuntimeOpenResult {
+        connection_id: prepared.connection.id,
+        name: prepared.connection.name,
+        message: "A secure Hecate session was opened in a separate window.".to_string(),
+    })
+}
+
+#[tauri::command]
 fn cloud_connection_stop(
     gateway_base_url: tauri::State<'_, GatewayBaseURL>,
     cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
@@ -129,11 +420,19 @@ fn cloud_connection_stop(
 
 #[tauri::command]
 async fn cloud_connection_sign_out(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
     gateway_base_url: tauri::State<'_, GatewayBaseURL>,
     cloud_connection: tauri::State<'_, CloudConnectionSupervisor>,
 ) -> Result<CloudConnectionStatus, String> {
+    require_main_window(&window)?;
     let supervisor = (*cloud_connection).clone();
-    Ok(supervisor.sign_out(gateway_base_url.snapshot()).await)
+    let close_app = app.clone();
+    Ok(supervisor
+        .sign_out_with_fence(gateway_base_url.snapshot(), move || {
+            close_cloud_runtime_windows(&close_app);
+        })
+        .await)
 }
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
@@ -809,6 +1108,10 @@ pub fn run() {
             open_workspace_target,
             cloud_connection_status,
             cloud_connection_start,
+            cloud_account_sign_in,
+            cloud_runtime_connections,
+            cloud_runtime_start,
+            cloud_runtime_open,
             cloud_connection_stop,
             cloud_connection_sign_out
         ])
@@ -942,9 +1245,14 @@ pub fn run() {
             // task fills it once hecate is spawned.
             app.manage(GatewayChild(Mutex::new(None)));
             let remote_runtime_secret = cloud_connection::new_remote_runtime_secret();
+            app.manage(CloudRuntimeWindowRegistry::default());
+            let expired_account_app = app.handle().clone();
             app.manage(CloudConnectionSupervisor::new(
                 diagnostics.data_dir.join("cloud-connection.json"),
                 remote_runtime_secret.clone(),
+                Arc::new(move || {
+                    close_cloud_runtime_windows(&expired_account_app);
+                }),
             ));
             // Seed an empty base URL slot. Filled by the spawn task once
             // /healthz returns 200; read by handle_quit_request to reach
@@ -1113,14 +1421,147 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_running_tasks_message, parse_running_runs, remaining_splash_delay,
-        startup_failure_hint, validate_workspace_open_request, GatewayChild,
-        PendingDesktopUpdateCheck, WorkspaceOpenTarget, MIN_SPLASH_DURATION,
+        cloud_runtime_window_label, format_running_tasks_message, parse_running_runs,
+        remaining_splash_delay, remote_runtime_page_finished, startup_failure_hint,
+        validate_workspace_open_request, GatewayChild, PendingDesktopUpdateCheck,
+        WorkspaceOpenTarget, CLOUD_RUNTIME_LOAD_PENDING, CLOUD_RUNTIME_LOAD_READY,
+        CLOUD_RUNTIME_LOAD_TIMED_OUT, CLOUD_RUNTIME_WINDOW_PREFIX, MIN_SPLASH_DURATION,
+        REMOTE_DESKTOP_USER_AGENT,
     };
     use std::fs;
     use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicU8, Ordering};
     use std::sync::Mutex;
     use std::time::Duration;
+
+    #[test]
+    fn cloud_runtime_native_commands_are_scoped_to_the_main_window() {
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../../capabilities/default.json"))
+                .expect("desktop capability");
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        let permissions = capability["permissions"].as_array().expect("permissions");
+        for command in [
+            "cloud-account-sign-in",
+            "cloud-runtime-connections",
+            "cloud-runtime-start",
+            "cloud-runtime-open",
+        ] {
+            let permission = format!("allow-{command}");
+            assert!(
+                permissions
+                    .iter()
+                    .any(|candidate| candidate == permission.as_str()),
+                "missing {permission}"
+            );
+        }
+        let remote_label = cloud_runtime_window_label("runtime_1");
+        assert!(remote_label.starts_with(CLOUD_RUNTIME_WINDOW_PREFIX));
+        assert_ne!(remote_label, "main");
+        assert_eq!(REMOTE_DESKTOP_USER_AGENT, "HecateRemoteDesktop");
+    }
+
+    #[test]
+    fn cloud_runtime_window_is_ready_only_after_a_valid_redirect_finishes() {
+        let initial = tauri::Url::parse(
+            "https://console.example.test/api/v1/app/browser-sessions/open?ticket=secret",
+        )
+        .unwrap();
+        let cloud = reqwest::Url::parse("https://console.example.test").unwrap();
+        let runtime = reqwest::Url::parse("https://runtime.example.test").unwrap();
+        let final_runtime =
+            tauri::Url::parse("https://runtime.example.test/hecate/v1/chat/sessions").unwrap();
+
+        assert!(!remote_runtime_page_finished(
+            &initial,
+            &initial,
+            tauri::webview::PageLoadEvent::Finished,
+            &runtime,
+            None,
+        ));
+        assert!(!remote_runtime_page_finished(
+            &initial,
+            &final_runtime,
+            tauri::webview::PageLoadEvent::Started,
+            &runtime,
+            None,
+        ));
+        assert!(remote_runtime_page_finished(
+            &initial,
+            &final_runtime,
+            tauri::webview::PageLoadEvent::Finished,
+            &runtime,
+            None,
+        ));
+        assert!(!remote_runtime_page_finished(
+            &initial,
+            &tauri::Url::parse("https://evil.example/").unwrap(),
+            tauri::webview::PageLoadEvent::Finished,
+            &runtime,
+            None,
+        ));
+        assert!(!remote_runtime_page_finished(
+            &initial,
+            &tauri::Url::parse("https://console.example.test/api/v1/app/runtimes/runtime_1/open",)
+                .unwrap(),
+            tauri::webview::PageLoadEvent::Finished,
+            &runtime,
+            None,
+        ));
+        assert!(remote_runtime_page_finished(
+            &initial,
+            &tauri::Url::parse("https://console.example.test/api/v1/hosts/host_1/proxy/").unwrap(),
+            tauri::webview::PageLoadEvent::Finished,
+            &cloud,
+            Some("/api/v1/hosts/host_1/proxy/"),
+        ));
+        assert!(!remote_runtime_page_finished(
+            &initial,
+            &tauri::Url::parse("https://console.example.test/console").unwrap(),
+            tauri::webview::PageLoadEvent::Finished,
+            &cloud,
+            Some("/api/v1/hosts/host_1/proxy/"),
+        ));
+    }
+
+    #[test]
+    fn cloud_runtime_load_completion_and_timeout_have_one_winner() {
+        let page_wins = AtomicU8::new(CLOUD_RUNTIME_LOAD_PENDING);
+        assert!(page_wins
+            .compare_exchange(
+                CLOUD_RUNTIME_LOAD_PENDING,
+                CLOUD_RUNTIME_LOAD_READY,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok());
+        assert!(page_wins
+            .compare_exchange(
+                CLOUD_RUNTIME_LOAD_PENDING,
+                CLOUD_RUNTIME_LOAD_TIMED_OUT,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err());
+
+        let timeout_wins = AtomicU8::new(CLOUD_RUNTIME_LOAD_PENDING);
+        assert!(timeout_wins
+            .compare_exchange(
+                CLOUD_RUNTIME_LOAD_PENDING,
+                CLOUD_RUNTIME_LOAD_TIMED_OUT,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok());
+        assert!(timeout_wins
+            .compare_exchange(
+                CLOUD_RUNTIME_LOAD_PENDING,
+                CLOUD_RUNTIME_LOAD_READY,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err());
+    }
 
     #[test]
     fn test_gateway_child_reports_process_liveness() {
