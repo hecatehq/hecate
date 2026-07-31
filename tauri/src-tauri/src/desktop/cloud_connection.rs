@@ -484,6 +484,8 @@ impl CloudConnectionSupervisor {
             .collect::<Vec<_>>()
             .await;
         self.ensure_authorized_generation(generation)?;
+        let current_host_id = self.current_host_id()?;
+        let connections = without_current_desktop_host(connections, current_host_id.as_deref());
         Ok(connections)
     }
 
@@ -573,6 +575,10 @@ impl CloudConnectionSupervisor {
             .into_iter()
             .find(|candidate| candidate.id == connection_id)
             .ok_or_else(|| "That Hecate connection is no longer available.".to_string())?;
+        let current_host_id = self.current_host_id()?;
+        if is_current_desktop_host(&connection, current_host_id.as_deref()) {
+            return Err("This computer is already open in the main Hecate window.".to_string());
+        }
         if !connection.reachable {
             return Err(format!("{} is currently offline.", connection.name));
         }
@@ -747,6 +753,14 @@ impl CloudConnectionSupervisor {
             );
         }
         Ok(())
+    }
+
+    fn current_host_id(&self) -> Result<Option<String>, String> {
+        self.inner
+            .state
+            .lock()
+            .map(|state| state.preferences.host_id.clone())
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())
     }
 
     async fn fetch_runtime_connections(
@@ -1851,7 +1865,19 @@ pub fn new_remote_runtime_secret() -> String {
 }
 
 fn default_host_name() -> String {
-    for key in ["HECATE_DESKTOP_HOST_NAME", "HOSTNAME", "COMPUTERNAME"] {
+    if let Ok(value) = std::env::var("HECATE_DESKTOP_HOST_NAME") {
+        let value = value.trim();
+        if !value.is_empty() {
+            return value.to_string();
+        }
+    }
+    if let Some(value) = gethostname::gethostname().to_str() {
+        let value = value.trim();
+        if !value.is_empty() {
+            return value.to_string();
+        }
+    }
+    for key in ["HOSTNAME", "COMPUTERNAME"] {
         if let Ok(value) = std::env::var(key) {
             let value = value.trim();
             if !value.is_empty() {
@@ -1859,7 +1885,25 @@ fn default_host_name() -> String {
             }
         }
     }
-    "Hecate desktop app".to_string()
+    "Hecate computer".to_string()
+}
+
+fn is_current_desktop_host(
+    connection: &CloudRuntimeConnection,
+    current_host_id: Option<&str>,
+) -> bool {
+    connection.kind == "desktop_host"
+        && current_host_id.is_some_and(|host_id| host_id == connection.id)
+}
+
+fn without_current_desktop_host(
+    connections: Vec<CloudRuntimeConnection>,
+    current_host_id: Option<&str>,
+) -> Vec<CloudRuntimeConnection> {
+    connections
+        .into_iter()
+        .filter(|connection| !is_current_desktop_host(connection, current_host_id))
+        .collect()
 }
 
 fn validated_local_base_url(base_url: Option<String>) -> Result<String, String> {
@@ -4606,6 +4650,35 @@ mod tests {
             readiness_path: Some("/api/v1/app/runtimes/runtime_1/readiness".to_string()),
             browser_origin: Some("https://runtime-1.hecate.example/".to_string()),
         }
+    }
+
+    #[test]
+    fn current_desktop_host_is_omitted_without_guessing_from_its_name() {
+        let runtime = hosted_runtime_connection();
+        let mut current = runtime.clone();
+        current.id = "host_current".to_string();
+        current.kind = "desktop_host".to_string();
+        current.name = "Shared name".to_string();
+        let mut other = current.clone();
+        other.id = "host_other".to_string();
+
+        let visible = without_current_desktop_host(
+            vec![runtime.clone(), current.clone(), other.clone()],
+            Some("host_current"),
+        );
+        assert_eq!(
+            visible
+                .iter()
+                .map(|connection| connection.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["runtime_1", "host_other"]
+        );
+        assert!(is_current_desktop_host(&current, Some("host_current")));
+        assert!(!is_current_desktop_host(&other, Some("host_current")));
+        assert!(!is_current_desktop_host(&runtime, Some("runtime_1")));
+
+        let unfiltered = without_current_desktop_host(vec![runtime, current, other], None);
+        assert_eq!(unfiltered.len(), 3);
     }
 
     #[test]

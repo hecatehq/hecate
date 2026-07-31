@@ -1835,6 +1835,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures-util",
+ "gethostname",
  "keyring",
  "log",
  "rand 0.9.4",

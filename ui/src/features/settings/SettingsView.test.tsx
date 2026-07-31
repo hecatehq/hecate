@@ -229,7 +229,9 @@ describe("SettingsView", () => {
     const section = await screen.findByTestId("desktop-cloud-connection");
     expect(within(section).getByText("Hecate Cloud account")).toBeTruthy();
     expect(
-      within(section).getByText(/Sign in to manage Cloud instances from this app/i),
+      within(section).getByText(
+        "Sign in to open Cloud runtimes and other computers. Remote access controls whether this computer can be opened elsewhere.",
+      ),
     ).toBeTruthy();
     expect(within(section).getByText(/Remote access to this computer stays off/i)).toBeTruthy();
     expect(within(section).queryByText(/hec CLI/i)).toBeNull();
@@ -509,7 +511,7 @@ describe("SettingsView", () => {
     await waitFor(() => expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull());
   });
 
-  it("lists Cloud instances and starts or opens only eligible targets", async () => {
+  it("lists other Hecate instances and starts or opens only eligible targets", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     tauriInvokeMock.mockImplementation((command: string) => {
       if (command === "cloud_connection_status") {
@@ -601,7 +603,7 @@ describe("SettingsView", () => {
         return Promise.resolve({
           connection_id: "runtime_online",
           name: "Production",
-          message: "A secure Hecate session was opened in a separate window.",
+          message: "Opened Production in a new Hecate window.",
         });
       }
       throw new Error(`Unexpected command: ${command}`);
@@ -610,7 +612,9 @@ describe("SettingsView", () => {
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     const section = await screen.findByTestId("desktop-cloud-runtimes");
+    expect(within(section).getByText("Other Hecate instances")).toBeTruthy();
     expect(await within(section).findByText("Production")).toBeTruthy();
+    expect(within(section).getAllByText("Computer")).toHaveLength(2);
     expect(within(section).getAllByText("Version 0.5.0-alpha.5")).toHaveLength(3);
     expect(within(section).getByRole("button", { name: "Open Production" })).toBeTruthy();
     expect(within(section).getByRole("button", { name: "Start Staging" })).toBeTruthy();
@@ -633,7 +637,7 @@ describe("SettingsView", () => {
       connectionId: "runtime_online",
     });
     expect(within(section).getByRole("status")).toHaveTextContent(
-      "A secure Hecate session was opened in a separate window.",
+      "Opened Production in a new Hecate window.",
     );
   });
 

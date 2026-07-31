@@ -47,6 +47,7 @@ tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+gethostname = "1.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
