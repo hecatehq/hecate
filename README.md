@@ -239,12 +239,13 @@ automatically. State lives in the platform data dir:
 - Linux: `~/.local/share/sh.hecate.app/`
 
 Open **Settings → Hecate Cloud** to sign in once, then use **Cloud instances**
-to start or open a hosted Hecate or another remote-enabled desktop Hecate in an
-isolated app window. Account sign-in does not expose this computer: enable the
-separate **Remote access** toggle only when you want phones, browsers, or other
-desktop apps to reach its local runtime. Installing the `hec` CLI is not
-required. Remote chats and tasks continue to execute on the selected runtime;
-Hecate does not migrate its work or unlock that runtime's local-only actions.
+to start or open a hosted Hecate or a registered desktop Hecate in an isolated
+app window. Desktops with remote access off remain visible but cannot be
+opened. Account sign-in does not expose this computer: enable the separate
+**Remote access** toggle only when you want phones, browsers, or other desktop
+apps to reach its local runtime. Installing the `hec` CLI is not required.
+Remote chats and tasks continue to execute on the selected runtime; Hecate does
+not migrate its work or unlock that runtime's local-only actions.
 
 macOS release bundles are signed and notarized. Linux and Windows bundles are
 published by CI but have not yet had the same manual launch coverage. The

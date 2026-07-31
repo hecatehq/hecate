@@ -116,7 +116,8 @@ What works:
   access. Turning Remote access off preserves the signed-in account; signing
   out revokes the app session and computer registration.
 - The same section lists **Cloud instances** available to the signed-in
-  account: hosted runtimes and the owner's remote-enabled desktop Hecates. A
+  account: hosted runtimes and the owner's registered desktop Hecates. A
+  desktop with remote access off remains visible but cannot be opened. A
   Cloud-managed stopped runtime can be started from the list. Opening an
   available entry creates a short-lived browser session and shows that
   runtime's normal Hecate UI in a separate native window. Chats, Tasks, and

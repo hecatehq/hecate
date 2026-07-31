@@ -27,91 +27,113 @@ function DesktopCloudConnectionSettings() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"signin" | "connect" | "disconnect" | "signout" | null>(null);
   const [error, setError] = useState("");
+  const statusRequestGenerationRef = useRef(0);
+  const statusRequestInFlightRef = useRef<Promise<void> | null>(null);
+  const statusMutationInFlightRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    void getDesktopCloudConnectionStatus()
+  const loadStatus = useCallback((showLoading = false) => {
+    if (statusMutationInFlightRef.current) return Promise.resolve();
+    if (statusRequestInFlightRef.current) return statusRequestInFlightRef.current;
+    const requestGeneration = ++statusRequestGenerationRef.current;
+    if (showLoading) setLoading(true);
+    const request = getDesktopCloudConnectionStatus()
       .then((nextStatus) => {
-        if (!cancelled) setStatus(nextStatus);
+        if (requestGeneration !== statusRequestGenerationRef.current) return;
+        setStatus(nextStatus);
+        setError("");
       })
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to read Hecate Cloud status.");
-        }
+        if (requestGeneration !== statusRequestGenerationRef.current) return;
+        setError(err instanceof Error ? err.message : "Failed to read Hecate Cloud status.");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (showLoading && requestGeneration === statusRequestGenerationRef.current) {
+          setLoading(false);
+        }
+        if (statusRequestInFlightRef.current === request) statusRequestInFlightRef.current = null;
       });
-    return () => {
-      cancelled = true;
-    };
+    statusRequestInFlightRef.current = request;
+    return request;
   }, []);
+
+  useEffect(() => {
+    void loadStatus(true);
+    return () => {
+      statusRequestGenerationRef.current += 1;
+      statusRequestInFlightRef.current = null;
+    };
+  }, [loadStatus]);
 
   useEffect(() => {
     if (!status || !["authorizing", "connecting", "reconnecting"].includes(status.phase)) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void getDesktopCloudConnectionStatus()
-        .then((nextStatus) => {
-          setStatus(nextStatus);
-          setError("");
-        })
-        .catch(() => undefined);
+      void loadStatus();
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [status?.phase]);
+  }, [loadStatus, status?.phase]);
+
+  function beginStatusMutation(action: "signin" | "connect" | "disconnect" | "signout") {
+    statusMutationInFlightRef.current = true;
+    statusRequestGenerationRef.current += 1;
+    statusRequestInFlightRef.current = null;
+    setBusy(action);
+    setError("");
+  }
+
+  function finishStatusMutation() {
+    statusMutationInFlightRef.current = false;
+    setBusy(null);
+  }
 
   async function signIn() {
-    setBusy("signin");
-    setError("");
+    beginStatusMutation("signin");
     try {
       setStatus(await signInDesktopCloudAccount());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign in to Hecate Cloud.");
     } finally {
-      setBusy(null);
+      finishStatusMutation();
     }
   }
 
   async function connect() {
-    setBusy("connect");
-    setError("");
+    beginStatusMutation("connect");
     try {
       setStatus(await startDesktopCloudConnection());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Remote access could not be enabled.");
     } finally {
-      setBusy(null);
+      finishStatusMutation();
     }
   }
 
   async function disconnect() {
-    setBusy("disconnect");
-    setError("");
+    beginStatusMutation("disconnect");
     try {
       setStatus(await stopDesktopCloudConnection());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Remote access could not be disabled.");
     } finally {
-      setBusy(null);
+      finishStatusMutation();
     }
   }
 
   async function signOut() {
-    setBusy("signout");
-    setError("");
+    beginStatusMutation("signout");
     try {
       setStatus(await signOutDesktopCloudConnection());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign out of Hecate Cloud.");
     } finally {
-      setBusy(null);
+      finishStatusMutation();
     }
   }
 
   const signedIn = Boolean(status?.signed_in);
   const authorizing = Boolean(status?.authorizing);
   const accessOn = Boolean(status?.auto_start_enabled);
+  const unavailable = !loading && (!status || !status.available);
   const actionDisabled = loading || busy !== null || !status?.available;
   const connectionLabel = status?.running
     ? "Connected"
@@ -145,27 +167,50 @@ function DesktopCloudConnectionSettings() {
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>
-                  {authorizing ? "Finish signing in" : "Hecate Cloud account"}
+                  {unavailable
+                    ? "Hecate Cloud unavailable"
+                    : authorizing
+                      ? "Finish signing in"
+                      : "Hecate Cloud account"}
                 </div>
                 <div style={{ marginTop: 4, color: "var(--t2)", fontSize: 12, lineHeight: 1.5 }}>
-                  {authorizing
-                    ? "Approve the sign-in request in your browser. This window updates automatically."
-                    : "Sign in to manage Cloud instances from this app. Remote access to this computer stays off until you enable it."}
+                  {unavailable
+                    ? status?.message ||
+                      "Hecate Cloud status could not be read. Check the desktop configuration and try again."
+                    : authorizing
+                      ? "Approve the sign-in request in your browser. This window updates automatically."
+                      : "Sign in to manage Cloud instances from this app. Remote access to this computer stays off until you enable it."}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                {authorizing && (
-                  <button className="btn btn-ghost" disabled={actionDisabled} onClick={disconnect}>
-                    Cancel
+                {unavailable ? (
+                  <button
+                    className="btn btn-primary"
+                    disabled={loading || busy !== null}
+                    onClick={() => void loadStatus(true)}
+                  >
+                    Retry
                   </button>
+                ) : (
+                  <>
+                    {authorizing && (
+                      <button
+                        className="btn btn-ghost"
+                        disabled={actionDisabled}
+                        onClick={disconnect}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button className="btn btn-primary" disabled={actionDisabled} onClick={signIn}>
+                      {busy === "signin"
+                        ? "Opening…"
+                        : authorizing
+                          ? "Open browser again"
+                          : "Sign in to Hecate Cloud"}
+                    </button>
+                  </>
                 )}
-                <button className="btn btn-primary" disabled={actionDisabled} onClick={signIn}>
-                  {busy === "signin"
-                    ? "Opening…"
-                    : authorizing
-                      ? "Open browser again"
-                      : "Sign in to Hecate Cloud"}
-                </button>
               </div>
             </div>
           ) : (
@@ -373,7 +418,7 @@ function DesktopCloudRuntimeSettings({
     <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-runtimes">
       <SectionHeader
         title="Cloud instances"
-        description="Hosted runtimes and remote-enabled computers available to this Hecate Cloud account."
+        description="Hosted runtimes and registered computers for this account. Computers with remote access off remain visible but cannot be opened."
         meta={
           loading
             ? undefined
@@ -394,7 +439,7 @@ function DesktopCloudRuntimeSettings({
           <CloudMessage>Loading Cloud instances…</CloudMessage>
         ) : connections.length === 0 && !error ? (
           <CloudMessage>
-            No hosted runtimes or remote computers are available for this account.
+            No hosted runtimes or registered computers are available for this account.
           </CloudMessage>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>

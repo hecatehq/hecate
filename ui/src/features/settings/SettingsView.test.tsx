@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -252,6 +252,132 @@ describe("SettingsView", () => {
         name: "Verification code",
       }),
     ).toBeNull();
+  });
+
+  it("lets the user retry a failed initial Hecate Cloud status read", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    tauriInvokeMock
+      .mockRejectedValueOnce(new Error("Hecate Cloud status could not be read."))
+      .mockResolvedValueOnce({
+        available: true,
+        phase: "disconnected",
+        running: false,
+        authorizing: false,
+        signed_in: false,
+        gateway_ready: true,
+        auto_start_enabled: false,
+        account_email: null,
+        cloud_url: "https://console.hecatehq.com",
+        base_url: "http://127.0.0.1:54321",
+        message: "Sign in to Hecate Cloud.",
+        last_error: null,
+      });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-connection");
+    expect(await within(section).findByText("Hecate Cloud unavailable")).toBeTruthy();
+    expect(within(section).getByText("Hecate Cloud status could not be read.")).toBeTruthy();
+
+    await user.click(within(section).getByRole("button", { name: "Retry" }));
+
+    expect(
+      await within(section).findByRole("button", { name: "Sign in to Hecate Cloud" }),
+    ).toBeTruthy();
+    expect(tauriInvokeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains an unavailable native Hecate Cloud status and offers retry", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    tauriInvokeMock.mockResolvedValue({
+      available: false,
+      phase: "error",
+      running: false,
+      authorizing: false,
+      signed_in: false,
+      gateway_ready: true,
+      auto_start_enabled: false,
+      account_email: null,
+      cloud_url: "https://invalid.hecate.invalid",
+      base_url: "http://127.0.0.1:54321",
+      message: "Remote access state is unavailable.",
+      last_error: null,
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-connection");
+    expect(await within(section).findByText("Hecate Cloud unavailable")).toBeTruthy();
+    expect(within(section).getByText("Remote access state is unavailable.")).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(within(section).queryByRole("button", { name: "Sign in to Hecate Cloud" })).toBeNull();
+  });
+
+  it("does not let a stale account poll undo sign-out", async () => {
+    vi.useFakeTimers();
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const signedInStatus = {
+      available: true,
+      phase: "reconnecting",
+      running: false,
+      authorizing: false,
+      signed_in: true,
+      gateway_ready: true,
+      auto_start_enabled: true,
+      account_email: "alice@example.com",
+      cloud_url: "https://console.hecatehq.com",
+      base_url: "http://127.0.0.1:54321",
+      message: "Reconnecting to Hecate Cloud.",
+      last_error: null,
+    };
+    const signedOutStatus = {
+      ...signedInStatus,
+      phase: "disconnected",
+      signed_in: false,
+      auto_start_enabled: false,
+      account_email: null,
+      message: "Signed out of Hecate Cloud.",
+    };
+    let statusReads = 0;
+    let resolveStaleStatus: ((value: typeof signedInStatus) => void) | undefined;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        statusReads += 1;
+        if (statusReads === 1) return Promise.resolve(signedInStatus);
+        return new Promise<typeof signedInStatus>((resolve) => {
+          resolveStaleStatus = resolve;
+        });
+      }
+      if (command === "cloud_runtime_connections") return Promise.resolve([]);
+      if (command === "cloud_connection_sign_out") return Promise.resolve(signedOutStatus);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+
+    const section = screen.getByTestId("desktop-cloud-connection");
+    expect(within(section).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+    expect(statusReads).toBe(2);
+
+    fireEvent.click(within(section).getByRole("button", { name: "Sign out" }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(within(section).getByRole("button", { name: "Sign in to Hecate Cloud" })).toBeTruthy();
+
+    await act(async () => {
+      resolveStaleStatus?.(signedInStatus);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(within(section).getByRole("button", { name: "Sign in to Hecate Cloud" })).toBeTruthy();
+    expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull();
   });
 
   it("lets a signed-in user enable remote access and sign out", async () => {
