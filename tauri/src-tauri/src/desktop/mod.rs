@@ -300,7 +300,7 @@ async fn cloud_runtime_open(
         return Ok(CloudRuntimeOpenResult {
             connection_id: connection_id.to_string(),
             name,
-            message: "The existing secure Hecate window was focused.".to_string(),
+            message: "Focused the existing Hecate window.".to_string(),
         });
     }
     let prepared = match supervisor.prepare_runtime_open(connection_id).await {
@@ -405,8 +405,11 @@ async fn cloud_runtime_open(
     })?;
     Ok(CloudRuntimeOpenResult {
         connection_id: prepared.connection.id,
+        message: format!(
+            "Opened {} in a new Hecate window.",
+            prepared.connection.name
+        ),
         name: prepared.connection.name,
-        message: "A secure Hecate session was opened in a separate window.".to_string(),
     })
 }
 

@@ -247,7 +247,7 @@ describe("desktop cloud runtime bridge", () => {
       .mockResolvedValueOnce({
         connection_id: "runtime_1",
         name: "Production",
-        message: "A secure Hecate session was opened in a separate window.",
+        message: "Opened Production in a new Hecate window.",
         open_url: "https://must-not-cross-ipc.example",
       });
 
@@ -261,7 +261,7 @@ describe("desktop cloud runtime bridge", () => {
     await expect(openDesktopCloudRuntime("runtime_1")).resolves.toEqual({
       connection_id: "runtime_1",
       name: "Production",
-      message: "A secure Hecate session was opened in a separate window.",
+      message: "Opened Production in a new Hecate window.",
     });
     expect(invokeMock).toHaveBeenNthCalledWith(1, "cloud_runtime_start", {
       connectionId: "runtime_1",

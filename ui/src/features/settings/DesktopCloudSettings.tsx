@@ -148,7 +148,7 @@ function DesktopCloudConnectionSettings() {
       <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-connection">
         <SectionHeader
           title="Hecate Cloud"
-          description="Sign in to manage Cloud instances. Remote access is a separate control for making this computer available from other devices."
+          description="Sign in to open Cloud runtimes and other computers. Remote access controls whether this computer can be opened elsewhere."
           meta={status?.running ? "connected" : signedIn ? "signed in" : undefined}
         />
         <div className="card" style={{ overflow: "hidden" }}>
@@ -179,7 +179,7 @@ function DesktopCloudConnectionSettings() {
                       "Hecate Cloud status could not be read. Check the desktop configuration and try again."
                     : authorizing
                       ? "Approve the sign-in request in your browser. This window updates automatically."
-                      : "Sign in to manage Cloud instances from this app. Remote access to this computer stays off until you enable it."}
+                      : "Sign in to open Cloud runtimes and other computers. Remote access to this computer stays off until you enable it."}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -409,8 +409,8 @@ function DesktopCloudRuntimeSettings({
   return (
     <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-runtimes">
       <SectionHeader
-        title="Cloud instances"
-        description="Hosted runtimes and registered computers for this account. Computers with remote access off remain visible but cannot be opened."
+        title="Other Hecate instances"
+        description="Hosted runtimes and your other computers. Each opens in its own Hecate window."
         meta={
           loading
             ? undefined
@@ -428,10 +428,10 @@ function DesktopCloudRuntimeSettings({
       />
       <div className="card" style={{ overflow: "hidden" }}>
         {loading ? (
-          <CloudMessage>Loading Cloud instances…</CloudMessage>
+          <CloudMessage>Loading other Hecate instances…</CloudMessage>
         ) : connections.length === 0 && !error ? (
           <CloudMessage>
-            No hosted runtimes or registered computers are available for this account.
+            No other runtimes or computers are available for this account.
           </CloudMessage>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -525,7 +525,7 @@ function CloudRuntimeConnectionRow({
             lineHeight: 1.5,
           }}
         >
-          <span>{connection.kind === "hosted_runtime" ? "Hosted runtime" : "Desktop"}</span>
+          <span>{connection.kind === "hosted_runtime" ? "Hosted runtime" : "Computer"}</span>
           {connection.version && <span>Version {connection.version}</span>}
           <span>
             Last seen{" "}

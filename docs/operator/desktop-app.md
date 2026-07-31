@@ -114,15 +114,19 @@ What works:
   this computer. The separate **Remote access** toggle registers it and
   maintains the outbound relay when the operator explicitly enables that
   access. Turning Remote access off preserves the signed-in account; signing
-  out revokes the app session and computer registration.
-- The same section lists **Cloud instances** available to the signed-in
-  account: hosted runtimes and the owner's registered desktop Hecates. A
-  desktop with remote access off remains visible but cannot be opened. A
-  Cloud-managed stopped runtime can be started from the list. Opening an
-  available entry creates a short-lived browser session and shows that
-  runtime's normal Hecate UI in a separate native window. Chats, Tasks, and
-  Projects created there remain owned by that selected runtime; opening it is
-  remote supervision, not process, workspace, or session migration.
+  out revokes the app session and computer registration. New registrations use
+  the operating system hostname unless `HECATE_DESKTOP_HOST_NAME` overrides it.
+- The same section lists **Other Hecate instances** available to the signed-in
+  account: hosted runtimes and the owner's other registered computers. The
+  current computer appears only in **Remote access for this computer** and
+  cannot be opened through Cloud back into itself. A computer with remote
+  access off remains visible but cannot be opened. A Cloud-managed stopped
+  runtime can be started from the list. Opening an available entry creates a
+  short-lived browser session and shows that runtime's normal Hecate UI in a
+  separate window of the same native app. It does not launch or install a
+  second Hecate app. Chats, Tasks, and Projects created there remain owned by
+  that selected runtime; opening it is remote supervision, not process,
+  workspace, or session migration.
 - A remote runtime window is incognito and receives no Tauri command
   capability. The native layer keeps the Cloud account bearer, one-time
   bootstrap URL, desktop relay ticket, and server-authored navigation paths out
