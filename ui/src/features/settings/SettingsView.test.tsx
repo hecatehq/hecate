@@ -380,6 +380,62 @@ describe("SettingsView", () => {
     expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull();
   });
 
+  it("does not let a child account refresh undo sign-out", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    const signedInStatus = {
+      available: true,
+      phase: "disconnected",
+      running: false,
+      authorizing: false,
+      signed_in: true,
+      gateway_ready: true,
+      auto_start_enabled: false,
+      account_email: "alice@example.com",
+      cloud_url: "https://console.hecatehq.com",
+      base_url: "http://127.0.0.1:54321",
+      message: "Remote access is off.",
+      last_error: null,
+    };
+    const signedOutStatus = {
+      ...signedInStatus,
+      signed_in: false,
+      account_email: null,
+      message: "Signed out of Hecate Cloud.",
+    };
+    let statusReads = 0;
+    let resolveChildRefresh: ((value: typeof signedInStatus) => void) | undefined;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        statusReads += 1;
+        if (statusReads === 1) return Promise.resolve(signedInStatus);
+        return new Promise<typeof signedInStatus>((resolve) => {
+          resolveChildRefresh = resolve;
+        });
+      }
+      if (command === "cloud_runtime_connections") {
+        return Promise.reject(new Error("Your Hecate Cloud session expired."));
+      }
+      if (command === "cloud_connection_sign_out") return Promise.resolve(signedOutStatus);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions, user } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    const section = await screen.findByTestId("desktop-cloud-connection");
+    await waitFor(() => expect(statusReads).toBe(2));
+    await user.click(within(section).getByRole("button", { name: "Sign out" }));
+    expect(
+      await within(section).findByRole("button", { name: "Sign in to Hecate Cloud" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      resolveChildRefresh?.(signedInStatus);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(within(section).getByRole("button", { name: "Sign in to Hecate Cloud" })).toBeTruthy();
+    expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull();
+  });
+
   it("lets a signed-in user enable remote access and sign out", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     tauriInvokeMock.mockImplementation((command: string) => {
