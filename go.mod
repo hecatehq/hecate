@@ -31,7 +31,7 @@ require (
 	golang.org/x/image v0.44.0
 	golang.org/x/sys v0.47.0
 	google.golang.org/protobuf v1.36.11
-	modernc.org/sqlite v1.54.0
+	modernc.org/sqlite v1.55.0
 	mvdan.cc/sh/v3 v3.13.1
 )
 
