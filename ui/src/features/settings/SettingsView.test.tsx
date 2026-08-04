@@ -550,7 +550,7 @@ describe("SettingsView", () => {
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     const section = await screen.findByTestId("desktop-cloud-connection");
-    expect(within(section).getByText("alice@example.com")).toBeTruthy();
+    expect(await within(section).findByText("alice@example.com")).toBeTruthy();
     await user.click(
       within(section).getByRole("switch", { name: "Remote access for this computer" }),
     );
