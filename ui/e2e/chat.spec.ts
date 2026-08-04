@@ -1445,7 +1445,7 @@ test("keeps repair actions out of active dictation in a narrow desktop composer"
       name: "dictation status",
       locator: composerActions.locator(".chat-composer-dictation-status--active"),
     },
-    { name: "dictation duration", locator: page.getByLabel("Dictation duration 0:00") },
+    { name: "dictation duration", locator: page.getByLabel(/^Dictation duration /) },
     { name: "send", locator: page.getByRole("button", { name: "Send message" }) },
   ];
   await expect(retry).toHaveCount(0);

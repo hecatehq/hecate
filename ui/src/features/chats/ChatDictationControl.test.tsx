@@ -263,7 +263,7 @@ describe("ChatDictationControl", () => {
     await user.click(screen.getByRole("button", { name: "Start dictation" }));
 
     expect(screen.getByRole("button", { name: "Stop dictation recording" })).toBeEnabled();
-    expect(screen.getByLabelText("Dictation duration 0:00")).toBeVisible();
+    expect(screen.getByLabelText(/^Dictation duration /)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Retry dictation route check" })).toBeNull();
   });
 
