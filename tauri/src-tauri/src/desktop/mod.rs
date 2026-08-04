@@ -1250,13 +1250,15 @@ pub fn run() {
             let remote_runtime_secret = cloud_connection::new_remote_runtime_secret();
             app.manage(CloudRuntimeWindowRegistry::default());
             let expired_account_app = app.handle().clone();
-            app.manage(CloudConnectionSupervisor::new(
+            let cloud_connection = CloudConnectionSupervisor::new(
                 diagnostics.data_dir.join("cloud-connection.json"),
                 remote_runtime_secret.clone(),
                 Arc::new(move || {
                     close_cloud_runtime_windows(&expired_account_app);
                 }),
-            ));
+            );
+            app.manage(cloud_connection.clone());
+            cloud_connection.restore_startup();
             // Seed an empty base URL slot. Filled by the spawn task once
             // /healthz returns 200; read by handle_quit_request to reach
             // /system/stats and /system/shutdown.
@@ -1297,7 +1299,7 @@ pub fn run() {
                             }
                         }
                         if let Some(state) = app_handle.try_state::<CloudConnectionSupervisor>() {
-                            state.start_if_enabled(Some(handle.base_url.clone()));
+                            state.gateway_ready(handle.base_url.clone());
                         }
                         if let Some(delay) = remaining_splash_delay(splash_started.elapsed()) {
                             tokio::time::sleep(delay).await;

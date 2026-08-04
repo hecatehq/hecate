@@ -65,13 +65,17 @@ function DesktopCloudConnectionSettings() {
   }, [loadStatus]);
 
   useEffect(() => {
-    if (!status || !["authorizing", "connecting", "reconnecting"].includes(status.phase)) return;
+    if (
+      !status ||
+      (!status.restoring && !["authorizing", "connecting", "reconnecting"].includes(status.phase))
+    )
+      return;
     const interval = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadStatus();
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [loadStatus, status?.phase]);
+  }, [loadStatus, status?.phase, status?.restoring]);
 
   function beginStatusMutation(action: "signin" | "connect" | "disconnect" | "signout") {
     statusMutationInFlightRef.current = true;
@@ -134,7 +138,7 @@ function DesktopCloudConnectionSettings() {
   const authorizing = Boolean(status?.authorizing);
   const accessOn = Boolean(status?.auto_start_enabled);
   const unavailable = !loading && (!status || !status.available);
-  const actionDisabled = loading || busy !== null || !status?.available;
+  const actionDisabled = loading || status?.restoring || busy !== null || !status?.available;
   const connectionLabel = status?.running
     ? "Connected"
     : status?.phase === "connecting"
@@ -152,7 +156,7 @@ function DesktopCloudConnectionSettings() {
           meta={status?.running ? "connected" : signedIn ? "signed in" : undefined}
         />
         <div className="card" style={{ overflow: "hidden" }}>
-          {loading ? (
+          {loading || status?.restoring ? (
             <CloudMessage>Checking Hecate Cloud account…</CloudMessage>
           ) : !signedIn ? (
             <div
