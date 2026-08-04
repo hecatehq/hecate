@@ -1381,6 +1381,102 @@ test("keeps desktop composer actions separate when image input and dictation nee
   await expectSeparatedActions();
 });
 
+test("keeps repair actions out of active dictation in a narrow desktop composer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.route("/hecate/v1/dictation/options", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { message: "dictation routes unavailable" } }),
+    }),
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.dictationProvider", "client:web-speech:browser-managed");
+    class BrowserManagedSpeechRecognition {
+      lang = "";
+      continuous = false;
+      interimResults = false;
+      maxAlternatives = 1;
+      onresult: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onend: (() => void) | null = null;
+
+      start() {}
+
+      stop() {}
+
+      abort() {}
+    }
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: BrowserManagedSpeechRecognition,
+    });
+  });
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+  await switchToModel(page);
+
+  const retry = page.getByRole("button", { name: "Retry dictation route check" });
+  await expect(retry).toBeVisible();
+  await page.getByRole("button", { name: "Chat settings" }).click();
+  await expect(page.getByLabel("Chat settings panel")).toBeVisible();
+  const splitComposerBox = await page
+    .getByRole("group", { name: "Message composer" })
+    .boundingBox();
+  expect(splitComposerBox).not.toBeNull();
+  expect(splitComposerBox!.width).toBeLessThanOrEqual(360);
+
+  await page.getByRole("button", { name: "Start dictation" }).click();
+
+  const composerActions = page.getByRole("group", { name: "Composer actions" });
+  const dictationControls = composerActions.locator(".chat-composer-dictation");
+  const activeItems = [
+    {
+      name: "stop dictation",
+      locator: page.getByRole("button", { name: "Stop dictation recording" }),
+    },
+    {
+      name: "dictation route",
+      locator: page.getByRole("combobox", { name: "Dictation route" }),
+    },
+    {
+      name: "dictation status",
+      locator: composerActions.locator(".chat-composer-dictation-status--active"),
+    },
+    { name: "dictation duration", locator: page.getByLabel("Dictation duration 0:00") },
+    { name: "send", locator: page.getByRole("button", { name: "Send message" }) },
+  ];
+  await expect(retry).toHaveCount(0);
+  expect(
+    await dictationControls.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBe(true);
+
+  const actionsBox = await composerActions.boundingBox();
+  expect(actionsBox).not.toBeNull();
+  const itemBoxes = [];
+  for (const item of activeItems) {
+    await expect(item.locator).toBeVisible();
+    const box = await item.locator.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(actionsBox!.x - 1);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(actionsBox!.x + actionsBox!.width + 1);
+    expect(box!.y).toBeGreaterThanOrEqual(actionsBox!.y - 1);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(actionsBox!.y + actionsBox!.height + 1);
+    itemBoxes.push({ ...box!, name: item.name });
+  }
+  for (let left = 0; left < itemBoxes.length; left += 1) {
+    for (let right = left + 1; right < itemBoxes.length; right += 1) {
+      const a = itemBoxes[left]!;
+      const b = itemBoxes[right]!;
+      const horizontalOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1;
+      const verticalOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
+      expect(horizontalOverlap && verticalOverlap, `${a.name} overlaps ${b.name}`).toBe(false);
+    }
+  }
+});
+
 test("keeps the phone composer controls contained when dictation needs setup", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route("/hecate/v1/dictation/options", (route) =>
