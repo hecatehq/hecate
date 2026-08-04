@@ -1236,6 +1236,151 @@ test("uses a full-width replacement panel and phone-sized chat controls", async 
   await expect(settingsButton).toBeFocused();
 });
 
+test("keeps desktop composer actions separate when image input and dictation need setup", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.route("/hecate/v1/dictation/options", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "dictation_options",
+        data: [
+          {
+            provider: "openai",
+            provider_kind: "cloud",
+            default_model: "gpt-4o-mini-transcribe",
+            available: false,
+            unavailable_reason: "provider credentials are missing",
+          },
+        ],
+      }),
+    }),
+  );
+  await page.evaluate(() => {
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  await switchToModel(page);
+
+  const composerActions = page.getByRole("group", { name: "Composer actions" });
+  const dictationRoute = page.getByRole("combobox", { name: "Dictation route" });
+  const dictationSetup = page.getByRole("button", { name: "Set up dictation provider" });
+  const actionItems = [
+    { name: "image button", locator: page.getByRole("button", { name: "Image" }) },
+    {
+      name: "image status",
+      locator: composerActions.locator(".chat-composer-attachment-copy--active"),
+    },
+    {
+      name: "dictation button",
+      locator: page.getByRole("button", { name: "Start dictation" }),
+    },
+    {
+      name: "dictation route",
+      locator: dictationRoute,
+    },
+    {
+      name: "dictation status",
+      locator: composerActions.locator(".chat-composer-dictation-status--active"),
+    },
+    {
+      name: "dictation setup",
+      locator: dictationSetup,
+    },
+    {
+      name: "send button",
+      locator: page.getByRole("button", { name: "Send message" }),
+    },
+  ];
+
+  for (const item of actionItems) await expect(item.locator).toBeVisible();
+  const dictationRouteLabel = page.getByText("Dictation route", { exact: true });
+  await expect(dictationRouteLabel).toHaveClass("sr-only");
+  await expect(dictationRouteLabel).toHaveCSS("position", "absolute");
+  const dictationRouteLabelBox = await dictationRouteLabel.boundingBox();
+  expect(dictationRouteLabelBox).not.toBeNull();
+  expect(dictationRouteLabelBox!.width).toBeLessThanOrEqual(1);
+  expect(dictationRouteLabelBox!.height).toBeLessThanOrEqual(1);
+
+  async function expectSeparatedActions() {
+    const actionsBox = await composerActions.boundingBox();
+    expect(actionsBox).not.toBeNull();
+    const attachmentControls = composerActions.locator(".chat-composer-attachment-controls");
+    const dictationControls = composerActions.locator(".chat-composer-dictation");
+    for (const surface of [composerActions, attachmentControls, dictationControls]) {
+      expect(
+        await surface.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true);
+    }
+    await expect(attachmentControls).toHaveCSS("overflow", "visible");
+    await expect(dictationControls).toHaveCSS("overflow", "visible");
+
+    const itemBoxes = [];
+    for (const item of actionItems) {
+      const box = await item.locator.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(actionsBox!.x - 1);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(actionsBox!.x + actionsBox!.width + 1);
+      expect(box!.y).toBeGreaterThanOrEqual(actionsBox!.y - 1);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(actionsBox!.y + actionsBox!.height + 1);
+      itemBoxes.push({ ...box!, name: item.name });
+    }
+    expect(itemBoxes.find((item) => item.name === "image status")!.width).toBeGreaterThanOrEqual(
+      120,
+    );
+    for (let left = 0; left < itemBoxes.length; left += 1) {
+      for (let right = left + 1; right < itemBoxes.length; right += 1) {
+        const a = itemBoxes[left]!;
+        const b = itemBoxes[right]!;
+        const horizontalOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1;
+        const verticalOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
+        expect(horizontalOverlap && verticalOverlap, `${a.name} overlaps ${b.name}`).toBe(false);
+      }
+    }
+  }
+
+  await expectSeparatedActions();
+  await page.getByRole("button", { name: "Chat settings" }).click();
+  await expect(page.getByLabel("Chat settings panel")).toBeVisible();
+  await expect(page.getByRole("separator", { name: "Resize right panel" })).toBeVisible();
+  const splitComposerBox = await page
+    .getByRole("group", { name: "Message composer" })
+    .boundingBox();
+  expect(splitComposerBox).not.toBeNull();
+  expect(splitComposerBox!.width).toBeLessThanOrEqual(360);
+  await expectSeparatedActions();
+  await dictationRoute.focus();
+  await expect(dictationRoute).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dictationSetup).toBeFocused();
+  await expect(dictationSetup).toHaveCSS("outline-style", "solid");
+  await expect(dictationSetup).toHaveCSS("outline-offset", "2px");
+  const clippingAncestors = await dictationSetup.evaluate((element) => {
+    const clippedBy = [];
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const style = getComputedStyle(ancestor);
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+        clippedBy.push(ancestor.className || ancestor.tagName);
+      }
+      if (ancestor.classList.contains("chat-composer-surface")) break;
+    }
+    return clippedBy;
+  });
+  expect(clippingAncestors).toEqual([]);
+  await page.getByRole("button", { name: "Chat settings" }).click();
+  await expect(page.getByLabel("Chat settings panel")).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expectSeparatedActions();
+});
+
 test("keeps the phone composer controls contained when dictation needs setup", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route("/hecate/v1/dictation/options", (route) =>
@@ -1272,12 +1417,16 @@ test("keeps the phone composer controls contained when dictation needs setup", a
   const form = textarea.locator("xpath=ancestor::form");
   const messageComposer = page.getByRole("group", { name: "Message composer" });
   const composerActions = page.getByRole("group", { name: "Composer actions" });
+  const dictationRoute = page.getByRole("combobox", { name: "Dictation route" });
+  const imageStatus = composerActions.locator(".chat-composer-attachment-copy--active");
+  const dictationStatus = composerActions.locator(".chat-composer-dictation-status--active");
+  const dictationSetup = page.getByRole("button", { name: "Set up dictation provider" });
   const controls = [
     page.getByRole("button", { name: /Provider picker:/ }),
     page.getByRole("button", { name: /Model picker:/ }),
     page.getByRole("button", { name: "Image" }),
     page.getByRole("button", { name: "Start dictation" }),
-    page.getByRole("button", { name: "Set up dictation provider" }),
+    dictationSetup,
     page.getByRole("button", { name: "Send message" }),
   ];
 
@@ -1290,6 +1439,8 @@ test("keeps the phone composer controls contained when dictation needs setup", a
   expect(dictationRouteLabelBox!.width).toBeLessThanOrEqual(1);
   expect(dictationRouteLabelBox!.height).toBeLessThanOrEqual(1);
   for (const control of controls) await expect(control).toBeVisible();
+  for (const item of [dictationRoute, imageStatus, dictationStatus])
+    await expect(item).toBeVisible();
 
   for (const surface of [form, messageComposer, composerActions]) {
     const geometry = await surface.evaluate((element) => ({
@@ -1301,16 +1452,29 @@ test("keeps the phone composer controls contained when dictation needs setup", a
 
   const actionsBox = await composerActions.boundingBox();
   expect(actionsBox).not.toBeNull();
-  const actionControls = controls.slice(2);
+  const actionItems = [
+    ...controls.slice(2).map((locator, index) => ({
+      name: ["image button", "dictation button", "dictation setup", "send button"][index]!,
+      locator,
+      touchTarget: true,
+    })),
+    { name: "dictation route", locator: dictationRoute, touchTarget: true },
+    { name: "image status", locator: imageStatus, touchTarget: false },
+    { name: "dictation status", locator: dictationStatus, touchTarget: false },
+  ];
   const actionBoxes = [];
-  for (const control of actionControls) {
-    const box = await control.boundingBox();
+  for (const item of actionItems) {
+    const box = await item.locator.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(44);
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+    if (item.touchTarget) {
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
     expect(box!.x).toBeGreaterThanOrEqual(actionsBox!.x - 1);
     expect(box!.x + box!.width).toBeLessThanOrEqual(actionsBox!.x + actionsBox!.width + 1);
-    actionBoxes.push(box!);
+    expect(box!.y).toBeGreaterThanOrEqual(actionsBox!.y - 1);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(actionsBox!.y + actionsBox!.height + 1);
+    actionBoxes.push({ ...box!, name: item.name });
   }
   for (let left = 0; left < actionBoxes.length; left += 1) {
     for (let right = left + 1; right < actionBoxes.length; right += 1) {
@@ -1318,9 +1482,11 @@ test("keeps the phone composer controls contained when dictation needs setup", a
       const b = actionBoxes[right]!;
       const horizontalOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1;
       const verticalOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
-      expect(horizontalOverlap && verticalOverlap).toBe(false);
+      expect(horizontalOverlap && verticalOverlap, `${a.name} overlaps ${b.name}`).toBe(false);
     }
   }
+  await dictationSetup.focus();
+  await expect(dictationSetup).toBeFocused();
 });
 
 test("moves focus into and back from a phone replacement panel opened by slash command", async ({

@@ -1127,6 +1127,7 @@ export function ChatComposer(props: ChatComposerProps) {
             </div>
           )}
           <div
+            className="chat-composer-surface"
             aria-label="Message composer"
             role="group"
             style={{

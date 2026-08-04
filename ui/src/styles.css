@@ -754,6 +754,10 @@ textarea {
   }
 }
 
+.chat-composer-surface {
+  container: chat-composer-surface / inline-size;
+}
+
 .chat-composer-actions {
   display: flex;
   align-items: flex-end;
@@ -767,8 +771,23 @@ textarea {
   margin-left: auto;
 }
 
+.chat-composer-attachments {
+  flex: 0 1 220px;
+  min-width: 0;
+}
+
+.chat-composer-attachment-controls {
+  min-width: 0;
+}
+
+.chat-composer-attachment-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .chat-composer-dictation {
   display: flex;
+  flex: 1 1 360px;
   align-items: center;
   gap: 6px;
   min-height: 28px;
@@ -777,9 +796,10 @@ textarea {
 
 .chat-composer-dictation-route {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 5px;
-  min-width: 0;
+  min-width: 92px;
 }
 
 .chat-composer-dictation-select {
@@ -815,6 +835,86 @@ textarea {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (min-width: 521px) {
+  @container chat-composer-surface (max-width: 680px) {
+    .chat-composer-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .chat-composer-attachments {
+      grid-column: 1;
+      grid-row: 1;
+      width: 100%;
+    }
+
+    .chat-composer-dictation {
+      grid-column: 1;
+      grid-row: 2;
+      width: 100%;
+    }
+
+    .chat-composer-send {
+      align-self: end;
+      grid-column: 2;
+      grid-row: 1 / span 2;
+    }
+  }
+
+  @container chat-composer-surface (max-width: 360px) {
+    .chat-composer-actions {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .chat-composer-attachments,
+    .chat-composer-dictation,
+    .chat-composer-send {
+      grid-column: 1;
+    }
+
+    .chat-composer-dictation {
+      display: grid;
+      grid-template-areas:
+        "toggle route action"
+        "status status status";
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 4px 6px;
+      max-width: 100%;
+    }
+
+    .chat-composer-dictation-toggle {
+      grid-area: toggle;
+    }
+
+    .chat-composer-dictation-route {
+      grid-area: route;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .chat-composer-dictation-select {
+      max-width: 100%;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .chat-composer-dictation-status {
+      grid-area: status;
+    }
+
+    .chat-composer-dictation-duration,
+    .chat-composer-dictation-action {
+      grid-area: action;
+    }
+
+    .chat-composer-send {
+      grid-row: 3;
+      justify-self: end;
+      margin-left: 0;
+    }
+  }
 }
 
 @media (max-width: 520px), (hover: none) and (pointer: coarse) {
@@ -1112,6 +1212,7 @@ textarea {
 
   .chat-composer-dictation-route {
     grid-area: route;
+    min-width: 0;
     overflow: hidden;
     width: 100%;
   }
