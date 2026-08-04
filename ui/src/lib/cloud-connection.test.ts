@@ -27,6 +27,7 @@ afterEach(() => {
 function connectionStatus(overrides: Record<string, unknown> = {}) {
   return {
     available: true,
+    restoring: false,
     phase: "disconnected",
     running: false,
     authorizing: false,
@@ -67,6 +68,7 @@ describe("desktop cloud connection bridge", () => {
 
     await expect(getDesktopCloudConnectionStatus()).resolves.toEqual({
       available: true,
+      restoring: false,
       phase: "connected",
       running: true,
       authorizing: false,

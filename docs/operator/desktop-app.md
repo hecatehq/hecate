@@ -152,8 +152,11 @@ What works:
   authenticated Cloud sessions to start External Agent work on this computer.
 - Cloud session and computer credentials are stored in the operating system's
   credential store. `<data_dir>/cloud-connection.json` contains only reconnect
-  posture and non-secret account/host identifiers. When Remote access remains
-  on, the app reconnects after its local runtime is healthy on the next launch.
+  posture and non-secret account/host identifiers. Credential and reconnect
+  state is restored in the background, so a slow or locked credential store
+  cannot delay the local runtime or main Hecate window. When Remote access
+  remains on, the app reconnects after both credential restoration and its
+  local runtime are ready on the next launch.
   While running, it also sends heartbeat frames and replaces a connection that
   stops receiving Cloud traffic, so network transitions and Cloud restarts do
   not leave the computer indefinitely marked offline.

@@ -197,6 +197,7 @@ describe("SettingsView", () => {
     tauriInvokeMock
       .mockResolvedValueOnce({
         available: true,
+        restoring: false,
         phase: "disconnected",
         running: false,
         authorizing: false,
@@ -211,6 +212,7 @@ describe("SettingsView", () => {
       })
       .mockResolvedValueOnce({
         available: true,
+        restoring: false,
         phase: "authorizing",
         running: false,
         authorizing: true,
@@ -256,12 +258,58 @@ describe("SettingsView", () => {
     ).toBeNull();
   });
 
+  it("keeps account actions hidden while secure credentials restore", async () => {
+    vi.useFakeTimers();
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    let statusReads = 0;
+    tauriInvokeMock.mockImplementation((command: string) => {
+      if (command === "cloud_connection_status") {
+        statusReads += 1;
+        return Promise.resolve({
+          available: true,
+          restoring: statusReads === 1,
+          phase: "disconnected",
+          running: false,
+          authorizing: false,
+          signed_in: statusReads > 1,
+          gateway_ready: true,
+          auto_start_enabled: false,
+          account_email: statusReads > 1 ? "alice@example.com" : null,
+          cloud_url: "https://console.hecatehq.com",
+          base_url: "http://127.0.0.1:54321",
+          message: statusReads === 1 ? "Checking Hecate Cloud account..." : "Remote access is off.",
+          last_error: null,
+        });
+      }
+      if (command === "cloud_runtime_connections") return Promise.resolve([]);
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const { state, actions } = setup();
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+
+    const section = screen.getByTestId("desktop-cloud-connection");
+    expect(within(section).getByText("Checking Hecate Cloud account…")).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: "Sign in to Hecate Cloud" })).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(statusReads).toBe(2);
+    expect(within(section).getByText("alice@example.com")).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Sign out" })).toBeTruthy();
+  });
+
   it("lets the user retry a failed initial Hecate Cloud status read", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     tauriInvokeMock
       .mockRejectedValueOnce(new Error("Hecate Cloud status could not be read."))
       .mockResolvedValueOnce({
         available: true,
+        restoring: false,
         phase: "disconnected",
         running: false,
         authorizing: false,
@@ -293,6 +341,7 @@ describe("SettingsView", () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     tauriInvokeMock.mockResolvedValue({
       available: false,
+      restoring: false,
       phase: "error",
       running: false,
       authorizing: false,
@@ -320,6 +369,7 @@ describe("SettingsView", () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     const signedInStatus = {
       available: true,
+      restoring: false,
       phase: "reconnecting",
       running: false,
       authorizing: false,
@@ -386,6 +436,7 @@ describe("SettingsView", () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     const signedInStatus = {
       available: true,
+      restoring: false,
       phase: "disconnected",
       running: false,
       authorizing: false,
@@ -444,6 +495,7 @@ describe("SettingsView", () => {
       if (command === "cloud_connection_status") {
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "disconnected",
           running: false,
           authorizing: false,
@@ -461,6 +513,7 @@ describe("SettingsView", () => {
       if (command === "cloud_connection_start") {
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "connected",
           running: true,
           authorizing: false,
@@ -477,6 +530,7 @@ describe("SettingsView", () => {
       if (command === "cloud_connection_sign_out") {
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "disconnected",
           running: false,
           authorizing: false,
@@ -517,6 +571,7 @@ describe("SettingsView", () => {
       if (command === "cloud_connection_status") {
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "disconnected",
           running: false,
           authorizing: false,
@@ -663,6 +718,7 @@ describe("SettingsView", () => {
       if (command === "cloud_connection_status") {
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "disconnected",
           running: false,
           authorizing: false,
@@ -722,6 +778,7 @@ describe("SettingsView", () => {
         const signedIn = statusReads === 1;
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "disconnected",
           running: false,
           authorizing: false,
@@ -758,6 +815,7 @@ describe("SettingsView", () => {
       if (command === "cloud_connection_status") {
         return Promise.resolve({
           available: true,
+          restoring: false,
           phase: "disconnected",
           running: false,
           authorizing: false,

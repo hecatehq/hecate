@@ -53,6 +53,7 @@ const REMOTE_RUNTIME_SECRET_HEADER: &str = "x-hecate-remote-runtime-secret";
 #[derive(Debug, Clone, Serialize)]
 pub struct CloudConnectionStatus {
     pub available: bool,
+    pub restoring: bool,
     pub phase: String,
     pub running: bool,
     pub authorizing: bool,
@@ -128,6 +129,16 @@ pub struct CloudConnectionSupervisor {
     inner: Arc<SupervisorInner>,
 }
 
+struct AuthenticatedLaunch {
+    generation: u64,
+    base_url: String,
+    session_token: String,
+    cancel_rx: watch::Receiver<bool>,
+}
+
+type AuthenticatedConnectionSpawner =
+    Arc<dyn Fn(CloudConnectionSupervisor, AuthenticatedLaunch) + Send + Sync>;
+
 struct SupervisorInner {
     state: Mutex<ConnectionState>,
     preferences_path: Option<PathBuf>,
@@ -137,6 +148,8 @@ struct SupervisorInner {
     remote_runtime_secret: String,
     connection_starts: Mutex<HashSet<String>>,
     on_account_expired: Arc<dyn Fn() + Send + Sync>,
+    on_startup_restore_complete: Arc<dyn Fn() + Send + Sync>,
+    authenticated_connection_spawner: AuthenticatedConnectionSpawner,
 }
 
 struct ConnectionState {
@@ -151,6 +164,22 @@ struct ConnectionState {
     cancel: Option<watch::Sender<bool>>,
     generation: u64,
     availability_error: Option<String>,
+    startup_restore: StartupRestoreState,
+    startup_session_token: Option<String>,
+    startup_auto_start_claimed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StartupRestoreState {
+    Pending,
+    InFlight { generation: u64 },
+    Ready { generation: u64 },
+    Superseded,
+}
+
+struct StartupRestoreSnapshot {
+    preferences: CloudConnectionPreferences,
+    session_token: Result<Option<String>, String>,
 }
 
 #[derive(Default)]
@@ -258,29 +287,38 @@ impl CloudConnectionSupervisor {
         remote_runtime_secret: String,
         on_account_expired: Arc<dyn Fn() + Send + Sync>,
     ) -> Self {
-        let preferences = preferences_path
-            .as_deref()
-            .map(read_preferences)
-            .unwrap_or_default();
+        Self::with_dependencies(
+            preferences_path,
+            credentials,
+            cloud_url,
+            remote_runtime_secret,
+            on_account_expired,
+            Arc::new(|| {}),
+            Arc::new(spawn_authenticated_connection),
+        )
+    }
+
+    fn with_dependencies(
+        preferences_path: Option<PathBuf>,
+        credentials: Arc<dyn CredentialStore>,
+        cloud_url: &str,
+        remote_runtime_secret: String,
+        on_account_expired: Arc<dyn Fn() + Send + Sync>,
+        on_startup_restore_complete: Arc<dyn Fn() + Send + Sync>,
+        authenticated_connection_spawner: AuthenticatedConnectionSpawner,
+    ) -> Self {
         let (configured_cloud_url, cloud_url_error) = match parse_configured_cloud_origin(cloud_url)
         {
             Ok(url) => (url.as_str().trim_end_matches('/').to_string(), None),
             Err(error) => (INVALID_CLOUD_URL.to_string(), Some(error)),
         };
-        let (has_session, credential_error) = match credentials.get(SESSION_CREDENTIAL) {
-            Ok(token) => (token.is_some(), None),
-            Err(err) => (false, Some(err)),
-        };
-        let availability_error = cloud_url_error.or(credential_error);
-        let signed_in = has_session && availability_error.is_none();
+        let availability_error = cloud_url_error;
         let phase = if availability_error.is_some() {
             ConnectionPhase::Error
         } else {
             ConnectionPhase::Disconnected
         };
-        let message = if signed_in {
-            "Remote access is off.".to_string()
-        } else if availability_error.is_some() {
+        let message = if availability_error.is_some() {
             "Hecate Cloud is unavailable.".to_string()
         } else {
             "Sign in to use this Hecate from another device.".to_string()
@@ -288,9 +326,9 @@ impl CloudConnectionSupervisor {
         Self {
             inner: Arc::new(SupervisorInner {
                 state: Mutex::new(ConnectionState {
-                    preferences,
+                    preferences: CloudConnectionPreferences::default(),
                     phase,
-                    signed_in,
+                    signed_in: false,
                     signing_out: false,
                     message,
                     last_error: availability_error.clone(),
@@ -299,6 +337,9 @@ impl CloudConnectionSupervisor {
                     cancel: None,
                     generation: 0,
                     availability_error,
+                    startup_restore: StartupRestoreState::Pending,
+                    startup_session_token: None,
+                    startup_auto_start_claimed: false,
                 }),
                 preferences_path,
                 credentials,
@@ -311,7 +352,190 @@ impl CloudConnectionSupervisor {
                 remote_runtime_secret,
                 connection_starts: Mutex::new(HashSet::new()),
                 on_account_expired,
+                on_startup_restore_complete,
+                authenticated_connection_spawner,
             }),
+        }
+    }
+
+    pub fn restore_startup(&self) {
+        let generation = {
+            let Ok(mut state) = self.inner.state.lock() else {
+                (self.inner.on_startup_restore_complete)();
+                return;
+            };
+            if state.availability_error.is_some() {
+                state.startup_restore = StartupRestoreState::Superseded;
+                drop(state);
+                (self.inner.on_startup_restore_complete)();
+                return;
+            }
+            if state.startup_restore != StartupRestoreState::Pending {
+                return;
+            }
+            let generation = state.generation;
+            state.startup_restore = StartupRestoreState::InFlight { generation };
+            state.message = "Checking Hecate Cloud account...".to_string();
+            generation
+        };
+
+        let preferences_path = self.inner.preferences_path.clone();
+        let credentials = Arc::clone(&self.inner.credentials);
+        let supervisor = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let restored = tauri::async_runtime::spawn_blocking(move || StartupRestoreSnapshot {
+                preferences: preferences_path
+                    .as_deref()
+                    .map(read_preferences)
+                    .unwrap_or_default(),
+                session_token: credentials.get(SESSION_CREDENTIAL),
+            })
+            .await
+            .map_err(|_| "secure credential restoration task failed".to_string());
+            supervisor.complete_startup_restore(generation, restored);
+        });
+    }
+
+    pub fn gateway_ready(&self, base_url: String) {
+        let base_url = match validated_local_base_url(Some(base_url)) {
+            Ok(base_url) => base_url,
+            Err(err) => {
+                self.set_error("Remote access could not start.", Some(err));
+                return;
+            }
+        };
+        let launch = self.inner.state.lock().ok().and_then(|mut state| {
+            state.base_url = Some(base_url);
+            Self::prepare_startup_auto_start_locked(&mut state)
+        });
+        self.spawn_authenticated_launch(launch);
+    }
+
+    fn complete_startup_restore(
+        &self,
+        generation: u64,
+        restored: Result<StartupRestoreSnapshot, String>,
+    ) {
+        let launch = self.inner.state.lock().ok().and_then(|mut state| {
+            let owns_restore = matches!(
+                state.startup_restore,
+                StartupRestoreState::InFlight {
+                    generation: owner_generation
+                } if owner_generation == generation
+            );
+            if !owns_restore || state.generation != generation {
+                if owns_restore {
+                    supersede_startup_restore(&mut state);
+                }
+                return None;
+            }
+
+            match restored {
+                Ok(snapshot) => {
+                    state.preferences = snapshot.preferences;
+                    state.startup_restore = StartupRestoreState::Ready { generation };
+                    match snapshot.session_token {
+                        Ok(Some(token)) => {
+                            state.signed_in = true;
+                            state.signing_out = false;
+                            state.last_error = None;
+                            if state.preferences.auto_start_enabled {
+                                state.phase = ConnectionPhase::Reconnecting;
+                                state.message =
+                                    "Waiting for the local Hecate runtime...".to_string();
+                                state.startup_session_token = Some(token);
+                            } else {
+                                state.phase = ConnectionPhase::Disconnected;
+                                state.message = "Remote access is off.".to_string();
+                                state.startup_session_token = None;
+                            }
+                        }
+                        Ok(None) => {
+                            state.signed_in = false;
+                            state.startup_session_token = None;
+                            if state.preferences.auto_start_enabled {
+                                state.phase = ConnectionPhase::Error;
+                                state.message =
+                                    "Sign in again to restore remote access.".to_string();
+                            } else {
+                                state.phase = ConnectionPhase::Disconnected;
+                                state.message =
+                                    "Sign in to use this Hecate from another device.".to_string();
+                            }
+                            state.last_error = None;
+                        }
+                        Err(err) => {
+                            state.signed_in = false;
+                            state.phase = ConnectionPhase::Error;
+                            state.message = "Hecate Cloud is unavailable.".to_string();
+                            state.last_error = Some(err.clone());
+                            state.availability_error = Some(err);
+                            state.startup_session_token = None;
+                        }
+                    }
+                }
+                Err(err) => {
+                    state.startup_restore = StartupRestoreState::Ready { generation };
+                    state.signed_in = false;
+                    state.phase = ConnectionPhase::Error;
+                    state.message = "Hecate Cloud is unavailable.".to_string();
+                    state.last_error = Some(err.clone());
+                    state.availability_error = Some(err);
+                    state.startup_session_token = None;
+                }
+            }
+            Self::prepare_startup_auto_start_locked(&mut state)
+        });
+        self.spawn_authenticated_launch(launch);
+        (self.inner.on_startup_restore_complete)();
+    }
+
+    fn prepare_startup_auto_start_locked(
+        state: &mut ConnectionState,
+    ) -> Option<AuthenticatedLaunch> {
+        let restore_generation = match state.startup_restore {
+            StartupRestoreState::Ready { generation } => generation,
+            _ => return None,
+        };
+        if restore_generation != state.generation {
+            supersede_startup_restore(state);
+            return None;
+        }
+        if !state.preferences.auto_start_enabled
+            || state.startup_auto_start_claimed
+            || state.availability_error.is_some()
+        {
+            return None;
+        }
+        let base_url = state.base_url.clone()?;
+        let session_token = state.startup_session_token.take()?;
+
+        state.startup_auto_start_claimed = true;
+        cancel_current(state);
+        state.generation = state.generation.wrapping_add(1);
+        let generation = state.generation;
+        state.startup_restore = StartupRestoreState::Ready { generation };
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        state.cancel = Some(cancel_tx);
+        state.phase = ConnectionPhase::Connecting;
+        state.signed_in = true;
+        state.signing_out = false;
+        state.approval_url = None;
+        state.last_error = None;
+        state.message = "Connecting this Hecate...".to_string();
+
+        Some(AuthenticatedLaunch {
+            generation,
+            base_url,
+            session_token,
+            cancel_rx,
+        })
+    }
+
+    fn spawn_authenticated_launch(&self, launch: Option<AuthenticatedLaunch>) {
+        if let Some(launch) = launch {
+            (self.inner.authenticated_connection_spawner)(self.clone(), launch);
+            log::info!("remote access reconnect started");
         }
     }
 
@@ -325,34 +549,6 @@ impl CloudConnectionSupervisor {
         status_from_state(&state, &self.inner.cloud_url)
     }
 
-    pub fn start_if_enabled(&self, base_url: Option<String>) {
-        let should_start = self
-            .inner
-            .state
-            .lock()
-            .map(|state| state.preferences.auto_start_enabled && state.availability_error.is_none())
-            .unwrap_or(false);
-        if !should_start {
-            return;
-        }
-        let session_token = match self.inner.credentials.get(SESSION_CREDENTIAL) {
-            Ok(Some(token)) => token,
-            Ok(None) => {
-                self.set_error("Sign in again to restore remote access.", None);
-                return;
-            }
-            Err(err) => {
-                self.set_error("Secure credential storage is unavailable.", Some(err));
-                return;
-            }
-        };
-        if let Err(err) = self.launch_authenticated(base_url, session_token, false) {
-            self.set_error("Remote access could not start.", Some(err));
-        } else {
-            log::info!("remote access reconnect started");
-        }
-    }
-
     pub async fn start(&self, base_url: Option<String>) -> Result<CloudConnectionStatus, String> {
         let base_url = validated_local_base_url(base_url)?;
         {
@@ -363,6 +559,9 @@ impl CloudConnectionSupervisor {
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
             if state.signing_out {
                 return Err("Hecate Cloud sign-out is still finishing.".to_string());
+            }
+            if matches!(state.startup_restore, StartupRestoreState::InFlight { .. }) {
+                return Err("Hecate Cloud account is still loading. Try again.".to_string());
             }
             if let Some(error) = state.availability_error.as_ref() {
                 return Err(error.clone());
@@ -405,6 +604,9 @@ impl CloudConnectionSupervisor {
                 .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
             if base_url.is_some() {
                 state.base_url = base_url;
+            }
+            if matches!(state.startup_restore, StartupRestoreState::InFlight { .. }) {
+                return Err("Hecate Cloud account is still loading. Try again.".to_string());
             }
             if state.signed_in || state.phase == ConnectionPhase::Authorizing || state.signing_out {
                 return Ok(status_from_state(&state, &self.inner.cloud_url));
@@ -856,6 +1058,7 @@ impl CloudConnectionSupervisor {
         let clear_pending_credential =
             state.phase == ConnectionPhase::Authorizing && !state.signed_in;
         cancel_current(&mut state);
+        supersede_startup_restore(&mut state);
         state.generation = state.generation.wrapping_add(1);
         state.preferences.auto_start_enabled = false;
         if base_url.is_some() {
@@ -892,6 +1095,7 @@ impl CloudConnectionSupervisor {
                 Err(_) => return unavailable_status(base_url, &self.inner.cloud_url),
             };
             cancel_current(&mut state);
+            supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
             let session_token = self
                 .inner
@@ -985,6 +1189,7 @@ impl CloudConnectionSupervisor {
             return;
         };
         cancel_current(&mut state);
+        supersede_startup_restore(&mut state);
         state.generation = state.generation.wrapping_add(1);
         state.phase = ConnectionPhase::Disconnected;
         state.approval_url = None;
@@ -997,6 +1202,7 @@ impl CloudConnectionSupervisor {
             .lock()
             .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
         cancel_current(&mut state);
+        supersede_startup_restore(&mut state);
         state.generation = state.generation.wrapping_add(1);
         state.phase = ConnectionPhase::Authorizing;
         state.signed_in = false;
@@ -1038,6 +1244,7 @@ impl CloudConnectionSupervisor {
                 .lock()
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
             cancel_current(&mut state);
+            supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
             let generation = state.generation;
             let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -1160,13 +1367,14 @@ impl CloudConnectionSupervisor {
         persist_auto_start: bool,
     ) -> Result<(), String> {
         let base_url = validated_local_base_url(base_url)?;
-        let (generation, cancel_rx) = {
+        let launch = {
             let mut state = self
                 .inner
                 .state
                 .lock()
                 .map_err(|_| "Remote access state is unavailable.".to_string())?;
             cancel_current(&mut state);
+            supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
             let generation = state.generation;
             let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -1182,14 +1390,14 @@ impl CloudConnectionSupervisor {
             state.last_error = None;
             state.message = "Connecting this Hecate...".to_string();
             self.persist_preferences(&state.preferences)?;
-            (generation, cancel_rx)
+            AuthenticatedLaunch {
+                generation,
+                base_url,
+                session_token,
+                cancel_rx,
+            }
         };
-        let supervisor = self.clone();
-        tauri::async_runtime::spawn(async move {
-            supervisor
-                .connect_authenticated(generation, base_url, session_token, cancel_rx)
-                .await;
-        });
+        (self.inner.authenticated_connection_spawner)(self.clone(), launch);
         Ok(())
     }
 
@@ -1577,6 +1785,7 @@ impl CloudConnectionSupervisor {
                 return;
             }
             cancel_current(&mut state);
+            supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
             let mut errors = None;
             for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
@@ -1689,6 +1898,7 @@ impl CloudConnectionSupervisor {
 fn status_from_state(state: &ConnectionState, cloud_url: &str) -> CloudConnectionStatus {
     CloudConnectionStatus {
         available: state.availability_error.is_none(),
+        restoring: matches!(state.startup_restore, StartupRestoreState::InFlight { .. }),
         phase: state.phase.as_str().to_string(),
         running: state.phase == ConnectionPhase::Connected,
         authorizing: state.phase == ConnectionPhase::Authorizing,
@@ -1706,6 +1916,7 @@ fn status_from_state(state: &ConnectionState, cloud_url: &str) -> CloudConnectio
 fn unavailable_status(base_url: Option<String>, cloud_url: &str) -> CloudConnectionStatus {
     CloudConnectionStatus {
         available: false,
+        restoring: false,
         phase: "error".to_string(),
         running: false,
         authorizing: false,
@@ -1724,6 +1935,28 @@ fn cancel_current(state: &mut ConnectionState) {
     if let Some(cancel) = state.cancel.take() {
         let _ = cancel.send(true);
     }
+}
+
+fn supersede_startup_restore(state: &mut ConnectionState) {
+    state.startup_restore = StartupRestoreState::Superseded;
+    state.startup_session_token = None;
+    state.startup_auto_start_claimed = false;
+}
+
+fn spawn_authenticated_connection(
+    supervisor: CloudConnectionSupervisor,
+    launch: AuthenticatedLaunch,
+) {
+    tauri::async_runtime::spawn(async move {
+        supervisor
+            .connect_authenticated(
+                launch.generation,
+                launch.base_url,
+                launch.session_token,
+                launch.cancel_rx,
+            )
+            .await;
+    });
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -3724,6 +3957,131 @@ async fn send_json<T: Serialize>(sender: &mpsc::Sender<String>, value: &T) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc as std_mpsc, Condvar};
+    use std::time::Instant;
+
+    static STARTUP_TEST_PATH_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    struct GatedCredentialStore {
+        state: Mutex<GatedCredentialState>,
+        entered: Condvar,
+        released: Condvar,
+    }
+
+    #[derive(Default)]
+    struct GatedCredentialState {
+        first_session_get_claimed: bool,
+        first_session_get_entered: bool,
+        first_session_result: Option<Result<Option<String>, String>>,
+        values: HashMap<String, String>,
+    }
+
+    impl GatedCredentialStore {
+        fn new() -> Self {
+            Self {
+                state: Mutex::new(GatedCredentialState::default()),
+                entered: Condvar::new(),
+                released: Condvar::new(),
+            }
+        }
+
+        fn wait_until_entered(&self) {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut state = self.state.lock().expect("gated credential state");
+            while !state.first_session_get_entered {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(
+                    !remaining.is_zero(),
+                    "startup credential read did not begin"
+                );
+                let (next, timeout) = self
+                    .entered
+                    .wait_timeout(state, remaining)
+                    .expect("wait for startup credential read");
+                state = next;
+                assert!(
+                    !timeout.timed_out() || state.first_session_get_entered,
+                    "startup credential read did not begin"
+                );
+            }
+        }
+
+        fn release(&self, result: Result<Option<String>, String>) {
+            let mut state = self.state.lock().expect("gated credential state");
+            state.first_session_result = Some(result);
+            self.released.notify_all();
+        }
+    }
+
+    impl CredentialStore for GatedCredentialStore {
+        fn get(&self, name: &str) -> Result<Option<String>, String> {
+            let mut state = self.state.lock().expect("gated credential state");
+            if name == SESSION_CREDENTIAL && !state.first_session_get_claimed {
+                state.first_session_get_claimed = true;
+                state.first_session_get_entered = true;
+                self.entered.notify_all();
+                while state.first_session_result.is_none() {
+                    state = self
+                        .released
+                        .wait(state)
+                        .expect("release startup credential read");
+                }
+                return state
+                    .first_session_result
+                    .take()
+                    .expect("released startup credential result");
+            }
+            Ok(state.values.get(name).cloned())
+        }
+
+        fn set(&self, name: &str, value: &str) -> Result<(), String> {
+            self.state
+                .lock()
+                .map_err(|_| "gated credential state is unavailable".to_string())?
+                .values
+                .insert(name.to_string(), value.to_string());
+            Ok(())
+        }
+
+        fn delete(&self, name: &str) -> Result<(), String> {
+            self.state
+                .lock()
+                .map_err(|_| "gated credential state is unavailable".to_string())?
+                .values
+                .remove(name);
+            Ok(())
+        }
+    }
+
+    fn startup_preferences_path(label: &str) -> PathBuf {
+        let sequence = STARTUP_TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "hecate-cloud-{label}-{}-{sequence}.json",
+            std::process::id()
+        ))
+    }
+
+    fn startup_test_supervisor(
+        preferences_path: Option<PathBuf>,
+        credentials: Arc<dyn CredentialStore>,
+        on_restore_complete: Arc<dyn Fn() + Send + Sync>,
+        authenticated_connection_spawner: AuthenticatedConnectionSpawner,
+    ) -> CloudConnectionSupervisor {
+        CloudConnectionSupervisor::with_dependencies(
+            preferences_path,
+            credentials,
+            "https://console.example.test",
+            new_remote_runtime_secret(),
+            Arc::new(|| {}),
+            on_restore_complete,
+            authenticated_connection_spawner,
+        )
+    }
+
+    fn no_authenticated_connection_spawner() -> AuthenticatedConnectionSpawner {
+        Arc::new(|_, _| panic!("startup unexpectedly launched an authenticated connection"))
+    }
 
     fn authorization_expiry_after(duration: Duration) -> String {
         chrono::DateTime::<chrono::Utc>::from(SystemTime::now() + duration)
@@ -5007,22 +5365,302 @@ mod tests {
     }
 
     #[test]
-    fn memory_store_drives_signed_in_status_without_real_keychain() {
-        let credentials = Arc::new(MemoryCredentialStore::default());
-        credentials
-            .set(SESSION_CREDENTIAL, "happ_test-session")
-            .expect("save session");
-        let supervisor = CloudConnectionSupervisor::with_store(
-            None,
-            credentials,
-            "https://console.example.test",
-            new_remote_runtime_secret(),
+    fn constructor_does_not_wait_for_secure_credential_restore() {
+        let credentials = Arc::new(GatedCredentialStore::new());
+        let credentials_for_constructor = Arc::clone(&credentials);
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let (constructed_tx, constructed_rx) = std_mpsc::sync_channel(1);
+        let constructor = std::thread::spawn(move || {
+            let supervisor = startup_test_supervisor(
+                None,
+                credentials_for_constructor,
+                Arc::new(move || {
+                    let _ = restore_tx.send(());
+                }),
+                no_authenticated_connection_spawner(),
+            );
+            supervisor.restore_startup();
+            constructed_tx
+                .send(supervisor)
+                .expect("return constructed supervisor");
+        });
+
+        credentials.wait_until_entered();
+        let supervisor = constructed_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("constructor must return while the credential store is blocked");
+        assert!(supervisor.status(None).restoring);
+
+        credentials.release(Ok(None));
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("startup credential restore completion");
+        constructor.join().expect("constructor thread");
+        assert!(!supervisor.status(None).restoring);
+    }
+
+    #[test]
+    fn delayed_credential_restore_marks_existing_session_signed_in() {
+        let preferences_path = startup_preferences_path("restore-session");
+        let preferences = CloudConnectionPreferences {
+            account_email: Some("operator@example.com".to_string()),
+            org_id: Some("org_1".to_string()),
+            ..CloudConnectionPreferences::default()
+        };
+        write_preferences(&preferences_path, &preferences).expect("startup preferences");
+        let credentials = Arc::new(GatedCredentialStore::new());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            Some(preferences_path.clone()),
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
         );
+
+        supervisor.restore_startup();
+        credentials.wait_until_entered();
+        assert!(supervisor.status(None).restoring);
+        credentials.release(Ok(Some("happ_existing-session".to_string())));
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("startup credential restore completion");
+
         let status = supervisor.status(Some("http://127.0.0.1:8765".to_string()));
         assert!(status.available);
+        assert!(!status.restoring);
         assert!(status.signed_in);
         assert!(status.gateway_ready);
+        assert_eq!(
+            status.account_email.as_deref(),
+            Some("operator@example.com")
+        );
         assert_eq!(status.phase, "disconnected");
+        assert_eq!(status.message, "Remote access is off.");
+        assert_eq!(status.last_error, None);
+        let _ = std::fs::remove_file(preferences_path);
+    }
+
+    #[test]
+    fn delayed_missing_credential_restores_signed_out_state() {
+        let credentials = Arc::new(GatedCredentialStore::new());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            None,
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
+        );
+
+        supervisor.restore_startup();
+        credentials.wait_until_entered();
+        credentials.release(Ok(None));
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("startup credential restore completion");
+
+        let status = supervisor.status(None);
+        assert!(status.available);
+        assert!(!status.restoring);
+        assert!(!status.signed_in);
+        assert_eq!(status.phase, "disconnected");
+        assert_eq!(
+            status.message,
+            "Sign in to use this Hecate from another device."
+        );
+        assert_eq!(status.last_error, None);
+    }
+
+    #[test]
+    fn delayed_credential_error_marks_only_cloud_unavailable() {
+        let credentials = Arc::new(GatedCredentialStore::new());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            None,
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
+        );
+
+        supervisor.restore_startup();
+        credentials.wait_until_entered();
+        credentials.release(Err("test credential store is unavailable".to_string()));
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("startup credential restore completion");
+
+        let status = supervisor.status(Some("http://127.0.0.1:8765".to_string()));
+        assert!(!status.available);
+        assert!(!status.restoring);
+        assert!(!status.signed_in);
+        assert!(status.gateway_ready);
+        assert_eq!(status.phase, "error");
+        assert_eq!(status.message, "Hecate Cloud is unavailable.");
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("test credential store is unavailable")
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_out_fences_delayed_credential_restore() {
+        let preferences_path = startup_preferences_path("stale-sign-out");
+        write_preferences(
+            &preferences_path,
+            &CloudConnectionPreferences {
+                auto_start_enabled: true,
+                account_email: Some("old@example.com".to_string()),
+                org_id: Some("org_old".to_string()),
+                ..CloudConnectionPreferences::default()
+            },
+        )
+        .expect("startup preferences");
+        let credentials = Arc::new(GatedCredentialStore::new());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            Some(preferences_path.clone()),
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
+        );
+
+        supervisor.restore_startup();
+        credentials.wait_until_entered();
+        let signed_out = supervisor.sign_out_with_fence(None, || {}).await;
+        assert!(!signed_out.signed_in);
+        assert!(!signed_out.auto_start_enabled);
+
+        credentials.release(Ok(Some("happ_stale-session".to_string())));
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stale startup credential restore completion");
+        let status = supervisor.status(None);
+        assert!(!status.restoring);
+        assert!(!status.signed_in);
+        assert!(!status.auto_start_enabled);
+        assert_eq!(status.message, "Signed out of Hecate Cloud.");
+        assert!(!read_preferences(&preferences_path).auto_start_enabled);
+        let _ = std::fs::remove_file(preferences_path);
+    }
+
+    #[test]
+    fn new_sign_in_fences_delayed_credential_restore() {
+        let preferences_path = startup_preferences_path("stale-sign-in");
+        write_preferences(
+            &preferences_path,
+            &CloudConnectionPreferences {
+                auto_start_enabled: true,
+                account_email: Some("old@example.com".to_string()),
+                org_id: Some("org_old".to_string()),
+                ..CloudConnectionPreferences::default()
+            },
+        )
+        .expect("startup preferences");
+        let credentials = Arc::new(GatedCredentialStore::new());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            Some(preferences_path.clone()),
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
+        );
+
+        supervisor.restore_startup();
+        credentials.wait_until_entered();
+        let generation = supervisor
+            .begin_account_verification()
+            .expect("begin new account verification");
+        supervisor.complete_account_sign_in_if_current(
+            generation,
+            &CloudActor {
+                id: "actor_new".to_string(),
+                email: "new@example.com".to_string(),
+                org_id: "org_new".to_string(),
+            },
+        );
+
+        credentials.release(Ok(Some("happ_stale-session".to_string())));
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stale startup credential restore completion");
+        let status = supervisor.status(None);
+        assert!(!status.restoring);
+        assert!(status.signed_in);
+        assert!(!status.auto_start_enabled);
+        assert_eq!(status.account_email.as_deref(), Some("new@example.com"));
+        assert_eq!(status.phase, "disconnected");
+        let _ = std::fs::remove_file(preferences_path);
+    }
+
+    #[test]
+    fn startup_reconnect_is_exactly_once_for_both_event_orders() {
+        for gateway_first in [true, false] {
+            let preferences_path = startup_preferences_path(if gateway_first {
+                "gateway-first"
+            } else {
+                "credentials-first"
+            });
+            write_preferences(
+                &preferences_path,
+                &CloudConnectionPreferences {
+                    auto_start_enabled: true,
+                    account_email: Some("operator@example.com".to_string()),
+                    org_id: Some("org_1".to_string()),
+                    ..CloudConnectionPreferences::default()
+                },
+            )
+            .expect("startup preferences");
+            let credentials = Arc::new(GatedCredentialStore::new());
+            let (restore_tx, restore_rx) = std_mpsc::channel();
+            let (launch_tx, launch_rx) = std_mpsc::channel();
+            let supervisor = startup_test_supervisor(
+                Some(preferences_path.clone()),
+                credentials.clone(),
+                Arc::new(move || {
+                    let _ = restore_tx.send(());
+                }),
+                Arc::new(move |_, launch| {
+                    let _ =
+                        launch_tx.send((launch.generation, launch.base_url, launch.session_token));
+                }),
+            );
+
+            supervisor.restore_startup();
+            credentials.wait_until_entered();
+            if gateway_first {
+                supervisor.gateway_ready("http://127.0.0.1:8765".to_string());
+                supervisor.gateway_ready("http://127.0.0.1:8765".to_string());
+                assert!(launch_rx.try_recv().is_err());
+            }
+            credentials.release(Ok(Some("happ_startup-session".to_string())));
+            restore_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("startup credential restore completion");
+            if !gateway_first {
+                assert!(launch_rx.try_recv().is_err());
+                supervisor.gateway_ready("http://127.0.0.1:8765".to_string());
+                supervisor.gateway_ready("http://127.0.0.1:8765".to_string());
+            }
+
+            let (_, base_url, session_token) = launch_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("one startup reconnect");
+            assert_eq!(base_url, "http://127.0.0.1:8765");
+            assert_eq!(session_token, "happ_startup-session");
+            supervisor.gateway_ready("http://127.0.0.1:8765".to_string());
+            assert!(launch_rx.try_recv().is_err());
+            assert_eq!(supervisor.status(None).phase, "connecting");
+            let _ = std::fs::remove_file(preferences_path);
+        }
     }
 
     #[test]

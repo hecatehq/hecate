@@ -2,6 +2,7 @@ import { isTauriRuntime } from "./tauri";
 
 export type DesktopCloudConnectionStatus = {
   available: boolean;
+  restoring: boolean;
   phase: "disconnected" | "authorizing" | "connecting" | "connected" | "reconnecting" | "error";
   running: boolean;
   authorizing: boolean;
@@ -122,6 +123,7 @@ function normalizeStatus(value: unknown): DesktopCloudConnectionStatus {
   }
   return {
     available: requireBoolean(record.available),
+    restoring: requireBoolean(record.restoring),
     phase: phase as DesktopCloudConnectionStatus["phase"],
     running: requireBoolean(record.running),
     authorizing: requireBoolean(record.authorizing),
