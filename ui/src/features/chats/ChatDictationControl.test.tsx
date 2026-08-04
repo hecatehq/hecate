@@ -249,6 +249,24 @@ describe("ChatDictationControl", () => {
     );
   });
 
+  it("hides route repair actions while browser dictation is active", async () => {
+    localStorage.setItem("hecate.dictationProvider", BROWSER_SPEECH_ROUTE_ID);
+    installSpeechRecognitionMocks();
+    vi.mocked(getDictationOptions).mockRejectedValue(new Error("network unavailable"));
+    const user = userEvent.setup();
+    render(<ChatDictationControl onOpenConnections={vi.fn()} onTranscript={vi.fn()} />);
+
+    const route = await screen.findByRole("combobox", { name: "Dictation route" });
+    await waitFor(() => expect(route).toHaveValue(BROWSER_SPEECH_ROUTE_ID));
+    expect(screen.getByRole("button", { name: "Retry dictation route check" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Start dictation" }));
+
+    expect(screen.getByRole("button", { name: "Stop dictation recording" })).toBeEnabled();
+    expect(screen.getByLabelText("Dictation duration 0:00")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry dictation route check" })).toBeNull();
+  });
+
   it("explains that non-secure web origins cannot request a microphone", async () => {
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
     render(<ChatDictationControl onTranscript={vi.fn()} />);

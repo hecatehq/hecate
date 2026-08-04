@@ -465,7 +465,7 @@ export function ChatDictationControl({
           {formatElapsed(elapsedSeconds)}
         </span>
       )}
-      {routeStatusRetryNeeded && (
+      {!active && routeStatusRetryNeeded && (
         <button
           type="button"
           className="btn btn-ghost btn-sm chat-composer-dictation-action"
@@ -478,7 +478,7 @@ export function ChatDictationControl({
           Retry
         </button>
       )}
-      {providerSetupNeeded && onOpenConnections && (
+      {!active && providerSetupNeeded && onOpenConnections && (
         <button
           type="button"
           className="btn btn-ghost btn-sm chat-composer-dictation-action"
