@@ -145,6 +145,13 @@ struct AuthenticatedLaunch {
     base_url: String,
     session_token: String,
     cancel_rx: watch::Receiver<bool>,
+    credential_read_mode: CredentialReadMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CredentialReadMode {
+    NonInteractive,
+    Interactive,
 }
 
 type AuthenticatedConnectionSpawner =
@@ -556,6 +563,7 @@ impl CloudConnectionSupervisor {
             base_url,
             session_token,
             cancel_rx,
+            credential_read_mode: CredentialReadMode::NonInteractive,
         })
     }
 
@@ -996,7 +1004,11 @@ impl CloudConnectionSupervisor {
         Ok(token)
     }
 
-    fn host_token_for_generation(&self, generation: u64) -> Result<Option<String>, String> {
+    fn host_token_for_generation(
+        &self,
+        generation: u64,
+        read_mode: CredentialReadMode,
+    ) -> Result<Option<String>, String> {
         {
             let state = self
                 .inner
@@ -1011,7 +1023,12 @@ impl CloudConnectionSupervisor {
             }
         }
 
-        let token = self.inner.credentials.get(HOST_CREDENTIAL)?;
+        let token = match read_mode {
+            CredentialReadMode::NonInteractive => {
+                self.inner.credentials.get_noninteractive(HOST_CREDENTIAL)?
+            }
+            CredentialReadMode::Interactive => self.inner.credentials.get(HOST_CREDENTIAL)?,
+        };
         let mut state = self
             .inner
             .state
@@ -1484,6 +1501,7 @@ impl CloudConnectionSupervisor {
                 base_url,
                 session_token,
                 cancel_rx,
+                credential_read_mode: CredentialReadMode::Interactive,
             }
         };
         (self.inner.authenticated_connection_spawner)(self.clone(), launch);
@@ -1518,8 +1536,14 @@ impl CloudConnectionSupervisor {
                                 "Connecting this Hecate...",
                                 None,
                             );
-                            self.connect_authenticated(generation, base_url, token, cancel_rx)
-                                .await;
+                            self.connect_authenticated(
+                                generation,
+                                base_url,
+                                token,
+                                cancel_rx,
+                                CredentialReadMode::Interactive,
+                            )
+                            .await;
                         }
                     }
                     return;
@@ -1556,6 +1580,7 @@ impl CloudConnectionSupervisor {
         base_url: String,
         session_token: String,
         mut cancel_rx: watch::Receiver<bool>,
+        credential_read_mode: CredentialReadMode,
     ) {
         if *cancel_rx.borrow() || !self.is_current(generation) {
             return;
@@ -1605,7 +1630,14 @@ impl CloudConnectionSupervisor {
             return;
         }
         let (host_id, host_token) = match self
-            .ensure_host(generation, &client, &session_token, &actor, &mut cancel_rx)
+            .ensure_host(
+                generation,
+                &client,
+                &session_token,
+                &actor,
+                &mut cancel_rx,
+                credential_read_mode,
+            )
             .await
         {
             Ok(credentials) => credentials,
@@ -1724,6 +1756,7 @@ impl CloudConnectionSupervisor {
         session_token: &str,
         actor: &CloudActor,
         cancel_rx: &mut watch::Receiver<bool>,
+        credential_read_mode: CredentialReadMode,
     ) -> Result<(String, String), HostBootstrapError> {
         let (existing_id, existing_actor_id, existing_org_id) = {
             let state = self.inner.state.lock().map_err(|_| {
@@ -1738,13 +1771,15 @@ impl CloudConnectionSupervisor {
                 state.preferences.host_org_id.clone(),
             )
         };
-        let existing_token = self.host_token_for_generation(generation).map_err(|err| {
-            if err == REMOTE_ACCESS_CANCELLED {
-                HostBootstrapError::Cancelled
-            } else {
-                HostBootstrapError::Local(err)
-            }
-        })?;
+        let existing_token = self
+            .host_token_for_generation(generation, credential_read_mode)
+            .map_err(|err| {
+                if err == REMOTE_ACCESS_CANCELLED {
+                    HostBootstrapError::Cancelled
+                } else {
+                    HostBootstrapError::Local(err)
+                }
+            })?;
         if saved_host_owner_matches(
             existing_actor_id.as_deref(),
             existing_org_id.as_deref(),
@@ -1756,6 +1791,17 @@ impl CloudConnectionSupervisor {
                 }
                 return Err(HostBootstrapError::Cancelled);
             }
+        }
+        if credential_read_mode == CredentialReadMode::NonInteractive {
+            // Automatic reconnect is a background operation. If the saved
+            // host credential is missing, inaccessible without consent, or no
+            // longer matches the account, stop here. Cleanup and registration
+            // both mutate Keychain and are reserved for an explicit Start
+            // action, where macOS credential UI is expected and attributable.
+            return Err(HostBootstrapError::Local(
+                "Remote access credentials need attention. Open Hecate and turn Remote access on again."
+                    .to_string(),
+            ));
         }
         if existing_id.is_some() || existing_token.is_some() {
             let mut state = self.inner.state.lock().map_err(|_| {
@@ -2051,6 +2097,7 @@ fn spawn_authenticated_connection(
                 launch.base_url,
                 launch.session_token,
                 launch.cancel_rx,
+                launch.credential_read_mode,
             )
             .await;
     });
@@ -4182,6 +4229,8 @@ mod tests {
     struct StartupReadModeCredentialStore {
         interactive_reads: AtomicUsize,
         noninteractive_reads: AtomicUsize,
+        writes: AtomicUsize,
+        deletes: AtomicUsize,
     }
 
     #[derive(Default)]
@@ -4220,10 +4269,12 @@ mod tests {
         }
 
         fn set(&self, _name: &str, _value: &str) -> Result<(), String> {
+            self.writes.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
 
         fn delete(&self, _name: &str) -> Result<(), String> {
+            self.deletes.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -5705,6 +5756,57 @@ mod tests {
         );
         assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
         assert_eq!(credentials.noninteractive_reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn automatic_reconnect_never_reads_or_rewrites_host_credentials_interactively() {
+        let credentials = Arc::new(StartupReadModeCredentialStore::default());
+        let supervisor = startup_test_supervisor(
+            None,
+            credentials.clone(),
+            Arc::new(|| {}),
+            no_authenticated_connection_spawner(),
+        );
+        let actor = CloudActor {
+            id: "actor_1".to_string(),
+            email: "operator@example.com".to_string(),
+            org_id: "org_1".to_string(),
+        };
+        {
+            let mut state = supervisor.inner.state.lock().expect("state");
+            state.generation = 7;
+            state.preferences.host_id = Some("host_1".to_string());
+            state.preferences.host_actor_id = Some(actor.id.clone());
+            state.preferences.host_org_id = Some(actor.org_id.clone());
+        }
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let client = CloudClient::new(
+            "https://console.example.test".to_string(),
+            reqwest::Client::new(),
+            "0.5.0-test",
+        );
+
+        let error = supervisor
+            .ensure_host(
+                7,
+                &client,
+                "happ_silent-session",
+                &actor,
+                &mut cancel_rx,
+                CredentialReadMode::NonInteractive,
+            )
+            .await
+            .expect_err("an unavailable background host credential must require explicit action");
+
+        assert!(matches!(
+            error,
+            HostBootstrapError::Local(ref message)
+                if message.contains("turn Remote access on again")
+        ));
+        assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.noninteractive_reads.load(Ordering::SeqCst), 1);
+        assert_eq!(credentials.writes.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.deletes.load(Ordering::SeqCst), 0);
     }
 
     #[test]
