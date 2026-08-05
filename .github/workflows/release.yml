@@ -6,7 +6,7 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 # A tag-push and a manual dispatch on the same ref shouldn't fight.
@@ -17,12 +17,14 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write   # create the GitHub release + upload archives
-  packages: write   # push images to ghcr.io
+  contents: write # create the GitHub release + upload archives
+  packages: write # push images to ghcr.io
 
 jobs:
   validate-release-ref:
     name: Validate release ref
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Validate release ref
@@ -33,6 +35,25 @@ jobs:
           set -euo pipefail
           if [[ "$REF_TYPE" != "tag" || ! "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release workflow requires a stable vX.Y.Z tag ref; got ${REF_TYPE} ${REF_NAME}." >&2
+            exit 1
+          fi
+
+      - name: Checkout release history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release commit is on master
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force origin "refs/heads/master:refs/remotes/origin/master"
+          tag_commit="$(git rev-parse --verify "refs/tags/${REF_NAME}^{commit}")"
+          master_commit="$(git rev-parse --verify refs/remotes/origin/master)"
+          if ! git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/master; then
+            echo "Release tag ${REF_NAME} points to ${tag_commit}, which is not on origin/master (${master_commit})." >&2
             exit 1
           fi
 
@@ -56,7 +77,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # goreleaser needs full history to compute the changelog
+          fetch-depth: 0 # goreleaser needs full history to compute the changelog
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -131,9 +152,9 @@ jobs:
     needs: goreleaser
     uses: ./.github/workflows/_tauri-shared.yml
     secrets: inherit
+    # tauri-action uploads bundles and latest.json to the existing Release.
     permissions:
-      contents: write   # tauri-action uploads bundles and latest.json
-                        # to the existing GitHub Release.
+      contents: write
     with:
       tagName: ${{ github.ref_name }}
 

@@ -9,6 +9,7 @@ import {
   parseReleaseCommandArgs,
   validateCuratedReleaseNotes,
 } from "./release-notes";
+import { parseMarkdownBlocks } from "../ui/src/lib/markdown";
 
 const temporaryDirectories: string[] = [];
 
@@ -149,6 +150,26 @@ describe("validateCuratedReleaseNotes", () => {
       ),
     ).toThrow("release notes must not contain HTML comments; remove all template guidance.");
   });
+
+  test.each(["-", "*"])("accepts and renders the canonical %s highlight marker", (marker) => {
+    const markdown = `# Hecate v1.2.3\n\n## Highlights\n\n${marker} Visible update.`;
+
+    expect(() => validateCuratedReleaseNotes(markdown, "v1.2.3")).not.toThrow();
+    expect(parseMarkdownBlocks(`${marker} Visible update.`)).toEqual([
+      { type: "ul", text: "", items: ["Visible update."] },
+    ]);
+  });
+
+  test.each(["+ Visible update.", "  - Visible update.", "-\tVisible update."])(
+    "rejects a highlight form the updater would not render as a list: %s",
+    (highlight) => {
+      const markdown = `# Hecate v1.2.3\n\n## Highlights\n\n${highlight}`;
+
+      expect(() => validateCuratedReleaseNotes(markdown, "v1.2.3")).toThrow(
+        "## Highlights must contain at least one bullet.",
+      );
+    },
+  );
 
   test("requires content for every included section", () => {
     expect(() =>

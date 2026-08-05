@@ -42,6 +42,7 @@ const releaseNotesHelperPath = "scripts/prepare-release-notes.ts";
 const releaseNotesInputPath = "scripts/release-notes.ts";
 const releaseNotesInputTestPath = "scripts/release-notes.test.ts";
 const releaseJustPath = "just/release.just";
+const releaseGuidePath = "docs/contributor/release.md";
 const goreleaserPath = ".goreleaser.yaml";
 const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
 const releaseScriptPath = "scripts/release.ts";
@@ -59,6 +60,7 @@ const releaseNotesHelper = read(releaseNotesHelperPath);
 const releaseNotesInput = read(releaseNotesInputPath);
 const releaseNotesInputTest = read(releaseNotesInputTestPath);
 const releaseJust = read(releaseJustPath);
+const releaseGuide = read(releaseGuidePath);
 const goreleaser = read(goreleaserPath);
 const tauriConfig = read(tauriConfigPath);
 const releaseScript = read(releaseScriptPath);
@@ -76,12 +78,57 @@ forbidText(tauriConfigPath, tauriConfig, "https://hecate.sh/releases/alpha/lates
 requireText(releaseScriptPath, releaseScript, "version must be a stable vX.Y.Z tag");
 requireText(releaseScriptPath, releaseScript, "--notes <path>");
 requireText(releaseScriptPath, releaseScript, '"--cleanup=verbatim"');
-requireText(releaseScriptPath, releaseScript, 'version, "-F", "-"');
+requireText(releaseScriptPath, releaseScript, '"-F", "-", version, releaseCommit');
 requireText(releaseScriptPath, releaseScript, "input: notesInStampedCommit.bytes");
 requireText(releaseScriptPath, releaseScript, '"hash-object", `--path=${notes.relativePath}`');
 requireText(releaseScriptPath, releaseScript, '"commit", "--only"');
+requireText(releaseScriptPath, releaseScript, 'revision = "HEAD"');
+requireText(releaseScriptPath, releaseScript, "`${revision}:${relativePath}`");
+requireText(releaseScriptPath, releaseScript, "headBeforeStamp !== localCommit");
+requireText(releaseScriptPath, releaseScript, 'const releaseCommit = run("git rev-parse HEAD"');
+requireText(
+  releaseScriptPath,
+  releaseScript,
+  "notesAtTag.relativePath,\n  version,\n  releaseCommit",
+);
+requireText(releaseScriptPath, releaseScript, '"--atomic"');
+requireText(releaseScriptPath, releaseScript, "`${releaseCommit}:refs/heads/${branch}`");
+requireText(releaseScriptPath, releaseScript, "`refs/tags/${version}:refs/tags/${version}`");
+forbidText(releaseScriptPath, releaseScript, "`HEAD:${branch}`");
+requireText(releaseScriptPath, releaseScript, "docs/contributor/release.md#recovery");
+forbidText(
+  releaseScriptPath,
+  releaseScript,
+  "git push --delete origin ${version} && git tag -d ${version}",
+);
 forbidText(releaseScriptPath, releaseScript, '["tag", "-a", version, "-m", version]');
+const releaseCommitCapture = releaseScript.indexOf("const releaseCommit =");
+const explicitTag = releaseScript.indexOf('["tag", "-a", "--cleanup=verbatim"');
+const atomicPush = releaseScript.indexOf('"--atomic"', explicitTag);
+if (
+  releaseCommitCapture < 0 ||
+  explicitTag < 0 ||
+  atomicPush < 0 ||
+  !(releaseCommitCapture < explicitTag && explicitTag < atomicPush)
+) {
+  fail(`${releaseScriptPath} must pin the release commit before tagging and atomic publication`);
+}
 requireText(releaseLinksScriptPath, releaseLinksScript, "tag must be a stable vX.Y.Z tag");
+
+requireText(releaseGuidePath, releaseGuide, 'gh release delete "$failed"');
+requireText(releaseGuidePath, releaseGuide, "--cleanup-tag --yes");
+requireText(releaseGuidePath, releaseGuide, "--paginate --slurp");
+requireText(releaseGuidePath, releaseGuide, "`read:packages`");
+requireText(releaseGuidePath, releaseGuide, "`write:packages`");
+requireText(releaseGuidePath, releaseGuide, "`delete:packages`");
+requireText(releaseGuidePath, releaseGuide, "docker buildx imagetools create");
+requireText(releaseGuidePath, releaseGuide, 'test "$latest_digest" = "$last_good_digest"');
+forbidText(
+  releaseGuidePath,
+  releaseGuide,
+  "Tag deletion on GitHub also clears the dangling Release entry",
+);
+forbidText(releaseGuidePath, releaseGuide, "last_good=0.2.0-alpha.4");
 
 forbidText(tauriPath, tauri, "publish-updater-website:");
 forbidText(tauriPath, tauri, "actions: write");
@@ -164,6 +211,37 @@ requireText(releasePath, release, "uses: ./.github/workflows/release-delivery.ym
 requireText(releasePath, release, "expected_release_body_sha256:");
 requireText(releasePath, release, "Release workflow requires a stable vX.Y.Z tag ref");
 forbidText(releasePath, release, "actions: write");
+
+const validateReleaseStart = release.indexOf("  validate-release-ref:");
+const mobileStart = release.indexOf("  mobile:", validateReleaseStart);
+if (validateReleaseStart < 0 || mobileStart < 0) {
+  fail(`${releasePath} must validate release tags before mobile and publication jobs`);
+}
+const validateRelease = release.slice(validateReleaseStart, mobileStart);
+requireText(releasePath, validateRelease, "contents: read");
+requireText(releasePath, validateRelease, "persist-credentials: false");
+requireText(
+  releasePath,
+  validateRelease,
+  'git fetch --no-tags --force origin "refs/heads/master:refs/remotes/origin/master"',
+);
+requireText(releasePath, validateRelease, '"refs/tags/${REF_NAME}^{commit}"');
+requireText(
+  releasePath,
+  validateRelease,
+  'git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/master',
+);
+const validateCheckout = validateRelease.indexOf("Checkout release history");
+const validateFetch = validateRelease.indexOf("git fetch --no-tags --force origin");
+const validateContainment = validateRelease.indexOf("git merge-base --is-ancestor");
+if (
+  validateCheckout < 0 ||
+  validateFetch < 0 ||
+  validateContainment < 0 ||
+  !(validateCheckout < validateFetch && validateFetch < validateContainment)
+) {
+  fail(`${releasePath} must fetch master before checking release-tag containment`);
+}
 requireText(
   releasePath,
   release,

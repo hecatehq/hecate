@@ -209,7 +209,12 @@ function markdownBulletLines(lines: string[]): string[] {
       }
       continue;
     }
-    if (!fence && /^\s{0,3}[-*+]\s+\S/.test(line)) bulletLines.push(line);
+    // Keep this syntax aligned with the updater's intentionally small
+    // Markdown renderer. Canonical release highlights use an unindented dash
+    // or asterisk followed by an ASCII space; accepting broader CommonMark
+    // forms here would let reviewed notes degrade into literal paragraphs in
+    // the update dialog.
+    if (!fence && /^[-*] +\S/.test(line)) bulletLines.push(line);
   }
 
   return bulletLines;
