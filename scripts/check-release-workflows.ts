@@ -118,10 +118,12 @@ requireText(deliveryPath, delivery, "allowed_paths:");
 requireText(deliveryPath, delivery, "Release delivery requires a stable vX.Y.Z tag");
 requireText(deliveryPath, delivery, "legacy_manifest=website/public/releases/alpha/latest.json");
 requireText(deliveryPath, delivery, '[ "$TAG" = "v0.5.0" ]');
-requireText(deliveryPath, delivery, "Legacy alpha updater manifest differs from the stable release asset.");
+requireText(
+  deliveryPath,
+  delivery,
+  "Legacy alpha updater manifest differs from the stable release asset.",
+);
 requireText(deliveryPath, delivery, "bridge_updated=${bridge_updated}");
-requireText(deliveryPath, delivery, 'manifest="${RUNNER_TEMP}/release-manifest/latest.json"');
-requireText(deliveryPath, delivery, "Canonical release manifest is unavailable for the delivery proposal.");
 requireText(deliveryPath, delivery, "The release workflow deliberately cannot push");
 requireText(
   deliveryPath,
@@ -147,6 +149,28 @@ forbidPattern(
   delivery,
   /\bgh\s+pr\s+(?:create|edit|merge|review)(?:\s|$)/m,
   "a pull-request mutation command",
+);
+
+const proposalStepStart = delivery.indexOf("      - name: Build review proposal");
+const proposalStepEnd = delivery.indexOf("      - name: Upload review proposal", proposalStepStart);
+if (proposalStepStart < 0 || proposalStepEnd < 0) {
+  fail(`${deliveryPath} must define a bounded Build review proposal step`);
+}
+const proposalStep = delivery.slice(proposalStepStart, proposalStepEnd);
+const proposalManifest = 'manifest="${RUNNER_TEMP}/release-manifest/latest.json"';
+const proposalManifestIndex = proposalStep.indexOf(proposalManifest);
+const proposalCopyIndex = proposalStep.indexOf('cp "${manifest}"');
+if (
+  proposalManifestIndex < 0 ||
+  proposalCopyIndex < 0 ||
+  proposalManifestIndex > proposalCopyIndex
+) {
+  fail(`${deliveryPath} must bind the canonical manifest before copying it into the proposal`);
+}
+requireText(
+  `${deliveryPath} Build review proposal step`,
+  proposalStep,
+  "Canonical release manifest is unavailable for the delivery proposal.",
 );
 
 requireText(websitePath, website, "github.ref == 'refs/heads/master'");
