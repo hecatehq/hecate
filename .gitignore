@@ -51,6 +51,8 @@ website/dist/
 website/.astro/
 website/.vercel/
 website/.netlify/
+website/test-results/
+website/playwright-report/
 
 # Tauri desktop app
 tauri/node_modules/

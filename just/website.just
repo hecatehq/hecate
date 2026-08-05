@@ -28,6 +28,10 @@ website-format-check: _website-deps
 website-build: _website-deps
 	cd website && bun --bun run build
 
+# Run the production-build website browser and accessibility checks.
+website-test-e2e: _website-deps
+	cd website && bun --bun run test:e2e
+
 # Preview the built Astro website.
 website-preview: _website-deps
 	cd website && bun --bun run preview
