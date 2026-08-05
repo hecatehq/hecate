@@ -3,7 +3,7 @@
 
 # Check protected-branch release delivery and updater artifact selection.
 release-workflow-check:
-	bun test scripts/prepare-release-notes.test.ts
+	bun test scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts
 	bun scripts/check-release-workflows.ts
 
 # Validate release-only dependencies without running the full verification
@@ -14,7 +14,7 @@ release-preflight version *args:
 
 # Check release-only dependencies, run verification, then cut a release tag.
 # Optional args pass through to scripts/release.ts, for example:
-# just release vX.Y.Z --skip-snapshot.
+# just release vX.Y.Z --notes docs/releases/vX.Y.Z.md --skip-snapshot.
 # Verify and cut a release tag.
 release version *args:
 	bun scripts/release.ts {{version}} {{args}} --preflight-only

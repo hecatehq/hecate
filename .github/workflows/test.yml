@@ -53,7 +53,7 @@ jobs:
 
       - name: Validate release workflows
         run: |
-          bun test scripts/prepare-release-notes.test.ts
+          bun test scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts
           bun scripts/check-release-workflows.ts
 
       - uses: dorny/paths-filter@v4

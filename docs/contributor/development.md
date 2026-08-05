@@ -195,7 +195,7 @@ just tauri-ios-build-debug # unsigned Apple Silicon iOS Simulator companion
 just tauri-android-build-debug aarch64 # Android arm64 debug APK; requires SDK/NDK/JDK env
 just verify            # full gate: docs/env check, Go, Docker, UI, build
 just verify-desktop    # desktop-specific Rust/Tauri check
-just release vX.Y.Z    # verify, then run the release script
+just release vX.Y.Z --notes docs/releases/vX.Y.Z.md # verify, then release
 ```
 
 Pull-request CI runs both mobile recipes on their native hosted runners after

@@ -39,6 +39,8 @@ const websitePath = ".github/workflows/website.yml";
 const testPath = ".github/workflows/test.yml";
 const tauriBuildPath = ".github/workflows/tauri-build.yml";
 const releaseNotesHelperPath = "scripts/prepare-release-notes.ts";
+const releaseNotesInputPath = "scripts/release-notes.ts";
+const releaseNotesInputTestPath = "scripts/release-notes.test.ts";
 const releaseJustPath = "just/release.just";
 const goreleaserPath = ".goreleaser.yaml";
 const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
@@ -54,6 +56,8 @@ const website = read(websitePath);
 const test = read(testPath);
 const tauriBuild = read(tauriBuildPath);
 const releaseNotesHelper = read(releaseNotesHelperPath);
+const releaseNotesInput = read(releaseNotesInputPath);
+const releaseNotesInputTest = read(releaseNotesInputTestPath);
 const releaseJust = read(releaseJustPath);
 const goreleaser = read(goreleaserPath);
 const tauriConfig = read(tauriConfigPath);
@@ -70,6 +74,13 @@ requireText(
 );
 forbidText(tauriConfigPath, tauriConfig, "https://hecate.sh/releases/alpha/latest.json");
 requireText(releaseScriptPath, releaseScript, "version must be a stable vX.Y.Z tag");
+requireText(releaseScriptPath, releaseScript, "--notes <path>");
+requireText(releaseScriptPath, releaseScript, '"--cleanup=verbatim"');
+requireText(releaseScriptPath, releaseScript, 'version, "-F", "-"');
+requireText(releaseScriptPath, releaseScript, "input: notesInStampedCommit.bytes");
+requireText(releaseScriptPath, releaseScript, '"hash-object", `--path=${notes.relativePath}`');
+requireText(releaseScriptPath, releaseScript, '"commit", "--only"');
+forbidText(releaseScriptPath, releaseScript, '["tag", "-a", version, "-m", version]');
 requireText(releaseLinksScriptPath, releaseLinksScript, "tag must be a stable vX.Y.Z tag");
 
 forbidText(tauriPath, tauri, "publish-updater-website:");
@@ -162,8 +173,22 @@ forbidText(releasePath, release, "tag_notes=$(git for-each-ref");
 requireText(releaseNotesHelperPath, releaseNotesHelper, "%(contents:size)");
 requireText(releaseNotesHelperPath, releaseNotesHelper, "%(contents:signature)");
 requireText(releaseNotesHelperPath, releaseNotesHelper, "writeFileSync(notesPath, annotation)");
-requireText(testPath, test, "bun test scripts/prepare-release-notes.test.ts");
-requireText(releaseJustPath, releaseJust, "bun test scripts/prepare-release-notes.test.ts");
+requireText(
+  releaseNotesHelperPath,
+  releaseNotesHelper,
+  "validateCuratedReleaseNotes(markdown, tag)",
+);
+requireText(releaseNotesInputPath, releaseNotesInput, "MAX_RELEASE_NOTES_CHARACTERS = 12_000");
+requireText(releaseNotesInputPath, releaseNotesInput, "exactly one ## Highlights section");
+requireText(
+  releaseNotesInputTestPath,
+  releaseNotesInputTest,
+  "requires one to six highlight bullets",
+);
+const releaseNotesTestCommand =
+  "bun test scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts";
+requireText(testPath, test, releaseNotesTestCommand);
+requireText(releaseJustPath, releaseJust, releaseNotesTestCommand);
 
 const deliveryCallerStart = release.indexOf("  prepare-release-delivery:");
 if (deliveryCallerStart < 0) {

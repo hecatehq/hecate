@@ -18,6 +18,11 @@ Before running the release script, verify:
 2. **`just verify` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
 3. **`goreleaser` is installed.** `which goreleaser`. Install via `go install github.com/goreleaser/goreleaser/v2@latest` if missing.
 4. **Docker is reachable unless `--skip-snapshot` is intentional.** `just release` runs this check before the expensive verify gate because the Goreleaser snapshot builds local Docker images.
+5. **Curated notes are reviewed and committed.** Copy `docs/releases/template.md`
+   to `docs/releases/vX.Y.Z.md`, replace the placeholder title exactly, keep
+   `## Highlights` to one through six bullets, and name any security or
+   breaking/risky impact. The helper requires `--notes` and refuses an
+   untracked, oversized, or malformed file.
 
 ## Cut the release
 
@@ -28,23 +33,20 @@ checks goreleaser on PATH and Docker availability for the snapshot, fires a
 snapshot dry-run, then prompts before tagging:
 
 ```bash
-just release vX.Y.Z
+just release vX.Y.Z --notes docs/releases/vX.Y.Z.md
 ```
 
 To skip the snapshot dry-run (e.g. already ran it manually):
 
 ```bash
-just release v0.2.0 --skip-snapshot
+just release v0.5.1 --notes docs/releases/v0.5.1.md --skip-snapshot
 ```
 
-The release helper creates an annotated tag whose message is only the version,
-so ordinary releases use GoReleaser's generated changelog. For a substantive
-release, create an annotated tag manually from a reviewed Markdown file. The
-release workflow detects that non-version annotation and passes it to
-GoReleaser as the public GitHub Release body. Create that tag with
-`git tag -a --cleanup=verbatim vX.Y.Z -F /tmp/release-notes.md`; without
-`--cleanup=verbatim`, Git treats Markdown headings as comments and silently
-strips them from the annotation.
+The helper validates the committed Markdown before the expensive gate and
+again immediately before tagging. It creates the annotated tag with
+`--cleanup=verbatim -F`, preserving Markdown headings, then CI passes those
+exact bytes to GoReleaser as the public GitHub Release body. Lightweight tags,
+version-only annotations, and generated changelog fallbacks fail closed.
 
 ## Tauri desktop app
 
@@ -146,8 +148,8 @@ Acceptance:
   artifact (or that the exact delivery is already present on `master`).
 - The release-delivery PR has an approving review of its latest push, Required
   checks and Links are green, and it is merged normally.
-- GitHub Releases page has the latest stable entry and non-empty notes from
-  either a substantive tag annotation or GoReleaser's generated changelog. The Tauri matrix must attach bundles through
+- GitHub Releases page has the latest stable entry and the reviewed curated
+  Markdown from the tag. The Tauri matrix must attach bundles through
   `releaseId`; passing only `tagName` to tauri-action v1 rewrites the existing
   release body.
 - Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate`.
@@ -167,7 +169,9 @@ Acceptance:
   `v0.5.0`. The git tag itself keeps the `v`. Same applies to tarball names.
   The `/healthz` `version` field also reports the bare semver.
 - **`.env_file` in compose overrides Dockerfile `ENV`.** The compose stack pins `HECATE_DATA_DIR=/data` and `HECATE_SQLITE_PATH=/data/hecate.db` in the service `environment:` block — which wins over `env_file:` — so a developer's relative `.data` source-dev path can't be carried into the container and break `docker compose cp /data/...`. Any new Dockerfile `ENV` that conflicts with a source-dev default in `.env.example` needs the same treatment in `docker-compose.yml`, or this footgun recurs.
-- **First-tag changelog is all-history.** Goreleaser builds the auto-changelog from git log between previous and current tags; if there's no previous tag, it includes every commit since the initial commit. Inspect the snapshot output before tagging.
+- **Public notes never come from the generated changelog.** The versioned,
+  reviewed Markdown file is mandatory because raw commit dumps are noisy in
+  both GitHub and the desktop updater.
 - **Don't run snapshot from a clean checkout, then `git add -A`.** The snapshot writes ~50 MB of binaries into `./dist`; a sweeping `git add` will pick them up if `dist/` isn't gitignored.
 - **`ui/dist/.gitkeep` must be tracked.** The `//go:embed all:ui/dist` directive in `embed.go` fails at compile time if `ui/dist` is completely absent from the tree. `.gitignore` keeps `ui/dist/*` but un-ignores `.gitkeep` via negation — the negation only works if `/dist/` (not `dist/`) is the rule anchoring the goreleaser output directory. If `go build` fails with `pattern all:ui/dist: no matching files found`, check that `ui/dist/.gitkeep` is tracked (`git ls-files ui/dist/`) and that `.gitignore` anchors the root dist rule with a leading `/`.
 - **`Dockerfile.release` is what goreleaser uses, not `Dockerfile`.** `Dockerfile` is the source-build image used by `docker compose up --build`; `Dockerfile.release` copies the prebuilt binary into the published GHCR image. They are two build paths for the same runtime shape, so any runtime package, bundled External Agent CLI/adapter, `ENV` var, volume, or default must land in both.

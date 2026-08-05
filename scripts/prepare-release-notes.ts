@@ -3,7 +3,9 @@
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
-const generatedChangelogArgs = "release --clean";
+import { validateCuratedReleaseNotes } from "./release-notes";
+
+const releaseArgs = "release --clean";
 const maxGitOutputBytes = 2 * 1024 * 1024;
 const refFormat = "%(refname)%00%(contents:size)%00%(contents:signature)%00%(contents)";
 
@@ -120,7 +122,7 @@ export function prepareReleaseNotes({ cwd, tag, notesPath }: PrepareReleaseNotes
   const tagRef = `refs/tags/${tag}`;
   const objectType = runGit(cwd, ["cat-file", "-t", tagRef]).toString("ascii").trim();
   if (objectType === "commit") {
-    return generatedChangelogArgs;
+    throw new Error(`Release tag ${tag} must be annotated with curated Markdown notes.`);
   }
   if (objectType !== "tag") {
     throw new Error(`Release ref ${tag} points to unsupported object type ${objectType}.`);
@@ -132,11 +134,19 @@ export function prepareReleaseNotes({ cwd, tag, notesPath }: PrepareReleaseNotes
     throw new Error(`Release tag ${tag} has an empty annotation.`);
   }
   if (withoutTrailingLineEndings(annotation).equals(Buffer.from(tag, "utf8"))) {
-    return generatedChangelogArgs;
+    throw new Error(`Release tag ${tag} contains only its version, not curated release notes.`);
   }
 
+  let markdown: string;
+  try {
+    markdown = new TextDecoder("utf-8", { fatal: true }).decode(annotation);
+  } catch {
+    throw new Error(`Release tag ${tag} notes must be valid UTF-8 Markdown.`);
+  }
+  validateCuratedReleaseNotes(markdown, tag);
+
   writeFileSync(notesPath, annotation);
-  return `${generatedChangelogArgs} --release-notes=${notesPath}`;
+  return `${releaseArgs} --release-notes=${notesPath}`;
 }
 
 if (import.meta.main) {

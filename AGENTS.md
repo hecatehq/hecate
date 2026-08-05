@@ -41,8 +41,9 @@ ui/                     React/Vite operator UI, embedded via //go:embed ui/dist
 tauri/                  native desktop app (Tauri 2.x); wraps hecate as a sidecar,
                           webview loads http://127.0.0.1:{port}/ served by the gateway
 scripts/
-  release.ts            cut a release: pre-flight, goreleaser snapshot, Tauri
-                          version stamp, tag, push  (`bun scripts/release.ts vX.Y.Z`)
+  release.ts            cut a release: curated notes validation, pre-flight,
+                          snapshot, version stamp, tag, push
+                          (`bun scripts/release.ts vX.Y.Z --notes <path>`)
   stamp-version.ts      stamp Tauri version files to current git tag / TAURI_VERSION
 e2e/                    binary-startup tests; build tag e2e (sub-tags: ollama, docker)
 docs/                   long-form references (architecture, runtime API, events, ...)
@@ -235,14 +236,14 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Recipes
 
-| Task                                                                        | Where                                                                                                                                                                               |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md)                                                                                                            |
-| Add an MCP tool / persisted run-event type / test helper cheat-sheet        | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md)                                                                                                                |
-| UI recipes (SSE-driven state field, paired pickers, snapshot refresh)       | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md)                                                                                                                          |
-| Native desktop app (sidecar lifecycle, bundling, Tauri commands)            | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md)                                                                                                                    |
-| Cut a release tag                                                           | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs/contributor/release.md) |
-| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs desktop and mobile version metadata to the current git tag                                                         |
+| Task                                                                        | Where                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md)                                                                                                                                                                          |
+| Add an MCP tool / persisted run-event type / test helper cheat-sheet        | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md)                                                                                                                                                                              |
+| UI recipes (SSE-driven state field, paired pickers, snapshot refresh)       | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md)                                                                                                                                                                                        |
+| Native desktop app (sidecar lifecycle, bundling, Tauri commands)            | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md)                                                                                                                                                                                  |
+| Cut a release tag                                                           | `bun scripts/release.ts vX.Y.Z --notes docs/releases/vX.Y.Z.md` — validates curated notes and the worktree, runs the snapshot, stamps Tauri versions, tags, and pushes. Full procedure: [`docs-ai/tasks/release.md`](docs/contributor/release.md) |
+| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs desktop and mobile version metadata to the current git tag                                                                                                                       |
 
 ## Gotchas
 

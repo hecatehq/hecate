@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareReleaseNotes } from "./prepare-release-notes";
 
-const generatedChangelogArgs = "release --clean";
+const releaseArgs = "release --clean";
 const repos: string[] = [];
 const sshSignature = Buffer.from(
   [
@@ -93,6 +93,26 @@ function notesPath(cwd: string): string {
   return join(cwd, "release-notes.md");
 }
 
+function curatedNotes(tag: string, lineEnding = "\n"): Buffer {
+  return Buffer.from(
+    [
+      `# Hecate ${tag}`,
+      "",
+      "A short operator-facing summary.",
+      "",
+      "## Highlights",
+      "",
+      "- Makes updates easier to review.",
+      "- Keeps the complete notes available.",
+      "",
+      "## Security",
+      "",
+      "- No security action is required.",
+      "",
+    ].join(lineEnding),
+  );
+}
+
 afterEach(() => {
   for (const repo of repos.splice(0)) {
     rmSync(repo, { recursive: true, force: true });
@@ -100,35 +120,39 @@ afterEach(() => {
 });
 
 describe("prepareReleaseNotes", () => {
-  test("keeps lightweight tags on the generated changelog path", () => {
+  test("rejects lightweight tags without curated notes", () => {
     const cwd = createRepo();
     const tag = "v1.2.3";
     const output = notesPath(cwd);
     createLightweightTag(cwd, tag);
 
-    expect(prepareReleaseNotes({ cwd, tag, notesPath: output })).toBe(generatedChangelogArgs);
+    expect(() => prepareReleaseNotes({ cwd, tag, notesPath: output })).toThrow(
+      `Release tag ${tag} must be annotated with curated Markdown notes.`,
+    );
     expect(existsSync(output)).toBe(false);
   });
 
-  test("keeps unsigned version-only annotations on the generated changelog path", () => {
+  test("rejects unsigned version-only annotations", () => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.4";
+    const tag = "v1.2.3";
     const output = notesPath(cwd);
     createAnnotatedTag(cwd, tag, Buffer.from(`${tag}\r\n\r\n`));
 
-    expect(prepareReleaseNotes({ cwd, tag, notesPath: output })).toBe(generatedChangelogArgs);
+    expect(() => prepareReleaseNotes({ cwd, tag, notesPath: output })).toThrow(
+      `Release tag ${tag} contains only its version, not curated release notes.`,
+    );
     expect(existsSync(output)).toBe(false);
   });
 
   test("writes unsigned Markdown byte-for-byte", () => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.5";
+    const tag = "v1.2.3";
     const output = notesPath(cwd);
-    const markdown = Buffer.from("# Release\n\n- first\n- second\n\n");
+    const markdown = curatedNotes(tag);
     createAnnotatedTag(cwd, tag, markdown);
 
     expect(prepareReleaseNotes({ cwd, tag, notesPath: output })).toBe(
-      `${generatedChangelogArgs} --release-notes=${output}`,
+      `${releaseArgs} --release-notes=${output}`,
     );
     expect(readFileSync(output).equals(markdown)).toBe(true);
   });
@@ -138,26 +162,28 @@ describe("prepareReleaseNotes", () => {
     ["PGP", pgpSignature],
   ])("strips an exact %s signature suffix from Markdown", (_kind, signature) => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.6";
+    const tag = "v1.2.3";
     const output = notesPath(cwd);
-    const markdown = Buffer.from("# Signed release\r\n\r\nPreserve ✨ exactly.\r\n\r\n");
+    const markdown = curatedNotes(tag, "\r\n");
     createAnnotatedTag(cwd, tag, markdown, signature);
 
     expect(prepareReleaseNotes({ cwd, tag, notesPath: output })).toBe(
-      `${generatedChangelogArgs} --release-notes=${output}`,
+      `${releaseArgs} --release-notes=${output}`,
     );
     const written = readFileSync(output);
     expect(written.equals(markdown)).toBe(true);
     expect(written.includes(Buffer.from("BEGIN"))).toBe(false);
   });
 
-  test("recognizes a signed version-only annotation", () => {
+  test("rejects a signed version-only annotation", () => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.7";
+    const tag = "v1.2.3";
     const output = notesPath(cwd);
     createAnnotatedTag(cwd, tag, Buffer.from(`${tag}\n`), sshSignature);
 
-    expect(prepareReleaseNotes({ cwd, tag, notesPath: output })).toBe(generatedChangelogArgs);
+    expect(() => prepareReleaseNotes({ cwd, tag, notesPath: output })).toThrow(
+      `Release tag ${tag} contains only its version, not curated release notes.`,
+    );
     expect(existsSync(output)).toBe(false);
   });
 
@@ -166,7 +192,7 @@ describe("prepareReleaseNotes", () => {
     ["tag with only a signature", Buffer.from("\n"), pgpSignature],
   ])("rejects a %s", (_kind, annotation, signature) => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.8";
+    const tag = "v1.2.3";
     createAnnotatedTag(cwd, tag, annotation, signature);
 
     expect(() => prepareReleaseNotes({ cwd, tag, notesPath: notesPath(cwd) })).toThrow(
@@ -176,7 +202,7 @@ describe("prepareReleaseNotes", () => {
 
   test("rejects a release ref with an unsupported object type", () => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.9";
+    const tag = "v1.2.3";
     createBlobTag(cwd, tag);
 
     expect(() => prepareReleaseNotes({ cwd, tag, notesPath: notesPath(cwd) })).toThrow(
@@ -186,9 +212,9 @@ describe("prepareReleaseNotes", () => {
 
   test("exposes the same behavior through the workflow CLI", () => {
     const cwd = createRepo();
-    const tag = "v1.2.3-alpha.10";
+    const tag = "v1.2.3";
     const output = notesPath(cwd);
-    createAnnotatedTag(cwd, tag, Buffer.from(`${tag}\n`), pgpSignature);
+    createAnnotatedTag(cwd, tag, curatedNotes(tag), pgpSignature);
 
     const result = spawnSync(
       process.execPath,
@@ -200,7 +226,29 @@ describe("prepareReleaseNotes", () => {
     );
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toBe(`${generatedChangelogArgs}\n`);
+    expect(result.stdout).toBe(`${releaseArgs} --release-notes=${output}\n`);
     expect(result.stderr).toBe("");
+    expect(readFileSync(output).equals(curatedNotes(tag))).toBe(true);
+  });
+
+  test("fails the workflow CLI for an uncurated tag", () => {
+    const cwd = createRepo();
+    const tag = "v1.2.3";
+    const output = notesPath(cwd);
+    createAnnotatedTag(cwd, tag, Buffer.from(`${tag}\n`));
+
+    const result = spawnSync(
+      process.execPath,
+      [join(import.meta.dir, "prepare-release-notes.ts"), tag, output],
+      {
+        cwd,
+        encoding: "utf8",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("contains only its version, not curated release notes");
+    expect(existsSync(output)).toBe(false);
   });
 });

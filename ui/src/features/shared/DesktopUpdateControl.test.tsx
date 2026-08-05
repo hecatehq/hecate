@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesktopUpdateController } from "../../lib/desktop-update";
@@ -59,7 +59,7 @@ describe("DesktopUpdateCenter", () => {
     expect(screen.queryByRole("button", { name: "Updates" })).toBeNull();
   });
 
-  it("opens a portal-mounted dialog with rendered release-note Markdown and returns focus", async () => {
+  it("opens a portal-mounted dialog with prioritized release notes and full safe Markdown", async () => {
     enterTauriRuntime();
     useDesktopUpdateMock.mockReturnValue(
       controllerFixture({
@@ -70,12 +70,26 @@ describe("DesktopUpdateCenter", () => {
           notes: [
             "# Hecate 0.3.0-alpha.2",
             "",
+            "A focused desktop update.",
+            "",
+            "## Verification",
+            "",
+            "- The release build passed its smoke suite.",
+            "",
+            '<img data-unsafe="release-note-image" src="https://invalid.example">',
+            "",
+            "## Breaking changes",
+            "",
+            "- Existing update preferences migrate automatically.",
+            "",
             "## Highlights",
             "",
             "- Added **rendered release notes** with `safe links`.",
             "- Read the [release guide](https://example.com/releases).",
             "",
-            '<img data-unsafe="release-note-image" src="https://invalid.example">',
+            "## Security",
+            "",
+            "- Download verification remains mandatory.",
           ].join("\n"),
         },
       }),
@@ -94,29 +108,64 @@ describe("DesktopUpdateCenter", () => {
     expect(dialog).toHaveTextContent("Available");
     expect(dialog).toHaveTextContent("0.3.0-alpha.2");
     expect(
-      screen.getByRole("heading", { level: 2, name: "Release notes from the published release" }),
+      screen.getByRole("heading", { level: 2, name: "What’s new in Hecate 0.3.0-alpha.2" }),
     ).toBeInTheDocument();
-    expect(
-      await screen.findByRole("heading", { level: 3, name: "Hecate 0.3.0-alpha.2" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 4, name: "Highlights" })).toBeInTheDocument();
-    expect(dialog).not.toHaveTextContent("# Hecate 0.3.0-alpha.2");
-    expect(dialog).not.toHaveTextContent("## Highlights");
-    expect(screen.getByText("rendered release notes").tagName).toBe("STRONG");
-    expect(screen.getByText("safe links").tagName).toBe("CODE");
-    expect(screen.getByText(/Added/).closest("li")).not.toBeNull();
-    expect(screen.getByRole("link", { name: "release guide" })).toHaveAttribute(
+    const highlights = screen.getByRole("heading", { level: 3, name: "Highlights" });
+    expect(highlights).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Security" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Breaking changes" })).toBeInTheDocument();
+    const featuredNotes = highlights.closest(".desktop-update-details__notes-content");
+    expect(featuredNotes).not.toBeNull();
+    const featured = within(featuredNotes as HTMLElement);
+    expect(featured.getByText("rendered release notes").tagName).toBe("STRONG");
+    expect(featured.getByText("safe links").tagName).toBe("CODE");
+    expect(featured.getByText(/Added/).closest("li")).not.toBeNull();
+    expect(featured.getByRole("link", { name: "release guide" })).toHaveAttribute(
       "href",
       "https://example.com/releases",
     );
-    expect(dialog).toHaveTextContent('<img data-unsafe="release-note-image"');
     expect(document.querySelector("[data-unsafe='release-note-image']")).toBeNull();
     expect(dialog.parentElement).toHaveStyle({ zIndex: "1100" });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Install and restart" })).toHaveFocus(),
+      expect(screen.getByRole("button", { name: "Update and restart" })).toHaveFocus(),
     );
 
+    const fullNotes = screen.getByText("Full release notes", { selector: "summary" });
+    expect(fullNotes.parentElement).not.toHaveAttribute("open");
+    fireEvent.click(fullNotes);
+    expect(fullNotes.parentElement).toHaveAttribute("open");
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Hecate 0.3.0-alpha.2" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 4, name: "Verification" })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('<img data-unsafe="release-note-image"');
+    expect(document.querySelector("[data-unsafe='release-note-image']")).toBeNull();
+
     fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Hecate desktop update" })).toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("defers an available update until later and returns focus to its trigger", async () => {
+    enterTauriRuntime();
+    const dismiss = vi.fn();
+    useDesktopUpdateMock.mockReturnValue(
+      controllerFixture({
+        dismiss,
+        update: {
+          currentVersion: "0.3.0-alpha.1",
+          version: "0.3.0-alpha.2",
+        },
+      }),
+    );
+
+    render(<DesktopUpdateCenter />);
+    const trigger = screen.getByRole("button", { name: "Update 0.3.0-alpha.2" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: "Later" }));
+
+    expect(dismiss).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog", { name: "Hecate desktop update" })).toBeNull();
     await waitFor(() => expect(trigger).toHaveFocus());
   });
@@ -134,7 +183,7 @@ describe("DesktopUpdateCenter", () => {
     render(<DesktopUpdateCenter />);
     fireEvent.click(screen.getByRole("button", { name: "Updates" }));
 
-    expect(await screen.findByText(/dismissed for this app session/i)).toBeInTheDocument();
+    expect(await screen.findByText(/chose later for this app session/i)).toBeInTheDocument();
     expect(screen.queryByText(/hecate is up to date/i)).toBeNull();
   });
 
@@ -174,7 +223,7 @@ describe("DesktopUpdateCenter", () => {
 
     const { rerender } = render(<DesktopUpdateCenter />);
     fireEvent.click(screen.getByRole("button", { name: "Update 0.3.0-alpha.2" }));
-    const install = await screen.findByRole("button", { name: "Install and restart" });
+    const install = await screen.findByRole("button", { name: "Update and restart" });
     await waitFor(() => expect(install).toHaveFocus());
     fireEvent.click(install);
     expect(installAndRestart).toHaveBeenCalledTimes(1);
@@ -204,7 +253,7 @@ describe("DesktopUpdateCenter", () => {
 
     const { rerender } = render(<DesktopUpdateCenter />);
     fireEvent.click(screen.getByRole("button", { name: "Update 0.3.0-alpha.2" }));
-    const install = await screen.findByRole("button", { name: "Install and restart" });
+    const install = await screen.findByRole("button", { name: "Update and restart" });
     await waitFor(() => expect(install).toHaveFocus());
 
     useDesktopUpdateMock.mockReturnValue(controllerFixture({ checking: true, update }));
