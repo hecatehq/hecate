@@ -13,11 +13,25 @@ just website-install
 just website-dev       # local Astro dev server
 just website-check     # astro check + TypeScript
 just website-build     # production build
+just website-test-e2e  # desktop + phone browser and accessibility checks
 just website-preview   # preview website/dist
 ```
 
 The `just` recipes force package scripts through Bun (`bun --bun run ...`) so
 Astro does not accidentally use a mismatched system Node runtime.
+
+The browser suite runs against the production preview in Chromium. Install the
+matching browser once before the first local run:
+
+```bash
+cd website
+bunx playwright install chromium
+```
+
+It covers semantic navigation, metadata, release-link wording, responsive
+overflow, image loading, the zero-client-JavaScript boundary, and automated
+WCAG A/AA checks. Visual judgment, real Safari/Firefox rendering, screen-reader
+behavior, and external-link availability remain manual checks.
 
 ## Deployment
 

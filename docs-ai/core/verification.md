@@ -8,8 +8,8 @@ Do not create a PR, push an update to an existing PR, mark a PR ready for
 review, or ask for merge until the verification for every touched
 implementation surface has passed locally:
 
-- Touch `ui/`, `website/`, `.ts`, `.tsx`, `.js`, `.jsx`, CSS, Vitest, or
-  Playwright files: run the UI checks listed below.
+- Touch `ui/` or its workflow: run the UI checks listed below.
+- Touch `website/` or its workflow: run the website checks listed below.
 - Touch Go files, Go modules, backend config, or e2e helpers: run the Go
   checks listed below.
 - Touch both frontend and backend surfaces: run both ladders.
@@ -92,6 +92,22 @@ Markdown and `.mdc` docs are also formatted with Oxfmt through
 fragment validation; Oxfmt only normalizes text formatting.
 
 When updating snapshots, review the diff carefully. Accidental snapshot churn is the most common silent regression vector.
+
+## Website verification ladder
+
+| Step             | Command                     | When                                                           |
+| ---------------- | --------------------------- | -------------------------------------------------------------- |
+| Type/shape check | `just website-check`        | After any Astro or TypeScript edit                             |
+| Lint             | `just website-lint`         | Before claiming done; also covered by Website CI               |
+| Format check     | `just website-format-check` | Before claiming done; also covered by Website CI               |
+| Production build | `just website-build`        | Before claiming done                                           |
+| Browser suite    | `just website-test-e2e`     | Website behavior, responsive layout, metadata, or a11y changes |
+
+Install the matching local Chromium once with
+`cd website && bunx playwright install chromium`. The browser suite rebuilds
+the static site, starts the production preview, and tests desktop plus narrow
+and standard phone viewports. Visual judgment, real Safari/Firefox rendering,
+screen-reader behavior, and external-link availability remain manual checks.
 
 ## Test layer choice (quick guide)
 

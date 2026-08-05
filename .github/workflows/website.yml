@@ -81,12 +81,12 @@ jobs:
         run: bun --bun run format:check
         working-directory: website
 
-      - name: Check
-        run: bun --bun run check
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
         working-directory: website
 
-      - name: Build
-        run: bun --bun run build
+      - name: Build, browser, and accessibility tests
+        run: bun --bun run test:e2e
         working-directory: website
 
       - name: Upload Pages artifact
