@@ -13,9 +13,8 @@
 // confirmation. CI takes it from there (~5-10 min).
 //
 // Recovery if the CI run fails:
-//   git push --delete origin <version>
-//   git tag -d <version>
-//   # fix root cause, re-run this script
+//   # Stop/wait for the run, classify what published, and follow:
+//   # docs/contributor/release.md#recovery
 
 import { execSync, execFileSync } from "child_process";
 import { existsSync } from "fs";
@@ -77,11 +76,15 @@ type ReviewedReleaseNotes = {
   objectId: string;
 };
 
-function readReviewedReleaseNotes(relativePath: string, version: string): ReviewedReleaseNotes {
+function readReviewedReleaseNotes(
+  relativePath: string,
+  version: string,
+  revision = "HEAD",
+): ReviewedReleaseNotes {
   let bytes: Buffer;
   let objectId: string;
   try {
-    objectId = execFileSync("git", ["rev-parse", `HEAD:${relativePath}`], {
+    objectId = execFileSync("git", ["rev-parse", `${revision}:${relativePath}`], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -336,6 +339,14 @@ if (dirtyBeforeStamp) {
   run("git status --short");
   process.exit(1);
 }
+const headBeforeStamp = run("git rev-parse HEAD", { silent: true });
+if (headBeforeStamp !== localCommit) {
+  fail(
+    "HEAD changed after release preflight; restart from the clean, reviewed default branch.\n" +
+      `  reviewed: ${localCommit}\n` +
+      `  current:  ${headBeforeStamp}`,
+  );
+}
 const stampScript = resolve(root, "scripts/stamp-version.ts");
 if (existsSync(stampScript)) {
   // execFileSync (no shell) so that paths/args with spaces or special
@@ -387,6 +398,7 @@ if (dirtyAfterStamp) {
   run("git status --short");
   process.exit(1);
 }
+const releaseCommit = run("git rev-parse HEAD", { silent: true });
 
 // ── Tag and push ──────────────────────────────────────────────────────────────
 
@@ -397,7 +409,11 @@ try {
 } catch (error) {
   fail((error as Error).message);
 }
-const notesInStampedCommit = readReviewedReleaseNotes(notesAtTag.relativePath, version);
+const notesInStampedCommit = readReviewedReleaseNotes(
+  notesAtTag.relativePath,
+  version,
+  releaseCommit,
+);
 if (
   worktreeReleaseNotesObjectId(notesAtTag) !== notesInStampedCommit.objectId ||
   !notesInStampedCommit.bytes.equals(reviewedReleaseNotes.bytes)
@@ -406,14 +422,24 @@ if (
     "release notes changed in the working tree or stamped commit after preflight; restart from a clean reviewed checkout.",
   );
 }
-execFileSync("git", ["tag", "-a", "--cleanup=verbatim", version, "-F", "-"], {
+execFileSync("git", ["tag", "-a", "--cleanup=verbatim", "-F", "-", version, releaseCommit], {
   cwd: root,
   input: notesInStampedCommit.bytes,
   stdio: ["pipe", "inherit", "inherit"],
 });
 console.log(`Tagged ${version}`);
 
-execFileSync("git", ["push", "origin", `HEAD:${branch}`, version], { cwd: root, stdio: "inherit" });
+execFileSync(
+  "git",
+  [
+    "push",
+    "--atomic",
+    "origin",
+    `${releaseCommit}:refs/heads/${branch}`,
+    `refs/tags/${version}:refs/tags/${version}`,
+  ],
+  { cwd: root, stdio: "inherit" },
+);
 console.log(`Pushed ${branch} and ${version}`);
 
 // ── Done ──────────────────────────────────────────────────────────────────────
@@ -426,5 +452,7 @@ console.log("  git pull --ff-only origin master");
 console.log(`\nWhen CI completes (~5-10 min), verify the published image:`);
 console.log(`  docker pull ghcr.io/hecatehq/hecate:${semver}`);
 console.log(`  docker run --rm -p 127.0.0.1:8765:8765 ghcr.io/hecatehq/hecate:${semver}`);
-console.log(`\nTo recover if CI fails:`);
-console.log(`  git push --delete origin ${version} && git tag -d ${version}`);
+console.log("\nIf CI fails, stop or wait for the run before changing published state.");
+console.log("Classify the failure, then follow docs/contributor/release.md#recovery.");
+console.log("Release/tag and GHCR cleanup are separate operations.");
+console.log("Do not delete a complete release for a delivery-only failure.");

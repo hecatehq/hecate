@@ -240,26 +240,47 @@ in the same change so future releases do not drift.
 
 ## Recovery
 
-If artifact packaging or signing fails before the GitHub Release has a valid
-three-platform `latest.json`, clean up and retag:
+Do not mutate tags, Releases, or package state while the release workflow can
+still publish. If the run is active, cancel it and wait for every job to stop:
 
 ```bash
-git push --delete origin vX.Y.Z
-git tag -d vX.Y.Z
-# fix root cause, retag, retry
+gh run cancel RUN_ID --repo hecatehq/hecate
+gh run watch RUN_ID --repo hecatehq/hecate
 ```
 
-Tag deletion on GitHub also clears the dangling Release entry (if one was
-created before the failure step). The Tauri version stamp commit remains on
-`master`; that is fine when retrying the same version because the release script
-will find the Tauri files already stamped and skip creating a duplicate stamp
-commit. If the version is abandoned entirely, revert or supersede the stamp with
-the next release version before tagging again. Goreleaser's release pipeline is
-mostly idempotent — a clean retag at a fixed commit produces the same artifacts.
+Classify the result before cleanup:
 
-For Tauri-side failures, the `.dmg` / `.deb` / `.AppImage` / `.msi` may be
-partially uploaded. `tauri-action` uploads with `--clobber`, so a retag
-re-uploads cleanly without manual cleanup.
+- If the Release entry, bundles, signatures, and three-platform `latest.json`
+  are complete and only protected delivery failed, keep the Release, tag, and
+  GHCR state and use the delivery-only recovery below.
+- If a complete public release is later found to be bad, publish a patch
+  release. Do not rewrite version history or make the GitHub and GHCR `latest`
+  pointers disagree by moving or deleting the completed tag.
+- If packaging or signing failed before a complete public release existed,
+  clean up the incomplete Release and tag before retrying.
+
+For that last case, use the exact failed stable version:
+
+```bash
+failed=vX.Y.Z
+if gh release view "$failed" --repo hecatehq/hecate >/dev/null 2>&1; then
+  gh release delete "$failed" --repo hecatehq/hecate --cleanup-tag --yes
+else
+  git push --delete origin "$failed"
+fi
+git tag -d "$failed" 2>/dev/null || true
+```
+
+`gh release delete --cleanup-tag` removes the GitHub Release and its remote
+tag. A local tag is separate, and deleting either one does not remove a GHCR
+package version. If Goreleaser started, complete the GHCR inspection and
+rollback below before retagging. The Tauri version stamp commit remains on
+`master`; that is correct when retrying the same version because the release
+script skips an already-applied stamp. If the version is abandoned, supersede
+the stamp with the next release version.
+
+Deleting the incomplete Release also removes partially uploaded Tauri assets.
+There is no separate `.dmg`, `.deb`, `.AppImage`, or `.msi` cleanup step.
 
 Do **not** delete or move a valid release tag because only the post-release
 delivery proposal failed. When the Release entry, bundles, signatures, and
@@ -320,48 +341,69 @@ gh release delete-asset vX.Y.Z data.tar.gz \
 If the macOS leg fails during Apple notarization with HTTP 403 and wording like
 "a required agreement is missing or has expired", the repository state is not
 the root cause. An Apple Developer account holder must accept the current
-agreements in Apple Developer/App Store Connect, then the same version can be
-retagged. When GitHub has already created a release entry, clean it up with:
-
-```bash
-gh release delete vX.Y.Z --cleanup-tag --yes
-git tag -d vX.Y.Z 2>/dev/null || true
-```
-
-Leave the version stamp commit on `master` when retrying the same version; the
-release script will detect the files are already stamped.
+agreements in Apple Developer/App Store Connect. After the run stops, use the
+incomplete-release cleanup above and then retry the same reviewed version.
 
 If Goreleaser already pushed container images before a later release job failed,
 the failed version tag may remain in GHCR and the `latest` tag may temporarily
 point at the failed release. `gh release delete --cleanup-tag` does **not**
-delete container package versions. Verify and repair GHCR explicitly:
+delete container package versions.
+
+Choose `last_good` explicitly from a complete stable Release. Verify it before
+changing GHCR. The token used here needs package-admin access and
+`read:packages`; restoring `latest` needs `write:packages`, and deleting the
+failed version needs `delete:packages`. Ordinary repository access is not
+enough.
 
 ```bash
 failed=vX.Y.Z
 failed_image=${failed#v}
-last_good=0.2.0-alpha.4
+last_good=vA.B.C
+last_good_image=${last_good#v}
 
-docker manifest inspect ghcr.io/hecatehq/hecate:${failed_image}
-docker manifest inspect ghcr.io/hecatehq/hecate:latest
+docker buildx imagetools inspect "ghcr.io/hecatehq/hecate:${failed_image}"
+docker buildx imagetools inspect "ghcr.io/hecatehq/hecate:${last_good_image}"
+docker buildx imagetools inspect ghcr.io/hecatehq/hecate:latest
 
-# If your token has delete:packages, remove the failed tagged package version:
-version_id=$(gh api /orgs/hecatehq/packages/container/hecate/versions \
-  | jq -r --arg tag "$failed_image" \
-      '.[] | select(.metadata.container.tags | index($tag)) | .id')
-test -n "$version_id"
-gh api -X DELETE /orgs/hecatehq/packages/container/hecate/versions/"$version_id"
-
-# If delete is not available, at least restore latest to the last successful
-# release. This requires write:packages.
+# Restore the mutable pointer first so cleanup cannot extend an outage.
 gh auth token | docker login ghcr.io -u "$(gh api user --jq .login)" --password-stdin
 docker buildx imagetools create \
   -t ghcr.io/hecatehq/hecate:latest \
-  ghcr.io/hecatehq/hecate:${last_good}
+  "ghcr.io/hecatehq/hecate:${last_good_image}"
+
+latest_digest="$(docker buildx imagetools inspect ghcr.io/hecatehq/hecate:latest \
+  --format '{{json .Manifest}}' | jq -r .digest)"
+last_good_digest="$(docker buildx imagetools inspect \
+  "ghcr.io/hecatehq/hecate:${last_good_image}" \
+  --format '{{json .Manifest}}' | jq -r .digest)"
+test "$latest_digest" = "$last_good_digest"
+
+# Resolve exactly one package version, even when the package has many pages.
+version_id="$(gh api --paginate --slurp \
+  -H 'Accept: application/vnd.github+json' \
+  '/orgs/hecatehq/packages/container/hecate/versions?per_page=100' \
+  | jq -er --arg tag "$failed_image" \
+      '[.[][] | select(.metadata.container.tags | index($tag))] as $matches
+       | if ($matches | length) == 1 then $matches[0].id
+         else error("expected exactly one GHCR version tagged \($tag); found \($matches | length)")
+         end')"
+gh api --method DELETE \
+  "/orgs/hecatehq/packages/container/hecate/versions/${version_id}"
+
+if docker buildx imagetools inspect \
+  "ghcr.io/hecatehq/hecate:${failed_image}" >/dev/null 2>&1; then
+  echo "failed GHCR tag still resolves" >&2
+  exit 1
+fi
+test "$(docker buildx imagetools inspect ghcr.io/hecatehq/hecate:latest \
+  --format '{{json .Manifest}}' | jq -r .digest)" = "$last_good_digest"
 ```
 
-Afterward, confirm `latest` and the last good tag resolve to the same manifest
-digests. If the failed image tag could not be deleted, note it in the failed
-release incident and delete it later with a token that has `delete:packages`.
+If the failed image was never published, skip this GHCR subsection. If package
+permissions are unavailable, restore `latest` if authorized, record the exact
+failed tag, and escalate its deletion to a package administrator. Do not claim
+that GitHub Release cleanup removed it. Retag only after the incomplete Release,
+remote and local tags, and any failed GHCR tag are clean.
 
 ## Image build
 
