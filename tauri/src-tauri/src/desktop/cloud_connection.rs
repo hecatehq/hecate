@@ -15,14 +15,25 @@ use tokio::sync::{mpsc, watch, Semaphore};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::protocol::Message;
+use zeroize::Zeroizing;
 
 const DEFAULT_CLOUD_URL: &str = "https://console.hecatehq.com";
 const INVALID_CLOUD_URL: &str = "https://invalid.hecate.invalid";
 const CONNECTIONS_PATH: &str = "/api/v1/app/connections";
 const BROWSER_SESSIONS_PATH: &str = "/api/v1/app/browser-sessions";
-const KEYRING_SERVICE: &str = "sh.hecate.app.cloud";
+#[cfg(not(debug_assertions))]
+const KEYRING_SERVICE: &str = "sh.hecate.app.cloud.v2";
+#[cfg(debug_assertions)]
+const KEYRING_SERVICE: &str = "sh.hecate.app.cloud.development";
 const SESSION_CREDENTIAL: &str = "account-session";
 const HOST_CREDENTIAL: &str = "desktop-host";
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
+const OFFICIAL_MACOS_REQUIREMENT: &str = concat!(
+    "identifier \"sh.hecate.app\" and anchor apple generic and ",
+    "certificate 1[field.1.2.840.113635.100.6.2.6] exists and ",
+    "certificate leaf[field.1.2.840.113635.100.6.1.13] exists and ",
+    "certificate leaf[subject.OU] = \"HHRFM4BVMT\""
+);
 const MAX_LOGIN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const LOGIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const READINESS_TIMEOUT: Duration = Duration::from_secs(3);
@@ -164,8 +175,10 @@ struct ConnectionState {
     cancel: Option<watch::Sender<bool>>,
     generation: u64,
     availability_error: Option<String>,
+    session_token: Option<Zeroizing<String>>,
+    host_token: Option<Zeroizing<String>>,
     startup_restore: StartupRestoreState,
-    startup_session_token: Option<String>,
+    startup_session_token: Option<Zeroizing<String>>,
     startup_auto_start_claimed: bool,
 }
 
@@ -258,7 +271,7 @@ impl CloudConnectionSupervisor {
             .unwrap_or_else(|| DEFAULT_CLOUD_URL.to_string());
         Self::with_store_and_hook(
             Some(preferences_path),
-            Arc::new(KeyringCredentialStore),
+            Arc::new(KeyringCredentialStore::for_current_app()),
             &cloud_url,
             remote_runtime_secret,
             on_account_expired,
@@ -312,7 +325,8 @@ impl CloudConnectionSupervisor {
             Ok(url) => (url.as_str().trim_end_matches('/').to_string(), None),
             Err(error) => (INVALID_CLOUD_URL.to_string(), Some(error)),
         };
-        let availability_error = cloud_url_error;
+        let credential_error = credentials.availability_error();
+        let availability_error = cloud_url_error.or(credential_error);
         let phase = if availability_error.is_some() {
             ConnectionPhase::Error
         } else {
@@ -337,6 +351,8 @@ impl CloudConnectionSupervisor {
                     cancel: None,
                     generation: 0,
                     availability_error,
+                    session_token: None,
+                    host_token: None,
                     startup_restore: StartupRestoreState::Pending,
                     startup_session_token: None,
                     startup_auto_start_claimed: false,
@@ -388,7 +404,11 @@ impl CloudConnectionSupervisor {
                     .as_deref()
                     .map(read_preferences)
                     .unwrap_or_default(),
-                session_token: credentials.get(SESSION_CREDENTIAL),
+                // Startup must never open an OS credential-consent dialog. A
+                // signed release can read its own Keychain item silently; a
+                // build with a different code identity is treated as signed
+                // out until the operator explicitly starts Cloud sign-in.
+                session_token: credentials.get_noninteractive(SESSION_CREDENTIAL),
             })
             .await
             .map_err(|_| "secure credential restoration task failed".to_string());
@@ -439,11 +459,12 @@ impl CloudConnectionSupervisor {
                             state.signed_in = true;
                             state.signing_out = false;
                             state.last_error = None;
+                            state.session_token = Some(Zeroizing::new(token.clone()));
                             if state.preferences.auto_start_enabled {
                                 state.phase = ConnectionPhase::Reconnecting;
                                 state.message =
                                     "Waiting for the local Hecate runtime...".to_string();
-                                state.startup_session_token = Some(token);
+                                state.startup_session_token = Some(Zeroizing::new(token));
                             } else {
                                 state.phase = ConnectionPhase::Disconnected;
                                 state.message = "Remote access is off.".to_string();
@@ -452,6 +473,8 @@ impl CloudConnectionSupervisor {
                         }
                         Ok(None) => {
                             state.signed_in = false;
+                            state.session_token = None;
+                            state.host_token = None;
                             state.startup_session_token = None;
                             if state.preferences.auto_start_enabled {
                                 state.phase = ConnectionPhase::Error;
@@ -466,6 +489,8 @@ impl CloudConnectionSupervisor {
                         }
                         Err(err) => {
                             state.signed_in = false;
+                            state.session_token = None;
+                            state.host_token = None;
                             state.phase = ConnectionPhase::Error;
                             state.message = "Hecate Cloud is unavailable.".to_string();
                             state.last_error = Some(err.clone());
@@ -477,6 +502,8 @@ impl CloudConnectionSupervisor {
                 Err(err) => {
                     state.startup_restore = StartupRestoreState::Ready { generation };
                     state.signed_in = false;
+                    state.session_token = None;
+                    state.host_token = None;
                     state.phase = ConnectionPhase::Error;
                     state.message = "Hecate Cloud is unavailable.".to_string();
                     state.last_error = Some(err.clone());
@@ -508,7 +535,7 @@ impl CloudConnectionSupervisor {
             return None;
         }
         let base_url = state.base_url.clone()?;
-        let session_token = state.startup_session_token.take()?;
+        let session_token = state.startup_session_token.take()?.to_string();
 
         state.startup_auto_start_claimed = true;
         cancel_current(state);
@@ -578,15 +605,14 @@ impl CloudConnectionSupervisor {
             }
         }
 
-        match self.inner.credentials.get(SESSION_CREDENTIAL) {
-            Ok(Some(token)) => {
+        match self.session_token_for_explicit_action()? {
+            Some(token) => {
                 self.launch_authenticated(Some(base_url), token, true)?;
             }
-            Ok(None) => {
+            None => {
                 self.launch_authorization(AuthorizationMode::RemoteAccess { base_url })
                     .await?;
             }
-            Err(err) => return Err(err),
         }
         log::info!("remote access start requested");
         Ok(self.status(None))
@@ -616,8 +642,8 @@ impl CloudConnectionSupervisor {
             }
         }
 
-        match self.inner.credentials.get(SESSION_CREDENTIAL) {
-            Ok(Some(token)) => {
+        match self.session_token_for_explicit_action()? {
+            Some(token) => {
                 let generation = self.begin_account_verification()?;
                 let client = self.client();
                 match client.me(&token).await {
@@ -639,11 +665,10 @@ impl CloudConnectionSupervisor {
                     }
                 }
             }
-            Ok(None) => {
+            None => {
                 self.launch_authorization(AuthorizationMode::AccountOnly)
                     .await?;
             }
-            Err(err) => return Err(err),
         }
         log::info!("Hecate Cloud account sign-in requested");
         Ok(self.status(None))
@@ -920,27 +945,85 @@ impl CloudConnectionSupervisor {
     }
 
     fn authorized_snapshot(&self) -> Result<(u64, String), String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+        if let Some(error) = state.availability_error.as_ref() {
+            return Err(error.clone());
+        }
+        if !state.signed_in {
+            return Err("Sign in to Hecate Cloud first.".to_string());
+        }
+        let token = state
+            .session_token
+            .as_ref()
+            .map(|token| token.as_str().to_string())
+            .ok_or_else(|| "Sign in to Hecate Cloud first.".to_string())?;
+        Ok((state.generation, token))
+    }
+
+    fn session_token_for_explicit_action(&self) -> Result<Option<String>, String> {
         let generation = {
             let state = self
                 .inner
                 .state
                 .lock()
                 .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
-            if let Some(error) = state.availability_error.as_ref() {
-                return Err(error.clone());
-            }
-            if !state.signed_in {
-                return Err("Sign in to Hecate Cloud first.".to_string());
+            if let Some(token) = state.session_token.as_ref() {
+                return Ok(Some(token.as_str().to_string()));
             }
             state.generation
         };
-        let token = self
+
+        // This path is reached only from an explicit Start/Sign in command,
+        // so macOS may show its credential-consent UI here if the app identity
+        // changed. Cache the result for the rest of the process so one consent
+        // never becomes a dialog on every list/open/start operation.
+        let token = self.inner.credentials.get(SESSION_CREDENTIAL)?;
+        let mut state = self
             .inner
-            .credentials
-            .get(SESSION_CREDENTIAL)?
-            .ok_or_else(|| "Sign in to Hecate Cloud first.".to_string())?;
-        self.ensure_authorized_generation(generation)?;
-        Ok((generation, token))
+            .state
+            .lock()
+            .map_err(|_| "Hecate Cloud account state is unavailable.".to_string())?;
+        if state.generation != generation {
+            return Err("Your Hecate Cloud session changed. Try again.".to_string());
+        }
+        if let Some(token) = token.as_ref() {
+            state.session_token = Some(Zeroizing::new(token.clone()));
+        }
+        Ok(token)
+    }
+
+    fn host_token_for_generation(&self, generation: u64) -> Result<Option<String>, String> {
+        {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Remote access state is unavailable.".to_string())?;
+            if state.generation != generation {
+                return Err(REMOTE_ACCESS_CANCELLED.to_string());
+            }
+            if let Some(token) = state.host_token.as_ref() {
+                return Ok(Some(token.as_str().to_string()));
+            }
+        }
+
+        let token = self.inner.credentials.get(HOST_CREDENTIAL)?;
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Remote access state is unavailable.".to_string())?;
+        if state.generation != generation {
+            return Err(REMOTE_ACCESS_CANCELLED.to_string());
+        }
+        if let Some(token) = token.as_ref() {
+            state.host_token = Some(Zeroizing::new(token.clone()));
+        }
+        Ok(token)
     }
 
     fn ensure_authorized_generation(&self, generation: u64) -> Result<(), String> {
@@ -1079,6 +1162,7 @@ impl CloudConnectionSupervisor {
             if let Err(err) = self.inner.credentials.delete(SESSION_CREDENTIAL) {
                 state.last_error = Some(err);
             }
+            state.session_token = None;
         }
         log::info!("remote access stopped");
         status_from_state(&state, &self.inner.cloud_url)
@@ -1097,12 +1181,11 @@ impl CloudConnectionSupervisor {
             cancel_current(&mut state);
             supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
-            let session_token = self
-                .inner
-                .credentials
-                .get(SESSION_CREDENTIAL)
-                .ok()
-                .flatten();
+            let session_token = state
+                .session_token
+                .take()
+                .map(|token| token.as_str().to_string());
+            state.host_token = None;
             let host_id = state.preferences.host_id.clone();
             let host_org_id = state
                 .preferences
@@ -1193,6 +1276,8 @@ impl CloudConnectionSupervisor {
         state.generation = state.generation.wrapping_add(1);
         state.phase = ConnectionPhase::Disconnected;
         state.approval_url = None;
+        state.session_token = None;
+        state.host_token = None;
     }
 
     fn begin_account_verification(&self) -> Result<u64, String> {
@@ -1246,6 +1331,8 @@ impl CloudConnectionSupervisor {
             cancel_current(&mut state);
             supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
+            state.session_token = None;
+            state.host_token = None;
             let generation = state.generation;
             let (cancel_tx, cancel_rx) = watch::channel(false);
             state.cancel = Some(cancel_tx);
@@ -1353,6 +1440,7 @@ impl CloudConnectionSupervisor {
         }
 
         state.preferences = preferences;
+        state.session_token = Some(Zeroizing::new(token.to_string()));
         state.approval_url = Some(approval_url);
         state.last_error = None;
         state.message =
@@ -1385,6 +1473,7 @@ impl CloudConnectionSupervisor {
             state.phase = ConnectionPhase::Connecting;
             state.signed_in = true;
             state.signing_out = false;
+            state.session_token = Some(Zeroizing::new(session_token.clone()));
             state.base_url = Some(base_url.clone());
             state.approval_url = None;
             state.last_error = None;
@@ -1649,11 +1738,13 @@ impl CloudConnectionSupervisor {
                 state.preferences.host_org_id.clone(),
             )
         };
-        let existing_token = self
-            .inner
-            .credentials
-            .get(HOST_CREDENTIAL)
-            .map_err(HostBootstrapError::Local)?;
+        let existing_token = self.host_token_for_generation(generation).map_err(|err| {
+            if err == REMOTE_ACCESS_CANCELLED {
+                HostBootstrapError::Cancelled
+            } else {
+                HostBootstrapError::Local(err)
+            }
+        })?;
         if saved_host_owner_matches(
             existing_actor_id.as_deref(),
             existing_org_id.as_deref(),
@@ -1677,6 +1768,7 @@ impl CloudConnectionSupervisor {
                 .credentials
                 .delete(HOST_CREDENTIAL)
                 .map_err(HostBootstrapError::Local)?;
+            state.host_token = None;
             state.preferences.host_id = None;
             state.preferences.host_actor_id = None;
             state.preferences.host_org_id = None;
@@ -1749,6 +1841,7 @@ impl CloudConnectionSupervisor {
                 preferences.host_org_id = Some(actor.org_id.clone());
                 self.persist_preferences(&preferences)?;
                 state.preferences = preferences;
+                state.host_token = Some(Zeroizing::new(created.host_token.clone()));
                 Ok(())
             }
         })();
@@ -1787,6 +1880,8 @@ impl CloudConnectionSupervisor {
             cancel_current(&mut state);
             supersede_startup_restore(&mut state);
             state.generation = state.generation.wrapping_add(1);
+            state.session_token = None;
+            state.host_token = None;
             let mut errors = None;
             for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
                 if let Err(err) = self.inner.credentials.delete(credential) {
@@ -1821,6 +1916,8 @@ impl CloudConnectionSupervisor {
         if let Err(err) = self.inner.credentials.delete(SESSION_CREDENTIAL) {
             append_warning(&mut error, err);
         }
+        state.session_token = None;
+        state.host_token = None;
         state.phase = ConnectionPhase::Error;
         state.signing_out = false;
         state.preferences.auto_start_enabled = false;
@@ -2020,41 +2117,153 @@ fn write_preferences(path: &Path, preferences: &CloudConnectionPreferences) -> R
 }
 
 trait CredentialStore: Send + Sync {
+    fn availability_error(&self) -> Option<String> {
+        None
+    }
     fn get(&self, name: &str) -> Result<Option<String>, String>;
+    fn get_noninteractive(&self, name: &str) -> Result<Option<String>, String> {
+        self.get(name)
+    }
     fn set(&self, name: &str, value: &str) -> Result<(), String>;
     fn delete(&self, name: &str) -> Result<(), String>;
 }
 
-struct KeyringCredentialStore;
+struct KeyringCredentialStore {
+    availability_error: Option<String>,
+}
 
 impl KeyringCredentialStore {
-    fn entry(name: &str) -> Result<keyring::Entry, String> {
+    fn for_current_app() -> Self {
+        Self {
+            availability_error: release_installation_error(),
+        }
+    }
+
+    fn entry(&self, name: &str) -> Result<keyring::Entry, String> {
+        if let Some(error) = self.availability_error.as_ref() {
+            return Err(error.clone());
+        }
         keyring::Entry::new(KEYRING_SERVICE, name)
             .map_err(|err| format!("secure credential storage is unavailable: {err}"))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_noninteractive(name: &str) -> Result<Option<String>, String> {
+        use security_framework::item::{ItemClass, ItemSearchOptions, SearchResult};
+
+        // kSecUseAuthenticationUISkip makes the background lookup omit an
+        // item when accessing it would require Keychain UI. This is important
+        // after a local/dev build or damaged bundle changes the app's code
+        // identity: routine launch stays quiet and explicit sign-in remains
+        // the only path that may ask the operator for consent.
+        let results = ItemSearchOptions::new()
+            .class(ItemClass::generic_password())
+            .service(KEYRING_SERVICE)
+            .account(name)
+            .load_data(true)
+            .skip_authenticated_items(true)
+            .search();
+        let results = match results {
+            Ok(results) => results,
+            // Security.framework reports either "not found" or
+            // "interaction not allowed" when the only matching item cannot
+            // be returned without UI. Both mean "not available silently".
+            Err(err) if matches!(err.code(), -25300 | -25308) => return Ok(None),
+            Err(err) => {
+                return Err(format!(
+                    "could not read secure credential without interaction: {err}"
+                ))
+            }
+        };
+        match results.into_iter().next() {
+            None => Ok(None),
+            Some(SearchResult::Data(value)) => String::from_utf8(value)
+                .map(Some)
+                .map_err(|_| "secure credential contains invalid text".to_string()),
+            Some(_) => Err("secure credential storage returned unexpected data".to_string()),
+        }
     }
 }
 
 impl CredentialStore for KeyringCredentialStore {
+    fn availability_error(&self) -> Option<String> {
+        self.availability_error.clone()
+    }
+
     fn get(&self, name: &str) -> Result<Option<String>, String> {
-        match Self::entry(name)?.get_password() {
+        match self.entry(name)?.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(err) => Err(format!("could not read secure credential: {err}")),
         }
     }
 
+    #[cfg(target_os = "macos")]
+    fn get_noninteractive(&self, name: &str) -> Result<Option<String>, String> {
+        if let Some(error) = self.availability_error.as_ref() {
+            return Err(error.clone());
+        }
+        Self::get_noninteractive(name)
+    }
+
     fn set(&self, name: &str, value: &str) -> Result<(), String> {
-        Self::entry(name)?
+        self.entry(name)?
             .set_password(value)
             .map_err(|err| format!("could not save secure credential: {err}"))
     }
 
     fn delete(&self, name: &str) -> Result<(), String> {
-        match Self::entry(name)?.delete_credential() {
+        match self.entry(name)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(err) => Err(format!("could not remove secure credential: {err}")),
         }
     }
+}
+
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
+fn release_installation_error() -> Option<String> {
+    use core_foundation::url::CFURL;
+    use security_framework::os::macos::code_signing::{Flags, SecRequirement, SecStaticCode};
+    use std::str::FromStr;
+
+    let verify = (|| -> Result<(), String> {
+        let executable = std::env::current_exe()
+            .map_err(|err| format!("could not locate the running executable: {err}"))?;
+        let bundle = executable
+            .ancestors()
+            .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+            .ok_or_else(|| "the running executable is not inside a macOS app bundle".to_string())?;
+        let bundle_url = CFURL::from_path(bundle, true)
+            .ok_or_else(|| "could not represent the macOS app bundle path".to_string())?;
+        let code = SecStaticCode::from_path(&bundle_url, Flags::NONE)
+            .map_err(|err| format!("could not inspect the macOS app signature: {err}"))?;
+        let requirement = SecRequirement::from_str(OFFICIAL_MACOS_REQUIREMENT)
+            .map_err(|err| format!("could not build the official app requirement: {err}"))?;
+        code.check_validity(
+            Flags::CHECK_ALL_ARCHITECTURES
+                | Flags::CHECK_NESTED_CODE
+                | Flags::STRICT_VALIDATE
+                | Flags::NO_NETWORK_ACCESS,
+            &requirement,
+        )
+        .map_err(|err| format!("the macOS app signature is invalid: {err}"))
+    })();
+
+    match verify {
+        Ok(()) => None,
+        Err(error) => {
+            log::error!("Hecate release installation verification failed: {error}");
+            Some(
+                "This Hecate installation could not be verified. Replace the entire app with a fresh official download before using Hecate Cloud."
+                    .to_string(),
+            )
+        }
+    }
+}
+
+#[cfg(any(not(target_os = "macos"), debug_assertions))]
+fn release_installation_error() -> Option<String> {
+    None
 }
 
 #[derive(Default)]
@@ -3970,6 +4179,56 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct StartupReadModeCredentialStore {
+        interactive_reads: AtomicUsize,
+        noninteractive_reads: AtomicUsize,
+    }
+
+    #[derive(Default)]
+    struct UnavailableCredentialStore {
+        reads: AtomicUsize,
+    }
+
+    impl CredentialStore for UnavailableCredentialStore {
+        fn availability_error(&self) -> Option<String> {
+            Some("test installation is not trusted".to_string())
+        }
+
+        fn get(&self, _name: &str) -> Result<Option<String>, String> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            Err("credential read must not run".to_string())
+        }
+
+        fn set(&self, _name: &str, _value: &str) -> Result<(), String> {
+            Err("credential write must not run".to_string())
+        }
+
+        fn delete(&self, _name: &str) -> Result<(), String> {
+            Err("credential delete must not run".to_string())
+        }
+    }
+
+    impl CredentialStore for StartupReadModeCredentialStore {
+        fn get(&self, _name: &str) -> Result<Option<String>, String> {
+            self.interactive_reads.fetch_add(1, Ordering::SeqCst);
+            Err("startup used an interactive credential read".to_string())
+        }
+
+        fn get_noninteractive(&self, name: &str) -> Result<Option<String>, String> {
+            self.noninteractive_reads.fetch_add(1, Ordering::SeqCst);
+            Ok((name == SESSION_CREDENTIAL).then(|| "happ_silent-session".to_string()))
+        }
+
+        fn set(&self, _name: &str, _value: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn delete(&self, _name: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
     struct GatedCredentialState {
         first_session_get_claimed: bool,
         first_session_get_entered: bool,
@@ -4847,6 +5106,7 @@ mod tests {
             let mut state = supervisor.inner.state.lock().expect("state");
             state.generation = 7;
             state.signed_in = true;
+            state.host_token = Some(Zeroizing::new("host_token".to_string()));
         }
         let observed = Arc::new(Mutex::new(false));
         let observed_in_fence = Arc::clone(&observed);
@@ -4873,7 +5133,10 @@ mod tests {
 
         assert!(*observed.lock().expect("observation"));
         assert!(!status.signed_in);
-        assert_eq!(supervisor.inner.state.lock().expect("state").generation, 8);
+        let state = supervisor.inner.state.lock().expect("state");
+        assert_eq!(state.generation, 8);
+        assert!(state.session_token.is_none());
+        assert!(state.host_token.is_none());
         let _ = std::fs::remove_file(preferences_path);
     }
 
@@ -5344,6 +5607,8 @@ mod tests {
             let mut state = supervisor.inner.state.lock().expect("state");
             state.generation = 2;
             state.signed_in = true;
+            state.session_token = Some(Zeroizing::new("happ_expiring-session".to_string()));
+            state.host_token = Some(Zeroizing::new("host_expiring-token".to_string()));
         }
 
         supervisor.expire_account_if_current(1, "stale");
@@ -5352,6 +5617,10 @@ mod tests {
         supervisor.expire_account_if_current(2, "expired");
         assert_eq!(*notifications.lock().expect("notifications"), 1);
         assert!(!supervisor.status(None).signed_in);
+        let state = supervisor.inner.state.lock().expect("state");
+        assert!(state.session_token.is_none());
+        assert!(state.host_token.is_none());
+        drop(state);
 
         supervisor.expire_account_if_current(2, "stale again");
         assert_eq!(*notifications.lock().expect("notifications"), 1);
@@ -5397,6 +5666,79 @@ mod tests {
             .expect("startup credential restore completion");
         constructor.join().expect("constructor thread");
         assert!(!supervisor.status(None).restoring);
+    }
+
+    #[test]
+    fn startup_restore_never_uses_an_interactive_credential_read() {
+        let credentials = Arc::new(StartupReadModeCredentialStore::default());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            None,
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
+        );
+
+        supervisor.restore_startup();
+        restore_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("startup credential restore completion");
+
+        assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.noninteractive_reads.load(Ordering::SeqCst), 1);
+        assert!(supervisor.status(None).signed_in);
+        assert_eq!(
+            supervisor
+                .authorized_snapshot()
+                .expect("first cached session")
+                .1,
+            "happ_silent-session"
+        );
+        assert_eq!(
+            supervisor
+                .authorized_snapshot()
+                .expect("second cached session")
+                .1,
+            "happ_silent-session"
+        );
+        assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.noninteractive_reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn unavailable_credential_client_fails_before_any_startup_read() {
+        let credentials = Arc::new(UnavailableCredentialStore::default());
+        let (restore_tx, restore_rx) = std_mpsc::channel();
+        let supervisor = startup_test_supervisor(
+            None,
+            credentials.clone(),
+            Arc::new(move || {
+                let _ = restore_tx.send(());
+            }),
+            no_authenticated_connection_spawner(),
+        );
+
+        let status = supervisor.status(None);
+        assert!(!status.available);
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("test installation is not trusted")
+        );
+        supervisor.restore_startup();
+        restore_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("startup completion without credential access");
+        assert_eq!(credentials.reads.load(Ordering::SeqCst), 0);
+        assert!(!supervisor.status(None).restoring);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_builds_never_share_the_release_keyring_service() {
+        assert_eq!(KEYRING_SERVICE, "sh.hecate.app.cloud.development");
+        assert_ne!(KEYRING_SERVICE, "sh.hecate.app.cloud.v2");
     }
 
     #[test]

@@ -76,8 +76,31 @@ requireText(tauriPath, tauri, "-name '*.app.tar.gz'");
 requireText(tauriPath, tauri, "-name '*.AppImage.tar.gz'");
 requireText(tauriPath, tauri, "-name '*.msi.zip'");
 requireText(tauriPath, tauri, "-name '*.sig'");
+requireText(tauriPath, tauri, "Require macOS release-signing credentials");
+requireText(tauriPath, tauri, "missing required macOS release credential");
+requireText(tauriPath, tauri, "Verify signed macOS release identity");
+requireText(tauriPath, tauri, "codesign --verify --deep --strict --verbose=4");
+requireText(tauriPath, tauri, "TeamIdentifier=${EXPECTED_TEAM_ID}");
+requireText(tauriPath, tauri, "spctl --assess --type execute --verbose=4");
+requireText(tauriPath, tauri, 'set -- "${bundle}"/macos/*.app.tar.gz');
 requireText(tauriPath, tauri, `release_notes=$(jq -r '.body // ""' <<<"$release_metadata")`);
 requireText(tauriPath, tauri, 'release_notes="${release_notes:0:12000}"');
+
+const signedBuildStep = tauri.indexOf("      - name: Build Tauri bundles (signed release)");
+const signedVerificationStep = tauri.indexOf(
+  "      - name: Verify signed macOS release identity",
+);
+const updaterUploadStep = tauri.indexOf("      - name: Upload updater payloads to release");
+if (
+  signedBuildStep < 0 ||
+  signedVerificationStep < 0 ||
+  updaterUploadStep < 0 ||
+  !(signedBuildStep < signedVerificationStep && signedVerificationStep < updaterUploadStep)
+) {
+  fail(
+    `${tauriPath} must verify the signed macOS app and updater archive after building and before upload`,
+  );
+}
 
 forbidText(releasePath, release, "git push origin master");
 requireText(releasePath, release, "uses: ./.github/workflows/release-delivery.yml");

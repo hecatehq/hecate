@@ -7,21 +7,31 @@
 > it like any other Mac app.
 
 A `.dmg` produced by a release-workflow run is signed with a Developer
-ID Application certificate and notarized by Apple **when** the seven
-`APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured.
+ID Application certificate and notarized by Apple. Tagged macOS releases
+fail before packaging when any of the seven `APPLE_*` /
+`KEYCHAIN_PASSWORD` repo secrets is missing.
 "Release-workflow run" means any invocation of
 `.github/workflows/release.yml` — tag push (the common case) or
 manual `workflow_dispatch` (re-runs / hotfixes); both pass a
 non-empty `tagName` to the reusable workflow, satisfying the env
-gate. Such bundles launch on a clean Mac with no Gatekeeper warning
-and drag-install to `/Applications` without `xattr`-fiddling.
+gate. CI then verifies the staged app and the exact updater archive with
+deep/strict code-signature checks, the expected bundle and Team identifiers,
+Gatekeeper assessment, and the notarization staple before upload. Such bundles
+launch on a clean Mac with no Gatekeeper warning and drag-install to
+`/Applications` without `xattr`-fiddling.
 
-Builds without the secrets — PR validation in `test.yml`, manual
-`tauri-build.yml` rebuilds, fork PRs, or releases cut before the secrets landed
-— produce **unsigned** `.dmg`s. Those are not a pipeline failure; they're the
-documented fallback when the signing inputs aren't available. Operators
-downloading an unsigned build need to right-click `Hecate.app` → **Open** to
-bypass Gatekeeper on first launch.
+PR validation in `test.yml`, manual `tauri-build.yml` rebuilds, and fork PRs
+remain intentionally unsigned because they are build artifacts rather than
+releases. Older releases cut before signing was required also remain unsigned.
+Operators testing one of those explicit development artifacts need to
+right-click `Hecate.app` → **Open** to bypass Gatekeeper on first launch; they
+must not install it over the official app or reuse its Cloud credentials.
+
+Release and debug builds use different Keychain service namespaces. The
+release namespace is versioned when an older item may have been created under
+an incompatible access policy. Such a rotation deliberately requires one new
+browser sign-in and leaves the obsolete item untouched, avoiding an unexpected
+macOS password prompt during routine startup.
 
 The CI workflow (`.github/workflows/_tauri-shared.yml`) reads the
 secrets via env. Setup steps below are what gets the secrets in

@@ -188,8 +188,27 @@ jobs:
             --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       # Tagged release build. Uploads bundles to the existing GitHub Release by
-      # id, preserving GoReleaser's name and notes, and signs/notarizes when
-      # the corresponding secrets are configured.
+      # id, preserving GoReleaser's name and notes. macOS releases require the
+      # complete signing and notarization credential set below.
+      - name: Require macOS release-signing credentials
+        if: matrix.os == 'macos-latest' && inputs.tagName != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "missing required macOS release credential: ${name}" >&2
+              exit 1
+            fi
+          done
+
       - name: Build Tauri bundles (signed release)
         if: inputs.tagName != ''
         uses: tauri-apps/tauri-action@v1
@@ -237,6 +256,40 @@ jobs:
           projectPath: tauri
           releaseId: ${{ steps.release.outputs.id }}
           args: --bundles ${{ matrix.bundles }}
+
+      # Keychain trusts release updates by their signed designated requirement.
+      # Verify the exact updater payload as well as the staging bundle so a
+      # damaged or locally overlaid app can never become the published update.
+      - name: Verify signed macOS release identity
+        if: matrix.os == 'macos-latest' && inputs.tagName != ''
+        env:
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          bundle=tauri/src-tauri/target/release/bundle
+          app="${bundle}/macos/Hecate.app"
+          test -d "${app}"
+          codesign --verify --deep --strict --verbose=4 "${app}"
+          identity=$(codesign -d --verbose=4 "${app}" 2>&1)
+          grep -Fx 'Identifier=sh.hecate.app' <<<"${identity}" >/dev/null
+          grep -Fx "TeamIdentifier=${EXPECTED_TEAM_ID}" <<<"${identity}" >/dev/null
+          xcrun stapler validate "${app}"
+          spctl --assess --type execute --verbose=4 "${app}"
+
+          set -- "${bundle}"/macos/*.app.tar.gz
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo "expected exactly one macOS updater payload" >&2
+            exit 1
+          fi
+          extracted=$(mktemp -d)
+          trap 'rm -rf "${extracted}"' EXIT
+          tar -xzf "$1" -C "${extracted}"
+          test -d "${extracted}/Hecate.app"
+          codesign --verify --deep --strict --verbose=4 "${extracted}/Hecate.app"
+          extracted_identity=$(codesign -d --verbose=4 "${extracted}/Hecate.app" 2>&1)
+          grep -Fx 'Identifier=sh.hecate.app' <<<"${extracted_identity}" >/dev/null
+          grep -Fx "TeamIdentifier=${EXPECTED_TEAM_ID}" <<<"${extracted_identity}" >/dev/null
+          xcrun stapler validate "${extracted}/Hecate.app"
 
       # Upload updater payloads (.tar.gz / .zip + .sig) to the GitHub
       # Release alongside the platform bundles. tauri-action's default

@@ -153,10 +153,18 @@ What works:
 - Cloud session and computer credentials are stored in the operating system's
   credential store. `<data_dir>/cloud-connection.json` contains only reconnect
   posture and non-secret account/host identifiers. Credential and reconnect
-  state is restored in the background, so a slow or locked credential store
-  cannot delay the local runtime or main Hecate window. When Remote access
-  remains on, the app reconnects after both credential restoration and its
-  local runtime are ready on the next launch.
+  state is restored in the background with interaction disabled, so a slow or
+  locked credential store cannot delay the local runtime, main Hecate window,
+  or open a surprise operating-system password dialog. If macOS no longer
+  recognizes the app's code identity, startup treats the Cloud session as
+  unavailable and leaves consent to an explicit sign-in action. Debug builds
+  use a separate credential namespace and never reuse release credentials.
+  The signed desktop app moved to a versioned credential namespace after the
+  stable 0.5.0 release, so the first updated launch requires one fresh browser
+  sign-in instead of asking for access to a credential created by an older or
+  local build.
+  When Remote access remains on, the app reconnects after both credential
+  restoration and its local runtime are ready on the next launch.
   While running, it also sends heartbeat frames and replaces a connection that
   stops receiving Cloud traffic, so network transitions and Cloud restarts do
   not leave the computer indefinitely marked offline.
@@ -178,8 +186,9 @@ What works:
 - macOS bundles signed with a Developer ID Application certificate and
   notarized by Apple on release-workflow runs (any invocation of
   `release.yml` — tag push or manual `workflow_dispatch` — sets
-  `inputs.tagName`, satisfying the env gate; the `APPLE_*` /
-  `KEYCHAIN_PASSWORD` repo secrets must also be configured); see
+  `inputs.tagName`, satisfying the env gate; missing `APPLE_*` /
+  `KEYCHAIN_PASSWORD` repo secrets fail the release). CI verifies the staged
+  bundle and exact updater archive before either can be published; see
   [`macos-signing.md`](macos-signing.md) for the maintainer-side setup
   and rotation playbook. PR validation builds and Windows/Linux bundles
   remain unsigned by design.
@@ -295,9 +304,9 @@ Captured in detail at [`docs-ai/skills/tauri/SKILL.md`](../../docs-ai/skills/tau
 the ones likely to bite an operator:
 
 - **Gatekeeper / SmartScreen on first launch.** macOS bundles produced
-  by a release-workflow run with the `APPLE_*` repo secrets configured
-  are signed+notarized — no first-launch warning. Pre-signing alpha
-  bundles, fork builds, or releases cut before the secrets landed need
+  by a release-workflow run are required to be signed+notarized — no
+  first-launch warning. Pre-signing alpha bundles, fork builds, or releases
+  cut before the signing gate landed need
   right-click → Open the first time. Windows is unsigned regardless;
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
