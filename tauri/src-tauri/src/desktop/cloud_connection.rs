@@ -660,6 +660,7 @@ impl CloudConnectionSupervisor {
                         self.expire_account_if_current(
                             generation,
                             "Your Hecate Cloud session expired. Sign in again.",
+                            CredentialReadMode::Interactive,
                         );
                         return Err("Your Hecate Cloud session expired. Sign in again.".to_string());
                     }
@@ -1136,6 +1137,7 @@ impl CloudConnectionSupervisor {
             self.expire_account_if_current(
                 generation,
                 "Your Hecate Cloud session expired. Sign in again.",
+                CredentialReadMode::NonInteractive,
             );
         }
     }
@@ -1614,6 +1616,7 @@ impl CloudConnectionSupervisor {
                 self.expire_account_if_current(
                     generation,
                     "Your Hecate Cloud session expired. Sign in again.",
+                    credential_read_mode,
                 );
                 return;
             }
@@ -1646,6 +1649,7 @@ impl CloudConnectionSupervisor {
                 self.expire_account_if_current(
                     generation,
                     "Your Hecate Cloud session expired. Sign in again.",
+                    credential_read_mode,
                 );
                 return;
             }
@@ -1915,7 +1919,12 @@ impl CloudConnectionSupervisor {
         }
     }
 
-    fn expire_account_if_current(&self, generation: u64, message: &str) {
+    fn expire_account_if_current(
+        &self,
+        generation: u64,
+        message: &str,
+        credential_read_mode: CredentialReadMode,
+    ) {
         let expired = {
             let Ok(mut state) = self.inner.state.lock() else {
                 return;
@@ -1930,12 +1939,17 @@ impl CloudConnectionSupervisor {
             state.host_token = None;
             let mut errors = None;
             for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
-                // Expiry can be discovered by automatic reconnect or another
-                // background Cloud request. Never let that response turn into
-                // Keychain consent UI. An item that cannot be removed without
-                // interaction stays fenced by cleared process/preferences
-                // state until the operator explicitly reconnects or signs out.
-                if let Err(err) = self.inner.credentials.delete_noninteractive(credential) {
+                // Background expiry must never produce Keychain UI. An
+                // explicit Sign In/Start action, however, may clean up a stale
+                // item interactively so it cannot trap the next attempt in a
+                // repeated 401 loop.
+                let deleted = match credential_read_mode {
+                    CredentialReadMode::NonInteractive => {
+                        self.inner.credentials.delete_noninteractive(credential)
+                    }
+                    CredentialReadMode::Interactive => self.inner.credentials.delete(credential),
+                };
+                if let Err(err) = deleted {
                     append_warning(&mut errors, err);
                 }
             }
@@ -5702,7 +5716,7 @@ mod tests {
         );
         supervisor.inner.state.lock().expect("state").generation = 2;
 
-        supervisor.expire_account_if_current(1, "expired");
+        supervisor.expire_account_if_current(1, "expired", CredentialReadMode::NonInteractive);
         supervisor.fail_authorization_if_current(1, "failed", None);
 
         assert!(credentials
@@ -5736,10 +5750,10 @@ mod tests {
             state.host_token = Some(Zeroizing::new("host_expiring-token".to_string()));
         }
 
-        supervisor.expire_account_if_current(1, "stale");
+        supervisor.expire_account_if_current(1, "stale", CredentialReadMode::NonInteractive);
         assert_eq!(*notifications.lock().expect("notifications"), 0);
 
-        supervisor.expire_account_if_current(2, "expired");
+        supervisor.expire_account_if_current(2, "expired", CredentialReadMode::NonInteractive);
         assert_eq!(*notifications.lock().expect("notifications"), 1);
         assert!(!supervisor.status(None).signed_in);
         let state = supervisor.inner.state.lock().expect("state");
@@ -5747,7 +5761,7 @@ mod tests {
         assert!(state.host_token.is_none());
         drop(state);
 
-        supervisor.expire_account_if_current(2, "stale again");
+        supervisor.expire_account_if_current(2, "stale again", CredentialReadMode::NonInteractive);
         assert_eq!(*notifications.lock().expect("notifications"), 1);
     }
 
@@ -5936,6 +5950,64 @@ mod tests {
         assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
         assert_eq!(credentials.deletes.load(Ordering::SeqCst), 0);
         assert_eq!(credentials.noninteractive_deletes.load(Ordering::SeqCst), 2);
+        let state = supervisor.inner.state.lock().expect("state");
+        assert!(!state.signed_in);
+        assert!(state.session_token.is_none());
+        assert!(state.host_token.is_none());
+    }
+
+    #[tokio::test]
+    async fn explicit_reconnect_unauthorized_cleanup_can_remove_stale_credentials() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("Cloud listener");
+        let address = listener.local_addr().expect("Cloud listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("Cloud request");
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request).await.expect("read Cloud request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                )
+                .await
+                .expect("write Cloud response");
+        });
+        let credentials = Arc::new(StartupReadModeCredentialStore::default());
+        let supervisor = CloudConnectionSupervisor::with_dependencies(
+            None,
+            credentials.clone(),
+            &format!("http://{address}"),
+            new_remote_runtime_secret(),
+            Arc::new(|| {}),
+            Arc::new(|| {}),
+            no_authenticated_connection_spawner(),
+        );
+        {
+            let mut state = supervisor.inner.state.lock().expect("state");
+            state.generation = 7;
+            state.signed_in = true;
+            state.session_token = Some(Zeroizing::new("happ_expired-session".to_string()));
+            state.host_token = Some(Zeroizing::new("host_inaccessible".to_string()));
+        }
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        supervisor
+            .connect_authenticated(
+                7,
+                "http://127.0.0.1:9".to_string(),
+                "happ_expired-session".to_string(),
+                cancel_rx,
+                CredentialReadMode::Interactive,
+            )
+            .await;
+        server.await.expect("Cloud server");
+
+        assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.deletes.load(Ordering::SeqCst), 2);
+        assert_eq!(credentials.noninteractive_deletes.load(Ordering::SeqCst), 0);
         let state = supervisor.inner.state.lock().expect("state");
         assert!(!state.signed_in);
         assert!(state.session_token.is_none());
