@@ -222,11 +222,11 @@ versioned GitHub Release assets below:
 
 <!-- desktop-release-links:start -->
 
-| Platform              | Bundle                                                                                                                                                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS (Apple Silicon) | [Hecate_0.5.0-alpha.5_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.5.0-alpha.5/Hecate_0.5.0-alpha.5_aarch64.dmg)                                                                                                                                               |
-| Linux x86_64          | [Hecate_0.5.0-alpha.5_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.5.0-alpha.5/Hecate_0.5.0-alpha.5_amd64.deb) or [Hecate_0.5.0-alpha.5_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.5.0-alpha.5/Hecate_0.5.0-alpha.5_amd64.AppImage) |
-| Windows x86_64        | [Hecate_0.5.0-alpha.5_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.5.0-alpha.5/Hecate_0.5.0-alpha.5_x64_en-US.msi)                                                                                                                                           |
+| Platform              | Bundle                                                                                                                                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS (Apple Silicon) | [Hecate_0.5.0_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.5.0/Hecate_0.5.0_aarch64.dmg)                                                                                                                       |
+| Linux x86_64          | [Hecate_0.5.0_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.5.0/Hecate_0.5.0_amd64.deb) or [Hecate_0.5.0_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.5.0/Hecate_0.5.0_amd64.AppImage) |
+| Windows x86_64        | [Hecate_0.5.0_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.5.0/Hecate_0.5.0_x64_en-US.msi)                                                                                                                   |
 
 <!-- desktop-release-links:end -->
 
