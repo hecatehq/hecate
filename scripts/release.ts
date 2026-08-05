@@ -2,7 +2,7 @@
 // release.ts — cut a Hecate release tag and push it to CI.
 //
 // Usage:
-//   bun scripts/release.ts <version> --notes <path>               # e.g. v0.5.1
+//   bun scripts/release.ts <version> --notes docs/releases/vX.Y.Z.md
 //   bun scripts/release.ts v0.5.1 --notes docs/releases/v0.5.1.md --skip-snapshot
 //   bun scripts/release.ts v0.5.1 --notes docs/releases/v0.5.1.md --preflight-only
 //
@@ -157,7 +157,7 @@ try {
   commandOptions = parseReleaseCommandArgs(process.argv.slice(2));
 } catch (error) {
   console.error(
-    "usage: bun scripts/release.ts <version> --notes <path> [--skip-snapshot] [--preflight-only] [--yes]",
+    "usage: bun scripts/release.ts <version> --notes docs/releases/vX.Y.Z.md [--skip-snapshot] [--preflight-only] [--yes]",
   );
   console.error("       version: vX.Y.Z  (e.g. v0.5.0)");
   console.error(`\nerror: ${(error as Error).message}`);

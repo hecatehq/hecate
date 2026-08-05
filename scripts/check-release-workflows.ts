@@ -78,7 +78,7 @@ requireText(
 );
 forbidText(tauriConfigPath, tauriConfig, "https://hecate.sh/releases/alpha/latest.json");
 requireText(releaseScriptPath, releaseScript, "version must be a stable vX.Y.Z tag");
-requireText(releaseScriptPath, releaseScript, "--notes <path>");
+requireText(releaseScriptPath, releaseScript, "--notes docs/releases/vX.Y.Z.md");
 requireText(releaseScriptPath, releaseScript, '"--cleanup=verbatim"');
 requireText(releaseScriptPath, releaseScript, '"-F", "-", version, releaseCommit');
 requireText(releaseScriptPath, releaseScript, "input: notesInStampedCommit.bytes");
@@ -309,6 +309,11 @@ requireText(
   releaseNotesInputTestPath,
   releaseNotesInputTest,
   "requires one to six highlight bullets",
+);
+requireText(
+  releaseNotesInputTestPath,
+  releaseNotesInputTest,
+  "rejects a noncanonical repository-local release notes path",
 );
 const releaseNotesTestCommand =
   "bun test scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts";
