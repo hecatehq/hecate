@@ -82,18 +82,25 @@ requireText(releaseScriptPath, releaseScript, '"-F", "-", version, releaseCommit
 requireText(releaseScriptPath, releaseScript, "input: notesInStampedCommit.bytes");
 requireText(releaseScriptPath, releaseScript, '"hash-object", `--path=${notes.relativePath}`');
 forbidText(releaseScriptPath, releaseScript, '"commit", "--only"');
-requireText(releaseScriptPath, releaseScript, "GIT_INDEX_FILE: temporaryIndex");
-requireText(releaseScriptPath, releaseScript, '["read-tree", localCommit]');
+forbidText(releaseScriptPath, releaseScript, "GIT_INDEX_FILE");
+requireText(releaseScriptPath, releaseScript, '["worktree", "add", "--detach"');
 requireText(
   releaseScriptPath,
   releaseScript,
-  'capturedStampTree = execFileSync("git", ["write-tree"]',
+  '["hash-object", `--path=${stampPath}`, "--", stampPath]',
 );
+requireText(releaseScriptPath, releaseScript, "cwd: stampCheckout");
+requireText(releaseScriptPath, releaseScript, 'const capturedStampTree = execFileSync("git"');
 requireText(releaseScriptPath, releaseScript, "releaseTree !== capturedStampTree");
-requireText(releaseScriptPath, releaseScript, "realIndexTree !== reviewedTree");
-requireText(releaseScriptPath, releaseScript, '["read-tree", releaseCommit]');
+requireText(releaseScriptPath, releaseScript, '["worktree", "remove", "--force"');
 requireText(releaseScriptPath, releaseScript, 'revision = "HEAD"');
 requireText(releaseScriptPath, releaseScript, "`${revision}:${relativePath}`");
+requireText(
+  releaseScriptPath,
+  releaseScript,
+  "!revisionContainsPath(localCommit, stampScriptPath)",
+);
+forbidText(releaseScriptPath, releaseScript, "existsSync(stampScript)");
 requireText(releaseScriptPath, releaseScript, "headBeforeStamp !== localCommit");
 requireText(releaseScriptPath, releaseScript, "let releaseCommit = localCommit");
 requireText(
@@ -106,8 +113,7 @@ requireText(
   releaseScript,
   "changedStampPaths.filter((path) => !stampPaths.includes(path))",
 );
-requireText(releaseScriptPath, releaseScript, "unstampedHead !== localCommit");
-requireText(releaseScriptPath, releaseScript, "headAfterStamp !== releaseCommit");
+requireText(releaseScriptPath, releaseScript, "headAfterStamp !== localCommit");
 requireText(
   releaseScriptPath,
   releaseScript,
