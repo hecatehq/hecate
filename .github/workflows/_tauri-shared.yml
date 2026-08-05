@@ -242,6 +242,9 @@ jobs:
       - name: Verify signed macOS release identity
         if: matrix.os == 'macos-latest' && inputs.tagName != ''
         env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # This is Hecate's checked-in release identity, not the mutable
           # signing input. A coherent but wrong secret set must fail here
           # because the app enforces this same Team ID at runtime.
@@ -272,6 +275,52 @@ jobs:
           grep -Fx 'Identifier=sh.hecate.app' <<<"${extracted_identity}" >/dev/null
           grep -Fx "TeamIdentifier=${EXPECTED_TEAM_ID}" <<<"${extracted_identity}" >/dev/null
           xcrun stapler validate "${extracted}/Hecate.app"
+
+          set -- "${bundle}"/dmg/*.dmg
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo "expected exactly one macOS disk image" >&2
+            exit 1
+          fi
+          dmg="$1"
+          codesign --verify --strict --verbose=4 "${dmg}"
+          dmg_identity=$(codesign -d --verbose=4 "${dmg}" 2>&1)
+          grep -Fx "TeamIdentifier=${EXPECTED_TEAM_ID}" <<<"${dmg_identity}" >/dev/null
+          # Tauri notarizes the app before packaging it, but the finished disk
+          # image is a separate distribution artifact with its own ticket.
+          xcrun notarytool submit "${dmg}" \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_PASSWORD}" \
+            --team-id "${NOTARY_TEAM_ID}" \
+            --wait
+          xcrun stapler staple "${dmg}"
+          xcrun stapler validate "${dmg}"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "${dmg}"
+
+      # Tauri's updater treats the signature as part of the installation trust
+      # boundary. Verify every exact payload/signature pair with the checked-in
+      # updater public key and the same minisign implementation used by the app.
+      - name: Verify updater payload signatures
+        if: inputs.tagName != ''
+        run: |
+          set -euo pipefail
+          bundle=tauri/src-tauri/target/release/bundle
+          set --
+          while IFS= read -r signature; do
+            payload=${signature%.sig}
+            if [ ! -f "${payload}" ]; then
+              echo "updater signature has no matching payload: ${signature}" >&2
+              exit 1
+            fi
+            set -- "$@" "${payload}" "${signature}"
+          done < <(find "${bundle}" -type f -name '*.sig' | sort)
+          if [ "$#" -eq 0 ]; then
+            echo "no signed updater payloads produced for ${{ matrix.target }}" >&2
+            exit 1
+          fi
+          cargo run --quiet --release \
+            --manifest-path tauri/src-tauri/Cargo.toml \
+            --example verify_updater_signatures -- \
+            tauri/src-tauri/tauri.conf.json "$@"
 
       # Publish the exact platform bundles and updater payloads only after all
       # validation in this matrix leg has passed. The build action above has no

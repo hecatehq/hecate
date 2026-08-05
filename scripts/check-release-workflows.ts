@@ -45,6 +45,7 @@ const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
 const releaseScriptPath = "scripts/release.ts";
 const releaseLinksScriptPath = "scripts/update-release-links.ts";
 const cloudConnectionPath = "tauri/src-tauri/src/desktop/cloud_connection.rs";
+const updaterVerifierPath = "tauri/src-tauri/examples/verify_updater_signatures.rs";
 
 const tauri = read(tauriPath);
 const release = read(releasePath);
@@ -59,6 +60,7 @@ const tauriConfig = read(tauriConfigPath);
 const releaseScript = read(releaseScriptPath);
 const releaseLinksScript = read(releaseLinksScriptPath);
 const cloudConnection = read(cloudConnectionPath);
+const updaterVerifier = read(updaterVerifierPath);
 
 requireText(goreleaserPath, goreleaser, "prerelease: false");
 requireText(
@@ -92,6 +94,20 @@ requireText(
 );
 requireText(tauriPath, tauri, "spctl --assess --type execute --verbose=4");
 requireText(tauriPath, tauri, 'set -- "${bundle}"/macos/*.app.tar.gz');
+requireText(tauriPath, tauri, 'set -- "${bundle}"/dmg/*.dmg');
+requireText(tauriPath, tauri, 'codesign --verify --strict --verbose=4 "${dmg}"');
+requireText(tauriPath, tauri, 'xcrun notarytool submit "${dmg}"');
+requireText(tauriPath, tauri, 'xcrun stapler staple "${dmg}"');
+requireText(tauriPath, tauri, 'xcrun stapler validate "${dmg}"');
+requireText(
+  tauriPath,
+  tauri,
+  "spctl --assess --type open --context context:primary-signature --verbose=4",
+);
+requireText(tauriPath, tauri, "Verify updater payload signatures");
+requireText(tauriPath, tauri, "--example verify_updater_signatures");
+requireText(updaterVerifierPath, updaterVerifier, "plugins/updater/pubkey");
+requireText(updaterVerifierPath, updaterVerifier, ".verify(&payload, &signature, true)");
 requireText(tauriPath, tauri, "-name '*.dmg'");
 requireText(tauriPath, tauri, "-name '*.deb'");
 requireText(tauriPath, tauri, "-name '*.AppImage'");
@@ -101,15 +117,21 @@ requireText(tauriPath, tauri, 'release_notes="${release_notes:0:12000}"');
 
 const signedBuildStep = tauri.indexOf("      - name: Build Tauri bundles (signed release)");
 const signedVerificationStep = tauri.indexOf("      - name: Verify signed macOS release identity");
+const updaterVerificationStep = tauri.indexOf("      - name: Verify updater payload signatures");
 const verifiedPublishStep = tauri.indexOf("      - name: Publish verified release assets");
 if (
   signedBuildStep < 0 ||
   signedVerificationStep < 0 ||
+  updaterVerificationStep < 0 ||
   verifiedPublishStep < 0 ||
-  !(signedBuildStep < signedVerificationStep && signedVerificationStep < verifiedPublishStep)
+  !(
+    signedBuildStep < signedVerificationStep &&
+    signedVerificationStep < updaterVerificationStep &&
+    updaterVerificationStep < verifiedPublishStep
+  )
 ) {
   fail(
-    `${tauriPath} must verify the signed macOS app and updater archive after building and before publication`,
+    `${tauriPath} must verify signed macOS artifacts and updater signatures after building and before publication`,
   );
 }
 const signedBuild = tauri.slice(signedBuildStep, signedVerificationStep);

@@ -16,9 +16,13 @@ manual `workflow_dispatch` (re-runs / hotfixes); both pass a
 non-empty `tagName` to the reusable workflow, satisfying the env
 gate. CI then verifies the staged app and the exact updater archive with
 deep/strict code-signature checks, the expected bundle and Team identifiers,
-Gatekeeper assessment, and the notarization staple before upload. Such bundles
-launch on a clean Mac with no Gatekeeper warning and drag-install to
-`/Applications` without `xattr`-fiddling.
+Gatekeeper assessment, and the notarization staple. Because the finished disk
+image is a separate distribution artifact, CI submits and staples that exact
+DMG after Tauri packages the already-notarized app. It also verifies every
+updater payload/signature pair against the public key committed in
+`tauri.conf.json` before upload. Such bundles launch on a clean Mac with no
+Gatekeeper warning and drag-install to `/Applications` without
+`xattr`-fiddling.
 
 PR validation in `test.yml`, manual `tauri-build.yml` rebuilds, and fork PRs
 remain intentionally unsigned because they are build artifacts rather than

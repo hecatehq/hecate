@@ -1839,6 +1839,7 @@ dependencies = [
  "gethostname",
  "keyring",
  "log",
+ "minisign-verify",
  "rand 0.9.4",
  "reqwest 0.12.28",
  "security-framework 3.7.0",
