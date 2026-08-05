@@ -150,9 +150,14 @@ forbidPattern(
 requireText(websitePath, website, "github.ref == 'refs/heads/master'");
 forbidText(websitePath, website, "Verify updater manifest is live");
 forbidText(websitePath, website, "release_manifest_sha256:");
-requireText(websitePath, website, "Read alpha migration bridge");
+requireText(websitePath, website, "Verify committed alpha migration bridge");
 requireText(websitePath, website, "Verify alpha bridge is live");
-requireText(websitePath, website, "github.event.head_commit.modified");
+requireText(websitePath, website, 'git diff --name-only "${EVENT_BEFORE}" "${GITHUB_SHA}"');
+requireText(
+  websitePath,
+  website,
+  "https://github.com/hecatehq/hecate/releases/download/v0.5.0/latest.json",
+);
 forbidText(testPath, test, "actions: write");
 forbidText(tauriBuildPath, tauriBuild, "actions: write");
 

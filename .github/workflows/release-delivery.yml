@@ -292,7 +292,11 @@ jobs:
             echo
             echo "- [ ] Verify \`provenance.json\` and the patch checksum."
             echo "- [ ] Apply only the four allowlisted paths and open a PR against \`master\`."
-            echo "- [ ] Confirm \`Required checks\`, Website, and Links are green."
+            if [ "$BRIDGE_UPDATED" = "true" ]; then
+              echo "- [ ] Confirm \`Required checks\`, Website, and Links are green."
+            else
+              echo "- [ ] Confirm \`Required checks\` and Links are green."
+            fi
             echo "- [ ] Approve the latest push and merge through the protected branch."
             echo "- [ ] Confirm the GitHub Release exposes \`latest.json\` and the signed desktop assets for version ${TAG#v}."
             if [ "$BRIDGE_UPDATED" = "true" ]; then
