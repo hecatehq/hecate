@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareReleaseNotes } from "./prepare-release-notes";
@@ -70,7 +70,15 @@ function createAnnotatedTag(
   tag: string,
   annotation: Buffer,
   signature = Buffer.alloc(0),
+  committedNotes: Buffer | null = annotation,
 ): void {
+  if (committedNotes !== null) {
+    const releaseDirectory = join(cwd, "docs", "releases");
+    mkdirSync(releaseDirectory, { recursive: true });
+    writeFileSync(join(releaseDirectory, `${tag}.md`), committedNotes);
+    git(cwd, ["add", `docs/releases/${tag}.md`]);
+    git(cwd, ["commit", "--quiet", "--no-gpg-sign", "-m", `release notes for ${tag}`]);
+  }
   const commit = git(cwd, ["rev-parse", "HEAD"]).toString("ascii").trim();
   const header = Buffer.from(
     [
@@ -120,6 +128,14 @@ afterEach(() => {
 });
 
 describe("prepareReleaseNotes", () => {
+  test("rejects non-stable release tag names before resolving Git objects", () => {
+    const cwd = createRepo();
+
+    expect(() =>
+      prepareReleaseNotes({ cwd, tag: "v1.2.3-rc.1", notesPath: notesPath(cwd) }),
+    ).toThrow("Release tag v1.2.3-rc.1 must use stable vX.Y.Z format.");
+  });
+
   test("rejects lightweight tags without curated notes", () => {
     const cwd = createRepo();
     const tag = "v1.2.3";
@@ -173,6 +189,32 @@ describe("prepareReleaseNotes", () => {
     const written = readFileSync(output);
     expect(written.equals(markdown)).toBe(true);
     expect(written.includes(Buffer.from("BEGIN"))).toBe(false);
+  });
+
+  test("rejects a tag whose commit omits the canonical release notes", () => {
+    const cwd = createRepo();
+    const tag = "v1.2.3";
+    const output = notesPath(cwd);
+    createAnnotatedTag(cwd, tag, curatedNotes(tag), Buffer.alloc(0), null);
+
+    expect(() => prepareReleaseNotes({ cwd, tag, notesPath: output })).toThrow(
+      `Tagged commit for ${tag} must contain canonical release notes at docs/releases/${tag}.md.`,
+    );
+    expect(existsSync(output)).toBe(false);
+  });
+
+  test("rejects a tag annotation that differs from the committed release notes", () => {
+    const cwd = createRepo();
+    const tag = "v1.2.3";
+    const output = notesPath(cwd);
+    const annotation = curatedNotes(tag);
+    const committedNotes = Buffer.concat([annotation, Buffer.from("\nDifferent audit record.\n")]);
+    createAnnotatedTag(cwd, tag, annotation, Buffer.alloc(0), committedNotes);
+
+    expect(() => prepareReleaseNotes({ cwd, tag, notesPath: output })).toThrow(
+      `Release tag ${tag} annotation must match docs/releases/${tag}.md byte-for-byte.`,
+    );
+    expect(existsSync(output)).toBe(false);
   });
 
   test("rejects a signed version-only annotation", () => {

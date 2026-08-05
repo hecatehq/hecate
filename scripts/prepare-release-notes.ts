@@ -115,6 +115,9 @@ export function prepareReleaseNotes({ cwd, tag, notesPath }: PrepareReleaseNotes
   if (!isNonEmptySingleLine(tag)) {
     throw new Error("Release tag must be a non-empty single-line ref name.");
   }
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
+    throw new Error(`Release tag ${tag} must use stable vX.Y.Z format.`);
+  }
   if (!isNonEmptySingleLine(notesPath)) {
     throw new Error("Release notes path must be a non-empty single-line path.");
   }
@@ -144,6 +147,21 @@ export function prepareReleaseNotes({ cwd, tag, notesPath }: PrepareReleaseNotes
     throw new Error(`Release tag ${tag} notes must be valid UTF-8 Markdown.`);
   }
   validateCuratedReleaseNotes(markdown, tag);
+
+  const committedNotesPath = `docs/releases/${tag}.md`;
+  let committedNotes: Buffer;
+  try {
+    committedNotes = runGit(cwd, ["cat-file", "blob", `${tagRef}^{commit}:${committedNotesPath}`]);
+  } catch {
+    throw new Error(
+      `Tagged commit for ${tag} must contain canonical release notes at ${committedNotesPath}.`,
+    );
+  }
+  if (!committedNotes.equals(annotation)) {
+    throw new Error(
+      `Release tag ${tag} annotation must match ${committedNotesPath} byte-for-byte.`,
+    );
+  }
 
   writeFileSync(notesPath, annotation);
   return `${releaseArgs} --release-notes=${notesPath}`;
