@@ -64,8 +64,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "Release delivery requires a semantic v* tag; got ${TAG}." >&2
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release delivery requires a stable vX.Y.Z tag; got ${TAG}." >&2
             exit 1
           fi
           if [ -n "$EXPECTED_RELEASE_BODY_SHA256" ] && \
@@ -147,8 +147,17 @@ jobs:
             exit 1
           fi
 
-          mkdir -p website/public/releases/alpha
-          cp "${manifest}" website/public/releases/alpha/latest.json
+          legacy_manifest=website/public/releases/alpha/latest.json
+          legacy_version=''
+          if [ -f "${legacy_manifest}" ]; then
+            legacy_version=$(jq -er '.version | select(type == "string" and length > 0)' "${legacy_manifest}")
+          fi
+          # Alpha.28+ desktop builds are pinned to this website endpoint.
+          # Publish this first stable manifest once, then leave the bridge
+          # immutable: v0.5.0 and later builds use GitHub's stable endpoint.
+          if [ "$TAG" = "v0.5.0" ] && [[ "$legacy_version" == *-* ]]; then
+            cp "${manifest}" "${legacy_manifest}"
+          fi
           GITHUB_TOKEN="${GH_TOKEN}" bun scripts/update-release-links.ts "${TAG}"
 
           changed_paths="${RUNNER_TEMP}/release-delivery-generated-paths.txt"
@@ -166,8 +175,8 @@ jobs:
             printf '%s\n' "${unexpected}" >&2
             exit 1
           fi
-          if ! cmp -s "${manifest}" website/public/releases/alpha/latest.json; then
-            echo "Workspace updater manifest differs from the canonical release asset." >&2
+          if [ "$TAG" = "v0.5.0" ] && [[ "$legacy_version" == *-* ]] && ! cmp -s "${manifest}" "${legacy_manifest}"; then
+            echo "Legacy alpha updater manifest differs from the stable release asset." >&2
             exit 1
           fi
           git diff --check
@@ -213,7 +222,7 @@ jobs:
             docs/operator/desktop-app.md \
             website/public/releases/alpha/latest.json \
             >"${proposal_dir}/release-delivery.patch"
-          cp website/public/releases/alpha/latest.json \
+          cp "${manifest}" \
             "${proposal_dir}/latest.json"
           patch_sha256=$(
             sha256sum "${proposal_dir}/release-delivery.patch" | awk '{print $1}'
@@ -281,7 +290,7 @@ jobs:
             echo "- [ ] Apply only the four allowlisted paths and open a PR against \`master\`."
             echo "- [ ] Confirm \`Required checks\`, Website, and Links are green."
             echo "- [ ] Approve the latest push and merge through the protected branch."
-            echo "- [ ] Confirm the post-merge Website run verifies the exact manifest SHA-256 at \`hecate.sh\` (version ${TAG#v})."
+            echo "- [ ] Confirm the GitHub Release exposes \`latest.json\` and the signed desktop assets for version ${TAG#v}."
           } >>"${GITHUB_STEP_SUMMARY}"
           echo "::notice title=Release delivery review required::Download ${ARTIFACT_NAME} from ${run_url}"
 

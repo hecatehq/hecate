@@ -40,6 +40,9 @@ const testPath = ".github/workflows/test.yml";
 const tauriBuildPath = ".github/workflows/tauri-build.yml";
 const releaseNotesHelperPath = "scripts/prepare-release-notes.ts";
 const releaseJustPath = "just/release.just";
+const goreleaserPath = ".goreleaser.yaml";
+const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
+const releaseScriptPath = "scripts/release.ts";
 
 const tauri = read(tauriPath);
 const release = read(releasePath);
@@ -49,6 +52,18 @@ const test = read(testPath);
 const tauriBuild = read(tauriBuildPath);
 const releaseNotesHelper = read(releaseNotesHelperPath);
 const releaseJust = read(releaseJustPath);
+const goreleaser = read(goreleaserPath);
+const tauriConfig = read(tauriConfigPath);
+const releaseScript = read(releaseScriptPath);
+
+requireText(goreleaserPath, goreleaser, "prerelease: false");
+requireText(
+  tauriConfigPath,
+  tauriConfig,
+  "https://github.com/hecatehq/hecate/releases/latest/download/latest.json",
+);
+forbidText(tauriConfigPath, tauriConfig, "https://hecate.sh/releases/alpha/latest.json");
+requireText(releaseScriptPath, releaseScript, "version must be a stable vX.Y.Z tag");
 
 forbidText(tauriPath, tauri, "publish-updater-website:");
 forbidText(tauriPath, tauri, "actions: write");
@@ -64,6 +79,7 @@ requireText(tauriPath, tauri, 'release_notes="${release_notes:0:12000}"');
 forbidText(releasePath, release, "git push origin master");
 requireText(releasePath, release, "uses: ./.github/workflows/release-delivery.yml");
 requireText(releasePath, release, "expected_release_body_sha256:");
+requireText(releasePath, release, "Release workflow requires a stable vX.Y.Z tag ref");
 forbidText(releasePath, release, "actions: write");
 requireText(
   releasePath,
@@ -96,6 +112,10 @@ requireText(deliveryPath, delivery, "actions/upload-artifact@");
 requireText(deliveryPath, delivery, "release-delivery.patch");
 requireText(deliveryPath, delivery, "provenance.json");
 requireText(deliveryPath, delivery, "allowed_paths:");
+requireText(deliveryPath, delivery, "Release delivery requires a stable vX.Y.Z tag");
+requireText(deliveryPath, delivery, "legacy_manifest=website/public/releases/alpha/latest.json");
+requireText(deliveryPath, delivery, '[ "$TAG" = "v0.5.0" ]');
+requireText(deliveryPath, delivery, "Legacy alpha updater manifest differs from the stable release asset.");
 requireText(deliveryPath, delivery, "The release workflow deliberately cannot push");
 requireText(
   deliveryPath,
@@ -124,12 +144,8 @@ forbidPattern(
 );
 
 requireText(websitePath, website, "github.ref == 'refs/heads/master'");
-requireText(websitePath, website, "Verify updater manifest is live");
-requireText(websitePath, website, "release_manifest_version:");
-requireText(websitePath, website, "release_manifest_sha256:");
-requireText(websitePath, website, "WANT_SHA256:");
-requireText(websitePath, website, 'sha256sum "${live_manifest}"');
-requireText(websitePath, website, '[ "$live_sha256" = "$WANT_SHA256" ]');
+forbidText(websitePath, website, "Verify updater manifest is live");
+forbidText(websitePath, website, "release_manifest_sha256:");
 forbidText(testPath, test, "actions: write");
 forbidText(tauriBuildPath, tauriBuild, "actions: write");
 
@@ -160,5 +176,5 @@ if (normalizedSyntheticNotes !== "alpha.4 notes") {
 }
 
 console.log(
-  "release-workflow-check: signed tag notes, read-only delivery proposal, scoped updater uploads, and post-merge website verification OK",
+  "release-workflow-check: stable tags, GitHub updater manifests, read-only delivery proposals, and scoped updater uploads OK",
 );

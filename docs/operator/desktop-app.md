@@ -195,9 +195,8 @@ What works:
   a third-party font request.
 - Auto-update is active. Each release emits a `latest.json` manifest
   containing signed payload references and signatures as a GitHub Release
-  asset, then publishes the same manifest
-  to `https://hecate.sh/releases/alpha/latest.json`, which alpha.28+
-  desktop bundles read on launch. The status bar has a compact **Updates**
+  asset. Desktop bundles read GitHub's stable
+  `/releases/latest/download/latest.json` route on launch. The status bar has a compact **Updates**
   control; its details dialog shows the installed and available versions,
   publication date, plain-text release notes, progress, and retry guidance.
   The native **Check for Updates…** menu action is safe during startup too:

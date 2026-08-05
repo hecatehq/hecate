@@ -2,10 +2,10 @@
 // release.ts — cut a Hecate release tag and push it to CI.
 //
 // Usage:
-//   bun scripts/release.ts <version>                 # e.g. v0.1.0-alpha.9
-//   bun scripts/release.ts v0.2.0 --skip-snapshot    # skip goreleaser dry-run
-//   bun scripts/release.ts v0.2.0 --skip-snapshot --yes
-//   bun scripts/release.ts v0.2.0 --preflight-only   # validate local release deps
+//   bun scripts/release.ts <version>                 # e.g. v0.5.0
+//   bun scripts/release.ts v0.5.0 --skip-snapshot    # skip goreleaser dry-run
+//   bun scripts/release.ts v0.5.0 --skip-snapshot --yes
+//   bun scripts/release.ts v0.5.0 --preflight-only   # validate local release deps
 //
 // The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
 // you can inspect the changelog before anything is published, stamps the Tauri
@@ -80,7 +80,7 @@ if (!version) {
   console.error(
     "usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only] [--yes]",
   );
-  console.error("       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.9)");
+  console.error("       version: vX.Y.Z  (e.g. v0.5.0)");
   process.exit(1);
 }
 
@@ -92,8 +92,8 @@ if (unknownFlags.length > 0) {
 
 // ── Validate version format ───────────────────────────────────────────────────
 
-if (!/^v\d+\.\d+\.\d+(-[a-zA-Z0-9._]+)?$/.test(version)) {
-  fail(`version must be vX.Y.Z or vX.Y.Z-pre.N (got '${version}')`);
+if (!/^v\d+\.\d+\.\d+$/.test(version)) {
+  fail(`version must be a stable vX.Y.Z tag (got '${version}')`);
 }
 
 const semver = version.replace(/^v/, ""); // bare semver (no leading v)

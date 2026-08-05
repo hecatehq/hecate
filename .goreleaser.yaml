@@ -79,4 +79,4 @@ release:
     owner: hecatehq
     name: hecate
   draft: false
-  prerelease: auto
+  prerelease: false

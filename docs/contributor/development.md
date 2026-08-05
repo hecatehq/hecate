@@ -220,12 +220,12 @@ project:
 | Workflow                  | Trigger                                                                    | Purpose                                                                                              |
 | ------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `test.yml`                | Every PR; pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation. |
-| `website.yml`             | Website changes and release-manifest updates                               | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh).                        |
+| `website.yml`             | Website changes                                                            | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh).                        |
 | `links.yml`               | PRs and pushes                                                             | Markdown formatting, link, fragment, and Mermaid validation.                                         |
 | `maintenance.yml`         | Nightly and manual dispatch                                                | Repeatable maintenance and race-test report, with external link drift kept informational.            |
 | `cursor-agent-update.yml` | Weekly and manual dispatch                                                 | Validate official Cursor Agent artifacts and open a human-reviewed two-Dockerfile pin update.        |
 | `release.yml`             | `v*` tags and manual dispatch                                              | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, delivery proposal.    |
-| `release-delivery.yml`    | Release workflow call and manual recovery                                  | Validate a published manifest and upload a bounded website/docs patch for review.                    |
+| `release-delivery.yml`    | Release workflow call and manual recovery                                  | Validate a published manifest and upload a bounded documentation patch for review.                   |
 | `tauri-build.yml`         | Manual dispatch only                                                       | Explicit desktop bundle rebuild/debug run from the Actions tab.                                      |
 
 The main `Test` workflow starts every PR with a path filter. Go, TypeScript,
@@ -271,8 +271,8 @@ merges its generated PR.
 Release delivery deliberately does not reuse that privileged shape. The
 repository-wide setting that lets `GITHUB_TOKEN` create or approve pull
 requests remains disabled, and `release-delivery.yml` has read-only repository
-permission. It validates the canonical Release asset and website, then uploads
-an allowlisted patch plus checksummed provenance. A maintainer applies the
+permission. It validates the canonical Release asset, then uploads an
+allowlisted patch plus checksummed provenance. A maintainer applies the
 proposal on current `master` and opens the PR, which preserves ordinary
 Required checks, Website, Links, and human latest-push review without another
 App/PAT secret or ruleset bypass.

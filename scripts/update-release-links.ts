@@ -5,7 +5,7 @@
 // install commands point at the tag that was just released.
 //
 // Usage:
-//   bun scripts/update-release-links.ts v0.1.0-alpha.12
+//   bun scripts/update-release-links.ts v0.5.0
 
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";

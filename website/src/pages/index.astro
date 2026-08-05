@@ -1,72 +1,9 @@
 ---
-import fs from "node:fs";
-import path from "node:path";
 import "../styles/global.css";
 
-// Release-aware download buttons. The release workflow's
-// publish-updater-website job commits the alpha channel's
-// latest.json to public/releases/alpha/ on every successful
-// release and then dispatches website.yml to rebuild. Reading
-// the manifest here lets the homepage track the latest release
-// without any manual edit — when alpha.29 ships, this page
-// rebuilds with alpha.29's URLs.
-//
-// Path resolution: anchored on `process.cwd()` rather than
-// `import.meta.url`. At Astro build time `import.meta.url` is
-// the bundled chunk inside `dist/.prerender/`, not this source
-// file, so relative offsets would couple us to Astro's
-// internal output structure. Astro itself runs from the
-// project root (any wrapper changing cwd would also break
-// Astro's config + public/ resolution), so cwd is a stable
-// anchor here.
-type Manifest = {
-  version: string;
-  platforms?: Record<string, { url?: string }>;
-};
-
-// Fallbacks for a fresh checkout where the alpha manifest hasn't
-// been published yet — every download link points at the releases
-// index so the operator can find whatever's available. The
-// version + release-notes footer is hidden in this case (see the
-// `manifestLoaded` gate in the markup below) — a fabricated
-// version string would mislead operators into thinking they're
-// downloading a specific build.
-const releasesIndex = "https://github.com/hecatehq/hecate/releases";
-let manifestLoaded = false;
-let version = "";
-let releaseUrl = releasesIndex;
-let macos = releasesIndex;
-let linux = releasesIndex;
-let windows = releasesIndex;
-
-try {
-  const manifestPath = path.resolve(
-    process.cwd(),
-    "public/releases/alpha/latest.json",
-  );
-  const manifest = JSON.parse(
-    fs.readFileSync(manifestPath, "utf8"),
-  ) as Manifest;
-  version = manifest.version;
-  // Point at the specific tag, not /releases/latest — the latter
-  // will keep resolving to alpha.28 (the auto-update bridge
-  // release) even after alpha.29+ ship as pre-releases.
-  releaseUrl = `https://github.com/hecatehq/hecate/releases/tag/v${version}`;
-  // Release matrix currently ships macOS Apple Silicon only;
-  // if/when we add x86_64 macOS, derive a second URL here.
-  macos = `https://github.com/hecatehq/hecate/releases/download/v${version}/Hecate_${version}_aarch64.dmg`;
-  linux = manifest.platforms?.["linux-x86_64"]?.url ?? releaseUrl;
-  windows = manifest.platforms?.["windows-x86_64"]?.url ?? releaseUrl;
-  manifestLoaded = true;
-} catch (err) {
-  // ENOENT (fresh checkout, no release yet) is the only error we
-  // silence. Corrupt JSON, schema mismatches, permission issues,
-  // anything else — re-throw so the build fails loud rather than
-  // shipping a broken homepage with silently-wrong links.
-  if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-    throw err;
-  }
-}
+// GitHub owns the stable release index and download assets. Keeping the site
+// out of this metadata path makes release publication independent of Pages.
+const latestRelease = "https://github.com/hecatehq/hecate/releases/latest";
 
 const capabilityRows = [
   [
@@ -88,9 +25,9 @@ const capabilityRows = [
 ];
 
 const downloadRows = [
-  ["macOS", "Apple Silicon", macos, "Download .dmg"],
-  ["Linux", "x86_64", linux, "Download .AppImage"],
-  ["Windows", "x86_64", windows, "Download .msi"],
+  ["macOS", "Apple Silicon", latestRelease, "View release"],
+  ["Linux", "x86_64", latestRelease, "View release"],
+  ["Windows", "x86_64", latestRelease, "View release"],
 ];
 ---
 
@@ -135,25 +72,12 @@ const downloadRows = [
           </p>
 
           <div class="hero__actions" aria-label="Primary actions">
-            <a class="button button--primary" href={macos}>Download for macOS</a>
+            <a class="button button--primary" href={latestRelease}>Download latest</a>
             <a class="button button--ghost" href="#download">Other platforms</a>
             <a class="button button--quiet" href="https://github.com/hecatehq/hecate">View source</a>
           </div>
 
-          {/* Version + release-notes link only render when the
-              manifest actually loaded — fabricating a version
-              string in the fresh-checkout case (no published
-              release yet) would mislead operators into thinking
-              they're downloading a specific build. The "all
-              releases" + "GitHub" links render either way. */}
           <p class="hero__release">
-            {manifestLoaded && (
-              <Fragment>
-                <span class="hero__release-tag">v{version}</span>
-                · <a href={releaseUrl}>release notes</a>
-                ·
-              </Fragment>
-            )}
             <a href="https://github.com/hecatehq/hecate/releases">all releases</a>
             · <a href="https://github.com/hecatehq/hecate">GitHub</a>
           </p>
@@ -162,7 +86,7 @@ const downloadRows = [
 
       <section class="download" id="download" aria-labelledby="download-title">
         <div class="section-heading">
-          <p class="eyebrow">public alpha</p>
+          <p class="eyebrow">stable releases</p>
           <h2 id="download-title">Install the local console.</h2>
           <p>
             Start with the desktop app, Docker image, or source checkout. Hecate
