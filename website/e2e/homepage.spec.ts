@@ -93,18 +93,24 @@ test("describes release destinations and platform readiness truthfully", async (
 });
 
 test("loads bounded, described product imagery without layout overflow", async ({ page }) => {
-  await page.locator("footer").scrollIntoViewIfNeeded();
-  await expect
-    .poll(() =>
-      page
-        .locator("img")
-        .evaluateAll((images) =>
-          images.every((image) => (image as HTMLImageElement).naturalWidth > 0),
+  const belowFoldImages = page.locator(".product-figure img");
+  await expect(belowFoldImages).toHaveCount(3);
+  for (const image of await belowFoldImages.all()) {
+    await expect(image).toHaveAttribute("loading", "lazy");
+    await image.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        image.evaluate(
+          (element) =>
+            (element as HTMLImageElement).complete &&
+            (element as HTMLImageElement).naturalWidth > 0,
         ),
-    )
-    .toBeTruthy();
+      )
+      .toBeTruthy();
+  }
 
-  const imageState = await page.locator("img").evaluateAll((images) =>
+  const images = page.locator("img");
+  const imageState = await images.evaluateAll((images) =>
     images.map((image) => ({
       alt: image.getAttribute("alt"),
       complete: (image as HTMLImageElement).complete,
@@ -125,11 +131,11 @@ test("loads bounded, described product imagery without layout overflow", async (
   }
 
   await expect(page.locator(".hero__media img")).toHaveAttribute("fetchpriority", "high");
-  const belowFoldImages = page.locator(".product-figure img");
-  await expect(belowFoldImages).toHaveCount(3);
-  for (const image of await belowFoldImages.all()) {
-    await expect(image).toHaveAttribute("loading", "lazy");
-  }
+
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = "auto";
+    window.scrollTo(0, 0);
+  });
 
   const layout = await page.evaluate(() => {
     const interactive = Array.from(document.querySelectorAll<HTMLElement>("a, button"));
@@ -148,7 +154,6 @@ test("loads bounded, described product imagery without layout overflow", async (
   expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
   expect(layout.outside).toEqual([]);
 
-  await page.evaluate(() => window.scrollTo(0, 0));
   const primaryAction = page.locator(".hero").getByRole("link", { name: "View latest release" });
   await expect(primaryAction).toHaveCount(1);
   const actionBox = await primaryAction.boundingBox();
