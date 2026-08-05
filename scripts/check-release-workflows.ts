@@ -44,6 +44,7 @@ const goreleaserPath = ".goreleaser.yaml";
 const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
 const releaseScriptPath = "scripts/release.ts";
 const releaseLinksScriptPath = "scripts/update-release-links.ts";
+const cloudConnectionPath = "tauri/src-tauri/src/desktop/cloud_connection.rs";
 
 const tauri = read(tauriPath);
 const release = read(releasePath);
@@ -57,6 +58,7 @@ const goreleaser = read(goreleaserPath);
 const tauriConfig = read(tauriConfigPath);
 const releaseScript = read(releaseScriptPath);
 const releaseLinksScript = read(releaseLinksScriptPath);
+const cloudConnection = read(cloudConnectionPath);
 
 requireText(goreleaserPath, goreleaser, "prerelease: false");
 requireText(
@@ -81,26 +83,48 @@ requireText(tauriPath, tauri, "missing required macOS release credential");
 requireText(tauriPath, tauri, "Verify signed macOS release identity");
 requireText(tauriPath, tauri, "codesign --verify --deep --strict --verbose=4");
 requireText(tauriPath, tauri, "TeamIdentifier=${EXPECTED_TEAM_ID}");
+requireText(tauriPath, tauri, "EXPECTED_TEAM_ID: HHRFM4BVMT");
+forbidText(tauriPath, tauri, "EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}");
+requireText(
+  cloudConnectionPath,
+  cloudConnection,
+  'certificate leaf[subject.OU] = \\"HHRFM4BVMT\\"',
+);
 requireText(tauriPath, tauri, "spctl --assess --type execute --verbose=4");
 requireText(tauriPath, tauri, 'set -- "${bundle}"/macos/*.app.tar.gz');
+requireText(tauriPath, tauri, "-name '*.dmg'");
+requireText(tauriPath, tauri, "-name '*.deb'");
+requireText(tauriPath, tauri, "-name '*.AppImage'");
+requireText(tauriPath, tauri, "-name '*.msi'");
 requireText(tauriPath, tauri, `release_notes=$(jq -r '.body // ""' <<<"$release_metadata")`);
 requireText(tauriPath, tauri, 'release_notes="${release_notes:0:12000}"');
 
 const signedBuildStep = tauri.indexOf("      - name: Build Tauri bundles (signed release)");
-const signedVerificationStep = tauri.indexOf(
-  "      - name: Verify signed macOS release identity",
-);
-const updaterUploadStep = tauri.indexOf("      - name: Upload updater payloads to release");
+const signedVerificationStep = tauri.indexOf("      - name: Verify signed macOS release identity");
+const verifiedPublishStep = tauri.indexOf("      - name: Publish verified release assets");
 if (
   signedBuildStep < 0 ||
   signedVerificationStep < 0 ||
-  updaterUploadStep < 0 ||
-  !(signedBuildStep < signedVerificationStep && signedVerificationStep < updaterUploadStep)
+  verifiedPublishStep < 0 ||
+  !(signedBuildStep < signedVerificationStep && signedVerificationStep < verifiedPublishStep)
 ) {
   fail(
-    `${tauriPath} must verify the signed macOS app and updater archive after building and before upload`,
+    `${tauriPath} must verify the signed macOS app and updater archive after building and before publication`,
   );
 }
+const signedBuild = tauri.slice(signedBuildStep, signedVerificationStep);
+const signedBuildInputs = signedBuild.slice(signedBuild.indexOf("        with:"));
+forbidText(tauriPath, signedBuildInputs, "releaseId:");
+forbidText(tauriPath, signedBuildInputs, "tagName:");
+const workflowArtifactStep = tauri.indexOf(
+  "      - name: Upload bundles as workflow artifacts",
+  verifiedPublishStep,
+);
+if (workflowArtifactStep < 0) {
+  fail(`${tauriPath} must retain the workflow-artifact upload boundary`);
+}
+const verifiedPublish = tauri.slice(verifiedPublishStep, workflowArtifactStep);
+requireText(tauriPath, verifiedPublish, "gh release upload");
 
 forbidText(releasePath, release, "git push origin master");
 requireText(releasePath, release, "uses: ./.github/workflows/release-delivery.yml");

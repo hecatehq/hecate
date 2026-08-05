@@ -162,7 +162,10 @@ What works:
   The signed desktop app moved to a versioned credential namespace after the
   stable 0.5.0 release, so the first updated launch requires one fresh browser
   sign-in instead of asking for access to a credential created by an older or
-  local build.
+  local build. Automatic reconnect keeps both the account and computer-token
+  paths non-interactive; if either credential needs attention, Hecate waits for
+  an explicit reconnect instead of cleaning up or rewriting Keychain in the
+  background.
   When Remote access remains on, the app reconnects after both credential
   restoration and its local runtime are ready on the next launch.
   While running, it also sends heartbeat frames and replaces a connection that
