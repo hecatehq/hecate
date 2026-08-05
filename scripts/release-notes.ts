@@ -94,6 +94,11 @@ export function loadCuratedReleaseNotes({
   if (!relativePath.toLowerCase().endsWith(".md")) {
     throw new Error("release notes must use a .md file.");
   }
+  const normalizedRelativePath = relativePath.split(pathSeparator).join("/");
+  const expectedRelativePath = `docs/releases/${version}.md`;
+  if (normalizedRelativePath !== expectedRelativePath) {
+    throw new Error(`release notes path must be exactly ${expectedRelativePath}.`);
+  }
   if (!statSync(absolutePath).isFile()) {
     throw new Error(`release notes path is not a regular file: ${notesPath}`);
   }
@@ -110,7 +115,7 @@ export function loadCuratedReleaseNotes({
 
   return {
     absolutePath,
-    relativePath: relativePath.split(pathSeparator).join("/"),
+    relativePath: normalizedRelativePath,
     bytes,
     markdown,
   };

@@ -251,6 +251,21 @@ describe("loadCuratedReleaseNotes", () => {
     ).toMatchObject({ relativePath: "docs/releases/v1.2.3.md", markdown });
   });
 
+  test("rejects a noncanonical repository-local release notes path", () => {
+    const root = temporaryDirectory("hecate-release-root-");
+    const notesDirectory = join(root, "docs", "other");
+    mkdirSync(notesDirectory, { recursive: true });
+    writeFileSync(join(notesDirectory, "v1.2.3.md"), validNotes());
+
+    expect(() =>
+      loadCuratedReleaseNotes({
+        root,
+        version: "v1.2.3",
+        notesPath: "docs/other/v1.2.3.md",
+      }),
+    ).toThrow("release notes path must be exactly docs/releases/v1.2.3.md.");
+  });
+
   test("rejects files outside the repository and invalid UTF-8", () => {
     const root = temporaryDirectory("hecate-release-root-");
     const external = temporaryDirectory("hecate-release-external-");

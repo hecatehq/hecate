@@ -43,7 +43,7 @@ tauri/                  native desktop app (Tauri 2.x); wraps hecate as a sideca
 scripts/
   release.ts            cut a release: curated notes validation, pre-flight,
                           snapshot, version stamp, tag, push
-                          (`bun scripts/release.ts vX.Y.Z --notes <path>`)
+                          (`bun scripts/release.ts vX.Y.Z --notes docs/releases/vX.Y.Z.md`)
   stamp-version.ts      stamp Tauri version files to current git tag / TAURI_VERSION
 e2e/                    binary-startup tests; build tag e2e (sub-tags: ollama, docker)
 docs/                   long-form references (architecture, runtime API, events, ...)
