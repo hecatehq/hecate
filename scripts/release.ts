@@ -17,7 +17,7 @@
 //   # docs/contributor/release.md#recovery
 
 import { execSync, execFileSync } from "child_process";
-import { existsSync, mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -131,6 +131,18 @@ function worktreeReleaseNotesObjectId(notes: CuratedReleaseNotes): string {
       `could not compare release notes with the reviewed commit: ${notes.relativePath}\n` +
         `  Git said: ${commandErrorOutput(error)}`,
     );
+  }
+}
+
+function revisionContainsPath(revision: string, relativePath: string): boolean {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${revision}:${relativePath}`], {
+      cwd: root,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -359,86 +371,108 @@ const stampPaths = [
   "tauri/package.json",
 ];
 let releaseCommit = localCommit;
-const stampScript = resolve(root, "scripts/stamp-version.ts");
-if (existsSync(stampScript)) {
-  // execFileSync (no shell) so that paths/args with spaces or special
-  // characters can't be interpreted as shell metacharacters. CodeQL also
-  // flags the template-string form as "shell command built from
-  // environment values" — execFileSync makes that warning go away because
-  // args are passed to the process verbatim.
-  execFileSync("bun", [stampScript], {
+const stampScriptPath = "scripts/stamp-version.ts";
+if (!revisionContainsPath(localCommit, stampScriptPath)) {
+  fail(`the reviewed release commit does not contain the required ${stampScriptPath} script.`);
+}
+
+// Status can hide assume-unchanged and skip-worktree edits. Refuse hidden
+// stamp-surface changes explicitly, then derive the release commit in a
+// detached checkout whose bytes come only from the reviewed commit.
+for (const stampPath of stampPaths) {
+  const reviewedObject = execFileSync("git", ["rev-parse", `${localCommit}:${stampPath}`], {
     cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  const worktreeObject = execFileSync(
+    "git",
+    ["hash-object", `--path=${stampPath}`, "--", stampPath],
+    {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  ).trim();
+  if (worktreeObject !== reviewedObject) {
+    fail(
+      `version-stamp input differs from the reviewed release commit: ${stampPath}\n` +
+        "  Restore or commit the hidden worktree edit before releasing.",
+    );
+  }
+}
+
+const temporaryWorktreeRoot = mkdtempSync(join(tmpdir(), "hecate-release-worktree-"));
+const stampCheckout = join(temporaryWorktreeRoot, "checkout");
+let checkoutAdded = false;
+let checkoutRemoved = false;
+let cleanupHint = "";
+let stampFailure: unknown = null;
+try {
+  execFileSync("git", ["worktree", "add", "--detach", stampCheckout, localCommit], {
+    cwd: root,
+    stdio: "inherit",
+  });
+  checkoutAdded = true;
+  const isolatedStampScript = resolve(stampCheckout, stampScriptPath);
+  execFileSync("bun", [isolatedStampScript], {
+    cwd: stampCheckout,
     stdio: "inherit",
     env: { ...process.env, TAURI_VERSION: semver },
   });
 
-  // If stamping dirtied the tree, commit every desktop and mobile version
-  // surface before tagging. Leaving the platform overlays untracked would
-  // make the tag disagree with the store artifacts that CI builds from it.
-  const stampDirty = run("git status --porcelain", { silent: true });
+  const stampDirty = execFileSync("git", ["status", "--porcelain"], {
+    cwd: stampCheckout,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
   if (stampDirty) {
-    // Capture the stamp in an isolated index. `git commit --only <paths>`
-    // re-reads those paths from the worktree, so a concurrent edit after
-    // staging could otherwise enter the release commit without review.
-    const temporaryIndexDirectory = mkdtempSync(join(tmpdir(), "hecate-release-index-"));
-    const temporaryIndex = join(temporaryIndexDirectory, "index");
-    const temporaryIndexEnvironment = { ...process.env, GIT_INDEX_FILE: temporaryIndex };
-    let capturedStampTree = "";
-    try {
-      execFileSync("git", ["read-tree", localCommit], {
-        cwd: root,
-        env: temporaryIndexEnvironment,
-        stdio: "inherit",
-      });
-      execFileSync("git", ["add", "--", ...stampPaths], {
-        cwd: root,
-        env: temporaryIndexEnvironment,
-        stdio: "inherit",
-      });
-      capturedStampTree = execFileSync("git", ["write-tree"], {
-        cwd: root,
-        env: temporaryIndexEnvironment,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }).trim();
+    execFileSync("git", ["add", "--", ...stampPaths], {
+      cwd: stampCheckout,
+      stdio: "inherit",
+    });
+    const capturedStampTree = execFileSync("git", ["write-tree"], {
+      cwd: stampCheckout,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    execFileSync("git", ["commit", "-m", `chore(tauri): stamp version ${semver}`], {
+      cwd: stampCheckout,
+      stdio: "inherit",
+    });
 
-      execFileSync("git", ["commit", "-m", `chore(tauri): stamp version ${semver}`], {
-        cwd: root,
-        env: temporaryIndexEnvironment,
-        stdio: "inherit",
-      });
-    } finally {
-      rmSync(temporaryIndexDirectory, { recursive: true, force: true });
-    }
-
-    releaseCommit = run("git rev-parse HEAD", { silent: true });
+    releaseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: stampCheckout,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
     const stampParents = execFileSync("git", ["rev-list", "--parents", "-n", "1", releaseCommit], {
-      cwd: root,
+      cwd: stampCheckout,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     })
       .trim()
       .split(/\s+/);
     if (stampParents.length !== 2 || stampParents[1] !== localCommit) {
-      fail(
-        "the version stamp must create exactly one commit directly on the reviewed release commit; HEAD moved concurrently.",
+      throw new Error(
+        "the version stamp must create exactly one commit directly on the reviewed release commit.",
       );
     }
     const releaseTree = execFileSync("git", ["rev-parse", `${releaseCommit}^{tree}`], {
-      cwd: root,
+      cwd: stampCheckout,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     if (releaseTree !== capturedStampTree) {
-      fail(
-        "the version stamp commit differs from the exact tree captured before commit hooks ran.",
+      throw new Error(
+        "the version stamp commit differs from the exact isolated tree captured before commit hooks ran.",
       );
     }
     const changedStampPaths = execFileSync(
       "git",
       ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", releaseCommit],
       {
-        cwd: root,
+        cwd: stampCheckout,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -447,41 +481,56 @@ if (existsSync(stampScript)) {
       .filter(Boolean);
     const unexpectedStampPaths = changedStampPaths.filter((path) => !stampPaths.includes(path));
     if (changedStampPaths.length === 0 || unexpectedStampPaths.length > 0) {
-      fail(
+      throw new Error(
         "the version stamp commit changed files outside the release allowlist:\n" +
           `  ${unexpectedStampPaths.join("\n  ") || "(stamp commit had no changed files)"}`,
       );
     }
-    const reviewedTree = execFileSync("git", ["rev-parse", `${localCommit}^{tree}`], {
-      cwd: root,
+    const isolatedDirtyAfterCommit = execFileSync("git", ["status", "--porcelain"], {
+      cwd: stampCheckout,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
-    const realIndexTree = execFileSync("git", ["write-tree"], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    if (realIndexTree !== reviewedTree) {
-      fail("the real Git index changed concurrently while the version stamp was committed.");
+    if (isolatedDirtyAfterCommit) {
+      throw new Error(
+        "the version stamp changed files outside its captured commit:\n" +
+          `  ${isolatedDirtyAfterCommit}`,
+      );
     }
-    execFileSync("git", ["read-tree", releaseCommit], { cwd: root, stdio: "inherit" });
-    console.log("  committed Tauri version stamp");
+    console.log("  prepared isolated Tauri version stamp commit");
   } else {
-    const unstampedHead = run("git rev-parse HEAD", { silent: true });
-    if (unstampedHead !== localCommit) {
-      fail("HEAD moved while confirming that no version stamp commit was needed.");
-    }
-    releaseCommit = unstampedHead;
+    releaseCommit = localCommit;
     console.log("  Tauri files already at correct version — no commit needed");
   }
-} else {
-  const unstampedHead = run("git rev-parse HEAD", { silent: true });
-  if (unstampedHead !== localCommit) {
-    fail("HEAD moved while the missing version stamp script was being checked.");
+} catch (error) {
+  stampFailure = error;
+} finally {
+  if (checkoutAdded) {
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", stampCheckout], {
+        cwd: root,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      checkoutRemoved = true;
+    } catch (error) {
+      const cleanupFailure = commandErrorOutput(error);
+      const originalFailure = stampFailure ? `${commandErrorOutput(stampFailure)}\n  ` : "";
+      stampFailure = new Error(
+        `${originalFailure}temporary worktree cleanup also failed: ${cleanupFailure}`,
+      );
+      cleanupHint =
+        `\n  Temporary checkout retained for recovery: ${stampCheckout}` +
+        `\n  Remove it after inspection with: git worktree remove --force ${stampCheckout}`;
+    }
   }
-  releaseCommit = unstampedHead;
-  console.warn("  scripts/stamp-version.ts not found — skipping Tauri stamp");
+  if (!checkoutAdded || checkoutRemoved) {
+    rmSync(temporaryWorktreeRoot, { recursive: true, force: true });
+  }
+}
+if (stampFailure) {
+  fail(
+    `could not prepare the isolated version stamp.\n  Git said: ${commandErrorOutput(stampFailure)}${cleanupHint}`,
+  );
 }
 
 const dirtyAfterStamp = run("git status --porcelain", { silent: true });
@@ -491,8 +540,8 @@ if (dirtyAfterStamp) {
   process.exit(1);
 }
 const headAfterStamp = run("git rev-parse HEAD", { silent: true });
-if (headAfterStamp !== releaseCommit) {
-  fail("HEAD changed after the version stamp was validated; restart the release.");
+if (headAfterStamp !== localCommit) {
+  fail("the main checkout HEAD changed while the isolated version stamp was prepared.");
 }
 
 // ── Tag and push ──────────────────────────────────────────────────────────────
