@@ -1,7 +1,7 @@
 # Release
 
-Hecate is pre-1.0. Releases should be boring, repeatable, and explicit about
-what is alpha-grade versus production-shaped.
+Hecate is pre-1.0. Releases should be boring, repeatable, and safe for
+operators to discover and upgrade.
 
 ## Versioning
 
@@ -10,55 +10,24 @@ what is alpha-grade versus production-shaped.
 - Use patch releases for bug fixes, docs corrections, and small UI polish.
 - Use minor releases for API additions, storage changes, provider/runtime
   behavior changes, or operator workflow changes.
-- For pre-release tags use the dotted-suffix semver form: `v0.1.0-alpha.1`,
-  `v0.1.0-alpha.2`, `v0.1.0-rc.1`. Goreleaser and tauri-action handle them
-  the same as stable tags; consumers can opt out via semver tooling that
-  recognizes pre-release tags.
-- Keep shipping `v0.x.y-alpha.N` releases while the
-  [alpha-to-beta roadmap](beta-roadmap.md) is open. The first beta tag is a
-  quality gate (`v0.x.y-beta.1`), not the next release by default.
+- Release only stable `vX.Y.Z` tags. The helper and release workflow reject
+  prerelease suffixes so GitHub's native latest-release route remains the one
+  update channel.
 - Do not publish a release from a dirty worktree.
 
-## Pre-release policy
+## Stable update channel
 
-Every release stays marked as a GitHub **pre-release** until `v1.0.0`
-stable. The semver suffix (`-alpha.N`, `-beta.N`, `-rc.N`) already
-signals pre-stability to humans; the GitHub pre-release flag makes
-that signal machine-readable for package managers, mirrors, and any
-downstream automation that respects it.
+Every release is a normal GitHub Release. Desktop bundles read the canonical
+`https://github.com/hecatehq/hecate/releases/latest/download/latest.json`
+asset, so GitHub's stable latest-release selection is the only active update
+channel. The public release page is also the website's download destination;
+Pages does not participate in current-version discovery.
 
-Practical consequences:
-
-- `https://github.com/hecatehq/hecate/releases/latest/` will resolve
-  to **nothing** while every release is a pre-release — GitHub's
-  "latest" semantics explicitly skip pre-releases.
-- In-app auto-update therefore cannot rely on
-  `/releases/latest/download/latest.json`. The desktop app instead
-  reads `https://hecate.sh/releases/alpha/latest.json`. CI prepares
-  that update in a protected-branch release-delivery PR; merging the
-  reviewed PR triggers the Website deploy and live-version check. See
-  [`desktop-updater-signing.md`](../operator/desktop-updater-signing.md) for the
-  pipeline and troubleshooting.
-- Once `v1.0.0` ships, that release lands without the pre-release
-  flag. The decision to drop the flag will be deliberate — the
-  release before it (`v1.0.0-rc.N` or equivalent) is the last
-  gate. The dedicated `hecate.sh/releases/alpha/latest.json`
-  channel can then be retired in favor of GitHub's native endpoint,
-  or kept as the canonical multi-channel surface; that's a v1
-  decision.
-
-Historical context for the channel switch. `v0.1.0-alpha.27` was
-the last release built with the GitHub-native updater endpoint
-(`/releases/latest/download/latest.json`) baked into the bundle.
-`v0.1.0-alpha.28` introduced the new
-`hecate.sh/releases/alpha/latest.json` endpoint and was briefly used
-to validate the bridge path. Because Hecate had no real installed
-alpha cohort to migrate, alpha.28 was flipped back to pre-release
-after validation and old alpha.21–27 installs are expected to
-reinstall manually from the current alpha. Alpha.29+ ship as
-pre-releases by default; auto-update routing no longer depends on
-GitHub's `latest` semantics once a bundle contains the `hecate.sh`
-channel endpoint.
+`v0.5.0` publishes one final copy of its manifest at
+`https://hecate.sh/releases/alpha/latest.json` for alpha.28+ desktop builds
+that have that retired endpoint baked in. It is a migration bridge, not a
+second channel: later releases leave that file at `v0.5.0` while all current
+builds use GitHub directly.
 
 ## What a release produces
 
@@ -84,18 +53,13 @@ release through these ordered packaging and protected-delivery stages:
 4. **`tauri / publish updater manifest`** — stitches signed updater payloads
    into `latest.json` and uploads the GitHub Release copy.
 5. **`Prepare release delivery proposal`** — reads the canonical manifest and
-   actual
-   uploaded assets, validates their provenance, refreshes
-   `website/public/releases/alpha/latest.json`, the README Desktop app table,
-   and pinned Docker/tarball examples, validates the website, then uploads an
-   allowlisted patch, canonical manifest, diff stat, and provenance JSON as
-   `release-delivery-<tag>`. The release workflow has read-only repository
-   access: a maintainer applies the patch on current `master` and opens the PR,
-   which triggers ordinary CI without an App/PAT secret or ruleset bypass.
-6. **Post-merge Website deploy** — after a maintainer approves the latest push
-   and merges the delivery PR, the ordinary `master` push runs `website.yml`.
-   Its deploy job blocks until `https://hecate.sh/releases/alpha/latest.json`
-   matches the committed manifest's exact SHA-256.
+   uploaded assets, validates their provenance, refreshes the README Desktop
+   app table and pinned Docker/tarball examples, and uploads an allowlisted
+   documentation patch, manifest, diff stat, and provenance JSON as
+   `release-delivery-<tag>`. For `v0.5.0`, it also updates the one-time alpha
+   migration bridge. The release workflow has read-only repository access: a
+   maintainer applies the patch on current `master` and opens the PR, which
+   triggers ordinary CI without an App/PAT secret or ruleset bypass.
 
 Acceptance after the run:
 
@@ -103,10 +67,10 @@ Acceptance after the run:
   proves the exact delivery already exists on `master`).
 - The unsigned iOS Simulator and Android arm64 debug compile gates are green.
   They deliberately do not attach mobile binaries to the GitHub Release.
-- The delivery PR's Required checks, Website, and Links runs are green; a
-  maintainer approves its latest push and merges it through protected
-  `master`.
-- Release entry marked **Pre-release** for `-alpha.N` tags.
+- The delivery PR's Required checks and Links runs are green; a maintainer
+  approves its latest push and merges it through protected `master`.
+- The GitHub Release is not marked pre-release, and
+  `/releases/latest/download/latest.json` resolves to its signed manifest.
 - Release entry has non-empty notes: the annotated tag's Markdown for a
   substantive release, otherwise GoReleaser's generated changelog. The desktop
   matrix uploads by release id so it cannot replace those notes while attaching
@@ -121,20 +85,18 @@ Acceptance after the run:
   experimental until real-machine smoke coverage exists.
 - README Desktop app table and pinned install examples point at the release
   tag through the reviewed delivery PR.
-- `https://hecate.sh/releases/alpha/latest.json` matches the committed
-  manifest's exact SHA-256. Version remains a useful diagnostic, but cannot
-  prove that corrected signatures or URLs for the same tag propagated. This is
-  the updater endpoint bundled into alpha.28+ desktop apps; the GitHub Release
-  `latest.json` asset is the canonical source artifact.
+- For `v0.5.0`, `https://hecate.sh/releases/alpha/latest.json` matches the
+  published manifest so alpha.28+ desktop builds can upgrade. Later releases
+  intentionally leave this compatibility bridge unchanged.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains
   `/usr/local/bin/hecate`; the entrypoint is `/usr/local/bin/hecate`.
 - `docker run --rm -p 127.0.0.1:8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
   `curl :8765/healthz` returns `version: "X.Y.Z"`.
 
-## Alpha gate
+## Release gate
 
-Run the full local gate before cutting a public alpha tag:
+Run the full local gate before cutting a public release:
 
 ```bash
 just verify
@@ -153,7 +115,7 @@ The target runs the non-destructive launch checks in order:
 
 If a check is intentionally skipped, call it out in the release notes with the
 reason and the risk. Docker smoke and UI e2e are allowed to be slow; they are
-not optional for a public alpha build.
+not optional for a public release.
 
 The local gate does **not** exercise the Tauri desktop bundle matrix. PR
 validation covers that inside `test.yml` for changes that touch the desktop
@@ -273,8 +235,7 @@ Pre-flight checks before the snapshot run (the script enforces these):
 (`Cargo.toml`, `package.json`, the base Tauri config, and both mobile
 store-version overlays). After the Release bundles are uploaded,
 `.github/workflows/release.yml` automatically refreshes release docs via
-`scripts/update-release-links.ts` in the same protected delivery PR as the
-updater website manifest.
+`scripts/update-release-links.ts` in a protected delivery PR.
 
 The post-release updater covers:
 
@@ -322,9 +283,8 @@ gh workflow run release-delivery.yml \
 ```
 
 Download the `release-delivery-vX.Y.Z` artifact, verify `provenance.json`, apply
-`release-delivery.patch` on current `master`, and open the delivery PR. Require
-the Website run for that merge to verify the live manifest's exact SHA-256. A
-release-delivery failure is a protected-branch publication issue, not
+`release-delivery.patch` on current `master`, and open the delivery PR. A
+release-delivery failure is a protected-branch documentation issue, not
 permission to delete a valid public release.
 
 Given the Actions run ID that produced the proposal, the bounded handoff is:
@@ -371,7 +331,7 @@ If the macOS leg fails during Apple notarization with HTTP 403 and wording like
 "a required agreement is missing or has expired", the repository state is not
 the root cause. An Apple Developer account holder must accept the current
 agreements in Apple Developer/App Store Connect, then the same version can be
-retagged. When GitHub has already created a pre-release entry, clean it up with:
+retagged. When GitHub has already created a release entry, clean it up with:
 
 ```bash
 gh release delete vX.Y.Z --cleanup-tag --yes
@@ -479,10 +439,10 @@ Each release note should include:
 - **Known limitations** — link to [`known-limitations.md`](../operator/known-limitations.md)
   and call out any release-specific caveats.
 
-## Alpha Limitations
+## Pre-1.0 Limitations
 
-The public alpha is credible for early technical users, but not a production
-SLA. Keep these expectations visible:
+Stable release tags do not make Hecate a production SLA. Keep these
+expectations visible:
 
 - APIs and persisted schemas can still change before v1.
 - The gateway/provider path is more mature than the task runtime.

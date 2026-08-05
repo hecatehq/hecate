@@ -31,8 +31,8 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
-          if [[ "$REF_TYPE" != "tag" || "$REF_NAME" != v* ]]; then
-            echo "Release workflow requires a v* tag ref; got ${REF_TYPE} ${REF_NAME}." >&2
+          if [[ "$REF_TYPE" != "tag" || ! "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release workflow requires a stable vX.Y.Z tag ref; got ${REF_TYPE} ${REF_NAME}." >&2
             exit 1
           fi
 

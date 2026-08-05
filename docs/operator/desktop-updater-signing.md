@@ -5,7 +5,7 @@
 > payloads. End users downloading a built `.dmg` / `.deb` /
 > `.AppImage` / `.msi` don't need to read this — the in-app
 > updater reads `latest.json` from
-> `https://hecate.sh/releases/alpha/latest.json` and verifies the
+> `https://github.com/hecatehq/hecate/releases/latest/download/latest.json` and verifies the
 > referenced payload's signature before installation.
 
 The Tauri updater plugin verifies that every update payload is
@@ -27,7 +27,7 @@ working pipeline:
 This doc walks through generating the keypair once, storing the
 secrets, and flipping `active: true`. Subsequent releases then
 auto-emit a `latest.json` manifest containing signed payload references and
-signatures to both the GitHub Release and the website-backed alpha channel.
+signatures on the GitHub Release.
 
 ## Prerequisites
 
@@ -77,17 +77,10 @@ delivery then proceed separately:
 2. **`release-delivery.yml`** — downloads that canonical Release
    asset, validates the version, platform signatures, referenced
    assets, and release-body digest, then uploads an allowlisted
-   patch plus provenance containing
-   `website/public/releases/alpha/latest.json` and refreshed release
-   links. A maintainer applies it on current `master` and opens the
-   human-reviewed PR, so normal checks run without an App/PAT secret
-   or branch-rules bypass.
-3. **`website.yml` after merge** — the reviewed PR's ordinary
-   `master` push rebuilds Astro and deploys GitHub Pages. The deploy
-   job then waits for `https://hecate.sh/releases/alpha/latest.json`
-   to match the committed manifest's exact SHA-256; the version is
-   diagnostic only (cap 10 minutes; CI fails loudly if propagation
-   stalls).
+   patch plus provenance containing refreshed release links. A maintainer
+   applies it on current `master` and opens the human-reviewed PR, so normal
+   checks run without an App/PAT secret or branch-rules bypass. For `v0.5.0`
+   only, the proposal also updates the alpha.28+ website bridge.
 
 This verifies signed updater artifact production and manifest publication. It
 does not prove the Linux or Windows desktop updater path works on a real
@@ -97,13 +90,10 @@ Both secrets are scoped to `inputs.tagName != ''` in
 `.github/workflows/_tauri-shared.yml`, so PR-validation runs of
 `tauri-build.yml` never see them.
 
-Why the dedicated `hecate.sh` channel instead of GitHub's
-`/releases/latest/` redirect: every release stays a GitHub
-pre-release until `v1.0.0` (see [release.md](../contributor/release.md#pre-release-policy)),
-and GitHub refuses to resolve `/releases/latest/` to a pre-release.
-The dedicated channel sidesteps that constraint and gives us a
-natural place to add `releases/beta/latest.json` and
-`releases/stable/latest.json` later.
+Stable Hecate releases use GitHub's native latest-release route. This removes
+the duplicated website updater channel while retaining the Release asset as
+the signed, canonical source of update metadata. The alpha.28+ website path is
+retained only as a one-time bridge to `v0.5.0`.
 
 ### 3. Commit the public key + flip `active`
 
@@ -114,7 +104,7 @@ Edit `tauri/src-tauri/tauri.conf.json`:
   "active": true,
   "pubkey": "<paste contents of ~/.tauri/hecate-updater.key.pub>",
   "endpoints": [
-    "https://hecate.sh/releases/alpha/latest.json"
+    "https://github.com/hecatehq/hecate/releases/latest/download/latest.json"
   ]
 }
 ```
@@ -149,18 +139,15 @@ After the next tagged release with both secrets configured and
 3. Download the release workflow's `release-delivery-<tag>` artifact,
    verify its provenance, apply the patch on current `master`, and
    open the delivery PR. Require latest-push approval plus green
-   Required checks, Website, and Links runs before merge. After
-   merge, watch the Website deploy; its final step polls
-   `https://hecate.sh/releases/alpha/latest.json` and only exits green
-   once the live bytes match the committed manifest's SHA-256.
+   Required checks and Links runs before merge.
 4. Inspect the manifest at the canonical URL:
    ```bash
-   curl -sL https://hecate.sh/releases/alpha/latest.json | jq .
+   curl -sL https://github.com/hecatehq/hecate/releases/latest/download/latest.json | jq .
    ```
    Should look roughly like:
    ```json
    {
-     "version": "0.1.0-alpha.28",
+     "version": "0.5.0",
      "pub_date": "...",
      "notes": "Release notes from the published GitHub Release...",
      "platforms": {
@@ -243,36 +230,16 @@ Download `release-delivery-vX.Y.Z` from the resulting run, verify its
 `provenance.json`, apply `release-delivery.patch` on current `master`, and open
 and merge the resulting PR normally.
 
-**The post-merge Website job failed at "Verify updater manifest is live".**
-The delivery PR merged, but the website did not propagate the committed
-manifest within 10 minutes. Walk down:
-
-- Check the Website workflow run for the delivery PR's merge commit. If an
-  earlier build/deploy step failed, fix that failure and re-run.
-- If the website workflow succeeded but
-  `https://hecate.sh/releases/alpha/latest.json` still serves
-  stale content, the Fastly cache is stuck. Force a cache
-  invalidation via **Settings → Pages → Visit site** in the GitHub
-  UI (it triggers a CDN purge). Re-run the Website workflow on
-  `master` to rebuild and re-poll.
-- If both succeeded but the file content on `hecate.sh` doesn't
-  match the release tag, inspect
-  `website/public/releases/alpha/latest.json` on `master`; the
-  reviewed delivery PR may have been reverted or superseded.
-
 **Update control never shows an update on a known-old install.** Possible
 causes, in rough order:
 
 - `active: false` in the bundle's `tauri.conf.json` — needs the
   one-line flip.
 - The bundle was shipped without the pubkey embedded.
-- The bundle was built with a stale `endpoints` URL (e.g. the
-  old `/releases/latest/download/latest.json`) that no longer
-  resolves now that the pre-release policy is in force. Bundles
-  from alpha.21–27 fall in this category; reinstall manually from
-  the current alpha to get a bundle with the `hecate.sh` updater
-  channel baked in.
-- Network / fetch error against `hecate.sh`. Automatic checks log failures
+- The bundle was built with a retired alpha website endpoint. Alpha.28+ builds
+  use the one-time `v0.5.0` bridge; reinstall from the stable Release page if
+  that migration was skipped or the local version predates it.
+- Network / fetch error against GitHub. Automatic checks log failures
   without interrupting the operator; an explicit check shows a safe retry
   message. Inspect the webview console or app log in dev builds.
 

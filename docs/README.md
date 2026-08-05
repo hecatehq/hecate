@@ -21,7 +21,7 @@ Docs are organized by audience and stability:
 | Calling Hecate from a client                | [Runtime API](runtime/runtime-api.md), [Chat sessions](runtime/chat-sessions.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                                         |
 | Connecting an ACP client to Hecate          | [ACP agent](runtime/acp.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                                                                                              |
 | Building or using coding-agent integrations | [External Agents](runtime/external-agents.md), [ACP agent](runtime/acp.md), [Runtime API](runtime/runtime-api.md), [Events](runtime/events.md), [MCP integration](runtime/mcp.md)                                                |
-| Changing the codebase                       | [Architecture](contributor/architecture.md), [Development](contributor/development.md), [Beta roadmap](contributor/beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](contributor/release.md)                       |
+| Changing the codebase                       | [Architecture](contributor/architecture.md), [Development](contributor/development.md), [Pre-1.0 roadmap](contributor/beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](contributor/release.md)                    |
 | Planning future behavior                    | [Design records](design/), especially the relevant lifecycle bucket before implementation starts.                                                                                                                                |
 | Working as an AI agent                      | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md`.                                                                                                         |
 
@@ -55,13 +55,13 @@ Docs are organized by audience and stability:
 
 ## Contributor Docs
 
-| Doc                                         | What it answers                                                                                                                   |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [Architecture](contributor/architecture.md) | Gateway flow, orchestrator and scheduler responsibilities, task-runtime queue/lease model, agent model-call cycle, storage tiers. |
-| [Development](contributor/development.md)   | Go + Bun + just + Rust/Cargo setup, local dev, test ladder, screenshot tooling, package map.                                      |
-| [Release](contributor/release.md)           | Versioning, verification gate, release script, image build, recovery, release-note shape.                                         |
-| [Beta roadmap](contributor/beta-roadmap.md) | Beta gate, core runtime work, view-by-view UX order, cleanup/refactoring, and branch/release workflow.                            |
-| [`docs-ai/`](../docs-ai/README.md)          | Vendor-neutral agent guidance: workflow, verification, skills, task recipes.                                                      |
+| Doc                                            | What it answers                                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [Architecture](contributor/architecture.md)    | Gateway flow, orchestrator and scheduler responsibilities, task-runtime queue/lease model, agent model-call cycle, storage tiers.     |
+| [Development](contributor/development.md)      | Go + Bun + just + Rust/Cargo setup, local dev, test ladder, screenshot tooling, package map.                                          |
+| [Release](contributor/release.md)              | Versioning, verification gate, release script, image build, recovery, release-note shape.                                             |
+| [Pre-1.0 roadmap](contributor/beta-roadmap.md) | Stable v0.x releases, the v1 quality bar, core runtime work, view-by-view UX order, cleanup/refactoring, and branch/release workflow. |
+| [`docs-ai/`](../docs-ai/README.md)             | Vendor-neutral agent guidance: workflow, verification, skills, task recipes.                                                          |
 
 ## Design Records
 

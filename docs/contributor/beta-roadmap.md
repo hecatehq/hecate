@@ -1,17 +1,16 @@
-# Alpha-to-beta roadmap
+# Pre-1.0 roadmap
 
-Hecate keeps shipping `v0.x.y-alpha.N` releases while beta work lands
-incrementally. Beta is not the next release by default; it is the quality gate
-after core runtime contracts, project orchestration, view-by-view UX polish,
-and cleanup/refactoring are complete.
+Hecate ships stable `v0.x.y` releases while pre-1.0 work lands incrementally.
+`v1.0.0` is a quality gate after core runtime contracts, project orchestration,
+view-by-view UX polish, and cleanup/refactoring are complete.
 
-`master` stays the protected integration and release branch. Beta-scope work
-happens on feature branches forked from current `master`, lands through PRs, and
-is released in alpha tags only after it merges.
+`master` stays the protected integration and release branch. Pre-1.0 work
+happens on feature branches forked from current `master`, lands through PRs,
+and is released only after it merges.
 
 ## Core Runtime First
 
-| Area                     | Beta bar                                                                                                                                                                                                                                                              |
+| Area                     | v1 bar                                                                                                                                                                                                                                                                |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Error contracts          | Hecate-native errors across gateway, model chat, Hecate Chat, External Agent, Tasks, approvals, storage, retention, and provider readiness return stable `type` values, correct HTTP statuses, trace IDs when available, friendly operator messages, and raw details. |
 | Provider/model readiness | Provider readiness is the canonical setup contract: credential state, discovery state, discovered model count, selected-model validity, route blocking reason, tool capability, last probe/result, and repair action.                                                 |
@@ -55,7 +54,7 @@ and the current project/chat gates cover only their own ownership boundaries.
 
 ## UX By View
 
-| View          | Beta bar                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| View          | v1 bar                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Chats         | Hecate Chat, External Agent, and direct model chat have clear segment boundaries, explicit managed-workspace/current-folder posture, queued prompts, busy state, task/trace/run links, approvals, markdown/code rendering, run activity grouping, changed-files review, bounded image/file inputs with explicit disclosure and download behavior, model/tool capability state, stale-model repair, and refresh/resume accuracy. |
 | Connections   | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe.                                                                                                                                                                  |
@@ -64,7 +63,7 @@ and the current project/chat gates cover only their own ownership boundaries.
 | Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome.                                                                                                                                                                                                                                |
 | Settings      | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness and External Agent setup/grants live in Connections.                                                                                                                                                                                                                                                                                  |
 | Usage         | Usage clearly separates Hecate-measured cloud-provider tokens and known/reported cost from adapter-reported external-agent usage. There are no global spend controls.                                                                                                                                                                                                                                                           |
-| Desktop app   | Before beta, decide whether the desktop surface enters beta with the rest of Hecate or stays alpha-labelled per platform. macOS Apple Silicon is signed, notarized, and launch-tested; Linux and Windows bundles are CI-built but not yet manually exercised on real machines.                                                                                                                                                  |
+| Desktop app   | Before v1, decide whether the desktop surface enters v1 with the rest of Hecate or remains explicitly experimental per platform. macOS Apple Silicon is signed, notarized, and launch-tested; Linux and Windows bundles are CI-built but not yet manually exercised on real machines.                                                                                                                                           |
 
 ## Cleanup And Refactoring
 
@@ -86,32 +85,31 @@ and the current project/chat gates cover only their own ownership boundaries.
 - **Remove stale legacy**: old endpoint names, old `/gateway` language,
   one-binary claims, stale screenshots, obsolete scripts, dead fixtures, and
   duplicate UI rendering paths are removed.
-- **Release automation**: alpha releases stay boring: docs drift checks,
+- **Release automation**: stable releases stay boring: docs drift checks,
   screenshots, links, Docker/native/binary parity, Tauri version stamp,
   release-doc refresh, and recovery instructions.
 
 ## Branching And Release Workflow
 
-- Create a feature branch from current `master` for every beta-scope slice, for
+- Create a feature branch from current `master` for every pre-1.0 slice, for
   example `feature/provider-readiness-contracts` or
   `refactor/shared-transcript-activity`.
 - Rebase feature branches onto `origin/master` before opening or updating PRs.
-- Merge only reviewed PRs into `master`; do not implement beta features
+- Merge only reviewed PRs into `master`; do not implement pre-1.0 features
   directly on `master`.
 - Use direct `master` commits only for release mechanics or urgent tiny
   corrections that are explicitly requested, such as version stamps,
   release-reference docs, or failed-release recovery.
-- Cut alpha releases from `master` after completed PR slices merge and
+- Cut stable releases from `master` after completed PR slices merge and
   `just verify` passes.
-- Do not create a long-lived beta branch unless beta stabilization later needs a
-  freeze window. Until then, `master` remains the alpha release train and
+- Do not create a long-lived stabilization branch unless the v1 gate later needs a
+  freeze window. Until then, `master` remains the stable release train and
   integration branch.
-- The first beta tag should be `v0.x.y-beta.1` after the beta gate passes.
 
-## Beta Gate
+## v1 Gate
 
-Hecate can move from alpha releases to a beta tag only when all of these are
-true:
+Hecate can move from stable pre-1.0 releases to `v1.0.0` only when all of these
+are true:
 
 - Runtime errors are stable and friendly across the main surfaces.
 - Provider/model readiness can explain and repair common setup failures.
@@ -131,7 +129,7 @@ true:
   Observability, and Settings.
 - README, known limitations, runtime API docs, release docs, screenshots, and
   `docs-ai` guidance all describe the same product.
-- Latest alpha release passes `just verify`, release workflow, links workflow,
+- Latest stable release passes `just verify`, release workflow, links workflow,
   and desktop release matrix.
 
 ## Test Plan
@@ -146,11 +144,11 @@ true:
 
 ## Assumptions
 
-- Alpha releases continue normally while this work is in progress.
-- Beta is a quality gate, not a marketing rename for the next release.
+- Stable releases continue normally while this work is in progress.
+- `v1.0.0` is a quality gate, not a marketing rename for the next release.
 - No feature work lands directly on `master`; work is done in feature branches
   and merged through PRs.
-- No compatibility shims are required for alpha-only endpoint/API changes unless
+- No compatibility shims are required for pre-1.0 endpoint/API changes unless
   explicitly decided later.
 - Hecate remains single-operator shaped for beta, with local and remote
   deployments supported; multi-node coordination stays out of scope.

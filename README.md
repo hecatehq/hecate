@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/hecatehq/hecate/releases">
-    <img alt="Latest release" src="https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases">
+    <img alt="Latest release" src="https://img.shields.io/github/v/release/hecatehq/hecate">
   </a>
   <a href="docs/operator/deployment.md#image-pinning">
     <img alt="Container image" src="https://img.shields.io/badge/container-ghcr.io-2496ED?logo=docker&logoColor=white">
@@ -31,12 +31,12 @@
   happened.
 </p>
 
-> **Status: public alpha.** Hecate is useful today as an AI workspace for
+> **Status: pre-1.0.** Hecate is useful today as an AI workspace for
 > model-provider routing, Hecate Chat, External Agent sessions,
 > project-scoped work, approvals, artifacts, usage, and observability. It is not
 > production-stable infrastructure yet: the bounded report-only QA runbook is
 > available, while broader workflow modes, interactive browser automation,
-> richer Agent Presets, and sandbox hardening are still design or early-alpha
+> richer Agent Presets, and sandbox hardening are still evolving
 > work. Read
 > [known limitations](docs/operator/known-limitations.md) before depending on it.
 
@@ -522,11 +522,11 @@ Operator guides:
 - [Security](docs/operator/security.md) - runtime threat model, workspace
   safety, approvals, secrets, and advisory handling.
 - [Known limitations](docs/operator/known-limitations.md) - the plain-language
-  alpha boundary.
+  pre-1.0 boundary.
 
 ## Status And Roadmap
 
-Hecate is public-alpha software. The fastest-moving areas are supervised agent
+Hecate ships stable pre-1.0 releases. The fastest-moving areas are supervised agent
 execution, memory/context visibility, External Agent ergonomics, desktop
 packaging, the report-only QA runbook experiment, and sandbox hardening.
 
@@ -546,8 +546,8 @@ Near-term design direction:
 6. Promote successful workflow lessons only as memory candidates with
    provenance and operator approval.
 
-The broader alpha-to-beta gate lives in
-[Beta roadmap](docs/contributor/beta-roadmap.md). Proposed, accepted,
+The broader pre-1.0 quality gate lives in the
+[pre-1.0 roadmap](docs/contributor/beta-roadmap.md). Proposed, accepted,
 candidate, implemented, and parked design records live in
 [Design records](docs/design/README.md).
 

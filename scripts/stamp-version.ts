@@ -90,8 +90,8 @@ if (pkg.version === version) {
 //       0.1.0         → 0.1.0.0     (no pre-release → revision 0)
 //     Two semvers with the same M.m.p but different pre-release types
 //     (e.g. 0.1.0-alpha.3 and 0.1.0-beta.3) would collide under this
-//     scheme — fine for the alpha-only lifecycle today; revisit when
-//     beta/rc tags start shipping.
+//     scheme. Hecate's release helper rejects prerelease tags, so release
+//     builds always use the unambiguous revision-zero form.
 //   - NSIS has no version override field in Tauri's schema — it uses the
 //     top-level version directly. We don't ship NSIS bundles today (matrix
 //     is msi-only on Windows); if NSIS is added, it'll hit the same MSI
