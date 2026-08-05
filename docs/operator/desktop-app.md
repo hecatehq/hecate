@@ -191,7 +191,8 @@ What works:
   `release.yml` — tag push or manual `workflow_dispatch` — sets
   `inputs.tagName`, satisfying the env gate; missing `APPLE_*` /
   `KEYCHAIN_PASSWORD` repo secrets fail the release). CI verifies the staged
-  bundle and exact updater archive before either can be published; see
+  bundle, exact disk image, exact updater archive, and every updater signature
+  against Hecate's checked-in keys before any desktop asset can be published; see
   [`macos-signing.md`](macos-signing.md) for the maintainer-side setup
   and rotation playbook. PR validation builds and Windows/Linux bundles
   remain unsigned by design.

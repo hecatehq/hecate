@@ -1930,7 +1930,12 @@ impl CloudConnectionSupervisor {
             state.host_token = None;
             let mut errors = None;
             for credential in [SESSION_CREDENTIAL, HOST_CREDENTIAL] {
-                if let Err(err) = self.inner.credentials.delete(credential) {
+                // Expiry can be discovered by automatic reconnect or another
+                // background Cloud request. Never let that response turn into
+                // Keychain consent UI. An item that cannot be removed without
+                // interaction stays fenced by cleared process/preferences
+                // state until the operator explicitly reconnects or signs out.
+                if let Err(err) = self.inner.credentials.delete_noninteractive(credential) {
                     append_warning(&mut errors, err);
                 }
             }
@@ -2173,6 +2178,9 @@ trait CredentialStore: Send + Sync {
     }
     fn set(&self, name: &str, value: &str) -> Result<(), String>;
     fn delete(&self, name: &str) -> Result<(), String>;
+    fn delete_noninteractive(&self, name: &str) -> Result<(), String> {
+        self.delete(name)
+    }
 }
 
 struct KeyringCredentialStore {
@@ -2230,6 +2238,28 @@ impl KeyringCredentialStore {
             Some(_) => Err("secure credential storage returned unexpected data".to_string()),
         }
     }
+
+    #[cfg(target_os = "macos")]
+    fn delete_noninteractive(name: &str) -> Result<(), String> {
+        use security_framework::item::{ItemClass, ItemSearchOptions};
+
+        let result = ItemSearchOptions::new()
+            .class(ItemClass::generic_password())
+            .service(KEYRING_SERVICE)
+            .account(name)
+            .skip_authenticated_items(true)
+            .delete();
+        match result {
+            Ok(()) => Ok(()),
+            // Missing items and items requiring authentication are both safe
+            // to leave absent from the in-process session. The latter can be
+            // removed later from an explicit sign-out/reconnect action.
+            Err(err) if matches!(err.code(), -25300 | -25308) => Ok(()),
+            Err(err) => Err(format!(
+                "could not remove secure credential without interaction: {err}"
+            )),
+        }
+    }
 }
 
 impl CredentialStore for KeyringCredentialStore {
@@ -2264,6 +2294,14 @@ impl CredentialStore for KeyringCredentialStore {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(err) => Err(format!("could not remove secure credential: {err}")),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn delete_noninteractive(&self, name: &str) -> Result<(), String> {
+        if let Some(error) = self.availability_error.as_ref() {
+            return Err(error.clone());
+        }
+        Self::delete_noninteractive(name)
     }
 }
 
@@ -4231,6 +4269,7 @@ mod tests {
         noninteractive_reads: AtomicUsize,
         writes: AtomicUsize,
         deletes: AtomicUsize,
+        noninteractive_deletes: AtomicUsize,
     }
 
     #[derive(Default)]
@@ -4275,6 +4314,11 @@ mod tests {
 
         fn delete(&self, _name: &str) -> Result<(), String> {
             self.deletes.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn delete_noninteractive(&self, _name: &str) -> Result<(), String> {
+            self.noninteractive_deletes.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -5807,6 +5851,65 @@ mod tests {
         assert_eq!(credentials.noninteractive_reads.load(Ordering::SeqCst), 1);
         assert_eq!(credentials.writes.load(Ordering::SeqCst), 0);
         assert_eq!(credentials.deletes.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.noninteractive_deletes.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn automatic_reconnect_unauthorized_cleanup_stays_noninteractive() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("Cloud listener");
+        let address = listener.local_addr().expect("Cloud listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("Cloud request");
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request).await.expect("read Cloud request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                )
+                .await
+                .expect("write Cloud response");
+        });
+        let credentials = Arc::new(StartupReadModeCredentialStore::default());
+        let supervisor = CloudConnectionSupervisor::with_dependencies(
+            None,
+            credentials.clone(),
+            &format!("http://{address}"),
+            new_remote_runtime_secret(),
+            Arc::new(|| {}),
+            Arc::new(|| {}),
+            no_authenticated_connection_spawner(),
+        );
+        {
+            let mut state = supervisor.inner.state.lock().expect("state");
+            state.generation = 7;
+            state.signed_in = true;
+            state.session_token = Some(Zeroizing::new("happ_expired-session".to_string()));
+            state.host_token = Some(Zeroizing::new("host_inaccessible".to_string()));
+        }
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+
+        supervisor
+            .connect_authenticated(
+                7,
+                "http://127.0.0.1:9".to_string(),
+                "happ_expired-session".to_string(),
+                cancel_rx,
+                CredentialReadMode::NonInteractive,
+            )
+            .await;
+        server.await.expect("Cloud server");
+
+        assert_eq!(credentials.interactive_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.deletes.load(Ordering::SeqCst), 0);
+        assert_eq!(credentials.noninteractive_deletes.load(Ordering::SeqCst), 2);
+        let state = supervisor.inner.state.lock().expect("state");
+        assert!(!state.signed_in);
+        assert!(state.session_token.is_none());
+        assert!(state.host_token.is_none());
     }
 
     #[test]
