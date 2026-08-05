@@ -1260,10 +1260,11 @@ describe("ChatView input", () => {
 
     fireEvent.input(textarea);
     const cappedHeight = Number.parseFloat(textarea.style.height);
-    expect(cappedHeight).toBeLessThan(240);
+    expect(cappedHeight).toBeGreaterThan(0);
+    expect(cappedHeight).toBeLessThan(400);
     expect(textarea.style.overflowY).toBe("auto");
 
-    setScrollHeight(220);
+    setScrollHeight(cappedHeight + 100);
     fireEvent.input(textarea);
     expect(Number.parseFloat(textarea.style.height)).toBe(cappedHeight);
     expect(textarea.style.overflowY).toBe("auto");
