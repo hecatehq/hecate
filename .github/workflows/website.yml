@@ -89,6 +89,15 @@ jobs:
         run: bun --bun run test:e2e
         working-directory: website
 
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: website-browser-diagnostics-${{ github.run_attempt }}
+          path: website/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v5
