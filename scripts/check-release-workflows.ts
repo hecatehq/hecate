@@ -39,6 +39,7 @@ const websitePath = ".github/workflows/website.yml";
 const testPath = ".github/workflows/test.yml";
 const tauriBuildPath = ".github/workflows/tauri-build.yml";
 const releaseNotesHelperPath = "scripts/prepare-release-notes.ts";
+const releaseNotesHelperTestPath = "scripts/prepare-release-notes.test.ts";
 const releaseNotesInputPath = "scripts/release-notes.ts";
 const releaseNotesInputTestPath = "scripts/release-notes.test.ts";
 const releaseJustPath = "just/release.just";
@@ -57,6 +58,7 @@ const website = read(websitePath);
 const test = read(testPath);
 const tauriBuild = read(tauriBuildPath);
 const releaseNotesHelper = read(releaseNotesHelperPath);
+const releaseNotesHelperTest = read(releaseNotesHelperTestPath);
 const releaseNotesInput = read(releaseNotesInputPath);
 const releaseNotesInputTest = read(releaseNotesInputTestPath);
 const releaseJust = read(releaseJustPath);
@@ -278,7 +280,24 @@ requireText(
 forbidText(releasePath, release, "tag_notes=$(git for-each-ref");
 requireText(releaseNotesHelperPath, releaseNotesHelper, "%(contents:size)");
 requireText(releaseNotesHelperPath, releaseNotesHelper, "%(contents:signature)");
+requireText(releaseNotesHelperPath, releaseNotesHelper, "`docs/releases/${tag}.md`");
+requireText(
+  releaseNotesHelperPath,
+  releaseNotesHelper,
+  "`${tagRef}^{commit}:${committedNotesPath}`",
+);
+requireText(releaseNotesHelperPath, releaseNotesHelper, "!committedNotes.equals(annotation)");
 requireText(releaseNotesHelperPath, releaseNotesHelper, "writeFileSync(notesPath, annotation)");
+requireText(
+  releaseNotesHelperTestPath,
+  releaseNotesHelperTest,
+  "rejects a tag whose commit omits the canonical release notes",
+);
+requireText(
+  releaseNotesHelperTestPath,
+  releaseNotesHelperTest,
+  "rejects a tag annotation that differs from the committed release notes",
+);
 requireText(
   releaseNotesHelperPath,
   releaseNotesHelper,

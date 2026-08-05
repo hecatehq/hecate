@@ -45,8 +45,10 @@ just release v0.5.1 --notes docs/releases/v0.5.1.md --skip-snapshot
 The helper validates the committed Markdown before the expensive gate and
 again immediately before tagging. It creates the annotated tag with
 `--cleanup=verbatim -F`, preserving Markdown headings, then CI passes those
-exact bytes to GoReleaser as the public GitHub Release body. Lightweight tags,
-version-only annotations, and generated changelog fallbacks fail closed.
+exact bytes to GoReleaser as the public GitHub Release body only after comparing
+them byte-for-byte with `docs/releases/vX.Y.Z.md` in the tagged commit.
+Lightweight tags, version-only annotations, missing/mismatched audit files, and
+generated changelog fallbacks fail closed.
 
 ## Tauri desktop app
 

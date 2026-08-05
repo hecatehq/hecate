@@ -111,9 +111,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Every public tag carries reviewed, curated Markdown. The helper rejects
-      # lightweight and version-only tags, removes Git's separately reported
-      # signature bytes, and passes the annotation to GoReleaser without
-      # normalizing it through shell command substitution.
+      # lightweight and version-only tags, requires the signature-stripped
+      # annotation to match docs/releases/<tag>.md in the tagged commit, and
+      # passes those bytes to GoReleaser without shell normalization.
       - name: Prepare release notes
         id: release-notes
         env:

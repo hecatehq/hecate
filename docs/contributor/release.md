@@ -167,9 +167,10 @@ The script validates that the notes file is repository-local, tracked, and
 unchanged after preflight. It then uses that file verbatim for the annotated
 tag (`git tag --cleanup=verbatim -F`), so `git show vX.Y.Z`, the GitHub Release,
 and the desktop updater all share one reviewed source. CI fails closed for a
-lightweight tag or version-only annotation instead of publishing a generated
-commit changelog. Keep the versioned notes file in the repository as the audit
-record for the release.
+lightweight tag, version-only annotation, missing versioned notes file, or any
+byte-level difference between that committed file and the tag annotation
+instead of publishing a generated or substituted changelog. Keep the versioned
+notes file in the repository as the audit record for the release.
 
 Signed annotated tags follow the same rules. The release workflow reads Git's
 signature as a separate byte range and removes only that exact suffix before
