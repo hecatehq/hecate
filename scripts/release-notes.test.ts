@@ -180,12 +180,30 @@ describe("validateCuratedReleaseNotes", () => {
     });
   });
 
-  test("rejects tab-delimited headings that the updater cannot render canonically", () => {
-    const markdown = "# Hecate v1.2.3\n\n##\tHighlights\n\n- Visible update.";
-
+  test.each([
+    "# Hecate v1.2.3\n\n##\tHighlights\n\n- Visible update.",
+    "# Hecate v1.2.3\n\n## Highlights\n\n- Visible update.\n\n##\tSecurity\n\n- Fixed.",
+    "# Hecate v1.2.3\n\n## Highlights\n\n- Visible update.\n\n  ##\tBreaking changes\n\n- Changed.",
+  ])("rejects tab-delimited headings that the updater cannot render canonically", (markdown) => {
     expect(() => validateCuratedReleaseNotes(markdown, "v1.2.3")).toThrow(
-      "release notes must contain exactly one ## Highlights section.",
+      "release note headings must use an ASCII space after the # marker.",
     );
+  });
+
+  test("allows tab-delimited heading examples inside fenced code", () => {
+    const markdown = [
+      "# Hecate v1.2.3",
+      "",
+      "## Highlights",
+      "",
+      "- Visible update.",
+      "",
+      "```md",
+      "##\tExample",
+      "```",
+    ].join("\n");
+
+    expect(() => validateCuratedReleaseNotes(markdown, "v1.2.3")).not.toThrow();
   });
 
   test.each(["+ Visible update.", "  - Visible update.", "-\tVisible update."])(

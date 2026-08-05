@@ -125,6 +125,9 @@ export function validateCuratedReleaseNotes(markdown: string, version: string): 
   }
 
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  if (markdownHasTabDelimitedHeading(lines)) {
+    throw new Error("release note headings must use an ASCII space after the # marker.");
+  }
   const firstContentLine = lines.find((line) => line.trim().length > 0)?.trim();
   const expectedTitle = `# Hecate ${version}`;
   if (firstContentLine !== expectedTitle) {
@@ -164,6 +167,30 @@ export function validateCuratedReleaseNotes(markdown: string, version: string): 
       throw new Error(`## ${heading.title} must contain release information or be removed.`);
     }
   }
+}
+
+function markdownHasTabDelimitedHeading(lines: string[]): boolean {
+  let fence: { character: "`" | "~"; length: number } | null = null;
+
+  for (const line of lines) {
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      const character = marker[0] as "`" | "~";
+      if (!fence) fence = { character, length: marker.length };
+      else if (
+        character === fence.character &&
+        marker.length >= fence.length &&
+        fenceMatch[2].trim() === ""
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (!fence && /^ {0,3}#{1,6}\t/.test(line)) return true;
+  }
+
+  return false;
 }
 
 function markdownSectionHasContent(lines: string[]): boolean {
