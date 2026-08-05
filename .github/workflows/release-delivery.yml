@@ -149,6 +149,7 @@ jobs:
 
           legacy_manifest=website/public/releases/alpha/latest.json
           legacy_version=''
+          bridge_updated=false
           if [ -f "${legacy_manifest}" ]; then
             legacy_version=$(jq -er '.version | select(type == "string" and length > 0)' "${legacy_manifest}")
           fi
@@ -157,6 +158,7 @@ jobs:
           # immutable: v0.5.0 and later builds use GitHub's stable endpoint.
           if [ "$TAG" = "v0.5.0" ] && [[ "$legacy_version" == *-* ]]; then
             cp "${manifest}" "${legacy_manifest}"
+            bridge_updated=true
           fi
           GITHUB_TOKEN="${GH_TOKEN}" bun scripts/update-release-links.ts "${TAG}"
 
@@ -185,6 +187,7 @@ jobs:
           {
             echo "manifest_sha256=${manifest_sha256}"
             echo "release_body_sha256=${actual_release_body_sha256}"
+            echo "bridge_updated=${bridge_updated}"
           } >>"${GITHUB_OUTPUT}"
 
           if [ ! -s "${changed_paths}" ]; then
@@ -269,6 +272,7 @@ jobs:
         env:
           MANIFEST_SHA256: ${{ steps.prepare.outputs.manifest_sha256 }}
           PATCH_SHA256: ${{ steps.proposal.outputs.patch_sha256 }}
+          BRIDGE_UPDATED: ${{ steps.prepare.outputs.bridge_updated }}
         run: |
           set -euo pipefail
           run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -291,6 +295,9 @@ jobs:
             echo "- [ ] Confirm \`Required checks\`, Website, and Links are green."
             echo "- [ ] Approve the latest push and merge through the protected branch."
             echo "- [ ] Confirm the GitHub Release exposes \`latest.json\` and the signed desktop assets for version ${TAG#v}."
+            if [ "$BRIDGE_UPDATED" = "true" ]; then
+              echo "- [ ] Confirm the post-merge Website run verifies the alpha migration bridge at \`hecate.sh\`."
+            fi
           } >>"${GITHUB_STEP_SUMMARY}"
           echo "::notice title=Release delivery review required::Download ${ARTIFACT_NAME} from ${run_url}"
 
