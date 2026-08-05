@@ -331,7 +331,7 @@ const downloadRows = [
           </div>
         </div>
 
-        <div class="download-table" aria-label="Desktop release platforms">
+        <div class="download-table" role="group" aria-label="Desktop release platforms">
           {downloadRows.map(([platform, detail, action]) => (
             <a class="download-row" href={latestRelease}>
               <span class="download-platform">{platform}</span>

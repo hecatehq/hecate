@@ -84,8 +84,13 @@ test("describes release destinations and platform readiness truthfully", async (
     await expect(link).toContainText("View release");
   }
 
-  await expect(page.getByText("macOS Apple Silicon launch-tested", { exact: false })).toBeVisible();
-  await expect(page.getByText("Linux and Windows experimental", { exact: false })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Desktop release platforms" })).toHaveCount(1);
+  await expect(platformLinks.nth(0)).toContainText("macOS");
+  await expect(platformLinks.nth(0)).toContainText("Apple Silicon · launch-tested");
+  await expect(platformLinks.nth(1)).toContainText("Linux");
+  await expect(platformLinks.nth(1)).toContainText("experimental");
+  await expect(platformLinks.nth(2)).toContainText("Windows");
+  await expect(platformLinks.nth(2)).toContainText("experimental");
   await expect(page.getByText("External Agents remain trusted subprocesses.")).toBeVisible();
   await expect(
     page.getByText("Embedded Cairnline owns portable project identity", { exact: false }),
@@ -145,7 +150,11 @@ test("loads bounded, described product imagery without layout overflow", async (
       outside: interactive
         .map((element) => {
           const rect = element.getBoundingClientRect();
-          return { label: element.textContent?.trim() ?? "", left: rect.left, right: rect.right };
+          return {
+            label: element.textContent?.trim() ?? "",
+            left: rect.left + window.scrollX,
+            right: rect.right + window.scrollX,
+          };
         })
         .filter(({ left, right }) => left < -1 || right > viewportWidth + 1),
       viewportWidth,
@@ -156,13 +165,28 @@ test("loads bounded, described product imagery without layout overflow", async (
 
   const primaryAction = page.locator(".hero").getByRole("link", { name: "View latest release" });
   await expect(primaryAction).toHaveCount(1);
-  const actionBox = await primaryAction.boundingBox();
-  expect(actionBox).not.toBeNull();
-  expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-
-  const statusBox = await page.locator(".hero__status").boundingBox();
-  expect(statusBox).not.toBeNull();
-  expect(statusBox!.y + statusBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  const firstViewport = await page.evaluate(() => {
+    const bounds = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)!;
+      const rect = element.getBoundingClientRect();
+      return {
+        bottom: rect.bottom + window.scrollY,
+        top: rect.top + window.scrollY,
+        visible: getComputedStyle(element).display !== "none",
+      };
+    };
+    return {
+      action: bounds(".hero .button--primary"),
+      status: bounds(".hero__status"),
+      title: bounds("h1"),
+    };
+  });
+  expect(firstViewport.title.top).toBeLessThan(page.viewportSize()!.height / 2);
+  expect(firstViewport.action.top).toBeGreaterThanOrEqual(0);
+  expect(firstViewport.action.bottom).toBeLessThanOrEqual(page.viewportSize()!.height);
+  if (firstViewport.status.visible) {
+    expect(firstViewport.status.bottom).toBeLessThanOrEqual(page.viewportSize()!.height);
+  }
 });
 
 test("meets automated WCAG A and AA checks", async ({ page }) => {

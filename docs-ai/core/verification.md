@@ -105,9 +105,10 @@ When updating snapshots, review the diff carefully. Accidental snapshot churn is
 
 Install the matching local Chromium once with
 `cd website && bunx playwright install chromium`. The browser suite rebuilds
-the static site, starts the production preview, and tests desktop plus narrow
-and standard phone viewports. Visual judgment, real Safari/Firefox rendering,
-screen-reader behavior, and external-link availability remain manual checks.
+the static site, starts the production preview, and tests desktop, standard and
+narrow phones, short tablets, and phone landscape. Visual judgment, real
+Safari/Firefox rendering, screen-reader behavior, and external-link
+availability remain manual checks.
 
 ## Test layer choice (quick guide)
 

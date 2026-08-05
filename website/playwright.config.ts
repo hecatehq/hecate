@@ -39,6 +39,23 @@ export default defineConfig({
         viewport: { width: 320, height: 800 },
       },
     },
+    {
+      name: "short-tablet",
+      use: {
+        ...devices["Desktop Chrome"],
+        hasTouch: true,
+        viewport: { width: 980, height: 600 },
+      },
+    },
+    {
+      name: "landscape-phone",
+      use: {
+        ...devices["Desktop Chrome"],
+        hasTouch: true,
+        isMobile: true,
+        viewport: { width: 844, height: 390 },
+      },
+    },
   ],
   webServer: {
     command: "bun run preview -- --host 127.0.0.1 --port 4321",

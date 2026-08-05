@@ -13,7 +13,7 @@ just website-install
 just website-dev       # local Astro dev server
 just website-check     # astro check + TypeScript
 just website-build     # production build
-just website-test-e2e  # desktop + phone browser and accessibility checks
+just website-test-e2e  # desktop, compact, and phone browser/a11y checks
 just website-preview   # preview website/dist
 ```
 
