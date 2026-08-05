@@ -347,6 +347,17 @@ if (headBeforeStamp !== localCommit) {
       `  current:  ${headBeforeStamp}`,
   );
 }
+const stampPaths = [
+  "tauri/src-tauri/Cargo.toml",
+  "tauri/src-tauri/Cargo.lock",
+  "tauri/src-tauri/tauri.conf.json",
+  "tauri/src-tauri/tauri.ios.conf.json",
+  "tauri/src-tauri/tauri.android.conf.json",
+  "tauri/src-tauri/gen/apple/project.yml",
+  "tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist",
+  "tauri/package.json",
+];
+let releaseCommit = localCommit;
 const stampScript = resolve(root, "scripts/stamp-version.ts");
 if (existsSync(stampScript)) {
   // execFileSync (no shell) so that paths/args with spaces or special
@@ -365,16 +376,6 @@ if (existsSync(stampScript)) {
   // make the tag disagree with the store artifacts that CI builds from it.
   const stampDirty = run("git status --porcelain", { silent: true });
   if (stampDirty) {
-    const stampPaths = [
-      "tauri/src-tauri/Cargo.toml",
-      "tauri/src-tauri/Cargo.lock",
-      "tauri/src-tauri/tauri.conf.json",
-      "tauri/src-tauri/tauri.ios.conf.json",
-      "tauri/src-tauri/tauri.android.conf.json",
-      "tauri/src-tauri/gen/apple/project.yml",
-      "tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist",
-      "tauri/package.json",
-    ];
     execFileSync("git", ["add", "--", ...stampPaths], { cwd: root, stdio: "inherit" });
     execFileSync(
       "git",
@@ -384,11 +385,53 @@ if (existsSync(stampScript)) {
         stdio: "inherit",
       },
     );
+
+    releaseCommit = run("git rev-parse HEAD", { silent: true });
+    const stampParents = execFileSync("git", ["rev-list", "--parents", "-n", "1", releaseCommit], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+      .trim()
+      .split(/\s+/);
+    if (stampParents.length !== 2 || stampParents[1] !== localCommit) {
+      fail(
+        "the version stamp must create exactly one commit directly on the reviewed release commit; HEAD moved concurrently.",
+      );
+    }
+    const changedStampPaths = execFileSync(
+      "git",
+      ["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", releaseCommit],
+      {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    )
+      .split("\0")
+      .filter(Boolean);
+    const unexpectedStampPaths = changedStampPaths.filter((path) => !stampPaths.includes(path));
+    if (changedStampPaths.length === 0 || unexpectedStampPaths.length > 0) {
+      fail(
+        "the version stamp commit changed files outside the release allowlist:\n" +
+          `  ${unexpectedStampPaths.join("\n  ") || "(stamp commit had no changed files)"}`,
+      );
+    }
     console.log("  committed Tauri version stamp");
   } else {
+    const unstampedHead = run("git rev-parse HEAD", { silent: true });
+    if (unstampedHead !== localCommit) {
+      fail("HEAD moved while confirming that no version stamp commit was needed.");
+    }
+    releaseCommit = unstampedHead;
     console.log("  Tauri files already at correct version — no commit needed");
   }
 } else {
+  const unstampedHead = run("git rev-parse HEAD", { silent: true });
+  if (unstampedHead !== localCommit) {
+    fail("HEAD moved while the missing version stamp script was being checked.");
+  }
+  releaseCommit = unstampedHead;
   console.warn("  scripts/stamp-version.ts not found — skipping Tauri stamp");
 }
 
@@ -398,7 +441,10 @@ if (dirtyAfterStamp) {
   run("git status --short");
   process.exit(1);
 }
-const releaseCommit = run("git rev-parse HEAD", { silent: true });
+const headAfterStamp = run("git rev-parse HEAD", { silent: true });
+if (headAfterStamp !== releaseCommit) {
+  fail("HEAD changed after the version stamp was validated; restart the release.");
+}
 
 // ── Tag and push ──────────────────────────────────────────────────────────────
 
