@@ -17,8 +17,9 @@
 //   # docs/contributor/release.md#recovery
 
 import { execSync, execFileSync } from "child_process";
-import { existsSync } from "fs";
-import { resolve } from "path";
+import { existsSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 
 import {
   loadCuratedReleaseNotes,
@@ -376,15 +377,39 @@ if (existsSync(stampScript)) {
   // make the tag disagree with the store artifacts that CI builds from it.
   const stampDirty = run("git status --porcelain", { silent: true });
   if (stampDirty) {
-    execFileSync("git", ["add", "--", ...stampPaths], { cwd: root, stdio: "inherit" });
-    execFileSync(
-      "git",
-      ["commit", "--only", "-m", `chore(tauri): stamp version ${semver}`, "--", ...stampPaths],
-      {
+    // Capture the stamp in an isolated index. `git commit --only <paths>`
+    // re-reads those paths from the worktree, so a concurrent edit after
+    // staging could otherwise enter the release commit without review.
+    const temporaryIndexDirectory = mkdtempSync(join(tmpdir(), "hecate-release-index-"));
+    const temporaryIndex = join(temporaryIndexDirectory, "index");
+    const temporaryIndexEnvironment = { ...process.env, GIT_INDEX_FILE: temporaryIndex };
+    let capturedStampTree = "";
+    try {
+      execFileSync("git", ["read-tree", localCommit], {
         cwd: root,
+        env: temporaryIndexEnvironment,
         stdio: "inherit",
-      },
-    );
+      });
+      execFileSync("git", ["add", "--", ...stampPaths], {
+        cwd: root,
+        env: temporaryIndexEnvironment,
+        stdio: "inherit",
+      });
+      capturedStampTree = execFileSync("git", ["write-tree"], {
+        cwd: root,
+        env: temporaryIndexEnvironment,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+
+      execFileSync("git", ["commit", "-m", `chore(tauri): stamp version ${semver}`], {
+        cwd: root,
+        env: temporaryIndexEnvironment,
+        stdio: "inherit",
+      });
+    } finally {
+      rmSync(temporaryIndexDirectory, { recursive: true, force: true });
+    }
 
     releaseCommit = run("git rev-parse HEAD", { silent: true });
     const stampParents = execFileSync("git", ["rev-list", "--parents", "-n", "1", releaseCommit], {
@@ -397,6 +422,16 @@ if (existsSync(stampScript)) {
     if (stampParents.length !== 2 || stampParents[1] !== localCommit) {
       fail(
         "the version stamp must create exactly one commit directly on the reviewed release commit; HEAD moved concurrently.",
+      );
+    }
+    const releaseTree = execFileSync("git", ["rev-parse", `${releaseCommit}^{tree}`], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (releaseTree !== capturedStampTree) {
+      fail(
+        "the version stamp commit differs from the exact tree captured before commit hooks ran.",
       );
     }
     const changedStampPaths = execFileSync(
@@ -417,6 +452,20 @@ if (existsSync(stampScript)) {
           `  ${unexpectedStampPaths.join("\n  ") || "(stamp commit had no changed files)"}`,
       );
     }
+    const reviewedTree = execFileSync("git", ["rev-parse", `${localCommit}^{tree}`], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    const realIndexTree = execFileSync("git", ["write-tree"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    if (realIndexTree !== reviewedTree) {
+      fail("the real Git index changed concurrently while the version stamp was committed.");
+    }
+    execFileSync("git", ["read-tree", releaseCommit], { cwd: root, stdio: "inherit" });
     console.log("  committed Tauri version stamp");
   } else {
     const unstampedHead = run("git rev-parse HEAD", { silent: true });
