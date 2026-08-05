@@ -2241,24 +2241,54 @@ impl KeyringCredentialStore {
 
     #[cfg(target_os = "macos")]
     fn delete_noninteractive(name: &str) -> Result<(), String> {
-        use security_framework::item::{ItemClass, ItemSearchOptions};
+        delete_macos_keychain_item_noninteractive(KEYRING_SERVICE, name)
+    }
+}
 
-        let result = ItemSearchOptions::new()
-            .class(ItemClass::generic_password())
-            .service(KEYRING_SERVICE)
-            .account(name)
-            .skip_authenticated_items(true)
-            .delete();
-        match result {
-            Ok(()) => Ok(()),
-            // Missing items and items requiring authentication are both safe
-            // to leave absent from the in-process session. The latter can be
-            // removed later from an explicit sign-out/reconnect action.
-            Err(err) if matches!(err.code(), -25300 | -25308) => Ok(()),
-            Err(err) => Err(format!(
-                "could not remove secure credential without interaction: {err}"
-            )),
-        }
+#[cfg(target_os = "macos")]
+fn delete_macos_keychain_item_noninteractive(service: &str, account: &str) -> Result<(), String> {
+    use core_foundation::{
+        base::{TCFType, ToVoid},
+        dictionary::CFMutableDictionary,
+        string::CFString,
+    };
+    use security_framework::base::Error as SecurityFrameworkError;
+    use security_framework_sys::{
+        item::{
+            kSecAttrAccount, kSecAttrService, kSecClass, kSecClassGenericPassword,
+            kSecUseAuthenticationUI,
+        },
+        keychain_item::SecItemDelete,
+    };
+    use std::ffi::c_void;
+
+    // security-framework-sys does not currently expose this public Security
+    // framework constant. Unlike kSecUseAuthenticationUISkip (lookup-only),
+    // Fail is valid for SecItemDelete and returns errSecInteractionNotAllowed
+    // instead of presenting authentication UI.
+    extern "C" {
+        static kSecUseAuthenticationUIFail: *const c_void;
+    }
+
+    let service = CFString::new(service);
+    let account = CFString::new(account);
+    let mut query = CFMutableDictionary::<*const c_void, *const c_void>::new();
+    unsafe {
+        query.add(&kSecClass.to_void(), &kSecClassGenericPassword.to_void());
+        query.add(&kSecAttrService.to_void(), &service.to_void());
+        query.add(&kSecAttrAccount.to_void(), &account.to_void());
+        query.add(
+            &kSecUseAuthenticationUI.to_void(),
+            &kSecUseAuthenticationUIFail,
+        );
+    }
+    let status = unsafe { SecItemDelete(query.as_concrete_TypeRef()) };
+    match status {
+        0 | -25300 | -25308 => Ok(()),
+        code => Err(format!(
+            "could not remove secure credential without interaction: {}",
+            SecurityFrameworkError::from_code(code)
+        )),
     }
 }
 
@@ -5944,6 +5974,20 @@ mod tests {
     fn development_builds_never_share_the_release_keyring_service() {
         assert_eq!(KEYRING_SERVICE, "sh.hecate.app.cloud.development");
         assert_ne!(KEYRING_SERVICE, "sh.hecate.app.cloud.v2");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_noninteractive_delete_query_is_accepted_by_security_framework() {
+        let sequence = STARTUP_TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let service = format!(
+            "sh.hecate.test.noninteractive-delete.{}.{}",
+            std::process::id(),
+            sequence
+        );
+
+        delete_macos_keychain_item_noninteractive(&service, "missing")
+            .expect("Security.framework must accept UI-fail deletion queries");
     }
 
     #[test]

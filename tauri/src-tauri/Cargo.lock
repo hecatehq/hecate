@@ -1843,6 +1843,7 @@ dependencies = [
  "rand 0.9.4",
  "reqwest 0.12.28",
  "security-framework 3.7.0",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "tauri",
