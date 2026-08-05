@@ -218,6 +218,11 @@ jobs:
         run: |
           set -euo pipefail
           proposal_dir="${RUNNER_TEMP}/release-delivery-proposal"
+          manifest="${RUNNER_TEMP}/release-manifest/latest.json"
+          if [ ! -f "${manifest}" ]; then
+            echo "Canonical release manifest is unavailable for the delivery proposal." >&2
+            exit 1
+          fi
           mkdir -p "${proposal_dir}"
           git diff --binary --full-index origin/master -- \
             README.md \

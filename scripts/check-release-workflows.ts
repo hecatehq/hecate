@@ -120,6 +120,8 @@ requireText(deliveryPath, delivery, "legacy_manifest=website/public/releases/alp
 requireText(deliveryPath, delivery, '[ "$TAG" = "v0.5.0" ]');
 requireText(deliveryPath, delivery, "Legacy alpha updater manifest differs from the stable release asset.");
 requireText(deliveryPath, delivery, "bridge_updated=${bridge_updated}");
+requireText(deliveryPath, delivery, 'manifest="${RUNNER_TEMP}/release-manifest/latest.json"');
+requireText(deliveryPath, delivery, "Canonical release manifest is unavailable for the delivery proposal.");
 requireText(deliveryPath, delivery, "The release workflow deliberately cannot push");
 requireText(
   deliveryPath,
