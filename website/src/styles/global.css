@@ -1073,6 +1073,42 @@ code {
   }
 }
 
+@media (min-width: 480px) and (max-width: 720px) and (max-height: 450px) {
+  :root {
+    --nav-height: 76px;
+  }
+
+  .site-nav {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 0;
+  }
+
+  .site-brand {
+    min-height: 44px;
+  }
+
+  .site-links {
+    width: auto;
+    overflow: visible;
+    justify-content: flex-end;
+    gap: clamp(0.55rem, 2vw, 1rem);
+    padding-bottom: 0;
+    font-size: 0.8rem;
+  }
+
+  .hero {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .lede {
+    display: none;
+  }
+}
+
 @media (max-height: 700px) and (min-width: 981px) {
   .hero {
     min-height: 590px;
