@@ -45,6 +45,18 @@ describe("buildReleaseNotesPresentation", () => {
     });
   });
 
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+    ["CR", "\r"],
+  ])("keeps the Highlights preview with %s line endings", (_name, separator) => {
+    const notes = ["# Hecate v0.5.1", "", "## Highlights", "", "- Visible update."].join(separator);
+
+    expect(buildReleaseNotesPresentation(notes)?.featuredMarkdown).toBe(
+      "## Highlights\n\n- Visible update.",
+    );
+  });
+
   it("does not treat headings inside fenced code as release sections", () => {
     const notes = [
       "# Hecate v0.5.1",

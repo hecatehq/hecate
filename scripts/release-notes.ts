@@ -247,7 +247,10 @@ function markdownHeadings(lines: string[]): MarkdownHeading[] {
     }
     if (fence) return;
 
-    const match = /^(#{1,6})[ \t]+(.+?)\s*$/.exec(line);
+    // The updater's block renderer recognizes ATX headings only when the
+    // marker is followed by an ASCII space. Keep curated notes canonical so a
+    // tab-delimited heading cannot reappear as a literal paragraph.
+    const match = /^(#{1,6}) +(.+?)\s*$/.exec(line);
     if (!match) return;
     headings.push({
       level: match[1].length,

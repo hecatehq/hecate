@@ -17,7 +17,7 @@ export type InlineNode =
 
 export function parseMarkdownBlocks(content: string): Block[] {
   const blocks: Block[] = [];
-  const lines = content.split("\n");
+  const lines = content.replace(/\r\n?/g, "\n").split("\n");
   let i = 0;
 
   while (i < lines.length) {

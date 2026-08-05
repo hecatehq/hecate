@@ -10,6 +10,7 @@ import {
   validateCuratedReleaseNotes,
 } from "./release-notes";
 import { parseMarkdownBlocks } from "../ui/src/lib/markdown";
+import { buildReleaseNotesPresentation } from "../ui/src/lib/release-notes";
 
 const temporaryDirectories: string[] = [];
 
@@ -158,6 +159,33 @@ describe("validateCuratedReleaseNotes", () => {
     expect(parseMarkdownBlocks(`${marker} Visible update.`)).toEqual([
       { type: "ul", text: "", items: ["Visible update."] },
     ]);
+  });
+
+  test.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+    ["CR", "\r"],
+  ])("accepts and renders %s line endings consistently", (_name, separator) => {
+    const markdown = ["# Hecate v1.2.3", "", "## Highlights", "", "- Visible update."].join(
+      separator,
+    );
+
+    expect(() => validateCuratedReleaseNotes(markdown, "v1.2.3")).not.toThrow();
+    const featured = buildReleaseNotesPresentation(markdown)?.featuredMarkdown ?? "";
+    expect(featured).toBe("## Highlights\n\n- Visible update.");
+    expect(parseMarkdownBlocks(featured)).toContainEqual({
+      type: "ul",
+      text: "",
+      items: ["Visible update."],
+    });
+  });
+
+  test("rejects tab-delimited headings that the updater cannot render canonically", () => {
+    const markdown = "# Hecate v1.2.3\n\n##\tHighlights\n\n- Visible update.";
+
+    expect(() => validateCuratedReleaseNotes(markdown, "v1.2.3")).toThrow(
+      "release notes must contain exactly one ## Highlights section.",
+    );
   });
 
   test.each(["+ Visible update.", "  - Visible update.", "-\tVisible update."])(
