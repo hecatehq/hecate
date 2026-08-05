@@ -81,7 +81,17 @@ requireText(releaseScriptPath, releaseScript, '"--cleanup=verbatim"');
 requireText(releaseScriptPath, releaseScript, '"-F", "-", version, releaseCommit');
 requireText(releaseScriptPath, releaseScript, "input: notesInStampedCommit.bytes");
 requireText(releaseScriptPath, releaseScript, '"hash-object", `--path=${notes.relativePath}`');
-requireText(releaseScriptPath, releaseScript, '"commit", "--only"');
+forbidText(releaseScriptPath, releaseScript, '"commit", "--only"');
+requireText(releaseScriptPath, releaseScript, "GIT_INDEX_FILE: temporaryIndex");
+requireText(releaseScriptPath, releaseScript, '["read-tree", localCommit]');
+requireText(
+  releaseScriptPath,
+  releaseScript,
+  'capturedStampTree = execFileSync("git", ["write-tree"]',
+);
+requireText(releaseScriptPath, releaseScript, "releaseTree !== capturedStampTree");
+requireText(releaseScriptPath, releaseScript, "realIndexTree !== reviewedTree");
+requireText(releaseScriptPath, releaseScript, '["read-tree", releaseCommit]');
 requireText(releaseScriptPath, releaseScript, 'revision = "HEAD"');
 requireText(releaseScriptPath, releaseScript, "`${revision}:${relativePath}`");
 requireText(releaseScriptPath, releaseScript, "headBeforeStamp !== localCommit");
