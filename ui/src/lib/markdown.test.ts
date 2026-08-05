@@ -48,6 +48,14 @@ describe("parseMarkdownBlocks", () => {
     expect(blocks).toEqual([{ type: "ul", text: "", items: ["apple", "banana", "cherry"] }]);
   });
 
+  it.each(["\r\n", "\r"])("normalizes %s line endings before parsing", (separator) => {
+    const blocks = parseMarkdownBlocks(["## Highlights", "", "- Visible update."].join(separator));
+    expect(blocks).toEqual([
+      { type: "heading", text: "Highlights", level: 2 },
+      { type: "ul", text: "", items: ["Visible update."] },
+    ]);
+  });
+
   it("parses ordered list items", () => {
     const blocks = parseMarkdownBlocks("1. first\n2. second");
     expect(blocks).toEqual([{ type: "ol", text: "", items: ["first", "second"] }]);

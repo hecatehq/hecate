@@ -52,7 +52,7 @@ export function buildReleaseNotesPresentation(content: string): ReleaseNotesPres
 }
 
 function levelTwoSections(content: string): MarkdownSection[] {
-  const lines = content.split(/\r?\n/);
+  const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const sections: MarkdownSection[] = [];
   let activeHeading = "";
   let activeStart = -1;
@@ -212,7 +212,7 @@ function truncateAtWord(value: string, limit: number): string {
 }
 
 function markdownOutsideFences(content: string): string {
-  const lines = content.split(/\r?\n/);
+  const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const visibleLines: string[] = [];
   let fence: { character: "`" | "~"; length: number } | null = null;
 
