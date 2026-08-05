@@ -85,7 +85,19 @@ requireText(releaseScriptPath, releaseScript, '"commit", "--only"');
 requireText(releaseScriptPath, releaseScript, 'revision = "HEAD"');
 requireText(releaseScriptPath, releaseScript, "`${revision}:${relativePath}`");
 requireText(releaseScriptPath, releaseScript, "headBeforeStamp !== localCommit");
-requireText(releaseScriptPath, releaseScript, 'const releaseCommit = run("git rev-parse HEAD"');
+requireText(releaseScriptPath, releaseScript, "let releaseCommit = localCommit");
+requireText(
+  releaseScriptPath,
+  releaseScript,
+  "stampParents.length !== 2 || stampParents[1] !== localCommit",
+);
+requireText(
+  releaseScriptPath,
+  releaseScript,
+  "changedStampPaths.filter((path) => !stampPaths.includes(path))",
+);
+requireText(releaseScriptPath, releaseScript, "unstampedHead !== localCommit");
+requireText(releaseScriptPath, releaseScript, "headAfterStamp !== releaseCommit");
 requireText(
   releaseScriptPath,
   releaseScript,
@@ -102,7 +114,7 @@ forbidText(
   "git push --delete origin ${version} && git tag -d ${version}",
 );
 forbidText(releaseScriptPath, releaseScript, '["tag", "-a", version, "-m", version]');
-const releaseCommitCapture = releaseScript.indexOf("const releaseCommit =");
+const releaseCommitCapture = releaseScript.indexOf("let releaseCommit = localCommit");
 const explicitTag = releaseScript.indexOf('["tag", "-a", "--cleanup=verbatim"');
 const atomicPush = releaseScript.indexOf('"--atomic"', explicitTag);
 if (
