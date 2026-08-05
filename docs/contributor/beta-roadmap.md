@@ -150,7 +150,7 @@ are true:
   and merged through PRs.
 - No compatibility shims are required for pre-1.0 endpoint/API changes unless
   explicitly decided later.
-- Hecate remains single-operator shaped for beta, with local and remote
+- Hecate remains single-operator shaped for pre-1.0 releases, with local and remote
   deployments supported; multi-node coordination stays out of scope.
-- External Agent CLIs remain trusted subprocesses for beta; Hecate supervises
+- External Agent CLIs remain trusted subprocesses for pre-1.0 releases; Hecate supervises
   and warns, but does not sandbox their internals.
