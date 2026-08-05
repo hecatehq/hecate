@@ -43,6 +43,7 @@ const releaseJustPath = "just/release.just";
 const goreleaserPath = ".goreleaser.yaml";
 const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
 const releaseScriptPath = "scripts/release.ts";
+const releaseLinksScriptPath = "scripts/update-release-links.ts";
 
 const tauri = read(tauriPath);
 const release = read(releasePath);
@@ -55,6 +56,7 @@ const releaseJust = read(releaseJustPath);
 const goreleaser = read(goreleaserPath);
 const tauriConfig = read(tauriConfigPath);
 const releaseScript = read(releaseScriptPath);
+const releaseLinksScript = read(releaseLinksScriptPath);
 
 requireText(goreleaserPath, goreleaser, "prerelease: false");
 requireText(
@@ -64,6 +66,7 @@ requireText(
 );
 forbidText(tauriConfigPath, tauriConfig, "https://hecate.sh/releases/alpha/latest.json");
 requireText(releaseScriptPath, releaseScript, "version must be a stable vX.Y.Z tag");
+requireText(releaseLinksScriptPath, releaseLinksScript, "tag must be a stable vX.Y.Z tag");
 
 forbidText(tauriPath, tauri, "publish-updater-website:");
 forbidText(tauriPath, tauri, "actions: write");
@@ -116,6 +119,7 @@ requireText(deliveryPath, delivery, "Release delivery requires a stable vX.Y.Z t
 requireText(deliveryPath, delivery, "legacy_manifest=website/public/releases/alpha/latest.json");
 requireText(deliveryPath, delivery, '[ "$TAG" = "v0.5.0" ]');
 requireText(deliveryPath, delivery, "Legacy alpha updater manifest differs from the stable release asset.");
+requireText(deliveryPath, delivery, "bridge_updated=${bridge_updated}");
 requireText(deliveryPath, delivery, "The release workflow deliberately cannot push");
 requireText(
   deliveryPath,
@@ -146,6 +150,9 @@ forbidPattern(
 requireText(websitePath, website, "github.ref == 'refs/heads/master'");
 forbidText(websitePath, website, "Verify updater manifest is live");
 forbidText(websitePath, website, "release_manifest_sha256:");
+requireText(websitePath, website, "Read alpha migration bridge");
+requireText(websitePath, website, "Verify alpha bridge is live");
+requireText(websitePath, website, "github.event.head_commit.modified");
 forbidText(testPath, test, "actions: write");
 forbidText(tauriBuildPath, tauriBuild, "actions: write");
 

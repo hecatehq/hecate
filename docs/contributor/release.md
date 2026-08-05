@@ -86,7 +86,8 @@ Acceptance after the run:
 - README Desktop app table and pinned install examples point at the release
   tag through the reviewed delivery PR.
 - For `v0.5.0`, `https://hecate.sh/releases/alpha/latest.json` matches the
-  published manifest so alpha.28+ desktop builds can upgrade. Later releases
+  published manifest so alpha.28+ desktop builds can upgrade. The Website
+  workflow verifies that bridge after the delivery PR merges. Later releases
   intentionally leave this compatibility bridge unchanged.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains

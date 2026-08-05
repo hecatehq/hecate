@@ -40,14 +40,11 @@ function usage(): never {
 }
 
 if (!tag) usage();
-if (!/^v\d+\.\d+\.\d+(-[a-zA-Z0-9._]+)?$/.test(tag)) {
-  fail(`tag must look like vX.Y.Z or vX.Y.Z-pre.N (got '${tag}')`);
+if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
+  fail(`tag must be a stable vX.Y.Z tag (got '${tag}')`);
 }
 
-// Keep this narrower than the CLI tag validator: file names use underscores
-// after the version (`hecate_0.1.0-alpha.12_linux_amd64.tar.gz`), so allowing
-// `_` inside the replacement pattern would accidentally consume the OS segment.
-const pinnedVersionPattern = "\\d+\\.\\d+\\.\\d+(?:-[a-zA-Z0-9.]+)?";
+const pinnedVersionPattern = "\\d+\\.\\d+\\.\\d+";
 
 const releaseURL = `https://api.github.com/repos/${repo}/releases/tags/${tag}`;
 const response = await fetch(releaseURL, {
