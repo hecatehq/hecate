@@ -71,10 +71,10 @@ Acceptance after the run:
   approves its latest push and merges it through protected `master`.
 - The GitHub Release is not marked pre-release, and
   `/releases/latest/download/latest.json` resolves to its signed manifest.
-- Release entry has non-empty notes: the annotated tag's Markdown for a
-  substantive release, otherwise GoReleaser's generated changelog. The desktop
-  matrix uploads by release id so it cannot replace those notes while attaching
-  bundles.
+- Release entry has the reviewed Markdown from the annotated tag. Lightweight
+  tags, version-only annotations, and generated commit dumps are rejected. The
+  desktop matrix uploads by release id so it cannot replace those notes while
+  attaching bundles.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
   Each tarball contains `hecate`.
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
@@ -129,8 +129,16 @@ The canonical entry point is the `just release` recipe, which first runs a
 fast release preflight, then `just verify`, then delegates to
 `scripts/release.ts`:
 
+Start from [`docs/releases/template.md`](../releases/template.md), replace the
+placeholder version, and commit the finished file as
+`docs/releases/vX.Y.Z.md`. The title must be exactly `# Hecate vX.Y.Z`; the
+single `## Highlights` section must contain one through six concise bullets.
+Security and breaking/risky changes should be called out explicitly when they
+apply. The full file is bounded to 12,000 characters so the desktop updater
+receives the same reviewed body as GitHub.
+
 ```bash
-just release vX.Y.Z
+just release vX.Y.Z --notes docs/releases/vX.Y.Z.md
 ```
 
 It performs, in order: clean-worktree check, strict `master`/`main` check,
@@ -145,46 +153,28 @@ Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
 
 ```bash
-just release vX.Y.Z --skip-snapshot
+just release vX.Y.Z --notes docs/releases/vX.Y.Z.md --skip-snapshot
 ```
 
 Pass `--yes` only for non-interactive release automation after the preflight
 and verification gate have passed:
 
 ```bash
-bun scripts/release.ts vX.Y.Z --skip-snapshot --yes
+bun scripts/release.ts vX.Y.Z --notes docs/releases/vX.Y.Z.md --skip-snapshot --yes
 ```
 
-The script's annotated tag message is just the version string, so GoReleaser
-publishes its generated changelog for ordinary releases. For a substantive
-release, tag manually with reviewed Markdown. The release workflow detects a
-non-version annotation and passes it to GoReleaser as the GitHub Release body:
-
-```bash
-TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
-git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
-        tauri/src-tauri/tauri.conf.json \
-        tauri/src-tauri/tauri.ios.conf.json \
-        tauri/src-tauri/tauri.android.conf.json \
-        tauri/src-tauri/gen/apple/project.yml \
-        tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist \
-        tauri/package.json
-git commit -m "chore(tauri): stamp version X.Y.Z"
-git tag -a --cleanup=verbatim vX.Y.Z -F /tmp/release-notes.md
-git push origin HEAD:master vX.Y.Z
-```
-
-The annotation remains visible through `git show vX.Y.Z`; the same content is
-published on GitHub. A version-only annotation continues to use the generated
-commit changelog. Keep `--cleanup=verbatim` on Markdown annotations: Git's
-default cleanup treats lines beginning with `#` as comments and would silently
-strip the release title and section headings.
+The script validates that the notes file is repository-local, tracked, and
+unchanged after preflight. It then uses that file verbatim for the annotated
+tag (`git tag --cleanup=verbatim -F`), so `git show vX.Y.Z`, the GitHub Release,
+and the desktop updater all share one reviewed source. CI fails closed for a
+lightweight tag or version-only annotation instead of publishing a generated
+commit changelog. Keep the versioned notes file in the repository as the audit
+record for the release.
 
 Signed annotated tags follow the same rules. The release workflow reads Git's
 signature as a separate byte range and removes only that exact suffix before
-classifying or publishing the annotation. A signed version-only tag therefore
-still uses the generated changelog, while substantive Markdown is passed to
-GoReleaser byte-for-byte without the public signature block.
+validating and publishing the Markdown byte-for-byte without the public
+signature block.
 
 The version stamp commit stays on `master`. This keeps the visible Tauri
 metadata, including the mobile store build numbers, aligned with the latest
@@ -207,11 +197,10 @@ those are GitHub-Actions-only.
 `bun scripts/release.ts` runs this for you unless you pass
 `--skip-snapshot`.
 
-**Inspect the auto-generated changelog.** The first tag in the repo lists
-every commit since the dawn of git history; subsequent tags list only commits
-since the previous tag. If the changelog is unusable, tune
-`.goreleaser.yaml`'s `changelog.filters` or use `--release-notes <file>` to
-override before tagging.
+**Review the curated notes.** The snapshot validates build configuration; it
+is not the source of public prose. Re-read the committed versioned notes before
+confirming the tag and keep the Highlights useful to someone deciding whether
+to install the update. The release script prints the exact path to review.
 
 Pre-flight checks before the snapshot run (the script enforces these):
 

@@ -411,6 +411,41 @@ html[data-tauri-os="macos"] .hecate-shell {
   overflow-wrap: anywhere;
 }
 
+.desktop-update-details__notes-disclosure {
+  border-top: 1px solid var(--border);
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.desktop-update-details__notes-disclosure > summary {
+  border-radius: var(--radius-sm);
+  color: var(--t1);
+  cursor: pointer;
+  font-weight: 600;
+  padding: 5px 3px;
+}
+
+.desktop-update-details__notes-disclosure > summary::marker {
+  color: var(--teal);
+}
+
+.desktop-update-details__notes-disclosure > summary:hover {
+  color: var(--t0);
+}
+
+.desktop-update-details__notes-disclosure > summary:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.desktop-update-details__notes-full {
+  border-left: 1px solid var(--border);
+  margin: 6px 0 2px 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding-left: 12px;
+}
+
 .desktop-update-details__verification {
   color: var(--t3);
   font-size: 11px;

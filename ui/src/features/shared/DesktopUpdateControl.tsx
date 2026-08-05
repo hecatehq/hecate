@@ -2,7 +2,7 @@
 // The compact status-bar button is deliberately the only in-page affordance;
 // the macOS overlay titlebar stays a clean native drag surface.
 
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -10,6 +10,7 @@ import {
   type DesktopUpdateController,
   useDesktopUpdate,
 } from "../../lib/desktop-update";
+import { buildReleaseNotesPresentation } from "../../lib/release-notes";
 import { isTauriRuntime } from "../../lib/tauri";
 import { Icon, Icons } from "./Icons";
 import { MarkdownContent } from "./MarkdownContent";
@@ -100,6 +101,10 @@ function DesktopUpdateDetails({
       : installButtonRef
     : checkButtonRef;
   const releaseNotes = boundedReleaseNotes(update);
+  const releaseNotesPresentation = useMemo(
+    () => (releaseNotes ? buildReleaseNotesPresentation(releaseNotes) : null),
+    [releaseNotes],
+  );
   const status = updateDetailsStatus({
     update,
     checking,
@@ -150,7 +155,7 @@ function DesktopUpdateDetails({
                           : "Installing…"
                       : installFailure === "install"
                         ? "Try install again"
-                        : "Install and restart"}
+                        : "Update and restart"}
                 </button>
               )}
               {!installing && installFailure !== "restart" && (
@@ -162,7 +167,7 @@ function DesktopUpdateDetails({
                   }}
                   type="button"
                 >
-                  Dismiss update
+                  Later
                 </button>
               )}
             </>
@@ -254,15 +259,29 @@ function DesktopUpdateDetails({
           </p>
         )}
 
-        {releaseNotes && (
+        {releaseNotesPresentation && update && (
           <section
             aria-labelledby="desktop-update-release-notes"
             className="desktop-update-details__notes"
           >
-            <h2 id="desktop-update-release-notes">Release notes from the published release</h2>
+            <h2 id="desktop-update-release-notes">What’s new in Hecate {update.version}</h2>
             <div className="desktop-update-details__notes-content">
-              <MarkdownContent content={releaseNotes} headingStartLevel={3} />
+              <MarkdownContent
+                content={releaseNotesPresentation.featuredMarkdown}
+                headingStartLevel={2}
+              />
             </div>
+            {releaseNotesPresentation.hasAdditionalDetails && (
+              <details className="desktop-update-details__notes-disclosure">
+                <summary>Full release notes</summary>
+                <div className="desktop-update-details__notes-full">
+                  <MarkdownContent
+                    content={releaseNotesPresentation.fullMarkdown}
+                    headingStartLevel={3}
+                  />
+                </div>
+              </details>
+            )}
           </section>
         )}
 
@@ -367,7 +386,7 @@ function updateDetailsStatus({
   if (manualCheck?.phase === "error")
     return "Hecate could not check for updates. Try again when ready.";
   if (dismissed) {
-    return "This update is dismissed for this app session. Check again to look for a newer release.";
+    return "You chose Later for this app session. Check again to look for a newer release.";
   }
   if (manualCheck?.phase === "up-to-date" || lastSuccessfulCheck === "up-to-date") {
     return `Hecate is up to date. Last checked ${formatCheckTime(lastCheckedAt)}.`;

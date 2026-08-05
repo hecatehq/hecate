@@ -2,14 +2,14 @@
 // release.ts — cut a Hecate release tag and push it to CI.
 //
 // Usage:
-//   bun scripts/release.ts <version>                 # e.g. v0.5.0
-//   bun scripts/release.ts v0.5.0 --skip-snapshot    # skip goreleaser dry-run
-//   bun scripts/release.ts v0.5.0 --skip-snapshot --yes
-//   bun scripts/release.ts v0.5.0 --preflight-only   # validate local release deps
+//   bun scripts/release.ts <version> --notes <path>               # e.g. v0.5.1
+//   bun scripts/release.ts v0.5.1 --notes docs/releases/v0.5.1.md --skip-snapshot
+//   bun scripts/release.ts v0.5.1 --notes docs/releases/v0.5.1.md --preflight-only
 //
 // The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
-// you can inspect the changelog before anything is published, stamps the Tauri
-// app version, then commits, tags, and pushes the branch + tag on explicit
+// you can inspect the artifacts before anything is published, validates the
+// reviewed release notes, stamps the Tauri app version, then commits, tags,
+// and pushes the branch + tag on explicit
 // confirmation. CI takes it from there (~5-10 min).
 //
 // Recovery if the CI run fails:
@@ -20,6 +20,13 @@
 import { execSync, execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { resolve } from "path";
+
+import {
+  loadCuratedReleaseNotes,
+  parseReleaseCommandArgs,
+  validateCuratedReleaseNotes,
+} from "./release-notes";
+import type { CuratedReleaseNotes, ReleaseCommandOptions } from "./release-notes";
 
 const root = resolve(import.meta.dir, "..");
 
@@ -33,8 +40,8 @@ function run(cmd: string, opts: { silent?: boolean } = {}): string {
   }).trim();
 }
 
-function confirm(question: string): boolean {
-  if (process.argv.includes("--yes")) {
+function confirm(question: string, assumeYes: boolean): boolean {
+  if (assumeYes) {
     console.log(`${question} [y/N] y (--yes)`);
     return true;
   }
@@ -65,30 +72,82 @@ function commandErrorOutput(error: unknown): string {
   return maybeError.message ?? String(error);
 }
 
+type ReviewedReleaseNotes = {
+  bytes: Buffer;
+  objectId: string;
+};
+
+function readReviewedReleaseNotes(relativePath: string, version: string): ReviewedReleaseNotes {
+  let bytes: Buffer;
+  let objectId: string;
+  try {
+    objectId = execFileSync("git", ["rev-parse", `HEAD:${relativePath}`], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    bytes = execFileSync("git", ["cat-file", "blob", objectId], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    fail(
+      `release notes must be tracked in the reviewed release commit: ${relativePath}\n` +
+        `  Git said: ${commandErrorOutput(error)}`,
+    );
+  }
+
+  let markdown: string;
+  try {
+    markdown = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail(`reviewed release notes must be valid UTF-8 Markdown: ${relativePath}`);
+  }
+  try {
+    validateCuratedReleaseNotes(markdown, version);
+  } catch (error) {
+    fail(`reviewed release notes are not publishable: ${(error as Error).message}`);
+  }
+  return { bytes, objectId };
+}
+
+function worktreeReleaseNotesObjectId(notes: CuratedReleaseNotes): string {
+  try {
+    return execFileSync(
+      "git",
+      ["hash-object", `--path=${notes.relativePath}`, "--", notes.absolutePath],
+      {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
+  } catch (error) {
+    fail(
+      `could not compare release notes with the reviewed commit: ${notes.relativePath}\n` +
+        `  Git said: ${commandErrorOutput(error)}`,
+    );
+  }
+}
+
 function sep(label: string) {
   console.log(`\n── ${label} ${"─".repeat(Math.max(0, 72 - label.length - 4))}`);
 }
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
-const args = process.argv.slice(2);
-const version = args.find((a) => !a.startsWith("--")) ?? "";
-const skipSnapshot = args.includes("--skip-snapshot");
-const preflightOnly = args.includes("--preflight-only");
-
-if (!version) {
+let commandOptions: ReleaseCommandOptions;
+try {
+  commandOptions = parseReleaseCommandArgs(process.argv.slice(2));
+} catch (error) {
   console.error(
-    "usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only] [--yes]",
+    "usage: bun scripts/release.ts <version> --notes <path> [--skip-snapshot] [--preflight-only] [--yes]",
   );
   console.error("       version: vX.Y.Z  (e.g. v0.5.0)");
+  console.error(`\nerror: ${(error as Error).message}`);
   process.exit(1);
 }
-
-const allowedFlags = new Set(["--skip-snapshot", "--preflight-only", "--yes"]);
-const unknownFlags = args.filter((a) => a.startsWith("--") && !allowedFlags.has(a));
-if (unknownFlags.length > 0) {
-  fail(`unknown option${unknownFlags.length === 1 ? "" : "s"}: ${unknownFlags.join(", ")}`);
-}
+const { version, notesPath, skipSnapshot, preflightOnly, assumeYes } = commandOptions;
 
 // ── Validate version format ───────────────────────────────────────────────────
 
@@ -97,6 +156,12 @@ if (!/^v\d+\.\d+\.\d+$/.test(version)) {
 }
 
 const semver = version.replace(/^v/, ""); // bare semver (no leading v)
+let releaseNotes: CuratedReleaseNotes;
+try {
+  releaseNotes = loadCuratedReleaseNotes({ root, version, notesPath });
+} catch (error) {
+  fail((error as Error).message);
+}
 
 // ── Pre-flight ────────────────────────────────────────────────────────────────
 
@@ -124,6 +189,19 @@ if (branch !== "master" && branch !== "main") {
 console.log(`  branch    : ${branch}`);
 const localCommit = run("git rev-parse HEAD", { silent: true });
 console.log(`  commit    : ${localCommit.slice(0, 7)}`);
+
+// Resolve notes from HEAD as well as the working tree. Git's assume-unchanged
+// and skip-worktree bits can hide local edits from both status and ls-files.
+// Comparing object IDs through Git's clean filter catches those edits without
+// rejecting a clean checkout whose platform line-ending policy differs.
+const reviewedReleaseNotes = readReviewedReleaseNotes(releaseNotes.relativePath, version);
+if (worktreeReleaseNotesObjectId(releaseNotes) !== reviewedReleaseNotes.objectId) {
+  fail(
+    `release notes do not match the reviewed release commit: ${releaseNotes.relativePath}\n` +
+      "  Restore the committed bytes or commit and review the intended notes before releasing.",
+  );
+}
+console.log(`  notes     : ${releaseNotes.relativePath} (curated)`);
 
 // 3. Refresh origin before checking the candidate. This makes the local tag
 // uniqueness check authoritative for existing remote tags and prevents a
@@ -227,9 +305,8 @@ if (!skipSnapshot) {
   console.log("(builds binaries + Docker images locally without publishing)\n");
   execSync("goreleaser release --snapshot --clean", { cwd: root, stdio: "inherit" });
   console.log("\nSnapshot written to ./dist.");
-  console.log("\nCheck the changelog before tagging:");
-  console.log("  cat dist/CHANGELOG.md");
-  console.log("\nIf this is the first tag the changelog includes all history — expected.");
+  console.log("\nReview the curated notes that will be published:");
+  console.log(`  cat ${releaseNotes.relativePath}`);
 }
 
 // ── Confirm ───────────────────────────────────────────────────────────────────
@@ -244,12 +321,21 @@ const remote = (() => {
 })();
 console.log(`  tag    : ${version}`);
 console.log(`  remote : ${remote}`);
+console.log(`  notes  : ${releaseNotes.relativePath}`);
 
-if (!confirm("\nStamp Tauri version, tag, and push branch + tag?")) abort("cancelled by user");
+if (!confirm("\nStamp Tauri version, tag, and push branch + tag?", assumeYes)) {
+  abort("cancelled by user");
+}
 
 // ── Stamp Tauri version ───────────────────────────────────────────────────────
 
 sep("Tauri version stamp");
+const dirtyBeforeStamp = run("git status --porcelain", { silent: true });
+if (dirtyBeforeStamp) {
+  console.error("error: working tree changed after preflight. Commit or stash changes first.");
+  run("git status --short");
+  process.exit(1);
+}
 const stampScript = resolve(root, "scripts/stamp-version.ts");
 if (existsSync(stampScript)) {
   // execFileSync (no shell) so that paths/args with spaces or special
@@ -268,25 +354,25 @@ if (existsSync(stampScript)) {
   // make the tag disagree with the store artifacts that CI builds from it.
   const stampDirty = run("git status --porcelain", { silent: true });
   if (stampDirty) {
+    const stampPaths = [
+      "tauri/src-tauri/Cargo.toml",
+      "tauri/src-tauri/Cargo.lock",
+      "tauri/src-tauri/tauri.conf.json",
+      "tauri/src-tauri/tauri.ios.conf.json",
+      "tauri/src-tauri/tauri.android.conf.json",
+      "tauri/src-tauri/gen/apple/project.yml",
+      "tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist",
+      "tauri/package.json",
+    ];
+    execFileSync("git", ["add", "--", ...stampPaths], { cwd: root, stdio: "inherit" });
     execFileSync(
       "git",
-      [
-        "add",
-        "tauri/src-tauri/Cargo.toml",
-        "tauri/src-tauri/Cargo.lock",
-        "tauri/src-tauri/tauri.conf.json",
-        "tauri/src-tauri/tauri.ios.conf.json",
-        "tauri/src-tauri/tauri.android.conf.json",
-        "tauri/src-tauri/gen/apple/project.yml",
-        "tauri/src-tauri/gen/apple/hecate-app_iOS/Info.plist",
-        "tauri/package.json",
-      ],
-      { cwd: root, stdio: "inherit" },
+      ["commit", "--only", "-m", `chore(tauri): stamp version ${semver}`, "--", ...stampPaths],
+      {
+        cwd: root,
+        stdio: "inherit",
+      },
     );
-    execFileSync("git", ["commit", "-m", `chore(tauri): stamp version ${semver}`], {
-      cwd: root,
-      stdio: "inherit",
-    });
     console.log("  committed Tauri version stamp");
   } else {
     console.log("  Tauri files already at correct version — no commit needed");
@@ -295,10 +381,36 @@ if (existsSync(stampScript)) {
   console.warn("  scripts/stamp-version.ts not found — skipping Tauri stamp");
 }
 
+const dirtyAfterStamp = run("git status --porcelain", { silent: true });
+if (dirtyAfterStamp) {
+  console.error("error: working tree contains changes outside the version stamp.");
+  run("git status --short");
+  process.exit(1);
+}
+
 // ── Tag and push ──────────────────────────────────────────────────────────────
 
 sep("Tag and push");
-execFileSync("git", ["tag", "-a", version, "-m", version], { cwd: root, stdio: "inherit" });
+let notesAtTag: CuratedReleaseNotes;
+try {
+  notesAtTag = loadCuratedReleaseNotes({ root, version, notesPath });
+} catch (error) {
+  fail((error as Error).message);
+}
+const notesInStampedCommit = readReviewedReleaseNotes(notesAtTag.relativePath, version);
+if (
+  worktreeReleaseNotesObjectId(notesAtTag) !== notesInStampedCommit.objectId ||
+  !notesInStampedCommit.bytes.equals(reviewedReleaseNotes.bytes)
+) {
+  fail(
+    "release notes changed in the working tree or stamped commit after preflight; restart from a clean reviewed checkout.",
+  );
+}
+execFileSync("git", ["tag", "-a", "--cleanup=verbatim", version, "-F", "-"], {
+  cwd: root,
+  input: notesInStampedCommit.bytes,
+  stdio: ["pipe", "inherit", "inherit"],
+});
 console.log(`Tagged ${version}`);
 
 execFileSync("git", ["push", "origin", `HEAD:${branch}`, version], { cwd: root, stdio: "inherit" });

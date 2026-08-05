@@ -89,12 +89,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The release helper's ordinary tags contain only the version and should
-      # keep GoReleaser's generated changelog. A maintainer may instead create
-      # an annotated tag with substantive Markdown notes; preserve that public
-      # release contract by passing the annotation to GoReleaser explicitly.
-      # The helper removes Git's separately reported signature bytes without
-      # normalizing the Markdown through shell command substitution.
+      # Every public tag carries reviewed, curated Markdown. The helper rejects
+      # lightweight and version-only tags, removes Git's separately reported
+      # signature bytes, and passes the annotation to GoReleaser without
+      # normalizing it through shell command substitution.
       - name: Prepare release notes
         id: release-notes
         env:
