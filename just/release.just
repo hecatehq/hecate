@@ -3,7 +3,7 @@
 
 # Check protected-branch release delivery and updater artifact selection.
 release-workflow-check:
-	bun test scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts
+	bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts
 	bun scripts/check-release-workflows.ts
 
 # Validate release-only dependencies without running the full verification

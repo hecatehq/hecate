@@ -132,6 +132,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # GoReleaser appends a trailing newline to the supplied notes. Restore
+      # the reviewed file so the GitHub Release keeps the exact canonical
+      # bytes committed at docs/releases/<tag>.md.
+      - name: Restore canonical release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --verify-tag \
+            --repo "${{ github.repository }}"
+
       - name: Record published release body
         id: release-body
         env:
@@ -140,9 +154,15 @@ jobs:
         run: |
           set -euo pipefail
           body_path="$RUNNER_TEMP/published-release-body.md"
-          gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq '.body' > "$body_path"
+          release_metadata="$RUNNER_TEMP/published-release.json"
+          gh api "repos/${{ github.repository }}/releases/tags/${TAG}" > "$release_metadata"
+          jq -rj '.body // ""' "$release_metadata" > "$body_path"
           if ! grep -q '[^[:space:]]' "$body_path"; then
             echo "GitHub Release ${TAG} has no release notes after GoReleaser." >&2
+            exit 1
+          fi
+          if ! cmp -s "$RUNNER_TEMP/release-notes.md" "$body_path"; then
+            echo "GitHub Release ${TAG} does not match its canonical reviewed notes." >&2
             exit 1
           fi
           echo "sha256=$(sha256sum "$body_path" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
