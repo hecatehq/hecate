@@ -1,3 +1,6 @@
-# Preserve vendored third-party source byte-for-byte, including upstream
-# whitespace that Hecate's first-party diff checks would otherwise reject.
-tauri/vendor/** -whitespace
+# Preserve vendored third-party source byte-for-byte, including upstream line
+# endings and whitespace that Hecate's first-party checks would otherwise alter.
+tauri/vendor/** -text -whitespace
+
+# Hecate-owned patch records remain first-party documentation.
+tauri/vendor/**/HECATE-PATCH.md !text !whitespace
