@@ -132,14 +132,18 @@ jobs:
       # The packaged app lifecycle smoke remains opt-in via
       # `just test-tauri-smoke`.
       - name: Run Tauri Rust tests
-        run: cd tauri/src-tauri && cargo test
+        run: cd tauri/src-tauri && cargo test --locked
+
+      - name: Verify vendored glib backport is active
+        if: matrix.os == 'ubuntu-22.04'
+        run: bun tauri/scripts/check-glib-backport.ts
 
       # Release optimization is what exposes RUSTSEC-2024-0429. Exercise the
-      # vendored upstream regression in the Linux packaging leg so a tagged
-      # release cannot silently lose Hecate's temporary glib 0.18 backport.
+      # regression through the application's reviewed lockfile so a tagged
+      # release cannot float test dependencies or silently lose the backport.
       - name: Test vendored glib soundness backport
         if: matrix.os == 'ubuntu-22.04'
-        run: cargo test --manifest-path tauri/vendor/glib-0.18.5/Cargo.toml --release --lib variant_iter
+        run: cargo test --manifest-path tauri/src-tauri/Cargo.toml --locked --release --test glib_backport
 
       # tauri-action's auto-install is unreliable when projectPath is set;
       # install explicitly so node_modules/.bin/tauri exists for the build.

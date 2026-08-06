@@ -50,6 +50,7 @@ const releaseScriptPath = "scripts/release.ts";
 const releaseLinksScriptPath = "scripts/update-release-links.ts";
 const cloudConnectionPath = "tauri/src-tauri/src/desktop/cloud_connection.rs";
 const updaterVerifierPath = "tauri/src-tauri/examples/verify_updater_signatures.rs";
+const glibBackportCheckPath = "tauri/scripts/check-glib-backport.ts";
 
 const tauri = read(tauriPath);
 const release = read(releasePath);
@@ -69,6 +70,7 @@ const releaseScript = read(releaseScriptPath);
 const releaseLinksScript = read(releaseLinksScriptPath);
 const cloudConnection = read(cloudConnectionPath);
 const updaterVerifier = read(updaterVerifierPath);
+const glibBackportCheck = read(glibBackportCheckPath);
 
 requireText(goreleaserPath, goreleaser, "prerelease: false");
 requireText(
@@ -410,6 +412,24 @@ requireText(
 );
 forbidText(testPath, test, "actions: write");
 forbidText(tauriBuildPath, tauriBuild, "actions: write");
+requireText(testPath, test, "bun tauri/scripts/check-glib-backport.ts");
+requireText(tauriPath, tauri, "bun tauri/scripts/check-glib-backport.ts");
+requireText(testPath, test, "cargo test --locked");
+requireText(tauriPath, tauri, "cargo test --locked");
+requireText(
+  testPath,
+  test,
+  "cargo test --manifest-path tauri/src-tauri/Cargo.toml --locked --release --test glib_backport",
+);
+requireText(
+  tauriPath,
+  tauri,
+  "cargo test --manifest-path tauri/src-tauri/Cargo.toml --locked --release --test glib_backport",
+);
+requireText(glibBackportCheckPath, glibBackportCheck, 'pkg.name !== "glib"');
+requireText(glibBackportCheckPath, glibBackportCheck, 'version !== "0.18.5"');
+requireText(glibBackportCheckPath, glibBackportCheck, "glib.source !== null");
+requireText(glibBackportCheckPath, glibBackportCheck, "realpathSync(glib.manifest_path)");
 
 const trailingNewlineProbe = Bun.spawnSync([
   "bash",

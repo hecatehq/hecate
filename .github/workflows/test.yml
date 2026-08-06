@@ -167,15 +167,17 @@ jobs:
         working-directory: tauri
 
       - name: Test Rust
-        run: cargo test
+        run: cargo test --locked
         working-directory: tauri/src-tauri
 
-      # The published glib 0.18.5 crashes this existing upstream regression in
-      # optimized builds. Hecate carries the upstream two-token soundness fix
-      # because Tauri 2's Linux GTK3 stack cannot resolve glib 0.20.
+      - name: Verify vendored glib backport is active
+        run: bun tauri/scripts/check-glib-backport.ts
+
+      # The published glib 0.18.5 crashes this regression in optimized builds.
+      # Run it through the application's reviewed lockfile so tagged and PR
+      # builds exercise the same dependency graph without floating test deps.
       - name: Test vendored glib soundness backport
-        run: cargo test --release --lib variant_iter
-        working-directory: tauri/vendor/glib-0.18.5
+        run: cargo test --manifest-path tauri/src-tauri/Cargo.toml --locked --release --test glib_backport
 
   lint-go:
     name: Lint (go)
