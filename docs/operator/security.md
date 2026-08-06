@@ -773,8 +773,17 @@ it launches in gateway mode as its sidecar.
 Hecate uses GitHub Dependabot and CodeQL to catch dependency and code-scanning issues.
 
 - Fixable advisories should be handled by updating dependencies or hardening the relevant code path.
-- Some transitive advisories can be upstream-blocked. For example, the current Tauri Linux stack still depends on `gtk ^0.18`, which requires `glib ^0.18`; `glib >=0.20` cannot be forced safely until the Tauri/GTK stack moves.
-- Upstream-blocked alerts should be documented in the relevant PR or release notes, then revisited when upstream releases a compatible fix.
+- Some transitive advisories can be upstream-blocked. The current Tauri Linux
+  stack depends on `gtk ^0.18`, which requires `glib ^0.18`; `glib >=0.20`
+  cannot be forced safely until the Tauri/GTK stack moves.
+- Hecate vendors the published `glib` 0.18.5 source with the byte-identical
+  upstream `VariantStrIter` soundness fix for RUSTSEC-2024-0429. Linux CI runs
+  the upstream iterator regression under release optimization, where the
+  unpatched code crashes. The provenance and removal condition live in
+  `tauri/vendor/glib-0.18.5/HECATE-PATCH.md`.
+- Remove a downstream patch as soon as a maintained compatible dependency is
+  available. Until then, keep its provenance, regression, and release impact
+  explicit instead of silently suppressing the advisory.
 
 ## Operator checklist
 

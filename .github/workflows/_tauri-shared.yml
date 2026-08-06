@@ -134,6 +134,13 @@ jobs:
       - name: Run Tauri Rust tests
         run: cd tauri/src-tauri && cargo test
 
+      # Release optimization is what exposes RUSTSEC-2024-0429. Exercise the
+      # vendored upstream regression in the Linux packaging leg so a tagged
+      # release cannot silently lose Hecate's temporary glib 0.18 backport.
+      - name: Test vendored glib soundness backport
+        if: matrix.os == 'ubuntu-22.04'
+        run: cargo test --manifest-path tauri/vendor/glib-0.18.5/Cargo.toml --release --lib variant_iter
+
       # tauri-action's auto-install is unreliable when projectPath is set;
       # install explicitly so node_modules/.bin/tauri exists for the build.
       - name: Install Tauri JS dependencies

@@ -74,3 +74,10 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+# Tauri 2's Linux GTK3/WebKit stack is pinned to glib 0.18, whose final
+# crates.io release contains RUSTSEC-2024-0429. Keep the byte-identical upstream
+# soundness fix in-repo until Tauri moves to GTK4 or a compatible fixed release
+# exists. See tauri/vendor/glib-0.18.5/HECATE-PATCH.md.
+[patch.crates-io]
+glib = { path = "../vendor/glib-0.18.5" }

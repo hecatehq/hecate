@@ -1,0 +1,3 @@
+# Preserve vendored third-party source byte-for-byte, including upstream
+# whitespace that Hecate's first-party diff checks would otherwise reject.
+tauri/vendor/** -whitespace

@@ -170,6 +170,13 @@ jobs:
         run: cargo test
         working-directory: tauri/src-tauri
 
+      # The published glib 0.18.5 crashes this existing upstream regression in
+      # optimized builds. Hecate carries the upstream two-token soundness fix
+      # because Tauri 2's Linux GTK3 stack cannot resolve glib 0.20.
+      - name: Test vendored glib soundness backport
+        run: cargo test --release --lib variant_iter
+        working-directory: tauri/vendor/glib-0.18.5
+
   lint-go:
     name: Lint (go)
     needs: changes

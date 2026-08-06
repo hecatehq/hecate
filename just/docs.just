@@ -5,13 +5,14 @@
 agent-docs-check:
 	bun scripts/check-agent-docs.ts
 
-# Format tracked Markdown and MDC docs with Oxfmt.
+# Format tracked first-party Markdown and MDC docs with Oxfmt. Vendored source
+# keeps its upstream bytes and is reviewed through its own provenance checks.
 docs-format: _ui-deps
-	git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --write
+	git ls-files -z -- '*.md' '*.mdc' ':(exclude)tauri/vendor/**' | xargs -0 ./ui/node_modules/.bin/oxfmt --write
 
-# Check tracked Markdown and MDC docs formatting with Oxfmt.
+# Check tracked first-party Markdown and MDC docs formatting with Oxfmt.
 docs-format-check: _ui-deps
-	git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --check
+	git ls-files -z -- '*.md' '*.mdc' ':(exclude)tauri/vendor/**' | xargs -0 ./ui/node_modules/.bin/oxfmt --check
 
 # Validate Mermaid diagrams embedded in Markdown.
 check-mermaid:
@@ -37,7 +38,7 @@ check-links:
 	  echo "  Cargo:  cargo install lychee"; \
 	  exit 1; \
 	}
-	git ls-files -z '*.md' '*.mdc' | xargs -0 lychee --no-progress --include-fragments \
+	git ls-files -z -- '*.md' '*.mdc' ':(exclude)tauri/vendor/**' | xargs -0 lychee --no-progress --include-fragments \
 	  --scheme file \
 	  --exclude-path .gomodcache \
 	  --exclude-path ui/node_modules \
@@ -53,7 +54,7 @@ check-links-external:
 	  echo "  Cargo:  cargo install lychee"; \
 	  exit 1; \
 	}
-	git ls-files -z '*.md' '*.mdc' | xargs -0 lychee --no-progress --include-fragments \
+	git ls-files -z -- '*.md' '*.mdc' ':(exclude)tauri/vendor/**' | xargs -0 lychee --no-progress --include-fragments \
 	  --scheme https \
 	  --scheme http \
 	  --exclude-path .gomodcache \
