@@ -48,6 +48,8 @@ const goreleaserPath = ".goreleaser.yaml";
 const tauriConfigPath = "tauri/src-tauri/tauri.conf.json";
 const releaseScriptPath = "scripts/release.ts";
 const releaseLinksScriptPath = "scripts/update-release-links.ts";
+const releaseLinksHelperPath = "scripts/release-links.ts";
+const releaseLinksHelperTestPath = "scripts/release-links.test.ts";
 const cloudConnectionPath = "tauri/src-tauri/src/desktop/cloud_connection.rs";
 const updaterVerifierPath = "tauri/src-tauri/examples/verify_updater_signatures.rs";
 const glibBackportCheckPath = "tauri/scripts/check-glib-backport.ts";
@@ -68,6 +70,8 @@ const goreleaser = read(goreleaserPath);
 const tauriConfig = read(tauriConfigPath);
 const releaseScript = read(releaseScriptPath);
 const releaseLinksScript = read(releaseLinksScriptPath);
+const releaseLinksHelper = read(releaseLinksHelperPath);
+const releaseLinksHelperTest = read(releaseLinksHelperTestPath);
 const cloudConnection = read(cloudConnectionPath);
 const updaterVerifier = read(updaterVerifierPath);
 const glibBackportCheck = read(glibBackportCheckPath);
@@ -146,6 +150,16 @@ if (
   fail(`${releaseScriptPath} must pin the release commit before tagging and atomic publication`);
 }
 requireText(releaseLinksScriptPath, releaseLinksScript, "tag must be a stable vX.Y.Z tag");
+requireText(
+  releaseLinksHelperPath,
+  releaseLinksHelper,
+  '"\\\\d+\\\\.\\\\d+\\\\.\\\\d+(?:-[0-9A-Za-z-]+(?:\\\\.[0-9A-Za-z-]+)*)?"',
+);
+requireText(
+  releaseLinksHelperTestPath,
+  releaseLinksHelperTest,
+  "replaces complete prerelease pins when publishing a stable release",
+);
 
 requireText(releaseGuidePath, releaseGuide, 'gh release delete "$failed"');
 requireText(releaseGuidePath, releaseGuide, "--cleanup-tag --yes");
@@ -242,6 +256,10 @@ forbidText(releasePath, release, "git push origin master");
 requireText(releasePath, release, "uses: ./.github/workflows/release-delivery.yml");
 requireText(releasePath, release, "expected_release_body_sha256:");
 requireText(releasePath, release, "Release workflow requires a stable vX.Y.Z tag ref");
+requireText(releasePath, release, 'gh release edit "$TAG"');
+requireText(releasePath, release, '--notes-file "$RUNNER_TEMP/release-notes.md"');
+requireText(releasePath, release, `jq -rj '.body // ""' "$release_metadata"`);
+requireText(releasePath, release, 'cmp -s "$RUNNER_TEMP/release-notes.md" "$body_path"');
 forbidText(releasePath, release, "actions: write");
 
 const validateReleaseStart = release.indexOf("  validate-release-ref:");
@@ -318,7 +336,7 @@ requireText(
   "rejects a noncanonical repository-local release notes path",
 );
 const releaseNotesTestCommand =
-  "bun test scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts";
+  "bun test scripts/release-links.test.ts scripts/release-notes.test.ts scripts/prepare-release-notes.test.ts";
 requireText(testPath, test, releaseNotesTestCommand);
 requireText(releaseJustPath, releaseJust, releaseNotesTestCommand);
 
@@ -341,6 +359,11 @@ requireText(deliveryPath, delivery, "actions/upload-artifact@");
 requireText(deliveryPath, delivery, "release-delivery.patch");
 requireText(deliveryPath, delivery, "provenance.json");
 requireText(deliveryPath, delivery, "allowed_paths:");
+requireText(
+  deliveryPath,
+  delivery,
+  `jq -rj '.body // ""' "\${RUNNER_TEMP}/release.json" >"\${release_body}"`,
+);
 requireText(deliveryPath, delivery, "Release delivery requires a stable vX.Y.Z tag");
 requireText(deliveryPath, delivery, "legacy_manifest=website/public/releases/alpha/latest.json");
 requireText(deliveryPath, delivery, '[ "$TAG" = "v0.5.0" ]');

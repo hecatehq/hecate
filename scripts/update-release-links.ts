@@ -10,9 +10,10 @@
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
+import { updatePinnedReleaseReferences } from "./release-links";
+
 const root = resolve(import.meta.dir, "..");
 const tag = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? "";
-const semver = tag.replace(/^v/, "");
 const repo = process.env.GITHUB_REPOSITORY || "hecatehq/hecate";
 const token = process.env.GITHUB_TOKEN || "";
 
@@ -43,8 +44,6 @@ if (!tag) usage();
 if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
   fail(`tag must be a stable vX.Y.Z tag (got '${tag}')`);
 }
-
-const pinnedVersionPattern = "\\d+\\.\\d+\\.\\d+";
 
 const releaseURL = `https://api.github.com/repos/${repo}/releases/tags/${tag}`;
 const response = await fetch(releaseURL, {
@@ -96,7 +95,9 @@ if (macArm) {
 }
 
 if (linuxDeb || linuxAppImage) {
-  const bundles = [linuxDeb, linuxAppImage].filter((asset): asset is ReleaseAsset => Boolean(asset));
+  const bundles = [linuxDeb, linuxAppImage].filter((asset): asset is ReleaseAsset =>
+    Boolean(asset),
+  );
   rows.push(["Linux x86_64", bundles.map(link).join(" or ")]);
 }
 
@@ -126,7 +127,7 @@ if (start === -1 || end === -1 || end < start) {
 }
 
 let nextReadme = `${readme.slice(0, start)}${generated}${readme.slice(end + endMarker.length)}`;
-nextReadme = updatePinnedReleaseReferences(nextReadme);
+nextReadme = updatePinnedReleaseReferences(nextReadme, tag);
 
 if (nextReadme === readme) {
   console.log(`README release references already match ${tag}`);
@@ -139,7 +140,7 @@ const deploymentPath = resolve(root, "docs/operator/deployment.md");
 updateFile(deploymentPath, updateDeploymentReferences);
 
 const desktopPath = resolve(root, "docs/operator/desktop-app.md");
-updateFile(desktopPath, updatePinnedReleaseReferences);
+updateFile(desktopPath, (value) => updatePinnedReleaseReferences(value, tag));
 
 function updateFile(path: string, update: (value: string) => string): void {
   const before = readFileSync(path, "utf8");
@@ -169,39 +170,15 @@ function markdownTable(headers: [string, string], rows: string[][]): string[] {
   ];
 }
 
-function updatePinnedReleaseReferences(value: string): string {
-  return value
-    .replace(
-      new RegExp(`ghcr\\.io/hecatehq/hecate:${pinnedVersionPattern}`, "g"),
-      `ghcr.io/hecatehq/hecate:${semver}`,
-    )
-    .replace(
-      new RegExp(`/releases/download/v${pinnedVersionPattern}/`, "g"),
-      `/releases/download/${tag}/`,
-    )
-    .replace(new RegExp(`hecate_${pinnedVersionPattern}_`, "g"), `hecate_${semver}_`)
-    .replace(
-      new RegExp(`Available tarballs for \`v${pinnedVersionPattern}\``, "g"),
-      `Available tarballs for \`${tag}\``,
-    )
-    .replace(
-      new RegExp(`Current state — \`v${pinnedVersionPattern}\``, "g"),
-      `Current state — \`${tag}\``,
-    );
-}
-
 function updateDeploymentReferences(value: string): string {
-  let next = updatePinnedReleaseReferences(value);
+  let next = updatePinnedReleaseReferences(value, tag);
 
   if (linuxAMD64Tarball) {
     next = next.replace(
       /curl -LO https:\/\/github\.com\/hecatehq\/hecate\/releases\/download\/v[^\s]+\/hecate_[^\s]+\.tar\.gz/,
       `curl -LO ${linuxAMD64Tarball.browser_download_url}`,
     );
-    next = next.replace(
-      /tar -xzf hecate_[^\s]+\.tar\.gz/,
-      `tar -xzf ${linuxAMD64Tarball.name}`,
-    );
+    next = next.replace(/tar -xzf hecate_[^\s]+\.tar\.gz/, `tar -xzf ${linuxAMD64Tarball.name}`);
   }
 
   if (tarballs.length) {

@@ -8,25 +8,25 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Published v* release tag whose manifest and docs should be delivered.'
+        description: "Published v* release tag whose manifest and docs should be delivered."
         type: string
         required: true
       expected_release_body_sha256:
-        description: 'Optional release-body digest recorded before desktop packaging.'
+        description: "Optional release-body digest recorded before desktop packaging."
         type: string
         required: false
-        default: ''
+        default: ""
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Published v* release tag to deliver.'
+        description: "Published v* release tag to deliver."
         type: string
         required: true
       expected_release_body_sha256:
-        description: 'Optional expected SHA-256 of the published release body.'
+        description: "Optional expected SHA-256 of the published release body."
         type: string
         required: false
-        default: ''
+        default: ""
 
 permissions:
   contents: read
@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           release_body="${RUNNER_TEMP}/release-body.md"
-          jq -r '.body // ""' "${RUNNER_TEMP}/release.json" >"${release_body}"
+          jq -rj '.body // ""' "${RUNNER_TEMP}/release.json" >"${release_body}"
           if ! grep -q '[^[:space:]]' "${release_body}"; then
             echo "GitHub Release ${TAG} has no release notes." >&2
             exit 1
