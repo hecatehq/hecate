@@ -25,7 +25,7 @@
     "icon": [],
     "android": {
       "minSdkVersion": 26,
-      "versionCode": 500099
+      "versionCode": 600099
     }
   },
   "plugins": {
