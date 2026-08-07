@@ -154,10 +154,16 @@ describe("SettingsView", () => {
     expect(screen.getByText(/Unresolved auth: github_token/i)).toBeTruthy();
   });
 
-  it("does not probe local-only plugin registry in remote runtime mode", async () => {
+  it("shows controlled-instance context instead of host-local settings in remote runtime mode", async () => {
     const { state, actions } = setup({
       sessionInfo: {
         role: "operator",
+        runtime_host: createRuntimeHostFixture({
+          label: "Dogfood Runtime",
+          runtime_mode: "remote_runtime",
+          operator_access: "remote_supervision",
+          local_only_actions_available: false,
+        }),
         remote_identity: {
           actor_id: "actor_1",
           org_id: "org_1",
@@ -168,12 +174,15 @@ describe("SettingsView", () => {
     });
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
-    expect(
-      screen.getByText(/Plugin registry inspection is available only from a local Hecate runtime/i),
-    ).toBeTruthy();
+    const context = screen.getByTestId("remote-runtime-settings");
+    expect(within(context).getByText("Controlled instance")).toBeTruthy();
+    expect(within(context).getByText(/This window supervises Dogfood Runtime/i)).toBeTruthy();
+    expect(within(context).getByText(/Host-local controls/i)).toBeTruthy();
     await waitFor(() => expect(getPlugins).not.toHaveBeenCalled());
-    expect(screen.queryByText(/The request was blocked/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Refresh/i })).toBeNull();
+    expect(screen.queryByTestId("desktop-cloud-connection")).toBeNull();
+    expect(screen.queryByText("Plugins")).toBeNull();
+    expect(screen.getByText(/Clean up old runtime data on Dogfood Runtime/i)).toBeTruthy();
+    expect(screen.getByText("Reset remote runtime data unavailable")).toBeTruthy();
   });
 
   it("treats a forbidden plugin registry probe as local-only", async () => {
@@ -565,7 +574,7 @@ describe("SettingsView", () => {
     await waitFor(() => expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull());
   });
 
-  it("lists other Hecate instances and starts or opens only eligible targets", async () => {
+  it("picks a controllable Hecate instance and omits stale computers", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     tauriInvokeMock.mockImplementation((command: string) => {
       if (command === "cloud_connection_status") {
@@ -667,26 +676,31 @@ describe("SettingsView", () => {
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     const section = await screen.findByTestId("desktop-cloud-runtimes");
-    expect(within(section).getByText("Other Hecate instances")).toBeTruthy();
+    expect(within(section).getByText("Open another Hecate")).toBeTruthy();
     expect(await within(section).findByText("Production")).toBeTruthy();
-    expect(within(section).getAllByText("Computer")).toHaveLength(2);
-    expect(within(section).getAllByText("Version 0.5.0-alpha.5")).toHaveLength(3);
+    const picker = within(section).getByRole("button", { name: "Controlled instance" });
+    await waitFor(() => expect(picker).toHaveTextContent("Production"));
     expect(within(section).getByRole("button", { name: "Open Production" })).toBeTruthy();
+
+    await user.click(picker);
+    expect(screen.getByRole("option", { name: /Production/i })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Staging/i })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Studio Mac/i })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Travel Mac/i })).toBeNull();
+    await user.click(screen.getByRole("option", { name: /Staging/i }));
     expect(within(section).getByRole("button", { name: "Start Staging" })).toBeTruthy();
-    expect(within(section).getByRole("button", { name: "Open Studio Mac" })).toBeTruthy();
-    expect(within(section).getByText("remote off")).toBeTruthy();
-    expect(within(section).queryByRole("button", { name: "Open Travel Mac" })).toBeNull();
-    expect(within(section).queryByRole("button", { name: "Start Travel Mac" })).toBeNull();
 
     await user.click(within(section).getByRole("button", { name: "Start Staging" }));
     expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_runtime_start", {
       connectionId: "runtime_offline",
     });
-    expect(await within(section).findByText("starting")).toBeTruthy();
+    expect(await within(section).findByRole("button", { name: "Starting…" })).toBeTruthy();
     expect(within(section).getByRole("status")).toHaveTextContent(
       "Hecate Cloud is starting this runtime.",
     );
 
+    await user.click(picker);
+    await user.click(screen.getByRole("option", { name: /Production/i }));
     await user.click(within(section).getByRole("button", { name: "Open Production" }));
     expect(tauriInvokeMock).toHaveBeenCalledWith("cloud_runtime_open", {
       connectionId: "runtime_online",
@@ -759,13 +773,13 @@ describe("SettingsView", () => {
     await waitFor(() => expect(connectionReads).toBe(2));
 
     await user.click(start);
-    expect(await within(section).findByText("starting")).toBeTruthy();
+    expect(await within(section).findByRole("button", { name: "Starting…" })).toBeTruthy();
     await act(async () => {
       resolveStaleRefresh?.([offlineConnection]);
       await Promise.resolve();
     });
 
-    expect(within(section).getByText("starting")).toBeTruthy();
+    expect(within(section).getByRole("button", { name: "Starting…" })).toBeTruthy();
     expect(within(section).queryByRole("button", { name: "Start Staging" })).toBeNull();
   });
 

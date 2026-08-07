@@ -116,17 +116,18 @@ What works:
   access. Turning Remote access off preserves the signed-in account; signing
   out revokes the app session and computer registration. New registrations use
   the operating system hostname unless `HECATE_DESKTOP_HOST_NAME` overrides it.
-- The same section lists **Other Hecate instances** available to the signed-in
-  account: hosted runtimes and the owner's other registered computers. The
-  current computer appears only in **Remote access for this computer** and
-  cannot be opened through Cloud back into itself. A computer with remote
-  access off remains visible but cannot be opened. A Cloud-managed stopped
-  runtime can be started from the list. Opening an available entry creates a
-  short-lived browser session and shows that runtime's normal Hecate UI in a
-  separate window of the same native app. It does not launch or install a
-  second Hecate app. Chats, Tasks, and Projects created there remain owned by
-  that selected runtime; opening it is remote supervision, not process,
-  workspace, or session migration.
+- The same section has an **Open another Hecate** picker. It contains only
+  controllable targets: reachable remote-access computers, hosted runtimes
+  that are online or starting, and stopped hosted runtimes that Cloud can
+  start. The current computer appears only in **Remote access for this
+  computer** and cannot be opened through Cloud back into itself. Offline or
+  disabled computer registrations stay out of the picker until they become
+  reachable, so an old host record never looks actionable. Opening an
+  available entry creates a short-lived browser session and shows that
+  runtime's normal Hecate UI in a separate window of the same native app. It
+  does not launch or install a second Hecate app. Chats, Tasks, and Projects
+  created there remain owned by that selected runtime; opening it is remote
+  supervision, not process, workspace, or session migration.
 - A remote runtime window is incognito and receives no Tauri command
   capability. The native layer keeps the Cloud account bearer, one-time
   bootstrap URL, desktop relay ticket, and server-authored navigation paths out
@@ -139,6 +140,10 @@ What works:
   browser-local state, including unsent drafts or queued prompts, but admitted
   work continues on the selected runtime. Signing out or native account expiry
   closes every remote runtime window and invalidates its parent Cloud session.
+- **Settings** in a remote runtime window starts with a **Controlled instance**
+  context rather than rendering the opening desktop's Cloud controls. Host-local
+  Cloud connection and plugin-registry controls are intentionally hidden there;
+  maintenance actions continue to operate on the controlled runtime itself.
 - Phone and remote-browser requests execute against this same running Hecate
   and its laptop-local projects, chats, Task Runs, providers, and External
   Agents. Hecate does not copy that state into Cloud or move a live process to

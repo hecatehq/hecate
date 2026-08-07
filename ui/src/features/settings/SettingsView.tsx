@@ -20,6 +20,8 @@ export function SettingsView() {
   const loadRetentionRuns = retention.actions.loadRuns;
   const storageBackend = settings.state.config?.backend ?? "memory";
   const remoteRuntime = isRemoteRuntimeSession(runtime.state.sessionInfo);
+  const runtimeLabel =
+    runtime.state.sessionInfo?.runtime_host.label?.trim() || "this Hecate instance";
   const [plugins, setPlugins] = useState<PluginRecord[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
@@ -71,15 +73,21 @@ export function SettingsView() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div className="settings-view__scroll" style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        <DesktopCloudSettings />
-        <PluginRegistrySettings
-          error={pluginsError}
-          loading={pluginsLoading}
-          plugins={plugins}
-          localOnly={remoteRuntime || pluginsLocalOnly}
-          onRefresh={() => void loadPlugins()}
-        />
+        <DesktopCloudSettings remoteRuntime={remoteRuntime} />
+        {remoteRuntime ? (
+          <RemoteRuntimeSettings runtimeLabel={runtimeLabel} />
+        ) : (
+          <PluginRegistrySettings
+            error={pluginsError}
+            loading={pluginsLoading}
+            plugins={plugins}
+            localOnly={pluginsLocalOnly}
+            onRefresh={() => void loadPlugins()}
+          />
+        )}
         <RetentionSettings
+          remoteRuntime={remoteRuntime}
+          runtimeLabel={runtimeLabel}
           storageBackend={storageBackend}
           state={retention.state}
           setRetentionSubsystems={retention.actions.setSubsystems}
@@ -87,6 +95,25 @@ export function SettingsView() {
         />
       </div>
     </div>
+  );
+}
+
+function RemoteRuntimeSettings({ runtimeLabel }: { runtimeLabel: string }) {
+  return (
+    <section style={{ marginBottom: 20 }} data-testid="remote-runtime-settings">
+      <SectionHeader
+        title="Controlled instance"
+        description={`This window supervises ${runtimeLabel}; work runs on that instance.`}
+        meta="remote"
+      />
+      <div
+        className="card"
+        style={{ padding: "14px 16px", color: "var(--t2)", fontSize: 12, lineHeight: 1.5 }}
+      >
+        Host-local controls, including Hecate Cloud connection and plugin registry inspection, are
+        managed from the desktop app that opened this window.
+      </div>
+    </section>
   );
 }
 
@@ -337,24 +364,30 @@ function relativeTime(iso: string): string {
 }
 
 function RetentionSettings({
+  remoteRuntime,
+  runtimeLabel,
   storageBackend,
   state,
   setRetentionSubsystems,
   runRetention,
 }: {
+  remoteRuntime: boolean;
+  runtimeLabel: string;
   storageBackend: string;
   state: RetentionState;
   setRetentionSubsystems: (value: string) => void;
   runRetention: () => Promise<void>;
 }) {
-  const resetTitle =
-    storageBackend === "memory"
+  const resetTitle = remoteRuntime
+    ? "Reset remote runtime data unavailable"
+    : storageBackend === "memory"
       ? "Reset runtime state unavailable"
       : storageBackend === "postgres"
         ? "Reset persisted data unavailable"
         : "Reset local data unavailable";
-  const resetDescription =
-    storageBackend === "memory"
+  const resetDescription = remoteRuntime
+    ? "In-process data reset is unavailable from a controlled runtime window."
+    : storageBackend === "memory"
       ? "Restart the runtime to clear Hecate-owned in-memory state. Stop the runtime and use the deployment procedure to clear persistent Cairnline project coordination."
       : storageBackend === "postgres"
         ? "Stop the runtime before clearing its configured Postgres state and any local Cairnline or bootstrap files with the deployment-specific procedure."
@@ -387,7 +420,11 @@ function RetentionSettings({
     <>
       <SectionHeader
         title="Maintenance"
-        description="Clean up old local runtime data. Hecate keeps durable configuration, provider credentials, and external-agent grants unless you remove them from Connections."
+        description={
+          remoteRuntime
+            ? `Clean up old runtime data on ${runtimeLabel}. Hecate keeps durable configuration, provider credentials, and external-agent grants unless you remove them from Connections.`
+            : "Clean up old local runtime data. Hecate keeps durable configuration, provider credentials, and external-agent grants unless you remove them from Connections."
+        }
         meta={`${runs.length} run${runs.length === 1 ? "" : "s"}`}
       />
 

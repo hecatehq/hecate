@@ -13,12 +13,11 @@ import {
   type DesktopCloudConnectionStatus,
   type DesktopCloudRuntimeConnection,
 } from "../../lib/cloud-connection";
-import { formatRelativeTime } from "../../lib/runtime-utils";
-import { Badge, Icon, Icons, InlineError, Toggle } from "../shared/ui";
+import { DropdownPicker, Icon, Icons, InlineError, Toggle } from "../shared/ui";
 import { SettingsSectionHeader as SectionHeader } from "./SettingsSectionHeader";
 
-export function DesktopCloudSettings() {
-  if (!canUseDesktopCloudConnection()) return null;
+export function DesktopCloudSettings({ remoteRuntime = false }: { remoteRuntime?: boolean }) {
+  if (remoteRuntime || !canUseDesktopCloudConnection()) return null;
   return <DesktopCloudConnectionSettings />;
 }
 
@@ -316,6 +315,7 @@ function DesktopCloudRuntimeSettings({
   const [busy, setBusy] = useState<{ connectionID: string; action: "start" | "open" } | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [selectedConnectionID, setSelectedConnectionID] = useState("");
   const requestGenerationRef = useRef(0);
   const requestInFlightRef = useRef<Promise<void> | null>(null);
   const mutationInFlightRef = useRef(false);
@@ -353,6 +353,11 @@ function DesktopCloudRuntimeSettings({
       requestGenerationRef.current += 1;
     };
   }, [loadConnections]);
+
+  useEffect(() => {
+    if (connections.some((connection) => connection.id === selectedConnectionID)) return;
+    setSelectedConnectionID(connections[0]?.id ?? "");
+  }, [connections, selectedConnectionID]);
 
   const hasStartingConnection = connections.some(
     (connection) => connection.kind === "hosted_runtime" && connection.status === "starting",
@@ -410,16 +415,51 @@ function DesktopCloudRuntimeSettings({
     }
   }
 
+  const selectedConnection = connections.find(
+    (connection) => connection.id === selectedConnectionID,
+  );
+  const selectedAction = selectedConnection
+    ? selectedConnection.kind === "hosted_runtime" &&
+      !selectedConnection.reachable &&
+      selectedConnection.can_start
+      ? "start"
+      : selectedConnection.reachable
+        ? "open"
+        : null
+    : null;
+  const selectedStatus = selectedConnection ? connectionPickerStatus(selectedConnection) : null;
+  let selectedBusyAction: "start" | "open" | null = null;
+  if (
+    busy !== null &&
+    selectedConnection !== undefined &&
+    busy.connectionID === selectedConnection.id
+  ) {
+    selectedBusyAction = busy.action;
+  }
+  const actionLabel =
+    selectedConnection?.status === "starting"
+      ? "Starting…"
+      : selectedAction === "start"
+        ? `Start ${selectedConnection?.name}`
+        : selectedAction === "open"
+          ? `Open ${selectedConnection?.name}`
+          : "Choose an instance";
+
+  async function actOnSelectedConnection() {
+    if (!selectedConnection || !selectedAction) return;
+    if (selectedAction === "start") {
+      await startConnection(selectedConnection);
+      return;
+    }
+    await openConnection(selectedConnection);
+  }
+
   return (
     <section style={{ marginBottom: 20 }} data-testid="desktop-cloud-runtimes">
       <SectionHeader
-        title="Other Hecate instances"
-        description="Hosted runtimes and your other computers. Each opens in its own Hecate window."
-        meta={
-          loading
-            ? undefined
-            : `${connections.length} instance${connections.length === 1 ? "" : "s"}`
-        }
+        title="Open another Hecate"
+        description="Choose a runtime Hecate can open now or start for you. Each opens in its own Hecate window."
+        meta={loading ? undefined : `${connections.length} available`}
         actions={
           <button
             className="btn btn-ghost btn-sm"
@@ -432,24 +472,61 @@ function DesktopCloudRuntimeSettings({
       />
       <div className="card" style={{ overflow: "hidden" }}>
         {loading ? (
-          <CloudMessage>Loading other Hecate instances…</CloudMessage>
+          <CloudMessage>Loading controllable Hecate instances…</CloudMessage>
         ) : connections.length === 0 && !error ? (
           <CloudMessage>
-            No other runtimes or computers are available for this account.
+            No reachable computers or startable hosted runtimes are available for this account.
           </CloudMessage>
         ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {connections.map((connection, index) => (
-              <CloudRuntimeConnectionRow
-                key={connection.id}
-                connection={connection}
-                busy={busy}
-                last={index === connections.length - 1}
-                onOpen={openConnection}
-                onStart={startConnection}
+          <div style={{ padding: "15px 20px", display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gap: 4 }}>
+              <span style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>
+                Controlled instance
+              </span>
+              <span style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
+                Offline or disabled computers stay out of this picker until they can be opened.
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <DropdownPicker
+                ariaLabel="Controlled instance"
+                menuMinWidth={300}
+                onChange={setSelectedConnectionID}
+                options={connections.map((connection) => {
+                  const status = connectionPickerStatus(connection);
+                  return {
+                    value: connection.id,
+                    label: connection.name,
+                    detail: connectionPickerDetail(connection),
+                    statusLabel: status.label,
+                    statusColor: status.color,
+                  };
+                })}
+                placeholder="Choose instance"
+                searchable={connections.length > 6}
+                searchPlaceholder="Filter instances"
+                triggerMinWidth={220}
+                value={selectedConnectionID}
               />
-            ))}
-          </ul>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={busy !== null || selectedAction === null}
+                onClick={() => void actOnSelectedConnection()}
+                type="button"
+              >
+                {selectedBusyAction
+                  ? selectedBusyAction === "start"
+                    ? "Starting…"
+                    : "Opening…"
+                  : actionLabel}
+              </button>
+            </div>
+            {selectedConnection && selectedStatus && (
+              <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
+                {connectionPickerDetail(selectedConnection)} · {selectedStatus.description}
+              </div>
+            )}
+          </div>
         )}
         {(error || notice) && (
           <div style={{ padding: "0 20px 16px" }}>
@@ -467,104 +544,23 @@ function DesktopCloudRuntimeSettings({
   );
 }
 
-function CloudRuntimeConnectionRow({
-  busy,
-  connection,
-  last,
-  onOpen,
-  onStart,
-}: {
-  busy: { connectionID: string; action: "start" | "open" } | null;
-  connection: DesktopCloudRuntimeConnection;
-  last: boolean;
-  onOpen: (connection: DesktopCloudRuntimeConnection) => Promise<void>;
-  onStart: (connection: DesktopCloudRuntimeConnection) => Promise<void>;
-}) {
-  const lastSeen = connection.last_seen_at
-    ? formatRelativeTime(connection.last_seen_at)
-    : { label: "Not reported", iso: "" };
-  const connectionBusy = busy?.connectionID === connection.id;
-  const canStart =
-    connection.kind === "hosted_runtime" && !connection.reachable && connection.can_start;
-  const canOpen =
-    connection.reachable && (connection.kind === "hosted_runtime" || connection.remote_enabled);
-  const badge =
-    connection.status === "starting"
-      ? { status: "running", label: "starting" }
-      : connection.reachable
-        ? { status: "healthy", label: "online" }
-        : connection.kind === "desktop_host" && !connection.remote_enabled
-          ? { status: "disabled", label: "remote off" }
-          : connection.status === "failed"
-            ? { status: "failed", label: "failed" }
-            : { status: "disabled", label: connection.status };
+function connectionPickerDetail(connection: DesktopCloudRuntimeConnection): string {
+  const kind = connection.kind === "hosted_runtime" ? "Hosted runtime" : "Computer";
+  return connection.version ? `${kind} · ${connection.version}` : kind;
+}
 
-  return (
-    <li
-      style={{
-        padding: "15px 20px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 20,
-        flexWrap: "wrap",
-        borderBottom: last ? undefined : "1px solid var(--border)",
-      }}
-    >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ color: "var(--t0)", fontSize: 13, fontWeight: 650 }}>
-            {connection.name}
-          </span>
-          <Badge status={badge.status} label={badge.label} />
-        </div>
-        <div
-          style={{
-            marginTop: 4,
-            color: "var(--t3)",
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            fontSize: 11,
-            lineHeight: 1.5,
-          }}
-        >
-          <span>{connection.kind === "hosted_runtime" ? "Hosted runtime" : "Computer"}</span>
-          {connection.version && <span>Version {connection.version}</span>}
-          <span>
-            Last seen{" "}
-            {lastSeen.iso ? (
-              <time dateTime={lastSeen.iso} title={lastSeen.iso}>
-                {lastSeen.label}
-              </time>
-            ) : (
-              lastSeen.label
-            )}
-          </span>
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-        {canStart && (
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={busy !== null}
-            onClick={() => void onStart(connection)}
-          >
-            {connectionBusy && busy?.action === "start" ? "Starting…" : `Start ${connection.name}`}
-          </button>
-        )}
-        {canOpen && (
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={busy !== null}
-            onClick={() => void onOpen(connection)}
-          >
-            {connectionBusy && busy?.action === "open" ? "Opening…" : `Open ${connection.name}`}
-          </button>
-        )}
-      </div>
-    </li>
-  );
+function connectionPickerStatus(connection: DesktopCloudRuntimeConnection): {
+  label: string;
+  color: string;
+  description: string;
+} {
+  if (connection.status === "starting") {
+    return { label: "starting", color: "var(--amber)", description: "Hecate Cloud is starting it" };
+  }
+  if (connection.reachable) {
+    return { label: "online", color: "var(--teal)", description: "Ready to open" };
+  }
+  return { label: "startable", color: "var(--amber)", description: "Hecate Cloud can start it" };
 }
 
 function CloudMessage({ children }: { children: string }) {

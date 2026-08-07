@@ -76,7 +76,21 @@ export async function getDesktopCloudRuntimeConnections(): Promise<
   if (!Array.isArray(value)) {
     throw new Error("Hecate Cloud returned an invalid connection list.");
   }
-  return value.map((connection) => normalizeRuntimeConnection(connection));
+  // New desktop shells filter this before crossing the native boundary. Keep
+  // the browser-side guard too so an older shell cannot offer stale registered
+  // computers that Hecate cannot open or start.
+  return value
+    .map((connection) => normalizeRuntimeConnection(connection))
+    .filter(isControllableDesktopCloudRuntimeConnection);
+}
+
+export function isControllableDesktopCloudRuntimeConnection(
+  connection: DesktopCloudRuntimeConnection,
+): boolean {
+  if (connection.kind === "hosted_runtime") {
+    return connection.reachable || connection.status === "starting" || connection.can_start;
+  }
+  return connection.reachable && connection.remote_enabled;
 }
 
 export async function startDesktopCloudRuntime(
