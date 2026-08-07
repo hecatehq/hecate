@@ -69,11 +69,12 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   cadence is `HECATE_TASK_RECONCILE_INTERVAL` (default `30s`).
 - Task scheduling is hosted by the Hecate runtime process, not an external
   wake-up service. The owning runtime must remain running for prompt dispatch;
-  closing the desktop app or stopping the gateway pauses it. The scheduler
-  polls on a 15-second cadence, so a scheduled time is an eligibility time, not
-  a real-time deadline. On restart, an overdue one-time Schedule produces one
-  due occurrence and missed cron times coalesce into one occurrence rather
-  than backfilling every interval.
+  explicitly quitting the desktop app or stopping the gateway pauses it. Merely
+  closing the main desktop window keeps the process running in the tray. The
+  scheduler polls on a 15-second cadence, so a scheduled time is an eligibility
+  time, not a real-time deadline. On restart, an overdue one-time Schedule
+  produces one due occurrence and missed cron times coalesce into one occurrence
+  rather than backfilling every interval.
 - Scheduling currently supports one Schedule per Task: either one future
   RFC3339 instant or a five-field cron expression in an IANA timezone. There
   are no seconds, calendars, holiday exclusions, multiple triggers, or
@@ -249,8 +250,9 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
 - Once its user message and running assistant are durable, an External Agent
   turn continues if the originating browser/webview or HTTP connection closes.
   Use **Stop** when it must not keep modifying the workspace. Runtime shutdown,
-  including native desktop app quit, cancels and drains active agents. A Hecate
-  process restart does not resume an in-flight turn; startup reconciliation
+  including native desktop app Quit—but not merely closing its main window—
+  cancels and drains active agents. A Hecate process restart does not resume an
+  in-flight turn; startup reconciliation
   marks its running assistant interrupted, although a later prompt may restore
   the stored native ACP session where supported.
 - Hecate does not yet authenticate a discovered provider CLI or persist an

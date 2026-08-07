@@ -14,6 +14,9 @@ fn main() {
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
             "set_update_badge",
             "take_pending_desktop_update_check",
+            "prepare_update_restart",
+            "cancel_update_restart",
+            "restart_after_update",
             "cloud_connection_status",
             "cloud_connection_start",
             "cloud_account_sign_in",

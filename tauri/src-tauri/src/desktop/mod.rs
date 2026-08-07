@@ -1,4 +1,4 @@
-// lib.rs — Hecate desktop app (Tauri 2.x)
+// desktop/mod.rs — Hecate desktop app (Tauri 2.x)
 //
 // Architecture:
 //   The app bundles the hecate binary as a companion process. On launch:
@@ -9,8 +9,9 @@
 //   3. On success the window navigates to http://127.0.0.1:{port}/ — the gateway
 //      serves the full Hecate UI from its embedded ui/dist bundle, and its own
 //      bootstrap-token probe auto-logs the user in (no manual token paste).
-//   4. The Child handle is stored in Tauri managed state. When the window
-//      closes, the RunEvent::Exit handler kills hecate before the process exits.
+//   4. The Child handle is stored in Tauri managed state. Closing the main
+//      window keeps the process available from the tray; an explicit app Quit
+//      drains the gateway before RunEvent::Exit performs fallback cleanup.
 
 mod cloud_connection;
 mod sidecar;
@@ -27,11 +28,13 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_window_state::StateFlags;
 
 /// File name (without extension) used by tauri-plugin-log under the
 /// platform log directory. The resolved path is
@@ -45,6 +48,227 @@ const CLOUD_RUNTIME_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 const CLOUD_RUNTIME_LOAD_PENDING: u8 = 0;
 const CLOUD_RUNTIME_LOAD_READY: u8 = 1;
 const CLOUD_RUNTIME_LOAD_TIMED_OUT: u8 = 2;
+const TRAY_ICON_ID: &str = "hecate-background";
+const TRAY_SHOW_MENU_ID: &str = "tray-show-hecate";
+const TRAY_QUIT_MENU_ID: &str = "tray-quit-hecate";
+#[cfg(target_os = "macos")]
+const MACOS_TRAY_ICON: &[u8] =
+    include_bytes!("../../../../website/public/brand/png/mark-trivium-black-32.png");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MainWindowCloseAction {
+    Hide,
+    Quit,
+    Ignore,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExitRequestAction {
+    Allow,
+    Drain,
+    UnexpectedRestart,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShutdownTarget {
+    Exit,
+    Restart,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShutdownPreparation {
+    Ready,
+    CancelledByOperator,
+    Superseded,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum UpdateRestartOutcome {
+    Restarting,
+    Cancelled,
+    Superseded,
+}
+
+#[derive(Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum UpdateRestartCancelOutcome {
+    Cancelled,
+    TooLate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UpdateRestartAttemptPhase {
+    Armed,
+    Cancelled,
+    Committed,
+}
+
+struct UpdateRestartAttempts {
+    next_generation: u64,
+    phases: Vec<UpdateRestartAttemptPhase>,
+}
+
+impl UpdateRestartAttempts {
+    const fn new() -> Self {
+        Self {
+            next_generation: 0,
+            phases: Vec::new(),
+        }
+    }
+
+    fn arm(&mut self) -> Result<u64, String> {
+        let generation = self
+            .next_generation
+            .checked_add(1)
+            .ok_or_else(|| "update restart generation exhausted".to_string())?;
+        self.next_generation = generation;
+        self.phases.push(UpdateRestartAttemptPhase::Armed);
+        Ok(generation)
+    }
+
+    fn phase(&self, generation: u64) -> Option<UpdateRestartAttemptPhase> {
+        let index = usize::try_from(generation.checked_sub(1)?).ok()?;
+        self.phases.get(index).copied()
+    }
+
+    fn cancel(&mut self, generation: u64) -> Result<UpdateRestartCancelOutcome, String> {
+        let index = usize::try_from(
+            generation
+                .checked_sub(1)
+                .ok_or_else(|| "unknown update restart generation".to_string())?,
+        )
+        .map_err(|_| "unknown update restart generation".to_string())?;
+        let phase = self
+            .phases
+            .get_mut(index)
+            .ok_or_else(|| "unknown update restart generation".to_string())?;
+        match phase {
+            UpdateRestartAttemptPhase::Armed => {
+                *phase = UpdateRestartAttemptPhase::Cancelled;
+                Ok(UpdateRestartCancelOutcome::Cancelled)
+            }
+            UpdateRestartAttemptPhase::Cancelled => Ok(UpdateRestartCancelOutcome::Cancelled),
+            UpdateRestartAttemptPhase::Committed => Ok(UpdateRestartCancelOutcome::TooLate),
+        }
+    }
+
+    fn commit(&mut self, generation: u64) -> bool {
+        let Some(index) = generation
+            .checked_sub(1)
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            return false;
+        };
+        let Some(phase) = self.phases.get_mut(index) else {
+            return false;
+        };
+        if *phase != UpdateRestartAttemptPhase::Armed {
+            return false;
+        }
+        *phase = UpdateRestartAttemptPhase::Committed;
+        true
+    }
+}
+
+struct BackgroundMode {
+    tray_available: bool,
+}
+
+fn main_window_close_action(tray_available: bool, quit_in_progress: bool) -> MainWindowCloseAction {
+    if quit_in_progress {
+        MainWindowCloseAction::Ignore
+    } else if tray_available {
+        MainWindowCloseAction::Hide
+    } else {
+        MainWindowCloseAction::Quit
+    }
+}
+
+fn exit_request_action(intentional_exit: bool, requested_code: Option<i32>) -> ExitRequestAction {
+    if intentional_exit {
+        ExitRequestAction::Allow
+    } else if requested_code == Some(tauri::RESTART_EXIT_CODE) {
+        // Tauri does not honor prevent_exit() for its restart code. All
+        // supported updater restarts must therefore drain through the native
+        // restart_after_update command before request_restart() reaches here.
+        ExitRequestAction::UnexpectedRestart
+    } else {
+        ExitRequestAction::Drain
+    }
+}
+
+fn persisted_window_state_flags() -> StateFlags {
+    StateFlags::SIZE
+        | StateFlags::POSITION
+        | StateFlags::MAXIMIZED
+        | StateFlags::DECORATIONS
+        | StateFlags::FULLSCREEN
+}
+
+fn show_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window was not found".to_string())?;
+    // Some Linux window managers reject unminimize for a merely hidden
+    // window. Showing it is still useful, so do not let that best-effort step
+    // prevent the actual recovery path.
+    if let Err(e) = window.unminimize() {
+        log::debug!("unminimize main window before show failed: {e}");
+    }
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
+}
+
+fn hide_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window was not found".to_string())?;
+    window.hide().map_err(|e| e.to_string())
+}
+
+fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let menu = MenuBuilder::new(app)
+        .text(TRAY_SHOW_MENU_ID, "Show Hecate")
+        .separator()
+        .text(TRAY_QUIT_MENU_ID, "Quit Hecate")
+        .build()?;
+    let mut tray = TrayIconBuilder::with_id(TRAY_ICON_ID)
+        .tooltip("Hecate is running")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                if let Err(e) = show_main_window(tray.app_handle()) {
+                    log::warn!("show main window from tray click failed: {e}");
+                }
+            }
+        });
+    #[cfg(target_os = "macos")]
+    {
+        // A template mark follows the light/dark status-bar appearance and
+        // avoids squeezing the full square application icon into the menu bar.
+        tray = tray
+            .icon(tauri::image::Image::from_bytes(MACOS_TRAY_ICON)?)
+            .icon_as_template(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let icon = app
+            .default_window_icon()
+            .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".to_string()))?;
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
 
 /// JS-invocable command: surface or clear the dock / taskbar
 /// "update available" badge. useDesktopUpdate calls this when its
@@ -458,7 +682,7 @@ impl GatewayChild {
 }
 
 /// Tauri managed state: the gateway base URL (e.g. http://127.0.0.1:54321).
-/// Stored after spawn_and_wait succeeds so the close-window handler can
+/// Stored after spawn_and_wait succeeds so the explicit-Quit handler can
 /// reach /hecate/v1/system/stats (to count running tasks for the
 /// confirmation prompt) and /hecate/v1/system/shutdown (to trigger a
 /// graceful drain instead of SIGKILL'ing the child). Empty until the
@@ -478,21 +702,23 @@ struct GatewayDiagnostics {
     state_path: PathBuf,
 }
 
-/// Re-entry guard for `handle_quit_request`. Set to true while a drain
-/// task is in flight (between the first user trigger and the dialog
-/// dismissal / drain completion). A second cmd+Q or red-X while the
-/// dialog is up still hits ExitRequested / CloseRequested, but the
-/// no-op early return here keeps us from starting a second drain.
-static QUIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+/// Re-entry guard shared by explicit Quit and updater restart. Set while a
+/// confirmation or drain is in flight. A second Quit or a main-window close
+/// while the dialog is up still reaches ExitRequested / CloseRequested; the
+/// guarded paths prevent a second drain or hidden dialog.
+static SHUTDOWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-/// Set to true only by `handle_quit_request` immediately before its
-/// terminating `app.exit(0)` call. Lets `RunEvent::ExitRequested`
-/// distinguish "our own programmatic exit, let it through" from "user
-/// is trying to bypass the drain by pressing cmd+Q again" — the latter
-/// must be intercepted even while QUIT_IN_PROGRESS is set, otherwise
-/// the second ExitRequested would close the app mid-dialog or
-/// mid-drain.
-static INTENTIONAL_EXIT: AtomicBool = AtomicBool::new(false);
+/// Native state machine for updater restart attempts. Cancellation and the
+/// pre-drain commit share this mutex, so exactly one wins at the irreversible
+/// boundary. A newer generation never mutates an older generation's phase.
+static UPDATE_RESTART_ATTEMPTS: Mutex<UpdateRestartAttempts> =
+    Mutex::new(UpdateRestartAttempts::new());
+
+/// Set only after native shutdown preparation, immediately before app.exit()
+/// or request_restart(). Lets RunEvent::ExitRequested distinguish the
+/// programmatic handoff from a second user request that would otherwise bypass
+/// a confirmation or drain already in progress.
+static INTENTIONAL_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 /// How long to wait for the gateway to acknowledge a drain before
 /// falling back to SIGKILL'ing the child. Generous because the drain
@@ -902,14 +1128,18 @@ fn parse_running_runs(body: &str) -> u64 {
 /// Composes the body of the running-tasks confirmation dialog. Pulled
 /// out as a pure function so the singular/plural copy stays under test
 /// without spinning up a Tauri runtime to drive the real dialog.
-fn format_running_tasks_message(running: u64) -> String {
+fn format_running_tasks_message(running: u64, target: ShutdownTarget) -> String {
     let plural = if running == 1 { "" } else { "s" };
     let pronoun = if running == 1 { "it" } else { "them" };
-    format!("{running} task{plural} still running. Quitting Hecate will stop {pronoun}.")
+    let action = match target {
+        ShutdownTarget::Exit => "Quitting",
+        ShutdownTarget::Restart => "Restarting",
+    };
+    format!("{running} task{plural} still running. {action} Hecate will stop {pronoun}.")
 }
 
 /// Fetches GET /hecate/v1/system/stats and returns running_runs. Used
-/// by the close-window flow to decide whether to prompt before quitting
+/// by the explicit-Quit flow to decide whether to prompt before quitting
 /// — zero running runs means we can drain silently. Any error (gateway
 /// unreachable, stats endpoint unavailable, parse failure) returns 0:
 /// from the operator's perspective, if the gateway is already wedged
@@ -995,16 +1225,24 @@ async fn drain_gateway(base_url: &str) -> Result<(), String> {
 /// choice over a oneshot channel so the caller can await it. The
 /// dialog runs on Tauri's event loop, not the calling thread, so the
 /// async runtime stays unblocked while the OS owns the UI.
-async fn confirm_quit_with_running_tasks(app: &AppHandle, running: u64) -> bool {
+async fn confirm_shutdown_with_running_tasks(
+    app: &AppHandle,
+    running: u64,
+    target: ShutdownTarget,
+) -> bool {
     let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
     let tx = Arc::new(Mutex::new(Some(tx)));
     let tx_for_dialog = tx.clone();
+    let (title, confirm_label) = match target {
+        ShutdownTarget::Exit => ("Quit Hecate?", "Quit anyway"),
+        ShutdownTarget::Restart => ("Restart Hecate?", "Restart anyway"),
+    };
     app.dialog()
-        .message(format_running_tasks_message(running))
-        .title("Quit Hecate?")
+        .message(format_running_tasks_message(running, target))
+        .title(title)
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "Quit anyway".into(),
+            confirm_label.into(),
             "Keep running".into(),
         ))
         .show(move |confirmed| {
@@ -1017,60 +1255,227 @@ async fn confirm_quit_with_running_tasks(app: &AppHandle, running: u64) -> bool 
     rx.await.unwrap_or(false)
 }
 
-/// Funnels every "user wants to quit" trigger (red-X close, cmd+Q,
-/// menu Quit, etc.) through the same confirmation + graceful-drain
-/// path. Idempotent against re-entry via QUIT_IN_PROGRESS — app.exit()
-/// fires RunEvent::ExitRequested again on its way out, and we'd
-/// otherwise re-prompt.
+fn update_restart_phase(generation: u64) -> Result<UpdateRestartAttemptPhase, String> {
+    UPDATE_RESTART_ATTEMPTS
+        .lock()
+        .map_err(|_| "update restart state is unavailable".to_string())?
+        .phase(generation)
+        .ok_or_else(|| "unknown update restart generation".to_string())
+}
+
+fn update_restart_is_cancelled(restart_generation: Option<u64>) -> bool {
+    let Some(generation) = restart_generation else {
+        return false;
+    };
+    match update_restart_phase(generation) {
+        Ok(UpdateRestartAttemptPhase::Cancelled) => true,
+        Ok(UpdateRestartAttemptPhase::Armed | UpdateRestartAttemptPhase::Committed) => false,
+        Err(e) => {
+            // Fail closed: an unknown or poisoned restart attempt must never
+            // advance into task interruption or gateway drain.
+            log::error!("cannot read update restart state: {e}");
+            true
+        }
+    }
+}
+
+fn commit_update_restart(generation: u64) -> bool {
+    match UPDATE_RESTART_ATTEMPTS.lock() {
+        Ok(mut attempts) => attempts.commit(generation),
+        Err(_) => {
+            log::error!("cannot commit update restart because its state is unavailable");
+            false
+        }
+    }
+}
+
+fn cancel_update_restart_attempt(generation: u64) -> Result<UpdateRestartCancelOutcome, String> {
+    UPDATE_RESTART_ATTEMPTS
+        .lock()
+        .map_err(|_| "update restart state is unavailable".to_string())?
+        .cancel(generation)
+}
+
+async fn prepare_shutdown(
+    app: &AppHandle,
+    target: ShutdownTarget,
+    restart_generation: Option<u64>,
+) -> ShutdownPreparation {
+    let target_name = match target {
+        ShutdownTarget::Exit => "quit",
+        ShutdownTarget::Restart => "restart",
+    };
+    if update_restart_is_cancelled(restart_generation) {
+        log::info!("{target_name} superseded before native shutdown preparation");
+        return ShutdownPreparation::Superseded;
+    }
+    let base_url = app.try_state::<GatewayBaseURL>().and_then(|s| s.snapshot());
+    log::info!(
+        "{target_name} requested app_pid={} gateway_ready={}",
+        std::process::id(),
+        base_url.is_some()
+    );
+    if let Some(ref base) = base_url {
+        let running = fetch_running_runs(base).await;
+        log::info!("gateway running task count before {target_name} running_runs={running}");
+        if update_restart_is_cancelled(restart_generation) {
+            log::info!("{target_name} superseded before running-task confirmation");
+            return ShutdownPreparation::Superseded;
+        }
+        if running > 0 {
+            // A tray Quit or updater restart can begin while the main window
+            // is hidden. Surface it before confirmation so the operator
+            // cannot be left waiting on a dialog with no visible context.
+            if let Err(e) = show_main_window(app) {
+                log::warn!("show main window for {target_name} confirmation failed: {e}");
+            }
+            let confirmed = confirm_shutdown_with_running_tasks(app, running, target).await;
+            if update_restart_is_cancelled(restart_generation) {
+                log::info!("{target_name} superseded while running-task confirmation was open");
+                return ShutdownPreparation::Superseded;
+            }
+            if !confirmed {
+                log::info!("{target_name} cancelled by operator; keeping gateway running");
+                return ShutdownPreparation::CancelledByOperator;
+            }
+            log::info!("operator confirmed {target_name} with running tasks; draining gateway");
+        }
+        if update_restart_is_cancelled(restart_generation) {
+            log::info!("{target_name} superseded before gateway drain");
+            return ShutdownPreparation::Superseded;
+        }
+        if let Some(generation) = restart_generation {
+            if !commit_update_restart(generation) {
+                log::info!("{target_name} superseded at the gateway-drain commit boundary");
+                return ShutdownPreparation::Superseded;
+            }
+        }
+        match drain_gateway(base).await {
+            Ok(()) => log::info!("gateway drain completed before app {target_name}"),
+            Err(e) => {
+                // Non-fatal: RunEvent::Exit's child.kill() is the fallback.
+                // Log so operators have a breadcrumb.
+                log::warn!("graceful gateway drain failed, falling back to child.kill(): {e}");
+            }
+        }
+    } else {
+        log::debug!(
+            "{target_name} requested before gateway base URL was ready; continuing without drain"
+        );
+        if update_restart_is_cancelled(restart_generation) {
+            log::info!("{target_name} superseded before process handoff");
+            return ShutdownPreparation::Superseded;
+        }
+        if let Some(generation) = restart_generation {
+            if !commit_update_restart(generation) {
+                log::info!("{target_name} superseded at the process-handoff commit boundary");
+                return ShutdownPreparation::Superseded;
+            }
+        }
+    }
+    ShutdownPreparation::Ready
+}
+
+fn complete_shutdown(app: &AppHandle, target: ShutdownTarget) {
+    // Flag the next ExitRequested as our own programmatic shutdown so the
+    // run-event handler lets it through instead of starting another drain.
+    INTENTIONAL_SHUTDOWN.store(true, Ordering::SeqCst);
+    match target {
+        ShutdownTarget::Exit => app.exit(0),
+        ShutdownTarget::Restart => app.request_restart(),
+    }
+}
+
+/// Funnels every explicit app-level Quit trigger (cmd+Q, app-menu Quit,
+/// tray Quit, and the no-tray close fallback) through the same confirmation
+/// and graceful-drain path. Idempotent against re-entry via
+/// SHUTDOWN_IN_PROGRESS — app.exit() fires RunEvent::ExitRequested again on its
+/// way out, and we'd otherwise re-prompt.
 fn handle_quit_request(app: AppHandle) {
-    if QUIT_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+    if SHUTDOWN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         log::info!("quit request ignored because graceful shutdown is already in progress");
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let base_url = app.try_state::<GatewayBaseURL>().and_then(|s| s.snapshot());
-        log::info!(
-            "quit requested app_pid={} gateway_ready={}",
-            std::process::id(),
-            base_url.is_some()
-        );
-        if let Some(ref base) = base_url {
-            let running = fetch_running_runs(base).await;
-            log::info!("gateway running task count before quit running_runs={running}");
-            if running > 0 {
-                let confirmed = confirm_quit_with_running_tasks(&app, running).await;
-                if !confirmed {
-                    log::info!("quit cancelled by operator; keeping gateway running");
-                    QUIT_IN_PROGRESS.store(false, Ordering::SeqCst);
-                    return;
-                }
-                log::info!("operator confirmed quit with running tasks; draining gateway");
+        match prepare_shutdown(&app, ShutdownTarget::Exit, None).await {
+            ShutdownPreparation::Ready => complete_shutdown(&app, ShutdownTarget::Exit),
+            ShutdownPreparation::CancelledByOperator | ShutdownPreparation::Superseded => {
+                SHUTDOWN_IN_PROGRESS.store(false, Ordering::SeqCst);
             }
-            match drain_gateway(base).await {
-                Ok(()) => log::info!("gateway drain completed before app exit"),
-                Err(e) => {
-                    // Non-fatal: RunEvent::Exit's child.kill() is the
-                    // fallback. Log so operators have a breadcrumb.
-                    log::warn!("graceful gateway drain failed, falling back to child.kill(): {e}");
-                }
-            }
-        } else {
-            log::debug!("quit requested before gateway base URL was ready; exiting without drain");
         }
-        // Flag the next ExitRequested as our own programmatic exit so
-        // the run-event handler lets it through instead of intercepting
-        // and re-spawning this same task.
-        INTENTIONAL_EXIT.store(true, Ordering::SeqCst);
-        app.exit(0);
     });
+}
+
+/// Arms one updater restart attempt and returns its native-issued identity.
+/// Tokens are monotonic so a newer attempt cannot clear an older attempt's
+/// cancellation when downloadAndInstall settles late.
+#[tauri::command]
+fn prepare_update_restart() -> Result<u64, String> {
+    UPDATE_RESTART_ATTEMPTS
+        .lock()
+        .map_err(|_| "update restart state is unavailable".to_string())?
+        .arm()
+}
+
+/// Invalidates a watchdog-triggered native restart whose update later failed
+/// verification or installation. The restart flow observes this before it can
+/// confirm task interruption or begin the irreversible gateway drain.
+#[tauri::command]
+fn cancel_update_restart(generation: u64) -> Result<UpdateRestartCancelOutcome, String> {
+    cancel_update_restart_attempt(generation)
+}
+
+/// Updater-only restart entry point. Tauri's raw restart event cannot be
+/// prevented, so the renderer must call this command instead of the process
+/// plugin: confirmation and gateway drain finish before request_restart().
+#[tauri::command]
+async fn restart_after_update(
+    app: AppHandle,
+    generation: u64,
+) -> Result<UpdateRestartOutcome, String> {
+    match update_restart_phase(generation)? {
+        UpdateRestartAttemptPhase::Armed => {}
+        UpdateRestartAttemptPhase::Cancelled => return Ok(UpdateRestartOutcome::Superseded),
+        UpdateRestartAttemptPhase::Committed => {
+            return Err("update restart generation was already consumed".to_string())
+        }
+    }
+    if SHUTDOWN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        let _ = cancel_update_restart_attempt(generation);
+        return Err("another shutdown request is already in progress".to_string());
+    }
+    match prepare_shutdown(&app, ShutdownTarget::Restart, Some(generation)).await {
+        ShutdownPreparation::Ready => {
+            complete_shutdown(&app, ShutdownTarget::Restart);
+            Ok(UpdateRestartOutcome::Restarting)
+        }
+        ShutdownPreparation::CancelledByOperator => {
+            let _ = cancel_update_restart_attempt(generation);
+            SHUTDOWN_IN_PROGRESS.store(false, Ordering::SeqCst);
+            Ok(UpdateRestartOutcome::Cancelled)
+        }
+        ShutdownPreparation::Superseded => {
+            SHUTDOWN_IN_PROGRESS.store(false, Ordering::SeqCst);
+            Ok(UpdateRestartOutcome::Superseded)
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // tauri-plugin-log must be registered first so subsequent
-        // plugin initialization can produce log lines via the
-        // `log` facade. Targets:
+        // Single-instance must be registered before every other plugin.
+        // A second launch commonly means the first instance is hidden in
+        // the tray, so surface that existing window instead of starting a
+        // second gateway sidecar.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Err(e) = show_main_window(app) {
+                log::warn!("show main window from second app launch failed: {e}");
+            }
+        }))
+        // Register logging immediately after single-instance so subsequent
+        // plugin initialization can produce log lines via the `log` facade.
+        // Targets:
         //  - Stderr: keeps existing dev-mode visibility (Tauri's
         //    own console output now flows through the same sink
         //    instead of bare eprintln!).
@@ -1102,12 +1507,18 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(persisted_window_state_flags())
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             set_update_badge,
             take_pending_desktop_update_check,
+            prepare_update_restart,
+            cancel_update_restart,
+            restart_after_update,
             open_workspace_target,
             cloud_connection_status,
             cloud_connection_start,
@@ -1119,20 +1530,19 @@ pub fn run() {
             cloud_connection_sign_out
         ])
         .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_SHOW_MENU_ID => {
+                if let Err(e) = show_main_window(app) {
+                    log::warn!("show main window from tray menu failed: {e}");
+                }
+            }
+            TRAY_QUIT_MENU_ID => handle_quit_request(app.clone()),
             "check-for-updates" => {
                 // The actual check lives in the renderer (useDesktopUpdate
                 // owns the @tauri-apps/plugin-updater client and the
                 // update control/dialog state machine). Emit an event the webview can
                 // hook into; the React side handles the rest.
-                if let Some(win) = app.get_webview_window("main") {
-                    if let Err(e) = win.show() {
-                        log::warn!("show main window for update check failed: {e}");
-                    }
-                    if let Err(e) = win.set_focus() {
-                        log::warn!("focus main window for update check failed: {e}");
-                    }
-                } else {
-                    log::warn!("check-for-updates requested but main window was not found");
+                if let Err(e) = show_main_window(app) {
+                    log::warn!("show main window for update check failed: {e}");
                 }
                 if let Some(pending) = app.try_state::<PendingDesktopUpdateCheck>() {
                     pending.enqueue();
@@ -1212,6 +1622,19 @@ pub fn run() {
         .setup(|app| {
             app.manage(PendingDesktopUpdateCheck::default());
             install_menu(app)?;
+            let tray_available = match install_tray(app) {
+                Ok(()) => true,
+                Err(e) => {
+                    // Background mode must never leave an unreachable hidden
+                    // process. If the desktop environment cannot create a
+                    // tray icon, keep the previous close-to-quit behavior.
+                    log::warn!(
+                        "system tray unavailable; main-window close will quit Hecate: {e}"
+                    );
+                    false
+                }
+            };
+            app.manage(BackgroundMode { tray_available });
 
             let diagnostics = sidecar::diagnostic_paths(app.handle())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -1230,17 +1653,44 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window defined in tauri.conf.json");
 
-            // Intercept the close button so red-X also quits (on macOS the
-            // default leaves the app dock-resident with no window), and so
-            // running tasks get a confirmation prompt + a graceful drain
-            // instead of an instant SIGKILL of the gateway child. The
-            // ExitRequested handler in .run() below covers cmd+Q and the
-            // menu Quit item; both funnel through handle_quit_request.
+            // Closing only the main window keeps the gateway, Cloud relay,
+            // and active work available through the system tray. Explicit
+            // app-level Quit remains the graceful-drain boundary below. If
+            // tray creation failed, fall back to that existing Quit path so
+            // the process never becomes invisible and unreachable.
             let close_app_handle = app.handle().clone();
             win.on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    handle_quit_request(close_app_handle.clone());
+                    let tray_available = close_app_handle
+                        .try_state::<BackgroundMode>()
+                        .map(|state| state.tray_available)
+                        .unwrap_or(false);
+                    match main_window_close_action(
+                        tray_available,
+                        SHUTDOWN_IN_PROGRESS.load(Ordering::SeqCst),
+                    ) {
+                        MainWindowCloseAction::Hide => {
+                            if let Err(e) = hide_main_window(&close_app_handle) {
+                                log::warn!(
+                                    "hide main window failed; falling back to graceful quit: {e}"
+                                );
+                                handle_quit_request(close_app_handle.clone());
+                            } else {
+                                log::info!(
+                                    "main window hidden; gateway and remote access remain available"
+                                );
+                            }
+                        }
+                        MainWindowCloseAction::Quit => {
+                            handle_quit_request(close_app_handle.clone());
+                        }
+                        MainWindowCloseAction::Ignore => {
+                            log::info!(
+                                "main-window close ignored while graceful shutdown is in progress"
+                            );
+                        }
+                    }
                 }
             });
 
@@ -1261,7 +1711,7 @@ pub fn run() {
             cloud_connection.restore_startup();
             // Seed an empty base URL slot. Filled by the spawn task once
             // /healthz returns 200; read by handle_quit_request to reach
-            // /system/stats and /system/shutdown.
+            // /system/stats and /system/shutdown during explicit Quit.
             app.manage(GatewayBaseURL(Mutex::new(None)));
             app.manage(GatewayDiagnostics {
                 data_dir: diagnostics.data_dir.clone(),
@@ -1291,8 +1741,8 @@ pub fn run() {
                                 *slot = Some(handle.child);
                             }
                         }
-                        // Publish the base URL so the close-window handler
-                        // can call /system/stats and /system/shutdown.
+                        // Publish the base URL so the explicit-Quit handler can
+                        // call /system/stats and /system/shutdown.
                         if let Some(state) = app_handle.try_state::<GatewayBaseURL>() {
                             if let Ok(mut slot) = state.0.lock() {
                                 *slot = Some(handle.base_url.clone());
@@ -1344,21 +1794,39 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error building Hecate app")
         .run(|app_handle, event| match event {
-            // cmd+Q, menu Quit, and any other "exit requested" trigger
-            // funnels through the same drain path as the red-X button.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => {
+                if let Err(e) = show_main_window(app_handle) {
+                    log::warn!("show main window from macOS reopen failed: {e}");
+                }
+            }
+            // cmd+Q, app-menu Quit, tray Quit, and any other explicit
+            // "exit requested" trigger funnels through the same drain path.
             // We prevent the default exit, run the confirmation + drain
             // off the main thread, then call app.exit() ourselves once
-            // the gateway has acknowledged. INTENTIONAL_EXIT distinguishes
+            // the gateway has acknowledged. INTENTIONAL_SHUTDOWN distinguishes
             // our own programmatic exit (let it through) from the user
             // triggering another quit mid-drain (intercept so the drain
             // doesn't get bypassed and the app doesn't close mid-dialog).
-            RunEvent::ExitRequested { api, .. } => {
-                if INTENTIONAL_EXIT.load(Ordering::SeqCst) {
-                    log::info!("intentional app exit requested; allowing process shutdown");
-                    return;
+            RunEvent::ExitRequested { api, code, .. } => {
+                match exit_request_action(INTENTIONAL_SHUTDOWN.load(Ordering::SeqCst), code) {
+                    ExitRequestAction::Allow => {
+                        log::info!("intentional app exit requested; allowing process shutdown");
+                    }
+                    ExitRequestAction::Drain => {
+                        api.prevent_exit();
+                        handle_quit_request(app_handle.clone());
+                    }
+                    ExitRequestAction::UnexpectedRestart => {
+                        // Tauri ignores prevent_exit() for restart events. The
+                        // supported updater path drains before requesting one,
+                        // so reaching this branch means a future call site
+                        // bypassed restart_after_update and must be fixed.
+                        log::error!(
+                            "unsafe app restart requested without the native graceful-drain flow"
+                        );
+                    }
                 }
-                api.prevent_exit();
-                handle_quit_request(app_handle.clone());
             }
             RunEvent::Exit => {
                 // Belt-and-suspenders kill in case the graceful drain
@@ -1426,18 +1894,141 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        cloud_runtime_window_label, format_running_tasks_message, parse_running_runs,
+        cloud_runtime_window_label, exit_request_action, format_running_tasks_message,
+        main_window_close_action, parse_running_runs, persisted_window_state_flags,
         remaining_splash_delay, remote_runtime_page_finished, startup_failure_hint,
-        validate_workspace_open_request, GatewayChild, PendingDesktopUpdateCheck,
-        WorkspaceOpenTarget, CLOUD_RUNTIME_LOAD_PENDING, CLOUD_RUNTIME_LOAD_READY,
-        CLOUD_RUNTIME_LOAD_TIMED_OUT, CLOUD_RUNTIME_WINDOW_PREFIX, MIN_SPLASH_DURATION,
-        REMOTE_DESKTOP_USER_AGENT,
+        validate_workspace_open_request, ExitRequestAction, GatewayChild, MainWindowCloseAction,
+        PendingDesktopUpdateCheck, ShutdownTarget, UpdateRestartAttemptPhase,
+        UpdateRestartAttempts, UpdateRestartCancelOutcome, WorkspaceOpenTarget,
+        CLOUD_RUNTIME_LOAD_PENDING, CLOUD_RUNTIME_LOAD_READY, CLOUD_RUNTIME_LOAD_TIMED_OUT,
+        CLOUD_RUNTIME_WINDOW_PREFIX, MIN_SPLASH_DURATION, REMOTE_DESKTOP_USER_AGENT,
     };
     use std::fs;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicU8, Ordering};
     use std::sync::Mutex;
     use std::time::Duration;
+    use tauri_plugin_window_state::StateFlags;
+
+    #[test]
+    fn main_window_close_hides_only_when_background_mode_is_reachable() {
+        assert_eq!(
+            main_window_close_action(true, false),
+            MainWindowCloseAction::Hide
+        );
+        assert_eq!(
+            main_window_close_action(false, false),
+            MainWindowCloseAction::Quit
+        );
+        assert_eq!(
+            main_window_close_action(true, true),
+            MainWindowCloseAction::Ignore
+        );
+    }
+
+    #[test]
+    fn exit_events_distinguish_drain_intentional_exit_and_raw_restart() {
+        assert_eq!(exit_request_action(false, None), ExitRequestAction::Drain);
+        assert_eq!(
+            exit_request_action(false, Some(tauri::RESTART_EXIT_CODE)),
+            ExitRequestAction::UnexpectedRestart
+        );
+        assert_eq!(
+            exit_request_action(true, Some(tauri::RESTART_EXIT_CODE)),
+            ExitRequestAction::Allow
+        );
+    }
+
+    #[test]
+    fn window_state_never_persists_background_visibility() {
+        let flags = persisted_window_state_flags();
+        assert!(!flags.contains(StateFlags::VISIBLE));
+        for expected in [
+            StateFlags::SIZE,
+            StateFlags::POSITION,
+            StateFlags::MAXIMIZED,
+            StateFlags::DECORATIONS,
+            StateFlags::FULLSCREEN,
+        ] {
+            assert!(flags.contains(expected), "missing {expected:?}");
+        }
+    }
+
+    #[test]
+    fn update_restart_attempts_are_isolated_and_commit_has_one_winner() {
+        let mut attempts = UpdateRestartAttempts::new();
+        let first = attempts.arm().expect("first attempt should arm");
+        let second = attempts.arm().expect("second attempt should arm");
+        assert_eq!((first, second), (1, 2));
+
+        assert_eq!(
+            attempts.cancel(first),
+            Ok(UpdateRestartCancelOutcome::Cancelled)
+        );
+        assert_eq!(
+            attempts.phase(first),
+            Some(UpdateRestartAttemptPhase::Cancelled)
+        );
+        assert_eq!(
+            attempts.phase(second),
+            Some(UpdateRestartAttemptPhase::Armed),
+            "preparing a newer attempt must not resurrect or cancel another attempt"
+        );
+        assert!(!attempts.commit(first));
+        assert!(attempts.commit(second));
+        assert_eq!(
+            attempts.cancel(second),
+            Ok(UpdateRestartCancelOutcome::TooLate),
+            "cancellation after the pre-drain commit must report that restart won"
+        );
+        assert!(attempts.phase(0).is_none());
+        assert!(attempts.phase(3).is_none());
+    }
+
+    #[test]
+    fn remote_gateway_webview_cannot_control_native_tray_or_images() {
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../../capabilities/default.json"))
+                .expect("desktop capability must be valid JSON");
+        let permissions = capability["permissions"]
+            .as_array()
+            .expect("desktop capability must list permissions");
+        let identifiers = permissions
+            .iter()
+            .filter_map(|permission| {
+                permission
+                    .as_str()
+                    .or_else(|| permission["identifier"].as_str())
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!identifiers.contains(&"core:default"));
+        assert!(identifiers
+            .iter()
+            .all(|identifier| !identifier.starts_with("core:image:")));
+        assert!(identifiers
+            .iter()
+            .all(|identifier| !identifier.starts_with("core:tray:")));
+        assert!(identifiers
+            .iter()
+            .all(|identifier| !identifier.starts_with("core:menu:")));
+        assert!(identifiers
+            .iter()
+            .all(|identifier| !identifier.starts_with("process:")));
+        for required in [
+            "core:path:default",
+            "core:event:default",
+            "core:window:default",
+            "core:webview:default",
+            "core:app:default",
+            "core:resources:default",
+            "allow-prepare-update-restart",
+            "allow-cancel-update-restart",
+            "allow-restart-after-update",
+        ] {
+            assert!(identifiers.contains(&required), "missing {required}");
+        }
+    }
 
     #[test]
     fn cloud_runtime_native_commands_are_scoped_to_the_main_window() {
@@ -1677,15 +2268,17 @@ mod tests {
 
     #[test]
     fn test_format_running_tasks_message_singular_uses_singular_pronoun() {
-        let message = format_running_tasks_message(1);
+        let message = format_running_tasks_message(1, ShutdownTarget::Exit);
         assert!(message.contains("1 task still running"), "got: {message}");
+        assert!(message.contains("Quitting Hecate"), "got: {message}");
         assert!(message.contains("stop it"), "got: {message}");
     }
 
     #[test]
     fn test_format_running_tasks_message_plural_uses_plural_pronoun() {
-        let message = format_running_tasks_message(5);
+        let message = format_running_tasks_message(5, ShutdownTarget::Restart);
         assert!(message.contains("5 tasks still running"), "got: {message}");
+        assert!(message.contains("Restarting Hecate"), "got: {message}");
         assert!(message.contains("stop them"), "got: {message}");
     }
 

@@ -522,11 +522,12 @@ backlog behind it. `failed` means the trigger was claimed but Hecate could not
 start the Run.
 
 The scheduler runs inside the Hecate runtime process. The runtime host must be
-running for a trigger to start promptly; closing the desktop app or stopping
-the gateway pauses dispatch. At the next start, an overdue one-time Schedule
-produces one due occurrence, while multiple missed cron times coalesce into one
-due occurrence and the next time advances beyond the current clock. There is
-no per-interval backfill.
+running for a trigger to start promptly; explicitly quitting the desktop app or
+stopping the gateway pauses dispatch. Closing only the main desktop window
+keeps the runtime active in the tray. At the next start, an overdue one-time
+Schedule produces one due occurrence, while multiple missed cron times coalesce
+into one due occurrence and the next time advances beyond the current clock.
+There is no per-interval backfill.
 
 Scheduled Runs use the same task application, atomic active-Run guard, queue,
 sandbox, approvals, model policy, workspace policy, and budget ceiling as a
@@ -1147,7 +1148,7 @@ Hecate-owned in-memory state; embedded Cairnline Projects remain persistent
 until their stopped-runtime data is cleared. Do not remove a live
 SQLite/Cairnline data directory or treat this endpoint as a shutdown request.
 
-`POST /hecate/v1/system/shutdown` requests an orderly process shutdown. The desktop app uses this from its window-close confirmation flow so the gateway runs the same drain path `SIGINT`/`SIGTERM` take instead of being SIGKILL'd by the child-process handle. The task runner, External Agent sessions, and operator terminals begin draining concurrently within the bounded shutdown window; new terminal admission is fenced immediately, while each terminal watcher retains its workspace writer lease until process exit and output drain are observed. The MCP cache closes after the task runner returns, then the HTTP server drains. Empty body, returns `202` and an `object: "system_shutdown"` ack; the signal fires asynchronously after a short delay so the response can flush before the listener tears down. Clients that need to observe the gateway actually exiting should poll `/healthz` until it stops responding (the desktop app uses a 12-second deadline). The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/shutdown` requests an orderly process shutdown. The desktop app uses this from its explicit Quit flow, and from the safe fallback when background mode is unavailable, so the gateway runs the same drain path `SIGINT`/`SIGTERM` take instead of being SIGKILL'd by the child-process handle. The task runner, External Agent sessions, and operator terminals begin draining concurrently within the bounded shutdown window; new terminal admission is fenced immediately, while each terminal watcher retains its workspace writer lease until process exit and output drain are observed. The MCP cache closes after the task runner returns, then the HTTP server drains. Empty body, returns `202` and an `object: "system_shutdown"` ack; the signal fires asynchronously after a short delay so the response can flush before the listener tears down. Clients that need to observe the gateway actually exiting should poll `/healthz` until it stops responding (the desktop app uses a 12-second deadline). The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
 The shipped `cmd/hecate` binary wires `Handler.SetQuitFunc` unconditionally, so the endpoint is available in every standard deployment (Tauri sidecar, Docker, systemd) from the gateway's local network namespace. In Docker, call it from inside the container or use the normal orchestrator stop path (`docker stop`, Compose, systemd, Kubernetes); requests through a published port usually arrive from a non-loopback bridge address and are rejected. Returns `503` with `error.code = "gateway_error"` when the endpoint is not wired; this path is reached only by test harnesses or custom embedders that build a `Handler` without calling `SetQuitFunc`.
 

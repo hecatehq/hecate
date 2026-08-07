@@ -162,8 +162,11 @@ Acceptance:
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix — see footgun below).
 - `docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then `curl :8765/healthz` returns `version: "X.Y.Z"`.
 - Download the `.dmg` and verify it launches: window opens, splash → gateway
-  UI, auto-logged in (no token paste), `cmd+Q` leaves no orphan `gateway`
-  process. ~10 min and catches most desktop-side regressions.
+  UI, auto-logged in (no token paste). Close the main window and confirm the
+  same sidecar remains healthy; reopen from the status-bar item or Dock. Then
+  close it again and launch Hecate to confirm the existing instance returns
+  without a second sidecar. Use `cmd+Q` and confirm no orphan `gateway` process
+  remains. ~10 min and catches most desktop-side regressions.
 
 ## Footguns
 

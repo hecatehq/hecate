@@ -10,7 +10,7 @@
 // test still passes, and only an integration test that POSTs and then
 // observes the actual process exit catches the regression.
 //
-// The Tauri close-window flow uses POST /hecate/v1/system/shutdown
+// The Tauri explicit-Quit flow uses POST /hecate/v1/system/shutdown
 // for exactly this purpose: drive the same SIGINT/SIGTERM drain path
 // without sending an OS signal to the child. This test exercises that
 // contract.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-update-restart"
+description = "Enables the cancel_update_restart command without any pre-configured scope."
+commands.allow = ["cancel_update_restart"]
+
+[[permission]]
+identifier = "deny-cancel-update-restart"
+description = "Denies the cancel_update_restart command without any pre-configured scope."
+commands.deny = ["cancel_update_restart"]

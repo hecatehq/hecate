@@ -766,7 +766,20 @@ it launches in gateway mode as its sidecar.
 - macOS release bundles cut by `release.yml` with the `APPLE_*` secrets configured are signed + notarized (Developer ID Application) and are the only desktop bundles maintainers currently launch-test.
 - Linux and Windows desktop artifacts are CI-built but have not yet been manually tested on real machines. Treat them as experimental and expect platform-specific bugs until that smoke coverage exists.
 - Windows bundles are not yet code-signed, so SmartScreen warnings are expected on first launch once the MSI is manually tested.
-- Quitting the app should stop the sidecar; closing a window may not quit the app on every platform.
+- Closing the main window keeps the sidecar running in background mode when the
+  tray is available; explicit Quit drains and stops it. If tray creation fails,
+  closing falls back to graceful Quit.
+- The tray, icon, and native menus are owned by Rust code. The remote gateway
+  webview is not granted Tauri image, tray, or menu permissions, so it cannot
+  read arbitrary local images or remove the recovery path for a hidden window.
+- The webview is not granted the Tauri process-restart permission. Desktop
+  updates use narrow native commands and a native-issued monotonic attempt
+  token. The token can only cancel or execute its matching updater restart, so
+  a newer attempt cannot resurrect a stale one. Cancellation and the native
+  pre-drain commit share one state-machine lock: cancellation wins before the
+  irreversible boundary, while a later request reports `too_late`. The native
+  flow confirms active-task interruption, drains the sidecar, and only then
+  requests a process restart.
 
 ## Dependency and advisory handling
 

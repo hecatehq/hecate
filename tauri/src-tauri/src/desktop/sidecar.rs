@@ -13,7 +13,7 @@
 //        Linux   ~/.local/share/sh.hecate.app/
 //   3. Allocate a free TCP port by binding to :0, then dropping the listener.
 //   4. Spawn the gateway (std::process::Child — sync, so kill() works from
-//      the window-close event handler without needing an async runtime).
+//      the final RunEvent::Exit fallback without needing an async runtime).
 //   5. Poll /healthz every 250 ms (async reqwest) with a 30 s hard deadline.
 //   6. Pass HECATE_PUBLIC_URL so hecate.runtime.json advertises the sidecar URL.
 //   7. On success return the base URL + Child handle. Caller is responsible
@@ -302,7 +302,7 @@ pub async fn spawn_and_wait(
     })?;
 
     // Use std::process::Command (not tokio) so the returned Child::kill()
-    // is synchronous and can be called from the window-close event handler
+    // is synchronous and can be called from the final RunEvent::Exit fallback
     // without an async runtime.
     let mut child = gateway_command(&bin, &addr, &base_url, &paths, remote_runtime_secret)
         .stderr(std::process::Stdio::from(stderr_log))

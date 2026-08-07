@@ -92,11 +92,13 @@ function DesktopUpdateDetails({
     manualCheck,
     progress,
     retryRestart,
+    restartDeferred,
     restartReady,
     update,
   } = controller;
+  const canRestart = restartReady || restartDeferred;
   const initialFocusRef = update
-    ? installFailure === "restart"
+    ? canRestart
       ? restartButtonRef
       : installButtonRef
     : checkButtonRef;
@@ -115,6 +117,7 @@ function DesktopUpdateDetails({
     lastSuccessfulCheck,
     installFailure,
     dismissed,
+    restartDeferred,
     restartReady,
   });
   const publishedDate = formatPublishedDate(update?.publishedAt);
@@ -127,7 +130,7 @@ function DesktopUpdateDetails({
         <div className="desktop-update-details__actions">
           {update ? (
             <>
-              {installFailure === "restart" ? (
+              {canRestart ? (
                 <button
                   ref={restartButtonRef}
                   className="btn btn-primary btn-sm"
@@ -135,7 +138,11 @@ function DesktopUpdateDetails({
                   onClick={() => void retryRestart()}
                   type="button"
                 >
-                  Retry restart
+                  {installFailure === "restart"
+                    ? "Retry restart"
+                    : restartDeferred && !restartReady
+                      ? "Restart to finish update"
+                      : "Restart Hecate"}
                 </button>
               ) : (
                 <button
@@ -352,6 +359,7 @@ function updateDetailsStatus({
   lastSuccessfulCheck,
   dismissed,
   installFailure,
+  restartDeferred,
   restartReady,
 }: Pick<
   DesktopUpdateController,
@@ -364,6 +372,7 @@ function updateDetailsStatus({
   | "lastSuccessfulCheck"
   | "dismissed"
   | "installFailure"
+  | "restartDeferred"
   | "restartReady"
 >): string {
   if (installFailure === "restart") {
@@ -372,6 +381,10 @@ function updateDetailsStatus({
       : "Hecate did not restart after the download completed.";
   }
   if (installFailure === "install") return "The previous update attempt did not complete.";
+  if (restartDeferred && !restartReady && !installing) {
+    return "Restart Hecate to finish the staged update.";
+  }
+  if (restartReady && !installing) return "The update is installed. Restart when ready.";
   if (installing) {
     return installPhase === "restarting"
       ? restartReady

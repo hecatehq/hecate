@@ -246,10 +246,22 @@ causes, in rough order:
 **The update details dialog reaches `Downloading... 100%` / `Finishing installation...`
 and never relaunches.** The updater payload was downloaded, but the app
 did not complete the restart handoff. Confirm the UI watchdog in
-`ui/src/lib/desktop-update.ts` is present, the UI calls
-`@tauri-apps/plugin-process` `relaunch()`, `tauri_plugin_process::init()`
-is registered in the Rust builder, and the default capability includes
-`process:allow-restart`. The app log should include
+`ui/src/lib/desktop-update.ts` is present, the UI invokes the native
+`restart_after_update` command, and the default capability includes
+`allow-restart-after-update`. That command must finish the running-task
+confirmation and gateway drain before calling `app.request_restart()`; do not
+replace it with a direct process-plugin relaunch. Watchdog attempts use
+`prepare_update_restart` to obtain a native monotonic attempt token. The same
+token must be passed to `restart_after_update`, and a later
+verification/install failure must pass it to `cancel_update_restart`, so a
+pending confirmation cannot restart a rejected update and a newer attempt
+cannot clear the older cancellation. Native cancellation and the pre-drain
+commit are one synchronized winner: a cancellation that loses that race
+returns `too_late` instead of claiming it prevented the restart. Choosing
+**Keep running**, or a native restart error while installation is still
+pending, must leave a dismissible **Restart to finish update** action rather
+than a permanent finishing state.
+The app log should include
 `desktop updater install started`, `download finished`, and either
 `install finished; relaunching` or `install did not resolve after
 download; relaunching to finish`.

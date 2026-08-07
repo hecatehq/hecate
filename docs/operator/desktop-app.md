@@ -47,13 +47,19 @@ smoke coverage.
 
 What works:
 
-- Sidecar lifecycle: spawn, `/healthz` wait on startup; on quit (red-X,
-  `cmd+Q`, or menu Quit) the app asks the gateway to drain via
+- Sidecar lifecycle: spawn, `/healthz` wait on startup. Closing the main window
+  (red-X or `cmd+W`) hides it while the gateway, Cloud relay, and active work
+  keep running. On explicit app Quit (`cmd+Q`, the application menu, or the
+  tray menu), the app asks the gateway to drain via
   `POST /hecate/v1/system/shutdown`, polls `/healthz` until it stops
   responding (12 s deadline), then exits — same code path as
-  `SIGINT`/`SIGTERM` from a terminal. `pgrep hecate` is empty afterward
-  in both paths. When agent work is in flight, a native confirmation
-  dialog appears first.
+  `SIGINT`/`SIGTERM` from a terminal. `pgrep hecate` is empty after explicit
+  Quit. When agent work is in flight, a native confirmation dialog appears
+  before that Quit.
+- Installing a desktop update uses the same task confirmation and gateway
+  drain before Hecate restarts; the webview cannot request a raw, undrained
+  process restart. Choosing **Keep running** leaves the installed update ready
+  to restart later instead of reporting an error.
 - Runtime discovery file (`hecate.runtime.json`) written by the sidecar gateway
   on successful startup and removed on app exit for native diagnostics.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
@@ -90,7 +96,11 @@ What works:
   system and webview installation, so unsupported hosts keep the action
   available for system-voice setup guidance.
 - Native Hecate menu with actions to focus the window, open the gateway log,
-  open the data directory, and quit.
+  open the data directory, and quit. A system-tray/status-bar item exposes
+  **Show Hecate** and **Quit Hecate**; clicking its icon restores the main
+  window where the platform supports tray click events.
+- Single-instance desktop startup: launching Hecate while it is hidden restores
+  and focuses the existing app instead of starting a second gateway sidecar.
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,
   `%APPDATA%\sh.hecate.app\`, `~/.local/share/sh.hecate.app/`).
 - Durable sqlite storage in that data dir (`hecate.db`) for settings,
@@ -188,7 +198,9 @@ What works:
   Cloud credentials are returned through Tauri IPC to the webview.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
-- Window size and position persistence across launches.
+- Window size and position persistence across launches. Hidden/background
+  visibility is deliberately not persisted, so a normal launch never reopens
+  as an invisible process.
 - Cross-platform CI matrix with PR validation, draft skipping, and run
   cancellation on push.
 - macOS bundles signed with a Developer ID Application certificate and
@@ -234,12 +246,13 @@ What doesn't yet:
 - No Homebrew formula or cask yet. A formula would help CLI installation, and
   a cask would help app distribution. macOS now signs+notarizes via
   `APPLE_*` repo secrets; a cask would still be additional polish.
-- Remote access requires a Hecate Cloud account and the desktop app must remain
-  open. There is no tray/background service yet; closing Hecate closes the
-  outbound connection. Reopening it reconnects automatically while the saved
-  app session remains valid, otherwise Settings asks for browser approval
-  again.
-- No tray and no deep links.
+- Remote access requires a Hecate Cloud account, Remote access enabled, and the
+  Hecate desktop process running. Closing its main window keeps that process
+  and outbound connection available in the tray; explicitly quitting Hecate,
+  logging out of the operating-system account, powering off, or sleeping the
+  computer makes it unavailable. There is no launch-at-login preference yet,
+  so start Hecate once after a restart.
+- No launch-at-login preference or deep links.
 - Linux and Windows: build-only and currently untested by maintainers. Need an
   actual launch on each platform before claiming they work.
 
@@ -265,10 +278,10 @@ the bundle is polished enough to recommend.
 
 ### Tier 3 — features
 
-| Item                            | Scope     | Notes                                                                                                                                               |
-| ------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tray / menubar mode**         | Multi-day | "Always on, click to focus." Adds tray icon + show/hide window logic, dock-icon hiding on macOS. Worth doing if "background gateway" is a use case. |
-| **Deep links (`hecate://...`)** | ~1 day    | Open specific runs, configure providers from a link. Real value depends on whether such links would appear anywhere — premature today.              |
+| Item                            | Scope  | Notes                                                                                                                                                                       |
+| ------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Launch at login**             | ~1 day | Opt-in only. Needs a saved preference and an explicit background-start argument so login does not flash the main window. It cannot wake a sleeping or powered-off computer. |
+| **Deep links (`hecate://...`)** | ~1 day | Open specific runs, configure providers from a link. Real value depends on whether such links would appear anywhere — premature today.                                      |
 
 ### Skip / reconsider later
 
@@ -307,6 +320,10 @@ local smoke runs are faster and less vulnerable to temporary disk-image mount
 flakes. It is not part of `just verify` because it opens a real GUI app
 and is macOS-specific today.
 
+The automated smoke sends an explicit app Quit. It does not exercise
+close-to-background or tray restoration; verify those paths manually on each
+supported desktop platform.
+
 ## Footguns to know
 
 Captured in detail at [`docs-ai/skills/tauri/SKILL.md`](../../docs-ai/skills/tauri/SKILL.md);
@@ -319,9 +336,21 @@ the ones likely to bite an operator:
   right-click → Open the first time. Windows is unsigned regardless;
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
-- **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and the menu "Quit Hecate" item all funnel through the same path. If agent work is in flight, a native confirmation dialog appears ("X tasks still running. Quitting Hecate will stop them.") with Quit anyway / Keep running. On confirm — or when there is no active work — the gateway is asked to drain via `POST /hecate/v1/system/shutdown` (same code path as `SIGINT`/`SIGTERM`) before the app exits, so MCP subprocesses are torn down cleanly and no Task Run or Chat Turn is left stuck in `running`.
+- **Window close hides; explicit Quit drains.** The red-X and `cmd+W` keep
+  Hecate, remote access, and active work running in the tray. Reopen it from the
+  tray/status-bar item, the Dock on macOS, or by launching Hecate again.
+  `cmd+Q`, the application-menu Quit, and tray **Quit Hecate** use the graceful
+  shutdown path. If agent work is in flight, a native confirmation dialog
+  appears ("X tasks still running. Quitting Hecate will stop them.") with Quit
+  anyway / Keep running. On confirm — or when there is no active work — the
+  gateway drains via `POST /hecate/v1/system/shutdown` (the same code path as
+  `SIGINT`/`SIGTERM`) before the app exits, so MCP subprocesses are torn down
+  cleanly and no Task Run or Chat Turn is left stuck in `running`. If the
+  platform cannot create a tray icon, closing the main window falls back to
+  this graceful Quit path rather than leaving an unreachable hidden process.
 - **Reset local data is unavailable while the app is running.** Settings →
   Maintenance → Danger zone shows the action disabled. Quit Hecate completely
+  from the application or tray menu—closing its main window is not enough—
   before removing or replacing its platform data directory; the reserved
   `POST /hecate/v1/system/reset-data` route returns `409 conflict` without
   deleting anything until runtime-wide writer quiescence exists. Back up the

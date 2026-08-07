@@ -139,7 +139,7 @@ type Handler struct {
 	stateCleaner             StateCleaner
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
-	// close-window confirmation flow asks the gateway to quit. nil in
+	// explicit-Quit confirmation flow asks the gateway to quit. nil in
 	// tests and when no quit signal is wired (the endpoint then returns
 	// 503). The callback should be cheap and non-blocking: it typically
 	// just sends on a buffered channel that main.go selects on alongside

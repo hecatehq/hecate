@@ -3,9 +3,10 @@
 Hecate has source-buildable iOS and Android projects under
 [`tauri/`](../../tauri/). The mobile app is a Cloud client, not a phone port of
 the local runtime: agents, workspaces, provider credentials, and subprocesses
-continue to run on a hosted Hecate runtime or a computer with Hecate desktop
-open. The phone selects one of those Hecate instances and opens its chats,
-projects, tasks, approvals, and live activity.
+continue to run on a hosted Hecate runtime or a computer where Hecate desktop
+is running with Remote access enabled. Its main window may be visible or hidden
+in the system tray. The phone selects one of those Hecate instances and opens
+its chats, projects, tasks, approvals, and live activity.
 
 The product model is deliberately chat-first: the phone chooses **where a chat
 runs**, then uses that runtime's normal Hecate UI. Selecting a desktop instance
@@ -136,9 +137,10 @@ links are intentionally not part of this version.
 - There is no general offline mutation queue. Chat submissions already have a
   client request ID, but other writes and attachment uploads do not yet share a
   safe idempotency contract.
-- A desktop-host connection works only while Hecate desktop remains open and
-  Remote access is enabled. The phone cannot wake a powered-off Mac or launch
-  its desktop app.
+- A desktop-host connection works only while the Hecate desktop process is
+  running and Remote access is enabled. Closing the desktop window keeps it
+  available in the tray; explicitly quitting Hecate takes it offline. The
+  phone cannot wake a sleeping or powered-off Mac or launch its desktop app.
 - Only organization owners and admins can start hosted runtimes managed by
   Hecate Cloud from the app. Manually registered runtimes must be started by
   their own operator.
