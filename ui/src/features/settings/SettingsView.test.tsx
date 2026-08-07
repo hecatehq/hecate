@@ -839,8 +839,8 @@ describe("SettingsView", () => {
     const { state, actions } = setup();
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
+    await waitFor(() => expect(statusReads).toBe(2));
     expect(await screen.findByRole("button", { name: "Sign in to Hecate Cloud" })).toBeTruthy();
-    expect(statusReads).toBe(2);
     expect(screen.queryByTestId("desktop-cloud-runtimes")).toBeNull();
   });
 
