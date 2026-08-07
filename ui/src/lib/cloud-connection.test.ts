@@ -153,7 +153,7 @@ describe("desktop cloud connection bridge", () => {
 });
 
 describe("desktop cloud runtime bridge", () => {
-  it("normalizes the safe runtime connection projection", async () => {
+  it("normalizes only controllable runtime connections", async () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     invokeMock.mockResolvedValueOnce([
       {
@@ -172,14 +172,36 @@ describe("desktop cloud runtime bridge", () => {
         browser_open_path: "/must-not-cross-ipc",
       },
       {
-        id: "host_1",
+        id: "host_stale",
         kind: "desktop_host",
         org_id: "org_1",
-        name: "Studio Mac",
+        name: "Mac.home",
         status: "offline",
         reachable: false,
         can_start: false,
         remote_enabled: true,
+        capabilities: [],
+      },
+      {
+        id: "host_disabled",
+        kind: "desktop_host",
+        org_id: "org_1",
+        name: "Travel Mac",
+        status: "online",
+        reachable: true,
+        can_start: false,
+        remote_enabled: false,
+        capabilities: [],
+      },
+      {
+        id: "runtime_startable",
+        kind: "hosted_runtime",
+        org_id: "org_1",
+        name: "Dogfood Runtime",
+        status: "offline",
+        reachable: false,
+        can_start: true,
+        remote_enabled: false,
         capabilities: [],
       },
     ]);
@@ -200,15 +222,15 @@ describe("desktop cloud runtime bridge", () => {
         last_seen_at: "2026-07-31T12:00:00Z",
       },
       {
-        id: "host_1",
-        kind: "desktop_host",
+        id: "runtime_startable",
+        kind: "hosted_runtime",
         org_id: "org_1",
         project_id: null,
-        name: "Studio Mac",
+        name: "Dogfood Runtime",
         status: "offline",
         reachable: false,
-        can_start: false,
-        remote_enabled: true,
+        can_start: true,
+        remote_enabled: false,
         version: null,
         capabilities: [],
         last_seen_at: null,

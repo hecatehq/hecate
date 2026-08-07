@@ -721,7 +721,7 @@ impl CloudConnectionSupervisor {
             .await;
         self.ensure_authorized_generation(generation)?;
         let current_host_id = self.current_host_id()?;
-        let connections = without_current_desktop_host(connections, current_host_id.as_deref());
+        let connections = controllable_runtime_connections(connections, current_host_id.as_deref());
         Ok(connections)
     }
 
@@ -2467,13 +2467,28 @@ fn is_current_desktop_host(
         && current_host_id.is_some_and(|host_id| host_id == connection.id)
 }
 
-fn without_current_desktop_host(
+fn is_controllable_runtime_connection(connection: &CloudRuntimeConnection) -> bool {
+    match connection.kind.as_str() {
+        // A stopped hosted runtime remains useful when Cloud can start it. A
+        // registered desktop host does not: the desktop app cannot wake it.
+        "hosted_runtime" => {
+            connection.reachable || connection.status == "starting" || connection.can_start
+        }
+        "desktop_host" => connection.reachable && connection.remote_enabled,
+        _ => false,
+    }
+}
+
+fn controllable_runtime_connections(
     connections: Vec<CloudRuntimeConnection>,
     current_host_id: Option<&str>,
 ) -> Vec<CloudRuntimeConnection> {
     connections
         .into_iter()
-        .filter(|connection| !is_current_desktop_host(connection, current_host_id))
+        .filter(|connection| {
+            !is_current_desktop_host(connection, current_host_id)
+                && is_controllable_runtime_connection(connection)
+        })
         .collect()
 }
 
@@ -5413,17 +5428,49 @@ mod tests {
     }
 
     #[test]
-    fn current_desktop_host_is_omitted_without_guessing_from_its_name() {
+    fn runtime_picker_exposes_only_controllable_non_current_instances() {
         let runtime = hosted_runtime_connection();
+        let mut startable = runtime.clone();
+        startable.id = "runtime_startable".to_string();
+        startable.name = "Startable".to_string();
+        startable.status = "offline".to_string();
+        startable.reachable = false;
+        startable.can_start = true;
+
+        let mut stopped = startable.clone();
+        stopped.id = "runtime_stopped".to_string();
+        stopped.name = "Stopped".to_string();
+        stopped.can_start = false;
+
         let mut current = runtime.clone();
         current.id = "host_current".to_string();
         current.kind = "desktop_host".to_string();
         current.name = "Shared name".to_string();
+        current.remote_enabled = true;
         let mut other = current.clone();
         other.id = "host_other".to_string();
+        other.name = "Studio Mac".to_string();
 
-        let visible = without_current_desktop_host(
-            vec![runtime.clone(), current.clone(), other.clone()],
+        let mut stale = other.clone();
+        stale.id = "host_stale".to_string();
+        stale.name = "Mac.home".to_string();
+        stale.reachable = false;
+
+        let mut remote_off = other.clone();
+        remote_off.id = "host_remote_off".to_string();
+        remote_off.name = "Travel Mac".to_string();
+        remote_off.remote_enabled = false;
+
+        let visible = controllable_runtime_connections(
+            vec![
+                runtime.clone(),
+                startable.clone(),
+                stopped,
+                current.clone(),
+                other.clone(),
+                stale,
+                remote_off,
+            ],
             Some("host_current"),
         );
         assert_eq!(
@@ -5431,14 +5478,14 @@ mod tests {
                 .iter()
                 .map(|connection| connection.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["runtime_1", "host_other"]
+            vec!["runtime_1", "runtime_startable", "host_other"]
         );
         assert!(is_current_desktop_host(&current, Some("host_current")));
         assert!(!is_current_desktop_host(&other, Some("host_current")));
         assert!(!is_current_desktop_host(&runtime, Some("runtime_1")));
-
-        let unfiltered = without_current_desktop_host(vec![runtime, current, other], None);
-        assert_eq!(unfiltered.len(), 3);
+        assert!(is_controllable_runtime_connection(&runtime));
+        assert!(is_controllable_runtime_connection(&startable));
+        assert!(is_controllable_runtime_connection(&current));
     }
 
     #[test]
