@@ -598,6 +598,49 @@ describe("useDesktopUpdate", () => {
     });
   });
 
+  it("keeps the UI locked when native restart resolves before a late install failure", async () => {
+    vi.useFakeTimers();
+    enterTauriRuntime();
+    relaunchMock.mockResolvedValue("restarting");
+    let rejectDownload: ((error: Error) => void) | null = null;
+    let onEvent: ((event: unknown) => void) | null = null;
+    const downloadAndInstall = vi.fn((callback?: (event: unknown) => void) => {
+      onEvent = callback ?? null;
+      return new Promise<void>((_resolve, reject) => {
+        rejectDownload = reject;
+      });
+    });
+    checkMock.mockResolvedValue(updateFixture({ downloadAndInstall }));
+    const { result } = renderHook(() => useDesktopUpdate());
+    let installPromise: Promise<void> | null = null;
+
+    await vi.waitFor(() => expect(result.current.update).not.toBeNull());
+    act(() => {
+      installPromise = result.current.installAndRestart();
+    });
+    await vi.waitFor(() => expect(onEvent).not.toBeNull());
+    act(() => onEvent?.({ event: "Finished" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DESKTOP_UPDATE_INSTALL_STALL_MS);
+    });
+    await vi.waitFor(() => expect(relaunchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(result.current.installPhase).toBe("restarting"));
+
+    await act(async () => {
+      rejectDownload?.(new Error("late install failure"));
+      await installPromise;
+    });
+    expect(cancelRestartMock).not.toHaveBeenCalled();
+    expect(result.current.installing).toBe(true);
+    expect(result.current.installPhase).toBe("restarting");
+    expect(result.current.installFailure).toBeNull();
+
+    await act(async () => {
+      await result.current.installAndRestart();
+    });
+    expect(downloadAndInstall).toHaveBeenCalledTimes(1);
+  });
+
   it("unlocks after indeterminate cancellation when native restart is safely abandoned", async () => {
     vi.useFakeTimers();
     enterTauriRuntime();
