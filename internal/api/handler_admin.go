@@ -412,7 +412,8 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleSystemShutdown requests an orderly process shutdown. The
-// desktop app (Tauri) calls this from its window-close handler so the
+// desktop app (Tauri) calls this from its explicit-Quit flow, and from
+// the safe close fallback when background mode is unavailable, so the
 // gateway runs the same drain path SIGINT/SIGTERM takes — retention
 // cancel, runner drain (MCP subprocess teardown), HTTP server shutdown
 // — instead of being SIGKILL'd by the child-process handle. The

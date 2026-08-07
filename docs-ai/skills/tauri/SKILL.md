@@ -42,6 +42,7 @@ tauri/
                             network fetch during startup
   src-tauri/
     Cargo.toml              Rust crate: tauri 2, tauri-plugin-opener,
+                            tauri-plugin-single-instance,
                             tauri-plugin-updater, tauri-plugin-window-state,
                             reqwest (rustls-tls), tokio
     Cargo.lock              committed (app, not a library)
@@ -58,10 +59,12 @@ tauri/
     src/
       main.rs               thin entry point (#![cfg_attr(not(debug_assertions),
                               windows_subsystem = "windows")])
-      lib.rs                Tauri builder, setup hook, GatewayChild managed state,
-                            RunEvent::Exit → kill
-      sidecar.rs            resolve_binary(), resolve_data_dir(), spawn_and_wait()
-      cloud_connection.rs   desktop-only Hecate Cloud account, credential,
+      lib.rs                desktop/mobile module dispatcher
+      desktop/mod.rs        desktop Tauri builder, tray/single-instance,
+                            sidecar lifecycle, menus, commands, and exit drain
+      desktop/sidecar.rs    resolve_binary(), resolve_data_dir(), spawn_and_wait()
+      desktop/cloud_connection.rs
+                            desktop-only Hecate Cloud account, credential,
                             host registration, and outbound relay supervisor
 ```
 
@@ -98,7 +101,7 @@ Three responsibilities:
 
 **`spawn_and_wait(app)`** — spawns the `hecate` runtime (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
 
-### `lib.rs`
+### `desktop/mod.rs`
 
 Tauri builder setup:
 
@@ -135,15 +138,39 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
   cleanup, and ACP adapter process/session lifecycle. When debugging desktop
   issues, inspect `app.log` for wrapper behavior and `gateway.log` for gateway
   stderr.
-- The `Child` handle is stored in `GatewayChild` managed state; the gateway's base URL is stored alongside it in `GatewayBaseURL` so the close-window flow can reach the gateway HTTP surface.
+- The `Child` handle is stored in `GatewayChild` managed state; the gateway's base URL is stored alongside it in `GatewayBaseURL` so the explicit-Quit flow can reach the gateway HTTP surface.
 - The splash remains visible for at least 2 s before navigating to the gateway UI; keep this native-side so fast startups don't create a flash.
-- `tauri-plugin-window-state` restores size and position between launches.
-- **Quit funnel.** Every "user wants to quit" trigger (red-X `WindowEvent::CloseRequested`, `cmd+Q` / menu Quit `RunEvent::ExitRequested`) is intercepted and routed through `handle_quit_request`:
+- `tauri-plugin-window-state` restores size and position between launches, but
+  its configured flags exclude `VISIBLE`. Never persist background visibility:
+  a process that was hidden before Quit must open visibly on its next launch.
+- **Background close.** Main-window red-X / `cmd+W`
+  (`WindowEvent::CloseRequested`) prevents destruction and hides the window
+  while the sidecar, Cloud relay, and active work continue. The system tray
+  provides **Show Hecate** and **Quit Hecate**; tray click restores the window
+  on platforms that emit click events, `RunEvent::Reopen` handles the macOS
+  Dock, and `tauri-plugin-single-instance` focuses the existing window on a
+  second launch. The single-instance plugin must remain the first registered
+  plugin. If tray creation fails, close must fall back to graceful Quit so the
+  process cannot become invisible and unreachable.
+- **Quit funnel.** Every explicit app-Quit trigger (`cmd+Q`, application-menu
+  Quit, or tray **Quit Hecate**) and the no-tray close fallback is routed
+  through `handle_quit_request`:
   1. `GET /hecate/v1/system/stats` → `running_runs`.
   2. If > 0, native confirmation dialog (`tauri-plugin-dialog`). "Keep running" cancels and clears the latch; "Quit anyway" continues.
   3. `POST /hecate/v1/system/shutdown` → poll `/healthz` until it stops responding (12 s deadline). The endpoint writes to a buffered quit channel that joins the same `select` as `SIGINT`/`SIGTERM` in `cmd/hecate/main.go`, so the gateway runs its existing drain (retention cancel, runner shutdown, HTTP server shutdown).
   4. `app.exit(0)`.
-  - `QUIT_IN_PROGRESS` atomic latch keeps `app.exit(0)`'s re-entrant `ExitRequested` from re-prompting.
+  - `SHUTDOWN_IN_PROGRESS` keeps Quit and restart mutually exclusive;
+    `INTENTIONAL_SHUTDOWN` lets the resulting `ExitRequested` pass without
+    starting another drain.
+- **Updater restart uses the same drain.** The UI calls the native
+  `restart_after_update` command after installation. It performs the same task
+  confirmation and gateway drain before `app.request_restart()`. "Keep
+  running" returns a typed cancellation outcome and leaves the installed
+  update ready for a later restart. A watchdog restart is armed separately;
+  if `downloadAndInstall()` later rejects, the renderer invalidates that native
+  attempt before confirmation or drain can continue. Do not expose
+  `tauri-plugin-process` to the gateway webview: Tauri restart exit events
+  cannot be prevented, so a direct JS `relaunch()` bypasses these safeguards.
 - `RunEvent::Exit` is the final cleanup: `child.try_wait()` for up to 2 s (graceful path leaves nothing to wait on) and then `child.kill()` as a fallback if the gateway never exited (drain timed out, /system/shutdown unreachable, etc.). Also removes `hecate.runtime.json` from the data dir.
 - If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.
 - Desktop remote access is native Rust plumbing in `cloud_connection.rs`; it
@@ -182,6 +209,20 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
 
 ## Tauri-specific rules
 
+- **Register `tauri-plugin-single-instance` first.** A second launch must focus
+  the existing window before another sidecar can start.
+- **Never hide without a reachable tray.** Tray installation or window-hide
+  failure must retain the close-to-Quit fallback.
+- **Keep tray, image, and menu APIs native-only.** The desktop capability
+  grants core defaults individually and deliberately omits
+  `core:tray:default`, `core:image:default`, and `core:menu:default`; the remote
+  gateway webview must not read local images or mutate the Rust-owned tray and
+  menus that make background mode reachable.
+- **Keep restart native and drain-first.** The desktop webview must use the
+  allowlisted `restart_after_update` command, not `process:allow-restart`.
+  `RunEvent::ExitRequested` cannot cancel Tauri's special restart exit code.
+- **Never persist `StateFlags::VISIBLE`.** A hidden app that later quits must
+  start visible and reachable on its next launch.
 - **Never call `WebviewWindowBuilder::new(app, "main", …)` in setup.** The window is already created by `tauri.conf.json`; calling the builder again panics with "a webview with label `main` already exists". Use `app.get_webview_window("main")` instead.
 - **Use `tauri-plugin-opener` for system-browser URLs.** Do not add the general
   shell plugin just to open a login URL. The bundled Hecate runtime is declared
@@ -192,7 +233,27 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
 - **The gateway data directory must be writable.** A bundled `.app` on macOS is read-only. Always pass `HECATE_DATA_DIR` pointing to the Tauri-resolved app data directory — never let the gateway default to `.data/` next to its binary.
 - **`gen/schemas/` is committed.** These files are generated by `tauri dev`/`tauri build` and needed at compile time for the capabilities system. Don't gitignore them.
 - **`env!("TARGET")` requires `build.rs` forwarding.** Cargo sets `TARGET` for build scripts, not for the main crate compile. `tauri/src-tauri/build.rs` re-exports it via `cargo:rustc-env=TARGET=...` so `env!("TARGET")` resolves in `src/sidecar.rs`. Worked locally only because the incremental cache held the artifact; clean builds (CI) surface the error.
-- **Updater install does not relaunch by itself.** The JS updater's `downloadAndInstall()` only downloads and applies the bundle. The UI must call `@tauri-apps/plugin-process` `relaunch()` afterwards, the Rust app must register `tauri_plugin_process::init()`, and `capabilities/default.json` must include `process:allow-restart`. On macOS, the install promise can stall after the download reaches 100%; keep the renderer watchdog in `ui/src/lib/desktop-update.ts` so Hecate still relaunches instead of pinning the update details forever. Distinguish a download/install failure from an installed-but-restart-failed state: only the former may retry the download.
+- **Updater install does not relaunch by itself.** The JS updater's
+  `downloadAndInstall()` only downloads and applies the bundle. The UI must
+  invoke the Rust `restart_after_update` command afterwards; it drains the
+  gateway before calling `app.request_restart()`. Do not restore direct
+  `@tauri-apps/plugin-process` / `process:allow-restart` access because Tauri
+  cannot prevent its raw restart exit event. On macOS, the install promise can
+  stall after the download reaches 100%; keep the renderer watchdog in
+  `ui/src/lib/desktop-update.ts` so a staged update still reaches the native
+  restart flow. The watchdog must arm through `prepare_update_restart`, pass
+  the returned native monotonic token to `restart_after_update`, and pass that
+  same token to `cancel_update_restart` after a late install rejection;
+  otherwise a native task-confirmation dialog could outlive a failed package
+  verification. Never clear cancellation globally when a newer attempt begins.
+  Cancellation and the pre-drain commit must be serialized as a single winner;
+  once commit wins, cancellation must report `too_late` rather than claim the
+  restart was prevented.
+  Deferring or failing a watchdog restart while installation remains pending
+  must expose a dismissible restart-only action rather than leave the update
+  modal permanently busy.
+  Distinguish a download/install failure, a deferred restart, and an
+  installed-but-restart-failed state: only the first may retry the download.
 - **Icons must be format-correct, not just valid PNGs.** Renaming a `.png` to `.ico`/`.icns` makes the macOS bundler tolerate it, but Windows `RC.EXE` strictly validates ICO format and the build fails. Regenerate the full set with `bunx @tauri-apps/cli icon path/to/source.png` whenever artwork changes — it produces real `.ico` (multi-size MS Windows resource) and `.icns` (Mac OS X icon). Prune the iOS/Android/Microsoft Store outputs unless you actually ship to those platforms.
 - **`permissions/autogenerated/` is committed**, same as `gen/schemas/`. `tauri-build` regenerates the per-command `allow-*`/`deny-*` TOML files there whenever you change `AppManifest::commands(&[...])` in `build.rs`. Commit the regenerated files — they're part of the ACL surface and reviewers should see them change when commands are added or renamed.
 - **Webview media access is platform-owned, not a Tauri ACL.** Provider-routed
@@ -399,5 +460,9 @@ Outside the Tauri runtime (web build, Docker, bare-binary serving the embedded U
 
 - `cargo check` passes with no warnings.
 - `just tauri-dev` launches the window, shows the splash, navigates to the gateway UI, and auto-logs in without a token paste.
-- Closing the window — red-X, `cmd+Q`, or menu Quit — leaves no `hecate` process running (`pgrep hecate` returns nothing after quit), via the graceful drain path. Running tasks surface a confirmation dialog before being interrupted.
+- Red-X / `cmd+W` hides the main window, keeps the same `hecate` sidecar alive,
+  and can be recovered from the tray, macOS Dock, or a second launch. Explicit
+  Quit (`cmd+Q`, application menu, or tray) leaves no `hecate` process running
+  (`pgrep hecate` returns nothing) via the graceful drain path. Running tasks
+  surface a confirmation dialog before explicit Quit interrupts them.
 - See [`../../core/verification.md`](../../core/verification.md) for the full ladder.

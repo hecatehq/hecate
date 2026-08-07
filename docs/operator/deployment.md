@@ -341,7 +341,11 @@ more predictable alpha paths.
 Desktop app distinct from `docker run` / bare binary:
 
 - No port conflict with a separately-running gateway — the app picks a free loopback port at launch.
-- Quitting the app via `cmd+Q` (macOS) / **File → Quit** (Windows / Linux) is designed to stop the sidecar; this is smoke-tested on macOS and still untested on Linux/Windows.
+- Closing the main window hides it while the sidecar and remote access continue
+  in the system tray. Explicit Quit via `cmd+Q` (macOS), the application menu,
+  or tray **Quit Hecate** stops the sidecar; that Quit path is smoke-tested on
+  macOS and still untested on Linux/Windows. If a platform cannot create a tray
+  icon, window close falls back to graceful Quit.
 - Multi-machine users keep separate config per OS — settings on macOS don't migrate to Linux even on the same release.
 
 Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).

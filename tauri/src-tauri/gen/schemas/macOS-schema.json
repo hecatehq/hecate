@@ -345,6 +345,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the cancel_update_restart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-update-restart",
+          "markdownDescription": "Enables the cancel_update_restart command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cloud_account_sign_in command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cloud-account-sign-in",
@@ -465,6 +471,18 @@
           "markdownDescription": "Enables opening the active workspace in a local editor, terminal, or file manager."
         },
         {
+          "description": "Enables the prepare_update_restart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-prepare-update-restart",
+          "markdownDescription": "Enables the prepare_update_restart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the restart_after_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-restart-after-update",
+          "markdownDescription": "Enables the restart_after_update command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_update_badge command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-update-badge",
@@ -475,6 +493,12 @@
           "type": "string",
           "const": "allow-take-pending-desktop-update-check",
           "markdownDescription": "Enables the take_pending_desktop_update_check command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_update_restart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-update-restart",
+          "markdownDescription": "Denies the cancel_update_restart command without any pre-configured scope."
         },
         {
           "description": "Denies the cloud_account_sign_in command without any pre-configured scope.",
@@ -595,6 +619,18 @@
           "type": "string",
           "const": "deny-open-workspace-target",
           "markdownDescription": "Denies opening the active workspace in a local editor, terminal, or file manager."
+        },
+        {
+          "description": "Denies the prepare_update_restart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-prepare-update-restart",
+          "markdownDescription": "Denies the prepare_update_restart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the restart_after_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-restart-after-update",
+          "markdownDescription": "Denies the restart_after_update command without any pre-configured scope."
         },
         {
           "description": "Denies the set_update_badge command without any pre-configured scope.",
@@ -2833,36 +2869,6 @@
           "type": "string",
           "const": "opener:deny-reveal-item-in-dir",
           "markdownDescription": "Denies the reveal_item_in_dir command without any pre-configured scope."
-        },
-        {
-          "description": "This permission set configures which\nprocess features are by default exposed.\n\n#### Granted Permissions\n\nThis enables to quit via `allow-exit` and restart via `allow-restart`\nthe application.\n\n#### This default permission set includes:\n\n- `allow-exit`\n- `allow-restart`",
-          "type": "string",
-          "const": "process:default",
-          "markdownDescription": "This permission set configures which\nprocess features are by default exposed.\n\n#### Granted Permissions\n\nThis enables to quit via `allow-exit` and restart via `allow-restart`\nthe application.\n\n#### This default permission set includes:\n\n- `allow-exit`\n- `allow-restart`"
-        },
-        {
-          "description": "Enables the exit command without any pre-configured scope.",
-          "type": "string",
-          "const": "process:allow-exit",
-          "markdownDescription": "Enables the exit command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the restart command without any pre-configured scope.",
-          "type": "string",
-          "const": "process:allow-restart",
-          "markdownDescription": "Enables the restart command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the exit command without any pre-configured scope.",
-          "type": "string",
-          "const": "process:deny-exit",
-          "markdownDescription": "Denies the exit command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the restart command without any pre-configured scope.",
-          "type": "string",
-          "const": "process:deny-restart",
-          "markdownDescription": "Denies the restart command without any pre-configured scope."
         },
         {
           "description": "This permission set configures which kind of\nupdater functions are exposed to the frontend.\n\n#### Granted Permissions\n\nThe full workflow from checking for updates to installing them\nis enabled.\n\n\n#### This default permission set includes:\n\n- `allow-check`\n- `allow-download`\n- `allow-install`\n- `allow-download-and-install`",

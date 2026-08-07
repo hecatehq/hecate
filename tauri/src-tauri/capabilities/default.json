@@ -8,7 +8,12 @@
     "urls": ["http://127.0.0.1:*/*"]
   },
   "permissions": [
-    "core:default",
+    "core:path:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
+    "core:app:default",
+    "core:resources:default",
     "core:window:allow-start-dragging",
     "allow-cloud-account-sign-in",
     "allow-cloud-connection-start",
@@ -21,12 +26,14 @@
     "allow-open-workspace-target",
     "allow-set-update-badge",
     "allow-take-pending-desktop-update-check",
+    "allow-prepare-update-restart",
+    "allow-cancel-update-restart",
+    "allow-restart-after-update",
     "log:default",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "http://*" }, { "url": "https://*" }, { "url": "mailto:*" }]
     },
-    "process:allow-restart",
     "updater:default"
   ]
 }

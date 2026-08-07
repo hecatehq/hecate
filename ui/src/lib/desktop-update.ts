@@ -72,6 +72,8 @@ export type DesktopUpdateController = {
   installFailure: DesktopUpdateInstallFailure | null;
   /** True once downloadAndInstall has resolved successfully. */
   restartReady: boolean;
+  /** The native restart was deferred, including while a stalled install is pending. */
+  restartDeferred: boolean;
   dismiss: () => void;
   clearManualCheck: () => void;
   installAndRestart: () => Promise<void>;
@@ -95,6 +97,7 @@ type State = {
   relaunching: boolean;
   installFailure: DesktopUpdateInstallFailure | null;
   restartReady: boolean;
+  restartDeferred: boolean;
 };
 
 // Narrow the dynamically imported plugin surface so non-desktop bundles do
@@ -114,9 +117,9 @@ type PluginUpdate = {
   downloadAndInstall: (onEvent?: (event: DownloadEvent) => void) => Promise<void>;
 };
 
-type ProcessPlugin = {
-  relaunch: () => Promise<void>;
-};
+type NativeRestartOutcome = "restarting" | "cancelled" | "superseded";
+type NativeRestartCancelOutcome = "cancelled" | "too_late";
+type NativeRestartSettlement = NativeRestartOutcome | "failed";
 
 type DesktopUpdateOptions = {
   /** Opens the shell-owned details dialog for a native/manual check. */
@@ -138,6 +141,7 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
     relaunching: false,
     installFailure: null,
     restartReady: false,
+    restartDeferred: false,
   });
 
   // Keep the updater resource outside render state. The visible metadata lives
@@ -149,8 +153,21 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
   const manualCheckSequenceRef = useRef(0);
   const mountedRef = useRef(false);
   const installingRef = useRef(false);
+  // Kept separate from visible `installing`: a watchdog restart can be
+  // deferred while downloadAndInstall remains pending, but the updater
+  // resource must still stay owned by that unresolved promise.
+  const installPromisePendingRef = useRef(false);
   const relaunchingRef = useRef(false);
   const restartAttemptedRef = useRef(false);
+  // Invalidates async native restart completions from an older install flow.
+  // This matters when a verification failure enables a fresh install while
+  // the prior native running-task dialog is still open.
+  const restartFlowSequenceRef = useRef(0);
+  const nativeRestartGenerationRef = useRef<number | null>(null);
+  const nativeRestartSettlementRef = useRef<Promise<NativeRestartSettlement> | null>(null);
+  // The operator may keep active work running after an update is installed.
+  // Preserve restart-only state without presenting that choice as a failure.
+  const restartDeferredRef = useRef(false);
   // Once downloadAndInstall resolves, the package is installed and the only
   // safe recovery from a failed relaunch is another restart—not a new check
   // that would discard the restart-only state and closed updater resource.
@@ -161,7 +178,7 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
   const restartRecoveryRef = useRef(false);
   // `Finished` means bytes arrived, not that Tauri verified and installed the
   // package. A late downloadAndInstall rejection must therefore win over a
-  // watchdog restart failure, including when process.relaunch is still pending.
+  // watchdog restart failure, including when the native restart is pending.
   const installFailedRef = useRef(false);
   const hasUpdateRef = useRef(false);
   const installWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -197,9 +214,69 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
     installWatchdogRef.current = null;
   }, []);
 
+  const cancelPendingUpdateRestart = useCallback(
+    async (generation?: number): Promise<NativeRestartCancelOutcome | null> => {
+      const targetGeneration = generation ?? nativeRestartGenerationRef.current;
+      if (targetGeneration === null) return null;
+      try {
+        const core = await import("@tauri-apps/api/core");
+        const outcome = await core.invoke<NativeRestartCancelOutcome>("cancel_update_restart", {
+          generation: targetGeneration,
+        });
+        if (outcome === "too_late") {
+          logWarn(
+            "[hecate] updater restart already crossed the native drain boundary; cancellation was too late",
+          );
+        }
+        return outcome;
+      } catch (err) {
+        logWarn("[hecate] cancel pending updater restart failed:", err);
+        return null;
+      }
+    },
+    [],
+  );
+
+  const exposeInstallFailure = useCallback(
+    (error: unknown) => {
+      clearInstallWatchdog();
+      logWarn("[hecate] desktop updater install failed:", error);
+      installingRef.current = false;
+      relaunchingRef.current = false;
+      restartAttemptedRef.current = false;
+      restartDeferredRef.current = false;
+      restartReadyRef.current = false;
+      restartRecoveryRef.current = false;
+      setState((previous) => ({
+        ...previous,
+        installing: false,
+        relaunching: false,
+        downloaded: 0,
+        total: 0,
+        downloadFinished: false,
+        installFailure: "install",
+        restartReady: false,
+        restartDeferred: false,
+      }));
+    },
+    [clearInstallWatchdog],
+  );
+
   const relaunchApp = useCallback(
     async (reason: string): Promise<void> => {
-      if (relaunchingRef.current || restartAttemptedRef.current) return;
+      if (relaunchingRef.current) return;
+      const restartFlowID = ++restartFlowSequenceRef.current;
+      let resolveRestartSettlement: (outcome: NativeRestartSettlement) => void = () => undefined;
+      let restartSettlementResolved = false;
+      const restartSettlement = new Promise<NativeRestartSettlement>((resolve) => {
+        resolveRestartSettlement = resolve;
+      });
+      nativeRestartSettlementRef.current = restartSettlement;
+      const settleRestart = (outcome: NativeRestartSettlement) => {
+        if (restartSettlementResolved) return;
+        restartSettlementResolved = true;
+        resolveRestartSettlement(outcome);
+      };
       restartAttemptedRef.current = true;
       relaunchingRef.current = true;
       clearInstallWatchdog();
@@ -210,23 +287,78 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
         downloadFinished: true,
         installFailure: null,
       }));
+      let restartGeneration: number | null = null;
       try {
         logInfo("[hecate] desktop updater relaunch requested:", reason);
-        const process = (await import("@tauri-apps/plugin-process")) as ProcessPlugin;
-        await process.relaunch();
+        const core = await import("@tauri-apps/api/core");
+        restartGeneration = await core.invoke<number>("prepare_update_restart");
+        if (!Number.isSafeInteger(restartGeneration) || restartGeneration <= 0) {
+          throw new Error("native updater returned an invalid restart generation");
+        }
+        // A late verification failure can race the prepare command. Check the
+        // renderer flow identity after the await and invalidate this exact
+        // generation before the restart command is dispatched.
+        if (installFailedRef.current || restartFlowID !== restartFlowSequenceRef.current) {
+          await core.invoke("cancel_update_restart", { generation: restartGeneration });
+          settleRestart("superseded");
+          return;
+        }
+        // Publish only after the async prepare response is proven current.
+        // There is deliberately no await between this check and assignment,
+        // so an older response cannot overwrite a newer flow's live token.
+        nativeRestartGenerationRef.current = restartGeneration;
+        const outcome = await core.invoke<NativeRestartOutcome>("restart_after_update", {
+          generation: restartGeneration,
+        });
+        settleRestart(outcome);
+        // The install promise owns package validity. If it failed while a
+        // native confirmation was open, its durable install-failure state must
+        // win over any later confirmation outcome. A newer install flow also
+        // owns the visible state, so stale native completions are silent.
+        if (installFailedRef.current || restartFlowID !== restartFlowSequenceRef.current) return;
+        if (outcome === "cancelled") {
+          restartDeferredRef.current = true;
+          relaunchingRef.current = false;
+          const installed = restartReadyRef.current;
+          installingRef.current = false;
+          setState((previous) => ({
+            ...previous,
+            installing: false,
+            relaunching: false,
+            downloadFinished: true,
+            installFailure: null,
+            restartReady: installed,
+            restartDeferred: true,
+          }));
+          return;
+        }
+        if (outcome === "superseded") {
+          throw new Error("native update restart was superseded");
+        }
+        if (outcome !== "restarting") {
+          throw new Error(`unknown native update restart outcome: ${String(outcome)}`);
+        }
       } catch (err) {
+        settleRestart("failed");
         logWarn("[hecate] desktop updater relaunch failed:", err);
-        if (installFailedRef.current) return;
+        if (installFailedRef.current || restartFlowID !== restartFlowSequenceRef.current) return;
         relaunchingRef.current = false;
         installingRef.current = false;
-        restartRecoveryRef.current = true;
+        const deferred = installPromisePendingRef.current;
+        restartDeferredRef.current = deferred;
+        restartRecoveryRef.current = !deferred;
         setState((previous) => ({
           ...previous,
           installing: false,
           relaunching: false,
           downloadFinished: true,
-          installFailure: "restart",
+          installFailure: deferred ? null : "restart",
+          restartDeferred: deferred,
         }));
+      } finally {
+        if (nativeRestartGenerationRef.current === restartGeneration) {
+          nativeRestartGenerationRef.current = null;
+        }
       }
     },
     [clearInstallWatchdog],
@@ -246,14 +378,16 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
 
   const runCheck = useCallback(
     async (manual: boolean): Promise<void> => {
-      if (!isTauriRuntime() || installingRef.current) return;
+      if (!isTauriRuntime()) return;
 
-      if (restartReadyRef.current || restartRecoveryRef.current) {
+      if (restartReadyRef.current || restartRecoveryRef.current || restartDeferredRef.current) {
         // Keep restart recovery intact. A native menu request still opens its
         // details dialog, where retryRestart is the only valid next action.
         if (manual) onManualCheckRef.current?.();
         return;
       }
+
+      if (installingRef.current || installPromisePendingRef.current) return;
 
       if (manual) {
         const id = ++manualCheckSequenceRef.current;
@@ -374,7 +508,7 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
       clearInstallWatchdog();
       // Never release an update resource while its installer owns it. On a
       // normal app exit the process tears down the resource with the webview.
-      if (!installingRef.current) {
+      if (!installPromisePendingRef.current) {
         const update = pluginUpdateRef.current;
         pluginUpdateRef.current = null;
         closeUpdateResource(update);
@@ -433,6 +567,10 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
     if (installingRef.current) return;
     sessionStorage.setItem(DISMISS_STORAGE_KEY, "1");
     pendingManualCheckIDRef.current = null;
+    if (restartDeferredRef.current || installPromisePendingRef.current) {
+      setState((previous) => ({ ...previous, manualCheck: null, dismissed: true }));
+      return;
+    }
     replacePluginUpdate(null);
     setState((previous) => ({
       ...previous,
@@ -450,13 +588,17 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
 
   const installAndRestart = useCallback(async () => {
     const update = pluginUpdateRef.current;
-    if (!update || installingRef.current) return;
+    if (!update || installingRef.current || installPromisePendingRef.current) return;
 
     // This guard must be synchronous: two quick clicks can both happen before
     // React commits the `installing` state update.
     installingRef.current = true;
+    installPromisePendingRef.current = true;
     relaunchingRef.current = false;
     restartAttemptedRef.current = false;
+    restartFlowSequenceRef.current += 1;
+    nativeRestartSettlementRef.current = null;
+    restartDeferredRef.current = false;
     restartReadyRef.current = false;
     restartRecoveryRef.current = false;
     installFailedRef.current = false;
@@ -471,6 +613,7 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
       relaunching: false,
       installFailure: null,
       restartReady: false,
+      restartDeferred: false,
     }));
 
     try {
@@ -503,12 +646,24 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
           }));
         }
       });
+      installPromisePendingRef.current = false;
       // The installed payload no longer needs its Tauri resource. Preserve
       // display metadata in state for a failed restart, but release the
-      // native handle before asking the process plugin to relaunch.
+      // native handle before asking the native drain flow to restart.
       replacePluginUpdate(null);
       restartReadyRef.current = true;
-      setState((previous) => ({ ...previous, restartReady: true }));
+      if (restartDeferredRef.current) {
+        installingRef.current = false;
+        setState((previous) => ({
+          ...previous,
+          installing: false,
+          relaunching: false,
+          restartReady: true,
+          restartDeferred: true,
+        }));
+      } else {
+        setState((previous) => ({ ...previous, restartReady: true }));
+      }
       // A watchdog-initiated relaunch is already in progress; do not request a
       // second one after the install promise eventually resolves.
       if (!restartAttemptedRef.current) {
@@ -521,33 +676,64 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
       // so this durable failure is more informative than a failed restart and
       // restores the safe download retry path.
       installFailedRef.current = true;
-      clearInstallWatchdog();
-      logWarn("[hecate] desktop updater install failed:", err);
-      installingRef.current = false;
-      relaunchingRef.current = false;
-      restartAttemptedRef.current = false;
-      restartReadyRef.current = false;
-      restartRecoveryRef.current = false;
-      setState((previous) => ({
-        ...previous,
-        installing: false,
-        relaunching: false,
-        downloaded: 0,
-        total: 0,
-        downloadFinished: false,
-        installFailure: "install",
-        restartReady: false,
-      }));
+      restartFlowSequenceRef.current += 1;
+      installPromisePendingRef.current = false;
+      // relaunchApp runs concurrently with this installer promise and owns
+      // this ref; keep the explicit union so static control-flow analysis does
+      // not treat the earlier reset as proof that no settlement can exist.
+      const nativeRestartSettlement =
+        nativeRestartSettlementRef.current as Promise<NativeRestartSettlement> | null;
+      const nativeRestartPending = nativeRestartGenerationRef.current !== null;
+      const cancellation = restartAttemptedRef.current ? await cancelPendingUpdateRestart() : null;
+      if (cancellation === "too_late") {
+        // Native restart already owns the process lifecycle. Keep the UI
+        // locked instead of offering a second install while the gateway is
+        // draining and the app is exiting.
+        logWarn(
+          "[hecate] desktop updater install failed after native restart commit; waiting for restart",
+          err,
+        );
+        return;
+      }
+      if (nativeRestartPending && cancellation === null) {
+        if (!nativeRestartSettlement) {
+          logWarn(
+            "[hecate] desktop updater install failed while native restart state was unavailable; waiting for process outcome",
+            err,
+          );
+          return;
+        }
+        const settlement = await nativeRestartSettlement;
+        if (settlement === "restarting") {
+          logWarn(
+            "[hecate] desktop updater install failed after native restart commit; waiting for restart",
+            err,
+          );
+          return;
+        }
+      }
+      exposeInstallFailure(err);
     }
-  }, [clearInstallWatchdog, relaunchApp, replacePluginUpdate, scheduleInstallWatchdog]);
+  }, [
+    cancelPendingUpdateRestart,
+    clearInstallWatchdog,
+    exposeInstallFailure,
+    relaunchApp,
+    replacePluginUpdate,
+    scheduleInstallWatchdog,
+  ]);
 
   const retryRestart = useCallback(async () => {
-    if (state.installFailure !== "restart" || installingRef.current) return;
+    if ((!state.restartReady && !state.restartDeferred) || installingRef.current) return;
     installingRef.current = true;
     relaunchingRef.current = false;
-    restartAttemptedRef.current = false;
-    await relaunchApp("operator retry after restart failure");
-  }, [relaunchApp, state.installFailure]);
+    restartDeferredRef.current = false;
+    await relaunchApp(
+      state.installFailure === "restart"
+        ? "operator retry after restart failure"
+        : "operator restart after deferring",
+    );
+  }, [relaunchApp, state.installFailure, state.restartDeferred, state.restartReady]);
 
   const checkNow = useCallback(async () => {
     await runCheck(true);
@@ -580,6 +766,7 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
     progress,
     installFailure: state.installFailure,
     restartReady: state.restartReady,
+    restartDeferred: state.restartDeferred,
     dismiss,
     clearManualCheck,
     installAndRestart,

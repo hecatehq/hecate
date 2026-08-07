@@ -32,6 +32,7 @@ function controllerFixture(
     progress: null,
     installFailure: null,
     restartReady: false,
+    restartDeferred: false,
     dismiss: vi.fn(),
     clearManualCheck: vi.fn(),
     installAndRestart: vi.fn().mockResolvedValue(undefined),
@@ -343,5 +344,53 @@ describe("DesktopUpdateCenter", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry restart" }));
     expect(retryRestart).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Try install again" })).toBeNull();
+  });
+
+  it("offers a calm restart action after the operator defers it", async () => {
+    enterTauriRuntime();
+    const retryRestart = vi.fn().mockResolvedValue(undefined);
+    useDesktopUpdateMock.mockReturnValue(
+      controllerFixture({
+        restartReady: true,
+        retryRestart,
+        update: {
+          currentVersion: "0.3.0-alpha.1",
+          version: "0.3.0-alpha.2",
+        },
+      }),
+    );
+
+    render(<DesktopUpdateCenter />);
+    fireEvent.click(screen.getByRole("button", { name: "Update 0.3.0-alpha.2" }));
+
+    expect(await screen.findByText("The update is installed. Restart when ready.")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Restart Hecate" }));
+    expect(retryRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a calm restart action while a stalled install remains pending", async () => {
+    enterTauriRuntime();
+    const retryRestart = vi.fn().mockResolvedValue(undefined);
+    useDesktopUpdateMock.mockReturnValue(
+      controllerFixture({
+        restartDeferred: true,
+        restartReady: false,
+        retryRestart,
+        update: {
+          currentVersion: "0.3.0-alpha.1",
+          version: "0.3.0-alpha.2",
+        },
+      }),
+    );
+
+    render(<DesktopUpdateCenter />);
+    fireEvent.click(screen.getByRole("button", { name: "Update 0.3.0-alpha.2" }));
+
+    expect(await screen.findByText("Restart Hecate to finish the staged update.")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Restart to finish update" }));
+    expect(retryRestart).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Later" })).toBeEnabled();
   });
 });

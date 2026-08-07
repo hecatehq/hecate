@@ -345,7 +345,7 @@ func runServe() {
 	// and tears it down on Shutdown after the runner has drained, so
 	// in-flight runs always see a live client. Zero TTL falls back to
 	// the cache's internal default (5 minutes idle eviction).
-	// quit is the desktop-app shutdown channel. The Tauri close-window
+	// quit is the desktop-app shutdown channel. The Tauri explicit-Quit
 	// handler calls POST /hecate/v1/system/shutdown which signals here,
 	// joining the same drain path SIGINT/SIGTERM take below. Buffered so
 	// the handler returns without blocking when the channel is empty;
