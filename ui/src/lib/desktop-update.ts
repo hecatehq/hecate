@@ -165,6 +165,11 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
   const restartFlowSequenceRef = useRef(0);
   const nativeRestartGenerationRef = useRef<number | null>(null);
   const nativeRestartSettlementRef = useRef<Promise<NativeRestartSettlement> | null>(null);
+  // Once native restart reports `restarting`, the gateway drain and process
+  // lifecycle belong to Rust even though request_restart() can return before
+  // this webview disappears. Keep that ownership durable so a later updater
+  // promise rejection cannot expose a second install during shutdown.
+  const nativeRestartCommittedRef = useRef(false);
   // The operator may keep active work running after an update is installed.
   // Preserve restart-only state without presenting that choice as a failure.
   const restartDeferredRef = useRef(false);
@@ -310,6 +315,9 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
         const outcome = await core.invoke<NativeRestartOutcome>("restart_after_update", {
           generation: restartGeneration,
         });
+        if (outcome === "restarting") {
+          nativeRestartCommittedRef.current = true;
+        }
         settleRestart(outcome);
         // The install promise owns package validity. If it failed while a
         // native confirmation was open, its durable install-failure state must
@@ -684,6 +692,16 @@ export function useDesktopUpdate(options: DesktopUpdateOptions = {}): DesktopUpd
       const nativeRestartSettlement =
         nativeRestartSettlementRef.current as Promise<NativeRestartSettlement> | null;
       const nativeRestartPending = nativeRestartGenerationRef.current !== null;
+      if (nativeRestartCommittedRef.current) {
+        // request_restart() schedules native teardown but does not diverge, so
+        // downloadAndInstall may still reject after the command has returned.
+        // Native shutdown already won; never unlock another package install.
+        logWarn(
+          "[hecate] desktop updater install failed after native restart commit; waiting for restart",
+          err,
+        );
+        return;
+      }
       const cancellation = restartAttemptedRef.current ? await cancelPendingUpdateRestart() : null;
       if (cancellation === "too_late") {
         // Native restart already owns the process lifecycle. Keep the UI
