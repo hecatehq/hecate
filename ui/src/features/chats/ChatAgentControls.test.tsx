@@ -120,14 +120,14 @@ describe("NewChatAgentButton", () => {
       },
     );
     expect(probed.label).toBe("checked");
-    expect(probed.title).toContain("last Cursor Agent diagnostic completed ACP startup");
+    expect(probed.title).toContain("last Cursor Agent check completed ACP startup");
     expect(probed.title).toContain("without sending a prompt");
     expect(probed.title).toContain(
       "first message checks any deferred prompt-serving vendor invocation",
     );
   });
 
-  it("does not let a ready ACP diagnostic hide an explicit sign-in state", () => {
+  it("does not let a ready ACP check hide an explicit sign-in state", () => {
     const result = chatAgentOptionStatus(
       "claude_code",
       makeAdapter({
@@ -149,7 +149,7 @@ describe("NewChatAgentButton", () => {
       ready: true,
     });
     expect(result.title).toContain("Run claude /login");
-    expect(result.title).not.toContain("diagnostic completed ACP startup");
+    expect(result.title).not.toContain("check completed ACP startup");
   });
 
   it.each([
@@ -162,17 +162,17 @@ describe("NewChatAgentButton", () => {
     {
       status: "error",
       stage: "initialize",
-      hint: "The last diagnostic failed.",
+      hint: "The last check failed.",
       expectedLabel: "issue",
     },
     {
       status: "not_installed",
       stage: "resolve",
-      hint: "The executable was missing during the last diagnostic.",
-      expectedLabel: "diagnostic",
+      hint: "The executable was missing during the last check.",
+      expectedLabel: "check",
     },
   ])(
-    "keeps a discovered agent selectable after a cached $status diagnostic",
+    "keeps a discovered agent selectable after a cached $status check",
     ({ status, stage, hint, expectedLabel }) => {
       const result = chatAgentOptionStatus(
         "cursor_agent",
@@ -198,7 +198,7 @@ describe("NewChatAgentButton", () => {
     },
   );
 
-  it("keeps current passive discovery authoritative over a stale ready diagnostic", () => {
+  it("keeps current passive discovery authoritative over a stale ready check", () => {
     const result = chatAgentOptionStatus(
       "cursor_agent",
       makeAdapter({
@@ -311,7 +311,7 @@ describe("NewChatAgentButton", () => {
     expect(onCreate).toHaveBeenCalledWith("codex");
   });
 
-  it("discloses current discovery instead of a stale diagnostic executable", () => {
+  it("discloses current discovery instead of a stale checked executable", () => {
     render(
       <NewChatAgentButton
         value="codex"
@@ -362,7 +362,7 @@ describe("NewChatAgentButton", () => {
     });
   });
 
-  it("does not replace a remembered agent because its cached diagnostic failed", async () => {
+  it("does not replace a remembered agent because its cached check failed", async () => {
     const onChange = vi.fn();
     const onCreate = vi.fn();
     render(

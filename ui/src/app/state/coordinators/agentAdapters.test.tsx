@@ -204,12 +204,35 @@ describe("useAgentAdapterActions", () => {
       diagnosticResult = await diagnostic;
     });
 
-    expect(diagnosticResult).toBeNull();
+    expect(diagnosticResult).toEqual({ ok: true, health: null });
     expect(result.current.providersAndModels.state.agentAdapters[0]).toMatchObject({
       auth_status: "ok",
     });
     expect(result.current.providersAndModels.state.agentAdapterHealthByID.has("codex")).toBe(false);
     expect(notices).toEqual([["success", "External agent sign-in completed."]]);
+  });
+
+  it("keeps an automatic check failure local to the adapter row", async () => {
+    probeAgentAdapterMock.mockRejectedValue(new Error("adapter launch failed"));
+    const notices: Array<[string, string]> = [];
+    const { result } = renderHook(
+      () =>
+        useAgentAdapterActions({
+          setNoticeMessage: (kind, message) => notices.push([kind, message]),
+        }),
+      { wrapper: ReadyWrapper },
+    );
+
+    let checkResult: unknown;
+    await act(async () => {
+      checkResult = await result.current.probeAgentAdapter("codex", {
+        notify: false,
+        refreshCatalog: false,
+      });
+    });
+
+    expect(checkResult).toEqual({ ok: false, error: "adapter launch failed" });
+    expect(notices).toEqual([]);
   });
 
   it("logs out an adapter and atomically replaces stale auth diagnostics", async () => {

@@ -396,6 +396,47 @@ textarea {
   color: var(--t0);
 }
 
+.agent-presets-modal-list-heading {
+  color: var(--t3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  margin: 2px 0 3px;
+  text-transform: uppercase;
+}
+
+.work-policy-intro {
+  color: var(--t2);
+  display: grid;
+  font-size: 12px;
+  gap: 3px;
+  line-height: 1.45;
+}
+
+.work-policy-intro strong,
+.work-policy-section-heading > div {
+  color: var(--t0);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.work-policy-section {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.work-policy-section-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.work-policy-section-heading > span {
+  color: var(--t3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .entity-workspace {
   flex-direction: row;
 }

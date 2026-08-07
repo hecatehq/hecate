@@ -137,7 +137,7 @@ export function presetReferenceSummary(
 ) {
   const references: string[] = [];
   if (project.default_agent_profile === preset.id) {
-    references.push("this project's default preset");
+    references.push("this project's default work policy");
   }
   const roleNames = roles
     .filter((role) => role.default_agent_profile === preset.id)
@@ -146,7 +146,7 @@ export function presetReferenceSummary(
     references.push(`roles ${roleNames.join(", ")}`);
   }
   if (references.length === 0) {
-    return "No current project defaults or roles reference it.";
+    return "No current project defaults or roles reference this work policy.";
   }
   return `Referenced by ${references.join("; ")}. Those references will fall back until changed.`;
 }

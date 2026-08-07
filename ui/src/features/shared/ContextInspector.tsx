@@ -590,7 +590,7 @@ function humanExecutionMode(mode: string): string {
 function humanSectionLabel(section: string): string {
   switch (section) {
     case "profile":
-      return "Agent preset";
+      return "Work policy";
     case "instructions":
       return "Instructions";
     case "skills":

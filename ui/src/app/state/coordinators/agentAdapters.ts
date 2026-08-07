@@ -1,4 +1,4 @@
-// Agent-adapter coordinator: optional diagnostics for external agent adapters.
+// Agent-adapter coordinator: bounded session checks for external agent adapters.
 
 import { useContext } from "react";
 
@@ -15,30 +15,46 @@ export type UseAgentAdapterActionsParams = {
   setNoticeMessage: SettingsActions["setNoticeMessage"];
 };
 
+export type AgentAdapterCheckOptions = {
+  notify?: boolean;
+  refreshCatalog?: boolean;
+};
+
+export type AgentAdapterCheckResult =
+  | { ok: true; health: AgentAdapterHealthRecord | null }
+  | { ok: false; error: string };
+
+type AgentAdapterRefreshOptions = {
+  notify?: boolean;
+};
+
 export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
   const providersAndModels = useProvidersAndModels();
 
-  async function refreshAgentAdapters(): Promise<boolean> {
+  async function refreshAgentAdapters(options: AgentAdapterRefreshOptions = {}): Promise<boolean> {
     const result = await providersAndModels.actions.refreshAgentAdapters();
     if (!result.ok) {
-      params.setNoticeMessage("error", result.error);
+      if (options.notify !== false) params.setNoticeMessage("error", result.error);
       return false;
     }
     return true;
   }
 
-  // probeAgentAdapter exercises the configured adapter and caches the typed
-  // diagnostic keyed by adapter id. Operators trigger it explicitly in
-  // Connections; it annotates status chips but never gates a later chat. The
-  // loading map is keyed by id so two adapters can run concurrently without
-  // confusing the UI.
-  async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
-    const result = await providersAndModels.actions.probeAgentAdapter(adapterID);
+  // probeAgentAdapter opens a short-lived ACP session and caches the typed
+  // result by adapter id. Connections runs it automatically without a global
+  // error notice; an operator retry keeps the same session check explicit.
+  // It annotates status but never gates a later chat.
+  async function probeAgentAdapter(
+    adapterID: string,
+    options: AgentAdapterCheckOptions = {},
+  ): Promise<AgentAdapterCheckResult> {
+    const result = await providersAndModels.actions.probeAgentAdapter(adapterID, {
+      refreshCatalog: options.refreshCatalog,
+    });
     if (!result.ok) {
-      params.setNoticeMessage("error", result.error);
-      return null;
+      if (options.notify !== false) params.setNoticeMessage("error", result.error);
     }
-    return result.health;
+    return result;
   }
 
   async function logoutAgentAdapter(adapterID: string): Promise<boolean> {

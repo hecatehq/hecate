@@ -2761,8 +2761,8 @@ test("Projects supporting surfaces stay read-first at desktop and narrow widths"
   await expect(settings).toBeHidden();
   await expect(projectSettingsButton).toBeFocused();
 
-  await page.getByRole("button", { name: "Agent presets" }).click();
-  const presets = page.getByRole("dialog", { name: "Agent presets" });
+  await page.getByRole("button", { name: "Work policies" }).click();
+  const presets = page.getByRole("dialog", { name: "Work policies" });
   await expect(presets).toBeVisible();
   expect(await presets.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
     true,

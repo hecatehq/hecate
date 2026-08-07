@@ -228,7 +228,7 @@ describe("RolesModal", () => {
     expect(destination).toHaveAccessibleDescription(
       "Track work completed by a person outside Hecate.",
     );
-    fireEvent.change(screen.getByLabelText("Default preset"), {
+    fireEvent.change(screen.getByLabelText("Default work policy"), {
       target: { value: "implementation" },
     });
     await userEvent.click(screen.getByLabelText("Use skill Backend"));

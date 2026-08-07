@@ -148,7 +148,7 @@ export function ChatSettingsPanel({
               </div>
             </ChatSettingsSection>
             {agentPreset && (
-              <ChatSettingsSection title="Agent preset">
+              <ChatSettingsSection title="Work policy">
                 <ChatSettingsAgentPreset preset={agentPreset} />
               </ChatSettingsSection>
             )}
@@ -474,7 +474,7 @@ function ChatSettingsToolsRow({
         <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Tools</div>
         <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
           {lockedByPreset
-            ? "This chat's frozen Agent Preset disables local tools. Messages go directly to the selected provider/model."
+            ? "This chat's frozen work policy disables local tools. Messages go directly to the selected provider/model."
             : effectiveEnabled
               ? "Create or continue a linked Task with tools, approvals, artifacts, and sandboxed tool calls."
               : "Send the next message directly to the selected provider/model. This does not create a Task or use local tools."}
@@ -530,14 +530,14 @@ function ChatSettingsAgentPreset({ preset }: { preset: ChatAgentPresetSnapshotRe
         gap: 6,
       }}
     >
-      <ChatSettingsField label="Preset" value={preset.name || preset.id} />
+      <ChatSettingsField label="Selected policy" value={preset.name || preset.id} />
       <ChatSettingsField label="ID" value={preset.id} mono />
       {preset.execution_profile && (
         <ChatSettingsField label="Profile" value={preset.execution_profile} mono />
       )}
       <ChatSettingsField label="Posture" value={posture} />
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-        Frozen when this chat was created. Later Agent Preset edits or deletion do not change this
+        Frozen when this chat was created. Later work-policy edits or deletion do not change this
         chat or its backing Tasks.
       </div>
     </div>

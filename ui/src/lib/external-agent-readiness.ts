@@ -42,7 +42,7 @@ export function resolveExternalAgentReadiness(
     };
   }
 
-  // Diagnostics describe the last disposable ACP session; they never
+  // A Connections session check describes the last disposable ACP session; it never
   // authorize a later process launch or prove that a deferred prompt-serving
   // vendor process can authenticate and serve a message. Current passive
   // discovery and remote credential posture are the only client-side launch
@@ -154,7 +154,7 @@ export function resolveExternalAgentReadiness(
     return {
       kind: "setup",
       tone: "amber",
-      label: "diagnostic",
+      label: "check failed",
       needsRepair: true,
       launchBlocked,
       loginCommand,
@@ -197,7 +197,7 @@ export function resolveExternalAgentReadiness(
     setupHint,
     signInHint,
     detail:
-      "New chat re-resolves the executable and prepares a fresh ACP session. The first message verifies any deferred prompt-serving vendor invocation and authentication. Diagnostics are optional.",
+      "Hecate checks available agents automatically in Connections. New chat still re-resolves the executable and prepares a fresh ACP session.",
     authStatus,
     authError,
     checkedByProbe,
@@ -222,9 +222,9 @@ export function externalAgentLoginCommand(adapter: AgentAdapterRecord): string {
 export function externalAgentSignInHint(adapter: AgentAdapterRecord): string {
   switch (adapter.id) {
     case "codex":
-      return "Run codex login in Terminal, then retry the chat. Diagnostics in Connections are optional.";
+      return "Run codex login in Terminal, then use Check again or retry the chat.";
     case "claude_code":
-      return "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then retry the chat.";
+      return "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then use Check again or retry the chat.";
     case "cursor_agent":
       return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment, then retry the chat.";
     case "grok_build":

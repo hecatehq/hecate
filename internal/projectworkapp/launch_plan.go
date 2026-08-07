@@ -525,7 +525,7 @@ func AssignmentPrompt(project projects.Project, workItem projectwork.WorkItem, a
 			"- Driver: " + driver,
 			"- Provider: " + provider,
 			"- Model: " + model,
-			"- Agent preset: " + profile,
+			"- Work policy: " + profile,
 			"- Role defaults: " + formatAssignmentHints([]assignmentHint{
 				{"driver", role.DefaultDriverKind},
 				{"provider", role.DefaultProvider},
@@ -550,7 +550,7 @@ func AssignmentSystemPrompt(project projects.Project, role projectwork.AgentRole
 		parts = append(parts, "Project system prompt:\n"+prompt)
 	}
 	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" && !profile.Missing {
-		parts = append(parts, "Agent preset instructions:\n"+instructions)
+		parts = append(parts, "Work policy instructions:\n"+instructions)
 	}
 	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
 		parts = append(parts, "Role instructions:\n"+instructions)

@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// DetectAuthStatus is an explicit diagnostic. Most branches inspect local
-// credential hints, while Claude may run its bounded `auth status` command.
-// Callers must keep it behind an operator-owned execution boundary.
+// DetectAuthStatus supports the bounded Connections session check. Most
+// branches inspect local credential hints, while Claude may run its bounded
+// `auth status` command.
 func DetectAuthStatus(adapter Adapter) (string, string) {
 	switch adapter.ID {
 	case "codex":
@@ -31,7 +31,7 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 			return AuthStatusUnauthenticated, adapterSignInHint(adapter)
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
-			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate verifies CLI auth when Claude Code handles the first message; Connections diagnostics are optional."
+			return AuthStatusUnknown, "Claude Code config is present on disk. Connections checks available agents automatically; Hecate also verifies CLI auth when Claude Code handles the first message."
 		}
 		return AuthStatusUnknown, "Send a message in a Claude Code chat to verify it. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 	case "cursor_agent":

@@ -257,8 +257,9 @@ storage, and operational behavior can still evolve across stable `v0.x.y` releas
   the stored native ACP session where supported.
 - Hecate does not yet authenticate a discovered provider CLI or persist an
   executable fingerprint approval. Catalog discovery is passive and shows the
-  last-discovered path; **Refresh** repeats discovery without execution. **New
-  chat**, **Run diagnostics**, auth/logout, setup discovery, and session launch
+  last-discovered path; **Refresh** repeats discovery without execution. Opening
+  **Connections** automatically runs one no-prompt check for each available
+  agent; **New chat**, **Check again**, auth/logout, setup discovery, and session launch
   resolve the executable again, so the executed path can differ from earlier
   discovery. A local SHA-256 digest alone would detect changed bytes;
   without a signed publisher manifest or attestation it would not prove origin

@@ -387,6 +387,50 @@ describe("probeAgentAdapter", () => {
     });
   });
 
+  it("leaves catalog refresh to a grouped automatic check", async () => {
+    const adapter = {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex",
+      available: true,
+      status: "available",
+      auth_status: "ok",
+      supports_authenticate: true,
+      supports_logout: true,
+    };
+    probeAgentAdapterMock.mockResolvedValueOnce({
+      object: "agent_adapter_probe",
+      data: {
+        adapter,
+        health: {
+          adapter_id: "codex",
+          status: "ready",
+          stage: "ready",
+          duration_ms: 12,
+        },
+      },
+    });
+    function SeededWrapper({ children }: { children: ReactNode }) {
+      return (
+        <ProvidersAndModelsProvider initialState={{ agentAdapters: [adapter] }}>
+          {children}
+        </ProvidersAndModelsProvider>
+      );
+    }
+    const { result } = renderHook(() => useProvidersAndModels(), { wrapper: SeededWrapper });
+
+    await act(async () => {
+      await result.current.actions.probeAgentAdapter("codex", { refreshCatalog: false });
+    });
+
+    expect(probeAgentAdapterMock).toHaveBeenCalledWith("codex");
+    expect(getAgentAdaptersMock).not.toHaveBeenCalled();
+    expect(result.current.state.agentAdapterHealthByID.get("codex")).toMatchObject({
+      status: "ready",
+    });
+  });
+
   it("discards a pre-sign-in diagnostic and lets a fresh diagnostic start", async () => {
     let resolveOldProbe: (value: unknown) => void = () => {};
     let resolveFreshProbe: (value: unknown) => void = () => {};

@@ -293,7 +293,7 @@ export function NewChatAgentButton({
 }
 
 function externalAgentExecutablePath(adapter: AgentAdapterRecord | undefined): string {
-  // Launch disclosure must describe current passive discovery. A diagnostic
+  // Launch disclosure must describe current passive discovery. A prior check
   // path is historical evidence and can differ from the executable that the
   // authoritative chat launch resolves now.
   const path = adapter?.path?.trim() || "";
@@ -447,7 +447,7 @@ export function chatAgentOptionStatus(
     return {
       label: "billing",
       color: "var(--amber)",
-      title: adapterDiagnosticTitle(optionID, adapter, adapter.auth_error),
+      title: adapterCheckTitle(optionID, adapter, adapter.auth_error),
       ready: launchReady,
     };
   }
@@ -467,7 +467,7 @@ export function chatAgentOptionStatus(
     return {
       label: "issue",
       color: "var(--amber)",
-      title: adapterDiagnosticTitle(
+      title: adapterCheckTitle(
         optionID,
         adapter,
         adapter.auth_error || `Auth status: ${adapter.auth_status}`,
@@ -485,17 +485,17 @@ export function chatAgentOptionStatus(
   }
   if (health?.status === "error") {
     return {
-      label: adapterProbeLooksLikeSetupState(health) ? "diagnostic" : "issue",
+      label: adapterProbeLooksLikeSetupState(health) ? "check" : "issue",
       color: "var(--amber)",
-      title: adapterDiagnosticTitle(optionID, adapter, health.hint || health.error),
+      title: adapterCheckTitle(optionID, adapter, health.hint || health.error),
       ready: launchReady,
     };
   }
   if (health?.status === "not_installed") {
     return {
-      label: "diagnostic",
+      label: "check",
       color: "var(--amber)",
-      title: adapterDiagnosticTitle(optionID, adapter, health.hint || health.error),
+      title: adapterCheckTitle(optionID, adapter, health.hint || health.error),
       ready: launchReady,
     };
   }
@@ -550,7 +550,7 @@ function adapterAuthSetupTitle(
   }
   const command = adapterLoginCommand(optionID);
   const action = command
-    ? `Run ${command} in Terminal, then retry the chat. Diagnostics in Connections are optional.`
+    ? `Run ${command} in Terminal, then use Check again in Connections or retry the chat.`
     : `Open Connections to sign in to ${name}.`;
   const cleanDetail = sanitizedAdapterDetail(detail);
   return cleanDetail ? `${action} ${cleanDetail}` : action;
@@ -567,14 +567,14 @@ function adapterRemoteCredentialTitle(
   return cleanDetail ? `${action} ${cleanDetail}` : action;
 }
 
-function adapterDiagnosticTitle(
+function adapterCheckTitle(
   optionID: ChatAgentOptionID,
   adapter: AgentAdapterRecord | undefined,
   detail: string | undefined,
 ): string {
   const name = adapterDisplayName(optionID, adapter);
   const cleanDetail = sanitizedAdapterDetail(detail);
-  const action = `The last ${name} diagnostic needs attention. Starting a chat retries the current ACP launch; use Connections for optional diagnostics.`;
+  const action = `The last ${name} check needs attention. Starting a chat retries the current ACP launch; Connections checks available agents automatically.`;
   return cleanDetail ? `${action} ${cleanDetail}` : action;
 }
 
@@ -625,7 +625,7 @@ function adapterCheckedTitle(
 ): string {
   const name = adapterDisplayName(optionID, adapter);
   const suffix = path ? ` Path: ${path}` : "";
-  return `The last ${name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred prompt-serving vendor invocation and authentication.${suffix}`;
+  return `The last ${name} check completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred prompt-serving vendor invocation and authentication.${suffix}`;
 }
 
 function adapterAvailableTitle(

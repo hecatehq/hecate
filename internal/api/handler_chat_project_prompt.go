@@ -76,7 +76,7 @@ func hecateChatPresetInstructions(session chat.Session) string {
 	if session.AgentPreset.Empty() || strings.TrimSpace(session.AgentPreset.Instructions) == "" {
 		return ""
 	}
-	return "Agent preset instructions:\n" + strings.TrimSpace(session.AgentPreset.Instructions)
+	return "Work policy instructions:\n" + strings.TrimSpace(session.AgentPreset.Instructions)
 }
 
 func (h *Handler) hecateChatTaskSystemPrompt(ctx context.Context, session chat.Session, operatorPrompt string, forceNewTask bool) string {

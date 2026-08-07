@@ -2240,7 +2240,7 @@ describe("ProjectsView index", () => {
     expect(actionLabels[0]).toMatch(/^Project attention/);
     expect(actionLabels.slice(1)).toEqual([
       "Roles",
-      "Agent presets",
+      "Work policies",
       "Project settings",
       "Refresh project work",
     ]);
@@ -6001,7 +6001,7 @@ describe("ProjectsView cockpit", () => {
       name: "Assignment asgn_1 context",
     });
     expect(dialog).toBeTruthy();
-    expect(within(dialog).getByText("Agent preset")).toBeTruthy();
+    expect(within(dialog).getByText("Work policy")).toBeTruthy();
     expect(within(dialog).getByText("Skills")).toBeTruthy();
     expect(within(dialog).getByText("Memory")).toBeTruthy();
     expect(within(dialog).getByText("Project sources")).toBeTruthy();
@@ -8153,7 +8153,7 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(presetAttentionItem);
 
-    expect(await screen.findByRole("dialog", { name: "Agent presets" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Work policies" })).toBeTruthy();
   });
 
   it("surfaces stale and missing linked execution in needs attention", async () => {
@@ -11813,7 +11813,7 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(within(dialog).getByLabelText("Default destination"), {
       target: { value: "hecate_task" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Default preset"), {
+    fireEvent.change(within(dialog).getByLabelText("Default work policy"), {
       target: { value: "implementation" },
     });
     fireEvent.change(within(dialog).getByLabelText("Default provider"), {
@@ -11860,34 +11860,34 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Agent presets" }));
-    const dialog = screen.getByRole("dialog", { name: "Agent presets" });
-    await userEvent.click(within(dialog).getByRole("button", { name: "New preset" }));
-    fireEvent.change(within(dialog).getByLabelText("Preset id"), {
+    await userEvent.click(await screen.findByRole("button", { name: "Work policies" }));
+    const dialog = screen.getByRole("dialog", { name: "Work policies" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "New policy" }));
+    fireEvent.change(within(dialog).getByLabelText("Policy ID"), {
       target: { value: "reviewer" },
     });
     fireEvent.change(within(dialog).getByLabelText("Name"), {
       target: { value: "Reviewer" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Description"), {
+    fireEvent.change(within(dialog).getByLabelText("Purpose"), {
       target: { value: "Reviews implementation assignments." },
     });
-    fireEvent.change(within(dialog).getByLabelText("Instructions"), {
+    fireEvent.change(within(dialog).getByLabelText("Instructions for new work"), {
       target: { value: "Review the diff and surface risks." },
     });
-    fireEvent.change(within(dialog).getByLabelText("Surface"), {
+    fireEvent.change(within(dialog).getByLabelText("Applies to"), {
       target: { value: "hecate_task" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Runtime profile"), {
+    fireEvent.change(within(dialog).getByLabelText("Execution profile"), {
       target: { value: "review" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Provider hint"), {
+    fireEvent.change(within(dialog).getByLabelText("Preferred provider"), {
       target: { value: "ollama" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Model hint"), {
+    fireEvent.change(within(dialog).getByLabelText("Preferred model"), {
       target: { value: "qwen2.5-coder" },
     });
-    await userEvent.click(within(dialog).getByLabelText("Writes allowed"));
+    await userEvent.click(within(dialog).getByLabelText("Allow workspace changes"));
     fireEvent.change(within(dialog).getByLabelText("Approval policy"), {
       target: { value: "require" },
     });
@@ -11898,7 +11898,7 @@ describe("ProjectsView cockpit", () => {
       target: { value: "visible_only" },
     });
     await userEvent.click(await within(dialog).findByLabelText("Use skill Backend"));
-    await userEvent.click(within(dialog).getByRole("button", { name: "Create preset" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create policy" }));
 
     expect(createAgentPreset).toHaveBeenCalledWith({
       id: "reviewer",
@@ -11936,12 +11936,12 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Agent presets" }));
-    const dialog = screen.getByRole("dialog", { name: "Agent presets" });
+    await userEvent.click(await screen.findByRole("button", { name: "Work policies" }));
+    const dialog = screen.getByRole("dialog", { name: "Work policies" });
     fireEvent.change(within(dialog).getByLabelText("Name"), {
       target: { value: "Implementation reviewer" },
     });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Save preset" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save policy" }));
 
     expect(updateAgentPreset).toHaveBeenCalledWith(
       "implementation",
@@ -11953,10 +11953,12 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(await within(dialog).findByRole("button", { name: "Delete preset" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Delete policy" }));
     expect(deleteAgentPreset).not.toHaveBeenCalled();
-    expect(screen.getByText(/Other projects may also reference this global preset/i)).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Delete agent preset" }));
+    expect(
+      screen.getByText(/Other projects may also reference this global work policy/i),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete work policy" }));
     expect(deleteAgentPreset).toHaveBeenCalledWith("implementation");
   });
 
@@ -12717,7 +12719,7 @@ describe("ProjectsView cockpit", () => {
     expect(notice.textContent).toContain('No routable provider reports model "dogfood-model"');
     expect(within(preflight).getByRole("button", { name: "Open project settings" })).toBeTruthy();
     expect(within(preflight).getByRole("button", { name: "Manage roles" })).toBeTruthy();
-    expect(within(preflight).getByRole("button", { name: "Agent presets" })).toBeTruthy();
+    expect(within(preflight).getByRole("button", { name: "Work policies" })).toBeTruthy();
     expect(within(preflight).getByRole("button", { name: "Open Connections" })).toBeTruthy();
     const confirm = within(preflight).getByRole("button", {
       name: "Start assignment",

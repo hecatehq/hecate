@@ -367,14 +367,14 @@ environment.
 Codex and Claude Code use Hecate's built-in Go ACP adapter libraries, which
 launch their vendor CLIs as supervised child processes. Cursor Agent and Grok
 Build expose ACP modes directly in their vendor CLIs.
-Opening Connections performs passive path discovery only. The operator-owned
-**Run diagnostics** action calls `POST
-/hecate/v1/agent-adapters/{id}/probe`, which starts the discovered app and opens
-a disposable ACP session for troubleshooting. It is optional: **New chat**
-re-resolves the executable and prepares the real ACP session. Direct ACP peers
-start during setup. Embedded bridges may run bounded provider discovery during
-setup while deferring their prompt-serving vendor invocation and prompt-time
-auth result until the first message.
+Opening Connections performs passive path discovery, then automatically calls
+`POST /hecate/v1/agent-adapters/{id}/probe` once for each available adapter.
+That short-lived check starts the discovered app and opens a disposable ACP
+session without sending a prompt. **Check again** repeats it after a local
+repair or sign-in. **New chat** still re-resolves the executable and prepares
+the real ACP session. Direct ACP peers start during setup. Embedded bridges may
+run bounded provider discovery during setup while deferring their prompt-serving
+vendor invocation and prompt-time auth result until the first message.
 
 ## Resetting state
 

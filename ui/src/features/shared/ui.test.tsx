@@ -1132,7 +1132,7 @@ describe("AgentAdapterPicker", () => {
     expect(onChange).toHaveBeenCalledWith("claude_code");
   });
 
-  it("shows a stale setup-shaped diagnostic without disabling a discovered adapter", async () => {
+  it("shows a stale setup-shaped check without disabling a discovered adapter", async () => {
     const user = userEvent.setup();
     render(
       <AgentAdapterPicker
@@ -1173,13 +1173,13 @@ describe("AgentAdapterPicker", () => {
     await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
-    expect(within(cursor).getByText("diagnostic")).toBeTruthy();
+    expect(within(cursor).getByText("check")).toBeTruthy();
     expect(within(cursor).queryByText("error")).toBeNull();
     expect(cursor.title).toContain("Install Cursor with Agent support");
     expect(cursor).not.toHaveAttribute("aria-disabled");
   });
 
-  it("does not let a stale ready diagnostic override a missing current executable", async () => {
+  it("does not let a stale ready check override a missing current executable", async () => {
     const user = userEvent.setup();
     render(
       <AgentAdapterPicker
@@ -1298,12 +1298,12 @@ describe("AgentAdapterPicker", () => {
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
     expect(within(cursor).getByText("checked")).toBeTruthy();
-    expect(cursor.title).toContain("last Cursor Agent diagnostic completed ACP startup");
+    expect(cursor.title).toContain("last Cursor Agent check completed ACP startup");
     expect(cursor.title).toContain("without sending a prompt");
     expect(cursor.title).toContain("/Users/test/.local/bin/cursor-agent");
   });
 
-  it("keeps explicit sign-in guidance ahead of a ready ACP diagnostic", async () => {
+  it("keeps explicit sign-in guidance ahead of a ready ACP check", async () => {
     const user = userEvent.setup();
     render(
       <AgentAdapterPicker

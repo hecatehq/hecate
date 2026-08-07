@@ -569,7 +569,7 @@ describe("TaskDetail effective sandbox posture", () => {
     render();
 
     const overview = screen.getByText("Run overview").parentElement!;
-    expect(within(overview).getByText("Agent preset")).toBeTruthy();
+    expect(within(overview).getByText("Work policy")).toBeTruthy();
     expect(within(overview).getByText("review_qa")).toBeTruthy();
     expect(within(overview).getByText("Disabled")).toBeTruthy();
     expect(
@@ -606,7 +606,7 @@ describe("TaskDetail effective sandbox posture", () => {
     render();
 
     const overview = screen.getByText("Run overview").parentElement!;
-    expect(within(overview).queryByText("Agent preset")).toBeNull();
+    expect(within(overview).queryByText("Work policy")).toBeNull();
     expect(within(overview).queryByText("File access")).toBeNull();
     expect(within(overview).queryByText("Network")).toBeNull();
   });

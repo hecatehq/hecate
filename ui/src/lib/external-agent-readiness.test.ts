@@ -92,7 +92,7 @@ describe("resolveExternalAgentReadiness", () => {
       stage: "resolve",
       hint: "The executable was missing during the last diagnostic.",
       expectedKind: "setup",
-      expectedLabel: "diagnostic",
+      expectedLabel: "check failed",
       expectedTone: "amber",
     },
   ])(
@@ -148,7 +148,7 @@ describe("resolveExternalAgentReadiness", () => {
     expect(readiness).toMatchObject({
       kind: "sign_in",
       detail:
-        "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then retry the chat.",
+        "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then use Check again or retry the chat.",
       needsRepair: true,
       launchBlocked: false,
     });
@@ -189,11 +189,8 @@ describe("resolveExternalAgentReadiness", () => {
       launchBlocked: false,
       checkedByProbe: false,
     });
-    expect(readiness.detail).toContain("New chat re-resolves the executable");
-    expect(readiness.detail).toContain(
-      "first message verifies any deferred prompt-serving vendor invocation",
-    );
-    expect(readiness.detail).toContain("Diagnostics are optional");
+    expect(readiness.detail).toContain("Hecate checks available agents automatically");
+    expect(readiness.detail).toContain("New chat still re-resolves the executable");
   });
 
   it("does not let a stale ready diagnostic override current passive discovery", () => {

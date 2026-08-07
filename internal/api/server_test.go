@@ -3918,8 +3918,8 @@ func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
 	if payload.Error.Type != errCodeAgentAdapterUnavailable {
 		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
 	}
-	if payload.Error.OperatorAction != "Retry New chat. If it keeps hanging, optionally run diagnostics in Connections; diagnostics start the app and open a temporary ACP session without sending a prompt." {
-		t.Fatalf("operator action = %q, want optional Connections diagnostic guidance", payload.Error.OperatorAction)
+	if payload.Error.OperatorAction != "Retry New chat. Connections automatically checks available external agents with a temporary no-prompt ACP session; use Check again there if the issue persists." {
+		t.Fatalf("operator action = %q, want automatic Connections check guidance", payload.Error.OperatorAction)
 	}
 	if !runner.prepareHasDeadline {
 		t.Fatal("prepare context did not have a deadline")

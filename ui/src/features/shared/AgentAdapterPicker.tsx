@@ -1,6 +1,6 @@
 // AgentAdapterPicker is the dropdown the chat view uses to switch between
 // registered external-agent adapters. Passive discovery controls whether an
-// adapter can be selected; an on-demand diagnostic is advisory because the
+// adapter can be selected; the latest Connections check is advisory because the
 // real chat setup always resolves the executable and performs a fresh ACP
 // handshake; an embedded vendor process may not start until the first prompt.
 
@@ -14,11 +14,11 @@ import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard"
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
 import { useFloatingMenu } from "./useFloatingMenu";
 
-// adapterPickerDiagnostic combines current passive discovery with the latest
-// optional diagnostic for display. Current discovery and required remote
-// credentials win over stale diagnostics; failed diagnostics remain visible
-// but do not disable a locally available adapter.
-function adapterPickerDiagnostic(
+// adapterPickerCheck combines current passive discovery with the latest
+// Connections check for display. Current discovery and required remote
+// credentials win over stale checks; failed checks remain visible but do not
+// disable a locally available adapter.
+function adapterPickerCheck(
   adapter: AgentAdapterRecord,
   health: AgentAdapterHealthRecord | null | undefined,
 ): { title: string; iconColor: string; chipLabel: string; chipColor: string } {
@@ -84,27 +84,27 @@ function adapterPickerDiagnostic(
           chipColor: "var(--teal)",
         };
       case "auth_required":
-        // Handled above so an auth diagnostic stays ahead of ready-state
+        // Handled above so an auth check stays ahead of ready-state
         // presentation even when adapter metadata and health arrive separately.
         break;
       case "not_installed":
         return {
-          title: adapterDiagnosticTitle(
+          title: adapterCheckTitle(
             adapter,
             health.hint || health.error || `${adapter.name} command was not found`,
           ),
           iconColor: "var(--amber)",
-          chipLabel: "diagnostic",
+          chipLabel: "check",
           chipColor: "var(--amber)",
         };
       case "error":
         return {
-          title: adapterDiagnosticTitle(
+          title: adapterCheckTitle(
             adapter,
-            health.hint || health.error || `${adapter.name} diagnostic failed`,
+            health.hint || health.error || `${adapter.name} check failed`,
           ),
           iconColor: "var(--amber)",
-          chipLabel: adapterProbeLooksLikeSetupState(health) ? "diagnostic" : "issue",
+          chipLabel: adapterProbeLooksLikeSetupState(health) ? "check" : "issue",
           chipColor: "var(--amber)",
         };
     }
@@ -137,7 +137,7 @@ function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): bool
 
 function adapterCheckedTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
   const suffix = path ? ` Path: ${path}` : "";
-  return `The last ${adapter.name} diagnostic completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred prompt-serving vendor invocation and authentication.${suffix}`;
+  return `The last ${adapter.name} check completed ACP startup and session checks without sending a prompt. New chat still prepares a fresh session; the first message checks any deferred prompt-serving vendor invocation and authentication.${suffix}`;
 }
 
 function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): string {
@@ -150,12 +150,12 @@ function adapterAvailableTitle(adapter: AgentAdapterRecord, detail?: string): st
   return detail ? `${detail} ${action}` : action;
 }
 
-function adapterDiagnosticTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `The last ${adapter.name} diagnostic needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred prompt-serving vendor invocation; diagnostics in Connections are optional. ${detail}`;
+function adapterCheckTitle(adapter: AgentAdapterRecord, detail: string): string {
+  return `The last ${adapter.name} check needs attention. New chat prepares a fresh ACP session, and the first message retries any deferred prompt-serving vendor invocation; Connections checks available agents automatically. ${detail}`;
 }
 
 function adapterAdvisoryTitle(adapter: AgentAdapterRecord, detail: string): string {
-  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred prompt-serving vendor invocation; diagnostics in Connections are optional.`;
+  return `${detail} New chat prepares a fresh ${adapter.name} ACP session, and the first message retries any deferred prompt-serving vendor invocation; Connections checks available agents automatically.`;
 }
 
 export function AgentAdapterPicker({
@@ -171,7 +171,7 @@ export function AgentAdapterPicker({
   onChange: (v: string) => void;
   adapters: AgentAdapterRecord[];
   // healthByID is optional; when supplied, each row shows the most recent
-  // advisory diagnostic. It never overrides current passive availability.
+  // advisory check. It never overrides current passive availability.
   healthByID?: Map<string, AgentAdapterHealthRecord>;
   disabled?: boolean;
   disabledReason?: string;
@@ -268,7 +268,7 @@ export function AgentAdapterPicker({
           {adapters.map((adapter) => {
             const health = healthByID?.get(adapter.id);
             const disabled = resolveExternalAgentReadiness(adapter, health ?? null).launchBlocked;
-            const diag = adapterPickerDiagnostic(adapter, health);
+            const diag = adapterPickerCheck(adapter, health);
             return (
               <button
                 type="button"
