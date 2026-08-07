@@ -55,6 +55,17 @@ function DesktopCloudConnectionSettings() {
     return request;
   }, []);
 
+  const refreshStatusAfterCurrent = useCallback(async () => {
+    const observedGeneration = statusRequestGenerationRef.current;
+    const currentRequest = statusRequestInFlightRef.current;
+    if (currentRequest) await currentRequest;
+    // An instance request can discover an expired native session while the
+    // initial account snapshot is still settling. Re-read after that stale
+    // snapshot instead of letting request de-duplication hide the expiry.
+    if (observedGeneration !== statusRequestGenerationRef.current) return;
+    await loadStatus();
+  }, [loadStatus]);
+
   useEffect(() => {
     void loadStatus(true);
     return () => {
@@ -300,7 +311,9 @@ function DesktopCloudConnectionSettings() {
           )}
         </div>
       </section>
-      {signedIn && <DesktopCloudRuntimeSettings onAccountStatusRefresh={loadStatus} />}
+      {signedIn && (
+        <DesktopCloudRuntimeSettings onAccountStatusRefresh={refreshStatusAfterCurrent} />
+      )}
     </>
   );
 }
@@ -421,6 +434,7 @@ function DesktopCloudRuntimeSettings({
   const selectedAction = selectedConnection
     ? selectedConnection.kind === "hosted_runtime" &&
       !selectedConnection.reachable &&
+      selectedConnection.status !== "starting" &&
       selectedConnection.can_start
       ? "start"
       : selectedConnection.reachable

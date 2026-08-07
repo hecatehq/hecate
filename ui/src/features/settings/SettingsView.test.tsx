@@ -625,6 +625,20 @@ describe("SettingsView", () => {
             last_seen_at: null,
           },
           {
+            id: "runtime_starting",
+            kind: "hosted_runtime",
+            org_id: "org_1",
+            project_id: null,
+            name: "Canary",
+            status: "starting",
+            reachable: false,
+            can_start: true,
+            remote_enabled: false,
+            version: null,
+            capabilities: [],
+            last_seen_at: null,
+          },
+          {
             id: "host_online",
             kind: "desktop_host",
             org_id: "org_1",
@@ -685,8 +699,19 @@ describe("SettingsView", () => {
     await user.click(picker);
     expect(screen.getByRole("option", { name: /Production/i })).toBeTruthy();
     expect(screen.getByRole("option", { name: /Staging/i })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Canary/i })).toBeTruthy();
     expect(screen.getByRole("option", { name: /Studio Mac/i })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /Travel Mac/i })).toBeNull();
+
+    await user.click(screen.getByRole("option", { name: /Canary/i }));
+    const starting = within(section).getByRole("button", { name: "Starting…" });
+    expect(starting).toBeDisabled();
+    await user.click(starting);
+    expect(tauriInvokeMock).not.toHaveBeenCalledWith("cloud_runtime_start", {
+      connectionId: "runtime_starting",
+    });
+
+    await user.click(picker);
     await user.click(screen.getByRole("option", { name: /Staging/i }));
     expect(within(section).getByRole("button", { name: "Start Staging" })).toBeTruthy();
 

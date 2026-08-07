@@ -238,10 +238,11 @@ automatically. State lives in the platform data dir:
 - Windows: `%APPDATA%\sh.hecate.app\`
 - Linux: `~/.local/share/sh.hecate.app/`
 
-Open **Settings → Hecate Cloud** to sign in once, then use **Cloud instances**
-to start or open a hosted Hecate or a registered desktop Hecate in an isolated
-app window. Desktops with remote access off remain visible but cannot be
-opened. Account sign-in does not expose this computer: enable the separate
+Open **Settings → Hecate Cloud** to sign in once, then use **Open another
+Hecate** to start or open a controllable instance in an isolated app window.
+The picker shows reachable remote-access computers plus hosted runtimes that
+are online, starting, or startable; stale and disabled computer registrations
+stay hidden. Account sign-in does not expose this computer: enable the separate
 **Remote access** toggle only when you want phones, browsers, or other desktop
 apps to reach its local runtime. Installing the `hec` CLI is not required.
 Remote chats and tasks continue to execute on the selected runtime; Hecate does
