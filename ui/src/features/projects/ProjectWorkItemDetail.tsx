@@ -1818,7 +1818,7 @@ function AssignmentLaunchReadinessNotice({
     },
     {
       key: "profiles",
-      label: "Agent presets",
+      label: "Work policies",
       onClick: repairActions?.onManagePresets,
     },
     {
@@ -2290,7 +2290,7 @@ function projectAssignmentLaunchDraft({
     `- Driver: ${resolvedDriver}`,
     `- Provider: ${firstNonEmpty(provider, "auto")}`,
     `- Model: ${firstNonEmpty(model, "project/runtime default")}`,
-    `- Agent preset: ${firstNonEmpty(resolvedPreset, "none")}`,
+    `- Work policy: ${firstNonEmpty(resolvedPreset, "none")}`,
     `- Role defaults: ${formatHintList([
       ["driver", role?.default_driver_kind],
       ["provider", role?.default_provider],

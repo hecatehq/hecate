@@ -1245,7 +1245,7 @@ export function TaskDetail({
                     ? [["Workflow", "QA · report only"]]
                     : task.agent_preset_id
                       ? [
-                          ["Agent preset", task.agent_preset_id],
+                          ["Work policy", task.agent_preset_id],
                           ...(task.agent_preset_tools_enabled !== undefined
                             ? [["Tools", task.agent_preset_tools_enabled ? "Enabled" : "Disabled"]]
                             : []),

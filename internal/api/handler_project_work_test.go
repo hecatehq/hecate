@@ -3575,7 +3575,7 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 		"Work item:\n- Title: Native assignment start",
 		"Assignment:\n- ID: asgn_start",
 		"Role:\n- Name: Backend engineer",
-		"Execution hints:\n- Driver: hecate_task\n- Provider: anthropic\n- Model: claude-sonnet-4\n- Agent preset: implementation",
+		"Execution hints:\n- Driver: hecate_task\n- Provider: anthropic\n- Model: claude-sonnet-4\n- Work policy: implementation",
 		"Role defaults: provider=anthropic, model=claude-sonnet-4, preset=implementation",
 		"Project defaults: provider=ollama, model=qwen2.5-coder, workspace_mode=in_place",
 		"Request:\nExecute this assignment as a native agent_loop task.",
@@ -5268,7 +5268,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if task.AgentPresetBrowserAllowed == nil || !*task.AgentPresetBrowserAllowed || !reflect.DeepEqual(task.AgentPresetBrowserAllowedOrigins, []string{"https://qa.example.test"}) {
 		t.Fatalf("task browser snapshot = allowed %v origins %v, want enabled role preset evidence", task.AgentPresetBrowserAllowed, task.AgentPresetBrowserAllowedOrigins)
 	}
-	if !strings.Contains(task.SystemPrompt, "Agent preset instructions:\nUse the profile-specific review checklist.") {
+	if !strings.Contains(task.SystemPrompt, "Work policy instructions:\nUse the profile-specific review checklist.") {
 		t.Fatalf("task system prompt = %q, want profile instructions", task.SystemPrompt)
 	}
 
@@ -6114,7 +6114,7 @@ func TestProjectWorkAPI_StartAssignmentFallsBackToProjectDefaults(t *testing.T) 
 	for _, want := range []string{
 		"- Provider: ollama",
 		"- Model: qwen2.5-coder",
-		"- Agent preset: project_review",
+		"- Work policy: project_review",
 		"Role defaults: none",
 		"Project defaults: provider=ollama, model=qwen2.5-coder, preset=project_review, workspace_mode=in_place",
 	} {

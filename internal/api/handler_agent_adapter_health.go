@@ -51,7 +51,8 @@ func (h *Handler) SetAgentAdapterAuthenticate(fn AgentAdapterAuthenticate) {
 // it again and prepares the real ACP session; an embedded bridge may defer the
 // prompt-serving vendor invocation and auth result until the first message,
 // although session setup may run bounded provider discovery. POST
-// /agent-adapters/{id}/probe remains an optional disposable diagnostic.
+// /agent-adapters/{id}/probe runs the disposable session check used by
+// Connections and explicit operator retries.
 //
 // GET /hecate/v1/agent-adapters/{id}/health
 //
@@ -90,7 +91,7 @@ func passiveAgentAdapterHealth(status agentadapters.Status) agentadapters.ProbeR
 	if status.Available {
 		result.Status = agentadapters.ProbeStatusUnverified
 		result.Error = ""
-		result.Hint = "App found. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. POST to the probe endpoint only for optional diagnostics."
+		result.Hint = "App found. Connections checks available agents automatically. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication."
 		return result
 	}
 	if status.AuthStatus == agentadapters.AuthStatusUnauthenticated {

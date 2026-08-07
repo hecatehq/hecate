@@ -152,11 +152,11 @@ describe("ChatSettingsPanel Hecate workspace execution", () => {
       />,
     );
 
-    expect(screen.getByText("Agent preset")).toBeTruthy();
+    expect(screen.getByText("Work policy")).toBeTruthy();
     expect(screen.getByText("Chat review")).toBeTruthy();
     expect(screen.getByText(/Frozen when this chat was created/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Tools off" })).toBeDisabled();
-    expect(screen.getByText(/frozen Agent Preset disables local tools/i)).toBeTruthy();
+    expect(screen.getByText(/frozen work policy disables local tools/i)).toBeTruthy();
   });
 
   it("explains isolated execution and changes the workspace mode", () => {

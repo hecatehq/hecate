@@ -92,14 +92,15 @@ discovery can establish an absolute invocation path and inspect its canonical
 regular target, but path shape, filename, `--version`, auth output, and an ACP
 handshake do not authenticate its publisher. The latter checks already execute
 the candidate, so they are diagnostics rather than security verification.
-Catalog and compatibility health GETs therefore stay passive. Hecate executes
-the candidate only after an explicit operator action such as **New chat**,
-**Run diagnostics**, authentication, or logout. **New chat** performs a fresh
-executable resolution and prepares the real ACP session. Direct ACP agents are
-started during that setup. Embedded bridges may run bounded provider discovery
-during setup while deferring their prompt-serving vendor invocation and
-prompt-time auth result until the first message. The optional diagnostic is not
-a security check or a prerequisite for use.
+Catalog and compatibility health GETs therefore stay passive. Opening
+**Connections** automatically starts each available External Agent once for a
+short-lived, no-prompt ACP check; **Check again**, **New chat**,
+authentication, and logout can also execute the candidate. **New chat**
+performs a fresh executable resolution and prepares the real ACP session.
+Direct ACP agents are started during that setup. Embedded bridges may run
+bounded provider discovery during setup while deferring their prompt-serving
+vendor invocation and prompt-time auth result until the first message. The
+Connections check is not a security check or a prerequisite for use.
 
 A locally computed SHA-256 digest proves byte identity and detects later
 replacement. It proves origin only when the expected digest came from an
@@ -237,7 +238,7 @@ Hecate stores local configuration and operational state on disk.
 - Do not commit `.env`, SQLite databases, Postgres dumps or DSNs, release keys,
   update signing keys, or platform credential files.
 - External agent credentials belong to the underlying CLI account. A fresh
-  chat launch and optional diagnostics can surface auth failures, but Hecate
+  chat launch and the automatic Connections check can surface auth failures, but Hecate
   does not own, proxy, or pool those accounts. See [External
   Agents](../runtime/external-agents.md#credential-and-account-boundaries) for
   credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok

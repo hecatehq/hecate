@@ -332,8 +332,8 @@ export type RuntimeConsoleFixtureActions = {
     value: string | boolean,
   ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
-  refreshAgentAdapters: () => Promise<boolean>;
-  probeAgentAdapter: (adapterID: string) => Promise<unknown>;
+  refreshAgentAdapters: (options?: unknown) => Promise<boolean>;
+  probeAgentAdapter: (adapterID: string, options?: unknown) => Promise<unknown>;
   verifyModelToolSupport: (provider: string, model: string) => Promise<unknown>;
   authenticateAgentAdapter: (adapterID: string) => Promise<boolean>;
   logoutAgentAdapter: (adapterID: string) => Promise<boolean>;
@@ -426,7 +426,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setChatConfigOption: async () => true,
     setHecateRTKEnabled: async () => true,
     refreshAgentAdapters: async () => true,
-    probeAgentAdapter: async () => null,
+    probeAgentAdapter: async () => ({ ok: true, health: null }),
     verifyModelToolSupport: async () => null,
     authenticateAgentAdapter: async () => true,
     logoutAgentAdapter: async () => true,

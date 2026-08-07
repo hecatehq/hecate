@@ -169,7 +169,7 @@ export function ChatSidebar({
       })
       .catch(() => {
         setHecatePresetsError(
-          "Could not load Agent Presets. You can still start a default Hecate Chat.",
+          "Could not load work policies. You can still start a default Hecate Chat.",
         );
       })
       .finally(() => {
@@ -381,10 +381,10 @@ export function ChatSidebar({
                   color: "var(--t3)",
                 }}
               >
-                Agent preset
+                Work policy
                 <select
                   className="input"
-                  aria-label="Agent preset for new Hecate chat"
+                  aria-label="Work policy for new Hecate chat"
                   value={newHecatePresetID}
                   disabled={chatCreating || chatSessionCreateInFlight}
                   onFocus={loadHecatePresets}

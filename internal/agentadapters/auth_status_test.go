@@ -109,9 +109,9 @@ func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "verifies CLI auth when Claude Code handles the first message") ||
-		!strings.Contains(hint, "diagnostics are optional") {
-		t.Fatalf("hint = %q, want first-message verification and optional-diagnostics guidance", hint)
+	if !strings.Contains(hint, "Connections checks available agents automatically") ||
+		!strings.Contains(hint, "verifies CLI auth when Claude Code handles the first message") {
+		t.Fatalf("hint = %q, want Connections-check and first-message verification guidance", hint)
 	}
 }
 

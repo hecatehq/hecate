@@ -157,7 +157,7 @@ export function RolesModal({
           )}
         </label>
         <label style={presetRoleFieldStyle}>
-          <span style={presetRoleFieldLabelStyle}>Default preset</span>
+          <span style={presetRoleFieldLabelStyle}>Default work policy</span>
           <select
             className="input"
             value={form.defaultAgentPreset}

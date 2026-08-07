@@ -1060,7 +1060,7 @@ export function ProjectsView({
       setAgentPresetsError("");
     } catch (error) {
       if (cancelled?.()) return;
-      setAgentPresetsError(errorMessage(error, "Failed to load agent presets."));
+      setAgentPresetsError(errorMessage(error, "Failed to load work policies."));
     }
   }, []);
 
@@ -2098,7 +2098,7 @@ export function ProjectsView({
       void refreshProjectOverview(selectedProjectID);
       return payload.data;
     } catch (error) {
-      setPresetsError(errorMessage(error, "Failed to create agent preset."));
+      setPresetsError(errorMessage(error, "Failed to create work policy."));
       return undefined;
     } finally {
       setPresetsPending(false);
@@ -2116,7 +2116,7 @@ export function ProjectsView({
       void refreshProjectOverview(selectedProjectID);
       return payload.data;
     } catch (error) {
-      setPresetsError(errorMessage(error, "Failed to update agent preset."));
+      setPresetsError(errorMessage(error, "Failed to update work policy."));
       return undefined;
     } finally {
       setPresetsPending(false);
@@ -2132,7 +2132,7 @@ export function ProjectsView({
       void refreshProjectOverview(selectedProjectID);
       return true;
     } catch (error) {
-      setPresetsError(errorMessage(error, "Failed to delete agent preset."));
+      setPresetsError(errorMessage(error, "Failed to delete work policy."));
       return false;
     } finally {
       setPresetsPending(false);
@@ -4683,8 +4683,8 @@ function ProjectHeader({
           <button
             className="btn btn-ghost btn-sm"
             type="button"
-            aria-label="Agent presets"
-            title="Agent presets"
+            aria-label="Work policies"
+            title="Work policies"
             onClick={onManagePresets}
             disabled={!project}
             style={projectHeaderActionButtonStyle}

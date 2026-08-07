@@ -81,10 +81,10 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.type(screen.getByLabelText("Preset id"), "implementation");
+    await userEvent.type(screen.getByLabelText("Policy ID"), "implementation");
     await userEvent.type(screen.getByLabelText("Name"), "Implementation");
     await userEvent.click(screen.getByLabelText("Use skill Backend"));
-    await userEvent.click(screen.getByRole("button", { name: "Create preset" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create policy" }));
 
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -121,13 +121,16 @@ describe("AgentPresetsModal", () => {
     expect(selectedPreset).toHaveAttribute("aria-pressed", "true");
     expect(selectedPreset).not.toHaveClass("btn-primary");
     expect(
-      screen.getByRole("dialog", { name: "Agent presets" }).querySelectorAll(".btn-primary"),
+      screen.getByRole("dialog", { name: "Work policies" }).querySelectorAll(".btn-primary"),
     ).toHaveLength(1);
 
     await userEvent.clear(screen.getByLabelText("Name"));
     await userEvent.type(screen.getByLabelText("Name"), "Implementation lead");
-    await userEvent.type(screen.getByLabelText("Instructions"), "Ship the scoped change.");
-    await userEvent.click(screen.getByRole("button", { name: "Save preset" }));
+    await userEvent.type(
+      screen.getByLabelText("Instructions for new work"),
+      "Ship the scoped change.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save policy" }));
 
     expect(onUpdate).toHaveBeenCalledWith(
       "implementation",
@@ -156,27 +159,27 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.type(screen.getByLabelText("Preset id"), "browser-review");
+    await userEvent.type(screen.getByLabelText("Policy ID"), "browser-review");
     await userEvent.type(screen.getByLabelText("Name"), "Browser review");
-    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.click(screen.getByLabelText("Allow browser evidence"));
 
     expect(screen.getByLabelText("Allowed browser origins")).toBeInTheDocument();
     expect(screen.getByText(/Add at least one exact origin/i)).toHaveAttribute("role", "alert");
-    expect(screen.getByRole("button", { name: "Create preset" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create policy" })).toBeDisabled();
 
     await userEvent.type(
       screen.getByLabelText("Allowed browser origins"),
       "https://app.example.test",
     );
-    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.click(screen.getByLabelText("Allow browser evidence"));
     expect(screen.queryByLabelText("Allowed browser origins")).toBeNull();
-    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.click(screen.getByLabelText("Allow browser evidence"));
     expect(screen.getByLabelText("Allowed browser origins")).toHaveValue("");
     await userEvent.type(
       screen.getByLabelText("Allowed browser origins"),
       "https://app.example.test",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Create preset" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create policy" }));
 
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -208,9 +211,9 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.type(screen.getByLabelText("Preset id"), "browser-review");
+    await userEvent.type(screen.getByLabelText("Policy ID"), "browser-review");
     await userEvent.type(screen.getByLabelText("Name"), "Browser review");
-    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.click(screen.getByLabelText("Allow browser evidence"));
     await userEvent.type(
       screen.getByLabelText("Allowed browser origins"),
       "https://app.example.test/",
@@ -219,7 +222,7 @@ describe("AgentPresetsModal", () => {
     expect(screen.getByText(/Browser runtime unavailable/i)).toHaveTextContent(
       "Set HECATE_TASK_BROWSER_EXECUTABLE",
     );
-    expect(screen.getByRole("button", { name: "Create preset" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create policy" })).toBeEnabled();
   });
 
   it("rejects malformed browser origins in the form before save", async () => {
@@ -238,19 +241,19 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.type(screen.getByLabelText("Preset id"), "browser-review");
+    await userEvent.type(screen.getByLabelText("Policy ID"), "browser-review");
     await userEvent.type(screen.getByLabelText("Name"), "Browser review");
-    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.click(screen.getByLabelText("Allow browser evidence"));
     const origins = screen.getByLabelText("Allowed browser origins");
     await userEvent.type(origins, "https://operator:secret@app.example.test/path?token=secret");
 
     expect(screen.getByRole("alert")).toHaveTextContent("Use exact http(s) origins only");
-    expect(screen.getByRole("button", { name: "Create preset" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create policy" })).toBeDisabled();
     expect(origins).toHaveAttribute("aria-invalid", "true");
 
     await userEvent.clear(origins);
     await userEvent.type(origins, "https://app.example.test/");
-    expect(screen.getByRole("button", { name: "Create preset" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create policy" })).toBeEnabled();
   });
 
   it("keeps browser evidence unavailable for an external-agent-only preset", async () => {
@@ -269,8 +272,8 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.selectOptions(screen.getByLabelText("Surface"), "external_agent");
-    expect(screen.getByLabelText("Browser evidence allowed")).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText("Applies to"), "external_agent");
+    expect(screen.getByLabelText("Allow browser evidence")).toBeDisabled();
     expect(
       screen.getByText(/External Agents and Hecate Chat do not receive browser evidence/i),
     ).toBeInTheDocument();
@@ -292,14 +295,14 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.click(screen.getByLabelText("Browser evidence allowed"));
+    await userEvent.click(screen.getByLabelText("Allow browser evidence"));
     await userEvent.type(
       screen.getByLabelText("Allowed browser origins"),
       "https://app.example.test",
     );
-    await userEvent.click(screen.getByLabelText("Tools enabled"));
+    await userEvent.click(screen.getByLabelText("Allow tools"));
 
-    expect(screen.getByLabelText("Browser evidence allowed")).toBeDisabled();
+    expect(screen.getByLabelText("Allow browser evidence")).toBeDisabled();
     expect(screen.queryByLabelText("Allowed browser origins")).toBeNull();
     expect(screen.getByText(/Enable Tools to configure browser evidence/i)).toBeInTheDocument();
   });
@@ -328,9 +331,9 @@ describe("AgentPresetsModal", () => {
     );
 
     expect(screen.getAllByText("built-in").length).toBeGreaterThan(0);
-    expect(screen.getByText("Built-in preset")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save preset" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete preset" })).not.toBeInTheDocument();
+    expect(screen.getByText("Built-in policy")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save policy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete policy" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toBeDisabled();
     expect(screen.getByLabelText("Use skill Backend")).toBeDisabled();
   });
@@ -381,15 +384,15 @@ describe("AgentPresetsModal", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete preset" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete policy" }));
 
     expect(
       screen.getByText(
-        /Referenced by this project's default preset; roles Developer\. Those references will fall back until changed\./,
+        /Referenced by this project's default work policy; roles Developer\. Those references will fall back until changed\./,
       ),
     ).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete agent preset" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete work policy" }));
 
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: "implementation" }));
   });

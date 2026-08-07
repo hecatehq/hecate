@@ -252,7 +252,7 @@ export function ProjectSettingsPanel({
                 <div style={fieldStyle}>
                   <span style={fieldLabelStyle}>Agent behavior</span>
                   <select
-                    aria-label="Default agent preset"
+                    aria-label="Default work policy"
                     className="input"
                     value={form.defaultAgentPreset}
                     onChange={(event) =>

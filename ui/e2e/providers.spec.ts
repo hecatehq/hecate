@@ -46,11 +46,19 @@ test("empty state shows the placeholder and an Add provider CTA", async ({ page 
   await expect(page.getByRole("button", { name: /add provider/i }).first()).toBeVisible();
 });
 
-test("passive external-agent refresh discovers a repaired install without probing", async ({
-  page,
-}) => {
+test("discovery refresh checks a newly available external agent once", async ({ page }) => {
   let catalogReads = 0;
-  let probeCalls = 0;
+  const checkedAdapterIDs: string[] = [];
+  const codex = MOCK_AGENT_ADAPTERS[0]!;
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && path.startsWith("/hecate/v1/agent-adapters/")) {
+      checkedAdapterIDs.push(path.split("/")[4] ?? "");
+    }
+  });
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page);
+  await page.unroute("/hecate/v1/agent-adapters*");
   await page.route("/hecate/v1/agent-adapters*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -77,20 +85,49 @@ test("passive external-agent refresh discovers a repaired install without probin
       return;
     }
     if (request.method() === "POST" && path.endsWith("/probe")) {
-      probeCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          object: "agent_adapter_probe",
+          data: {
+            adapter: {
+              ...codex,
+              available: true,
+              status: "available",
+              error: "",
+              path: "/Applications/Codex.app/Contents/Resources/codex",
+            },
+            health: {
+              adapter_id: "codex",
+              status: "ready",
+              stage: "ready",
+              path: "/Applications/Codex.app/Contents/Resources/codex",
+              duration_ms: 10,
+            },
+          },
+        }),
+      });
+      return;
     }
     await route.fallback();
   });
 
-  await page
-    .getByRole("button", { name: "Refresh external-agent discovery without starting agents" })
-    .click();
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
+  await expectConnectionsWorkspace(page);
 
   await expect(page.getByTestId("external-agents-adapter-codex")).toContainText(
     "last discovered path /Applications/Codex.app/Contents/Resources/codex",
   );
-  expect(catalogReads).toBe(1);
-  expect(probeCalls).toBe(0);
+  await expect.poll(() => checkedAdapterIDs).toEqual(["codex"]);
+  expect(catalogReads).toBeGreaterThanOrEqual(1);
+
+  // Passive rediscovery should not start another short-lived ACP session for
+  // this panel visit; the existing check remains sufficient until Check again.
+  await page.getByRole("button", { name: "Refresh external-agent discovery" }).click();
+  await expect.poll(() => checkedAdapterIDs).toEqual(["codex"]);
 });
 
 test("readiness repair card opens a blocked provider from Connections", async ({ page }) => {

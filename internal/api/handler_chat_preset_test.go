@@ -101,7 +101,7 @@ func TestHecateChatSession_AgentPresetSnapshotsHintsAndToolsOff(t *testing.T) {
 		t.Fatalf("provider request messages = %#v, want system and user messages", request.Messages)
 	}
 	for _, want := range []string{
-		"Agent preset instructions:\nInspect before proposing changes.",
+		"Work policy instructions:\nInspect before proposing changes.",
 		"Operator system prompt:\nKeep it concise.",
 	} {
 		if !strings.Contains(request.Messages[0].Content, want) {

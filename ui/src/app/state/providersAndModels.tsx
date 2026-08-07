@@ -77,6 +77,13 @@ export type ProbeAdapterResult =
   | { ok: true; health: AgentAdapterHealthRecord | null }
   | { ok: false; error: string };
 
+export type ProbeAgentAdapterOptions = {
+  // Connections checks several adapters together. Their individual probe
+  // results still update the local projection, while one follow-up catalog
+  // refresh updates passive discovery for the whole set.
+  refreshCatalog?: boolean;
+};
+
 export type RefreshAgentAdaptersResult =
   | { ok: true; adapters: AgentAdapterRecord[] }
   | { ok: false; error: string };
@@ -103,7 +110,10 @@ export type ProvidersAndModelsActions = {
   loadAgentAdapterCatalog: () => Promise<AgentAdapterResponse>;
   refreshProviders: () => Promise<void>;
   refreshAgentAdapters: () => Promise<RefreshAgentAdaptersResult>;
-  probeAgentAdapter: (adapterID: string) => Promise<ProbeAdapterResult>;
+  probeAgentAdapter: (
+    adapterID: string,
+    options?: ProbeAgentAdapterOptions,
+  ) => Promise<ProbeAdapterResult>;
   verifyModelToolSupport: (
     provider: string,
     model: string,
@@ -421,7 +431,10 @@ export function ProvidersAndModelsProvider({
   }, [loadAgentAdapterCatalog]);
 
   const probeAgentAdapter = useCallback(
-    async (adapterID: string): Promise<ProbeAdapterResult> => {
+    async (
+      adapterID: string,
+      options: ProbeAgentAdapterOptions = {},
+    ): Promise<ProbeAdapterResult> => {
       if (!adapterID) return { ok: false, error: "Adapter id required to probe." };
       const inFlight = probeAgentAdapterInFlightRef.current.get(adapterID);
       if (inFlight) return inFlight;
@@ -449,12 +462,14 @@ export function ProvidersAndModelsProvider({
                   : item,
               ),
           });
-          const catalogRefresh = await refreshAgentAdapters();
-          if (!catalogRefresh.ok) {
-            warn("agentAdapters.refreshAfterDiagnostic.failed", {
-              adapterID,
-              err: catalogRefresh.error,
-            });
+          if (options.refreshCatalog !== false) {
+            const catalogRefresh = await refreshAgentAdapters();
+            if (!catalogRefresh.ok) {
+              warn("agentAdapters.refreshAfterDiagnostic.failed", {
+                adapterID,
+                err: catalogRefresh.error,
+              });
+            }
           }
           return { ok: true, health: payload.data.health };
         } catch (error) {

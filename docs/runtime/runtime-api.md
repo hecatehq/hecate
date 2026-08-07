@@ -279,7 +279,7 @@ type while preserving the status and remediation fields.
 - [Usage endpoints](#usage-endpoints)
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
 - [Plugin registry endpoints](#plugin-registry-endpoints)
-- [Agent Preset endpoints](#agent-preset-endpoints)
+- [Work policy endpoints](#work-policy-endpoints)
 - [Project endpoints](#project-endpoints)
 - [Project Assistant endpoints](#project-assistant-endpoints)
 - [Chat session endpoints](#chat-session-endpoints)
@@ -1795,9 +1795,9 @@ GET /hecate/v1/agent-adapters
 ```
 
 `adapter_version` and `agent_version` are omitted from the catalog response.
-They are populated by the optional diagnostic response after Hecate starts the
-ACP adapter. `version_outside_range` remains `false` until a diagnostic version
-is known to fall outside `supported_range`.
+They are populated by the Connections check after Hecate starts the ACP adapter.
+`version_outside_range` remains `false` until a checked version is known to fall
+outside `supported_range`.
 
 `embedded=true` means the ACP server implementation is compiled into Hecate;
 `command` and `path` then identify the vendor CLI that implementation launches.
@@ -1808,9 +1808,9 @@ process Hecate supervises.
 runtime override can classify it without spawning a CLI. **New chat** prepares
 the fresh ACP session. An embedded bridge may run bounded provider discovery
 during setup; the first message checks prompt-time auth when the bridge defers
-its prompt-serving vendor invocation. Use the optional `POST
-/hecate/v1/agent-adapters/{id}/probe` diagnostic when Connections needs a
-standalone login / billing classification, but do not infer verified vendor auth
+its prompt-serving vendor invocation. Connections automatically calls `POST
+/hecate/v1/agent-adapters/{id}/probe` for each available agent; **Check again**
+repeats that standalone login / billing check. Do not infer verified vendor auth
 from `health.status=ready` alone.
 
 `supports_authenticate` and `supports_logout` tell clients whether Hecate can
@@ -1831,8 +1831,8 @@ handoff, config options, terminal callbacks, authenticate, and logout. Capabilit
 | `operator_opt_in`   | Hecate supports the surface only behind an explicit operator setting.     |
 | `not_supported`     | Hecate should not show or invoke this surface.                            |
 
-Diagnostic results describe the live ACP `Initialize` features of the
-disposable session they created. For example, a diagnostic can turn
+Check results describe the live ACP `Initialize` features of the disposable
+session they created. For example, a check can turn
 `supports_authenticate` or `supports_logout` off for its result even when the
 catalog expected them. It does not authorize or block a later chat; the real
 session's fresh initialization is authoritative for that session.
@@ -1872,34 +1872,36 @@ before failing closed. This is not hard sandboxing of arbitrary wrappers,
 generated code, custom binaries, or external supervisors.
 
 `config_options` are omitted from the passive catalog response. Hecate returns
-Hecate-managed launch controls on optional diagnostic projections and returns
+Hecate-managed launch controls on automatic Connections check projections and returns
 agent-owned controls on prepared chat sessions, where it is acceptable to run
 the adapter's help/model discovery or consume the ACP session's own controls.
 Values prefixed with `__hecate_no_` are explicit "not selected" sentinels. No
 current built-in requires a pre-session launch control. The request validator
 can return `400 chat.model_required` for a registered required launch option,
 but a built-in must not introduce one until Hecate exposes its schema through a
-passive endpoint; optional diagnostics cannot be a prerequisite for use.
+passive endpoint; a completed Connections check cannot be a prerequisite for use.
 Agent-owned ACP model state appears on the prepared chat session and is updated
 with ACP `session/set_model`.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
-Runs an optional, disposable ACP session diagnostic. It re-runs discovery for
-one adapter, starts a direct peer or embedded bridge, performs ACP `Initialize`,
-and creates a temporary session without sending a prompt. Provider-specific
-version or auth-status classification may also execute the discovered app, but
-an embedded bridge may still defer its prompt-serving vendor invocation beyond
-this diagnostic. `data.health` is evidence from the disposable ACP attempt;
+Runs a disposable ACP session check. Connections calls it once for each
+available adapter and **Check again** calls it after a repair or sign-in. It
+re-runs discovery for one adapter, starts a direct peer or embedded bridge,
+performs ACP `Initialize`, and creates a temporary session without sending a
+prompt. Provider-specific version or auth-status classification may also
+execute the discovered app, but an embedded bridge may still defer its
+prompt-serving vendor invocation beyond this check. `data.health` is evidence
+from the disposable ACP attempt;
 `health.path` is the path that attempt used. `data.adapter` is a separately
 re-resolved diagnostic projection that combines full status, versions, launch
 controls, and the probe's auth/capability classification. Its `path`, `status`,
 or `error` can differ if discovery changes during the request and must not be
 treated as process-bound evidence. Hecate's UI then re-reads the passive catalog
 with `GET /hecate/v1/agent-adapters` before changing any launch gate or
-last-discovered path, so the diagnostic itself never becomes launch authority.
-It can retain diagnostic-only versions, auth/capability evidence, and
-`config_options` beside the cached diagnostic while replacing launch
+last-discovered path, so the check itself never becomes launch authority. It
+can retain check-only versions, auth/capability evidence, and `config_options`
+beside the cached check while replacing launch
 availability, status, error, path, and remote-credential fields from the passive
 response. Operators can also trigger that passive refresh without starting an
 agent.
@@ -1909,9 +1911,9 @@ authority. Starting an External Agent chat independently resolves the current
 executable, performs a fresh `Initialize`, and creates the real session. Direct
 ACP peers start during setup. An embedded bridge may run bounded provider
 discovery, while the first message remains authoritative for a prompt-serving
-vendor invocation or auth result deferred by that bridge. Clients should invoke
-the diagnostic only after an explicit operator action, label it as optional,
-and show the catalog `path` before that action.
+vendor invocation or auth result deferred by that bridge. Connections invokes
+the check automatically for available adapters; clients may expose **Check
+again** after a repair and should show the catalog `path` before execution.
 Treat that path as last-discovered evidence rather than a pinned launch target:
 chat creation resolves the executable again.
 
@@ -1997,7 +1999,7 @@ GET /hecate/v1/agent-adapters/codex/health
     "status": "unverified",
     "stage": "lookup",
     "path": "/Users/alice/.local/bin/codex",
-    "hint": "App found. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication. POST to the probe endpoint only for optional diagnostics.",
+    "hint": "App found. Connections checks available agents automatically. New chat re-resolves it and prepares a fresh ACP session; the first message verifies any deferred prompt-serving vendor invocation and authentication.",
     "supports_authenticate": false,
     "supports_logout": false,
     "supports_load_session": false,
@@ -2242,17 +2244,18 @@ Hecate-owned requirement for approval.
 unsupported permissions, unresolved secret-binding requests, disabled
 capabilities, and slash-command collisions. It does not call external services.
 
-## Agent preset endpoints
+## Work policy endpoints
 
-Agent presets are reusable Hecate runtime postures for project work, Hecate
-Chat, Chat-origin Task Runs, and External Agent launches. They describe defaults and
-constraints such as instructions, surface, provider/model hints, tool/write/
-network posture, optional native browser-evidence posture, approval policy,
-project-memory policy, context-source policy, skill ids, and external-agent
-options. `skill_ids` resolve against the selected project's skills registry
-when project work starts. Hecate snapshots resolved/skipped skill metadata and
-warnings into the context packet, but it does not install skills, execute
-scripts, grant tools, or inject `SKILL.md` bodies from an agent preset.
+Work policies are reusable Hecate launch postures for project work, Hecate
+Chat, Chat-origin Task Runs, and External Agent launches. The stable API uses
+the `agent_presets` resource name, but operators use a work policy to select
+instructions, intended surface, provider/model hints, and the allowed tool,
+workspace-write, network, browser-evidence, approval, memory, context, skill,
+and External Agent posture. `skill_ids` resolve against the selected project's
+skills registry when project work starts. Hecate snapshots resolved/skipped
+skill metadata and warnings into the context packet, but it does not install
+skills, execute scripts, grant tools, or inject `SKILL.md` bodies from a work
+policy.
 
 Hecate also exposes an immutable built-in preset catalog. Built-ins are
 returned by list/get requests with `built_in: true`, can be selected by project
@@ -4981,12 +4984,12 @@ fresh ACP `Initialize`, and starts or restores the native ACP session
 immediately. Direct ACP peers launch during this setup. Embedded command bridges
 may run bounded provider discovery while deferring their prompt-serving vendor
 invocation and prompt-time auth result until the first message. A prior
-diagnostic probe is neither required nor trusted as launch authority. Clients
-may include `config_options` selected from the latest explicit diagnostic
-projection when it exposes Hecate-managed launch controls; the passive catalog
-does not expose those controls. No current built-in requires one before session
-creation. A future required launch control must have a passive schema path
-before adoption so a diagnostic never becomes prerequisite.
+Connections check is neither required nor trusted as launch authority. Clients
+may include `config_options` selected from the latest check projection when it
+exposes Hecate-managed launch controls; the passive catalog does not expose
+those controls. No current built-in requires one before session creation. A
+future required launch control must have a passive schema path before adoption
+so a check never becomes prerequisite.
 Hecate validates that any required Hecate-managed launch selection is present,
 then uses matching launch-option values when starting the agent process. After
 the ACP session exists, agent-owned `config_options` are returned

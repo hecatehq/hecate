@@ -19,9 +19,8 @@ var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z._-]+)*`)
 // test binary mutates this var in `version_test.go`'s init() to
 // stay independent of CI subprocess-startup jitter.
 //
-// 5 s is generous on purpose. Probe runs are pre-flight — an
-// operator explicitly clicked the adapter's Run diagnostics action;
-// latency is surfaced in the UI as "diagnosing…" while the request
+// 5 s is generous on purpose. Probe runs are short-lived Connections
+// checks — the UI surfaces "checking…" while the request
 // is in flight, so a few seconds of overhead is acceptable.
 // Earlier values (2 s, then 5 s) flaked on CI under -race +
 // parallel-suite load: race-mode adds 2-20× CPU overhead, and

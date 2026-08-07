@@ -145,7 +145,7 @@ describe("ChatSidebar new-chat creation", () => {
     );
 
     const presetSelect = screen.getByRole("combobox", {
-      name: "Agent preset for new Hecate chat",
+      name: "Work policy for new Hecate chat",
     });
     expect(mockedGetAgentPresets).not.toHaveBeenCalled();
     fireEvent.focus(presetSelect);
