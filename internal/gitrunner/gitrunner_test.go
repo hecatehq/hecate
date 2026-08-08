@@ -1981,7 +1981,7 @@ func TestReadOnlyViewSnapshotsSafeCoreConfig(t *testing.T) {
 	}
 }
 
-func TestLocalRunner_SnapshotReviewSuppressesSafeCRLFRoundTripDiagnostics(t *testing.T) {
+func TestLocalRunner_SnapshotReviewAndReverseApplyPreserveCRLFWorktree(t *testing.T) {
 	dir := initRepo(t)
 	runner := NewLocalRunner()
 	for key, value := range map[string]string{
@@ -1992,7 +1992,15 @@ func TestLocalRunner_SnapshotReviewSuppressesSafeCRLFRoundTripDiagnostics(t *tes
 			t.Fatalf("configure %s: %v: %s", key, err, result.Stderr)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\nchanged\n"), 0o644); err != nil {
+	path := filepath.Join(dir, "README.md")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runner.Run(t.Context(), dir, "checkout", "--", "README.md"); err != nil {
+		t.Fatalf("checkout CRLF baseline: %v: %s", err, result.Stderr)
+	}
+	assertFileContent(t, path, "hello\r\n")
+	if err := os.WriteFile(path, []byte("hello\r\nchanged\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2001,14 +2009,22 @@ func TestLocalRunner_SnapshotReviewSuppressesSafeCRLFRoundTripDiagnostics(t *tes
 		t.Fatalf("SnapshotReview: %v", err)
 	}
 	if !strings.Contains(snapshot.Unstaged.Diff, "+changed") {
-		t.Fatalf("review = %+v, want LF worktree change", snapshot)
+		t.Fatalf("review = %+v, want CRLF worktree change", snapshot)
 	}
 	discard, err := runner.SnapshotDiff(t.Context(), dir, 64*1024)
 	if err != nil {
 		t.Fatalf("SnapshotDiff: %v", err)
 	}
 	if !strings.Contains(discard.Diff, "+changed") {
-		t.Fatalf("discard snapshot = %+v, want LF worktree change", discard)
+		t.Fatalf("discard snapshot = %+v, want CRLF worktree change", discard)
+	}
+	if _, err := runner.ReverseApplySnapshot(t.Context(), dir, discard, []string{"README.md"}); err != nil {
+		t.Fatalf("ReverseApplySnapshot: %v", err)
+	}
+	assertFileContent(t, path, "hello\r\n")
+	status, err := runner.StatusPorcelain(t.Context(), dir, 64*1024)
+	if err != nil || status != "" {
+		t.Fatalf("status after CRLF reverse apply = %q, %v, want clean", status, err)
 	}
 }
 
