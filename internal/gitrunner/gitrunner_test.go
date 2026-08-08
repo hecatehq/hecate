@@ -31,6 +31,11 @@ func initRepo(t *testing.T) string {
 	if err := exec.Command("git", "-C", dir, "init", "-b", "main").Run(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
+	// Test repositories must not inherit the host runner's line-ending policy.
+	// Individual conversion tests opt back in explicitly.
+	if err := exec.Command("git", "-C", dir, "config", "core.autocrlf", "false").Run(); err != nil {
+		t.Fatalf("git config core.autocrlf: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -1354,7 +1359,7 @@ func TestLocalRunner_ReverseApplySnapshotRejectsReplacedWorkspaceRoot(t *testing
 		t.Fatal(err)
 	}
 	moved := filepath.Join(parent, "original")
-	runner.beforeReverseApply = func() {
+	replaceWorkspace := func() {
 		if err := os.Rename(dir, moved); err != nil {
 			t.Fatal(err)
 		}
@@ -1377,6 +1382,14 @@ func TestLocalRunner_ReverseApplySnapshotRejectsReplacedWorkspaceRoot(t *testing
 		if err := os.WriteFile(replacement, []byte("reviewed change\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if runtime.GOOS == "windows" {
+		// ReverseApplySnapshot holds the Git index directory handle and lock file
+		// on Windows, preventing an in-flight parent rename. Replace it before entry
+		// to cover stale-root rejection; Unix keeps the stronger race injection.
+		replaceWorkspace()
+	} else {
+		runner.beforeReverseApply = replaceWorkspace
 	}
 
 	_, err = runner.ReverseApplySnapshot(context.Background(), dir, snapshot, []string{"README.md"})
