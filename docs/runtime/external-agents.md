@@ -310,8 +310,8 @@ disposable session advertised, but it is not launch authority for a later chat.
 | `logout`            | `supported` for Codex and Claude Code, otherwise `adapter_dependent` | Calls ACP `auth.logout` only when the live adapter advertises logout.                                                                                                      |
 
 Connections renders this matrix as compact chips on each adapter row. If a
-diagnostic probe succeeds, its ACP `Initialize` capabilities override the
-static login and logout expectation for that diagnostic row so the UI does not
+Connections check succeeds, its ACP `Initialize` capabilities override the
+static login and logout expectation for that checked row so the UI does not
 show actions the inspected session did not advertise. A subsequent chat still
 uses the capabilities from its own fresh initialization.
 
@@ -441,11 +441,12 @@ agent runtime, while authentication and billing stay with the provider.
    after initial session and model/config setup succeeds, that buffer is zeroed
    and later stderr is discarded before a prompt can carry file data.
 7. If chat creation or the first message fails, or the agent row shows a
-   previous diagnostic issue, open **Connections** and optionally choose **Run
-   diagnostics**. It opens a temporary ACP session and may execute the selected
-   app to classify common auth, billing/subscription, version, and launch
-   failures. It is a troubleshooting tool, not a prerequisite for **New chat**
-   or the first message, and not a security verification of the executable.
+   previous check issue, open **Connections**. It runs one automatic bounded
+   check for each available agent; use **Check again** after fixing setup. A
+   check opens a temporary ACP session and may execute the selected app to
+   classify common auth, billing/subscription, version, and launch failures. It
+   is a troubleshooting tool, not a prerequisite for **New chat** or the first
+   message, and not a security verification of the executable.
 8. Send a small smoke prompt:
 
    ```text
@@ -560,7 +561,7 @@ checks may execute the installed app. **Check again** repeats that bounded
 session check after an operator repairs an install or signs in. The same check
 is available through the API:
 
-![Connections — external agent diagnostics and durable approval grants](../screenshots/connections-external-agents.png)
+![Connections — external agent checks and durable approval grants](../screenshots/connections-external-agents.png)
 
 ```sh
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
@@ -633,7 +634,7 @@ Use this order when launching or troubleshooting:
    setup. Embedded bridges may run bounded provider discovery while deferring
    their prompt-serving vendor invocation and prompt-time auth result until the
    first message. No earlier check result is required, and a cached
-   diagnostic failure must not prevent this fresh session attempt after the
+   check failure must not prevent this fresh session attempt after the
    operator fixes the underlying issue.
 3. **Connections check / explicit retry** — Connections automatically calls
    `POST /hecate/v1/agent-adapters/{id}/probe` once for each available adapter;
@@ -644,7 +645,7 @@ Use this order when launching or troubleshooting:
    after it completes so repaired installs become selectable without treating
    the check result itself as authority. The UI may keep
    process-derived version, auth, capability, and launch-control details beside
-   the cached diagnostic, but availability, status, error, path, and
+   cached check details, but availability, status, error, path, and
    remote-credential gates always come from the latest passive catalog
    response.
 4. **Chat turn** — after the real session exists, send a prompt. The first

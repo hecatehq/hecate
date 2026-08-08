@@ -190,6 +190,47 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
+  it("points billing and launch repairs at Connections checks", () => {
+    const billingRepair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentName: "Codex",
+      externalAgentSetupRequired: true,
+      selectedAgentReadiness: {
+        kind: "billing",
+        tone: "amber",
+        label: "billing",
+        needsRepair: true,
+        launchBlocked: true,
+        setupHint: "",
+        loginCommand: "",
+        signInHint: "",
+        checkedByProbe: true,
+      },
+    });
+    const issueRepair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentName: "Codex",
+      externalAgentSetupRequired: true,
+      selectedAgentReadiness: {
+        kind: "issue",
+        tone: "red",
+        label: "unavailable",
+        needsRepair: true,
+        launchBlocked: true,
+        setupHint: "",
+        loginCommand: "",
+        signInHint: "",
+        checkedByProbe: true,
+      },
+    });
+
+    expect(billingRepair?.message).toContain("Connections runs an automatic check");
+    expect(billingRepair?.message).toContain("Check again");
+    expect(issueRepair?.message).toContain("open Connections and use Check again");
+  });
+
   it("routes the hosted missing-credential wire shape before generic unavailability", () => {
     const repair = resolveChatSetupRepairState({
       ...base,

@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -1147,10 +1148,11 @@ describe("Connections external-agent panel", () => {
       },
       { probeAgentAdapter },
     );
-    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+    render(<StrictMode>{withRuntimeConsole(<ConnectionsPanel />, { state, actions })}</StrictMode>);
 
     const row = await screen.findByTestId("external-agents-adapter-codex");
     await waitFor(() => expect(probeAgentAdapter).toHaveBeenCalledWith("codex", expect.anything()));
+    expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
     expect(within(row).getByText("check unavailable")).toBeTruthy();
     expect(
       within(row).getByTestId("external-agents-adapter-codex-automatic-check-error"),
